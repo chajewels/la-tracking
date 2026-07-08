@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { pt } from '@/i18n/portal';
 
 export default function PortalResetPassword() {
   const navigate = useNavigate();
@@ -35,11 +36,11 @@ export default function PortalResetPassword() {
 
   const handleReset = async () => {
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error(pt('auth.errPasswordMin'));
       return;
     }
     if (password !== confirm) {
-      toast.error('Passwords do not match');
+      toast.error(pt('auth.errPasswordMismatch'));
       return;
     }
     setLoading(true);
@@ -49,68 +50,72 @@ export default function PortalResetPassword() {
       toast.error(error.message);
       return;
     }
-    toast.success('Password updated successfully');
+    toast.success(pt('auth.passwordUpdated'));
     navigate('/portal/login', { replace: true });
   };
 
   if (!ready) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: '#C9A84C' }}>Verifying reset link…</p>
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
+        <p className="text-primary text-sm">{pt('auth.verifyingResetLink')}</p>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box' }}>
-        <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+    <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10">
+        <p className="font-display text-primary text-2xl text-center mb-1" style={{ letterSpacing: '0.3em' }}>{pt('common.chaJewels')}</p>
+        <p className="text-[10px] uppercase text-center text-muted-foreground mb-7" style={{ letterSpacing: '0.2em' }}>{pt('common.customerPortal')}</p>
 
-        <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Set a new portal password</h1>
-        <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your new password below.</p>
+        <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.resetHeading')}</h1>
+        <p className="text-muted-foreground text-sm mb-6">{pt('auth.resetSubtitle')}</p>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleReset(); }}>
-          <label htmlFor="portal-reset-password" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>New Password</label>
-          <input
-            id="portal-reset-password"
-            name="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            autoComplete="new-password"
-            style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-          />
+        <form onSubmit={(e) => { e.preventDefault(); handleReset(); }} className="space-y-5">
+          <div className="space-y-1.5">
+            <label htmlFor="portal-reset-password" className="text-[10px] uppercase block text-primary" style={{ letterSpacing: '0.2em' }}>{pt('auth.newPassword')}</label>
+            <input
+              id="portal-reset-password"
+              name="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={pt('auth.min8Chars')}
+              autoComplete="new-password"
+              className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
 
-          <label htmlFor="portal-reset-confirm" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Confirm Password</label>
-          <input
-            id="portal-reset-confirm"
-            name="confirm"
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            placeholder="Confirm your new password"
-            autoComplete="new-password"
-            style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 20, boxSizing: 'border-box', fontSize: 14 }}
-          />
+          <div className="space-y-1.5">
+            <label htmlFor="portal-reset-confirm" className="text-[10px] uppercase block text-primary" style={{ letterSpacing: '0.2em' }}>{pt('auth.confirmPassword')}</label>
+            <input
+              id="portal-reset-confirm"
+              name="confirm"
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder={pt('auth.confirmNewPlaceholder')}
+              autoComplete="new-password"
+              className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
 
           <button
             type="submit"
             disabled={loading}
             aria-busy={loading}
-            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
+            className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 disabled:opacity-50"
           >
-            {loading ? 'Updating…' : 'Update Password'}
+            {loading ? pt('auth.updating') : pt('auth.updatePassword')}
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
+        <div className="text-center mt-5">
           <button
             onClick={() => navigate('/portal/login')}
-            style={{ background: 'none', border: 'none', color: '#C9A84C', fontSize: 12, cursor: 'pointer', padding: 0 }}
+            className="text-primary text-xs hover:opacity-80 transition-opacity"
           >
-            ← Back to Sign In
+            {pt('auth.backToSignInArrow')}
           </button>
         </div>
       </div>

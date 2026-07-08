@@ -33,7 +33,7 @@ export default function ExclusiveOffers() {
 
       <div className="text-center mt-4 pb-2">
         <div className="divider-gold mb-3" />
-        <p className="text-[11px] text-muted-foreground/60 font-body italic tracking-wide">
+        <p className="text-[11px] text-muted-foreground font-body italic tracking-wide">
           Level Up · Earn More · Sparkle Harder
         </p>
       </div>

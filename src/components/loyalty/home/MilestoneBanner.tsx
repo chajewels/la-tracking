@@ -50,7 +50,7 @@ export default function MilestoneBanner() {
               onClick={() => setDismissed([...dismissed, latestReached.id])}
               className="absolute top-3 right-3 p-0.5"
             >
-              <X size={12} className="text-muted-foreground/40" />
+              <X size={12} className="text-muted-foreground" />
             </button>
 
             <div className="flex items-center gap-3">
@@ -84,7 +84,7 @@ export default function MilestoneBanner() {
                   ¥{nextMilestone.amount.toLocaleString()}
                 </span>
               </p>
-              <p className="text-[11px] text-muted-foreground/70 font-body mt-0.5">
+              <p className="text-[11px] text-muted-foreground font-body mt-0.5">
                 ¥{Math.max(0, nextMilestone.amount - lifetimeSpend).toLocaleString()} more to go
               </p>
             </div>

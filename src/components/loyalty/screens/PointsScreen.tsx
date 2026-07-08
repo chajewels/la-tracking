@@ -128,7 +128,7 @@ export default function PointsScreen() {
             ))}
           </ul>
           <div className="mt-3 pt-3 border-t border-border/50">
-            <p className="text-[12px] text-muted-foreground/70 font-body italic">
+            <p className="text-[12px] text-muted-foreground font-body italic">
               Points are non-transferable and cannot be exchanged for cash.
             </p>
           </div>
@@ -203,7 +203,7 @@ export default function PointsScreen() {
                       </span>
                     </div>
                     {tx.spend_amount_jpy && tx.tier_multiplier && (
-                      <div className="mt-1.5 text-[11px] text-muted-foreground/70 font-body space-x-2">
+                      <div className="mt-1.5 text-[11px] text-muted-foreground font-body space-x-2">
                         <span>¥{tx.spend_amount_jpy.toLocaleString()}</span>
                         <span>·</span>
                         <span>Base: {basePoints} pts</span>
@@ -214,7 +214,7 @@ export default function PointsScreen() {
                       </div>
                     )}
                     {tx.invoice_number && (
-                      <p className="text-[11px] text-muted-foreground/60 font-body mt-1">
+                      <p className="text-[11px] text-muted-foreground font-body mt-1">
                         Ref: {tx.invoice_number}
                       </p>
                     )}
@@ -234,7 +234,7 @@ export default function PointsScreen() {
         </div>
       </div>
 
-      <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
+      <p className="text-center text-[11px] text-muted-foreground font-body italic pb-2">
         Level Up · Earn More · Sparkle Harder
       </p>
     </div>

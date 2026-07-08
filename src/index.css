@@ -357,8 +357,74 @@
 }
 
 @layer utilities {
-  .loyalty-portal .font-display { font-family: 'Cormorant Garamond', serif; }
-  .loyalty-portal .font-body { font-family: 'Inter', sans-serif; }
+  .loyalty-portal .font-display, .maison-portal .font-display { font-family: 'Cormorant Garamond', serif; }
+  .loyalty-portal .font-body, .maison-portal .font-body { font-family: 'Inter', sans-serif; }
+
+  /*
+   * "Maison" palette — light-luxe Customer Portal.
+   * TS mirror + hex values: src/theme/portal-tokens.ts (keep both in sync).
+   * Scoped under .maison-portal AND .loyalty-portal exactly like the Hub's
+   * `.dark` scope re-declares the SAME shared shadcn variable names
+   * (--background, --primary, --card, etc.) — any component nested under
+   * either class (shadcn primitives included) renders Maison-light
+   * automatically; the Hub's global :root/.dark dark values are completely
+   * unaffected outside these scopes. Separate --portal-* names below cover
+   * Maison concepts with no Hub equivalent (three-tier surface, ink vs
+   * ink-muted) — use Tailwind arbitrary-value syntax, e.g.
+   * bg-[hsl(var(--portal-surface-2))].
+   *
+   * .loyalty-portal was added here 2026-07-08 (Phase 4) — it previously
+   * only carried the two font-family rules above, so every shadcn-token
+   * component in src/components/loyalty/** (built Maison-ready from the
+   * start: bg-card, text-foreground, text-primary, etc.) was silently
+   * inheriting the Hub's dark :root values instead. Single declaration
+   * block, both selectors — do not fork a second copy for .loyalty-portal.
+   */
+  .maison-portal, .loyalty-portal {
+    --portal-surface-0: 38 44% 96%;   /* #FAF7F2 app background — warm ivory */
+    --portal-surface-1: 0 0% 100%;    /* #FFFFFF cards */
+    --portal-surface-2: 38 36% 91%;   /* #F1EBE1 subtle wells, timeline track */
+    /* 2026-07-08: darkened 41%→30% — Phase 3 Lighthouse audit measured the
+     * original at 3.34:1 as text on surface0, short of WCAG AA's 4.5:1. A
+     * first pass to 34% still failed on tinted pill backgrounds (bg-primary/10
+     * etc — the tint lightens the effective background), measuring 4.03:1
+     * there. This shade measures 5.64:1 on plain surface0 and 4.93:1 even on
+     * a 10%-opacity self-tinted pill. See the matching comment in
+     * portal-tokens.ts (keep both in sync). */
+    --portal-gold-600: 42 60% 30%;    /* #7A5F1F text/CTAs — AA-verified on ivory, incl. tinted pills */
+    --portal-gold-400: 46 67% 47%;    /* #C9A227 decorative only */
+    --portal-ink: 30 10% 15%;         /* #2B2723 primary text */
+    --portal-ink-muted: 34 8% 40%;    /* #6E675E secondary text, labels */
+    --portal-success: 148 34% 37%;
+    --portal-warning: 36 59% 32%;      /* 2026-07-08: darkened 42%→32% (see portal-tokens.ts) */
+    --portal-danger: 2 45% 44%;
+    --portal-info: 209 30% 42%;
+
+    /* shadcn-compatible re-scope, mirroring the Hub's .dark technique */
+    --background: var(--portal-surface-0);
+    --foreground: var(--portal-ink);
+    --card: var(--portal-surface-1);
+    --card-foreground: var(--portal-ink);
+    --popover: var(--portal-surface-1);
+    --popover-foreground: var(--portal-ink);
+    --primary: var(--portal-gold-600);
+    /* White, not --portal-ink: ink-on-gold600 only hit 4.16:1 even at the
+     * original (lighter) gold — darkening gold600 for text-on-ivory contrast
+     * would have made ink-on-gold worse. White-on-gold600(30%) is 6.03:1. */
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--portal-surface-2);
+    --secondary-foreground: var(--portal-ink);
+    --muted: var(--portal-surface-2);
+    --muted-foreground: var(--portal-ink-muted);
+    --accent: var(--portal-gold-400);
+    --accent-foreground: var(--portal-ink);
+    --destructive: 2 45% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 20% 88%;
+    --input: 36 25% 97%;
+    --ring: var(--portal-gold-600);
+    --radius: 0.5rem; /* 8px — decoupled from the Hub's --radius */
+  }
   .gradient-gold { background: linear-gradient(135deg, hsl(36,50%,48%) 0%, hsl(42,60%,62%) 50%, hsl(36,50%,48%) 100%); }
   .gradient-hero { background: linear-gradient(160deg, hsl(30,15%,15%) 0%, hsl(34,20%,22%) 40%, hsl(36,30%,28%) 100%); }
   .shadow-elevated { box-shadow: 0px 12px 40px rgba(180,150,100,0.12); }

@@ -215,7 +215,7 @@ export default function RewardsScreen() {
             </>
           )}
           {!isLoading && filtered.length === 0 && (
-            <p className="text-center text-[12px] text-muted-foreground/70 font-body italic py-6">
+            <p className="text-center text-[12px] text-muted-foreground font-body italic py-6">
               No rewards in this category yet.
             </p>
           )}
@@ -323,7 +323,7 @@ export default function RewardsScreen() {
           onSelectReward={(r) => setSelectedReward(r)}
         />
 
-        <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
+        <p className="text-center text-[11px] text-muted-foreground font-body italic pb-2">
           Your points, your perks, your tier
         </p>
       </div>
@@ -392,9 +392,9 @@ export default function RewardsScreen() {
                   onChange={(e) => setInvoiceInput(e.target.value)}
                   placeholder="e.g. 19012"
                   disabled={submitting}
-                  className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm font-body text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
-                <p className="text-[11px] text-muted-foreground/70 font-body">
+                <p className="text-[11px] text-muted-foreground font-body">
                   Leave blank if no specific invoice. A placeholder will
                   be assigned.
                 </p>

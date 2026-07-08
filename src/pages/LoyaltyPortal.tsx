@@ -28,22 +28,11 @@ import NotificationsScreen from '@/components/loyalty/screens/NotificationsScree
 import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
 import PageMeta from '@/components/seo/PageMeta';
+import OfflineBanner from '@/components/portal/shared/OfflineBanner';
+import { pt } from '@/i18n/portal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-const P = {
-  bg: '#0A0A0A',
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-const CG = "'Cormorant Garamond',Georgia,serif";
 
 interface TierLite {
   name: string;
@@ -157,18 +146,23 @@ const TIER_RANK: Record<TierName, number> = {
   'Crown VIP': 3,
 };
 
+/**
+ * loyalty-portal is applied here (the page root), not only inside
+ * MemberView — so every state (ComingSoon, JoinPrompt, Loading, MemberView)
+ * renders Maison-light, not just the fully-enrolled member experience.
+ */
 function FullScreenWrap({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="min-h-[100dvh] w-full"
+      className="loyalty-portal font-body min-h-[100dvh] w-full bg-background"
       style={{
-        background: P.bg,
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: 'env(safe-area-inset-bottom)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
       }}
     >
+      <OfflineBanner />
       {children}
     </div>
   );
@@ -180,10 +174,7 @@ function TopBar({ authMode, token }: {
 }) {
   const navigate = useNavigate();
   return (
-    <div
-      className="flex items-center justify-between px-4 py-3"
-      style={{ borderBottom: `1px solid ${P.br}` }}
-    >
+    <div className="flex items-center justify-between px-4 py-3 border-b border-border">
       <button
         onClick={() => {
           if (authMode === 'session') {
@@ -192,18 +183,14 @@ function TopBar({ authMode, token }: {
             navigate(`/portal?token=${encodeURIComponent(token)}`);
           }
         }}
-        className="flex items-center gap-1 text-sm"
-        style={{ color: P.gp }}
+        className="flex items-center gap-1 text-sm text-primary"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Portal
+        {pt('nav.backToPortal')}
       </button>
-      <div
-        className="flex items-center gap-1.5"
-        style={{ fontFamily: CG, color: P.tp, fontSize: '15px', letterSpacing: '0.05em' }}
-      >
-        <Diamond className="h-4 w-4" style={{ color: P.gp }} />
-        Cha Jewels
+      <div className="flex items-center gap-1.5 font-display text-foreground" style={{ fontSize: '15px', letterSpacing: '0.05em' }}>
+        <Diamond className="h-4 w-4 text-primary" />
+        {pt('common.chaJewels')}
       </div>
       <div className="w-16" />
     </div>
@@ -214,11 +201,8 @@ function LoadingState({ message }: { message: string }) {
   return (
     <FullScreenWrap>
       <div className="flex h-[100dvh] flex-col items-center justify-center px-6">
-        <Diamond className="h-8 w-8 animate-pulse" style={{ color: P.gp }} />
-        <p
-          className="mt-4 text-sm"
-          style={{ color: P.ts, fontFamily: CG, fontStyle: 'italic' }}
-        >
+        <Diamond className="h-8 w-8 animate-pulse text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground font-display italic">
           {message}
         </p>
       </div>
@@ -417,7 +401,7 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
   const canRedeem = (loyaltyMember?.remaining_points ?? 0) > 0;
 
   return (
-    <div className="loyalty-portal">
+    <>
       <div className="pb-24">
         {tab === 'home' && (
           <HomeScreen
@@ -481,7 +465,7 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
         onClose={handleCelebrationClose}
         direction={celebration?.direction ?? 'upgrade'}
       />
-    </div>
+    </>
   );
 }
 
@@ -579,7 +563,7 @@ export default function LoyaltyPortal() {
       return;
     }
     if (portalQuery.isError) {
-      const msg = (portalQuery.error as Error)?.message || 'Unable to load your loyalty status';
+      const msg = (portalQuery.error as Error)?.message || pt('states.errLoadLoyalty');
       toast.error(msg);
       navigate('/portal/login', { replace: true });
     }
@@ -603,14 +587,14 @@ export default function LoyaltyPortal() {
   }
 
   if (portalQuery.isLoading) {
-    return <LoadingState message="Validating your access…" />;
+    return <LoadingState message={pt('states.loyaltyValidating')} />;
   }
   if (!portalQuery.data) {
     // Error already toasted + redirected; render placeholder while route unwinds.
     return <FullScreenWrap><div /></FullScreenWrap>;
   }
   if (access.isLoading) {
-    return <LoadingState message="Loading your loyalty status…" />;
+    return <LoadingState message={pt('states.loyaltyLoading')} />;
   }
 
   const data = portalQuery.data;
@@ -664,7 +648,7 @@ export default function LoyaltyPortal() {
         path="/loyalty"
       />
       <FullScreenWrap>
-        <h1 className="sr-only">Cha Jewels Loyalty Rewards</h1>
+        <h1 className="sr-only">{pt('states.loyaltySrHeading')}</h1>
         <TopBar authMode={authMode} token={token} />
         <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
       </FullScreenWrap>

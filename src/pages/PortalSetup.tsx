@@ -3,11 +3,40 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
+import { pt } from '@/i18n/portal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 type SetupState = 'form' | 'check-email' | 'linking' | 'error-no-customer' | 'error-conflict';
+
+/** Local field helper — schema-specific to this form, kept in-file rather
+ *  than promoted to a shared component. */
+function Field({
+  id, name, label, required, optional, type = 'text', value, onChange, placeholder, autoComplete,
+}: {
+  id: string; name: string; label: string; required?: boolean; optional?: boolean;
+  type?: string; value: string; onChange: (v: string) => void; placeholder?: string; autoComplete?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-[10px] uppercase block text-primary" style={{ letterSpacing: '0.15em' }}>
+        {label} {required && <span className="text-primary">*</span>}
+        {optional && <span className="normal-case tracking-normal text-muted-foreground/70">{pt('auth.optional')}</span>}
+      </label>
+      <input
+        id={id}
+        name={name}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
+      />
+    </div>
+  );
+}
 
 export default function PortalSetup() {
   const navigate = useNavigate();
@@ -35,7 +64,7 @@ export default function PortalSetup() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        setErrorMessage('Authentication session lost. Please sign in again.');
+        setErrorMessage(pt('auth.errSessionLost'));
         setState('error-conflict');
         return;
       }
@@ -57,27 +86,27 @@ export default function PortalSetup() {
       const result = await res.json();
 
       if (res.ok && result.success) {
-        toast.success('Account linked successfully');
+        toast.success(pt('auth.accountLinked'));
         navigate('/portal', { replace: true });
         return;
       }
 
       // Handle specific error states
       if (res.status === 404) {
-        setErrorMessage('We couldn’t find a customer record for this email. Please contact Cha Jewels for help.');
+        setErrorMessage(pt('auth.errNoCustomer'));
         setState('error-no-customer');
       } else if (res.status === 409) {
-        setErrorMessage('This email is already registered for portal access. Please contact support to set up your account.');
+        setErrorMessage(pt('auth.errConflictRegistered'));
         setState('error-conflict');
       } else {
-        setErrorMessage(result.error || 'Failed to link your account. Please try again or contact support.');
+        setErrorMessage(result.error || pt('auth.errLinkFailed'));
         setState('error-conflict');
       }
     } catch (err: any) {
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-        setErrorMessage('Account linking timed out. Please try again — if this keeps happening, contact Cha Jewels for help.');
+        setErrorMessage(pt('auth.errLinkTimeout'));
       } else {
-        setErrorMessage('Network error. Please check your connection and try again.');
+        setErrorMessage(pt('auth.errNetwork'));
       }
       setState('error-conflict');
     } finally {
@@ -117,31 +146,31 @@ export default function PortalSetup() {
     e.preventDefault();
 
     if (!email.trim()) {
-      toast.error('Please enter your email address');
+      toast.error(pt('auth.errEnterEmail'));
       return;
     }
     if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.trim())) {
-      toast.error('Please enter a valid email address');
+      toast.error(pt('auth.errInvalidEmail'));
       return;
     }
     if (!fullName.trim()) {
-      toast.error('Please enter your full name');
+      toast.error(pt('auth.errEnterFullName'));
       return;
     }
     if (!facebookName.trim()) {
-      toast.error('Please enter your Facebook name');
+      toast.error(pt('auth.errEnterFacebook'));
       return;
     }
     if (!country.trim()) {
-      toast.error('Please enter your country');
+      toast.error(pt('auth.errEnterCountry'));
       return;
     }
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error(pt('auth.errPasswordMin'));
       return;
     }
     if (password !== confirm) {
-      toast.error('Passwords do not match');
+      toast.error(pt('auth.errPasswordMismatch'));
       return;
     }
 
@@ -175,9 +204,7 @@ export default function PortalSetup() {
         msg.includes('user already exists') ||
         error.status === 422
       ) {
-        toast.error(
-          'This email is already registered. Please contact support if you need help accessing your portal account.',
-        );
+        toast.error(pt('auth.errAlreadyRegistered'));
       } else {
         toast.error(error.message);
       }
@@ -210,8 +237,8 @@ export default function PortalSetup() {
 
   if (bootstrapping) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: '#C9A84C' }}>Loading…</p>
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
+        <p className="text-primary text-sm">{pt('common.loading')}</p>
       </div>
     );
   }
@@ -223,207 +250,112 @@ export default function PortalSetup() {
         description="Create your Cha Jewels customer portal account to manage layaway plans, track payments, and access your statements anytime."
         path="/portal/setup"
       />
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box' }}>
-        <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background px-4 py-10">
+        <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10">
+          <p className="font-display text-primary text-2xl text-center mb-1" style={{ letterSpacing: '0.3em' }}>{pt('common.chaJewels')}</p>
+          <p className="text-[10px] uppercase text-center text-muted-foreground mb-7" style={{ letterSpacing: '0.2em' }}>{pt('common.customerPortal')}</p>
 
-        {state === 'form' && (
-          <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Set up your Cha Jewels Portal account</h1>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Use the email Cha Jewels has on file for you.</p>
+          {state === 'form' && (
+            <>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.setupHeading')}</h1>
+              <p className="text-muted-foreground text-sm mb-6">{pt('auth.setupSubtitle')}</p>
 
-            <form onSubmit={handleSignup}>
-              <label htmlFor="portal-setup-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email <span style={{ color: '#C9A84C' }}>*</span></label>
-              <input
-                id="portal-setup-email"
-                name="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
+              <form onSubmit={handleSignup} className="space-y-4">
+                <Field id="portal-setup-email" name="email" label={pt('auth.email')} required type="email" value={email} onChange={setEmail} placeholder={pt('auth.emailPlaceholder')} autoComplete="email" />
+                <Field id="portal-setup-fullname" name="full_name" label={pt('auth.fullName')} required value={fullName} onChange={setFullName} placeholder={pt('auth.fullNamePlaceholder')} autoComplete="name" />
+                <Field id="portal-setup-mobile" name="mobile_number" label={pt('auth.mobileNumber')} optional type="tel" value={mobileNumber} onChange={setMobileNumber} placeholder={pt('auth.mobilePlaceholder')} autoComplete="tel" />
+                <Field id="portal-setup-facebook" name="facebook_name" label={pt('auth.facebookName')} required value={facebookName} onChange={setFacebookName} placeholder={pt('auth.facebookPlaceholder')} />
+                <Field id="portal-setup-messenger" name="messenger_link" label={pt('auth.messengerLink')} optional value={messengerLink} onChange={setMessengerLink} placeholder={pt('auth.messengerPlaceholder')} />
+                <Field id="portal-setup-location" name="location" label={pt('auth.location')} optional value={location} onChange={setLocation} placeholder={pt('auth.locationPlaceholder')} />
+                <Field id="portal-setup-country" name="country" label={pt('auth.country')} required value={country} onChange={setCountry} placeholder={pt('auth.countryPlaceholder')} autoComplete="country-name" />
+                <Field id="portal-setup-password" name="password" label={pt('auth.password')} type="password" value={password} onChange={setPassword} placeholder={pt('auth.setupPasswordPlaceholder')} autoComplete="new-password" />
+                <Field id="portal-setup-confirm" name="confirm" label={pt('auth.confirmPassword')} type="password" value={confirm} onChange={setConfirm} placeholder={pt('auth.confirmPasswordPlaceholder')} autoComplete="new-password" />
 
-              <label htmlFor="portal-setup-fullname" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Full Name <span style={{ color: '#C9A84C' }}>*</span></label>
-              <input
-                id="portal-setup-fullname"
-                name="full_name"
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Your full name"
-                autoComplete="name"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  aria-busy={loading}
+                  className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 disabled:opacity-50"
+                >
+                  {loading ? pt('auth.creatingAccount') : pt('auth.createAccount')}
+                </button>
+              </form>
 
-              <label htmlFor="portal-setup-mobile" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Mobile Number <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
-              <input
-                id="portal-setup-mobile"
-                name="mobile_number"
-                type="tel"
-                value={mobileNumber}
-                onChange={(e) => setMobileNumber(e.target.value)}
-                placeholder="e.g. 09XX XXX XXXX"
-                autoComplete="tel"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
+              <div className="text-center mt-5">
+                <button
+                  onClick={() => navigate('/portal/login')}
+                  className="text-primary text-xs hover:opacity-80 transition-opacity"
+                >
+                  {pt('auth.alreadyHaveAccount')}
+                </button>
+              </div>
+            </>
+          )}
 
-              <label htmlFor="portal-setup-facebook" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Facebook Name <span style={{ color: '#C9A84C' }}>*</span></label>
-              <input
-                id="portal-setup-facebook"
-                name="facebook_name"
-                type="text"
-                value={facebookName}
-                onChange={(e) => setFacebookName(e.target.value)}
-                placeholder="Name on Facebook"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <label htmlFor="portal-setup-messenger" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Messenger Link <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
-              <input
-                id="portal-setup-messenger"
-                name="messenger_link"
-                type="text"
-                value={messengerLink}
-                onChange={(e) => setMessengerLink(e.target.value)}
-                placeholder="m.me/yourprofile"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <label htmlFor="portal-setup-location" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Location <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
-              <input
-                id="portal-setup-location"
-                name="location"
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="City / area"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <label htmlFor="portal-setup-country" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Country <span style={{ color: '#C9A84C' }}>*</span></label>
-              <input
-                id="portal-setup-country"
-                name="country"
-                type="text"
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="Country"
-                autoComplete="country-name"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <label htmlFor="portal-setup-password" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
-              <input
-                id="portal-setup-password"
-                name="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-                autoComplete="new-password"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <label htmlFor="portal-setup-confirm" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Confirm Password</label>
-              <input
-                id="portal-setup-confirm"
-                name="confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                placeholder="Confirm your password"
-                autoComplete="new-password"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 20, boxSizing: 'border-box', fontSize: 14 }}
-              />
-
-              <button
-                type="submit"
-                disabled={loading}
-                aria-busy={loading}
-                style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
-              >
-                {loading ? 'Creating account…' : 'Create Account'}
-              </button>
-            </form>
-
-            <div style={{ textAlign: 'center', marginTop: 20 }}>
+          {state === 'check-email' && (
+            <>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.checkEmailTitle')}</h1>
+              <p className="text-muted-foreground text-sm mb-3">{pt('auth.verificationSentTo')}</p>
+              <p className="text-primary text-sm mb-5 break-all">{submittedEmail}</p>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-6">
+                {pt('auth.verifyInstructions')}
+              </p>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-6">
+                {pt('auth.didntReceive')}
+              </p>
               <button
                 onClick={() => navigate('/portal/login')}
-                style={{ background: 'none', border: 'none', color: '#C9A84C', fontSize: 12, cursor: 'pointer', padding: 0 }}
+                className="w-full h-12 rounded-lg border border-primary text-primary font-semibold text-sm transition-colors hover:bg-primary/5"
               >
-                Already have an account? Sign in
+                {pt('auth.backToSignIn')}
               </button>
-            </div>
-          </>
-        )}
+            </>
+          )}
 
-        {state === 'check-email' && (
-          <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Check your email</h1>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>We sent a verification link to:</p>
-            <p style={{ color: '#C9A84C', fontSize: 14, marginBottom: 20, wordBreak: 'break-all' }}>{submittedEmail}</p>
-            <p style={{ color: '#666', fontSize: 12, marginBottom: 24, lineHeight: 1.6 }}>
-              Click the link in the email to verify your account. Once verified, you'll be linked to your Cha Jewels customer profile automatically.
-            </p>
-            <p style={{ color: '#666', fontSize: 12, marginBottom: 24, lineHeight: 1.6 }}>
-              Didn't receive it? Check your spam folder, or try again in a few minutes.
-            </p>
-            <button
-              onClick={() => navigate('/portal/login')}
-              style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-            >
-              Back to Sign In
-            </button>
-          </>
-        )}
+          {state === 'linking' && (
+            <>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.linkingTitle')}</h1>
+              <p className="text-muted-foreground text-sm mb-6">{pt('auth.justAMoment')}</p>
+              <p className="text-primary text-sm text-center py-5">{pt('auth.pleaseWait')}</p>
+            </>
+          )}
 
-        {state === 'linking' && (
-          <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Linking your account</h1>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Just a moment…</p>
-            <p style={{ color: '#C9A84C', fontSize: 14, textAlign: 'center', padding: '20px 0' }}>Please wait</p>
-          </>
-        )}
+          {state === 'error-no-customer' && (
+            <>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.accountNotFoundTitle')}</h1>
+              <p role="alert" className="text-destructive text-sm leading-relaxed mb-5">{errorMessage}</p>
+              <button
+                onClick={handleSignOutAndRetry}
+                className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 mb-3"
+              >
+                {pt('auth.tryDifferentEmail')}
+              </button>
+              <p className="text-muted-foreground text-[11px] text-center mt-2">
+                {pt('auth.needHelpMessenger')}
+              </p>
+            </>
+          )}
 
-        {state === 'error-no-customer' && (
-          <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Account not found</h1>
-            <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
-            <button
-              onClick={handleSignOutAndRetry}
-              style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
-            >
-              Try Different Email
-            </button>
-            <p style={{ color: '#666', fontSize: 11, textAlign: 'center', marginTop: 8 }}>
-              Need help? Contact Cha Jewels via Messenger.
-            </p>
-          </>
-        )}
-
-        {state === 'error-conflict' && (
-          <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Setup error</h1>
-            <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
-            <button
-              onClick={handleSignOutAndRetry}
-              style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
-            >
-              Try Again
-            </button>
-            <button
-              onClick={() => navigate('/portal/login')}
-              style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-            >
-              Back to Sign In
-            </button>
-          </>
-        )}
+          {state === 'error-conflict' && (
+            <>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.setupErrorTitle')}</h1>
+              <p role="alert" className="text-destructive text-sm leading-relaxed mb-5">{errorMessage}</p>
+              <button
+                onClick={handleSignOutAndRetry}
+                className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 mb-3"
+              >
+                {pt('auth.tryAgain')}
+              </button>
+              <button
+                onClick={() => navigate('/portal/login')}
+                className="w-full h-12 rounded-lg border border-primary text-primary font-semibold text-sm transition-colors hover:bg-primary/5"
+              >
+                {pt('auth.backToSignIn')}
+              </button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
     </>
   );
 }

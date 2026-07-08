@@ -24,6 +24,12 @@ import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
 import SplashScreen from '@/components/portal/SplashScreen';
 import CashOrdersSection from '@/components/portal/CashOrdersSection';
+import HeroLayawayCard, { type HeroAccount } from '@/components/portal/home/HeroLayawayCard';
+import TierStrip from '@/components/portal/home/TierStrip';
+import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
+import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
+import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
+import AccountStatementSheet from '@/components/portal/statements/AccountStatementSheet';
 import {
   CHA_PAYMENT_METHODS,
   type ChaPaymentMethod,
@@ -37,6 +43,8 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
+import OfflineBanner from '@/components/portal/shared/OfflineBanner';
+import { pt, serviceLabel } from '@/i18n/portal';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 
@@ -246,22 +254,6 @@ const statusColor: Record<string, string> = {
   'Cancelled':       'text-[#555] border-[#333] bg-transparent',
 };
 
-const installmentStatusColor: Record<string, string> = {
-  'paid':          'text-[#5CB86A] border-[#5CB86A]/30 bg-transparent',
-  'overdue':       'text-[#E74C3C] border-[#E74C3C]/30 bg-transparent',
-  'partially_paid':'text-[#E8C96D] border-[#C9A84C]/30 bg-transparent',
-  'pending':       'text-[#9A8F7E] border-[#2A2200] bg-transparent',
-  'cancelled':     'text-[#444] border-[#222] bg-transparent',
-};
-
-const installmentStatusLabel: Record<string, string> = {
-  'paid': 'Paid',
-  'overdue': 'Overdue',
-  'partially_paid': 'Partial',
-  'pending': 'Upcoming',
-  'cancelled': 'Cancelled',
-};
-
 const submissionStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   submitted:           { label: 'Submitted',              color: 'text-[#7EA8C9] border-[#7EA8C9]/30 bg-transparent', icon: <Send className="h-3 w-3" /> },
   under_review:        { label: 'Under Review',           color: 'text-[#E8C96D] border-[#C9A84C]/30 bg-transparent', icon: <Eye className="h-3 w-3" /> },
@@ -286,6 +278,8 @@ export default function CustomerPortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
+  const [statementOpen, setStatementOpen] = useState(false);
+  const accountsGridRef = useRef<HTMLDivElement>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
   const [showSplash, setShowSplash] = useState(true);
 
@@ -407,6 +401,11 @@ export default function CustomerPortal() {
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
   const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
   const { updateReady, applyUpdate, hasDirtyForm } = usePwaUpdate();
+  // Same access gate LoyaltyEntryCard computes internally (loyalty-access
+  // is react-query-cached under ['loyalty-access', customerId], so this is
+  // a cache read, not a second network call once either call has loaded).
+  const homeLoyaltyAccess = useLoyaltyAccess(data?.customer_id ?? '');
+  const homeHasLoyaltyAccess = (data?.loyalty_enabled ?? homeLoyaltyAccess.isFeatureEnabled) || !!data?.is_loyalty_beta;
 
   const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
     setInitialDetailTab('pay');
@@ -425,6 +424,28 @@ export default function CustomerPortal() {
     return a.next_due_date === today;
   });
   const firstPayable = payableAccounts[0];
+
+  // Home hero account: the invoice the server already identified as next
+  // due (summary.next_due_invoice), else the first payable account, else
+  // the most recent account (fully-paid "keepsake" hero). No selection
+  // logic invents data — every branch resolves to an existing account
+  // object from data.accounts, and next_due_invoice is a server pointer.
+  const heroSourceAccount =
+    data?.accounts.find(a => a.invoice_number === data.summary.next_due_invoice)
+    ?? firstPayable
+    ?? data?.accounts[0]
+    ?? null;
+  const heroAccount: HeroAccount | null = heroSourceAccount ? {
+    invoiceNumber: heroSourceAccount.invoice_number,
+    planMonths: heroSourceAccount.payment_plan_months,
+    statusLabel: heroSourceAccount.status_label,
+    progressPercent: heroSourceAccount.progress_percent,
+    currency: heroSourceAccount.currency,
+    nextDueAmount: heroSourceAccount.next_due_amount,
+    nextDueDate: heroSourceAccount.next_due_date,
+    totalPaid: heroSourceAccount.total_paid,
+    totalObligation: heroSourceAccount.total_obligation,
+  } : null;
 
   const fetchPortal = async () => {
     if (bootstrapping) return; // Wait until auth mode is determined
@@ -480,7 +501,7 @@ export default function CustomerPortal() {
         }),
       };
       setData(normalizedJson);
-    } catch { setError('Unable to load your accounts. Please try again.'); }
+    } catch { setError(pt('states.errLoadAccounts')); }
     finally { setLoading(false); }
   };
 
@@ -507,9 +528,10 @@ export default function CustomerPortal() {
 
   if (loading) {
     return (
-      <div style={{background:P.bg,minHeight:'100vh'}} className="flex flex-col items-center justify-center">
-        <Diamond style={{color:P.gp}} className="h-8 w-8 animate-pulse mb-4" />
-        <p style={{color:P.ts,fontFamily:CG,fontStyle:'italic',fontSize:'15px'}}>Loading your accounts…</p>
+      <div className="maison-portal font-body min-h-screen bg-background flex flex-col items-center justify-center">
+        <OfflineBanner />
+        <Diamond className="h-8 w-8 animate-pulse mb-4 text-primary" />
+        <p className="font-display italic text-muted-foreground" style={{ fontSize: '15px' }}>{pt('states.loadingAccounts')}</p>
       </div>
     );
   }
@@ -518,25 +540,28 @@ export default function CustomerPortal() {
   // Show friendly Sign In CTA instead of the hostile 'Invalid Portal Link'
   if (authMode === null && !bootstrapping && !error) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box', textAlign: 'center' }}>
-          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
-          <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
-          <p style={{ color: '#888', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-            Use your email and password to access your accounts.
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4 py-10">
+        <OfflineBanner />
+        <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10 text-center">
+          <p className="font-display text-primary" style={{ fontSize: 22, marginBottom: 4 }}>{pt('common.chaJewels')}</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>{pt('common.customerPortal')}</p>
+          <h1 className="font-display text-foreground" style={{ fontSize: 18, marginBottom: 12, fontWeight: 400 }}>{pt('states.signInTitle')}</h1>
+          <p className="text-muted-foreground" style={{ fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
+            {pt('states.signInBody')}
           </p>
           <button
             onClick={() => navigate('/portal/login')}
-            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
+            className="w-full rounded-lg bg-primary text-primary-foreground font-bold mb-3"
+            style={{ padding: 12, fontSize: 14 }}
           >
-            Sign In
+            {pt('states.signIn')}
           </button>
           <button
             onClick={() => navigate('/portal/setup')}
-            style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            className="w-full rounded-lg border border-primary text-primary font-semibold"
+            style={{ padding: 12, fontSize: 13 }}
           >
-            First time? Set up your account
+            {pt('states.firstTimeSetup')}
           </button>
         </div>
       </div>
@@ -551,18 +576,17 @@ export default function CustomerPortal() {
     // the generic 'Invalid Portal Link' branch instead of mislabeling.
     const isExpired = error?.toLowerCase().includes('token expired');
     return (
-      <div style={{background:P.bg,minHeight:'100vh'}} className="flex items-center justify-center p-4">
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',maxWidth:'400px',width:'100%',padding:'2.5rem 2rem',textAlign:'center'}}>
-          <div style={{color:P.gp,fontFamily:CG,fontSize:'26px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,marginBottom:'4px'}}>Cha Jewels</div>
-          <div style={{color:P.ts,fontSize:'11px',letterSpacing:'0.2em',textTransform:'uppercase' as const,marginBottom:'2rem',fontFamily:"Inter,sans-serif"}}>Customer Portal</div>
-          <AlertTriangle style={{color:'#E74C3C'}} className="h-10 w-10 mx-auto mb-4" />
-          <h2 style={{color:P.tp,fontFamily:CG,fontSize:'20px',marginBottom:'8px'}}>
-            {isExpired ? 'Portal Link Expired' : 'Invalid Portal Link'}
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center p-4">
+        <OfflineBanner />
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] max-w-[400px] w-full text-center" style={{ padding: '2.5rem 2rem' }}>
+          <div className="font-display text-primary" style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '4px' }}>{pt('common.chaJewels')}</div>
+          <div className="text-muted-foreground" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2rem' }}>{pt('common.customerPortal')}</div>
+          <AlertTriangle className="h-10 w-10 mx-auto mb-4 text-destructive" />
+          <h2 className="font-display text-foreground" style={{ fontSize: '20px', marginBottom: '8px' }}>
+            {isExpired ? pt('states.linkExpiredTitle') : pt('states.linkInvalidTitle')}
           </h2>
-          <p style={{color:P.ts,fontSize:'13px',lineHeight:'1.6'}}>
-            {isExpired
-              ? 'This portal link has expired. Please request a new link from Cha Jewels.'
-              : 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.'}
+          <p className="text-muted-foreground" style={{ fontSize: '13px', lineHeight: '1.6' }}>
+            {isExpired ? pt('states.linkExpiredBody') : pt('states.linkInvalidBody')}
           </p>
         </div>
       </div>
@@ -572,10 +596,11 @@ export default function CustomerPortal() {
   // ── PIN gate (skipped for session-auth users) ──
   if (authMode === 'token' && !pinVerified) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 340, textAlign: 'center' }}>
-          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
-          <p style={{ color: '#fff', fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
+        <OfflineBanner />
+        <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
+          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>{pt('common.chaJewels')}</p>
+          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>{pt('states.pinPrompt')}</p>
           <input
             type="password"
             maxLength={4}
@@ -585,19 +610,21 @@ export default function CustomerPortal() {
             value={pin}
             onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onKeyDown={e => { if (e.key === 'Enter' && pin.length === 4 && !pinLoading) handlePinSubmit(); }}
-            style={{ width: '100%', padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', boxSizing: 'border-box', marginBottom: 16 }}
+            className="w-full rounded-lg bg-secondary border border-border text-foreground box-border"
+            style={{ padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, marginBottom: 16 }}
             placeholder="••••"
           />
-          {pinError && <p style={{ color: '#EF4444', fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
+          {pinError && <p className="text-destructive" style={{ fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
           <button
             onClick={handlePinSubmit}
             disabled={pin.length !== 4 || pinLoading}
-            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: pin.length !== 4 || pinLoading ? 'not-allowed' : 'pointer', opacity: pin.length !== 4 || pinLoading ? 0.6 : 1 }}
+            className={`w-full rounded-lg bg-primary text-primary-foreground font-bold ${pin.length !== 4 || pinLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            style={{ padding: 12, fontSize: 14 }}
           >
-            {pinLoading ? 'Verifying...' : 'Access My Account'}
+            {pinLoading ? pt('states.pinVerifying') : pt('states.pinAccess')}
           </button>
-          <p style={{ color: '#666', fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
-          <p style={{ color: '#555', fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>{pt('states.pinForgot')}</p>
+          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>{pt('states.pinDefault')}</p>
         </div>
       </div>
     );
@@ -639,76 +666,76 @@ export default function CustomerPortal() {
         path="/portal"
       />
     <div style={{background:P.bg,minHeight:'100vh'}}>
+      <OfflineBanner />
       <h1 className="sr-only">Cha Jewels Customer Portal — My Accounts</h1>
-      {/* Header */}
-      <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
+      {/* Header — Maison-scoped (ivory), shared across accounts/profile views */}
+      <div className="maison-portal font-body bg-background border-b border-border">
         <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <div style={{color:P.gp,fontFamily:CG,fontSize:'24px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,lineHeight:1.1}}>
-                Cha Jewels
+              <div className="font-display text-primary text-xl" style={{ letterSpacing: '0.15em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+                {pt('common.chaJewels')}
               </div>
-              <div style={{height:'1px',background:P.gd,margin:'5px 0 6px'}} />
-              <p style={{color:P.ts,fontFamily:CG,fontSize:'15px',fontStyle:'italic' as const}}>
-                {(() => {
-                  const h = new Date().getHours();
-                  if (h < 12) return 'Good Morning';
-                  if (h < 18) return 'Good Afternoon';
-                  return 'Good Evening';
-                })()},{' '}
-                <span style={{color:P.tp,fontStyle:'normal' as const,fontWeight:500}}>{data.customer_name}</span>
-              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <p className="font-display text-foreground text-[15px]">
+                  {(() => {
+                    const h = new Date().getHours();
+                    if (h < 12) return pt('home.goodMorning');
+                    if (h < 18) return pt('home.goodAfternoon');
+                    return pt('home.goodEvening');
+                  })()}, {data.customer_name.split(' ')[0]}
+                </p>
+                {data.loyalty_member?.current_tier?.name && (
+                  <span className="text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {data.loyalty_member.current_tier.name}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {firstPayable && (
                 <button
-                  className="hidden sm:flex items-center px-4 h-9 text-xs font-medium transition-all"
+                  className="hidden sm:flex items-center px-4 h-9 text-xs font-medium rounded-lg transition-all"
                   style={{
-                    background: hasOverdue ? 'none' : P.gr,
-                    border:`1px solid ${P.gp}`,
-                    color: hasOverdue ? P.gp : P.bg,
-                    borderRadius:'2px',
-                    letterSpacing:'0.1em',
-                    textTransform:'uppercase' as const,
-                    cursor:'pointer',
+                    background: hasOverdue ? 'transparent' : 'hsl(var(--primary))',
+                    border: '1px solid hsl(var(--primary))',
+                    color: hasOverdue ? 'hsl(var(--primary))' : 'hsl(var(--primary-foreground))',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
                   }}
                   onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
                 >
-                  Pay Now
+                  {pt('common.payNow')}
                 </button>
               )}
               <button
-                className="flex items-center gap-1.5 px-3 h-9 text-xs transition-all"
+                className="flex items-center gap-1.5 px-3 h-9 text-xs rounded-lg transition-all"
                 style={{
-                  background: portalView === 'profile' ? P.gr : 'transparent',
-                  border:`1px solid ${P.gp}`,
-                  color: portalView === 'profile' ? P.bg : P.gp,
-                  borderRadius:'2px',
-                  letterSpacing:'0.1em',
-                  textTransform:'uppercase' as const,
-                  cursor:'pointer',
+                  background: portalView === 'profile' ? 'hsl(var(--primary))' : 'transparent',
+                  border: '1px solid hsl(var(--primary))',
+                  color: portalView === 'profile' ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
                 }}
                 onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
               >
                 <User className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{portalView === 'profile' ? 'Accounts' : 'Profile'}</span>
+                <span className="hidden sm:inline">{portalView === 'profile' ? pt('nav.accounts') : pt('nav.profile')}</span>
               </button>
               {authMode === 'session' && (
                 <button
-                  className="flex items-center gap-1.5 px-3 h-9 text-xs transition-all"
+                  className="flex items-center gap-1.5 px-3 h-9 text-xs rounded-lg transition-all"
                   style={{
                     background: 'transparent',
-                    border:`1px solid ${P.gp}`,
-                    color: P.gp,
-                    borderRadius:'2px',
-                    letterSpacing:'0.1em',
-                    textTransform:'uppercase' as const,
-                    cursor:'pointer',
+                    border: '1px solid hsl(var(--primary))',
+                    color: 'hsl(var(--primary))',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
                   }}
                   onClick={handleSignOut}
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="hidden sm:inline">{pt('nav.signOut')}</span>
                 </button>
               )}
             </div>
@@ -718,17 +745,17 @@ export default function CustomerPortal() {
 
       <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-6 space-y-6">
         {updateReady && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'12px 16px'}}>
+          <div className="maison-portal font-body flex items-center justify-between gap-3 rounded-lg bg-card border border-border px-4 py-3">
             <div className="flex items-center gap-2">
-              <Diamond className="h-4 w-4 shrink-0" style={{color:P.gp}} />
-              <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp}}>A new version is available. Reload to load the latest update.</span>
+              <Diamond className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-[13px] text-foreground">{pt('home.updateAvailable')}</span>
             </div>
             <button
               onClick={() => applyUpdate()}
-              className="shrink-0"
-              style={{background:P.gr,border:'none',borderRadius:'2px',color:P.bg,padding:'6px 14px',fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}
+              className="shrink-0 rounded-lg bg-primary text-primary-foreground px-3.5 py-1.5 text-[11px] font-semibold uppercase"
+              style={{ letterSpacing: '0.1em' }}
             >
-              Reload
+              {pt('home.reload')}
             </button>
           </div>
         )}
@@ -740,41 +767,48 @@ export default function CustomerPortal() {
           />
         ) : (
           <>
-            {/* Promotional banner — hidden when no active promos */}
-            <PromoBanner
-              customerId={data.customer_id}
-              invoiceNumber={data.accounts[0]?.invoice_number ?? ''}
-            />
+            {/* Maison hero zone: Phase 2 scope (hero layaway card, tier
+                strip). Everything from the Action Buttons row downward
+                stays in the existing dark theme — later phases. */}
+            <div className="maison-portal font-body space-y-6">
+              {/* Promotional banner — hidden when no active promos */}
+              <PromoBanner
+                customerId={data.customer_id}
+                invoiceNumber={data.accounts[0]?.invoice_number ?? ''}
+              />
 
-            {/* Summary Stats — luxury panel */}
-            <div>
-              <div style={{height:'1px',background:P.gd}} />
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-0">
-                <SummaryTile
-                  label="Accounts"
-                  value={String(data.summary.total_active)}
-                  sub={overdueCount > 0 ? `${overdueCount} overdue` : 'All on track'}
-                  danger={overdueCount > 0}
+              {heroAccount && (
+                <HeroLayawayCard
+                  account={heroAccount}
+                  onPay={() => {
+                    if (!heroSourceAccount) return;
+                    payableAccounts.length === 1
+                      ? openAccountPay(heroSourceAccount, 'single')
+                      : setAccountSelectModal('single');
+                  }}
+                  onViewDetails={() => {
+                    if (!heroSourceAccount) return;
+                    setInitialDetailTab('overview');
+                    setSelectedAccount(heroSourceAccount);
+                  }}
                 />
-                <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} financial />
-                <SummaryTile label="Amount Spent" value={fmt(data.summary.accumulated_amount_spent || 0, currency)} financial success />
-                <SummaryTile label="Completed" value={String(data.summary.total_completed)} />
-                <SummaryTile
-                  label="Next Due"
-                  value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
-                  sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
-                />
-                {(() => {
-                  const spent = data.summary.accumulated_amount_spent || 0;
-                  const total = spent + data.summary.total_outstanding;
-                  const pct = total > 0 ? Math.round(spent / total * 100) : 0;
-                  return <SummaryTile label="Progress" value={`${pct}%`} />;
-                })()}
-              </div>
-              <div style={{height:'1px',background:P.gd}} />
+              )}
+
+              <TierStrip
+                points={homeHasLoyaltyAccess && data.loyalty_member ? data.loyalty_member.remaining_points : null}
+                activePlans={data.summary.total_active}
+                onPointsClick={() => {
+                  if (authMode === 'session') navigate('/loyalty');
+                  else navigate(`/loyalty?token=${encodeURIComponent(token!)}`);
+                }}
+                onPlansClick={() => accountsGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                onStatementClick={heroSourceAccount ? () => setStatementOpen(true) : undefined}
+              />
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons — retained verbatim: the only entry point to
+                Split Payment mode for customers with 2+ payable accounts
+                (the hero card's CTA only pays the single hero account). */}
             {payableAccounts.length > 0 && (
               <div className={`grid gap-3 ${payableAccounts.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
@@ -877,14 +911,15 @@ export default function CustomerPortal() {
             </div>
 
             {/* Account Cards */}
+            <div ref={accountsGridRef} />
             {filtered.length === 0 ? (
-              <div style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'4rem 2rem',textAlign:'center'}}>
-                <Diamond className="h-10 w-10 mx-auto mb-4" style={{color:P.gd}} />
-                <p style={{color:P.tp,fontFamily:CG,fontSize:'18px',marginBottom:'8px'}}>
-                  {data.accounts.length === 0 ? "No layaway accounts yet." : 'No accounts match your search.'}
+              <div className="maison-portal font-body rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] text-center" style={{ padding: '4rem 2rem' }}>
+                <Diamond className="h-10 w-10 mx-auto mb-4 text-primary" />
+                <p className="font-display text-foreground" style={{ fontSize: '18px', marginBottom: '8px' }}>
+                  {data.accounts.length === 0 ? pt('home.noAccountsTitle') : pt('home.noMatchTitle')}
                 </p>
-                <p style={{color:P.ts,fontSize:'13px'}}>
-                  {data.accounts.length === 0 ? 'Visit Cha Jewels to start your first layaway plan.' : 'Try adjusting your filters.'}
+                <p className="text-muted-foreground" style={{ fontSize: '13px' }}>
+                  {data.accounts.length === 0 ? pt('home.noAccountsBody') : pt('home.noMatchBody')}
                 </p>
               </div>
             ) : (
@@ -1066,6 +1101,30 @@ export default function CustomerPortal() {
         </SheetContent>
       </Sheet>
 
+      {/* Latest Statement Sheet — same resolved account as the Home hero card */}
+      {heroSourceAccount && (
+        <AccountStatementSheet
+          open={statementOpen}
+          onClose={() => setStatementOpen(false)}
+          invoiceNumber={heroSourceAccount.invoice_number}
+          currency={heroSourceAccount.currency}
+          customerName={data.customer_name}
+          customerCode={data.customer_code}
+          statusLabel={heroSourceAccount.status_label}
+          planMonths={heroSourceAccount.payment_plan_months}
+          orderDate={heroSourceAccount.order_date}
+          downpaymentAmount={heroSourceAccount.downpayment_amount}
+          totalAmount={heroSourceAccount.total_amount}
+          totalServices={heroSourceAccount.total_services}
+          outstandingPenalties={heroSourceAccount.outstanding_penalties}
+          totalPaid={heroSourceAccount.total_paid}
+          remainingBalance={heroSourceAccount.remaining_balance}
+          schedule={heroSourceAccount.schedule}
+          payments={heroSourceAccount.payments}
+          services={heroSourceAccount.services}
+        />
+      )}
+
       {/* ── Announcement pop-up modal ── */}
       {showAnnouncement && announcement && (
         <>
@@ -1186,23 +1245,6 @@ export default function CustomerPortal() {
   );
 }
 
-/* ─── Summary Tile ─── */
-function SummaryTile({ label, value, financial, danger, success, sub }: {
-  label: string; value: string; financial?: boolean; danger?: boolean; success?: boolean; sub?: string;
-}) {
-  const valueColor = danger ? '#E74C3C' : success ? '#5CB86A' : financial ? P.gp : P.tp;
-  return (
-    <div style={{padding:'1.25rem 1rem',borderRight:`1px solid ${P.br}`,borderBottom:`1px solid ${P.br}`}}>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
-        {label}
-      </p>
-      <p style={{fontFamily:CG,fontSize:'20px',fontWeight:600,color:valueColor,lineHeight:1.1,fontVariantNumeric:'tabular-nums'}} title={value}>
-        {value}
-      </p>
-      {sub && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'3px'}}>{sub}</p>}
-    </div>
-  );
-}
 
 /* ─── Loyalty Entry Card ─── */
 function LoyaltyEntryCard({
@@ -1538,7 +1580,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
-  const today = getPHTToday();
   const isOverdue = account.status_label === 'Overdue';
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
   const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
@@ -1625,13 +1666,13 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
   return (
     <div className="flex flex-col h-full" style={{background:P.bg}}>
-      {/* Header */}
-      <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`,padding:'1.25rem 1.25rem 0'}}>
+      {/* Header — Maison island; tab bodies below are unaffected (each owns its own background) */}
+      <div className="maison-portal font-body bg-background border-b border-border" style={{padding:'1.25rem 1.25rem 0'}}>
         <SheetHeader className="mb-0">
           <div className="flex items-start justify-between">
             <div>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'4px'}}>Invoice</p>
-              <SheetTitle style={{fontFamily:CG,fontSize:'24px',fontWeight:700,color:P.tp,letterSpacing:'0.03em'}}>#{account.invoice_number}</SheetTitle>
+              <p className="text-[9px] uppercase text-muted-foreground mb-1" style={{letterSpacing:'0.2em'}}>{pt('detail.invoice')}</p>
+              <SheetTitle className="font-display text-2xl text-foreground" style={{letterSpacing:'0.03em'}}>#{account.invoice_number}</SheetTitle>
             </div>
             <Badge variant="outline" className={`text-[9px] ${colorClass}`} style={{borderRadius:'2px',letterSpacing:'0.12em',textTransform:'uppercase',padding:'3px 10px'}}>
               {account.status_label}
@@ -1641,52 +1682,42 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
         {/* Overdue Warning */}
         {isOverdue && (
-          <div className="mt-3 flex items-start gap-2.5 p-3" style={{background:'rgba(231,76,60,0.07)',borderLeft:'3px solid #E74C3C'}}>
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{color:'#E74C3C'}} />
+          <div className="mt-3 flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
             <div>
-              <p style={{fontSize:'12px',fontWeight:600,color:'#E74C3C'}}>Payment Overdue</p>
-              <p style={{fontSize:'11px',color:'rgba(231,76,60,0.75)',marginTop:'2px'}}>
-                Please submit your payment as soon as possible to avoid additional penalties.
+              <p className="text-xs font-semibold text-destructive">{pt('detail.overdueTitle')}</p>
+              {/* Full-strength text-destructive, not /75 — the opacity dropped
+                  contrast on this tinted bg-destructive/10 banner to 3.21:1
+                  (Lighthouse), short of WCAG AA's 4.5:1. */}
+              <p className="text-[11px] text-destructive mt-0.5">
+                {pt('detail.overdueBody')}
               </p>
             </div>
           </div>
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Balance Due" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label={pt('detail.totalAmount')} value={fmt(account.total_amount, currency)} />
+          <InfoBlock label={pt('detail.balanceDue')} value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
           {(account.outstanding_penalties ?? 0) > 0 && (
-            <p style={{ fontFamily: "Inter,sans-serif", fontSize: '11px', color: P.ts, marginTop: '2px', gridColumn: '1 / -1' }}>
-              includes {fmt(account.outstanding_penalties, currency)} in late penalties
+            <p className="text-[11px] text-muted-foreground mt-0.5" style={{ gridColumn: '1 / -1' }}>
+              {pt('detail.includesPenalties', { amount: fmt(account.outstanding_penalties, currency) })}
             </p>
           )}
-          <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
-          <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />
+          <InfoBlock label={pt('detail.nextDue')} value={account.next_due_date ? fmtDateLong(account.next_due_date) : pt('common.emDash')} />
+          <InfoBlock label={pt('detail.nextAmount')} value={account.next_due_amount ? fmt(account.next_due_amount, currency) : pt('common.emDash')} />
         </div>
 
         {/* Tabs */}
-        <div className="mt-4 flex" style={{borderTop:`1px solid ${P.br}`,marginLeft:'-1.25rem',marginRight:'-1.25rem'}}>
+        <div className="mt-4 flex border-t border-border" style={{marginLeft:'-1.25rem',marginRight:'-1.25rem'}}>
           {(['overview', 'pay', 'submissions'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              style={{
-                flex:1,
-                padding:'10px 4px',
-                fontFamily:"Inter,sans-serif",
-                fontSize:'11px',
-                fontWeight: activeTab === tab ? 600 : 400,
-                letterSpacing:'0.1em',
-                textTransform:'uppercase' as const,
-                color: activeTab === tab ? P.gp : P.ts,
-                background: 'transparent',
-                border:'none',
-                borderBottom: activeTab === tab ? `2px solid ${P.gp}` : '2px solid transparent',
-                cursor:'pointer',
-                transition:'all 0.15s',
-              }}
+              className={`flex-1 py-2.5 px-1 text-[11px] uppercase transition-colors ${activeTab === tab ? 'font-semibold text-primary border-b-2 border-primary' : 'font-normal text-muted-foreground border-b-2 border-transparent'}`}
+              style={{ letterSpacing: '0.1em' }}
             >
-              {tab === 'overview' ? 'Schedule' : tab === 'pay' ? 'Pay Now' : `Submissions${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
+              {tab === 'overview' ? pt('detail.tabSchedule') : tab === 'pay' ? pt('detail.tabPay') : `${pt('detail.tabSubmissions')}${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
             </button>
           ))}
         </div>
@@ -1746,7 +1777,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'overview' && (
-          <OverviewTab account={account} today={today} />
+          <OverviewTab account={account} />
         )}
         {activeTab === 'pay' && canPay && (
           <PayNowTab
@@ -1816,163 +1847,82 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   );
 }
 
-/* ─── Overview Tab ─── */
-function OverviewTab({ account, today }: {
-  account: PortalAccount; today: string;
+/* ─── Overview Tab (Maison — payment journey timeline, itemized totals, completed-plan state) ─── */
+const serviceJobToneClass: Record<string, string> = {
+  'Received': 'bg-secondary text-muted-foreground',
+  'In Progress': 'bg-primary/10 text-primary',
+  'On Hold': 'bg-[hsl(var(--portal-warning)/0.12)] text-[hsl(var(--portal-warning))]',
+  'Cancelled': 'bg-secondary text-muted-foreground opacity-60',
+  'Completed': 'bg-primary/10 text-primary',
+};
+
+function OverviewTab({ account }: {
+  account: PortalAccount;
 }) {
   const currency = account.currency;
+  const isCompleted = account.status_label === 'Fully Paid';
+  const journeyEntries = buildJourneyEntries({
+    downpaymentAmount: account.downpayment_amount,
+    currency,
+    payments: account.payments,
+    schedule: account.schedule,
+  });
+
   return (
-    <>
-      {/* Progress */}
-      <div>
-        <div className="flex justify-between mb-1.5">
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{account.paid_installments}/{account.total_installments} installments</span>
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmt(account.remaining_balance, currency)} remaining</span>
-        </div>
-        <div style={{height:'2px',background:P.s2}}>
-          <div style={{height:'100%',width:`${account.progress_percent}%`,background:account.status_label==='Fully Paid'?'#5CB86A':P.gr}} />
-        </div>
-      </div>
+    <div className="maison-portal font-body space-y-5">
+      {isCompleted && (
+        <CompletedPlanBanner currency={currency} totalPaid={account.total_paid} totalObligation={account.total_obligation} />
+      )}
 
-      {/* Payment Schedule */}
-      <div>
-        <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Payment Schedule</p>
-        <div>
-          {account.downpayment_amount > 0 && (() => {
-            const taggedDpPaid2 = account.payments
-              .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
-              .reduce((s, p) => s + p.amount, 0);
-            const totalPaidAll2 = account.payments.reduce((s, p) => s + p.amount, 0);
-            const dpPaid = taggedDpPaid2 > 0 ? taggedDpPaid2 : (account.downpayment_amount > 0 && totalPaidAll2 >= account.downpayment_amount ? account.downpayment_amount : 0);
-            const dpFull = dpPaid >= account.downpayment_amount;
-            const dpPartial = dpPaid > 0 && !dpFull;
-            return (
-              <div className="flex items-center gap-3 py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
-                <div style={{width:'28px',height:'28px',display:'flex',alignItems:'center',justifyContent:'center',background:dpFull?'rgba(92,184,106,0.15)':'rgba(201,168,76,0.1)',color:dpFull?'#5CB86A':P.gp,fontSize:'9px',fontWeight:700,flexShrink:0}}>
-                  {dpFull ? <Check className="h-3.5 w-3.5" /> : 'DP'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>Downpayment</p>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>
-                    {dpFull ? 'Paid' : dpPartial ? `Partial — ${fmt(dpPaid, currency)} paid` : 'Due on order'}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:dpFull?'#5CB86A':P.gp}}>{fmt(account.downpayment_amount, currency)}</p>
-                  {dpPartial && <p style={{fontSize:'10px',color:P.gl}}>Rem: {fmt(account.downpayment_amount - dpPaid, currency)}</p>}
-                </div>
-              </div>
-            );
-          })()}
-          {account.schedule.map((item) => {
-            const isPaid = item.status === 'paid';
-            const isOvd = !isPaid && item.due_date < today && item.status !== 'cancelled';
-            const effectiveStatus = isOvd ? 'overdue' : item.status;
-            const sColor = installmentStatusColor[effectiveStatus] || installmentStatusColor['pending'];
-            const sLabel = isOvd ? 'Overdue' : (installmentStatusLabel[item.status] || item.status);
-            const dueDate = new Date(item.due_date + 'T00:00:00Z');
-            const todayDate = new Date(today + 'T00:00:00Z');
-            const diffDays = Math.ceil((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-            const isDueSoon = !isPaid && !isOvd && diffDays >= 0 && diffDays <= 7 && item.status !== 'cancelled';
-            const rowColor = isPaid ? '#5CB86A' : isOvd ? '#E74C3C' : isDueSoon ? P.gl : P.ts;
+      <ItemizedTotals
+        currency={currency}
+        totalAmount={account.total_amount}
+        totalServices={account.total_services}
+        outstandingPenalties={account.outstanding_penalties}
+        totalPaid={account.total_paid}
+        remainingBalance={account.remaining_balance}
+      />
 
-            return (
-              <div key={item.installment_number}
-                className="flex items-center gap-3 py-3"
-                style={{borderBottom:`1px solid ${P.s2}`}}
-              >
-                <div style={{width:'28px',height:'28px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
-                  background: isPaid?'rgba(92,184,106,0.12)' : isOvd?'rgba(231,76,60,0.1)' : isDueSoon?'rgba(232,201,109,0.1)' : P.s2,
-                  color: rowColor, fontSize:'11px', fontWeight:700}}>
-                  {isPaid ? <Check className="h-3.5 w-3.5" /> : item.installment_number}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>Month {item.installment_number}</p>
-                    <Badge variant="outline" className={`text-[9px] py-0 h-4 ${sColor}`} style={{borderRadius:'2px',letterSpacing:'0.08em'}}>
-                      {isDueSoon ? `Due in ${diffDays}d` : sLabel}
-                    </Badge>
-                  </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmtDate(item.due_date)}</p>
-                  {item.penalty_amount > 0 && item.penalty_fee_status !== 'waived' && (
-                    item.penalty_fee_status === 'paid' ? (
-                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:'#5CB86A',borderColor:'#5CB86A50',background:'transparent'}}>
-                        +{fmt(item.penalty_amount, currency)} penalty (paid)
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:P.gl,borderColor:`${P.gp}50`,background:'transparent'}}>
-                        +{fmt(item.penalty_amount, currency)} penalty
-                      </Badge>
-                    )
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:rowColor}}>{fmt(item.base_amount, currency)}</p>
-                  {!isPaid && item.paid_amount > 0 && (
-                    <p style={{fontSize:'10px',color:P.gl}}>Paid: {fmt(item.paid_amount, currency)}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <PaymentJourneyTimeline entries={journeyEntries} />
 
       {/* Additional Services */}
       {account.services && account.services.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Additional Services</p>
-          <div>
-            {account.services.map((svc, idx) => {
-              const SERVICE_LABELS: Record<string, string> = {
-                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-              };
-              return (
-                <div key={idx} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
-                  <div>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
-                    {svc.description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{svc.description}</p>}
-                  </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(svc.amount, currency)}</p>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.additionalServices')}</p>
+          <div className="divide-y divide-border">
+            {account.services.map((svc, idx) => (
+              <div key={idx} className="flex items-center justify-between py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{serviceLabel(svc.service_type)}</p>
+                  {svc.description && <p className="text-xs text-muted-foreground mt-0.5">{svc.description}</p>}
                 </div>
-              );
-            })}
+                <p className="text-sm font-semibold text-primary tabular-nums">{fmt(svc.amount, currency)}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
       {/* Service Status */}
       {account.service_jobs && account.service_jobs.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Service Status</p>
-          <div>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('detail.serviceStatus')}</p>
+          <div className="divide-y divide-border">
             {account.service_jobs.map((job) => {
-              const SERVICE_LABELS: Record<string, string> = {
-                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-              };
-              const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
-                'Received': { color: P.ts },
-                'In Progress': { color: P.gp },
-                'On Hold': { color: '#C9881E' },
-                'Cancelled': { color: P.ts, opacity: 0.6 },
-                'Completed': { color: '#5CB86A' },
-              };
-              const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
-              const timeline = `Received ${fmtDate(job.date_received)}` +
-                (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
-                  : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
+              const toneClass = serviceJobToneClass[job.status_label] ?? 'bg-secondary text-muted-foreground';
+              const timeline = pt('detail.svcReceived', { date: fmtDate(job.date_received) }) +
+                (job.date_completed ? pt('detail.svcCompleted', { date: fmtDate(job.date_completed) })
+                  : job.estimated_completion ? pt('detail.svcEst', { date: fmtDate(job.estimated_completion) }) : '');
               return (
-                <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <div key={job.id} className="flex items-center justify-between py-3">
                   <div>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
-                    {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{job.service_description}</p>}
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{timeline}</p>
+                    <p className="text-sm font-medium text-foreground">{serviceLabel(job.service_type)}</p>
+                    {job.service_description && <p className="text-xs text-muted-foreground mt-0.5">{job.service_description}</p>}
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{timeline}</p>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'2px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(job.service_fee, currency)}</p>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${toneClass}`}>{job.status_label}</span>
+                    <p className="text-sm font-semibold text-primary tabular-nums">{fmt(job.service_fee, currency)}</p>
                   </div>
                 </div>
               );
@@ -1983,31 +1933,31 @@ function OverviewTab({ account, today }: {
 
       {/* Payment History */}
       {account.payments.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Payment History</p>
-          <div>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.paymentHistory')}</p>
+          <div className="divide-y divide-border">
             {account.payments.map((p, idx) => {
               const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
               return (
-                <div key={idx} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <div key={idx} className="flex items-center justify-between py-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp}}>{fmtDate(p.date)}</p>
-                      {isDp && <Badge variant="outline" className="text-[9px] py-0 h-4" style={{borderRadius:'2px',color:P.gp,borderColor:`${P.gp}50`,background:'transparent'}}>Downpayment</Badge>}
+                      <p className="text-sm text-foreground">{fmtDate(p.date)}</p>
+                      {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">{pt('common.downpayment')}</span>}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {p.method && <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,textTransform:'capitalize' as const}}>{p.method}</span>}
-                      {p.reference && !isDp && <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts}}>Ref: {p.reference}</span>}
+                      {p.method && <span className="text-[11px] text-muted-foreground capitalize">{p.method}</span>}
+                      {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">{pt('common.reference', { ref: p.reference })}</span>}
                     </div>
                   </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:'#5CB86A'}}>{fmt(p.amount, account.currency)}</p>
+                  <p className="text-sm font-semibold tabular-nums" style={{ color: 'hsl(var(--portal-success))' }}>{fmt(p.amount, account.currency)}</p>
                 </div>
               );
             })}
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -3089,8 +3039,8 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
 function InfoBlock({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.18em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'3px'}}>{label}</p>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',fontWeight:500,color:highlight?'#E74C3C':P.tp}}>{value}</p>
+      <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{letterSpacing:'0.18em'}}>{label}</p>
+      <p className={`text-[13px] font-medium ${highlight ? 'text-destructive' : 'text-foreground'}`}>{value}</p>
     </div>
   );
 }
@@ -3144,9 +3094,9 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
   const handleSave = async () => {
     setFormError(null);
-    if (!fullName.trim()) { setFormError('Full Name is required.'); return; }
-    if (locationType === 'international' && !country.trim()) { setFormError('Please select a country.'); return; }
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError('Please enter a valid email address.'); return; }
+    if (!fullName.trim()) { setFormError(pt('profile.errFullNameRequired')); return; }
+    if (locationType === 'international' && !country.trim()) { setFormError(pt('profile.errCountryRequired')); return; }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError(pt('profile.errInvalidEmail')); return; }
 
     setSaving(true);
     try {
@@ -3170,81 +3120,82 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
         }),
       });
       const json = await res.json();
-      if (!res.ok) { setFormError(json.error || 'Failed to update profile.'); return; }
+      if (!res.ok) { setFormError(json.error || pt('profile.errUpdateFailed')); return; }
       onSaved(json.profile);
       setEditing(false);
       setSuccessMsg(true);
       setTimeout(() => setSuccessMsg(false), 4000);
     } catch {
-      setFormError('Something went wrong. Please try again.');
+      setFormError(pt('profile.errGeneric'));
     } finally {
       setSaving(false);
     }
   };
 
-  const locationLabel = locationType === 'japan' ? 'Japan' : locationType === 'philippines' ? 'Philippines' : country || 'International';
+  const locationLabel = locationType === 'japan' ? pt('profile.locJapan') : locationType === 'philippines' ? pt('profile.locPhilippines') : country || pt('profile.locInternational');
 
-  const inputStyle = {background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp};
+  const fieldClass = "bg-secondary text-foreground border-border";
+  const fieldLabelClass = "text-[10px] uppercase text-muted-foreground";
 
   return (
-    <div className="space-y-5">
+    <div className="maison-portal font-body space-y-5">
       <div className="flex items-center justify-between">
-        <p style={{fontFamily:CG,fontSize:'22px',fontWeight:600,color:P.tp}}>My Profile</p>
+        <p className="font-display text-foreground" style={{ fontSize: '22px', fontWeight: 600 }}>{pt('profile.title')}</p>
         {!editing && (
           <button onClick={() => { resetForm(); setEditing(true); setSuccessMsg(false); }}
-            className="flex items-center gap-1.5 px-3 h-8 transition-opacity hover:opacity-80"
-            style={{background:'transparent',border:`1px solid ${P.gp}`,borderRadius:'2px',color:P.gp,fontFamily:"Inter,sans-serif",fontSize:'11px',letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}>
-            <Pencil className="h-3.5 w-3.5" /> Edit
+            className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-primary text-primary text-[11px] uppercase transition-opacity hover:opacity-80"
+            style={{ letterSpacing: '0.1em' }}>
+            <Pencil className="h-3.5 w-3.5" /> {pt('profile.edit')}
           </button>
         )}
       </div>
 
       {successMsg && (
-        <div className="flex items-center gap-2 p-3" style={{background:'rgba(92,184,106,0.07)',borderLeft:'3px solid #5CB86A'}}>
-          <CheckCircle className="h-4 w-4 shrink-0" style={{color:'#5CB86A'}} />
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A'}}>Your profile has been updated successfully.</p>
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border-l-[3px] border-primary">
+          <CheckCircle className="h-4 w-4 shrink-0 text-primary" />
+          <p className="text-xs text-primary">{pt('profile.updated')}</p>
         </div>
       )}
 
       {!editing ? (
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1.25rem'}}>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
           {[
-            ['Full Name', profile.full_name],
-            ['Location', locationLabel],
-            ['Facebook Name', profile.facebook_name],
-            ['Messenger Link', profile.messenger_link],
-            ['Mobile Number', profile.mobile_number],
-            ['Email', profile.email],
-            ['Notes', profile.notes],
+            [pt('profile.fullName'), profile.full_name],
+            [pt('profile.location'), locationLabel],
+            [pt('profile.facebookName'), profile.facebook_name],
+            [pt('profile.messengerLink'), profile.messenger_link],
+            [pt('profile.mobileNumber'), profile.mobile_number],
+            [pt('profile.email'), profile.email],
+            [pt('profile.notes'), profile.notes],
           ].map(([lbl, val]) => (
-            <div key={lbl} className="py-2.5 flex gap-4" style={{borderBottom:`1px solid ${P.s2}`}}>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:500,letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts,width:'100px',flexShrink:0,paddingTop:'1px'}}>{lbl}</p>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:val?P.tp:P.ts,fontStyle:val?'normal':'italic' as const}}>{val || 'Not set'}</p>
+            <div key={lbl} className="py-2.5 flex gap-4 border-b border-border last:border-b-0">
+              <p className="text-[10px] font-medium uppercase text-muted-foreground pt-px" style={{ letterSpacing: '0.12em', width: '100px', flexShrink: 0 }}>{lbl}</p>
+              <p className={`text-[13px] ${val ? 'text-foreground' : 'text-muted-foreground italic'}`}>{val || pt('common.notSet')}</p>
             </div>
           ))}
         </div>
       ) : (
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1.25rem'}} className="space-y-4">
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6 space-y-4">
           <div className="space-y-1.5">
-            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Full Name <span style={{color:'#E74C3C'}}>*</span></Label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
+            <Label className={fieldLabelClass}>{pt('profile.fullName')} <span className="text-destructive">*</span></Label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Location</Label>
+              <Label className={fieldLabelClass}>{pt('profile.location')}</Label>
               <Select value={locationType} onValueChange={handleLocationChange}>
-                <SelectTrigger style={inputStyle}><SelectValue /></SelectTrigger>
+                <SelectTrigger className={fieldClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="japan">Japan</SelectItem>
-                  <SelectItem value="philippines">Philippines</SelectItem>
-                  <SelectItem value="international">International</SelectItem>
+                  <SelectItem value="japan">{pt('profile.locJapan')}</SelectItem>
+                  <SelectItem value="philippines">{pt('profile.locPhilippines')}</SelectItem>
+                  <SelectItem value="international">{pt('profile.locInternational')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {locationType === 'international' && (
               <div className="space-y-1.5">
-                <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Country <span style={{color:'#E74C3C'}}>*</span></Label>
+                <Label className={fieldLabelClass}>{pt('profile.country')} <span className="text-destructive">*</span></Label>
                 <CountrySelect value={country} onValueChange={setCountry} />
               </div>
             )}
@@ -3252,61 +3203,52 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Facebook Name</Label>
-              <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} style={inputStyle} />
+              <Label className={fieldLabelClass}>{pt('profile.facebookName')}</Label>
+              <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Messenger Link</Label>
-              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" style={inputStyle} />
+              <Label className={fieldLabelClass}>{pt('profile.messengerLink')}</Label>
+              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder={pt('profile.messengerPlaceholder')} className={fieldClass} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Mobile Number</Label>
-              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" style={inputStyle} />
+              <Label className={fieldLabelClass}>{pt('profile.mobileNumber')}</Label>
+              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder={pt('profile.mobilePlaceholder')} className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+              <Label className={fieldLabelClass}>{pt('profile.email')}</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Notes</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any notes for Cha Jewels…"
-              style={{...inputStyle, resize:'none' as const}} />
+            <Label className={fieldLabelClass}>{pt('profile.notes')}</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder={pt('profile.notesPlaceholder')}
+              className={`${fieldClass} resize-none`} />
           </div>
 
           {formError && (
-            <div className="p-3" style={{background:'rgba(231,76,60,0.07)',borderLeft:'3px solid #E74C3C'}}>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#E74C3C'}}>{formError}</p>
+            <div className="p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
+              <p className="text-xs text-destructive">{formError}</p>
             </div>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setEditing(false)} disabled={saving}
-              style={{padding:'8px 16px',background:'transparent',border:`1px solid ${P.br}`,borderRadius:'2px',color:P.ts,fontFamily:"Inter,sans-serif",fontSize:'12px',cursor:'pointer'}}>
-              Cancel
+              className="px-4 py-2 rounded-lg border border-border text-muted-foreground text-xs hover:bg-secondary transition-colors">
+              {pt('common.cancel')}
             </button>
             <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-1.5"
-              style={{padding:'8px 16px',background:saving?P.s2:P.gr,border:'none',borderRadius:'2px',color:saving?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:600,letterSpacing:'0.1em',cursor:saving?'not-allowed':'pointer'}}>
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold uppercase ${saving ? 'bg-secondary text-muted-foreground cursor-not-allowed' : 'bg-primary text-primary-foreground cursor-pointer'}`}
+              style={{ letterSpacing: '0.1em' }}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {saving ? 'Saving…' : 'Save Changes'}
+              {saving ? pt('common.saving') : pt('common.saveChanges')}
             </button>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function ProfileField({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,width:'120px',flexShrink:0}}>{label}</p>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:value?P.tp:P.ts,fontStyle:value?'normal':'italic' as const}}>{value || 'Not set'}</p>
     </div>
   );
 }
