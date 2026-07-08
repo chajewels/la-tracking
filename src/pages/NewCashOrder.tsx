@@ -22,6 +22,33 @@ import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
+// Shopify catalog mirror (public.products) — picker source for Path A orders.
+interface CatalogProduct {
+  id: string;
+  title: string;
+  sku: string | null;
+  price_jpy: number | null;
+  inventory_quantity: number | null;
+  status: string;
+}
+
+// Local line item, written to public.cash_order_items after the order is created.
+interface CashOrderLineItem {
+  product_id: string;
+  title: string;
+  sku: string | null;
+  unit_price_jpy: number;
+  quantity: number;
+  line_total_jpy: number;
+}
+
+// Status tint for the picker (products are pre-filtered to non-archived).
+function productStatusBadgeClass(status: string): string {
+  if (status === 'active') return 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30';
+  if (status === 'draft') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
+  return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'; // unlisted / other
+}
+
 export default function NewCashOrder() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -60,6 +87,15 @@ export default function NewCashOrder() {
   const [acceptAgreement, setAcceptAgreement] = useState(false);
   const [isTrade, setIsTrade] = useState(false);
 
+  // Shopify product picker state (Path A). Optional — an order with zero line
+  // items submits exactly as before (plain order, source_channel = hub_manual).
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [lineItems, setLineItems] = useState<CashOrderLineItem[]>([]);
+  // Once the user types in the Total Amount field, stop auto-suggesting from
+  // items. A URL-seeded amount (AI command) counts as already-set.
+  const [totalAmountManuallyEdited, setTotalAmountManuallyEdited] = useState(!!urlAmount);
+
   // Loyalty tier of the selected customer. Non-null => the customer is a
   // loyalty member (any tier) and Loyalty Product Amount (JPY) is required.
   // Mirrors NewAccount.tsx; create-cash-order edge function is the authoritative gate.
@@ -90,6 +126,66 @@ export default function NewCashOrder() {
   const markDirty = useCallback(() => {
     if (!formDirty) setFormDirty(true);
   }, [formDirty]);
+
+  // Fetch the Shopify catalog once (~173 rows; filter client-side).
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('products')
+        .select('id, title, sku, price_jpy, inventory_quantity, status')
+        .neq('status', 'archived')
+        .order('title', { ascending: true });
+      setCatalog((data ?? []) as CatalogProduct[]);
+    })();
+  }, []);
+
+  const itemsSubtotal = lineItems.reduce((sum, li) => sum + li.line_total_jpy, 0);
+
+  const filteredProducts = productSearch.trim()
+    ? catalog
+        .filter((p) => {
+          const term = productSearch.trim().toLowerCase();
+          return p.title.toLowerCase().includes(term) || (p.sku ?? '').toLowerCase().includes(term);
+        })
+        .slice(0, 8)
+    : [];
+
+  const addLineItem = useCallback((p: CatalogProduct) => {
+    const price = p.price_jpy ?? 0;
+    setLineItems((prev) => {
+      const idx = prev.findIndex((li) => li.product_id === p.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        const quantity = next[idx].quantity + 1;
+        next[idx] = { ...next[idx], quantity, line_total_jpy: next[idx].unit_price_jpy * quantity };
+        return next;
+      }
+      return [...prev, { product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price }];
+    });
+    markDirty();
+  }, [markDirty]);
+
+  const updateLineItemQty = useCallback((productId: string, raw: string) => {
+    const quantity = Math.max(1, Math.floor(Number(raw) || 1));
+    setLineItems((prev) => prev.map((li) => (
+      li.product_id === productId
+        ? { ...li, quantity, line_total_jpy: li.unit_price_jpy * quantity }
+        : li
+    )));
+    markDirty();
+  }, [markDirty]);
+
+  const removeLineItem = useCallback((productId: string) => {
+    setLineItems((prev) => prev.filter((li) => li.product_id !== productId));
+    markDirty();
+  }, [markDirty]);
+
+  // Auto-suggest the total from the items subtotal until the user edits the
+  // total field. total_amount stays authoritative & fully editable (shipping/fees).
+  useEffect(() => {
+    if (totalAmountManuallyEdited || lineItems.length === 0) return;
+    setTotalAmount(String(lineItems.reduce((s, li) => s + li.line_total_jpy, 0)));
+  }, [lineItems, totalAmountManuallyEdited]);
 
   // Customer search — same debounced pattern as NewAccount
   useEffect(() => {
@@ -230,6 +326,34 @@ export default function NewCashOrder() {
       }
 
       const newId = data?.cash_order?.id;
+
+      // Path A: write line items + origin tag CLIENT-SIDE (create-cash-order is
+      // unchanged). Optional — skipped entirely when no items were picked. The
+      // order (authoritative record) exists regardless of these writes.
+      if (newId && lineItems.length > 0) {
+        try {
+          const { error: itemsErr } = await supabase.from('cash_order_items' as any).insert(
+            lineItems.map((li) => ({
+              cash_order_id: newId,
+              product_id: li.product_id,
+              title: li.title,
+              sku: li.sku,
+              quantity: li.quantity,
+              unit_price_jpy: li.unit_price_jpy,
+              line_total_jpy: li.line_total_jpy,
+            })),
+          );
+          if (itemsErr) throw itemsErr;
+          // Best-effort origin tag — swallow silently if the role lacks
+          // cash_orders UPDATE (order stays hub_manual); never surfaced.
+          try {
+            await supabase.from('cash_orders').update({ source_channel: 'social_manual' } as any).eq('id', newId);
+          } catch { /* stays hub_manual — not an error */ }
+        } catch {
+          toast.warning('Order created, but item details could not be saved. You can add them from the order page.');
+        }
+      }
+
       submittedRef.current = true;
       setFormDirty(false);
       toast.success(`Cash order #${invoiceNumber.trim()} created successfully`);
@@ -397,6 +521,101 @@ export default function NewCashOrder() {
               )}
             </div>
 
+            {/* Items (optional) — Shopify product picker (Path A / social-manual) */}
+            <div className="rounded-lg border border-border bg-background/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-card-foreground">Items (optional)</Label>
+                <span className="text-[10px] text-muted-foreground">From Shopify catalog</span>
+              </div>
+
+              <div className="relative">
+                <Input
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Search products by title or SKU…"
+                  className="bg-background border-border"
+                  autoComplete="off"
+                />
+                {productSearch.trim() && (
+                  <div className="mt-1 max-h-64 overflow-y-auto rounded-md border border-border bg-background divide-y divide-border/40">
+                    {filteredProducts.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground italic">No products match your search.</div>
+                    ) : (
+                      filteredProducts.map((p) => {
+                        const inStock = (p.inventory_quantity ?? 0) > 0;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => addLineItem(p)}
+                            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/60"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium text-foreground">{p.title}</span>
+                                <Badge variant="outline" className={`shrink-0 text-[9px] ${productStatusBadgeClass(p.status)}`}>
+                                  {p.status}
+                                </Badge>
+                              </span>
+                              <span className="mt-0.5 flex items-center gap-2 text-[11px]">
+                                {p.sku && <span className="text-muted-foreground">SKU {p.sku}</span>}
+                                {inStock ? (
+                                  <span className="text-green-600 dark:text-green-400">In stock ({p.inventory_quantity})</span>
+                                ) : (
+                                  <span className="text-muted-foreground">Out of stock</span>
+                                )}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-sm font-semibold text-card-foreground tabular-nums">
+                              {formatCurrency(p.price_jpy ?? 0, 'JPY')}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {lineItems.length > 0 && (
+                <div className="space-y-2">
+                  {lineItems.map((li) => (
+                    <div key={li.product_id} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-foreground">{li.title}</div>
+                        <div className="text-[11px] text-muted-foreground tabular-nums">
+                          {formatCurrency(li.unit_price_jpy, 'JPY')} each
+                        </div>
+                      </div>
+                      <input
+                        type="number"
+                        min={1}
+                        value={li.quantity}
+                        onChange={(e) => updateLineItemQty(li.product_id, e.target.value)}
+                        className="w-14 rounded border border-border bg-background px-2 py-1 text-center text-sm tabular-nums"
+                        aria-label={`Quantity for ${li.title}`}
+                      />
+                      <span className="w-24 shrink-0 text-right text-sm font-medium text-card-foreground tabular-nums">
+                        {formatCurrency(li.line_total_jpy, 'JPY')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLineItem(li.product_id)}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={`Remove ${li.title}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between border-t border-border/40 pt-2 text-sm">
+                    <span className="text-muted-foreground">Items subtotal</span>
+                    <span className="font-semibold text-card-foreground tabular-nums">{formatCurrency(itemsSubtotal, 'JPY')}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               {/* Invoice Number */}
               <div className="space-y-2">
@@ -450,7 +669,7 @@ export default function NewCashOrder() {
                 <CurrencyInput
                   currency={currency as Currency}
                   value={totalAmount === '' ? '' : Number(totalAmount)}
-                  onValueChange={(v) => { setTotalAmount(v === '' ? '' : String(v)); markDirty(); }}
+                  onValueChange={(v) => { setTotalAmount(v === '' ? '' : String(v)); setTotalAmountManuallyEdited(true); markDirty(); }}
                   error={totalAmount !== '' && amount <= 0 ? ' ' : undefined}
                   className="bg-background"
                 />
