@@ -328,7 +328,16 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes, serviceJobsRes] = await Promise.all([
+    // Line items (Shopify picker rows) for the layaway accounts, keyed on the
+    // same accountIds — nested per account below (mirrors cash_order_items).
+    const layawayItemsPromise = accountIds.length > 0
+      ? supabase.from("layaway_account_items")
+          .select("id, account_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+          .in("account_id", accountIds)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] as any[] });
+
+    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes, serviceJobsRes, layawayItemsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -349,6 +358,7 @@ Deno.serve(async (req) => {
       supabase.from("cash_orders").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
       // Service jobs — queried by customer_id, nested by invoice into account/cash cards below
       supabase.from("service_jobs").select("id, account_type, invoice_number, service_type, service_status, service_description, service_fee, date_received, estimated_completion, date_completed").eq("customer_id", customerId).order("date_received", { ascending: false }),
+      layawayItemsPromise,
     ]);
 
     const schedules = schedulesRes.data || [];
@@ -360,6 +370,15 @@ Deno.serve(async (req) => {
     const cashOrdersRaw = cashOrdersRes.data || [];
     const serviceJobsRaw = serviceJobsRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
+
+    // Group layaway line items by account_id (mirror cash itemsByOrder).
+    const layawayItemsRaw = layawayItemsRes.data || [];
+    const itemsByAccount = new Map<string, any[]>();
+    for (const it of (layawayItemsRaw as any[])) {
+      const list = itemsByAccount.get(it.account_id) || [];
+      list.push(it);
+      itemsByAccount.set(it.account_id, list);
+    }
 
     // Second round-trip: cash_payments filtered by the cash_order_ids we just loaded.
     // Run loyalty fetches in parallel with cash_payments — both are independent of each
@@ -818,6 +837,7 @@ Deno.serve(async (req) => {
           reviewer_notes: sub.reviewer_notes,
           created_at: sub.created_at,
         })),
+        items: itemsByAccount.get(acc.id) || [],
       };
     });
 
