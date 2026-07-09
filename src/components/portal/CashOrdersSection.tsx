@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
 import { methodLabel } from '@/lib/payment-method-registry';
+import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
 
 interface PortalPendingSubmission {
   id: string;
@@ -13,12 +14,21 @@ interface PortalPendingSubmission {
   status: string;
 }
 
-// Portal palette — must match src/pages/CustomerPortal.tsx
-const P = {
-  bg: '#0A0A0A', s: '#111111', s2: '#1A1A1A', br: '#2A2200',
-  gp: '#C9A84C', gl: '#E8C96D', gd: '#8B6914',
-  tp: '#F5F0E8', ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
+// Maison inline-style palette — mirrors the CustomerPortal.tsx `M` object.
+// Sourced from portal-tokens.ts (single token source) so no gold hex is
+// typed here. The section renders inside the .maison-portal ivory scope.
+const M = {
+  s:       palette.surface1,                        // card surface — white
+  s2:      palette.surface2,                        // subtle wells / tracks
+  br:      `hsl(${hslTriplets.gold600} / 0.18)`,    // hairline border
+  gp:      palette.gold600,                         // gold for TEXT/CTAs (AA on ivory)
+  gd:      `hsl(${hslTriplets.gold600} / 0.35)`,    // gold hairline (dividers)
+  tp:      palette.ink,                             // primary text
+  ts:      palette.inkMuted,                        // secondary text
+  gr:      memberCard.gradient,                     // decorative gold gradient (CTA)
+  onGold:  memberCard.ink,                          // dark ink on the gold gradient
+  success: palette.success,
+  warning: palette.warning,
 } as const;
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -63,9 +73,9 @@ const statusPillStyle = (status: string): React.CSSProperties => {
     fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase' as const,
     padding: '3px 10px', borderRadius: '2px', fontWeight: 600,
   };
-  if (status === 'completed') return { ...common, color: '#5CB86A', border: '1px solid #5CB86A55' };
-  if (status === 'cancelled') return { ...common, color: '#888', border: '1px solid #88833' };
-  return { ...common, color: P.gp, border: `1px solid ${P.gp}55` };
+  if (status === 'completed') return { ...common, color: M.success, border: `1px solid hsl(${hslTriplets.success} / 0.4)` };
+  if (status === 'cancelled') return { ...common, color: M.ts, border: `1px solid ${M.br}` };
+  return { ...common, color: M.gp, border: `1px solid hsl(${hslTriplets.gold600} / 0.4)` };
 };
 
 function fmt(amount: number, currency: Currency): string {
@@ -165,13 +175,13 @@ export default function CashOrdersSection({
 
   return (
     <>
-      <div className="space-y-3">
+      <div className="maison-portal font-body space-y-3">
         <div className="flex items-center gap-3">
-          <div style={{ height: '1px', flex: 1, background: P.gd }} />
-          <h2 style={{ color: P.gp, fontFamily: CG, fontSize: '16px', letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ height: '1px', flex: 1, background: M.gd }} />
+          <h2 style={{ color: M.gp, fontFamily: CG, fontSize: '16px', letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 600 }}>
             Cash Orders
           </h2>
-          <div style={{ height: '1px', flex: 1, background: P.gd }} />
+          <div style={{ height: '1px', flex: 1, background: M.gd }} />
         </div>
 
         <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
@@ -227,23 +237,23 @@ function CashOrderCard({
   const isCancelled = order.status === 'cancelled';
 
   return (
-    <div style={{ background: P.s, border: `1px solid ${P.br}`, borderRadius: '2px', padding: '16px' }}>
+    <div style={{ background: M.s, border: `1px solid ${M.br}`, borderRadius: '12px', padding: '16px', boxShadow: '0 2px 12px rgba(43,39,35,0.06)' }}>
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Banknote className="h-4 w-4" style={{ color: P.gp }} />
-            <span style={{ color: P.tp, fontFamily: CG, fontSize: '20px', fontWeight: 600, lineHeight: 1.1 }}>
+            <Banknote className="h-4 w-4" style={{ color: M.gp }} />
+            <span style={{ color: M.tp, fontFamily: CG, fontSize: '20px', fontWeight: 600, lineHeight: 1.1 }}>
               #{order.invoice_number}
             </span>
           </div>
           {order.item_description && (
-            <p style={{ color: P.ts, fontSize: '12px', marginTop: '4px', lineHeight: 1.4 }}>
+            <p style={{ color: M.ts, fontSize: '12px', marginTop: '4px', lineHeight: 1.4 }}>
               {order.item_description}
             </p>
           )}
           {order.order_date && (
-            <p style={{ color: P.ts, fontSize: '11px', marginTop: '2px' }}>
+            <p style={{ color: M.ts, fontSize: '11px', marginTop: '2px' }}>
               Order date {fmtDate(order.order_date)}
             </p>
           )}
@@ -253,39 +263,39 @@ function CashOrderCard({
 
       {/* Completed banner */}
       {isCompleted && (
-        <div className="mt-3 flex items-center gap-2" style={{ background: 'rgba(92,184,106,0.08)', border: '1px solid rgba(92,184,106,0.3)', borderRadius: '2px', padding: '8px 10px' }}>
-          <CheckCircle className="h-4 w-4" style={{ color: '#5CB86A' }} />
-          <span style={{ color: '#5CB86A', fontSize: '12px', fontWeight: 600 }}>🎉 Fully paid — thank you!</span>
+        <div className="mt-3 flex items-center gap-2" style={{ background: `hsl(${hslTriplets.success} / 0.10)`, border: `1px solid hsl(${hslTriplets.success} / 0.3)`, borderRadius: '8px', padding: '8px 10px' }}>
+          <CheckCircle className="h-4 w-4" style={{ color: M.success }} />
+          <span style={{ color: M.success, fontSize: '12px', fontWeight: 600 }}>🎉 Fully paid — thank you!</span>
         </div>
       )}
 
       {/* Cancelled banner */}
       {isCancelled && (
-        <div className="mt-3" style={{ background: 'rgba(100,100,100,0.08)', border: '1px solid #33333355', borderRadius: '2px', padding: '8px 10px' }}>
-          <span style={{ color: '#9A9A9A', fontSize: '12px', fontWeight: 600 }}>Order cancelled</span>
+        <div className="mt-3" style={{ background: M.s2, border: `1px solid ${M.br}`, borderRadius: '8px', padding: '8px 10px' }}>
+          <span style={{ color: M.ts, fontSize: '12px', fontWeight: 600 }}>Order cancelled</span>
           {order.cancellation_reason && (
-            <p style={{ color: P.ts, fontSize: '11px', marginTop: '2px' }}>{order.cancellation_reason}</p>
+            <p style={{ color: M.ts, fontSize: '11px', marginTop: '2px' }}>{order.cancellation_reason}</p>
           )}
         </div>
       )}
 
       {/* Amount block */}
-      <div className="mt-4 grid grid-cols-3" style={{ border: `1px solid ${P.br}`, borderRadius: '2px' }}>
+      <div className="mt-4 grid grid-cols-3" style={{ border: `1px solid ${M.br}`, borderRadius: '8px' }}>
         <div style={{ padding: '10px 8px', textAlign: 'center' }}>
-          <p style={{ color: P.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Total</p>
-          <p className="tabular-nums" style={{ color: P.tp, fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
+          <p style={{ color: M.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Total</p>
+          <p className="tabular-nums" style={{ color: M.tp, fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
             {fmt(order.total_amount, currency)}
           </p>
         </div>
-        <div style={{ padding: '10px 8px', textAlign: 'center', borderLeft: `1px solid ${P.br}`, borderRight: `1px solid ${P.br}` }}>
-          <p style={{ color: P.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Paid</p>
-          <p className="tabular-nums" style={{ color: '#5CB86A', fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
+        <div style={{ padding: '10px 8px', textAlign: 'center', borderLeft: `1px solid ${M.br}`, borderRight: `1px solid ${M.br}` }}>
+          <p style={{ color: M.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Paid</p>
+          <p className="tabular-nums" style={{ color: M.success, fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
             {fmt(order.total_paid, currency)}
           </p>
         </div>
         <div style={{ padding: '10px 8px', textAlign: 'center' }}>
-          <p style={{ color: P.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Remaining</p>
-          <p className="tabular-nums" style={{ color: P.gp, fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
+          <p style={{ color: M.ts, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Remaining</p>
+          <p className="tabular-nums" style={{ color: M.gp, fontSize: '13px', fontWeight: 600, marginTop: '3px' }}>
             {fmt(order.remaining_balance, currency)}
           </p>
         </div>
@@ -294,7 +304,7 @@ function CashOrderCard({
       {/* Service Status */}
       {order.service_jobs && order.service_jobs.length > 0 && (
         <div className="mt-4">
-          <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', fontWeight: 500, letterSpacing: '0.2em', textTransform: 'uppercase', color: P.ts, marginBottom: '12px' }}>Service Status</p>
+          <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', fontWeight: 500, letterSpacing: '0.2em', textTransform: 'uppercase', color: M.ts, marginBottom: '12px' }}>Service Status</p>
           <div>
             {order.service_jobs.map((job) => {
               const SERVICE_LABELS: Record<string, string> = {
@@ -302,26 +312,26 @@ function CashOrderCard({
                 change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
               };
               const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
-                'Received': { color: P.ts },
-                'In Progress': { color: P.gp },
-                'On Hold': { color: '#C9881E' },
-                'Cancelled': { color: P.ts, opacity: 0.6 },
-                'Completed': { color: '#5CB86A' },
+                'Received': { color: M.ts },
+                'In Progress': { color: M.gp },
+                'On Hold': { color: M.warning },
+                'Cancelled': { color: M.ts, opacity: 0.6 },
+                'Completed': { color: M.success },
               };
-              const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+              const badge = SERVICE_BADGE[job.status_label] ?? { color: M.ts };
               const timeline = `Received ${fmtDate(job.date_received)}` +
                 (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
                   : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
               return (
-                <div key={job.id} className="flex items-center justify-between py-3" style={{ borderBottom: `1px solid ${P.s2}` }}>
+                <div key={job.id} className="flex items-center justify-between py-3" style={{ borderBottom: `1px solid ${M.s2}` }}>
                   <div>
-                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '13px', color: P.tp, fontWeight: 500 }}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
-                    {job.service_description && <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '11px', color: P.ts, marginTop: '2px' }}>{job.service_description}</p>}
-                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '10px', color: P.ts, marginTop: '2px' }}>{timeline}</p>
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '13px', color: M.tp, fontWeight: 500 }}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                    {job.service_description && <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '11px', color: M.ts, marginTop: '2px' }}>{job.service_description}</p>}
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '10px', color: M.ts, marginTop: '2px' }}>{timeline}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '0 8px', borderRadius: '2px', border: `1px solid ${badge.color}`, color: badge.color, background: 'transparent', opacity: badge.opacity ?? 1 }}>{job.status_label}</span>
-                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '14px', fontWeight: 600, color: P.gp }}>{fmt(job.service_fee, currency)}</p>
+                    <span style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '0 8px', borderRadius: '999px', border: `1px solid ${badge.color}`, color: badge.color, background: 'transparent', opacity: badge.opacity ?? 1 }}>{job.status_label}</span>
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '14px', fontWeight: 600, color: M.gp }}>{fmt(job.service_fee, currency)}</p>
                   </div>
                 </div>
               );
@@ -333,12 +343,12 @@ function CashOrderCard({
       {/* Action — pending-submission banner takes precedence over the Submit button */}
       {isPending && pendingSubmission ? (
         <div
-          style={{ background: '#1a2a1a', border: '1px solid #22c55e', borderRadius: 8, padding: '10px 14px', marginTop: 12 }}
+          style={{ background: `hsl(${hslTriplets.success} / 0.10)`, border: `1px solid hsl(${hslTriplets.success} / 0.3)`, borderRadius: 8, padding: '10px 14px', marginTop: 12 }}
         >
-          <p style={{ color: '#22c55e', fontSize: 12, margin: 0 }}>
+          <p style={{ color: M.success, fontSize: 12, margin: 0, fontWeight: 600 }}>
             ⏳ Payment submitted — awaiting confirmation
           </p>
-          <p style={{ color: '#888', fontSize: 11, marginTop: 4 }}>
+          <p style={{ color: M.ts, fontSize: 11, marginTop: 4 }}>
             {fmt(Number(pendingSubmission.submitted_amount), currency)}
             {pendingSubmission.payment_method ? ` via ${methodLabel(pendingSubmission.payment_method)}` : ''}
           </p>
@@ -357,9 +367,9 @@ function CashOrderCard({
             style={{
               marginTop: 8,
               background: 'none',
-              border: '1px solid #666',
-              borderRadius: 6,
-              color: '#aaa',
+              border: `1px solid ${M.br}`,
+              borderRadius: 8,
+              color: M.ts,
               fontSize: 11,
               padding: '4px 10px',
               cursor: cancelling ? 'not-allowed' : 'pointer',
@@ -378,7 +388,7 @@ function CashOrderCard({
           onClick={onPay}
           className="w-full mt-3"
           style={{
-            background: P.gr, border: 'none', borderRadius: '2px', color: P.bg,
+            background: M.gr, border: 'none', borderRadius: '8px', color: M.onGold,
             height: '44px', fontFamily: 'Inter,sans-serif', fontSize: '12px',
             fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase',
             cursor: 'pointer',
@@ -389,41 +399,41 @@ function CashOrderCard({
       ) : null}
 
       {/* Payment history (collapsible, client-side filtered from props) */}
-      <div className="mt-3" style={{ borderTop: `1px solid ${P.br}`, paddingTop: '10px' }}>
+      <div className="mt-3" style={{ borderTop: `1px solid ${M.br}`, paddingTop: '10px' }}>
         <button
           type="button"
           onClick={() => setHistoryOpen(v => !v)}
           className="w-full flex items-center justify-between"
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
         >
-          <span style={{ color: P.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
+          <span style={{ color: M.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
             Payment History ({payments.length})
           </span>
           {historyOpen
-            ? <ChevronUp className="h-4 w-4" style={{ color: P.ts }} />
-            : <ChevronDown className="h-4 w-4" style={{ color: P.ts }} />}
+            ? <ChevronUp className="h-4 w-4" style={{ color: M.ts }} />
+            : <ChevronDown className="h-4 w-4" style={{ color: M.ts }} />}
         </button>
 
         {historyOpen && (
           <div className="mt-2 space-y-1.5">
             {payments.length === 0 ? (
-              <p style={{ color: P.ts, fontSize: '11px', fontStyle: 'italic' }}>No payments recorded yet.</p>
+              <p style={{ color: M.ts, fontSize: '11px', fontStyle: 'italic' }}>No payments recorded yet.</p>
             ) : (
               payments.map(p => (
                 <div
                   key={p.id}
-                  style={{ background: P.s2, border: `1px solid ${P.br}`, borderRadius: '2px', padding: '8px 10px' }}
+                  style={{ background: M.s2, border: `1px solid ${M.br}`, borderRadius: '8px', padding: '8px 10px' }}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="tabular-nums" style={{ color: P.tp, fontSize: '13px', fontWeight: 600 }}>
+                    <span className="tabular-nums" style={{ color: M.tp, fontSize: '13px', fontWeight: 600 }}>
                       {fmt(Number(p.amount_paid), p.currency || currency)}
                     </span>
-                    <span style={{ color: P.ts, fontSize: '10px' }}>{fmtDate(p.date_paid)}</span>
+                    <span style={{ color: M.ts, fontSize: '10px' }}>{fmtDate(p.date_paid)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    <span style={{ color: P.ts, fontSize: '10px' }}>{p.payment_method ? methodLabel(p.payment_method) : '—'}</span>
+                    <span style={{ color: M.ts, fontSize: '10px' }}>{p.payment_method ? methodLabel(p.payment_method) : '—'}</span>
                     {p.reference_number && (
-                      <span style={{ color: P.ts, fontSize: '10px' }}>· Ref {p.reference_number}</span>
+                      <span style={{ color: M.ts, fontSize: '10px' }}>· Ref {p.reference_number}</span>
                     )}
                   </div>
                 </div>
