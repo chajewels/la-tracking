@@ -143,3 +143,8 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
   - image_url on cash_order_items is a SNAPSHOT (captured at pick time,
     backfilled for existing rows) so the portal never needs read access to the
     Hub-internal products catalog.
+  - Thumbnails are click-to-zoom (2026-07-09): staff CashOrderDetail uses the
+    existing shadcn Dialog (Deco Ledger); the portal uses a Maison inline-style
+    full-screen overlay (tap-backdrop or × to close, image tap does not close;
+    portal-tokens only, no shadcn/Hub styling). Non-null images only; the null
+    placeholder is non-interactive.
