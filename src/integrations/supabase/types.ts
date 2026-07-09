@@ -183,6 +183,7 @@ export type Database = {
           cash_order_id: string
           created_at: string
           id: string
+          image_url: string | null
           line_total_jpy: number
           product_id: string | null
           quantity: number
@@ -195,6 +196,7 @@ export type Database = {
           cash_order_id: string
           created_at?: string
           id?: string
+          image_url?: string | null
           line_total_jpy: number
           product_id?: string | null
           quantity?: number
@@ -207,6 +209,7 @@ export type Database = {
           cash_order_id?: string
           created_at?: string
           id?: string
+          image_url?: string | null
           line_total_jpy?: number
           product_id?: string | null
           quantity?: number

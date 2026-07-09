@@ -112,6 +112,16 @@ interface CashOrderNoteRow {
   created_at: string;
 }
 
+interface CashOrderItemRow {
+  id: string;
+  title: string;
+  sku: string | null;
+  quantity: number;
+  unit_price_jpy: number;
+  line_total_jpy: number;
+  image_url: string | null;
+}
+
 function useCashOrderDetail(id: string | undefined) {
   return useQuery({
     queryKey: ['cash-order', id],
@@ -200,6 +210,23 @@ function useCashOrderNotes(orderId: string | undefined) {
   });
 }
 
+function useCashOrderItems(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-order-items', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('cash_order_items')
+        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url')
+        .eq('cash_order_id', orderId!)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return ((data || []) as unknown as CashOrderItemRow[]);
+    },
+  });
+}
+
 function useProfileName(userId: string | null | undefined) {
   return useQuery({
     queryKey: ['profile-name', userId],
@@ -279,6 +306,7 @@ export default function CashOrderDetail() {
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const [statementOpen, setStatementOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
+  const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
     const map = new Map<string, { url: string; sender: string }>();
@@ -903,6 +931,44 @@ export default function CashOrderDetail() {
             </Button>
           )}
         </div>
+
+        {/* Items — cash_order_items line items (Path A picker / Path B webhook);
+            falls back to the legacy item_description text when no rows exist */}
+        {(orderItems && orderItems.length > 0) ? (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground mb-3">Items</h3>
+            <div className="space-y-2">
+              {orderItems.map(li => (
+                <div key={li.id} className="flex items-center gap-3">
+                  {li.image_url ? (
+                    <img
+                      src={li.image_url}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded border border-border object-cover"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 shrink-0 rounded border border-border bg-muted" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-card-foreground">{li.title}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                      {li.sku && <span className="mr-2">SKU {li.sku}</span>}
+                      {li.quantity} × {formatCurrency(li.unit_price_jpy, currency)}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-right text-sm font-medium text-card-foreground tabular-nums">
+                    {formatCurrency(li.line_total_jpy, currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : order.item_description ? (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground mb-3">Items</h3>
+            <p className="text-sm text-card-foreground">{order.item_description}</p>
+          </div>
+        ) : null}
 
         {/* Loyalty Amount */}
         {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (

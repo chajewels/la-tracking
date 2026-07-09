@@ -30,6 +30,7 @@ interface CatalogProduct {
   price_jpy: number | null;
   inventory_quantity: number | null;
   status: string;
+  image_url: string | null;
 }
 
 // Local line item, written to public.cash_order_items after the order is created.
@@ -40,6 +41,7 @@ interface CashOrderLineItem {
   unit_price_jpy: number;
   quantity: number;
   line_total_jpy: number;
+  image_url: string | null;
 }
 
 // Status tint for the picker (products are pre-filtered to non-archived).
@@ -132,7 +134,7 @@ export default function NewCashOrder() {
     (async () => {
       const { data } = await supabase
         .from('products')
-        .select('id, title, sku, price_jpy, inventory_quantity, status')
+        .select('id, title, sku, price_jpy, inventory_quantity, status, image_url')
         .neq('status', 'archived')
         .order('title', { ascending: true });
       setCatalog((data ?? []) as CatalogProduct[]);
@@ -160,7 +162,7 @@ export default function NewCashOrder() {
         next[idx] = { ...next[idx], quantity, line_total_jpy: next[idx].unit_price_jpy * quantity };
         return next;
       }
-      return [...prev, { product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price }];
+      return [...prev, { product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price, image_url: p.image_url }];
     });
     markDirty();
   }, [markDirty]);
@@ -341,6 +343,7 @@ export default function NewCashOrder() {
               quantity: li.quantity,
               unit_price_jpy: li.unit_price_jpy,
               line_total_jpy: li.line_total_jpy,
+              image_url: li.image_url,
             })),
           );
           if (itemsErr) throw itemsErr;
@@ -550,6 +553,13 @@ export default function NewCashOrder() {
                             onClick={() => addLineItem(p)}
                             className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/60"
                           >
+                            {p.image_url && (
+                              <img
+                                src={p.image_url}
+                                alt=""
+                                className="h-9 w-9 shrink-0 rounded border border-border object-cover"
+                              />
+                            )}
                             <span className="min-w-0 flex-1">
                               <span className="flex items-center gap-2">
                                 <span className="truncate text-sm font-medium text-foreground">{p.title}</span>
@@ -581,6 +591,13 @@ export default function NewCashOrder() {
                 <div className="space-y-2">
                   {lineItems.map((li) => (
                     <div key={li.product_id} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                      {li.image_url && (
+                        <img
+                          src={li.image_url}
+                          alt=""
+                          className="h-9 w-9 shrink-0 rounded border border-border object-cover"
+                        />
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm text-foreground">{li.title}</div>
                         <div className="text-[11px] text-muted-foreground tabular-nums">
