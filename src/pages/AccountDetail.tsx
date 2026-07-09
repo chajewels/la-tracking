@@ -1149,7 +1149,12 @@ export default function AccountDetail() {
                   downpayment_amount: Number((account as any).downpayment_amount || 0),
                   currency: account.currency,
                   status: account.status,
+                  discount_amount: Number(account.discount_amount || 0),
+                  discount_type: account.discount_type,
+                  discount_value: account.discount_value,
+                  shipping_fee: Number(account.shipping_fee || 0),
                 }}
+                items={accountItems ?? []}
                 schedule={scheduleItems.map(s => ({
                   id: s.id,
                   installment_number: s.installment_number,

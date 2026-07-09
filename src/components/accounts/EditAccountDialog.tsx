@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatCurrency } from '@/lib/calculations';
+import { getConversionRate } from '@/lib/currency-converter';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Currency } from '@/lib/types';
 
@@ -35,11 +36,16 @@ interface EditAccountDialogProps {
     downpayment_amount: number;
     currency: string;
     status: string;
+    discount_amount: number;
+    discount_type: string | null;
+    discount_value: number | null;
+    shipping_fee: number;
   };
   schedule: ScheduleItem[];
+  items?: Array<{ unit_price_jpy: number; line_total_jpy: number; quantity: number }>;
 }
 
-export default function EditAccountDialog({ account, schedule }: EditAccountDialogProps) {
+export default function EditAccountDialog({ account, schedule, items }: EditAccountDialogProps) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
@@ -54,6 +60,22 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
   const [downpayment, setDownpayment] = useState('');
   const [currencyValue, setCurrencyValue] = useState<'PHP' | 'JPY'>(account.currency as 'PHP' | 'JPY');
 
+  // Discount & shipping (descriptive; account currency). Model 1 — these do NOT
+  // auto-change total_amount; the admin explicitly clicks "Apply to total".
+  const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>(account.discount_type === 'percent' ? 'percent' : 'amount');
+  const [discountInput, setDiscountInput] = useState(account.discount_type ? String(account.discount_value ?? '') : '');
+  const [shippingInput, setShippingInput] = useState(account.shipping_fee ? String(account.shipping_fee) : '');
+
+  // Items subtotal (line items are stored in JPY) → account currency.
+  const itemsSubtotalJpy = (items ?? []).reduce((s, li) => s + (li.line_total_jpy || li.unit_price_jpy * li.quantity), 0);
+  const itemsSubtotalAcct = currency === 'PHP' ? Math.round(itemsSubtotalJpy * getConversionRate()) : itemsSubtotalJpy;
+  const discountAmount = discountMode === 'percent'
+    ? Math.round(itemsSubtotalAcct * (parseFloat(discountInput) || 0) / 100)
+    : Math.round(parseFloat(discountInput) || 0);
+  const shippingFee = Math.round(parseFloat(shippingInput) || 0);
+  const reconciledTotal = Math.max(0, itemsSubtotalAcct - discountAmount + shippingFee);
+  const showReconciliation = (items ?? []).length > 0 || discountInput !== '' || shippingInput !== '';
+
   // Schedule editing
   const [scheduleEdits, setScheduleEdits] = useState<Record<string, { due_date?: string; base_amount?: string }>>({});
   const [newInstallments, setNewInstallments] = useState<Array<{ due_date: string; base_amount: string }>>([]);
@@ -64,6 +86,9 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
     setNotes(account.notes || '');
     setDownpayment(String(account.downpayment_amount));
     setCurrencyValue(account.currency as 'PHP' | 'JPY');
+    setDiscountMode(account.discount_type === 'percent' ? 'percent' : 'amount');
+    setDiscountInput(account.discount_type ? String(account.discount_value ?? '') : '');
+    setShippingInput(account.shipping_fee ? String(account.shipping_fee) : '');
     setScheduleEdits({});
     setNewInstallments([]);
   }, [account]);
@@ -143,6 +168,11 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
       if (!isNaN(newDp) && newDp !== account.downpayment_amount) {
         accountUpdates.downpayment_amount = Math.round(newDp * 100) / 100;
       }
+      // Discount & shipping (descriptive — persisted independently of total_amount).
+      accountUpdates.discount_amount = discountAmount;
+      accountUpdates.discount_type = discountInput === '' ? null : discountMode;
+      accountUpdates.discount_value = discountInput === '' ? null : (parseFloat(discountInput) || 0);
+      accountUpdates.shipping_fee = shippingFee;
       // Defensive guard: non-admins can never write total_amount from this dialog
       if (!isAdmin) delete (accountUpdates as any).total_amount;
 
@@ -373,6 +403,119 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
                 placeholder="Account notes..."
                 disabled={isDisabledStatus}
               />
+            </div>
+
+            {/* Discount & Shipping (descriptive — Model 1: does not auto-change
+                the total; admin explicitly clicks "Apply to total") */}
+            <div className="space-y-3 border-t border-border pt-4">
+              <h5 className="text-xs font-semibold text-card-foreground">Discount &amp; Shipping</h5>
+              {isAdmin ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Discount</Label>
+                      <div className="flex rounded-md border border-border overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setDiscountMode('amount')}
+                          className={`px-2 py-0.5 text-[11px] ${discountMode === 'amount' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                        >
+                          {currency === 'PHP' ? '₱' : '¥'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDiscountMode('percent')}
+                          className={`px-2 py-0.5 text-[11px] ${discountMode === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                        >
+                          %
+                        </button>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        {discountMode === 'percent' ? '%' : (currency === 'PHP' ? '₱' : '¥')}
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={discountInput}
+                        onChange={(e) => setDiscountInput(e.target.value)}
+                        placeholder="0"
+                        className="h-9 text-sm bg-background pl-6 tabular-nums"
+                        disabled={isDisabledStatus}
+                      />
+                    </div>
+                    {discountMode === 'percent' && (
+                      <p className="text-[10px] text-muted-foreground">of items subtotal</p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Shipping fee</Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        {currency === 'PHP' ? '₱' : '¥'}
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={shippingInput}
+                        onChange={(e) => setShippingInput(e.target.value)}
+                        placeholder="0"
+                        className="h-9 text-sm bg-background pl-6 tabular-nums"
+                        disabled={isDisabledStatus}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div>
+                    Discount:{' '}
+                    {account.discount_type
+                      ? (account.discount_type === 'percent'
+                          ? `${account.discount_value}% (${formatCurrency(account.discount_amount, currency)})`
+                          : formatCurrency(account.discount_amount, currency))
+                      : '—'}
+                  </div>
+                  <div>Shipping: {account.shipping_fee ? formatCurrency(account.shipping_fee, currency) : '—'}</div>
+                </div>
+              )}
+
+              {/* Reconciliation readout — account currency */}
+              {showReconciliation && (
+                <div className="rounded-lg border border-border bg-background p-3 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Items subtotal</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(itemsSubtotalAcct, currency)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">− Discount</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(discountAmount, currency)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">+ Shipping</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(shippingFee, currency)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-1 font-medium">
+                    <span className="text-card-foreground">= Reconciled</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(reconciledTotal, currency)}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-muted-foreground">Current total: {formatCurrency(account.total_amount, currency)}</span>
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                        onClick={() => setTotalAmount(String(reconciledTotal))}
+                        disabled={isDisabledStatus}
+                      >
+                        Apply to total
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
