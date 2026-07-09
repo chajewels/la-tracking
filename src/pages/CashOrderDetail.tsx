@@ -543,6 +543,8 @@ export default function CashOrderDetail() {
   // Typed-confirmation gates (Phase 5) — arm existing buttons only.
   const [cancelArmed, setCancelArmed] = useState(false);
   const [voidArmed, setVoidArmed] = useState(false);
+  // Items image zoom
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   // Void dialog
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
@@ -944,7 +946,8 @@ export default function CashOrderDetail() {
                     <img
                       src={li.image_url}
                       alt=""
-                      className="h-12 w-12 shrink-0 rounded border border-border object-cover"
+                      onClick={() => setZoomImage(li.image_url)}
+                      className="h-12 w-12 shrink-0 cursor-pointer rounded border border-border object-cover"
                     />
                   ) : (
                     <div className="h-12 w-12 shrink-0 rounded border border-border bg-muted" />
@@ -1529,6 +1532,13 @@ export default function CashOrderDetail() {
               {voiding ? 'Voiding…' : 'Confirm Void'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Item image zoom */}
+      <Dialog open={!!zoomImage} onOpenChange={(open) => { if (!open) setZoomImage(null); }}>
+        <DialogContent className="max-w-2xl p-2 bg-card border-border">
+          {zoomImage && <img src={zoomImage} alt="" className="w-full h-auto rounded-lg object-contain max-h-[80vh]" />}
         </DialogContent>
       </Dialog>
     </AppLayout>

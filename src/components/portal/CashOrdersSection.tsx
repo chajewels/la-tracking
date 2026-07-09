@@ -232,6 +232,7 @@ function CashOrderCard({
   const currency = order.currency;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [itemsOpen, setItemsOpen] = useState(false);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
   const isPending = order.status === 'pending';
@@ -425,7 +426,8 @@ function CashOrderCard({
                     <img
                       src={item.image_url}
                       alt=""
-                      style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, objectFit: 'cover', flexShrink: 0 }}
+                      onClick={() => setZoomImage(item.image_url)}
+                      style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
                     />
                   ) : (
                     <div style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, background: M.s2, flexShrink: 0 }} />
@@ -495,6 +497,26 @@ function CashOrderCard({
           </div>
         )}
       </div>
+
+      {/* Item image zoom — Maison overlay (tap backdrop or × to close) */}
+      {zoomImage && (
+        <div
+          onClick={() => setZoomImage(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(43,39,35,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', cursor: 'zoom-out' }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
+            aria-label="Close"
+            style={{ position: 'absolute', top: '16px', right: '16px', width: '40px', height: '40px', borderRadius: '9999px', background: M.s, border: `1px solid ${M.br}`, color: M.tp, fontSize: '20px', lineHeight: 1, cursor: 'pointer' }}
+          >×</button>
+          <img
+            src={zoomImage}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
+          />
+        </div>
+      )}
     </div>
   );
 }
