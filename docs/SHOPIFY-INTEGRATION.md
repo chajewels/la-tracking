@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 3 complete (2026-07-09) — Path A picker + line-item display (staff + portal) live & verified. Catalog sync live. Design locked.
+Status: Phase 3 complete + layaway picker & AFB shipped (2026-07-09). Path A picker + line-item display live (cash + layaway, staff + portal, click-to-zoom). Account Financial Breakdown (discount/shipping) live on both account types. Catalog sync live. Design locked.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -148,3 +148,22 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
     full-screen overlay (tap-backdrop or × to close, image tap does not close;
     portal-tokens only, no shadcn/Hub styling). Non-null images only; the null
     placeholder is non-interactive.
+
+## 13. Layaway picker + Account Financial Breakdown (2026-07-09)
+  - Layaway picker: product picker added to NewAccount (mirrors the cash picker),
+    writing layaway_account_items client-side after create-layaway-account returns
+    account.id. No source_channel (layaway has none). Staff display: Items card +
+    click-to-zoom on AccountDetail (items shown in ¥, catalog currency). Portal
+    display: "View Items" toggle + zoom on the layaway account CARD in the portal
+    list (matching the cash-order card), items shown in the ACCOUNT currency
+    (JPY→PHP converted for display). Edge function customer-portal nests
+    layaway_account_items into the accounts payload.
+  - Currency-correctness: both pickers (cash + layaway) now convert the JPY items
+    subtotal to the account currency when suggesting total_amount (PHP = JPY × rate,
+    live rate from system_settings.php_jpy_rate). Items stay JPY; the suggested
+    total is in account currency. Fixed a ~380× yen-as-pesos error on PHP accounts.
+  - AFB (discount + shipping): see SCHEMA-FACTS "AFB" entry. Descriptive breakdown
+    on both account types, creation + admin-gated edit, total stays authoritative.
+  - Display currency rule: staff see items in ¥ (catalog truth); customers see items
+    in their account currency (converted). Item tables store JPY; conversion is
+    display-only.
