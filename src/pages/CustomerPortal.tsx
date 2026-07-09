@@ -14,7 +14,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import {
-  AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
+  AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, ChevronDown, ChevronUp, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
   User, Pencil, Save, Copy, Phone, Mail, LogOut,
@@ -40,6 +40,7 @@ import {
 import { normalizeMethod, methodCurrency, methodLabel } from '@/lib/payment-method-registry';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
+import { getConversionRate } from '@/lib/currency-converter';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
@@ -120,6 +121,7 @@ interface PortalAccount {
   }>;
   services: Array<{ service_type: string; description: string | null; amount: number; currency: string }>;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
+  items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
   submissions: Submission[];
 }
 
@@ -1569,6 +1571,13 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
   const isForfeited = account.status === 'forfeited';
 
+  // Line items (Shopify picker rows). Stored in JPY; displayed in the account
+  // currency (PHP = JPY × rate) so they match the rest of the card.
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const rate = getConversionRate();
+  const toAcct = (jpy: number) => account.currency === 'PHP' ? Math.round(jpy * rate) : jpy;
+
   const [extModalOpen, setExtModalOpen] = useState(false);
   const [extReason, setExtReason] = useState('');
   const [extSubmitting, setExtSubmitting] = useState(false);
@@ -1761,7 +1770,58 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'overview' && (
-          <OverviewTab account={account} />
+          <>
+            <OverviewTab account={account} />
+            {account.items && account.items.length > 0 && (
+              <div style={{ borderTop: `1px solid ${P.br}`, paddingTop: '12px', marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setItemsOpen(v => !v)}
+                  className="w-full flex items-center justify-between"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  <span style={{ color: P.ts, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
+                    View Items ({account.items.length})
+                  </span>
+                  {itemsOpen
+                    ? <ChevronUp className="h-4 w-4" style={{ color: P.ts }} />
+                    : <ChevronDown className="h-4 w-4" style={{ color: P.ts }} />}
+                </button>
+                {itemsOpen && (
+                  <div className="mt-3 space-y-2">
+                    {account.items.map(item => (
+                      <div key={item.id} className="flex items-center gap-3">
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt=""
+                            onClick={() => setZoomImage(item.image_url)}
+                            style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${P.br}`, objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
+                          />
+                        ) : (
+                          <div style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${P.br}`, background: P.s2, flexShrink: 0 }} />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate" style={{ color: P.tp, fontFamily: CG, fontSize: '14px', fontWeight: 600, lineHeight: 1.2 }}>
+                            {item.title}
+                          </div>
+                          {item.sku && (
+                            <div style={{ color: P.ts, fontSize: '11px', marginTop: '1px' }}>SKU {item.sku}</div>
+                          )}
+                          <div style={{ color: P.ts, fontSize: '12px', marginTop: '1px' }}>
+                            {item.quantity} × {fmt(toAcct(item.unit_price_jpy), account.currency)}
+                          </div>
+                        </div>
+                        <span className="tabular-nums shrink-0" style={{ color: P.tp, fontSize: '13px', fontWeight: 600 }}>
+                          {fmt(toAcct(item.line_total_jpy), account.currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
         {activeTab === 'pay' && canPay && (
           <PayNowTab
@@ -1825,6 +1885,26 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Item image zoom — tap backdrop or × to close; image tap does not close */}
+      {zoomImage && (
+        <div
+          onClick={() => setZoomImage(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(43,39,35,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', cursor: 'zoom-out' }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
+            aria-label="Close"
+            style={{ position: 'absolute', top: '16px', right: '16px', width: '40px', height: '40px', borderRadius: '9999px', background: P.s, border: `1px solid ${P.br}`, color: P.tp, fontSize: '20px', lineHeight: 1, cursor: 'pointer' }}
+          >×</button>
+          <img
+            src={zoomImage}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
+          />
         </div>
       )}
     </div>
