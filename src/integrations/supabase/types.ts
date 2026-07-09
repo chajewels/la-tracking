@@ -249,6 +249,9 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          discount_amount: number | null
+          discount_type: string | null
+          discount_value: number | null
           expired_at: string | null
           expires_at: string | null
           id: string
@@ -260,6 +263,7 @@ export type Database = {
           notes: string | null
           order_date: string
           remaining_balance: number
+          shipping_fee: number | null
           source_channel: string
           status: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -279,6 +283,9 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          discount_amount?: number | null
+          discount_type?: string | null
+          discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
           id?: string
@@ -290,6 +297,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance: number
+          shipping_fee?: number | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -309,6 +317,9 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          discount_amount?: number | null
+          discount_type?: string | null
+          discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
           id?: string
@@ -320,6 +331,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance?: number
+          shipping_fee?: number | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount?: number
