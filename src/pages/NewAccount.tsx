@@ -13,6 +13,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
+import { fetchPhpJpyRate } from '@/lib/promo-media';
+import { getConversionRate } from '@/lib/currency-converter';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomers, useAccountsLight, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
@@ -119,6 +121,10 @@ export default function NewAccount() {
   // items. total_amount is authoritative — it drives the installment schedule.
   // A URL-seeded amount (AI command) counts as already-set.
   const [totalAmountManuallyEdited, setTotalAmountManuallyEdited] = useState(!!urlAmount);
+  // Live PHP↔JPY rate for the auto-suggest (catalog prices are JPY; a PHP
+  // account suggests total = JPY subtotal × rate). Default to the localStorage
+  // rate until the live system_settings value resolves on mount.
+  const [phpJpyRate, setPhpJpyRate] = useState<number>(() => getConversionRate());
 
   // Loyalty-only product amount field is admin/finance only.
   const { roles } = useAuth();
@@ -262,13 +268,24 @@ export default function NewAccount() {
     markDirty();
   }, [markDirty]);
 
+  // Resolve the live php_jpy_rate once on mount (falls back to the default).
+  useEffect(() => {
+    let active = true;
+    fetchPhpJpyRate().then((r) => { if (active) setPhpJpyRate(r); });
+    return () => { active = false; };
+  }, []);
+
   // Auto-suggest total_amount from the items subtotal until the user edits the
-  // total field. total_amount stays authoritative & fully editable (it drives
-  // the installment schedule — never force it).
+  // total field. Catalog prices are JPY, so a PHP account suggests the
+  // converted total (PHP = JPY × rate); JPY passes through. total_amount stays
+  // authoritative & fully editable (it drives the installment schedule — never
+  // force it). Recomputes on currency toggle unless the user edited the total.
   useEffect(() => {
     if (totalAmountManuallyEdited || lineItems.length === 0) return;
-    setTotalAmount(String(lineItems.reduce((s, li) => s + li.line_total_jpy, 0)));
-  }, [lineItems, totalAmountManuallyEdited]);
+    const jpySubtotal = lineItems.reduce((s, li) => s + li.line_total_jpy, 0);
+    const suggested = currency === 'PHP' ? Math.round(jpySubtotal * phpJpyRate) : jpySubtotal;
+    setTotalAmount(String(suggested));
+  }, [lineItems, totalAmountManuallyEdited, currency, phpJpyRate]);
 
   // Debounced customer search — query customers by full_name ILIKE.
   // Runs on every keystroke (no minimum char requirement for CJK support);
@@ -967,7 +984,14 @@ export default function NewAccount() {
                   ))}
                   <div className="flex items-center justify-between border-t border-border/40 pt-2 text-sm">
                     <span className="text-muted-foreground">Items subtotal</span>
-                    <span className="font-semibold text-card-foreground tabular-nums">{formatCurrency(itemsSubtotal, 'JPY')}</span>
+                    <span className="text-right">
+                      <span className="font-semibold text-card-foreground tabular-nums">{formatCurrency(itemsSubtotal, 'JPY')}</span>
+                      {currency === 'PHP' && (
+                        <span className="block text-[11px] text-muted-foreground tabular-nums">
+                          ≈ {formatCurrency(Math.round(itemsSubtotal * phpJpyRate), 'PHP')} at current rate
+                        </span>
+                      )}
+                    </span>
                   </div>
                 </div>
               )}

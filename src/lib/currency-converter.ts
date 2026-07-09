@@ -38,6 +38,12 @@ export function phpToJpy(phpAmount: number): number {
   return Math.round(phpAmount / rate);
 }
 
+/** Convert JPY to PHP. Formula: PHP = JPY × rate. Rounded to whole peso. */
+export function jpyToPhp(jpyAmount: number): number {
+  const rate = getConversionRate();
+  return Math.round(jpyAmount * rate);
+}
+
 /**
  * Convert any amount to JPY for consolidated view.
  * JPY amounts pass through unchanged.

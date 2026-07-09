@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
+import { fetchPhpJpyRate } from '@/lib/promo-media';
+import { getConversionRate } from '@/lib/currency-converter';
 import { useCustomers, DbCustomer } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -97,6 +99,10 @@ export default function NewCashOrder() {
   // Once the user types in the Total Amount field, stop auto-suggesting from
   // items. A URL-seeded amount (AI command) counts as already-set.
   const [totalAmountManuallyEdited, setTotalAmountManuallyEdited] = useState(!!urlAmount);
+  // Live PHP↔JPY rate for the auto-suggest (catalog prices are JPY; a PHP order
+  // suggests total = JPY subtotal × rate). Default to the localStorage rate
+  // until the live system_settings value resolves on mount.
+  const [phpJpyRate, setPhpJpyRate] = useState<number>(() => getConversionRate());
 
   // Loyalty tier of the selected customer. Non-null => the customer is a
   // loyalty member (any tier) and Loyalty Product Amount (JPY) is required.
@@ -182,12 +188,24 @@ export default function NewCashOrder() {
     markDirty();
   }, [markDirty]);
 
+  // Resolve the live php_jpy_rate once on mount (falls back to the default).
+  useEffect(() => {
+    let active = true;
+    fetchPhpJpyRate().then((r) => { if (active) setPhpJpyRate(r); });
+    return () => { active = false; };
+  }, []);
+
   // Auto-suggest the total from the items subtotal until the user edits the
-  // total field. total_amount stays authoritative & fully editable (shipping/fees).
+  // total field. Catalog prices are JPY, so a PHP order suggests the converted
+  // total (PHP = JPY × rate); JPY passes through. total_amount stays
+  // authoritative & fully editable (shipping/fees). Recomputes on currency
+  // toggle unless the user has already edited the total.
   useEffect(() => {
     if (totalAmountManuallyEdited || lineItems.length === 0) return;
-    setTotalAmount(String(lineItems.reduce((s, li) => s + li.line_total_jpy, 0)));
-  }, [lineItems, totalAmountManuallyEdited]);
+    const jpySubtotal = lineItems.reduce((s, li) => s + li.line_total_jpy, 0);
+    const suggested = currency === 'PHP' ? Math.round(jpySubtotal * phpJpyRate) : jpySubtotal;
+    setTotalAmount(String(suggested));
+  }, [lineItems, totalAmountManuallyEdited, currency, phpJpyRate]);
 
   // Customer search — same debounced pattern as NewAccount
   useEffect(() => {
@@ -627,7 +645,14 @@ export default function NewCashOrder() {
                   ))}
                   <div className="flex items-center justify-between border-t border-border/40 pt-2 text-sm">
                     <span className="text-muted-foreground">Items subtotal</span>
-                    <span className="font-semibold text-card-foreground tabular-nums">{formatCurrency(itemsSubtotal, 'JPY')}</span>
+                    <span className="text-right">
+                      <span className="font-semibold text-card-foreground tabular-nums">{formatCurrency(itemsSubtotal, 'JPY')}</span>
+                      {currency === 'PHP' && (
+                        <span className="block text-[11px] text-muted-foreground tabular-nums">
+                          ≈ {formatCurrency(Math.round(itemsSubtotal * phpJpyRate), 'PHP')} at current rate
+                        </span>
+                      )}
+                    </span>
                   </div>
                 </div>
               )}
