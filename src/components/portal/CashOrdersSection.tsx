@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
 import { methodLabel } from '@/lib/payment-method-registry';
+import { getConversionRate } from '@/lib/currency-converter';
 import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
 
 interface PortalPendingSubmission {
@@ -234,6 +235,9 @@ function CashOrderCard({
   onCancelSubmission: (submissionId: string) => Promise<void>;
 }) {
   const currency = order.currency;
+  // Line items are stored in JPY; customers see them in the order currency
+  // (PHP = JPY × rate). Mirrors the layaway portal AccountCard.
+  const toAcct = (jpy: number) => currency === 'PHP' ? Math.round(jpy * getConversionRate()) : jpy;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [itemsOpen, setItemsOpen] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
@@ -465,11 +469,11 @@ function CashOrderCard({
                       <div style={{ color: M.ts, fontSize: '11px', marginTop: '1px' }}>SKU {item.sku}</div>
                     )}
                     <div style={{ color: M.ts, fontSize: '12px', marginTop: '1px' }}>
-                      {item.quantity} × {fmt(item.unit_price_jpy, currency)}
+                      {item.quantity} × {fmt(toAcct(item.unit_price_jpy), currency)}
                     </div>
                   </div>
                   <span className="tabular-nums shrink-0" style={{ color: M.tp, fontSize: '13px', fontWeight: 600 }}>
-                    {fmt(item.line_total_jpy, currency)}
+                    {fmt(toAcct(item.line_total_jpy), currency)}
                   </span>
                 </div>
               ))}

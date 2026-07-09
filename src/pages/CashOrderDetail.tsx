@@ -993,11 +993,11 @@ export default function CashOrderDetail() {
                     <div className="truncate text-sm text-card-foreground">{li.title}</div>
                     <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                       {li.sku && <span className="mr-2">SKU {li.sku}</span>}
-                      {li.quantity} × {formatCurrency(li.unit_price_jpy, currency)}
+                      {li.quantity} × {formatCurrency(li.unit_price_jpy, 'JPY')}
                     </div>
                   </div>
                   <span className="shrink-0 text-right text-sm font-medium text-card-foreground tabular-nums">
-                    {formatCurrency(li.line_total_jpy, currency)}
+                    {formatCurrency(li.line_total_jpy, 'JPY')}
                   </span>
                 </div>
               ))}
