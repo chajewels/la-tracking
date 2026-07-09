@@ -1439,6 +1439,35 @@ export default function AccountDetail() {
           </div>
         )}
 
+        {/* Financial Breakdown — recorded discount / shipping (account currency).
+            Lists the recorded values + the authoritative total; no reconciliation
+            equation is asserted (staff may override the total). */}
+        {(Number(account.discount_amount || 0) > 0 || Number(account.shipping_fee || 0) > 0) && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground mb-3">Financial Breakdown</h3>
+            <div className="space-y-2 text-sm">
+              {Number(account.discount_amount || 0) > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Discount{account.discount_type === 'percent' ? ` (${account.discount_value}%)` : ''}
+                  </span>
+                  <span className="tabular-nums text-destructive">−{formatCurrency(Number(account.discount_amount), currency)}</span>
+                </div>
+              )}
+              {Number(account.shipping_fee || 0) > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Shipping fee</span>
+                  <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(account.shipping_fee), currency)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-border pt-2 font-semibold">
+                <span className="text-card-foreground">Total</span>
+                <span className="tabular-nums text-card-foreground">{formatCurrency(Number(account.total_amount), currency)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Payment Timeline + Statement (Phase 4) — display-only */}
         <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
           <div className="flex items-center justify-between gap-2 pb-3 hairline-b mb-4">

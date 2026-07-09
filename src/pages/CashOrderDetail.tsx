@@ -1010,6 +1010,35 @@ export default function CashOrderDetail() {
           </div>
         ) : null}
 
+        {/* Financial Breakdown — recorded discount / shipping (order currency).
+            Lists the recorded values + the authoritative total; no reconciliation
+            equation is asserted. */}
+        {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0) && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground mb-3">Financial Breakdown</h3>
+            <div className="space-y-2 text-sm">
+              {Number(order.discount_amount || 0) > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Discount{order.discount_type === 'percent' ? ` (${order.discount_value}%)` : ''}
+                  </span>
+                  <span className="tabular-nums text-destructive">−{formatCurrency(Number(order.discount_amount), currency)}</span>
+                </div>
+              )}
+              {Number(order.shipping_fee || 0) > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Shipping fee</span>
+                  <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(order.shipping_fee), currency)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-border pt-2 font-semibold">
+                <span className="text-card-foreground">Total</span>
+                <span className="tabular-nums text-card-foreground">{formatCurrency(Number(order.total_amount), currency)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Loyalty Amount */}
         {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
           <div className="rounded-xl border border-primary/30 bg-card p-5">
