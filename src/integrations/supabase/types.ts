@@ -1244,6 +1244,63 @@ export type Database = {
         }
         Relationships: []
       }
+      layaway_account_items: {
+        Row: {
+          account_id: string
+          created_at: string
+          id: string
+          image_url: string | null
+          line_total_jpy: number
+          product_id: string | null
+          quantity: number
+          shopify_line_item_id: string | null
+          sku: string | null
+          title: string
+          unit_price_jpy: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          line_total_jpy: number
+          product_id?: string | null
+          quantity?: number
+          shopify_line_item_id?: string | null
+          sku?: string | null
+          title: string
+          unit_price_jpy: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          line_total_jpy?: number
+          product_id?: string | null
+          quantity?: number
+          shopify_line_item_id?: string | null
+          sku?: string | null
+          title?: string
+          unit_price_jpy?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "layaway_account_items_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_account_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       layaway_accounts: {
         Row: {
           accepted_by_user_id: string | null
