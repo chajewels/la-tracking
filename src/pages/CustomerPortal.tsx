@@ -122,6 +122,10 @@ interface PortalAccount {
   services: Array<{ service_type: string; description: string | null; amount: number; currency: string }>;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
+  discount_amount?: number;
+  discount_type?: string | null;
+  discount_value?: number | null;
+  shipping_fee?: number;
   submissions: Submission[];
 }
 
@@ -1422,6 +1426,27 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
           </div>
         ))}
       </div>
+
+      {/* Breakdown — recorded discount / shipping (account currency). Explains
+          the total above; no reconciliation equation asserted. */}
+      {(Number(account.discount_amount || 0) > 0 || Number(account.shipping_fee || 0) > 0) && (
+        <div className="mt-3 space-y-1">
+          {Number(account.discount_amount || 0) > 0 && (
+            <div className="flex items-center justify-between" style={{fontSize:'12px'}}>
+              <span style={{color:M.ts}}>
+                Discount{account.discount_type === 'percent' ? ` (${account.discount_value}%)` : ''}
+              </span>
+              <span className="tabular-nums" style={{color:M.success}}>−{fmt(Number(account.discount_amount), currency)}</span>
+            </div>
+          )}
+          {Number(account.shipping_fee || 0) > 0 && (
+            <div className="flex items-center justify-between" style={{fontSize:'12px'}}>
+              <span style={{color:M.ts}}>Shipping</span>
+              <span className="tabular-nums" style={{color:M.tp}}>+{fmt(Number(account.shipping_fee), currency)}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Completed: compact summary + collapsible payment history */}
       {isCompleted ? (

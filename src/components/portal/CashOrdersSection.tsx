@@ -52,6 +52,10 @@ export interface PortalCashOrder {
   created_at: string;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
+  discount_amount?: number;
+  discount_type?: string | null;
+  discount_value?: number | null;
+  shipping_fee?: number;
 }
 
 export interface PortalCashPayment {
@@ -303,6 +307,27 @@ function CashOrderCard({
           </p>
         </div>
       </div>
+
+      {/* Breakdown — recorded discount / shipping (order currency). Explains the
+          total shown above; no reconciliation equation asserted. */}
+      {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0) && (
+        <div className="mt-3 space-y-1">
+          {Number(order.discount_amount || 0) > 0 && (
+            <div className="flex items-center justify-between" style={{ fontSize: '12px' }}>
+              <span style={{ color: M.ts }}>
+                Discount{order.discount_type === 'percent' ? ` (${order.discount_value}%)` : ''}
+              </span>
+              <span className="tabular-nums" style={{ color: M.success }}>−{fmt(Number(order.discount_amount), currency)}</span>
+            </div>
+          )}
+          {Number(order.shipping_fee || 0) > 0 && (
+            <div className="flex items-center justify-between" style={{ fontSize: '12px' }}>
+              <span style={{ color: M.ts }}>Shipping</span>
+              <span className="tabular-nums" style={{ color: M.tp }}>+{fmt(Number(order.shipping_fee), currency)}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Service Status */}
       {order.service_jobs && order.service_jobs.length > 0 && (
