@@ -51,6 +51,7 @@ export interface PortalCashOrder {
   completed_at: string | null;
   created_at: string;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
+  items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
 }
 
 export interface PortalCashPayment {
@@ -230,6 +231,7 @@ function CashOrderCard({
 }) {
   const currency = order.currency;
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   const isPending = order.status === 'pending';
@@ -397,6 +399,57 @@ function CashOrderCard({
           Submit Payment
         </button>
       ) : null}
+
+      {/* Items (collapsible) — only when the order carries line items */}
+      {order.items && order.items.length > 0 && (
+        <div className="mt-3" style={{ borderTop: `1px solid ${M.br}`, paddingTop: '10px' }}>
+          <button
+            type="button"
+            onClick={() => setItemsOpen(v => !v)}
+            className="w-full flex items-center justify-between"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            <span style={{ color: M.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
+              View Items ({order.items.length})
+            </span>
+            {itemsOpen
+              ? <ChevronUp className="h-4 w-4" style={{ color: M.ts }} />
+              : <ChevronDown className="h-4 w-4" style={{ color: M.ts }} />}
+          </button>
+
+          {itemsOpen && (
+            <div className="mt-2 space-y-1.5">
+              {order.items.map(item => (
+                <div key={item.id} className="flex items-center gap-3">
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt=""
+                      style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, objectFit: 'cover', flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, background: M.s2, flexShrink: 0 }} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate" style={{ color: M.tp, fontFamily: CG, fontSize: '14px', fontWeight: 600, lineHeight: 1.2 }}>
+                      {item.title}
+                    </div>
+                    {item.sku && (
+                      <div style={{ color: M.ts, fontSize: '11px', marginTop: '1px' }}>SKU {item.sku}</div>
+                    )}
+                    <div style={{ color: M.ts, fontSize: '12px', marginTop: '1px' }}>
+                      {item.quantity} × {fmt(item.unit_price_jpy, currency)}
+                    </div>
+                  </div>
+                  <span className="tabular-nums shrink-0" style={{ color: M.tp, fontSize: '13px', fontWeight: 600 }}>
+                    {fmt(item.line_total_jpy, currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Payment history (collapsible, client-side filtered from props) */}
       <div className="mt-3" style={{ borderTop: `1px solid ${M.br}`, paddingTop: '10px' }}>
