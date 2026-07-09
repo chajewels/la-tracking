@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 2 complete (2026-07-08) — line-item schema in place. Catalog sync live. Design locked.
+Status: Phase 3 complete (2026-07-09) — Path A picker + line-item display (staff + portal) live & verified. Catalog sync live. Design locked.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -91,8 +91,14 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
             hub_manual (zero migration). RLS mirrors cash_payments
             (admin_all / staff_admin_insert / staff_finance_read). Schema
             only — no writer yet (Phase 3 picker + Phase 4 webhook write here).
-  Phase 3 — Path A: product-picker in NewCashOrder sourcing the synced catalog
-            (incl. draft & unlisted).
+  Phase 3 (DONE 2026-07-09) — Path A product picker LIVE in NewCashOrder
+            (writes cash_order_items client-side, source_channel=social_manual
+            best-effort, total_amount stays authoritative). Line-item DISPLAY
+            also shipped: staff CashOrderDetail "Items" card + customer portal
+            "View Items" toggle (Maison-themed, shows only when items exist).
+            image_url snapshotted onto cash_order_items (durable; keeps portal
+            off the Hub-internal catalog). Verified end-to-end: Test-0010 →
+            A4724 anklet + image visible on both staff and portal surfaces.
   Phase 4 — Path B: storefront webhook receiver (HMAC -> idempotency -> map ->
             cash_order + line items + orders/paid payment + loyalty on paid).
   Phase 5 — Unified per-customer order view + webhook registration + go-live.
@@ -119,3 +125,21 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
     edits; whether pure inventory edits are caught by DELTA mode (vs periodic
     full) is unproven. At 173 products a periodic full sync is cheap and may
     suffice; inventory_levels/update webhook is the alternative if delta misses.
+
+## 12. Portal line-item display (2026-07-09)
+  - customer-portal edge function nests each cash order's items into the
+    payload (parallel cash_order_items fetch keyed on cashOrderIds, grouped
+    into an `items` array per order). Deployed.
+  - CashOrdersSection "View Items" bar mirrors the PAYMENT HISTORY bar
+    (Maison ivory, portal-tokens only), renders only when items exist; older
+    orders (no items) show no bar.
+  - RLS NOTE / correction: a "Customers can view own cash order items" policy
+    (auth.uid()-scoped) was added to cash_order_items, but it is INERT for the
+    portal — the portal reads via the customer-portal EDGE FUNCTION using the
+    service role (scoped by portal token server-side), NOT via authenticated
+    client RLS. The policy is harmless and correct-if-ever-needed (if the
+    portal moves to authenticated client reads), but it is not the mechanism.
+    The edge-function payload is the actual read path.
+  - image_url on cash_order_items is a SNAPSHOT (captured at pick time,
+    backfilled for existing rows) so the portal never needs read access to the
+    Hub-internal products catalog.

@@ -562,3 +562,10 @@ Hub-native orders = 'hub_manual'; social/live manual orders = 'social_manual';
 Shopify storefront = 'shopify_direct'. text+CHECK (not enum) for extensibility.
 Does not touch the trg_test_invoice_prefix_cash trigger (fires only on
 invoice_number/customer_id).
+Phase 3 additions: image_url text (nullable) — SNAPSHOT of the product image
+at pick time (backfilled from products for existing rows); lets the portal
+show images without reading the Hub-internal products catalog. RLS now also
+has "Customers can view own cash order items" (SELECT, authenticated,
+auth.uid()-scoped via parent order ownership) — note this is INERT for the
+portal (portal reads via the customer-portal edge function / service role),
+harmless, retained for a possible future authenticated-client read path.
