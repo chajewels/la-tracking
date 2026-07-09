@@ -28,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
@@ -60,6 +61,16 @@ import {
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
 
+interface AccountItemRow {
+  id: string;
+  title: string;
+  sku: string | null;
+  quantity: number;
+  unit_price_jpy: number;
+  line_total_jpy: number;
+  image_url: string | null;
+}
+
 export default function AccountDetail() {
   const { id } = useParams();
   const { data: account, isLoading: accountLoading } = useAccount(id);
@@ -88,6 +99,25 @@ export default function AccountDetail() {
       return data as any[];
     },
   });
+
+  // Line items (Shopify picker rows). Prices are stored in JPY (catalog
+  // currency) and always display as ¥, independent of the account currency.
+  const { data: accountItems } = useQuery({
+    queryKey: ['account-items', id],
+    enabled: !!id,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('layaway_account_items')
+        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url')
+        .eq('account_id', id!)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return (data || []) as unknown as AccountItemRow[];
+    },
+  });
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+
   const [copied, setCopied] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
@@ -1370,6 +1400,40 @@ export default function AccountDetail() {
           )}
         </div>
 
+        {/* Items — layaway_account_items (Shopify picker rows). Prices are JPY
+            (catalog currency) and always display as ¥. */}
+        {accountItems && accountItems.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground mb-3">Items</h3>
+            <div className="space-y-2">
+              {accountItems.map(li => (
+                <div key={li.id} className="flex items-center gap-3">
+                  {li.image_url ? (
+                    <img
+                      src={li.image_url}
+                      alt=""
+                      onClick={() => setZoomImage(li.image_url)}
+                      className="h-12 w-12 shrink-0 cursor-pointer rounded border border-border object-cover"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 shrink-0 rounded border border-border bg-muted/50" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-card-foreground">{li.title}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                      {li.sku && <span className="mr-2">SKU {li.sku}</span>}
+                      {li.quantity} × {formatCurrency(li.unit_price_jpy, 'JPY')}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-right text-sm font-medium text-card-foreground tabular-nums">
+                    {formatCurrency(li.line_total_jpy, 'JPY')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Payment Timeline + Statement (Phase 4) — display-only */}
         <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
           <div className="flex items-center justify-between gap-2 pb-3 hairline-b mb-4">
@@ -2608,6 +2672,13 @@ export default function AccountDetail() {
           </>
         )}
       </div>
+
+      {/* Item image zoom */}
+      <Dialog open={!!zoomImage} onOpenChange={(open) => { if (!open) setZoomImage(null); }}>
+        <DialogContent className="max-w-2xl p-2 bg-card border-border">
+          {zoomImage && <img src={zoomImage} alt="" className="w-full h-auto rounded-lg object-contain max-h-[80vh]" />}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
