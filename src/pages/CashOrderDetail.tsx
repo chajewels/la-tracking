@@ -23,6 +23,7 @@ import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDia
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
+import { getConversionRate } from '@/lib/currency-converter';
 import { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
 import ProgressRing from '@/components/shared/ProgressRing';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
@@ -59,6 +60,10 @@ interface CashOrderRow {
   cancelled_by_user_id?: string | null;
   created_at: string;
   is_trade?: boolean;
+  discount_amount: number | null;
+  discount_type: string | null;
+  discount_value: number | null;
+  shipping_fee: number | null;
   customers: {
     id: string;
     full_name: string;
@@ -433,9 +438,28 @@ export default function CashOrderDetail() {
   const [manageOpen, setManageOpen] = useState(false);
   const [manageTotal, setManageTotal] = useState('');
   const [manageSaving, setManageSaving] = useState(false);
+  // Discount & shipping (descriptive; order currency). Model 1 — these do NOT
+  // auto-change total_amount; the admin explicitly clicks "Apply to total".
+  const [manageDiscountMode, setManageDiscountMode] = useState<'amount' | 'percent'>(order?.discount_type === 'percent' ? 'percent' : 'amount');
+  const [manageDiscountInput, setManageDiscountInput] = useState('');
+  const [manageShippingInput, setManageShippingInput] = useState('');
+
+  // Items subtotal (line items are stored in JPY) → order currency.
+  const manageItemsSubtotalJpy = (orderItems ?? []).reduce((s, li) => s + (Number(li.line_total_jpy) || Number(li.unit_price_jpy) * Number(li.quantity)), 0);
+  const manageItemsSubtotalAcct = order?.currency === 'PHP' ? Math.round(manageItemsSubtotalJpy * getConversionRate()) : manageItemsSubtotalJpy;
+  const manageDiscountAmount = manageDiscountMode === 'percent'
+    ? Math.round(manageItemsSubtotalAcct * (parseFloat(manageDiscountInput) || 0) / 100)
+    : Math.round(parseFloat(manageDiscountInput) || 0);
+  const manageShippingFee = Math.round(parseFloat(manageShippingInput) || 0);
+  const manageReconciledTotal = Math.max(0, manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee);
+  const manageShowReconciliation = (orderItems ?? []).length > 0 || manageDiscountInput !== '' || manageShippingInput !== '';
+
   const openManageInvoice = useCallback(() => {
     if (!order) return;
     setManageTotal(String(Number(order.total_amount)));
+    setManageDiscountMode(order.discount_type === 'percent' ? 'percent' : 'amount');
+    setManageDiscountInput(order.discount_type ? String(order.discount_value ?? '') : '');
+    setManageShippingInput(order.shipping_fee ? String(order.shipping_fee) : '');
     setManageOpen(true);
   }, [order]);
 
@@ -449,8 +473,16 @@ export default function CashOrderDetail() {
         setManageSaving(false);
         return;
       }
-      // Skip the write entirely if unchanged.
-      if (newTotal === Number(order.total_amount)) {
+      // Skip the write entirely if nothing changed — total OR discount/shipping.
+      const nextDiscountType = manageDiscountInput === '' ? null : manageDiscountMode;
+      const nextDiscountValue = manageDiscountInput === '' ? null : (parseFloat(manageDiscountInput) || 0);
+      const totalChanged = newTotal !== Number(order.total_amount);
+      const discountChanged =
+        manageDiscountAmount !== Number(order.discount_amount || 0) ||
+        nextDiscountType !== (order.discount_type ?? null) ||
+        nextDiscountValue !== (order.discount_value ?? null);
+      const shippingChanged = manageShippingFee !== Number(order.shipping_fee || 0);
+      if (!totalChanged && !discountChanged && !shippingChanged) {
         setManageOpen(false);
         setManageSaving(false);
         return;
@@ -462,10 +494,15 @@ export default function CashOrderDetail() {
       );
 
       // Defensive admin gate: RLS allows staff UPDATE at row level, so this
-      // frontend strip is the real gate. Non-admins write nothing here.
+      // frontend strip is the real gate. Non-admins never write total_amount.
+      // Discount & shipping are descriptive and persisted alongside.
       const updatePayload: Record<string, unknown> = {
         total_amount: newTotal,
         remaining_balance,
+        discount_amount: manageDiscountAmount,
+        discount_type: nextDiscountType,
+        discount_value: nextDiscountValue,
+        shipping_fee: manageShippingFee,
       };
       if (!isAdmin) {
         delete (updatePayload as any).total_amount;
@@ -508,7 +545,7 @@ export default function CashOrderDetail() {
     } finally {
       setManageSaving(false);
     }
-  }, [order, manageTotal, isAdmin, qc, id]);
+  }, [order, manageTotal, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, isAdmin, qc, id]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -1482,6 +1519,117 @@ export default function CashOrderDetail() {
               <span className="tabular-nums">{formatCurrency(Number(order.total_paid), currency)}</span>
             </div>
           </div>
+
+          {/* Discount & Shipping (descriptive — Model 1: does not auto-change
+              the total; admin explicitly clicks "Apply to total") */}
+          <div className="space-y-3 border-t border-border pt-3">
+            <h5 className="text-xs font-semibold text-card-foreground">Discount &amp; Shipping</h5>
+            {isAdmin ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">Discount</Label>
+                    <div className="flex rounded-md border border-border overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setManageDiscountMode('amount')}
+                        className={`px-2 py-0.5 text-[11px] ${manageDiscountMode === 'amount' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                      >
+                        {currency === 'PHP' ? '₱' : '¥'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManageDiscountMode('percent')}
+                        className={`px-2 py-0.5 text-[11px] ${manageDiscountMode === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {manageDiscountMode === 'percent' ? '%' : (currency === 'PHP' ? '₱' : '¥')}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={manageDiscountInput}
+                      onChange={e => setManageDiscountInput(e.target.value)}
+                      placeholder="0"
+                      className="h-9 text-sm bg-background border-border pl-6 tabular-nums"
+                    />
+                  </div>
+                  {manageDiscountMode === 'percent' && (
+                    <p className="text-[10px] text-muted-foreground">of items subtotal</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Shipping fee</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {currency === 'PHP' ? '₱' : '¥'}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={manageShippingInput}
+                      onChange={e => setManageShippingInput(e.target.value)}
+                      placeholder="0"
+                      className="h-9 text-sm bg-background border-border pl-6 tabular-nums"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div>
+                  Discount:{' '}
+                  {order.discount_type
+                    ? (order.discount_type === 'percent'
+                        ? `${order.discount_value}% (${formatCurrency(Number(order.discount_amount || 0), currency)})`
+                        : formatCurrency(Number(order.discount_amount || 0), currency))
+                    : '—'}
+                </div>
+                <div>Shipping: {order.shipping_fee ? formatCurrency(Number(order.shipping_fee), currency) : '—'}</div>
+              </div>
+            )}
+
+            {/* Reconciliation readout — order currency */}
+            {manageShowReconciliation && (
+              <div className="rounded-lg border border-border bg-background p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Items subtotal</span>
+                  <span className="tabular-nums text-card-foreground">{formatCurrency(manageItemsSubtotalAcct, currency)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">− Discount</span>
+                  <span className="tabular-nums text-card-foreground">{formatCurrency(manageDiscountAmount, currency)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">+ Shipping</span>
+                  <span className="tabular-nums text-card-foreground">{formatCurrency(manageShippingFee, currency)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-1 font-medium">
+                  <span className="text-card-foreground">= Reconciled</span>
+                  <span className="tabular-nums text-card-foreground">{formatCurrency(manageReconciledTotal, currency)}</span>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-muted-foreground">Current total: {formatCurrency(Number(order.total_amount), currency)}</span>
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={() => setManageTotal(String(manageReconciledTotal))}
+                    >
+                      Apply to total
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setManageOpen(false)} disabled={manageSaving}>
               Back
