@@ -1344,7 +1344,11 @@ function LoyaltyEntryCard({
 /* ─── Account Card ─── */
 function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount; onViewDetails: () => void; onPay: () => void }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   const currency = account.currency;
+  // Line items are stored in JPY; display in the account currency (PHP = JPY × rate).
+  const toAcct = (jpy: number) => currency === 'PHP' ? Math.round(jpy * getConversionRate()) : jpy;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const isOverdue = account.status_label === 'Overdue';
   const isCompleted = account.status_label === 'Fully Paid' || account.status === 'completed'
@@ -1547,6 +1551,78 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       )}
       </>
       )}
+
+      {/* View Items — mirrors the cash-order card; stops click bubbling so it
+          expands items instead of opening the detail sheet */}
+      {account.items && account.items.length > 0 && (
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${M.br}` }} onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setItemsOpen(v => !v); }}
+            className="w-full flex items-center justify-between"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            <span style={{ color: M.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
+              View Items ({account.items.length})
+            </span>
+            {itemsOpen
+              ? <ChevronUp className="h-4 w-4" style={{ color: M.ts }} />
+              : <ChevronDown className="h-4 w-4" style={{ color: M.ts }} />}
+          </button>
+          {itemsOpen && (
+            <div className="mt-2 space-y-1.5">
+              {account.items.map(item => (
+                <div key={item.id} className="flex items-center gap-3">
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt=""
+                      onClick={(e) => { e.stopPropagation(); setZoomImage(item.image_url); }}
+                      style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
+                    />
+                  ) : (
+                    <div style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${M.br}`, background: M.s2, flexShrink: 0 }} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate" style={{ color: M.tp, fontFamily: CG, fontSize: '14px', fontWeight: 600, lineHeight: 1.2 }}>
+                      {item.title}
+                    </div>
+                    {item.sku && (
+                      <div style={{ color: M.ts, fontSize: '11px', marginTop: '1px' }}>SKU {item.sku}</div>
+                    )}
+                    <div style={{ color: M.ts, fontSize: '12px', marginTop: '1px' }}>
+                      {item.quantity} × {fmt(toAcct(item.unit_price_jpy), currency)}
+                    </div>
+                  </div>
+                  <span className="tabular-nums shrink-0" style={{ color: M.tp, fontSize: '13px', fontWeight: 600 }}>
+                    {fmt(toAcct(item.line_total_jpy), currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Item image zoom — tap backdrop or × to close; image tap does not close */}
+      {zoomImage && (
+        <div
+          onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(43,39,35,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', cursor: 'zoom-out' }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
+            aria-label="Close"
+            style={{ position: 'absolute', top: '16px', right: '16px', width: '40px', height: '40px', borderRadius: '9999px', background: M.s, border: `1px solid ${M.br}`, color: M.tp, fontSize: '20px', lineHeight: 1, cursor: 'pointer' }}
+          >×</button>
+          <img
+            src={zoomImage}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1570,13 +1646,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
   const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
   const isForfeited = account.status === 'forfeited';
-
-  // Line items (Shopify picker rows). Stored in JPY; displayed in the account
-  // currency (PHP = JPY × rate) so they match the rest of the card.
-  const [itemsOpen, setItemsOpen] = useState(false);
-  const [zoomImage, setZoomImage] = useState<string | null>(null);
-  const rate = getConversionRate();
-  const toAcct = (jpy: number) => account.currency === 'PHP' ? Math.round(jpy * rate) : jpy;
 
   const [extModalOpen, setExtModalOpen] = useState(false);
   const [extReason, setExtReason] = useState('');
@@ -1770,58 +1839,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'overview' && (
-          <>
-            <OverviewTab account={account} />
-            {account.items && account.items.length > 0 && (
-              <div style={{ borderTop: `1px solid ${P.br}`, paddingTop: '12px', marginTop: '12px' }}>
-                <button
-                  type="button"
-                  onClick={() => setItemsOpen(v => !v)}
-                  className="w-full flex items-center justify-between"
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
-                >
-                  <span style={{ color: P.ts, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
-                    View Items ({account.items.length})
-                  </span>
-                  {itemsOpen
-                    ? <ChevronUp className="h-4 w-4" style={{ color: P.ts }} />
-                    : <ChevronDown className="h-4 w-4" style={{ color: P.ts }} />}
-                </button>
-                {itemsOpen && (
-                  <div className="mt-3 space-y-2">
-                    {account.items.map(item => (
-                      <div key={item.id} className="flex items-center gap-3">
-                        {item.image_url ? (
-                          <img
-                            src={item.image_url}
-                            alt=""
-                            onClick={() => setZoomImage(item.image_url)}
-                            style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${P.br}`, objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
-                          />
-                        ) : (
-                          <div style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${P.br}`, background: P.s2, flexShrink: 0 }} />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate" style={{ color: P.tp, fontFamily: CG, fontSize: '14px', fontWeight: 600, lineHeight: 1.2 }}>
-                            {item.title}
-                          </div>
-                          {item.sku && (
-                            <div style={{ color: P.ts, fontSize: '11px', marginTop: '1px' }}>SKU {item.sku}</div>
-                          )}
-                          <div style={{ color: P.ts, fontSize: '12px', marginTop: '1px' }}>
-                            {item.quantity} × {fmt(toAcct(item.unit_price_jpy), account.currency)}
-                          </div>
-                        </div>
-                        <span className="tabular-nums shrink-0" style={{ color: P.tp, fontSize: '13px', fontWeight: 600 }}>
-                          {fmt(toAcct(item.line_total_jpy), account.currency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
+          <OverviewTab account={account} />
         )}
         {activeTab === 'pay' && canPay && (
           <PayNowTab
@@ -1885,26 +1903,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Item image zoom — tap backdrop or × to close; image tap does not close */}
-      {zoomImage && (
-        <div
-          onClick={() => setZoomImage(null)}
-          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(43,39,35,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', cursor: 'zoom-out' }}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
-            aria-label="Close"
-            style={{ position: 'absolute', top: '16px', right: '16px', width: '40px', height: '40px', borderRadius: '9999px', background: P.s, border: `1px solid ${P.br}`, color: P.tp, fontSize: '20px', lineHeight: 1, cursor: 'pointer' }}
-          >×</button>
-          <img
-            src={zoomImage}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
-          />
         </div>
       )}
     </div>
