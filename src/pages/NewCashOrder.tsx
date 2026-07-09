@@ -332,7 +332,7 @@ export default function NewCashOrder() {
       // order (authoritative record) exists regardless of these writes.
       if (newId && lineItems.length > 0) {
         try {
-          const { error: itemsErr } = await supabase.from('cash_order_items' as any).insert(
+          const { error: itemsErr } = await supabase.from('cash_order_items').insert(
             lineItems.map((li) => ({
               cash_order_id: newId,
               product_id: li.product_id,
@@ -347,7 +347,7 @@ export default function NewCashOrder() {
           // Best-effort origin tag — swallow silently if the role lacks
           // cash_orders UPDATE (order stays hub_manual); never surfaced.
           try {
-            await supabase.from('cash_orders').update({ source_channel: 'social_manual' } as any).eq('id', newId);
+            await supabase.from('cash_orders').update({ source_channel: 'social_manual' }).eq('id', newId);
           } catch { /* stays hub_manual — not an error */ }
         } catch {
           toast.warning('Order created, but item details could not be saved. You can add them from the order page.');

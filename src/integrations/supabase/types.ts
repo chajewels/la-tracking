@@ -178,6 +178,60 @@ export type Database = {
         }
         Relationships: []
       }
+      cash_order_items: {
+        Row: {
+          cash_order_id: string
+          created_at: string
+          id: string
+          line_total_jpy: number
+          product_id: string | null
+          quantity: number
+          shopify_line_item_id: string | null
+          sku: string | null
+          title: string
+          unit_price_jpy: number
+        }
+        Insert: {
+          cash_order_id: string
+          created_at?: string
+          id?: string
+          line_total_jpy: number
+          product_id?: string | null
+          quantity?: number
+          shopify_line_item_id?: string | null
+          sku?: string | null
+          title: string
+          unit_price_jpy: number
+        }
+        Update: {
+          cash_order_id?: string
+          created_at?: string
+          id?: string
+          line_total_jpy?: number
+          product_id?: string | null
+          quantity?: number
+          shopify_line_item_id?: string | null
+          sku?: string | null
+          title?: string
+          unit_price_jpy?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_order_items_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_order_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cash_orders: {
         Row: {
           accepted_by_user_id: string | null
@@ -203,6 +257,7 @@ export type Database = {
           notes: string | null
           order_date: string
           remaining_balance: number
+          source_channel: string
           status: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
           total_paid: number
@@ -232,6 +287,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance: number
+          source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
           total_paid?: number
@@ -261,6 +317,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance?: number
+          source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount?: number
           total_paid?: number
