@@ -1312,6 +1312,9 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          discount_amount: number | null
+          discount_type: string | null
+          discount_value: number | null
           downpayment_amount: number
           end_date: string | null
           extension_end_date: string | null
@@ -1329,6 +1332,7 @@ export type Database = {
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
+          shipping_fee: number | null
           status: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid: number
@@ -1344,6 +1348,9 @@ export type Database = {
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          discount_amount?: number | null
+          discount_type?: string | null
+          discount_value?: number | null
           downpayment_amount?: number
           end_date?: string | null
           extension_end_date?: string | null
@@ -1361,6 +1368,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
+          shipping_fee?: number | null
           status?: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid?: number
@@ -1376,6 +1384,9 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          discount_amount?: number | null
+          discount_type?: string | null
+          discount_value?: number | null
           downpayment_amount?: number
           end_date?: string | null
           extension_end_date?: string | null
@@ -1393,6 +1404,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
+          shipping_fee?: number | null
           status?: Database["public"]["Enums"]["account_status"]
           total_amount?: number
           total_paid?: number

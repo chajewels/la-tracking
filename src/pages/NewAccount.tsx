@@ -125,6 +125,11 @@ export default function NewAccount() {
   // account suggests total = JPY subtotal × rate). Default to the localStorage
   // rate until the live system_settings value resolves on mount.
   const [phpJpyRate, setPhpJpyRate] = useState<number>(() => getConversionRate());
+  // Discount & shipping (account currency). total_amount stays authoritative —
+  // these only feed the suggested total until the user edits it.
+  const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount');
+  const [discountInput, setDiscountInput] = useState('');
+  const [shippingInput, setShippingInput] = useState('');
 
   // Loyalty-only product amount field is admin/finance only.
   const { roles } = useAuth();
@@ -228,6 +233,13 @@ export default function NewAccount() {
   }, []);
 
   const itemsSubtotal = lineItems.reduce((sum, li) => sum + li.line_total_jpy, 0);
+  // Items subtotal in the ACCOUNT currency (line items are stored in JPY).
+  const itemsSubtotalAcct = currency === 'PHP' ? Math.round(itemsSubtotal * phpJpyRate) : itemsSubtotal;
+  // Discount & shipping are entered/stored in the account currency.
+  const discountAmount = discountMode === 'percent'
+    ? Math.round(itemsSubtotalAcct * (parseFloat(discountInput) || 0) / 100)
+    : Math.round(parseFloat(discountInput) || 0);
+  const shippingFee = Math.round(parseFloat(shippingInput) || 0);
 
   const filteredProducts = productSearch.trim()
     ? catalog
@@ -275,17 +287,16 @@ export default function NewAccount() {
     return () => { active = false; };
   }, []);
 
-  // Auto-suggest total_amount from the items subtotal until the user edits the
-  // total field. Catalog prices are JPY, so a PHP account suggests the
-  // converted total (PHP = JPY × rate); JPY passes through. total_amount stays
+  // Auto-suggest total_amount from the items subtotal (account currency), minus
+  // discount plus shipping, until the user edits the total field. Catalog prices
+  // are JPY, so a PHP account converts (PHP = JPY × rate). total_amount stays
   // authoritative & fully editable (it drives the installment schedule — never
-  // force it). Recomputes on currency toggle unless the user edited the total.
+  // force it). Recomputes on currency/discount/shipping change unless edited.
   useEffect(() => {
     if (totalAmountManuallyEdited || lineItems.length === 0) return;
-    const jpySubtotal = lineItems.reduce((s, li) => s + li.line_total_jpy, 0);
-    const suggested = currency === 'PHP' ? Math.round(jpySubtotal * phpJpyRate) : jpySubtotal;
+    const suggested = Math.max(0, itemsSubtotalAcct - discountAmount + shippingFee);
     setTotalAmount(String(suggested));
-  }, [lineItems, totalAmountManuallyEdited, currency, phpJpyRate]);
+  }, [lineItems, totalAmountManuallyEdited, currency, phpJpyRate, itemsSubtotalAcct, discountAmount, shippingFee]);
 
   // Debounced customer search — query customers by full_name ILIKE.
   // Runs on every keystroke (no minimum char requirement for CJK support);
@@ -614,6 +625,22 @@ export default function NewAccount() {
           if (itemsErr) throw itemsErr;
         } catch {
           toast.warning('Account created, but item details could not be saved. You can add them from the account page.');
+        }
+      }
+
+      // Persist discount & shipping (account currency, client-side best-effort).
+      // total_amount is already authoritative; these are informational columns.
+      if (result?.account?.id && (discountAmount > 0 || shippingFee > 0 || discountInput !== '')) {
+        try {
+          const { error: dsErr } = await supabase.from('layaway_accounts').update({
+            discount_amount: discountAmount,
+            discount_type: discountInput === '' ? null : discountMode,
+            discount_value: discountInput === '' ? null : (parseFloat(discountInput) || 0),
+            shipping_fee: shippingFee,
+          }).eq('id', result.account.id);
+          if (dsErr) throw dsErr;
+        } catch {
+          toast.warning('Account created, but discount/shipping could not be saved. You can edit it from the account page.');
         }
       }
 
@@ -995,6 +1022,95 @@ export default function NewAccount() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Discount & Shipping (optional) — account currency. Feeds the
+                suggested total until the user edits it; never forces total. */}
+            <div className="rounded-lg border border-border bg-background/40 p-4 space-y-3">
+              <Label className="text-card-foreground">Discount &amp; Shipping (optional)</Label>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Discount</span>
+                    <div className="flex rounded-md border border-border overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountMode('amount'); markDirty(); }}
+                        className={`px-2 py-0.5 text-[11px] ${discountMode === 'amount' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                      >
+                        {currency === 'PHP' ? '₱' : '¥'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountMode('percent'); markDirty(); }}
+                        className={`px-2 py-0.5 text-[11px] ${discountMode === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {discountMode === 'percent' ? '%' : (currency === 'PHP' ? '₱' : '¥')}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={discountInput}
+                      onChange={(e) => { setDiscountInput(e.target.value); markDirty(); }}
+                      placeholder="0"
+                      className="bg-background border-border pl-6 tabular-nums"
+                    />
+                  </div>
+                  {discountMode === 'percent' && (
+                    <p className="text-[11px] text-muted-foreground">of items subtotal</p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Shipping fee</span>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {currency === 'PHP' ? '₱' : '¥'}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={shippingInput}
+                      onChange={(e) => { setShippingInput(e.target.value); markDirty(); }}
+                      placeholder="0"
+                      className="bg-background border-border pl-6 tabular-nums"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Reconciliation — all in account currency */}
+              <div className="space-y-1 border-t border-border/40 pt-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Items subtotal</span>
+                  <span className="tabular-nums text-card-foreground">{formatCurrency(itemsSubtotalAcct, currency)}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">− Discount</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(discountAmount, currency)}</span>
+                  </div>
+                )}
+                {shippingFee > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">+ Shipping</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(shippingFee, currency)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-border/40 pt-1">
+                  <span className="text-muted-foreground">Suggested total</span>
+                  <span className="font-semibold tabular-nums text-card-foreground">
+                    {formatCurrency(Math.max(0, itemsSubtotalAcct - discountAmount + shippingFee), currency)}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
