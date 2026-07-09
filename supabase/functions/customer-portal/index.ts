@@ -374,14 +374,26 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] as any[] });
 
+    // Cash-order line items (Shopify picker / webhook rows) keyed on the same
+    // cashOrderIds, fetched in the same round-trip and nested per order below.
+    const cashOrderItemsPromise = cashOrderIds.length > 0
+      ? supabase
+          .from("cash_order_items")
+          .select("id, cash_order_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+          .in("cash_order_id", cashOrderIds)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] as any[] });
+
     const [
       { data: cashPaymentsRaw },
+      { data: cashOrderItemsRaw },
       { data: loyaltyMemberRow },
       { data: loyaltyTiersRows },
       { data: loyaltyBetaRow },
       { data: loyaltyFlagRow },
     ] = await Promise.all([
       cashPaymentsPromise,
+      cashOrderItemsPromise,
       supabase
         .from("loyalty_members")
         .select(
@@ -822,6 +834,14 @@ Deno.serve(async (req) => {
       .filter((a: any) => a.next_due_date)
       .sort((a: any, b: any) => a.next_due_date.localeCompare(b.next_due_date));
 
+    // Group line items by cash_order_id, mirroring the cash_payments handling.
+    const itemsByOrder = new Map<string, any[]>();
+    for (const it of ((cashOrderItemsRaw as any[]) || [])) {
+      const list = itemsByOrder.get(it.cash_order_id) || [];
+      list.push(it);
+      itemsByOrder.set(it.cash_order_id, list);
+    }
+
     const cashOrdersPayload = (cashOrdersRaw as any[]).map((o: any) => ({
       id: o.id,
       invoice_number: o.invoice_number,
@@ -838,6 +858,7 @@ Deno.serve(async (req) => {
       cancelled_at: o.cancelled_at ?? null,
       completed_at: o.completed_at ?? null,
       created_at: o.created_at,
+      items: itemsByOrder.get(o.id) || [],
     }));
 
     const cashPaymentsPayload = ((cashPaymentsRaw as any[]) || []).map((p: any) => ({
