@@ -249,7 +249,7 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
-          discount_amount: number | null
+          discount_amount: number
           discount_type: string | null
           discount_value: number | null
           expired_at: string | null
@@ -263,7 +263,7 @@ export type Database = {
           notes: string | null
           order_date: string
           remaining_balance: number
-          shipping_fee: number | null
+          shipping_fee: number
           source_channel: string
           status: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -283,7 +283,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id: string
-          discount_amount?: number | null
+          discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           expired_at?: string | null
@@ -297,7 +297,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance: number
-          shipping_fee?: number | null
+          shipping_fee?: number
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -317,7 +317,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
-          discount_amount?: number | null
+          discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           expired_at?: string | null
@@ -331,7 +331,7 @@ export type Database = {
           notes?: string | null
           order_date?: string
           remaining_balance?: number
-          shipping_fee?: number | null
+          shipping_fee?: number
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount?: number
@@ -1324,7 +1324,7 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
-          discount_amount: number | null
+          discount_amount: number
           discount_type: string | null
           discount_value: number | null
           downpayment_amount: number
@@ -1344,7 +1344,7 @@ export type Database = {
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
-          shipping_fee: number | null
+          shipping_fee: number
           status: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid: number
@@ -1360,7 +1360,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
-          discount_amount?: number | null
+          discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           downpayment_amount?: number
@@ -1380,7 +1380,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
-          shipping_fee?: number | null
+          shipping_fee?: number
           status?: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid?: number
@@ -1396,7 +1396,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
-          discount_amount?: number | null
+          discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           downpayment_amount?: number
@@ -1416,7 +1416,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
-          shipping_fee?: number | null
+          shipping_fee?: number
           status?: Database["public"]["Enums"]["account_status"]
           total_amount?: number
           total_paid?: number
