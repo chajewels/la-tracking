@@ -270,6 +270,55 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Loyalty opt-in — enroll ONLY on the explicit consent signal. Shopify
+      // carries cart/checkout attributes in order.note_attributes (array of
+      // { name, value }); some payloads use order.attributes. We look for
+      // 'loyalty_opt_in' (case-insensitive) with a truthy value. join-loyalty-
+      // program is idempotent (already_enrolled) and respects the loyalty_enabled
+      // toggle (403). Best-effort — never fails the webhook.
+      const optInTruthy = (v: unknown): boolean => {
+        if (v === true) return true;
+        if (typeof v === "string") {
+          return ["true", "1", "yes", "on"].includes(v.trim().toLowerCase());
+        }
+        return false;
+      };
+      const attrSources = [order.note_attributes, order.attributes];
+      let loyaltyOptIn = false;
+      for (const src of attrSources) {
+        if (!Array.isArray(src)) continue;
+        const hit = src.find((a: any) => String(a?.name ?? "").toLowerCase() === "loyalty_opt_in");
+        if (hit && optInTruthy(hit.value)) { loyaltyOptIn = true; break; }
+        // note_attributes is primary; only consult order.attributes when the
+        // primary array was absent (not merely missing the key).
+        if (Array.isArray(order.note_attributes)) break;
+      }
+
+      if (loyaltyOptIn && customerId) {
+        try {
+          const enrollRes = await fetch(
+            `${Deno.env.get("SUPABASE_URL")}/functions/v1/join-loyalty-program`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                "x-internal-secret": Deno.env.get("INTERNAL_FUNCTION_SECRET") ?? "",
+              },
+              body: JSON.stringify({ internal: true, customer_id: customerId }),
+            },
+          );
+          if (enrollRes.ok) {
+            console.log(`${LOG} loyalty opt-in enrolled customer=${customerId} order=${shopifyOrderId}`);
+          } else {
+            const body = await enrollRes.text().catch(() => "<no body>");
+            console.warn(`${LOG} loyalty enrollment failed for customer=${customerId} order=${shopifyOrderId}: ${enrollRes.status} ${body}`);
+          }
+        } catch (e) {
+          console.warn(`${LOG} loyalty enrollment failed for customer=${customerId} order=${shopifyOrderId}: ${(e as Error).message}`);
+        }
+      }
+
       // Record the processed event (idempotency ledger).
       const { error: evtErr } = await supabase.from("shopify_webhook_events").insert({
         shopify_order_id: shopifyOrderId,
