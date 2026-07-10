@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Scale, CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -269,10 +269,8 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
     }
   };
 
-  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
-
-  return (
-    <Wrapper>
+  const content = (
+    <>
       <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           {!embedded && (
@@ -544,6 +542,8 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Wrapper>
+    </>
   );
+
+  return embedded ? content : <AppLayout>{content}</AppLayout>;
 }
