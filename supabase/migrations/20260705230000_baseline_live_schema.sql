@@ -1670,13 +1670,34 @@ DECLARE
   v_has_overdue   boolean;
   elem            jsonb;
   merged          record;
+  v_dp_prior      numeric;
+  v_dp_required   numeric;
 BEGIN
   IF p_account_id IS NULL OR p_amount_paid IS NULL OR p_amount_paid <= 0 THEN
     RAISE EXCEPTION 'invalid_input: account_id and positive amount required';
   END IF;
 
-  -- ── Waterfall (skipped entirely for DP per INVARIANT 11) ──
-  IF NOT p_is_downpayment THEN
+  -- ── DP excess split (Bug #250, 2026-07-06) ──
+  -- A DP payment allocates ONLY the amount paid in EXCESS of downpayment_amount
+  -- (after prior non-voided DP payments); the required DP portion records as a
+  -- payment with no allocation (INVARIANT 1). The excess then flows through the
+  -- SAME waterfall as an installment payment. A non-DP payment allocates its
+  -- full amount (v_remaining already = round(p_amount_paid,2)).
+  IF p_is_downpayment THEN
+    SELECT COALESCE(SUM(amount_paid), 0) INTO v_dp_prior
+    FROM payments
+    WHERE account_id = p_account_id AND voided_at IS NULL
+      AND (reference_number LIKE 'DP-%' OR remarks ILIKE '%down%');
+    SELECT downpayment_amount INTO v_dp_required
+    FROM layaway_accounts WHERE id = p_account_id;
+    -- excess = this payment minus whatever of the required DP is still unmet
+    v_remaining := round(GREATEST(0,
+      p_amount_paid - GREATEST(0, COALESCE(v_dp_required, 0) - COALESCE(v_dp_prior, 0))
+    ), 2);
+  END IF;
+
+  -- ── Waterfall (row-scoped; for a DP payment only the excess flows here) ──
+  IF v_remaining > 0 THEN
     FOR rec IN
       SELECT * FROM layaway_schedule
       WHERE account_id = p_account_id
@@ -2079,7 +2100,6 @@ DECLARE
   v_paid_penalties numeric;
   v_waterfall_absorbed numeric;
   v_effective_unpaid_dp numeric;
-  v_dp_overpaid numeric;
   v_checks jsonb := '[]'::jsonb;
 BEGIN
   SELECT * INTO v_account FROM layaway_accounts WHERE invoice_number = p_invoice_number;
@@ -2188,9 +2208,10 @@ BEGIN
   v_effective_unpaid_dp := GREATEST(0, v_unpaid_dp - v_waterfall_absorbed);
   v_sum_pending := v_sum_pending + v_effective_unpaid_dp;
 
-  -- DP overage (2026-06-19): mirror of unpaid-DP for the overpaid direction.
-  v_dp_overpaid := GREATEST(0, v_dp_paid - v_account.downpayment_amount);
-  v_sum_pending := v_sum_pending - v_dp_overpaid;
+  -- DP overage subtraction removed (Bug #250, 2026-07-06): DP excess now
+  -- waterfalls into schedule rows (allocate_payment_atomic), so it is already
+  -- counted in v_sum_pending via the row it lands on — subtracting it here
+  -- would double-count.
 
   v_checks := v_checks || jsonb_build_object('label', 'sum of pending months matches remaining balance', 'expected', v_canonical_remaining, 'stored', v_sum_pending, 'pass', ABS(v_sum_pending - v_canonical_remaining) < 2);
 
