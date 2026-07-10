@@ -29,6 +29,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const { session, roles, loading } = useAuth();
   const { canAccessPage, loading: permLoading } = usePermissions();
   const location = useLocation();
+  const hasInternalRole = roles.some(role => ['admin', 'staff', 'finance', 'csr', 'live_agent'].includes(role));
 
   if (loading || permLoading) {
     return (
@@ -40,6 +41,13 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (!session) {
     return <Navigate to="/login" replace />;  {/* /login is not in ROUTES — it's public */}
+  }
+
+  // Customer/external sessions are valid auth sessions, but they are not
+  // internal Hub sessions. Send them to staff sign-in instead of trapping
+  // the preview on Access Denied at the dashboard route.
+  if (!hasInternalRole) {
+    return <Navigate to="/login" replace />;
   }
 
   // Check dynamic role-based + feature-toggle page access
