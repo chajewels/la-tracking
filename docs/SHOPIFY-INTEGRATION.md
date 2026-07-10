@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 3 complete + layaway picker & AFB shipped (2026-07-09). Path A picker + line-item display live (cash + layaway, staff + portal, click-to-zoom). Account Financial Breakdown (discount/shipping) live on both account types. Catalog sync live. Design locked.
+Status: Phase 4 complete (2026-07-10) — Shopify storefront webhook receiver built, deployed, HMAC-verified (401 forged-request reject confirmed). Receiver is LIVE but IDLE — webhook registration + real-order go-live is Phase 5. Catalog sync, Path A picker, item displays, AFB all live.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -84,7 +84,9 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
             shopify_product_id all proven against live data.
   Phase 2 (DONE 2026-07-08) — Line-item schema in place. cash_order_items
             child table (snapshot title/sku/unit_price; product_id FK to
-            products; shopify_line_item_id unique for Path-B idempotency;
+            products;
+            (shopify_line_item_id was NOT actually added in Phase 2 — it and
+            cash_orders.shopify_order_id were added in Phase 4's P4-1 migration.)
             ON DELETE CASCADE) + cash_orders.source_channel text NOT NULL
             DEFAULT 'hub_manual' CHECK IN (hub_manual|shopify_direct|
             social_manual). All 97 existing cash orders backfilled to
@@ -99,9 +101,22 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
             image_url snapshotted onto cash_order_items (durable; keeps portal
             off the Hub-internal catalog). Verified end-to-end: Test-0010 →
             A4724 anklet + image visible on both staff and portal surfaces.
-  Phase 4 — Path B: storefront webhook receiver (HMAC -> idempotency -> map ->
-            cash_order + line items + orders/paid payment + loyalty on paid).
-  Phase 5 — Unified per-customer order view + webhook registration + go-live.
+  Phase 4 (DONE 2026-07-10) — Path B storefront webhook receiver BUILT + DEPLOYED.
+            Edge function shopify-webhook: HMAC-SHA256 constant-time verify
+            (SHOPIFY_API_SECRET), idempotency (shopify_webhook_events + unique
+            indexes), orders/create → customer-match/create-and-flag → cash_order
+            (source_channel=shopify_direct) + items, orders/paid → payment +
+            award-loyalty-points. Deployed, 401 forged-request reject verified.
+            IDLE until Phase 5 registers webhooks. cancel/update topics + the
+            paid-before-create edge case are deferred to Phase 5.
+  Phase 5 — Register orders/create + orders/paid webhooks (Shopify Admin API/UI)
+            pointing at the shopify-webhook invoke URL; real test order end-to-end
+            (order flows into Hub, customer matched-or-flagged, paid→payment+loyalty);
+            then handle deferred topics (cancel/update), the paid-before-create
+            fallback, and product/image enrichment (webhook items store
+            product_id=null, image_url=null — no reliable catalog map from the
+            order payload). Plus the unified per-customer order view. Q1 inventory
+            writeback (Hub picking doesn't decrement Shopify stock) still deferred.
 
 ## 10. Open items
   - Loyalty on Shopify orders: fire award-loyalty-points on orders/paid, reusing
@@ -167,3 +182,27 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
   - Display currency rule: staff see items in ¥ (catalog truth); customers see items
     in their account currency (converted). Item tables store JPY; conversion is
     display-only.
+
+## 14. Phase 4 — Shopify webhook receiver (2026-07-10)
+  - Endpoint: supabase/functions/shopify-webhook (public; verify_jwt effectively
+    off — the request reaches our HMAC gate, not a Supabase auth wall).
+    Invoke URL: https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/shopify-webhook
+  - SECURITY: reads raw body (req.text()) BEFORE parsing; computes
+    base64(HMAC-SHA256(rawBody, SHOPIFY_API_SECRET)) via Web Crypto; constant-time
+    compares to X-Shopify-Hmac-Sha256 (no ===, no early return); 401 before any DB
+    access on mismatch. NOT the @lovable.dev/webhooks-js helper (that's a different
+    scheme).
+  - IDEMPOTENCY (two layers): shopify_webhook_events (shopify_order_id, topic) UNIQUE
+    for retry-skip + audit; cash_orders.shopify_order_id UNIQUE + 
+    cash_order_items.shopify_line_item_id UNIQUE as hard DB backstops (23505 treated
+    as already-created, not fatal).
+  - orders/create: §6 customer match (email ilike → mobile_number → create-and-flag
+    with source='shopify', needs_review=true) → cash_order (invoice SH-{order#},
+    currency JPY, total from total_price, expires_at +30d, loyalty_jpy_amount=total,
+    source_channel=shopify_direct) → cash_order_items (upsert on shopify_line_item_id).
+  - orders/paid: find by shopify_order_id (not found → 200 deferred, no create here) →
+    cash_payments (ref SHOPIFY-{id}) → order completed → invoke award-loyalty-points
+    (fire-and-forget; loyalty failure never fails the webhook).
+  - Errors after HMAC: record status='error' event + 500 (Shopify retries;
+    idempotency makes retries safe). Other topics: 200-acknowledged, ignored.
+  - All DB writes via service role (public webhook, no user JWT).

@@ -579,3 +579,14 @@ Account Financial Breakdown. Both tables gained: discount_amount numeric (layawa
 MODEL: total_amount stays AUTHORITATIVE and drives the installment schedule (INVARIANT 7). discount/shipping are DESCRIPTIVE breakdown fields — they never auto-change total_amount. Percent discount applies to the items subtotal (converted to account currency). Items are JPY; discount/shipping are account-currency; reconciliation = itemsSubtotalAcct − discount + shipping (informational/suggested).
 Captured in: creation forms (NewAccount, NewCashOrder) and edit dialogs (EditAccountDialog, CashOrderDetail Manage Invoice). Edit dialogs are admin-gated; discount/shipping editable there with a live reconciliation readout and an explicit admin-only "Apply to total" button (sets the total field on click — never automatic). Write confirmed on all four surfaces (2026-07-09).
 IMPORTANT behavior: on EDIT, changing total via "Apply to total" writes total_amount + remaining_balance but does NOT recompute the installment schedule (schedule rows stay static). So a post-creation shipping/discount change does not auto-flow into installments — admin manually adjusts installments if the change affects what's owed. Discount/shipping are meant to be set at CREATION (where they shape the total before the schedule is generated); the edit path is for corrections/records.
+
+### Phase 4 Shopify webhook schema (2026-07-10)
+Added by P4-1: cash_orders.shopify_order_id text (partial UNIQUE index where not null
+— order-level idempotency + Shopify linkage); cash_order_items.shopify_line_item_id
+text (partial UNIQUE where not null — NOTE: this was documented in Phase 2 roadmap as
+already existing but was NOT actually created until here); customers.needs_review
+boolean default false + customers.source text (create-and-flag for webhook-created
+customers with no match: source='shopify', needs_review=true); and the
+shopify_webhook_events table (id, shopify_order_id, topic, webhook_id, status
+[processed|error], error_detail, processed_at) with UNIQUE(shopify_order_id, topic)
+for webhook idempotency/audit — RLS admin-read only, written by service role.
