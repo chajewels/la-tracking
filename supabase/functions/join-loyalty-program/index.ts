@@ -5,7 +5,7 @@ import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
 };
 
 const json = (body: unknown, status = 200) =>
@@ -13,6 +13,20 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+// Constant-time string comparison — accumulate byte diffs plus a length
+// mismatch; never === on the strings and never early-return.
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  let diff = ab.length ^ bb.length;
+  const len = Math.max(ab.length, bb.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  }
+  return diff === 0;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -50,22 +64,53 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { portal_token, session_id } = await req.json().catch(() => ({})) as {
+    const { portal_token, session_id, customer_id, internal } = await req.json().catch(() => ({})) as {
       portal_token?: string;
       session_id?: string;
+      customer_id?: string;
+      internal?: boolean;
     };
 
-    // 1. Validate portal token, session_id, or Bearer JWT
-    let customerId: string;
-    try {
-      const auth = await resolvePortalAuth(supabase, {
-        portal_token,
-        session_id,
-        authHeader: req.headers.get('Authorization'),
-      });
-      customerId = auth.customer_id;
-    } catch (err: any) {
-      return json({ error: err?.message || "Invalid or expired portal token" }, 401);
+    void internal; // caller-supplied flag; the header+secret is the real gate.
+
+    let customerId: string | undefined;
+
+    // 0b. Internal-secret auth branch — a trusted server-side caller (e.g. the
+    //     shopify-webhook function) enrolls by customer_id with no portal
+    //     token/JWT. Only available when INTERNAL_FUNCTION_SECRET is configured
+    //     AND the caller presents a matching x-internal-secret header
+    //     (constant-time compared). With the env secret set, a present-but-wrong
+    //     header is an explicit 401 (not a downgrade to portal auth). A matched
+    //     secret with no customer_id falls through to portal auth. When the env
+    //     secret is unset, or no header is sent, the branch is skipped entirely.
+    const internalSecretHeader = req.headers.get("x-internal-secret");
+    const internalSecretEnv = Deno.env.get("INTERNAL_FUNCTION_SECRET");
+    if (internalSecretHeader && internalSecretEnv) {
+      if (timingSafeEqual(internalSecretEnv, internalSecretHeader)) {
+        if (customer_id) {
+          customerId = customer_id;
+          console.log(`[join-loyalty-program] internal enrollment for customer=${customerId}`);
+        }
+        // matched but no customer_id → fall through to portal auth below.
+      } else {
+        // present but wrong → explicit failure, do not fall through.
+        return json({ error: "Unauthorized" }, 401);
+      }
+    }
+
+    // 1. Validate portal token, session_id, or Bearer JWT — UNCHANGED path.
+    //    Runs whenever the internal branch did not resolve a customerId.
+    if (customerId === undefined) {
+      try {
+        const auth = await resolvePortalAuth(supabase, {
+          portal_token,
+          session_id,
+          authHeader: req.headers.get('Authorization'),
+        });
+        customerId = auth.customer_id;
+      } catch (err: any) {
+        return json({ error: err?.message || "Invalid or expired portal token" }, 401);
+      }
     }
 
     // 2. Fetch customer
