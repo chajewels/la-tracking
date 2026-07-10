@@ -3447,3 +3447,12 @@ Fix: populateSheet now prefixes string values starting with =, +, -, or ' with a
 
 ### Bug #249 — DP overage now waterfalls to installments; footer reconciliation block removed (2026-07-06)
 DP excess over the required downpayment is now allocated to installment schedule rows (real payment_allocations), so the schedule Remaining column sums to the true Remaining Balance without a separate credit line. Removed the footer reconciliation block added in e7007911 (and the earlier caption in ba223e8), which double-subtracted the overage after allocation. Account 19122 corrected via targeted allocation (Month 2 +¥12,006). Going-forward RPC change tracked separately.
+
+### Bug #250 — DP overage now waterfalls into installments (2026-07-06)
+Root cause: allocate_payment_atomic skipped the installment waterfall entirely for DP payments (old INVARIANT 11), so any DP paid over downpayment_amount floated as a global credit — reducing remaining_balance but never appearing on schedule rows. The schedule Remaining column then summed higher than the true balance (account 19122: schedule ¥91,986 vs balance ¥79,980, the ¥12,006 DP overage). The audit_account 'sum of pending months' check compensated by subtracting the overage; once the overage is allocated to a row that subtraction double-counts (showed ¥67,974).
+Fix (both RPCs, applied live via SQL Editor, bodies synced into baseline migration):
+  1. allocate_payment_atomic: for a DP payment, compute excess over downpayment_amount (counting prior non-voided DP payments, capped at this payment) and feed ONLY the excess into the existing waterfall (Month 1 onward, skipping paid rows). Required DP portion records as a payment with no allocation. Non-DP payments unchanged. Preview mode inherits the same logic.
+  2. audit_account: removed the DP-overage subtraction from v_sum_pending (excess now counted via the schedule row it lands on).
+Void path unchanged — void-payment already deletes allocations and recomputes paid_amount, so a voided excess-bearing DP reverses correctly.
+Scope: going-forward for new DP payments. Account 19122 was corrected manually (one payment_allocations row tying the Jun-29 DP excess to Month 2 + paid_amount 13,342); no other backfill. audit_account('19122') → all_pass true.
+Note: existing overpaid-DP accounts (other than 19122) will now correctly show their pending-months check as needing the same allocation until a future DP payment or manual correction runs — this surfaces reality, not new breakage.

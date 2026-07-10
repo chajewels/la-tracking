@@ -425,7 +425,7 @@ To add a new screenshot for any Help section:
 - DP is only marked paid after payment submission is validated by staff
 - Never bypass the payment validation flow
 - The "Downpayment Paid" input field does NOT exist on the creation form
-- DP redistribution into installments is NOT supported (removed)
+- DP excess over downpayment_amount waterfalls into installments (Month 1 onward) — see INVARIANT 11 (Bug #250, 2026-07-06). The required DP portion still never allocates.
 - Loyalty Product Amount (JPY) is REQUIRED when the selected customer has a loyalty tier (any tier), on BOTH layaway and cash-order creation. Enforced on two layers: frontend UX (NewAccount.tsx / NewCashOrder.tsx) and the authoritative edge function (create-layaway-account / create-cash-order return 400 LOYALTY_AMOUNT_REQUIRED). Optional for non-members.
 
 ## PAYMENT HISTORY AS SOURCE OF TRUTH — NON-NEGOTIABLE
@@ -813,16 +813,26 @@ When completing a partially_paid month:
     do, per CLAUDE.md DP detection heuristic). See LOYALTY LIFECYCLE
     INTEGRATION section for full lifecycle wiring.
 
-  INVARIANT 11 — DP allocation prohibition:
-    DP payments NEVER create payment_allocations against schedule rows.
-    DP detection on the payments table: reference_number starts with
-    'DP-' OR remarks matches /\bdown(payment)?\b|\bdp\b/i (matches
-    review-payment-submission L778 minus submission_type — not a
-    payments column per CLAUDE.md schema notes).
-    Every function writing to payment_allocations MUST guard against
-    DP payments. Account totals for DP are derived via INVARIANT 1
-    (SUM payments.amount_paid) — no schedule allocation needed.
-    See Bug #160 (edit-payment-amount was the missing guard) in
+  INVARIANT 11 — DP allocation (updated 2026-07-06, Bug #250):
+    DP payments up to the account's downpayment_amount create NO
+    payment_allocations against schedule rows. DP paid in EXCESS of
+    downpayment_amount WATERFALLS into installments (Month 1 onward)
+    exactly like an installment payment — real payment_allocations,
+    schedule paid_amount updated. The split happens in
+    allocate_payment_atomic: for a DP payment it computes the excess
+    over downpayment_amount (counting prior non-voided DP payments) and
+    feeds ONLY that excess into the existing waterfall; the required
+    portion is recorded as a payment (INVARIANT 1) with no allocation.
+    DP detection: reference_number starts with 'DP-' OR remarks ILIKE
+    '%down%' (non-voided).
+    Void path (void-payment) already unwinds correctly: it deletes the
+    voided payment's allocations and recomputes each affected schedule
+    row's paid_amount from remaining non-voided allocations — a voided
+    excess-bearing DP therefore reverses its Month 1+ allocation
+    automatically. No void-path change was needed.
+    audit_account no longer subtracts DP overage from v_sum_pending
+    (the excess now lives in schedule rows and is already counted).
+    See Bug #160 (edit-payment-amount guard) and Bug #250 in
     docs/FIXED-BUGS.md.
 
 ## TIMEZONE STANDARD — NON-NEGOTIABLE (updated 2026-04-25)
