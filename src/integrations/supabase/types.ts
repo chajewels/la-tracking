@@ -264,6 +264,7 @@ export type Database = {
           order_date: string
           remaining_balance: number
           shipping_fee: number
+          shopify_order_id: string | null
           source_channel: string
           status: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -298,6 +299,7 @@ export type Database = {
           order_date?: string
           remaining_balance: number
           shipping_fee?: number
+          shopify_order_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
@@ -332,6 +334,7 @@ export type Database = {
           order_date?: string
           remaining_balance?: number
           shipping_fee?: number
+          shopify_order_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount?: number
@@ -747,10 +750,12 @@ export type Database = {
           location: string | null
           messenger_link: string | null
           mobile_number: string | null
+          needs_review: boolean
           notes: string | null
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
+          source: string | null
           updated_at: string
         }
         Insert: {
@@ -772,10 +777,12 @@ export type Database = {
           location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
+          needs_review?: boolean
           notes?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
+          source?: string | null
           updated_at?: string
         }
         Update: {
@@ -797,10 +804,12 @@ export type Database = {
           location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
+          needs_review?: boolean
           notes?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
+          source?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -3955,6 +3964,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      shopify_webhook_events: {
+        Row: {
+          error_detail: string | null
+          id: string
+          processed_at: string
+          shopify_order_id: string
+          status: string
+          topic: string
+          webhook_id: string | null
+        }
+        Insert: {
+          error_detail?: string | null
+          id?: string
+          processed_at?: string
+          shopify_order_id: string
+          status?: string
+          topic: string
+          webhook_id?: string | null
+        }
+        Update: {
+          error_detail?: string | null
+          id?: string
+          processed_at?: string
+          shopify_order_id?: string
+          status?: string
+          topic?: string
+          webhook_id?: string | null
+        }
+        Relationships: []
       }
       staff_notification_reads: {
         Row: {
