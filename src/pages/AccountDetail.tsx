@@ -1903,6 +1903,8 @@ export default function AccountDetail() {
                 console.log('[AccountDetail] Total Penalties in Schedule footer =', sumPenalties, { activePenaltyTotal, paidPenaltySum, unpaidPenaltySum, penaltyCount: (penalties || []).length, penaltyStatuses: (penalties || []).map((p: any) => p.status) });
                 const grandTotal = summary.totalLAAmount;
                 const mismatch = false; // grandTotal is always totalLAAmount
+                // Per-row remaining subtotal — SAME helper the table rows use.
+                const scheduleRemainingSum = scheduleItems.reduce((s, i) => s + remainingDue(i as any), 0);
                 return (
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
                   {downpaymentAmount > 0 && (
@@ -1912,15 +1914,28 @@ export default function AccountDetail() {
                     </div>
                   )}
                   {dpOverpaidAmount > 0 && (
-                    <>
+                    <div className="mt-1 pt-2 border-t border-border/60 space-y-1.5">
                       <div className="flex justify-between text-xs text-muted-foreground px-1">
-                        <span>Downpayment Overage Credit</span>
-                        <span className="tabular-nums font-medium text-success">+{formatCurrency(dpOverpaidAmount, currency)}</span>
+                        <span>Installments Remaining (sum)</span>
+                        <span className="tabular-nums font-medium">{formatCurrency(scheduleRemainingSum, currency)}</span>
                       </div>
-                      <div className="text-[10px] leading-tight text-muted-foreground/70 px-1 -mt-1">
-                        Credited to the account balance; not distributed to individual installments, so installment rows still show their full amount due.
+                      <div className="flex justify-between text-xs text-muted-foreground px-1">
+                        <span>Less: Downpayment Overage Credit</span>
+                        <span className="tabular-nums font-medium text-success">−{formatCurrency(dpOverpaidAmount, currency)}</span>
                       </div>
-                    </>
+                      <div className="flex justify-between text-xs font-semibold px-1 pt-1 border-t border-border/60">
+                        <span className="text-card-foreground">Remaining Balance</span>
+                        <span className="tabular-nums text-card-foreground">{formatCurrency(scheduleRemainingSum - dpOverpaidAmount, currency)}</span>
+                      </div>
+                      {Math.abs((scheduleRemainingSum - dpOverpaidAmount) - summary.remainingBalance) >= 1 && (
+                        <div className="flex items-center gap-1.5 px-1 pt-0.5">
+                          <AlertTriangle className="h-3 w-3 text-destructive" />
+                          <span className="text-[10px] text-destructive">
+                            Reconciliation mismatch: schedule net {formatCurrency(scheduleRemainingSum - dpOverpaidAmount, currency)} ≠ balance {formatCurrency(summary.remainingBalance, currency)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <div className="flex justify-between text-xs text-muted-foreground px-1">
                     <span>Sum of Base Installments</span>
