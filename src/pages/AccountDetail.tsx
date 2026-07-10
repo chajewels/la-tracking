@@ -1912,10 +1912,15 @@ export default function AccountDetail() {
                     </div>
                   )}
                   {dpOverpaidAmount > 0 && (
-                    <div className="flex justify-between text-xs text-muted-foreground px-1">
-                      <span>Downpayment Overage Credit</span>
-                      <span className="tabular-nums font-medium text-success">+{formatCurrency(dpOverpaidAmount, currency)}</span>
-                    </div>
+                    <>
+                      <div className="flex justify-between text-xs text-muted-foreground px-1">
+                        <span>Downpayment Overage Credit</span>
+                        <span className="tabular-nums font-medium text-success">+{formatCurrency(dpOverpaidAmount, currency)}</span>
+                      </div>
+                      <div className="text-[10px] leading-tight text-muted-foreground/70 px-1 -mt-1">
+                        Credited to the account balance; not distributed to individual installments, so installment rows still show their full amount due.
+                      </div>
+                    </>
                   )}
                   <div className="flex justify-between text-xs text-muted-foreground px-1">
                     <span>Sum of Base Installments</span>
