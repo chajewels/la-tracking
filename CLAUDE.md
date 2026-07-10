@@ -1619,6 +1619,17 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      cash-order-linked redemptions (cash_order_id in metadata, account_id
      NULL, per existing convention).
 
+  9. REDEEMED POINTS ARE NOT RETURNED ON ORDER CANCELLATION/FORFEITURE
+     (verified 2026-07-10). Cancelling a cash order or forfeiting a layaway
+     account does NOT charge redeemed points back to the loyalty account —
+     the cancel path only sets status/reason/timestamp; no trigger or code
+     returns points on cancellation. Redeemed points are returned ONLY when
+     an admin explicitly voids the REDEMPTION itself via
+     process-loyalty-redemption (action 'cancel'/'void' →
+     void_redemption_atomic). This applies system-wide and must apply to
+     Shopify orders too. Do not add automatic point-return on order
+     cancellation.
+
 ## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
 
   - `loyalty_members.last_purchase_at` = order_date of the member's

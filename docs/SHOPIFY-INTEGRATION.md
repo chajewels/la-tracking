@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 4 complete (2026-07-10) — Shopify storefront webhook receiver built, deployed, HMAC-verified (401 forged-request reject confirmed). Receiver is LIVE but IDLE — webhook registration + real-order go-live is Phase 5. Catalog sync, Path A picker, item displays, AFB all live.
+Status: Phase 5 go-live COMPLETE (2026-07-10) — real Shopify orders flow into the Hub end-to-end (create → customer match → items → paid → payment + loyalty award), verified with live orders SH-1002 (marked-paid) and SH-1003 (bank deposit). Loyalty opt-in at checkout enrolls customers (verified). OPEN: reversal handling (cancel/refund → store credit) and inventory writeback are not built — see Open items.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -123,6 +123,18 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
     the existing JPY formula (JPY-only store = no conversion). Confirm at Phase 4.
   - Whether A4724-style codes are set as true Shopify SKU fields vs. only in the
     title — sync must check per product (Phase 1).
+  - REVERSAL HANDLING (not built) — Shopify orders/cancelled + refunds/create are
+    NOT registered, so a cancelled/refunded Shopify order (e.g. SH-1002, refunded
+    in Shopify) still shows Completed/paid in the Hub. Per business policy, reversals
+    do NOT refund money — they convert to STORE CREDIT (usable up to 1 year). This
+    requires a system-wide store-credit feature (no store_credit table/system exists
+    today, even for native orders) and Cynthia's policy decisions (issuance, expiry,
+    usage, cash+layaway scope, redeemed-points handling) BEFORE building. Must be
+    built system-wide (native first), then Shopify reversals hook into it — not
+    Shopify-only. Parked pending policy.
+  - INVENTORY WRITEBACK (not built) — Hub picking / Shopify refunds do not sync stock
+    back to Shopify (one-way design). A refunded Shopify item is not auto-restocked
+    via the Hub. Deferred.
 
 ## 11. Phase 1 findings (live data, 2026-07-08)
   - 173 products in catalog; ALL currently status='active' (none draft/
@@ -206,3 +218,44 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
   - Errors after HMAC: record status='error' event + 500 (Shopify retries;
     idempotency makes retries safe). Other topics: 200-acknowledged, ignored.
   - All DB writes via service role (public webhook, no user JWT).
+
+## 15. Phase 4 fixes + Phase 5 go-live (2026-07-10)
+  - Two receiver bugs found on the first real order and fixed:
+    * Line items failed with "no unique or exclusion constraint matching the ON
+      CONFLICT specification" — cash_order_items.shopify_line_item_id is a PARTIAL
+      unique index (WHERE ... IS NOT NULL) which upsert onConflict cannot target.
+      Fixed: plain .insert(rows) with 23505 treated as already-inserted. Added a
+      line_items count diagnostic log.
+    * orders/paid arrived before orders/create finished (near-simultaneous
+      delivery) → order not found → paid was dropped. Fixed: paid-not-found now
+      returns 500 { order_not_found_yet } (was 200) so Shopify RETRIES; by the
+      retry orders/create has completed. No event row recorded for the not-found
+      case so idempotency lets the retry through.
+  - Webhooks registered via shopify-register-webhooks (admin-gated edge fn) using
+    webhookSubscriptionCreate (ORDERS_CREATE + ORDERS_PAID), signed with the app's
+    API secret = matches the receiver's HMAC. Idempotent (checks existing subs).
+  - Verified end-to-end: SH-1002 (Create order → Mark as paid → completed + payment
+    + loyalty), SH-1003 (bank-deposit → created Pending, then paid → completed).
+    Bank-deposit orders correctly stay Pending until the deposit is marked paid in
+    Shopify (orders/paid only fires then) — not a bug.
+
+## 16. Loyalty opt-in at Shopify checkout (2026-07-10)
+  - Goal: let Shopify customers join the loyalty program by opting in at checkout
+    (Grow plan — no Checkout Extensibility, so a CART-ATTRIBUTE approach is used).
+  - Storefront: a Custom Liquid block on the cart page renders a checkbox that, on
+    change, POSTs to /cart/update.js setting cart attribute loyalty_opt_in='true'
+    (cleared when unchecked). This flows into the order as a note_attribute.
+  - Webhook (shopify-webhook, orders/create): reads order.note_attributes (primary)
+    / order.attributes (fallback) for 'loyalty_opt_in' (case-insensitive, truthy).
+    If opted-in AND customer resolved, calls join-loyalty-program via its
+    internal-secret path to enroll. Best-effort — never fails the webhook.
+  - Enrollment reuse (no duplication): join-loyalty-program gained a guarded
+    internal auth branch — a caller presenting header 'x-internal-secret' matching
+    the INTERNAL_FUNCTION_SECRET env + a body customer_id enrolls that customer,
+    skipping portal/JWT auth. Wrong secret = explicit 401. All existing enrollment
+    logic (member insert, enrolled tx, retro award, sheet/email) is unchanged, and
+    the loyalty_enabled go-live gate still applies. REQUIRES the Supabase secret
+    INTERNAL_FUNCTION_SECRET to be set (project-wide; both functions read it).
+  - Enrollment happens on orders/create; points award on orders/paid (unchanged),
+    so an opted-in customer is enrolled immediately and earns points once the order
+    is paid. Verified: SH-1003 enrolled CYNTHIA LARGO (Glimmer).
