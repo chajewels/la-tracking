@@ -39,7 +39,7 @@ const HERO_POSTER =
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { session } = useAuth();
+  const { session, roles } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -71,15 +71,17 @@ export default function Login() {
     rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
 
   useEffect(() => {
+    const hasInternalRole = roles.some(role => ['admin', 'staff', 'finance', 'csr', 'live_agent'].includes(role));
     if (
       session &&
+      hasInternalRole &&
       !freshLoginRef.current &&
       !showPostSplash &&
       !window.location.hash.includes('type=recovery')
     ) {
       navigate(nextPath ?? ROUTES.DASHBOARD, { replace: true });
     }
-  }, [session, navigate, nextPath, showPostSplash]);
+  }, [session, roles, navigate, nextPath, showPostSplash]);
 
   useEffect(() => {
     setMounted(true);
