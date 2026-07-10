@@ -239,6 +239,7 @@ Deno.serve(async (req) => {
       }
 
       // Line items — best-effort. If they fail the order still stands.
+      console.log(`${LOG} orders/create line_items count=${Array.isArray(order.line_items) ? order.line_items.length : 0} for ${shopifyOrderId}`);
       if (cashOrderId && Array.isArray(order.line_items) && order.line_items.length > 0) {
         try {
           const rows = order.line_items.map((line: any) => {
@@ -257,12 +258,12 @@ Deno.serve(async (req) => {
               image_url: null,
             };
           });
-          // Ignore-on-conflict so retries don't duplicate line items.
-          const { error: itemsErr } = await supabase
-            .from("cash_order_items")
-            .upsert(rows, { onConflict: "shopify_line_item_id", ignoreDuplicates: true });
+          // Plain insert — cash_order_items.shopify_line_item_id has a PARTIAL
+          // unique index (WHERE NOT NULL), which ON CONFLICT cannot target
+          // without its predicate. A 23505 on retry means items already exist.
+          const { error: itemsErr } = await supabase.from("cash_order_items").insert(rows);
           if (itemsErr && itemsErr.code !== UNIQUE_VIOLATION) {
-            console.warn(`${LOG} line items partial failure for ${shopifyOrderId}: ${itemsErr.message}`);
+            console.warn(`${LOG} line items insert failed for ${shopifyOrderId}: ${itemsErr.message}`);
           }
         } catch (e) {
           console.warn(`${LOG} line items exception for ${shopifyOrderId}: ${(e as Error).message}`);
@@ -288,9 +289,12 @@ Deno.serve(async (req) => {
     // orders/paid
     // ════════════════════════════════════════════════════════════
     // orders/create + orders/paid normally arrive together; if paid lands
-    // before create (order not yet in the DB), we acknowledge and defer rather
-    // than create the order here. Shopify does not retry a 200 — acceptable for
-    // Phase 4 given the near-simultaneous delivery of the two events.
+    // before create finishes (order not yet in the DB), we return a 500 so
+    // Shopify RETRIES the orders/paid webhook. By the retry, orders/create has
+    // completed and the order is found. We do NOT create the order here and do
+    // NOT record a shopify_webhook_events row for the not-found case — the
+    // event is only recorded once paid actually succeeds, so idempotency lets
+    // the retry through.
     const { data: cashOrder } = await supabase
       .from("cash_orders")
       .select("id, total_amount, total_paid")
@@ -298,8 +302,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!cashOrder) {
-      console.log(`${LOG} orders/paid: order ${shopifyOrderId} not found — deferring`);
-      return json({ deferred: "order_not_found" }, 200);
+      console.log(`${LOG} orders/paid: order ${shopifyOrderId} not found — returning 500 for Shopify retry`);
+      return json({ error: "order_not_found_yet" }, 500);
     }
 
     const totalAmount = Number(cashOrder.total_amount) || 0;
