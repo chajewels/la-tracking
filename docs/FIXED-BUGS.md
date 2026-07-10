@@ -3444,3 +3444,6 @@ Fix: when items exceed 13, the function inserts the extra rows into the per-invo
 ### Bug #248 — invoice fields starting with + rendered as #ERROR! (2026-07-06)
 Root cause: populateSheet in generate-invoice writes all cells with valueInputOption USER_ENTERED, under which Google Sheets parses values beginning with +, =, or - as formulas. Phone numbers with international prefixes (+81…, +63…) failed to render; all free-text fields (names, addresses, item descriptions) shared the exposure.
 Fix: populateSheet now prefixes string values starting with =, +, -, or ' with a literal-text apostrophe (not displayed by Sheets). Numbers untouched; valueInputOption unchanged; cash-receipt module (intentional IMAGE() formula) untouched.
+
+### Bug #249 — DP overage now waterfalls to installments; footer reconciliation block removed (2026-07-06)
+DP excess over the required downpayment is now allocated to installment schedule rows (real payment_allocations), so the schedule Remaining column sums to the true Remaining Balance without a separate credit line. Removed the footer reconciliation block added in e7007911 (and the earlier caption in ba223e8), which double-subtracted the overage after allocation. Account 19122 corrected via targeted allocation (Month 2 +¥12,006). Going-forward RPC change tracked separately.
