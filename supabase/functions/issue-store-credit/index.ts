@@ -64,6 +64,26 @@ Deno.serve(async (req) => {
       return json({ error: error.message ?? "issue_store_credit_atomic failed" }, 400);
     }
 
+    // Emit a staff bell notification. Money movement already succeeded — a failed
+    // notification must never fail or block the operation.
+    try {
+      const d = (data ?? {}) as Record<string, any>;
+      if (d.success === true) {
+        const symbol = (d.currency ?? currency) === "PHP" ? "₱" : "¥";
+        const amt = Number(d.amount ?? amount).toLocaleString("en-US");
+        await supabase.from("staff_notifications").insert({
+          type: "store_credit_issued",
+          title: "Store credit issued",
+          body: `${symbol}${amt} store credit issued (manual) — expires ${new Date(d.expires_at).toLocaleDateString("en-US")}`,
+          customer_id: customer_id,
+          invoice_number: null,
+          metadata: data,
+        });
+      }
+    } catch (notifyErr) {
+      console.warn("[issue-store-credit] staff_notifications insert failed (non-blocking):", notifyErr);
+    }
+
     return json(data ?? { error: "no_response" });
   } catch (e) {
     console.error("[issue-store-credit] unhandled:", e);

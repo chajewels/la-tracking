@@ -54,6 +54,49 @@ Deno.serve(async (req) => {
       return json({ error: error.message ?? "cancel_cash_order_atomic failed" }, 400);
     }
 
+    // Emit staff bell notifications. The cancellation already succeeded — neither
+    // insert may fail, block, or affect the result, and the two are independent.
+    {
+      const c = (data ?? {}) as Record<string, any>;
+      if (c.success === true && preview !== true) {
+        const curr = c.currency ?? c.store_credit?.currency;
+        const symbol = curr === "PHP" ? "₱" : "¥";
+
+        // (a) Store credit auto-issued from money actually received.
+        if (Number(c.money_received ?? 0) > 0) {
+          try {
+            const money = Number(c.money_received ?? 0).toLocaleString("en-US");
+            await supabase.from("staff_notifications").insert({
+              type: "store_credit_issued",
+              title: "Store credit issued on cancellation",
+              body: `Cash order #${c.invoice_number} cancelled — ${symbol}${money} store credit issued (valid 1 year)`,
+              customer_id: c.store_credit?.customer_id ?? null,
+              invoice_number: c.invoice_number,
+              metadata: data,
+            });
+          } catch (notifyErr) {
+            console.warn("[cancel-cash-order] store_credit_issued notification failed (non-blocking):", notifyErr);
+          }
+        }
+
+        // (b) Loyalty points earned on the order were revoked.
+        if (c.earned_points_revoked_tx != null) {
+          try {
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_revoked",
+              title: "Loyalty points revoked",
+              body: `Loyalty points earned on cash order #${c.invoice_number} were revoked (order cancelled)`,
+              customer_id: c.store_credit?.customer_id ?? null,
+              invoice_number: c.invoice_number,
+              metadata: { earned_points_revoked_tx: c.earned_points_revoked_tx, invoice_number: c.invoice_number },
+            });
+          } catch (notifyErr) {
+            console.warn("[cancel-cash-order] loyalty_revoked notification failed (non-blocking):", notifyErr);
+          }
+        }
+      }
+    }
+
     return json(data ?? { error: "no_response" });
   } catch (e) {
     console.error("[cancel-cash-order] unhandled:", e);

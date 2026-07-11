@@ -95,6 +95,27 @@ Deno.serve(async (req) => {
       loyaltyAward = { error: String(loyaltyErr) };
     }
 
+    // Emit a staff bell notification for the redemption. Money movement already
+    // succeeded — a failed notification must never fail or block the operation.
+    try {
+      const r = (data ?? {}) as Record<string, any>;
+      if (r.success === true && preview !== true) {
+        const symbol = r.currency === "PHP" ? "₱" : "¥";
+        const applied = Number(r.amount_applied ?? 0).toLocaleString("en-US");
+        const balance = Number(r.new_credit_balance ?? 0).toLocaleString("en-US");
+        await supabase.from("staff_notifications").insert({
+          type: "store_credit_redeemed",
+          title: "Store credit applied",
+          body: `${symbol}${applied} store credit applied to an order${r.is_downpayment ? " as downpayment" : ""} — remaining credit balance ${symbol}${balance}`,
+          customer_id: null,
+          invoice_number: null,
+          metadata: data,
+        });
+      }
+    } catch (notifyErr) {
+      console.warn("[redeem-store-credit] staff_notifications insert failed (non-blocking):", notifyErr);
+    }
+
     return json({ ...(data ?? {}), loyalty_award: loyaltyAward });
   } catch (e) {
     console.error("[redeem-store-credit] unhandled:", e);
