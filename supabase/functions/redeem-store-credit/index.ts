@@ -53,7 +53,49 @@ Deno.serve(async (req) => {
       return json({ error: error.message ?? "redeem_store_credit_atomic failed" }, 400);
     }
 
-    return json(data ?? { error: "no_response" });
+    // Store credit is real money: it must earn loyalty points exactly like cash.
+    // redeem_store_credit_atomic writes payments directly and never passes through
+    // review-payment-submission, so the award must be triggered here, using the SAME
+    // gates: cash -> only when the order is now completed; layaway -> only when the
+    // credit landed as the downpayment. Idempotent server-side; never blocks the redemption.
+    let loyaltyAward: Record<string, unknown> | null = null;
+    try {
+      const result = (data ?? {}) as Record<string, unknown>;
+      if (result.success === true && preview !== true) {
+        const isCash = cash_order_id !== null;
+        const shouldAward = isCash
+          ? result.new_order_status === "completed"
+          : result.is_downpayment === true;
+
+        if (shouldAward) {
+          const awardBody = isCash
+            ? { cash_order_id }
+            : { account_id };
+
+          const lpRes = await fetch(
+            `${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify(awardBody),
+            },
+          );
+          const lpJson = await lpRes.json().catch(() => null);
+          loyaltyAward = lpRes.ok
+            ? { ...(lpJson ?? { error: "no_response" }) }
+            : { error: (lpJson as { error?: string } | null)?.error ?? `http_${lpRes.status}`,
+                status: lpRes.status, ...(lpJson ?? {}) };
+        }
+      }
+    } catch (loyaltyErr) {
+      console.warn("[redeem-store-credit] award-loyalty-points failed (non-blocking):", loyaltyErr);
+      loyaltyAward = { error: String(loyaltyErr) };
+    }
+
+    return json({ ...(data ?? {}), loyalty_award: loyaltyAward });
   } catch (e) {
     console.error("[redeem-store-credit] unhandled:", e);
     return json({ error: String((e as any)?.message ?? e) }, 500);
