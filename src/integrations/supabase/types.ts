@@ -4234,6 +4234,96 @@ export type Database = {
         }
         Relationships: []
       }
+      store_credit_lots: {
+        Row: {
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          expires_at: string | null
+          id: string
+          issued_at: string
+          notes: string | null
+          original_amount: number
+          remaining_amount: number
+          source_account_id: string | null
+          source_cash_order_id: string | null
+          source_type: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          expires_at?: string | null
+          id?: string
+          issued_at?: string
+          notes?: string | null
+          original_amount: number
+          remaining_amount: number
+          source_account_id?: string | null
+          source_cash_order_id?: string | null
+          source_type: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          expires_at?: string | null
+          id?: string
+          issued_at?: string
+          notes?: string | null
+          original_amount?: number
+          remaining_amount?: number
+          source_account_id?: string | null
+          source_cash_order_id?: string | null
+          source_type?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      store_credit_transactions: {
+        Row: {
+          account_id: string | null
+          amount: number
+          balance_after: number | null
+          cash_order_id: string | null
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id: string
+          lot_id: string | null
+          notes: string | null
+          txn_type: string
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          balance_after?: number | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id?: string
+          lot_id?: string | null
+          notes?: string | null
+          txn_type: string
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          balance_after?: number | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          id?: string
+          lot_id?: string | null
+          notes?: string | null
+          txn_type?: string
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           description: string | null

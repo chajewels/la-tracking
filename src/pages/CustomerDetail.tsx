@@ -18,6 +18,7 @@ import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePayment
 import AICustomerInsightsDialog from '@/components/ai/AICustomerInsightsDialog';
 import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab';
 import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
+import CustomerStoreCreditTab from '@/components/customers/CustomerStoreCreditTab';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
@@ -38,14 +39,15 @@ export default function CustomerDetail() {
   const { customerId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const initialTab: 'layaway' | 'cash' | 'loyalty' =
-    tabParam === 'cash' ? 'cash' : tabParam === 'loyalty' ? 'loyalty' : 'layaway';
-  const [activeTab, setActiveTab] = useState<'layaway' | 'cash' | 'loyalty'>(initialTab);
+  const initialTab: 'layaway' | 'cash' | 'loyalty' | 'credit' =
+    tabParam === 'cash' ? 'cash' : tabParam === 'loyalty' ? 'loyalty' : tabParam === 'credit' ? 'credit' : 'layaway';
+  const [activeTab, setActiveTab] = useState<'layaway' | 'cash' | 'loyalty' | 'credit'>(initialTab);
   const handleTabChange = useCallback((v: string) => {
-    const tab = (v === 'cash' ? 'cash' : v === 'loyalty' ? 'loyalty' : 'layaway') as
+    const tab = (v === 'cash' ? 'cash' : v === 'loyalty' ? 'loyalty' : v === 'credit' ? 'credit' : 'layaway') as
       | 'layaway'
       | 'cash'
-      | 'loyalty';
+      | 'loyalty'
+      | 'credit';
     setActiveTab(tab);
     if (tab === 'layaway') searchParams.delete('tab');
     else searchParams.set('tab', tab);
@@ -573,10 +575,11 @@ export default function CustomerDetail() {
         )}
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
+          <TabsList className="grid grid-cols-4 w-full max-w-2xl">
             <TabsTrigger value="layaway">Layaway Accounts ({accounts.length})</TabsTrigger>
             <TabsTrigger value="cash">Cash Orders</TabsTrigger>
             <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
+            <TabsTrigger value="credit">Store Credit</TabsTrigger>
           </TabsList>
 
           <TabsContent value="layaway" className="mt-5 space-y-6">
@@ -873,6 +876,10 @@ export default function CustomerDetail() {
 
           <TabsContent value="loyalty" className="mt-5">
             {customerId && <CustomerLoyaltyTab customerId={customerId} />}
+          </TabsContent>
+
+          <TabsContent value="credit" className="mt-5">
+            {customerId && <CustomerStoreCreditTab customerId={customerId} />}
           </TabsContent>
         </Tabs>
       </div>
