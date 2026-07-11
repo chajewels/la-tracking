@@ -38,6 +38,17 @@ import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 
+// Shape of cancel-cash-order's preview response (preview:true writes nothing).
+interface CancelPreview {
+  invoice_number?: string;
+  status?: string;
+  currency?: string;
+  money_received?: number;
+  loyalty_redemption_excluded?: number;
+  store_credit_to_issue?: number;
+  earned_points_will_be_revoked?: boolean;
+}
+
 interface CashOrderRow {
   id: string;
   customer_id: string;
@@ -355,6 +366,11 @@ export default function CashOrderDetail() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  // Cancellation is a money-moving action (auto-issues store credit + revokes
+  // earned loyalty points) — preview the consequences before confirming.
+  const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
+  const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
+  const [cancelPreviewError, setCancelPreviewError] = useState<string | null>(null);
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -555,28 +571,77 @@ export default function CashOrderDetail() {
     }
     setCancelling(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await supabase
-        .from('cash_orders')
-        .update({
-          status: 'cancelled',
-          cancellation_reason: cancelReason.trim(),
-          cancelled_at: new Date().toISOString(),
-          cancelled_by_user_id: user?.id ?? null,
-        })
-        .eq('id', order.id);
-      if (error) throw error;
-      toast.success(`Cash order #${order.invoice_number} cancelled`);
+      const { data, error } = await supabase.functions.invoke('cancel-cash-order', {
+        body: { cash_order_id: order.id, reason: cancelReason.trim() },
+      });
+      if (error) {
+        let msg = error.message || 'Failed to cancel';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const b = await new Response((error as any).context.body).json();
+            if (b?.error) msg = b.error;
+          }
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const storeCredit = (data as any)?.store_credit ?? null;
+      if (storeCredit) {
+        const moneyReceived = Number((data as any)?.money_received ?? 0);
+        toast.success(
+          `Cash order #${order.invoice_number} cancelled — ${formatCurrency(moneyReceived, order.currency as Currency)} store credit issued`,
+        );
+      } else {
+        toast.success(`Cash order #${order.invoice_number} cancelled`);
+      }
       setCancelOpen(false);
       setCancelReason('');
       qc.invalidateQueries({ queryKey: ['cash-order', id] });
       qc.invalidateQueries({ queryKey: ['cash-orders'] });
+      qc.invalidateQueries({ queryKey: ['cash-payments', id] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      qc.invalidateQueries({ queryKey: ['store-credit-lots', order.customer_id] });
+      qc.invalidateQueries({ queryKey: ['store-credit-txns', order.customer_id] });
     } catch (err: unknown) {
       toast.error((err as Error).message || 'Failed to cancel');
     } finally {
       setCancelling(false);
     }
   }, [order, cancelReason, qc, id]);
+
+  // Load the cancellation preview (money-moving consequences) whenever the
+  // cancel dialog opens — preview:true writes nothing on the server.
+  useEffect(() => {
+    if (!cancelOpen || !order) return;
+    let cancelled = false;
+    setCancelPreview(null);
+    setCancelPreviewError(null);
+    setCancelPreviewLoading(true);
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('cancel-cash-order', {
+          body: { cash_order_id: order.id, reason: '', preview: true },
+        });
+        if (error) {
+          let msg = error.message || 'Failed to load cancellation preview';
+          try {
+            if ('context' in error && (error as any).context?.body) {
+              const b = await new Response((error as any).context.body).json();
+              if (b?.error) msg = b.error;
+            }
+          } catch { /* ignore */ }
+          throw new Error(msg);
+        }
+        if ((data as any)?.error) throw new Error((data as any).error);
+        if (!cancelled) setCancelPreview(data as CancelPreview);
+      } catch (err: unknown) {
+        if (!cancelled) setCancelPreviewError((err as Error).message || 'Failed to load cancellation preview');
+      } finally {
+        if (!cancelled) setCancelPreviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cancelOpen, order]);
 
   // Typed-confirmation gates (Phase 5) — arm existing buttons only.
   const [cancelArmed, setCancelArmed] = useState(false);
@@ -691,7 +756,7 @@ export default function CashOrderDetail() {
 
   const currency = order.currency as Currency;
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
-  const canCancel = isAdmin && order.status === 'pending';
+  const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
 
@@ -1464,6 +1529,47 @@ export default function CashOrderDetail() {
           <p className="text-sm text-muted-foreground">
             This marks cash order #{order.invoice_number} as cancelled. This action cannot be undone from the UI.
           </p>
+
+          {/* Money-moving consequences (from the server preview) */}
+          {cancelPreviewLoading ? (
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+              <RefreshCcw className="h-4 w-4 animate-spin" /> Calculating consequences…
+            </div>
+          ) : cancelPreviewError ? (
+            <p className="text-sm text-destructive">{cancelPreviewError}</p>
+          ) : cancelPreview ? (
+            <div className="rounded-lg border border-border bg-background p-3 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Money received</span>
+                <span className="tabular-nums text-card-foreground">
+                  {formatCurrency(Number(cancelPreview.money_received ?? 0), currency)}
+                </span>
+              </div>
+              {Number(cancelPreview.loyalty_redemption_excluded ?? 0) > 0 && (
+                <p className="text-muted-foreground">
+                  Loyalty redemption excluded:{' '}
+                  {formatCurrency(Number(cancelPreview.loyalty_redemption_excluded), currency)}{' '}
+                  (redeemed points are not returned)
+                </p>
+              )}
+              {Number(cancelPreview.store_credit_to_issue ?? 0) > 0 ? (
+                <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-primary">
+                  <span>Store credit to be issued</span>
+                  <span className="tabular-nums">
+                    {formatCurrency(Number(cancelPreview.store_credit_to_issue), currency)} (valid 1 year)
+                  </span>
+                </div>
+              ) : (
+                <p className="border-t border-border pt-1.5 text-muted-foreground">
+                  No payments received — no store credit will be issued.
+                </p>
+              )}
+              {cancelPreview.earned_points_will_be_revoked === true && (
+                <p className="text-amber-600">Loyalty points earned on this order will be revoked.</p>
+              )}
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <Label htmlFor="cancel-reason">Reason *</Label>
             <Input
@@ -1482,7 +1588,10 @@ export default function CashOrderDetail() {
             <Button
               variant="destructive"
               onClick={confirmCancel}
-              disabled={cancelling || !cancelReason.trim() || !cancelArmed}
+              disabled={
+                cancelling || !cancelReason.trim() || !cancelArmed ||
+                cancelPreviewLoading || !!cancelPreviewError || !cancelPreview
+              }
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}
             </Button>
