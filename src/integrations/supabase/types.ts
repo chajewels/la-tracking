@@ -4057,6 +4057,159 @@ export type Database = {
         }
         Relationships: []
       }
+      store_credit_lots: {
+        Row: {
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          expires_at: string
+          id: string
+          issued_at: string
+          issued_by_user_id: string | null
+          notes: string | null
+          original_amount: number
+          rate_snapshot: number | null
+          remaining_amount: number
+          source_account_id: string | null
+          source_cash_order_id: string | null
+          source_type: string
+          status: Database["public"]["Enums"]["store_credit_lot_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          expires_at: string
+          id?: string
+          issued_at?: string
+          issued_by_user_id?: string | null
+          notes?: string | null
+          original_amount: number
+          rate_snapshot?: number | null
+          remaining_amount: number
+          source_account_id?: string | null
+          source_cash_order_id?: string | null
+          source_type: string
+          status?: Database["public"]["Enums"]["store_credit_lot_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          expires_at?: string
+          id?: string
+          issued_at?: string
+          issued_by_user_id?: string | null
+          notes?: string | null
+          original_amount?: number
+          rate_snapshot?: number | null
+          remaining_amount?: number
+          source_account_id?: string | null
+          source_cash_order_id?: string | null
+          source_type?: string
+          status?: Database["public"]["Enums"]["store_credit_lot_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_credit_lots_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_lots_source_account_id_fkey"
+            columns: ["source_account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_lots_source_cash_order_id_fkey"
+            columns: ["source_cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      store_credit_transactions: {
+        Row: {
+          account_id: string | null
+          amount: number
+          balance_after: number | null
+          cash_order_id: string | null
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id: string
+          lot_id: string | null
+          notes: string | null
+          performed_by_user_id: string | null
+          txn_type: Database["public"]["Enums"]["store_credit_txn_type"]
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          balance_after?: number | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id?: string
+          lot_id?: string | null
+          notes?: string | null
+          performed_by_user_id?: string | null
+          txn_type: Database["public"]["Enums"]["store_credit_txn_type"]
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          balance_after?: number | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          id?: string
+          lot_id?: string | null
+          notes?: string | null
+          performed_by_user_id?: string | null
+          txn_type?: Database["public"]["Enums"]["store_credit_txn_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_credit_transactions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_transactions_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_transactions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_transactions_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "store_credit_lots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppressed_emails: {
         Row: {
           created_at: string
@@ -4824,6 +4977,20 @@ export type Database = {
         Returns: Json
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      issue_store_credit_atomic: {
+        Args: {
+          p_amount: number
+          p_currency: Database["public"]["Enums"]["account_currency"]
+          p_customer_id: string
+          p_notes?: string
+          p_source_account_id?: string
+          p_source_cash_order_id?: string
+          p_source_type: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -4858,6 +5025,18 @@ export type Database = {
           old_remaining: number
           old_total_paid: number
         }[]
+      }
+      redeem_store_credit_atomic: {
+        Args: {
+          p_account_id?: string
+          p_amount?: number
+          p_cash_order_id?: string
+          p_customer_id?: string
+          p_preview?: boolean
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
       }
       restore_lots_for_redemption: {
         Args: { p_redemption_id: string }
@@ -4986,6 +5165,13 @@ export type Database = {
         | "Polishing"
         | "Watch Polishing"
         | "Color Change"
+      store_credit_lot_status: "active" | "consumed" | "expired" | "voided"
+      store_credit_txn_type:
+        | "issued"
+        | "redeemed"
+        | "expired"
+        | "voided"
+        | "adjusted"
       submission_status:
         | "submitted"
         | "under_review"
@@ -5193,6 +5379,14 @@ export const Constants = {
         "Polishing",
         "Watch Polishing",
         "Color Change",
+      ],
+      store_credit_lot_status: ["active", "consumed", "expired", "voided"],
+      store_credit_txn_type: [
+        "issued",
+        "redeemed",
+        "expired",
+        "voided",
+        "adjusted",
       ],
       submission_status: [
         "submitted",
