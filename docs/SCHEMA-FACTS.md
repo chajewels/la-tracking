@@ -590,3 +590,17 @@ customers with no match: source='shopify', needs_review=true); and the
 shopify_webhook_events table (id, shopify_order_id, topic, webhook_id, status
 [processed|error], error_detail, processed_at) with UNIQUE(shopify_order_id, topic)
 for webhook idempotency/audit — RLS admin-read only, written by service role.
+
+### Store Credit tables + enums (2026-07-11)
+Two tables. `store_credit_lots`(id, customer_id, currency, original_amount, remaining_amount, status `store_credit_lot_status` ('active'|'consumed'|'expired'|'voided'), source_type ('cancelled_layaway'|'cancelled_cash'|'manual_admin'), source_account_id, source_cash_order_id, rate_snapshot, notes, issued_by_user_id, issued_at, expires_at, created_at, updated_at). `store_credit_transactions`(id, customer_id, lot_id, txn_type `store_credit_txn_type` ('issued'|'redeemed'|'expired'|'voided'|'adjusted'), amount, currency, account_id, cash_order_id, balance_after, notes, performed_by_user_id, created_at). Two enums: store_credit_lot_status, store_credit_txn_type.
+RLS: admin ALL; staff/finance SELECT. NO customer-facing policy — the portal reads these via the customer-portal edge function on the service-role key (same as loyalty).
+Lot/FIFO model: each issuance is a lot with its own expiry + remaining balance; consumption is FIFO by SOONEST EXPIRY. Voiding a lot cancels ONLY the unspent remainder — any portion already applied to an order is a real payment and is NOT reversed. JPY and PHP balances are separate, never summed, never converted. Full feature spec: docs/STORE-CREDIT.md.
+
+### Operational learning — revoke_loyalty_points() matches on INVOICE NUMBER (2026-07-11)
+`revoke_loyalty_points()` matches lots by `source_reference = INVOICE NUMBER`. `award-loyalty-points` writes `p_source_reference: invoiceNumber`, so revocation must be called with the invoice number to find those lots. Passing anything else (e.g. 'cash_order:<uuid>') silently no-ops — it RAISE NOTICEs and returns NULL (no error). This was the root cause of points not being revoked on cash-order cancellation (see FIXED-BUGS).
+
+### Operational learning — loyalty_notifications is a TWO-TABLE structure (2026-07-11)
+Customer portal notifications are a master row in `loyalty_notifications` PLUS a recipient row in `loyalty_notification_recipients` (keyed on member_id). `loyalty_notifications` has NO member_id column. `emitNotification()` (supabase/functions/_shared/emit-notification.ts) is keyed on `loyalty_members.id`, NOT `customers.id` — resolve the member id first (loyalty_members WHERE customer_id = …) and skip if the customer isn't enrolled.
+
+### Operational learning — layaway vs cash payments live in separate tables (2026-07-11)
+Layaway payments live in `payments`; cash-order payments live in a SEPARATE `cash_payments` table. Any account-scoped money feature (reconciliation, roll-ups, store credit, void/restore) must handle BOTH. redeem_store_credit_atomic reflects this: layaway delegates to allocate_payment_atomic (writes `payments` + schedule), cash inserts `cash_payments` directly (no schedule exists).

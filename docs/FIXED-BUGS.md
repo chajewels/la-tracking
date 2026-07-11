@@ -3456,3 +3456,26 @@ Fix (both RPCs, applied live via SQL Editor, bodies synced into baseline migrati
 Void path unchanged — void-payment already deletes allocations and recomputes paid_amount, so a voided excess-bearing DP reverses correctly.
 Scope: going-forward for new DP payments. Account 19122 was corrected manually (one payment_allocations row tying the Jun-29 DP excess to Month 2 + paid_amount 13,342); no other backfill. audit_account('19122') → all_pass true.
 Note: existing overpaid-DP accounts (other than 19122) will now correctly show their pending-months check as needing the same allocation until a future DP payment or manual correction runs — this surfaces reality, not new breakage.
+
+## Store Credit (Phase A) — bugs fixed 2026-07-11
+
+  - types.ts duplicate identifiers (TS2300/TS2717) — hand-added store_credit
+    types collided with Lovable's auto-generated block. Fixed by removing the
+    hand-written hunk. Root cause: src/integrations/supabase/types.ts is
+    auto-generated; never hand-edit it (cast at the call site instead).
+  - Store credit earned ZERO loyalty points when spent — redeem_store_credit_atomic
+    writes payments directly and bypasses review-payment-submission, which is the
+    only caller of award-loyalty-points. Fixed by calling award-loyalty-points
+    from redeem-store-credit with the same gates (cash → award on completion;
+    layaway → award when the credit lands as the DP).
+  - Points not revoked on cash-order cancellation — cancel_cash_order_atomic
+    passed p_source_reference => 'cash_order:<uuid>', but revoke_loyalty_points
+    matches on the INVOICE NUMBER (award-loyalty-points writes the invoice
+    number). It silently no-op'd (RAISE NOTICE + NULL return). Fixed by passing
+    the invoice number; also removed the EXCEPTION WHEN OTHERS wrapper that was
+    hiding the failure.
+  - Customer portal notifications never fired on cancellation — the code was
+    correct on GitHub main, but Lovable's repo mirror was one commit behind, so
+    the DEPLOYED build did not contain it. Fixed by syncing the mirror. Lesson:
+    assert on deployed SOURCE CONTENT (grep the unique string + line count), never
+    trust "deployed successfully".

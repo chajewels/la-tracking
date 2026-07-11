@@ -213,3 +213,18 @@
   60s cap explicitly.
 
   Pure polish — no data correctness issue. Low priority.
+
+### STORE CREDIT — deferred / not built (2026-07-11)
+  Phase A shipped and is live (see docs/STORE-CREDIT.md). Deferred items:
+  - Store credit EXPIRY WARNING: credit is forfeited at 1 year with NO reminder
+    to the customer. A scheduled notification (e.g. 30 days out) is not built.
+    DECISION PENDING.
+  - No EMAIL on points revocation or store-credit issuance (in-app notifications
+    only).
+  - Store credit + loyalty new-order-discount cannot currently be STACKED on the
+    same brand-new order (both require an unpaid order; whichever applies first
+    blocks the other).
+  - Partial/defect reversals are not automated — admins issue credit manually
+    (A4b).
+  - Shopify orders/cancelled + refunds/create do NOT yet hook into store credit
+    (Phase B).

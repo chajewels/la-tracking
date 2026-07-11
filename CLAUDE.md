@@ -37,6 +37,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/PORTAL-PIN-AUTH.md — VERIFY: may be stale (portal migrated to email/password)
 - docs/RECENT-UPDATES.md — older changelog (archived)
 - docs/SHOPIFY-INTEGRATION.md — Shopify↔Hub integration architecture & roadmap (design locked, Phase 0 done)
+- docs/STORE-CREDIT.md — store credit (Phase A): policy, schema, RPCs, edge functions, UI, notifications
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
 
@@ -76,6 +77,39 @@ Reference docs (read the relevant one when a task touches that area):
     SELECT (value::text)::numeric FROM ...  ✗  -- returns '"0.42"' with literal quotes, fails to cast
 
   The #>> '{}' operator strips JSON quoting and works for both JSON string and JSON number storage. Always use this idiom for php_jpy_rate extraction in any new RPC.
+
+## STORE CREDIT — NON-NEGOTIABLE
+
+  Locked policy. Mechanics (schema, RPCs, edge functions, UI) live in docs/STORE-CREDIT.md.
+
+  - Store credit = MONEY ACTUALLY RECEIVED only. Synthetic loyalty-redemption
+    payments (reference_number LIKE 'LOYALTY-%') are EXCLUDED.
+  - REDEEMED loyalty points are NEVER returned on cancellation. Permanent.
+  - EARNED loyalty points ARE revoked when the order is cancelled.
+  - Store credit is REAL MONEY, a PAYMENT METHOD not a discount — total_amount is
+    never modified (INVARIANT 7); total_paid rises. It EARNS loyalty points when
+    spent (funds the order like cash).
+  - NO CURRENCY CONVERSION. JPY credit pays JPY orders only; PHP pays PHP only.
+    Balances are tracked separately per currency and are never summed.
+  - 1-YEAR VALIDITY from issuance. Expiry = forfeiture.
+  - LAYAWAY NEVER AUTO-ISSUES STORE CREDIT — cancellation auto-credit is CASH
+    ORDERS ONLY. Layaway store credit is manual-only (admin-issued).
+  - Lot model: consumption is FIFO by SOONEST EXPIRY. Voiding a lot cancels ONLY
+    the unspent remainder; any portion already applied to an order is a real
+    payment and is NOT reversed.
+
+## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
+
+  - src/integrations/supabase/types.ts is SUPABASE-AUTO-GENERATED. Lovable
+    regenerates it on every edge-function deploy. NEVER hand-edit it. After a
+    schema change the new types arrive on Lovable's next push. Hand-editing it
+    caused a CI failure (TS2300/TS2717) this session — if a type is missing, cast
+    at the call site instead.
+  - LOVABLE'S REPO MIRROR CAN LAG GITHUB. A Lovable "deployed successfully" does
+    NOT prove it deployed main's tip. Every edge-function deploy prompt MUST
+    assert on SOURCE CONTENT (e.g. `grep -c "<a string unique to the new code>"
+    <file>` plus the file's line count) BEFORE deploying, and STOP if it fails. A
+    lagging mirror silently shipped a stale build this session.
 
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 
