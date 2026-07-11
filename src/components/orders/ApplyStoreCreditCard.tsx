@@ -6,6 +6,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { formatCurrency } from '@/lib/calculations';
@@ -21,7 +23,7 @@ interface ApplyStoreCreditCardProps {
   onApplied?: () => void;
 }
 
-// Layaway statuses on which credit may be applied (brand-new, still open).
+// Layaway statuses on which credit may be applied (still open).
 // Excludes completed / cancelled / forfeited / final_forfeited / final_settlement.
 const OPEN_LAYAWAY_STATUSES = new Set(['active', 'overdue', 'extension_active', 'reactivated']);
 
@@ -30,6 +32,7 @@ interface PreviewData {
   available: number;
   order_remaining: number;
   applicable: number;
+  is_downpayment?: boolean;
 }
 
 // Surface the edge function's JSON error body (FunctionsHttpError wraps it).
@@ -56,10 +59,12 @@ export default function ApplyStoreCreditCard({
   const { can } = usePermissions();
   const canRedeem = can('redeem_store_credit');
 
-  // Gate on order eligibility before we even query for credit.
+  // Gate on order eligibility before we even query for credit. Store credit is
+  // real money and may be applied to ANY open order (as a downpayment,
+  // installment, or partial payment) regardless of how much has already been
+  // paid — so eligibility is based purely on the order still being open.
   const orderEligible =
-    totalPaid <= 0 &&
-    (orderType === 'cash' ? status === 'pending' : OPEN_LAYAWAY_STATUSES.has(status));
+    orderType === 'cash' ? status === 'pending' : OPEN_LAYAWAY_STATUSES.has(status);
 
   const enabled = canRedeem && orderEligible && !!customerId;
 
@@ -86,6 +91,8 @@ export default function ApplyStoreCreditCard({
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Amount the staff member chooses to apply — defaults to the previewed max.
+  const [amount, setAmount] = useState('');
 
   const orderBody = orderType === 'layaway' ? { account_id: orderId } : { cash_order_id: orderId };
 
@@ -99,7 +106,10 @@ export default function ApplyStoreCreditCard({
       });
       if (error) throw new Error(await extractFnError(error, 'Preview failed'));
       if ((data as any)?.error) throw new Error((data as any).error);
-      setPreview(data as PreviewData);
+      const pv = data as PreviewData;
+      setPreview(pv);
+      // Default the amount field to the full applicable maximum.
+      setAmount(String(pv.applicable ?? 0));
     } catch (err: any) {
       setPreviewError(err?.message || 'Preview failed');
     } finally {
@@ -120,13 +130,14 @@ export default function ApplyStoreCreditCard({
     setPreviewError(null);
     setPreviewLoading(false);
     setSubmitting(false);
+    setAmount('');
   };
 
   const confirm = async () => {
     setSubmitting(true);
     try {
       const { data, error } = await supabase.functions.invoke('redeem-store-credit', {
-        body: { ...orderBody },
+        body: { ...orderBody, amount: Number(amount) },
       });
       if (error) throw new Error(await extractFnError(error, 'Failed to apply store credit'));
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -144,8 +155,13 @@ export default function ApplyStoreCreditCard({
   if (!enabled) return null;
   if (available == null || available <= 0) return null;
 
+  const applicableMax = Number(preview?.applicable ?? 0);
+  const amountNum = Number(amount);
+  const amountValid =
+    Number.isFinite(amountNum) && amountNum > 0 && amountNum <= applicableMax;
+
   const confirmDisabled =
-    submitting || previewLoading || !!previewError || !preview || (preview.applicable ?? 0) <= 0;
+    submitting || previewLoading || !!previewError || !preview || applicableMax <= 0 || !amountValid;
 
   return (
     <div className="rounded-xl border border-border bg-card p-5">
@@ -158,7 +174,7 @@ export default function ApplyStoreCreditCard({
             <p className="text-sm font-semibold text-card-foreground">
               Store Credit Available: {formatCurrency(available, currency)}
             </p>
-            <p className="text-xs text-muted-foreground">Apply to this new order ({currency})</p>
+            <p className="text-xs text-muted-foreground">Apply to this order ({currency})</p>
           </div>
         </div>
         <Button onClick={openDialog} variant="outline" className="border-primary/30 text-primary hover:bg-primary/10">
@@ -181,11 +197,6 @@ export default function ApplyStoreCreditCard({
             <p className="text-sm text-destructive py-2">{previewError}</p>
           ) : preview ? (
             <div className="space-y-3">
-              <p className="text-sm text-card-foreground">
-                Apply{' '}
-                <span className="font-semibold">{formatCurrency(preview.applicable, currency)}</span>{' '}
-                to this order?
-              </p>
               <div className="rounded-lg border border-border bg-background p-3 space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Store credit available</span>
@@ -196,10 +207,34 @@ export default function ApplyStoreCreditCard({
                   <span className="tabular-nums text-card-foreground">{formatCurrency(preview.order_remaining, currency)}</span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-1 font-semibold">
-                  <span className="text-card-foreground">Will apply</span>
+                  <span className="text-card-foreground">Maximum applicable</span>
                   <span className="tabular-nums text-card-foreground">{formatCurrency(preview.applicable, currency)}</span>
                 </div>
               </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="sc-apply-amount" className="text-xs">Amount to apply ({currency})</Label>
+                <Input
+                  id="sc-apply-amount"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="bg-background border-border tabular-nums"
+                />
+                {!amountValid && amount !== '' && (
+                  <p className="text-xs text-destructive">
+                    Enter an amount greater than 0 and no more than{' '}
+                    {formatCurrency(applicableMax, currency)}.
+                  </p>
+                )}
+              </div>
+
+              {orderType === 'layaway' && preview.is_downpayment === true && (
+                <p className="text-[11px] text-primary">This will be applied as the downpayment.</p>
+              )}
+
               <p className="text-[11px] text-muted-foreground">
                 Store credit is never converted; any leftover stays as credit.
               </p>
