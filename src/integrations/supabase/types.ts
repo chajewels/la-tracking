@@ -5102,6 +5102,15 @@ export type Database = {
         }
         Returns: Json
       }
+      void_store_credit_lot_atomic: {
+        Args: {
+          p_lot_id: string
+          p_reason: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       account_currency: "PHP" | "JPY"
