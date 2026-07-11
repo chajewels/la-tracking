@@ -4611,6 +4611,16 @@ export type Database = {
           severity: string
         }[]
       }
+      cancel_cash_order_atomic: {
+        Args: {
+          p_cash_order_id: string
+          p_preview?: boolean
+          p_reason: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       check_customer_email_conflict: {
         Args: { p_customer_id: string }
         Returns: string
