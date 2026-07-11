@@ -28,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
+import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
@@ -1304,6 +1305,25 @@ export default function AccountDetail() {
           </div>
           )}
         </div>
+
+        {/* Apply existing store credit to this new, unpaid order */}
+        <ApplyStoreCreditCard
+          orderType="layaway"
+          orderId={account.id}
+          customerId={account.customer_id}
+          currency={currency}
+          totalPaid={Number(account.total_paid)}
+          status={account.status}
+          onApplied={() => {
+            queryClient.invalidateQueries({ queryKey: ['account', id] });
+            queryClient.invalidateQueries({ queryKey: ['accounts'] });
+            queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+            queryClient.invalidateQueries({ queryKey: ['payments', id] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['store-credit-lots', account.customer_id] });
+            queryClient.invalidateQueries({ queryKey: ['store-credit-txns', account.customer_id] });
+          }}
+        />
 
         {/* Reconciliation Warning */}
         {!reconciliationValid && (

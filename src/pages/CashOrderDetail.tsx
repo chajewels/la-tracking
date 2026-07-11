@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/customers/StatusBadge';
 import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
+import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { getConversionRate } from '@/lib/currency-converter';
@@ -970,6 +971,24 @@ export default function CashOrderDetail() {
             </Button>
           )}
         </div>
+
+        {/* Apply existing store credit to this new, unpaid order */}
+        <ApplyStoreCreditCard
+          orderType="cash"
+          orderId={order.id}
+          customerId={order.customer_id}
+          currency={currency}
+          totalPaid={Number(order.total_paid)}
+          status={order.status}
+          onApplied={() => {
+            qc.invalidateQueries({ queryKey: ['cash-order', id] });
+            qc.invalidateQueries({ queryKey: ['cash-orders'] });
+            qc.invalidateQueries({ queryKey: ['cash-payments', id] });
+            qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+            qc.invalidateQueries({ queryKey: ['store-credit-lots', order.customer_id] });
+            qc.invalidateQueries({ queryKey: ['store-credit-txns', order.customer_id] });
+          }}
+        />
 
         {/* Items — cash_order_items line items (Path A picker / Path B webhook);
             falls back to the legacy item_description text when no rows exist */}
