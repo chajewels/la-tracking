@@ -604,3 +604,17 @@ Customer portal notifications are a master row in `loyalty_notifications` PLUS a
 
 ### Operational learning — layaway vs cash payments live in separate tables (2026-07-11)
 Layaway payments live in `payments`; cash-order payments live in a SEPARATE `cash_payments` table. Any account-scoped money feature (reconciliation, roll-ups, store credit, void/restore) must handle BOTH. redeem_store_credit_atomic reflects this: layaway delegates to allocate_payment_atomic (writes `payments` + schedule), cash inserts `cash_payments` directly (no schedule exists).
+
+### Operational learning — never call a mutating *_atomic RPC from a SELECT list across multiple rows (2026-07-11)
+A cleanup query called void_store_credit_lot_atomic() in a SELECT list over four rows:
+
+    SELECT l.original_amount, public.void_store_credit_lot_atomic(l.id, ...)
+    FROM store_credit_lots l ... WHERE l.status = 'active';
+
+All four lots ended in the correct STATUS, but one ledger row was written with the WRONG AMOUNT: a ¥25,000 lot recorded a 'voided' transaction of ¥1,000. The function executes against the OUTER query's snapshot, so its internal `SELECT ... FOR UPDATE` reads can pick up stale or cross-row values — silently misrecording money in the audit ledger while the visible end state looks correct.
+
+RULE: mutating SECURITY DEFINER RPCs (issue_store_credit_atomic, redeem_store_credit_atomic, void_store_credit_lot_atomic, cancel_cash_order_atomic, allocate_payment_atomic, approve_redemption_atomic, void_redemption_atomic, etc.) must be invoked ONE ROW AT A TIME — a single call, or an explicit `DO $$ ... FOR ... LOOP ... END $$;` block. NEVER map them across a result set in a SELECT list. The UI is safe (it calls one lot/order at a time); the risk is ad-hoc batch SQL.
+
+Detection: after any batch RPC run, verify the LEDGER amounts, not just the row statuses — e.g. for store credit, every 'voided' transaction amount must equal the lot's remaining amount at void time. A wrong amount with a right status is the signature of this bug.
+
+(Found 2026-07-11 during Phase A store-credit cleanup; the misrecorded row was corrected and an audit_logs 'ledger_correction' entry written.)
