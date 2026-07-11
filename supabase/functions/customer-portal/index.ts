@@ -337,7 +337,7 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] as any[] });
 
-    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes, serviceJobsRes, layawayItemsRes] = await Promise.all([
+    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes, serviceJobsRes, layawayItemsRes, storeCreditLotsRes, storeCreditTxnsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -359,6 +359,17 @@ Deno.serve(async (req) => {
       // Service jobs — queried by customer_id, nested by invoice into account/cash cards below
       supabase.from("service_jobs").select("id, account_type, invoice_number, service_type, service_status, service_description, service_fee, date_received, estimated_completion, date_completed").eq("customer_id", customerId).order("date_received", { ascending: false }),
       layawayItemsPromise,
+      // Store credit — read here (service-role) because store_credit_* have no
+      // customer-facing RLS by design. Keyed on customer_id, like cash orders.
+      supabase.from("store_credit_lots")
+        .select("id, currency, original_amount, remaining_amount, status, source_type, issued_at, expires_at")
+        .eq("customer_id", customerId)
+        .order("expires_at", { ascending: true }),
+      supabase.from("store_credit_transactions")
+        .select("id, txn_type, amount, currency, balance_after, notes, created_at")
+        .eq("customer_id", customerId)
+        .order("created_at", { ascending: false })
+        .limit(25),
     ]);
 
     const schedules = schedulesRes.data || [];
@@ -370,6 +381,52 @@ Deno.serve(async (req) => {
     const cashOrdersRaw = cashOrdersRes.data || [];
     const serviceJobsRaw = serviceJobsRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
+
+    // Store credit — JPY and PHP are SEPARATE balances, never converted or
+    // summed together. A store-credit failure must never break the payload.
+    let storeCredit: {
+      balances: Record<string, number>;
+      lots: any[];
+      transactions: any[];
+    } = { balances: {}, lots: [], transactions: [] };
+    if (storeCreditLotsRes.error || storeCreditTxnsRes.error) {
+      console.warn(
+        "[customer-portal] store credit fetch failed (non-blocking):",
+        storeCreditLotsRes.error ?? storeCreditTxnsRes.error,
+      );
+    } else {
+      const scLots = (storeCreditLotsRes.data ?? []) as any[];
+      const scTxns = (storeCreditTxnsRes.data ?? []) as any[];
+      const now = Date.now();
+      const balances: Record<string, number> = {};
+      for (const l of scLots) {
+        if (l.status === "active" && new Date(l.expires_at).getTime() > now) {
+          balances[l.currency] = (balances[l.currency] ?? 0) + Number(l.remaining_amount ?? 0);
+        }
+      }
+      storeCredit = {
+        balances,
+        lots: scLots.map((l) => ({
+          id: l.id,
+          currency: l.currency,
+          original_amount: Number(l.original_amount ?? 0),
+          remaining_amount: Number(l.remaining_amount ?? 0),
+          status: l.status,
+          source_type: l.source_type,
+          issued_at: l.issued_at,
+          expires_at: l.expires_at,
+        })),
+        transactions: scTxns.map((t) => ({
+          id: t.id,
+          txn_type: t.txn_type,
+          amount: Number(t.amount ?? 0),
+          currency: t.currency,
+          balance_after: t.balance_after === null ? null : Number(t.balance_after),
+          notes: t.notes,
+          created_at: t.created_at,
+        })),
+      };
+    }
 
     // Group layaway line items by account_id (mirror cash itemsByOrder).
     const layawayItemsRaw = layawayItemsRes.data || [];
@@ -1019,6 +1076,7 @@ Deno.serve(async (req) => {
       loyalty_lots: loyaltyLots,
       is_loyalty_beta: loyaltyBetaRow !== null,
       loyalty_enabled: loyaltyEnabled,
+      store_credit: storeCredit,
       notifications,
       unread_count: unreadCount,
       active_promo: activePromo,
