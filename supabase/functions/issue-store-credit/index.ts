@@ -3,6 +3,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
+async function resolveCustomerName(
+  supabase: any,
+  customerId: string | null | undefined,
+): Promise<string | null> {
+  if (!customerId) return null;
+  try {
+    const { data } = await supabase
+      .from("customers")
+      .select("full_name")
+      .eq("id", customerId)
+      .maybeSingle();
+    return (data?.full_name as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -71,10 +88,11 @@ Deno.serve(async (req) => {
       if (d.success === true) {
         const symbol = (d.currency ?? currency) === "PHP" ? "₱" : "¥";
         const amt = Number(d.amount ?? amount).toLocaleString("en-US");
+        const name = await resolveCustomerName(supabase, customer_id);
         await supabase.from("staff_notifications").insert({
           type: "store_credit_issued",
           title: "Store credit issued",
-          body: `${symbol}${amt} store credit issued (manual) — expires ${new Date(d.expires_at).toLocaleDateString("en-US")}`,
+          body: `${name ? name + " — " : ""}${symbol}${amt} store credit issued (manual), expires ${new Date(d.expires_at).toLocaleDateString("en-US")}`,
           customer_id: customer_id,
           invoice_number: null,
           metadata: data,

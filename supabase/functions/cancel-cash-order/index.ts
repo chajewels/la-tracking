@@ -3,6 +3,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
+async function resolveCustomerName(
+  supabase: any,
+  customerId: string | null | undefined,
+): Promise<string | null> {
+  if (!customerId) return null;
+  try {
+    const { data } = await supabase
+      .from("customers")
+      .select("full_name")
+      .eq("id", customerId)
+      .maybeSingle();
+    return (data?.full_name as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -62,6 +79,13 @@ Deno.serve(async (req) => {
         const curr = c.currency ?? c.store_credit?.currency;
         const symbol = curr === "PHP" ? "₱" : "¥";
 
+        // Resolve the customer name — from the issued credit lot, or (when no
+        // money was received so no lot exists) from the cash order itself.
+        const custId = c.store_credit?.customer_id
+          ?? (await supabase.from("cash_orders").select("customer_id").eq("id", cash_order_id).maybeSingle()).data?.customer_id
+          ?? null;
+        const name = await resolveCustomerName(supabase, custId);
+
         // (a) Store credit auto-issued from money actually received.
         if (Number(c.money_received ?? 0) > 0) {
           try {
@@ -69,8 +93,8 @@ Deno.serve(async (req) => {
             await supabase.from("staff_notifications").insert({
               type: "store_credit_issued",
               title: "Store credit issued on cancellation",
-              body: `Cash order #${c.invoice_number} cancelled — ${symbol}${money} store credit issued (valid 1 year)`,
-              customer_id: c.store_credit?.customer_id ?? null,
+              body: `${name ? name + " — " : ""}Cash Order #${c.invoice_number} cancelled, ${symbol}${money} store credit issued (valid 1 year)`,
+              customer_id: custId,
               invoice_number: c.invoice_number,
               metadata: data,
             });
@@ -85,8 +109,8 @@ Deno.serve(async (req) => {
             await supabase.from("staff_notifications").insert({
               type: "loyalty_revoked",
               title: "Loyalty points revoked",
-              body: `Loyalty points earned on cash order #${c.invoice_number} were revoked (order cancelled)`,
-              customer_id: c.store_credit?.customer_id ?? null,
+              body: `${name ? name + " — " : ""}Loyalty points earned on Cash Order #${c.invoice_number} were revoked (order cancelled)`,
+              customer_id: custId,
               invoice_number: c.invoice_number,
               metadata: { earned_points_revoked_tx: c.earned_points_revoked_tx, invoice_number: c.invoice_number },
             });

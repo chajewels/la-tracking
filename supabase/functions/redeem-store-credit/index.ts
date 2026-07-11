@@ -3,6 +3,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
+async function resolveCustomerName(
+  supabase: any,
+  customerId: string | null | undefined,
+): Promise<string | null> {
+  if (!customerId) return null;
+  try {
+    const { data } = await supabase
+      .from("customers")
+      .select("full_name")
+      .eq("id", customerId)
+      .maybeSingle();
+    return (data?.full_name as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -103,12 +120,13 @@ Deno.serve(async (req) => {
         const symbol = r.currency === "PHP" ? "₱" : "¥";
         const applied = Number(r.amount_applied ?? 0).toLocaleString("en-US");
         const balance = Number(r.new_credit_balance ?? 0).toLocaleString("en-US");
+        const name = await resolveCustomerName(supabase, r.customer_id);
         await supabase.from("staff_notifications").insert({
           type: "store_credit_redeemed",
           title: "Store credit applied",
-          body: `${symbol}${applied} store credit applied to an order${r.is_downpayment ? " as downpayment" : ""} — remaining credit balance ${symbol}${balance}`,
-          customer_id: null,
-          invoice_number: null,
+          body: `${name ? name + " — " : ""}${symbol}${applied} store credit applied to ${r.order_type === "cash" ? "Cash Order" : "INV"} #${r.invoice_number}${r.is_downpayment ? " as downpayment" : ""} · remaining balance ${symbol}${balance}`,
+          customer_id: r.customer_id ?? null,
+          invoice_number: r.invoice_number ?? null,
           metadata: data,
         });
       }
