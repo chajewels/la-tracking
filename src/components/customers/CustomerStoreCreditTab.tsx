@@ -1,13 +1,16 @@
-import { memo, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Wallet } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Wallet, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import IssueStoreCreditDialog from '@/components/customers/IssueStoreCreditDialog';
 
 type LotStatus = 'active' | 'consumed' | 'expired' | 'voided';
 type SourceType = 'cancelled_layaway' | 'cancelled_cash' | 'manual_admin' | string;
@@ -120,6 +123,15 @@ function useStoreCreditTxns(customerId: string | undefined) {
 export default memo(function CustomerStoreCreditTab({ customerId }: { customerId: string }) {
   const { data: lots, isLoading: lotsLoading, isError: lotsError } = useStoreCreditLots(customerId);
   const { data: txns, isLoading: txnsLoading, isError: txnsError } = useStoreCreditTxns(customerId);
+  const { can } = usePermissions();
+  const qc = useQueryClient();
+  const canIssue = can('issue_store_credit');
+  const [issueOpen, setIssueOpen] = useState(false);
+
+  const handleIssued = () => {
+    qc.invalidateQueries({ queryKey: ['store-credit-lots', customerId] });
+    qc.invalidateQueries({ queryKey: ['store-credit-txns', customerId] });
+  };
 
   // Available balance per currency — active, non-expired lots only. JPY and PHP
   // are SEPARATE: never converted or summed together.
@@ -155,20 +167,12 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
   const hasLots = (lots?.length ?? 0) > 0;
   const hasTxns = (txns?.length ?? 0) > 0;
 
-  if (!hasLots && !hasTxns) {
-    return (
-      <div className="rounded-xl border border-border bg-card p-10 text-center">
-        <Wallet className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-        <p className="text-sm text-muted-foreground">No store credit for this customer.</p>
-      </div>
-    );
-  }
-
   const now = Date.now();
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
+  // Header (title + admin-only Issue button) — rendered in BOTH the empty and
+  // populated states so an admin can issue the first lot.
+  const headerRow = (
+    <div className="flex items-start justify-between gap-3 flex-wrap">
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg gold-gradient">
           <Wallet className="h-4 w-4 text-primary-foreground" />
@@ -178,6 +182,42 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
           <p className="text-xs text-muted-foreground">Read-only overview</p>
         </div>
       </div>
+      {canIssue && (
+        <Button
+          onClick={() => setIssueOpen(true)}
+          className="gold-gradient text-primary-foreground font-medium shadow"
+        >
+          <Plus className="h-4 w-4 mr-1.5" /> Issue Store Credit
+        </Button>
+      )}
+    </div>
+  );
+
+  const issueDialog = (
+    <IssueStoreCreditDialog
+      open={issueOpen}
+      onOpenChange={setIssueOpen}
+      customerId={customerId}
+      onIssued={handleIssued}
+    />
+  );
+
+  if (!hasLots && !hasTxns) {
+    return (
+      <div className="space-y-6">
+        {headerRow}
+        <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <Wallet className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-sm text-muted-foreground">No store credit for this customer.</p>
+        </div>
+        {issueDialog}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {headerRow}
 
       {/* Balance summary — one card per currency (never combined) */}
       {balancesByCurrency.length > 0 && (
@@ -298,6 +338,8 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
           </div>
         </div>
       )}
+
+      {issueDialog}
     </div>
   );
 });
