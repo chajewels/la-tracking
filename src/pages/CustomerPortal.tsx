@@ -26,6 +26,7 @@ import SplashScreen from '@/components/portal/SplashScreen';
 import CashOrdersSection from '@/components/portal/CashOrdersSection';
 import HeroLayawayCard, { type HeroAccount } from '@/components/portal/home/HeroLayawayCard';
 import TierStrip from '@/components/portal/home/TierStrip';
+import StoreCreditCard, { type PortalStoreCredit } from '@/components/portal/home/StoreCreditCard';
 import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
 import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
 import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
@@ -210,6 +211,8 @@ interface PortalData {
    * field added to LoyaltyPortal.tsx PortalData at commit 52c6a76.
    */
   loyalty_enabled?: boolean;
+  /** Read-only store credit (optional — an older payload omits it). */
+  store_credit?: PortalStoreCredit;
 }
 
 function fmt(amount: number, currency: string): string {
@@ -835,6 +838,8 @@ export default function CustomerPortal() {
                 onPlansClick={() => accountsGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                 onStatementClick={heroSourceAccount ? () => setStatementOpen(true) : undefined}
               />
+
+              <StoreCreditCard storeCredit={data.store_credit} />
             </div>
 
             {/* Split Payment — the ONLY entry point this block uniquely

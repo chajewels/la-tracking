@@ -219,6 +219,20 @@ export const portalEn = {
     updateAvailable: 'A new version is available. Reload to load the latest update.',
     reload: 'Reload',
   },
+  storeCredit: {
+    heading: 'Store Credit',
+    available: 'Available ({{currency}})',
+    expiresLine: '{{amount}} expires {{date}}',
+    history: 'History',
+    note: 'Store credit is applied to your order by our staff. Valid for 1 year from issue.',
+    type: {
+      issued: 'Issued',
+      redeemed: 'Applied',
+      expired: 'Expired',
+      voided: 'Voided',
+      adjusted: 'Adjusted',
+    },
+  },
   detail: {
     invoice: 'Invoice',
     totalAmount: 'Total Amount',
