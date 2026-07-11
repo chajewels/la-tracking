@@ -2,6 +2,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
 
 async function resolveCustomerName(
   supabase: any,
@@ -117,6 +118,51 @@ Deno.serve(async (req) => {
           } catch (notifyErr) {
             console.warn("[cancel-cash-order] loyalty_revoked notification failed (non-blocking):", notifyErr);
           }
+        }
+
+        // Customer-facing PORTAL notifications (loyalty_notifications channel,
+        // member-scoped) — distinct from the staff bell above. Fixes the portal
+        // still showing revoked points as held, and announces the store credit.
+        // Never blocks the cancellation — the money has already moved.
+        try {
+          let memberId: string | null = null;
+          if (custId) {
+            const { data: m } = await supabase
+              .from("loyalty_members")
+              .select("id")
+              .eq("customer_id", custId)
+              .maybeSingle();
+            memberId = (m?.id as string) ?? null;
+          }
+
+          // Not enrolled → loyalty_notifications is member-scoped, nowhere to
+          // deliver. Skip silently.
+          if (memberId) {
+            if (c.earned_points_revoked_tx != null) {
+              await emitNotification(supabase, memberId, {
+                category: "points",
+                title: "Points revoked",
+                body: `The loyalty points earned on order #${c.invoice_number} have been revoked because the order was cancelled.`,
+                link_target: "tab:points",
+              });
+            }
+
+            if (Number(c.money_received ?? 0) > 0) {
+              const symbol = (c.store_credit?.currency ?? "JPY") === "PHP" ? "₱" : "¥";
+              const amt = Number(c.money_received ?? 0).toLocaleString("en-US");
+              const expiry = c.store_credit?.expires_at
+                ? new Date(c.store_credit.expires_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                : null;
+              await emitNotification(supabase, memberId, {
+                category: "order",
+                title: "Store credit issued",
+                body: `Order #${c.invoice_number} was cancelled. ${symbol}${amt} store credit has been added to your account${expiry ? ` and is valid until ${expiry}` : ""}. Our staff will apply it to your next order.`,
+                link_target: "tab:home",
+              });
+            }
+          }
+        } catch (portalErr) {
+          console.warn("[cancel-cash-order] customer portal notification failed (non-blocking):", portalErr);
         }
       }
     }
