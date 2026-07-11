@@ -1,8 +1,14 @@
 import { memo, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Wallet, Plus } from 'lucide-react';
+import { Wallet, Plus, Ban } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -120,15 +126,171 @@ function useStoreCreditTxns(customerId: string | undefined) {
   });
 }
 
+// Confirm + reason dialog for voiding a lot's UNSPENT remainder. Two-step,
+// mirroring IssueStoreCreditDialog.
+function VoidStoreCreditDialog({
+  lot,
+  open,
+  onOpenChange,
+  onVoided,
+}: {
+  lot: LotRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onVoided: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const reasonTrim = reason.trim();
+  const valid = reasonTrim.length >= 3;
+
+  const close = () => {
+    setReason('');
+    setConfirming(false);
+    setSubmitting(false);
+    onOpenChange(false);
+  };
+
+  if (!lot) return null;
+
+  const currency = lot.currency as Currency;
+  const original = Number(lot.original_amount);
+  const remaining = Number(lot.remaining_amount);
+  const alreadyApplied = original - remaining;
+
+  const submit = async () => {
+    if (!valid) return;
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('void-store-credit-lot', {
+        body: { lot_id: lot.id, reason: reasonTrim },
+      });
+      if (error) {
+        let msg = error.message || 'Failed to void store credit';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const b = await new Response((error as any).context.body).json();
+            if (b?.error) msg = b.error;
+          }
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const voided = Number((data as any)?.voided_amount ?? remaining);
+      toast.success(`Voided ${formatCurrency(voided, currency)} of store credit`);
+      onVoided();
+      close();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to void store credit');
+      setSubmitting(false);
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
+      <DialogContent className="max-w-md border-border bg-card">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 font-display text-card-foreground">
+            <Ban className="h-5 w-5 text-destructive" />
+            Void Store Credit
+          </DialogTitle>
+        </DialogHeader>
+
+        {!confirming ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-background p-3 space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Original amount</span>
+                <span className="tabular-nums text-card-foreground">{formatCurrency(original, currency)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Remaining (unspent)</span>
+                <span className="tabular-nums text-card-foreground font-semibold">{formatCurrency(remaining, currency)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Expires</span>
+                <span className="text-card-foreground">{fmtDate(lot.expires_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Source</span>
+                <span className="text-card-foreground">{humanizeSource(lot.source_type)}</span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-1">
+              <p className="text-xs text-destructive">
+                This will cancel the unspent {formatCurrency(remaining, currency)} of this lot.
+              </p>
+              {alreadyApplied > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  The {formatCurrency(alreadyApplied, currency)} already applied to orders will NOT be reversed.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="void-reason" className="text-xs">Reason (required)</Label>
+              <Textarea
+                id="void-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={3}
+                placeholder="Why is this store credit being voided? (audit-logged)"
+                className="bg-background border-border resize-none text-sm"
+              />
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={close}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={!valid}
+                onClick={() => setConfirming(true)}
+              >
+                Continue
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-card-foreground">
+              You are about to void{' '}
+              <span className="font-semibold">{formatCurrency(remaining, currency)}</span>{' '}
+              of store credit. This cannot be undone.
+            </p>
+            <p className="text-xs text-muted-foreground">Reason: {reasonTrim}</p>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" disabled={submitting} onClick={() => setConfirming(false)}>Back</Button>
+              <Button variant="destructive" disabled={submitting} onClick={submit}>
+                {submitting ? 'Voiding…' : 'Confirm Void'}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default memo(function CustomerStoreCreditTab({ customerId }: { customerId: string }) {
   const { data: lots, isLoading: lotsLoading, isError: lotsError } = useStoreCreditLots(customerId);
   const { data: txns, isLoading: txnsLoading, isError: txnsError } = useStoreCreditTxns(customerId);
   const { can } = usePermissions();
   const qc = useQueryClient();
   const canIssue = can('issue_store_credit');
+  const canVoid = can('void_store_credit');
   const [issueOpen, setIssueOpen] = useState(false);
+  const [voidTarget, setVoidTarget] = useState<LotRow | null>(null);
 
   const handleIssued = () => {
+    qc.invalidateQueries({ queryKey: ['store-credit-lots', customerId] });
+    qc.invalidateQueries({ queryKey: ['store-credit-txns', customerId] });
+  };
+
+  const handleVoided = () => {
     qc.invalidateQueries({ queryKey: ['store-credit-lots', customerId] });
     qc.invalidateQueries({ queryKey: ['store-credit-txns', customerId] });
   };
@@ -249,6 +411,7 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
                   <TableHead>Expires</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Status</TableHead>
+                  {canVoid && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -284,6 +447,22 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
                           {lot.status}
                         </span>
                       </TableCell>
+                      {canVoid && (
+                        <TableCell className="text-right">
+                          {lot.status === 'active' && Number(lot.remaining_amount) > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => setVoidTarget(lot)}
+                            >
+                              <Ban className="h-3.5 w-3.5 mr-1" /> Void
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}
@@ -340,6 +519,13 @@ export default memo(function CustomerStoreCreditTab({ customerId }: { customerId
       )}
 
       {issueDialog}
+      <VoidStoreCreditDialog
+        key={voidTarget?.id ?? 'none'}
+        lot={voidTarget}
+        open={!!voidTarget}
+        onOpenChange={(o) => { if (!o) setVoidTarget(null); }}
+        onVoided={handleVoided}
+      />
     </div>
   );
 });
