@@ -426,6 +426,25 @@ Deno.serve(async (req) => {
     const alreadyPaid = Number(cashOrder.total_paid) || 0;
 
     if (alreadyPaid < totalAmount) {
+      // TEMPORARY DIAGNOSTIC — Phase C investigation. Remove once the store-credit
+      // detection logic is implemented.
+      console.log(`${LOG} PAYLOAD-DIAG order=${shopifyOrderId} ` + JSON.stringify({
+        financial_status: order?.financial_status ?? null,
+        payment_gateway_names: order?.payment_gateway_names ?? null,
+        gateway: order?.gateway ?? null,
+        total_price: order?.total_price ?? null,
+        current_total_price: order?.current_total_price ?? null,
+        subtotal_price: order?.subtotal_price ?? null,
+        total_outstanding: order?.total_outstanding ?? null,
+        total_discounts: order?.total_discounts ?? null,
+        currency: order?.currency ?? null,
+        presentment_currency: order?.presentment_currency ?? null,
+        customer_id: order?.customer?.id ?? null,
+        transactions: order?.transactions ?? null,
+        payment_terms: order?.payment_terms ?? null,
+        top_level_keys: order ? Object.keys(order) : null,
+      }));
+
       const paidAmount = Number(order.total_price) || totalAmount;
       const { error: payErr } = await supabase.from("cash_payments").insert({
         cash_order_id: cashOrder.id,
