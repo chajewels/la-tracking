@@ -135,8 +135,20 @@ async function applyShopifyStoreCredit(
     return 0;
   }
 
+  // Accept BOTH "sale" and "authorization" kinds. A successful store-credit
+  // AUTHORIZATION means Shopify has ALREADY debited the customer's balance (the
+  // transaction carries receipt.debit_operation_id) even though the order is not
+  // yet fully paid — e.g. store credit + a still-pending bank transfer. The Hub
+  // must mirror that debit immediately, or the same credit can be spent twice
+  // while the order awaits payment. On a fully-settled store-credit-only order the
+  // same transaction appears as kind "sale". `status === "success"` is NOT relaxed
+  // — a pending/failed transaction is not a debit.
   const creditAmount = txns
-    .filter((t) => t?.kind === "sale" && t?.status === "success" && t?.gateway === "shopify_store_credit")
+    .filter((t) =>
+      (t?.kind === "sale" || t?.kind === "authorization") &&
+      t?.status === "success" &&
+      t?.gateway === "shopify_store_credit"
+    )
     .reduce((sum, t) => sum + (Number(t?.amount ?? 0) || 0), 0);
 
   if (!(creditAmount > 0)) return 0;
@@ -494,26 +506,6 @@ Deno.serve(async (req) => {
       // bank transfer / Konbini, forever if payment is never completed). If the store-credit
       // transaction is not there yet, this returns 0 and orders/paid catches it. Idempotent.
       if (cashOrderId) {
-        // TEMPORARY DIAGNOSTIC — remove after investigation.
-        try {
-          const token = await mintAccessToken();
-          const txUrl = `https://${Deno.env.get("SHOPIFY_STORE_DOMAIN")}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/transactions.json`;
-          const txRes = await fetch(txUrl, {
-            headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
-          });
-          const txJson = await txRes.json().catch(() => null);
-          console.log(`${LOG} CREATE-DIAG order=${shopifyOrderId} ` + JSON.stringify({
-            payment_gateway_names: order?.payment_gateway_names ?? null,
-            financial_status: order?.financial_status ?? null,
-            total_price: order?.total_price ?? null,
-            total_outstanding: order?.total_outstanding ?? null,
-            tx_http_status: txRes.status,
-            transactions: txJson?.transactions ?? null,
-          }));
-        } catch (e) {
-          console.error(`${LOG} CREATE-DIAG threw order=${shopifyOrderId}: ${(e as Error).message}`);
-        }
-
         const creditNow = await applyShopifyStoreCredit(supabase, shopifyOrderId, order, {
           id: cashOrderId,
           customer_id: customerId,
