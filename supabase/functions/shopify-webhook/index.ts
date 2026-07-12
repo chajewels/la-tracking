@@ -103,6 +103,109 @@ async function mintAccessToken(): Promise<string> {
   return j.access_token as string;
 }
 
+// Records the Shopify store-credit portion of an order as a Hub payment and draws down the
+// Hub's lots. Shopify consumes store credit at CHECKOUT, so this must run as soon as we see
+// the transaction — at orders/create if it is already there, otherwise at orders/paid.
+// Idempotent: the payment reference SHOPIFY-SC-<orderId> is unique per order, and the DB
+// unique constraint means a second attempt is a no-op.
+// Returns the store-credit amount recorded (0 if none).
+async function applyShopifyStoreCredit(
+  supabase: any,
+  shopifyOrderId: string,
+  order: any,
+  cashOrder: { id: string; customer_id: string | null },
+): Promise<number> {
+  const gateways: string[] = Array.isArray(order?.payment_gateway_names)
+    ? order.payment_gateway_names.map((g: unknown) => String(g))
+    : [];
+  if (!gateways.includes("shopify_store_credit")) return 0;
+
+  // Fetch the per-gateway amounts (the webhook payload does not contain them).
+  let txns: any[] = [];
+  try {
+    const token = await mintAccessToken();
+    const txUrl = `https://${Deno.env.get("SHOPIFY_STORE_DOMAIN")}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/transactions.json`;
+    const txRes = await fetch(txUrl, {
+      headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+    });
+    const txJson = await txRes.json().catch(() => null);
+    txns = Array.isArray(txJson?.transactions) ? txJson.transactions : [];
+  } catch (e) {
+    console.error(`${LOG} store-credit tx fetch threw order=${shopifyOrderId}: ${(e as Error).message}`);
+    return 0;
+  }
+
+  const creditAmount = txns
+    .filter((t) => t?.kind === "sale" && t?.status === "success" && t?.gateway === "shopify_store_credit")
+    .reduce((sum, t) => sum + (Number(t?.amount ?? 0) || 0), 0);
+
+  if (!(creditAmount > 0)) return 0;
+
+  // Idempotent insert. A duplicate reference (23505) means we already recorded it — that is
+  // success, not failure.
+  const { error: scErr } = await supabase.from("cash_payments").insert({
+    cash_order_id: cashOrder.id,
+    amount_paid: creditAmount,
+    currency: "JPY",
+    payment_method: "store_credit",
+    date_paid: phtToday(),
+    reference_number: `SHOPIFY-SC-${shopifyOrderId}`,
+    remarks: "Paid with Shopify store credit (consumed at checkout)",
+  });
+  if (scErr) {
+    if ((scErr as any)?.code === "23505") {
+      console.log(`${LOG} store-credit payment already recorded order=${shopifyOrderId} — skipping drawdown`);
+      return creditAmount;   // already handled on a previous delivery
+    }
+    console.error(`${LOG} store-credit payment insert failed order=${shopifyOrderId}: ${scErr.message}`);
+    return 0;
+  }
+
+  // Draw down the Hub's lots to match what Shopify consumed.
+  if (cashOrder.customer_id) {
+    const { data: consumed, error: consumeErr } = await supabase.rpc(
+      "consume_store_credit_for_shopify_atomic",
+      {
+        p_customer_id: cashOrder.customer_id,
+        p_currency: order?.currency ?? "JPY",
+        p_amount: creditAmount,
+        p_cash_order_id: cashOrder.id,
+        p_shopify_reference: `SHOPIFY-SC-${shopifyOrderId}`,
+        p_source: "shopify_webhook",
+      },
+    );
+    if (consumeErr) {
+      console.error(`${LOG} store-credit drawdown FAILED order=${shopifyOrderId}:`, consumeErr);
+    } else {
+      console.log(`${LOG} store-credit drawdown order=${shopifyOrderId} ` + JSON.stringify(consumed));
+      if (Number((consumed as any)?.shortfall ?? 0) > 0) {
+        console.warn(`${LOG} SHORTFALL order=${shopifyOrderId}: Shopify consumed more store credit than the Hub had issued. ` + JSON.stringify(consumed));
+      }
+    }
+  }
+
+  return creditAmount;
+}
+
+// Recomputes a cash order's totals from its non-voided payments. Never guesses.
+async function recomputeCashOrderTotals(supabase: any, cashOrderId: string, totalAmount: number) {
+  const { data: rows } = await supabase
+    .from("cash_payments")
+    .select("amount_paid")
+    .eq("cash_order_id", cashOrderId)
+    .is("voided_at", null);
+  const paid = (rows ?? []).reduce((s: number, r: any) => s + (Number(r?.amount_paid) || 0), 0);
+  const remaining = Math.max(0, totalAmount - paid);
+  await supabase.from("cash_orders").update({
+    total_paid: paid,
+    remaining_balance: remaining,
+    status: remaining <= 0 ? "completed" : "pending",
+    completed_at: remaining <= 0 ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", cashOrderId);
+  return { paid, remaining };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -386,6 +489,20 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Shopify consumes store credit at CHECKOUT, so record + draw it down as soon as
+      // orders/create lands — closing the double-spend window (seconds for PayPal, DAYS for
+      // bank transfer / Konbini, forever if payment is never completed). If the store-credit
+      // transaction is not there yet, this returns 0 and orders/paid catches it. Idempotent.
+      if (cashOrderId) {
+        const creditNow = await applyShopifyStoreCredit(supabase, shopifyOrderId, order, {
+          id: cashOrderId,
+          customer_id: customerId,
+        });
+        if (creditNow > 0) {
+          await recomputeCashOrderTotals(supabase, cashOrderId, totalAmount);
+        }
+      }
+
       // Record the processed event (idempotency ledger).
       const { error: evtErr } = await supabase.from("shopify_webhook_events").insert({
         shopify_order_id: shopifyOrderId,
@@ -491,9 +608,14 @@ Deno.serve(async (req) => {
     const alreadyPaid = Number(cashOrder.total_paid) || 0;
 
     if (alreadyPaid < totalAmount) {
-      // Detect whether Shopify store credit funded any of this order. The webhook
-      // payload lists the gateways but NOT per-payment amounts, so a store-credit
-      // order needs the transactions endpoint to split real money from credit.
+      // Store credit is consumed at CHECKOUT — record + draw it down via the shared helper
+      // (idempotent), whether or not orders/create already handled it.
+      await applyShopifyStoreCredit(supabase, shopifyOrderId, order, {
+        id: cashOrder.id,
+        customer_id: (cashOrder as any).customer_id ?? null,
+      });
+
+      // Real-money transactions (anything that is NOT store credit).
       const gateways: string[] = Array.isArray(order?.payment_gateway_names)
         ? order.payment_gateway_names.map((g: unknown) => String(g))
         : [];
@@ -514,7 +636,8 @@ Deno.serve(async (req) => {
           return await recordError(`cash_payment insert failed: ${payErr.message}`);
         }
       } else {
-        // Store credit was used — fetch the transaction split (amounts per gateway).
+        // Store credit already handled by the helper above. Here we insert only the
+        // NON-store-credit (real-money) transactions, one row per gateway.
         let txns: any[] = [];
         try {
           const token = await mintAccessToken();
@@ -538,41 +661,11 @@ Deno.serve(async (req) => {
           return json({ error: "transactions_unavailable" }, 500);
         }
 
-        // Split successful sales by gateway: store credit vs real money.
-        const sales = txns.filter((t) => t?.kind === "sale" && t?.status === "success");
-        let creditAmount = 0;
-        const otherPayments: { gateway: string; amount: number; id: string }[] = [];
-        for (const t of sales) {
-          const amt = Number(t?.amount ?? 0);
-          if (!(amt > 0)) continue;
-          if (t?.gateway === "shopify_store_credit") {
-            creditAmount += amt;
-          } else {
-            otherPayments.push({
-              gateway: String(t?.gateway ?? "unknown"),
-              amount: amt,
-              id: String(t?.id ?? ""),
-            });
-          }
-        }
+        const otherPayments = txns
+          .filter((t) => t?.kind === "sale" && t?.status === "success" && t?.gateway !== "shopify_store_credit")
+          .map((t) => ({ gateway: String(t?.gateway ?? "unknown"), amount: Number(t?.amount ?? 0) || 0, id: String(t?.id ?? "") }))
+          .filter((p) => p.amount > 0);
 
-        // Store-credit portion — money that did NOT arrive in a bank account.
-        if (creditAmount > 0) {
-          const { error: scErr } = await supabase.from("cash_payments").insert({
-            cash_order_id: cashOrder.id,
-            amount_paid: creditAmount,
-            currency: "JPY",
-            payment_method: "store_credit",
-            date_paid: phtToday(),
-            reference_number: `SHOPIFY-SC-${shopifyOrderId}`,
-            remarks: "Paid with Shopify store credit",
-          });
-          if (scErr) {
-            return await recordError(`store-credit cash_payment insert failed: ${scErr.message}`);
-          }
-        }
-
-        // Real-money portions — money that DID arrive, one row per gateway.
         for (const p of otherPayments) {
           const { error: rmErr } = await supabase.from("cash_payments").insert({
             cash_order_id: cashOrder.id,
@@ -583,44 +676,17 @@ Deno.serve(async (req) => {
             reference_number: `SHOPIFY-${shopifyOrderId}-${p.id}`,
             remarks: `Paid via ${p.gateway}`,
           });
-          if (rmErr) {
+          // A duplicate reference (23505) means a retry already recorded it — success.
+          if (rmErr && (rmErr as any).code !== UNIQUE_VIOLATION) {
             return await recordError(`cash_payment insert failed (${p.gateway}): ${rmErr.message}`);
           }
         }
-
-        // Draw the Hub's own store-credit lots down for the credit portion so the
-        // same credit cannot be spent twice. A drawdown failure must NOT fail the
-        // webhook — the money already moved and the payments are already recorded.
-        if (creditAmount > 0 && cashOrder?.customer_id) {
-          const { data: consumed, error: consumeErr } = await supabase.rpc(
-            "consume_store_credit_for_shopify_atomic",
-            {
-              p_customer_id: cashOrder.customer_id,
-              p_currency: order?.currency ?? "JPY",
-              p_amount: creditAmount,
-              p_cash_order_id: cashOrder.id,
-              p_shopify_reference: `SHOPIFY-SC-${shopifyOrderId}`,
-              p_source: "shopify_webhook",
-            },
-          );
-          if (consumeErr) {
-            console.error(`${LOG} store-credit drawdown FAILED order=${shopifyOrderId}:`, consumeErr);
-          } else {
-            console.log(`${LOG} store-credit drawdown order=${shopifyOrderId} ` + JSON.stringify(consumed));
-            if (Number((consumed as any)?.shortfall ?? 0) > 0) {
-              console.warn(`${LOG} SHORTFALL order=${shopifyOrderId}: Shopify spent more store credit than the Hub had issued. ` + JSON.stringify(consumed));
-            }
-          }
-        }
       }
 
-      const { error: updErr } = await supabase
-        .from("cash_orders")
-        .update({ total_paid: totalAmount, remaining_balance: 0, status: "completed" })
-        .eq("id", cashOrder.id);
-      if (updErr) {
-        return await recordError(`cash_order completion update failed: ${updErr.message}`);
-      }
+      // Recompute the order's totals from its payment rows — never assume. A partially-paid
+      // order (store credit at checkout, bank transfer not yet received) correctly stays
+      // "pending" with the right remaining_balance.
+      await recomputeCashOrderTotals(supabase, cashOrder.id, totalAmount);
 
       // Loyalty award — reads loyalty_jpy_amount from the order. Fire-and-forget:
       // a loyalty failure must NEVER fail the webhook.
