@@ -2,8 +2,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Phase 4 — Shopify storefront order webhook receiver (PATH B).
 // PUBLIC, security-critical endpoint: HMAC-verify BEFORE any processing.
-// Handles orders/create + orders/paid only; other topics are acknowledged
-// (200) and ignored. All DB access is via the service-role client — there is
+// Handles orders/create + orders/paid + orders/cancelled only; other topics
+// are acknowledged (200) and ignored. orders/cancelled hands off to
+// cancel_cash_order_atomic (store-credit issuance + earned-points revocation).
+// All DB access is via the service-role client — there is
 // no user JWT on an inbound webhook. This function MUST run with
 // verify_jwt = false at the gateway (configured at deploy time).
 
@@ -105,9 +107,9 @@ Deno.serve(async (req) => {
     return json({ error: "missing order id" }, 400);
   }
 
-  // Only orders/create + orders/paid are handled in Phase 4. Everything else
-  // (cancel/update/etc.) is acknowledged and ignored — deferred to Phase 5.
-  if (topic !== "orders/create" && topic !== "orders/paid") {
+  // orders/create + orders/paid + orders/cancelled are handled. Everything else
+  // (update/etc.) is acknowledged and ignored.
+  if (topic !== "orders/create" && topic !== "orders/paid" && topic !== "orders/cancelled") {
     console.log(`${LOG} ignoring topic=${topic} order=${shopifyOrderId}`);
     return json({ ignored: topic }, 200);
   }
@@ -332,6 +334,71 @@ Deno.serve(async (req) => {
 
       console.log(`${LOG} orders/create done order=${shopifyOrderId} cash_order=${cashOrderId}`);
       return json({ ok: true }, 200);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // orders/cancelled
+    // ════════════════════════════════════════════════════════════
+    // Shopify cancellation is NOT a cash refund: money actually received comes back as
+    // STORE CREDIT. cancel_cash_order_atomic owns all of that logic (credit issuance,
+    // earned-points revocation, notifications). We only locate the Hub order and call it.
+    // Placed ahead of the orders/paid fall-through so a cancelled event never runs the
+    // paid path (which is intentionally left unchanged).
+    if (topic === "orders/cancelled") {
+      const { data: cashOrder } = await supabase
+        .from("cash_orders")
+        .select("id, status, invoice_number")
+        .eq("shopify_order_id", shopifyOrderId)
+        .maybeSingle();
+
+      // Order never synced to the Hub (e.g. created before the integration) — acknowledge,
+      // do nothing. Do NOT record a webhook_events row so a later retry can still succeed.
+      if (!cashOrder) {
+        console.log(`${LOG} orders/cancelled no hub cash_order for ${shopifyOrderId}, ignoring`);
+        return json({ ignored: "no_hub_order", shopify_order_id: shopifyOrderId }, 200);
+      }
+
+      const cancelReason =
+        (typeof order?.cancel_reason === "string" && order.cancel_reason.trim())
+          ? `Cancelled in Shopify (${order.cancel_reason.trim()})`
+          : "Cancelled in Shopify";
+
+      const { data: cancelResult, error: cancelError } = await supabase.rpc(
+        "cancel_cash_order_atomic",
+        {
+          p_cash_order_id: cashOrder.id,
+          p_reason: cancelReason,
+          p_user_id: null,          // webhook has no user
+          p_user_email: null,
+          p_preview: false,
+          p_source: "shopify_webhook",
+        },
+      );
+
+      if (cancelError) {
+        console.error(`${LOG} orders/cancelled rpc error for ${shopifyOrderId}:`, cancelError);
+        // Return 500 so Shopify RETRIES — do not swallow a failed cancellation.
+        return json({ error: cancelError.message ?? "cancel_cash_order_atomic failed" }, 500);
+      }
+
+      console.log(
+        `${LOG} orders/cancelled done order=${shopifyOrderId} cash_order=${cashOrder.id} ` +
+        `invoice=${cashOrder.invoice_number} result=${JSON.stringify(cancelResult)}`,
+      );
+
+      // Record the processed event (idempotency ledger) — same shape/columns the
+      // other branches use, so Shopify retries short-circuit at the idempotency check.
+      const { error: evtErr } = await supabase.from("shopify_webhook_events").insert({
+        shopify_order_id: shopifyOrderId,
+        topic,
+        webhook_id: webhookId,
+        status: "processed",
+      });
+      if (evtErr && evtErr.code !== UNIQUE_VIOLATION) {
+        console.warn(`${LOG} event record failed for ${shopifyOrderId}: ${evtErr.message}`);
+      }
+
+      return json({ ok: true, topic, cash_order_id: cashOrder.id, result: cancelResult }, 200);
     }
 
     // ════════════════════════════════════════════════════════════
