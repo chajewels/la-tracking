@@ -755,6 +755,7 @@ export type Database = {
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
+          shopify_customer_id: string | null
           source: string | null
           updated_at: string
         }
@@ -782,6 +783,7 @@ export type Database = {
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
+          shopify_customer_id?: string | null
           source?: string | null
           updated_at?: string
         }
@@ -809,6 +811,7 @@ export type Database = {
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
+          shopify_customer_id?: string | null
           source?: string | null
           updated_at?: string
         }
