@@ -28,6 +28,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import RebuildCashReceiptsCard from '@/components/admin/RebuildCashReceiptsCard';
 
 // customers.created_at is usable for month bucketing ONLY from 2026-04
 // onward. Owner-run SQL (2026-07-07, is_test=false, by month of created_at):
@@ -719,6 +720,13 @@ export default function Dashboard() {
                       </>
                     );
                   })()}
+
+                  {/* Cash Receipt repair sweep (Bug #251) — admin only */}
+                  {can('system_health') && (
+                    <div className="border-t border-border pt-3">
+                      <RebuildCashReceiptsCard />
+                    </div>
+                  )}
                 </div>
               )}
 
