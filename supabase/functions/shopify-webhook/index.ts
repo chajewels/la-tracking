@@ -494,6 +494,26 @@ Deno.serve(async (req) => {
       // bank transfer / Konbini, forever if payment is never completed). If the store-credit
       // transaction is not there yet, this returns 0 and orders/paid catches it. Idempotent.
       if (cashOrderId) {
+        // TEMPORARY DIAGNOSTIC — remove after investigation.
+        try {
+          const token = await mintAccessToken();
+          const txUrl = `https://${Deno.env.get("SHOPIFY_STORE_DOMAIN")}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/transactions.json`;
+          const txRes = await fetch(txUrl, {
+            headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+          });
+          const txJson = await txRes.json().catch(() => null);
+          console.log(`${LOG} CREATE-DIAG order=${shopifyOrderId} ` + JSON.stringify({
+            payment_gateway_names: order?.payment_gateway_names ?? null,
+            financial_status: order?.financial_status ?? null,
+            total_price: order?.total_price ?? null,
+            total_outstanding: order?.total_outstanding ?? null,
+            tx_http_status: txRes.status,
+            transactions: txJson?.transactions ?? null,
+          }));
+        } catch (e) {
+          console.error(`${LOG} CREATE-DIAG threw order=${shopifyOrderId}: ${(e as Error).message}`);
+        }
+
         const creditNow = await applyShopifyStoreCredit(supabase, shopifyOrderId, order, {
           id: cashOrderId,
           customer_id: customerId,
