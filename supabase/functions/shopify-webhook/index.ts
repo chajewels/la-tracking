@@ -151,11 +151,25 @@ Deno.serve(async (req) => {
     // orders/create
     // ════════════════════════════════════════════════════════════
     if (topic === "orders/create") {
-      // §6 customer matching: email → phone → create-and-flag.
+      // §6 customer matching: shopify_customer_id → email → phone → create-and-flag.
+      // The Shopify customer ID is the most stable key (email can change; the
+      // Shopify ID cannot) and is required to push store credit into Shopify.
       let customerId: string | null = null;
 
+      const shopifyCustomerId: string | null =
+        order.customer?.id != null ? String(order.customer.id) : null;
+
+      if (shopifyCustomerId) {
+        const { data: byShopifyId } = await supabase
+          .from("customers")
+          .select("id")
+          .eq("shopify_customer_id", shopifyCustomerId)
+          .limit(1);
+        if (byShopifyId && byShopifyId.length > 0) customerId = byShopifyId[0].id;
+      }
+
       const email: string | null = order.email ?? order.customer?.email ?? null;
-      if (email) {
+      if (!customerId && email) {
         const { data: byEmail } = await supabase
           .from("customers")
           .select("id")
@@ -185,6 +199,7 @@ Deno.serve(async (req) => {
             full_name: fullName,
             email: email ?? null,
             mobile_number: phone ?? null,
+            shopify_customer_id: shopifyCustomerId,
             source: "shopify",
             needs_review: true,
           })
@@ -195,6 +210,21 @@ Deno.serve(async (req) => {
         }
         customerId = newCust.id;
         console.log(`${LOG} created flagged customer ${customerId} for order ${shopifyOrderId}`);
+      }
+
+      // Backfill the stable Shopify key onto customers matched by email/phone (or
+      // already linked). Only fills when empty — never overwrites an existing link;
+      // a unique-violation (this Shopify ID already links a DIFFERENT Hub customer)
+      // is logged but never blocks the order.
+      if (customerId && shopifyCustomerId) {
+        const { error: linkErr } = await supabase
+          .from("customers")
+          .update({ shopify_customer_id: shopifyCustomerId })
+          .eq("id", customerId)
+          .is("shopify_customer_id", null);
+        if (linkErr) {
+          console.warn(`${LOG} shopify_customer_id link failed for customer ${customerId}: ${linkErr.message}`);
+        }
       }
 
       // Build the cash_order (mirrors create-cash-order's insert shape).
