@@ -255,45 +255,50 @@
   proof-of-payment images and metadata for every confirmed
   payment_submissions entry on the parent account/cash_order.
 
-  Architecture:
-  - _shared/cash-receipt.ts — 24-slot canonical cell map + Sheets
-    API helpers (buildSlotUpdates, appendOneReceipt,
-    appendManyReceipts). Single source of truth for slot positions
-    and =IMAGE formula construction.
-  - append-cash-receipt edge function — thin HTTP wrapper that
-    delegates to appendOneReceipt. Used for incremental writes
-    from review-payment-submission and for ad-hoc curl testing.
+  Architecture (Bug #251 rework, 2026-07-12):
+  - _shared/cash-receipt.ts — slot maps are DERIVED PER SHEET from
+    that sheet's own merged ranges at runtime (deriveSlotMap), NOT
+    hard-coded. An image merge = 28 rows, a metadata merge = 6 rows;
+    each image is paired with the nearest metadata merge below it in
+    the same column, and slots are numbered COLUMN-MAJOR (columns
+    ascending, bands ascending within a column). Three template
+    generations exist in the wild — 13-slot, 24-slot, 30-slot (the
+    30-slot adds column AD) — and all are handled from their own
+    merges. Also exports buildSlotUpdates(slot, map), appendOneReceipt
+    and appendManyReceipts, plus the =IMAGE formula construction.
+  - append-cash-receipt edge function — manual single-slot repair
+    tool that delegates to appendOneReceipt (derives the map itself).
+    slot_index is validated only as a positive integer; buildSlotUpdates
+    throws if it exceeds the sheet's derived capacity.
   - generate-invoice extension — on Sheet creation, queries all
     confirmed receipts for parent (ORDER BY payment_date ASC,
-    created_at ASC, LIMIT 24), embeds them in a single Sheets API
-    batchUpdate via appendManyReceipts. Persists
-    cash_receipt_sheet_id on parent table. Response gains
-    embedded_receipt_count field.
-  - review-payment-submission extension — on confirm in cash-order
-    branch, fires-and-forgets append-cash-receipt with the new
-    receipt's slot_index. Same in layaway branch for single-
-    allocation submissions only (confirmedPaymentIds.length === 1).
+    created_at ASC, LIMIT 30) and embeds them via appendManyReceipts.
+    Persists cash_receipt_sheet_id on the parent table.
+  - review-payment-submission extension — on every confirmed payment
+    (cash-order AND layaway branches), ALL slots are rebuilt from
+    payment_submissions (self-healing): the full confirmed-receipt set
+    is re-derived and re-written, so a damaged sheet repairs itself on
+    its next payment. Split / multi-allocation payments now embed too
+    (the old confirmedPaymentIds.length === 1 gate is gone). Called
+    directly (no HTTP hop), awaited, wrapped in try/catch.
 
   PHP→JPY conversion: per CLAUDE.md CURRENCY CONVERSION STANDARD,
   amounts are converted PHP ÷ rate before display. Rate fetched
   from system_settings.php_jpy_rate (jsonb scalar). Always
   displays as "{amount} JPY".
 
-  Slot layout: 24 slots in the Cash Receipt tab — 4 columns
-  (B, I, P, W) × 6 bands, numbered ROW-MAJOR (left-to-right
-  across each band, then down) so printed receipts read in
-  chronological sequence.
-  Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
-  163/198, 216/251, 269/304. Image cell = anchor + 27 rows × 5
-  cols; metadata cell = anchor + 5 rows × 5 cols.
-  2026-06-04: remapped from 13-slot column-major. Orphan
-  W157/W191 block removed from master template. generate-invoice
-  receipt query LIMIT 13 → 24. Overflow guard slot_index > 24
-  logs and skips.
+  Capacity + overflow: capacity = the sheet's derived slot count.
+  Receipts with slot_index beyond capacity are logged loudly
+  (console.error naming the sheet/account, capacity and overflow
+  count) and skipped — never written to non-existent cells.
 
-  Failure isolation: receipt-embed errors caught and logged with
-  console.warn, never block invoice generation or payment
-  confirmation. Slot overflow (slot_index > 24) logs and skips.
+  reposition-cash-receipts is RETIRED (HTTP 410) — it caused the
+  Bug #251 data loss by writing OLD-map placeholders over the
+  correct metadata. See docs/FIXED-BUGS.md Bug #251.
+
+  Failure isolation: receipt-embed errors are caught and logged with
+  console.warn, never blocking invoice generation or payment
+  confirmation.
 
   Schema columns:
   - layaway_accounts.cash_receipt_sheet_id text NULL (added 2026-05-11)

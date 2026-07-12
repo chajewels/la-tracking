@@ -3492,3 +3492,21 @@ Note: existing overpaid-DP accounts (other than 19122) will now correctly show t
     — which it calls — did not, and received the same NULL user. Fixed by adding
     p_source to the inner RPC and threading it through. Cost three live test orders
     to find; the PL/pgSQL error CONTEXT named the real culprit.
+
+### Bug #251 — Cash Receipt text block not written on succeeding payments (2026-07-12) ✅
+Symptom: after invoice generation, a confirmed payment attached the receipt IMAGE but left the
+INVOICE #/DATE/AMOUNT text block blank; staff filled it in by hand.
+Root cause (two faults): (1) _shared/cash-receipt.ts hard-coded ONE slot map (the current master
+template) and applied it to every sheet, but three template generations exist — 13-slot (26 merges,
+3 bands), 24-slot (48), 30-slot (60, adds column AD). Old-template sheets have no bands at rows
+163/214/265, so slots 4-6 wrote into non-existent cells. (2) reposition-cash-receipts read each
+slot's metadata from OLD_SLOTS (24-slot ROW-major) positions; on 13-slot sheets those cells were
+never used and held the blank template placeholder, which it then wrote OVER the correct metadata at
+the new position — destroying the text while rebuilding the image from proof_url, so the image still
+looked fine. Confirmed on live sheets 18951 (B93 = blank placeholder, I5/I40 blanked = reposition's
+vacate step) and 19004 (slot 2 hand-typed by staff).
+Fix: derive the slot map from each sheet's own merged ranges at runtime (deriveSlotMap); rebuild ALL
+slots from payment_submissions on every confirmed payment (idempotent, self-healing, fixes damaged
+sheets on their next payment); retire reposition-cash-receipts (HTTP 410); remove the 24-slot caps so
+column AD (25-30) actually works; drop the confirmedPaymentIds.length === 1 gate so split payments
+also embed.

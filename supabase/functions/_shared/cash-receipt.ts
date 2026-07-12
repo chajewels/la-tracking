@@ -1,11 +1,11 @@
 import { getServiceAccountAccessToken } from "./google-auth.ts";
 
 /**
- * Single cash receipt slot data — used by both append-cash-receipt
- * (1 slot at a time) and generate-invoice (up to 24 slots in bulk).
+ * Single cash receipt slot data — used by append-cash-receipt (1 slot at a
+ * time), generate-invoice and review-payment-submission (bulk rebuild).
  */
 export interface CashReceiptSlot {
-  slot_index: number;       // 1-24
+  slot_index: number;       // 1-based; validated against the derived per-sheet map
   proof_url: string;        // public URL of receipt image
   invoice_number: string;
   payment_date: string;     // formatted display string (e.g., "May 2, 2026")
@@ -19,76 +19,119 @@ interface SlotCells {
 
 export const TAB = "Cash Receipt";
 
-/**
- * 24-slot cell map. Each slot has 2 merged cells:
- * - image: receives =IMAGE() formula
- * - metadata: receives multi-line "INVOICE #: ... DATE: ... AMOUNT: ..." text
- *
- * Layout: 5 columns (B, I, P, W, AD) × 6 bands = 30 slots, numbered
- * COLUMN-MAJOR (top-to-bottom down each column, then right to the
- * next column) so that receipts — filled in chronological order —
- * read in correct sequence AND print on a single page when the
- * Cash Receipt tab is printed. Slots 1-6 fill column B, 7-12 fill
- * column I, 13-18 fill column P, 19-24 fill column W, 25-30 fill
- * column AD.
- *
- * Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
- * 163/198, 214/249, 265/300. (Band 5/6 anchors are 214/265, not
- * 216/269 — the higher rows split the print across two pages.)
- */
-export const SLOTS: Record<number, SlotCells> = {
-  // Column B (slots 1-6, top to bottom)
-  1:  { image: `${TAB}!B5`,   metadata: `${TAB}!B40`  },
-  2:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
-  3:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
-  4:  { image: `${TAB}!B163`, metadata: `${TAB}!B198` },
-  5:  { image: `${TAB}!B214`, metadata: `${TAB}!B249` },
-  6:  { image: `${TAB}!B265`, metadata: `${TAB}!B300` },
-  // Column I (slots 7-12, top to bottom)
-  7:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
-  8:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
-  9:  { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
-  10: { image: `${TAB}!I163`, metadata: `${TAB}!I198` },
-  11: { image: `${TAB}!I214`, metadata: `${TAB}!I249` },
-  12: { image: `${TAB}!I265`, metadata: `${TAB}!I300` },
-  // Column P (slots 13-18, top to bottom)
-  13: { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
-  14: { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
-  15: { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
-  16: { image: `${TAB}!P163`, metadata: `${TAB}!P198` },
-  17: { image: `${TAB}!P214`, metadata: `${TAB}!P249` },
-  18: { image: `${TAB}!P265`, metadata: `${TAB}!P300` },
-  // Column W (slots 19-24, top to bottom)
-  19: { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
-  20: { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
-  21: { image: `${TAB}!W110`, metadata: `${TAB}!W145` },
-  22: { image: `${TAB}!W163`, metadata: `${TAB}!W198` },
-  23: { image: `${TAB}!W214`, metadata: `${TAB}!W249` },
-  24: { image: `${TAB}!W265`, metadata: `${TAB}!W300` },
-  // Column AD (slots 25-30, top to bottom)
-  25: { image: `${TAB}!AD5`,   metadata: `${TAB}!AD40`  },
-  26: { image: `${TAB}!AD58`,  metadata: `${TAB}!AD93`  },
-  27: { image: `${TAB}!AD110`, metadata: `${TAB}!AD145` },
-  28: { image: `${TAB}!AD163`, metadata: `${TAB}!AD198` },
-  29: { image: `${TAB}!AD214`, metadata: `${TAB}!AD249` },
-  30: { image: `${TAB}!AD265`, metadata: `${TAB}!AD300` },
-};
+// The Cash Receipt template's two merge shapes, by row-span height. Every slot
+// is an image merge (28 rows, e.g. B5:F32) paired with a metadata merge (6 rows,
+// e.g. B40:F45) directly below it in the same column.
+const IMAGE_MERGE_HEIGHT = 28;
+const METADATA_MERGE_HEIGHT = 6;
 
 /**
- * Build the 2 cell-update entries (image + metadata) for one slot.
- * Throws on invalid slot_index. Pure function — no I/O.
+ * 0-based column index → A1 column letters (1→B, 8→I, 15→P, 22→W, 29→AD).
+ */
+function colLetter(idx0: number): string {
+  let n = idx0;
+  let s = "";
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return s;
+}
+
+/**
+ * Derive the slot map from a sheet's OWN merged ranges at runtime.
  *
- * Multiple slots can be combined into a single batchUpdate request
- * by concatenating the arrays.
+ * Three template generations exist in the wild (13-slot, 24-slot, 30-slot) —
+ * a hard-coded map wrote to cells that do not exist on older sheets (Bug #251).
+ * Reading each sheet's merges is the only safe source of truth.
+ *
+ * Classify merges by row-span height: 28 = image anchor, 6 = metadata anchor.
+ * Pair each image with the nearest metadata merge below it in the same column,
+ * then number slots COLUMN-MAJOR (columns ascending, bands ascending within a
+ * column). Reproduces the known maps exactly:
+ *   - 13-slot template → B5/B40 … W110/W145, W157/W191 (13 slots)
+ *   - 30-slot template → B5/B40 … AD265/AD300 (30 slots)
+ */
+export async function deriveSlotMap(sheetId: string): Promise<Record<number, SlotCells>> {
+  const accessToken = await getServiceAccountAccessToken();
+  const url =
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(title),merges)`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Sheets API get merges failed (${res.status}): ${errText}`);
+  }
+
+  const body = await res.json();
+  const sheets: any[] = Array.isArray(body?.sheets) ? body.sheets : [];
+  const tab = sheets.find((s: any) => s?.properties?.title === TAB);
+  if (!tab) {
+    throw new Error(`Cash Receipt tab "${TAB}" not found in sheet ${sheetId}`);
+  }
+  const merges: any[] = Array.isArray(tab.merges) ? tab.merges : [];
+
+  const imageAnchors: Array<{ col: number; row: number }> = [];
+  const metaAnchors: Array<{ col: number; row: number }> = [];
+  for (const m of merges) {
+    const startRow = Number(m?.startRowIndex);
+    const endRow = Number(m?.endRowIndex);
+    const startCol = Number(m?.startColumnIndex);
+    if (!Number.isInteger(startRow) || !Number.isInteger(endRow) || !Number.isInteger(startCol)) {
+      continue;
+    }
+    const height = endRow - startRow;
+    if (height === IMAGE_MERGE_HEIGHT) imageAnchors.push({ col: startCol, row: startRow });
+    else if (height === METADATA_MERGE_HEIGHT) metaAnchors.push({ col: startCol, row: startRow });
+  }
+
+  // Pair each image anchor with the metadata merge in the SAME column whose
+  // startRowIndex is the smallest one GREATER than the image's startRowIndex.
+  const paired: Array<{ col: number; imageRow: number; metaRow: number }> = [];
+  for (const img of imageAnchors) {
+    let best: number | null = null;
+    for (const meta of metaAnchors) {
+      if (meta.col !== img.col) continue;
+      if (meta.row <= img.row) continue;
+      if (best === null || meta.row < best) best = meta.row;
+    }
+    if (best === null) continue; // image with no metadata below → skip
+    paired.push({ col: img.col, imageRow: img.row, metaRow: best });
+  }
+
+  // Column-major: columns ascending, then bands ascending within each column.
+  paired.sort((a, b) => a.col - b.col || a.imageRow - b.imageRow);
+
+  const map: Record<number, SlotCells> = {};
+  let idx = 1;
+  for (const s of paired) {
+    map[idx] = {
+      image: `${TAB}!${colLetter(s.col)}${s.imageRow + 1}`,
+      metadata: `${TAB}!${colLetter(s.col)}${s.metaRow + 1}`,
+    };
+    idx++;
+  }
+
+  if (Object.keys(map).length === 0) {
+    throw new Error(`No cash-receipt slots derived from sheet ${sheetId} (unexpected layout)`);
+  }
+  return map;
+}
+
+/**
+ * Build the 2 cell-update entries (image + metadata) for one slot against a
+ * derived per-sheet map. Throws if the slot_index is not present in the map.
+ * Pure function — no I/O.
  */
 export function buildSlotUpdates(
   slot: CashReceiptSlot,
+  map: Record<number, SlotCells>,
 ): Array<{ range: string; values: string[][] }> {
-  if (!Number.isInteger(slot.slot_index) || slot.slot_index < 1 || slot.slot_index > 24) {
-    throw new Error(`Invalid slot_index: ${slot.slot_index} (must be 1-24)`);
+  const cells = map[slot.slot_index];
+  if (!cells) {
+    throw new Error(
+      `Unknown slot_index ${slot.slot_index} for this sheet (derived capacity ${Object.keys(map).length})`,
+    );
   }
-
-  const cells = SLOTS[slot.slot_index];
 
   // Sanitize proof_url for use inside =IMAGE() formula
   const safeUrl = slot.proof_url.replace(/"/g, '""');
@@ -111,36 +154,61 @@ export function buildSlotUpdates(
 }
 
 /**
- * Write one slot's data to a Sheet via Sheets API values:batchUpdate.
- * Used by append-cash-receipt edge function for incremental appends.
+ * Write one slot's data to a Sheet via Sheets API values:batchUpdate. Derives
+ * the slot map from the sheet's own merges. Used by append-cash-receipt.
  */
 export async function appendOneReceipt(
   sheetId: string,
   slot: CashReceiptSlot,
 ): Promise<{ cells_updated: number }> {
-  const updates = buildSlotUpdates(slot);
+  const map = await deriveSlotMap(sheetId);
+  const updates = buildSlotUpdates(slot, map);
   return await sendBatchUpdate(sheetId, updates);
 }
 
 /**
- * Write N slots' data to a Sheet via a single Sheets API call.
- * Used by generate-invoice for initial bulk fill of confirmed receipts.
- * Returns { cells_updated: 0 } for empty input — no API call made.
+ * Write N slots' data to a Sheet via a single Sheets API call, rebuilding from
+ * DB truth. Capacity and overflow are OWNED here: the slot map is derived from
+ * the sheet, slots beyond capacity are logged loudly and skipped (never written
+ * to non-existent cells). Returns { cells_updated, capacity, written, overflow }.
  */
 export async function appendManyReceipts(
   sheetId: string,
   slots: CashReceiptSlot[],
-): Promise<{ cells_updated: number }> {
+): Promise<{ cells_updated: number; capacity: number; written: number; overflow: number }> {
+  const map = await deriveSlotMap(sheetId);
+  const capacity = Object.keys(map).length;
+
   if (slots.length === 0) {
-    return { cells_updated: 0 };
+    return { cells_updated: 0, capacity, written: 0, overflow: 0 };
+  }
+
+  const writable = slots.filter((s) => s.slot_index <= capacity);
+  const overflow = slots.filter((s) => s.slot_index > capacity);
+
+  if (overflow.length > 0) {
+    console.error(
+      `[cash-receipt] ${overflow.length} receipt(s) exceeded sheet ${sheetId} ` +
+      `Cash Receipt capacity (${capacity}) and were NOT written`,
+    );
+  }
+
+  if (writable.length === 0) {
+    return { cells_updated: 0, capacity, written: 0, overflow: overflow.length };
   }
 
   const allUpdates: Array<{ range: string; values: string[][] }> = [];
-  for (const slot of slots) {
-    allUpdates.push(...buildSlotUpdates(slot));
+  for (const slot of writable) {
+    allUpdates.push(...buildSlotUpdates(slot, map));
   }
 
-  return await sendBatchUpdate(sheetId, allUpdates);
+  const res = await sendBatchUpdate(sheetId, allUpdates);
+  return {
+    cells_updated: res.cells_updated,
+    capacity,
+    written: writable.length,
+    overflow: overflow.length,
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -716,70 +717,53 @@ Deno.serve(async (req) => {
         }
       }
 
-      // 9. Fire-and-forget: append-cash-receipt if invoice exists
-      if (cashOrder.cash_receipt_sheet_id && submission.proof_url) {
+      // 9. Rebuild ALL cash-receipt slots from DB truth (self-healing). Every
+      //    confirmed receipt for this cash order is re-derived and re-written, so
+      //    damaged sheets repair themselves on the next payment (Bug #251).
+      if (cashOrder.cash_receipt_sheet_id) {
         try {
-          // Compute slot_index = count of confirmed submissions
-          // for this cash_order up to (and including) the current one
-          const { count: slotIndex, error: countErr } = await supabase
+          const { data: receipts, error: receiptsErr } = await supabase
             .from("payment_submissions")
-            .select("id", { count: "exact", head: true })
+            .select("proof_url, payment_date, submitted_amount")
             .eq("cash_order_id", cashOrder.id)
             .eq("status", "confirmed")
             .not("proof_url", "is", null)
-            .lte("created_at", submission.created_at);
+            .order("payment_date", { ascending: true })
+            .order("created_at", { ascending: true });
+          if (receiptsErr) throw receiptsErr;
 
-          if (countErr || slotIndex == null) {
-            console.warn(
-              "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
-              countErr,
-            );
-          } else if (slotIndex < 1 || slotIndex > 24) {
-            console.warn(
-              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-24), skipping append`,
-            );
-          } else {
-            // Fetch PHP→JPY rate for amount conversion
-            let phpJpyRate = 1.0;
-            const { data: rateRow } = await supabase
-              .from("system_settings")
-              .select("value")
-              .eq("key", "php_jpy_rate")
-              .single();
-            if (rateRow?.value) {
-              const parsed = parseFloat(String(rateRow.value));
-              if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
-            }
+          // PHP→JPY rate for amount conversion (JPY orders skip conversion).
+          let phpJpyRate = 1.0;
+          const { data: rateRow } = await supabase
+            .from("system_settings")
+            .select("value")
+            .eq("key", "php_jpy_rate")
+            .single();
+          if (rateRow?.value) {
+            const parsed = parseFloat(String(rateRow.value));
+            if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+          }
 
-            // Fire-and-forget POST (awaited try/catch per cash-branch precedent)
-            try {
-              await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-cash-receipt`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                },
-                body: JSON.stringify({
-                  sheet_id: cashOrder.cash_receipt_sheet_id,
-                  slot_index: slotIndex,
-                  proof_url: submission.proof_url,
-                  invoice_number: cashOrder.invoice_number,
-                  payment_date: submission.payment_date,
-                  amount: cashOrder.currency === "JPY"
-                    ? submission.submitted_amount
-                    : Math.round(submission.submitted_amount / phpJpyRate),
-                }),
-              });
-            } catch (appendErr) {
-              console.warn(
-                "[review-payment-submission] append-cash-receipt failed (non-blocking):",
-                appendErr,
-              );
-            }
+          const slots: CashReceiptSlot[] = (receipts ?? []).map((r: any, idx: number) => ({
+            slot_index: idx + 1,
+            proof_url: r.proof_url as string,
+            invoice_number: cashOrder.invoice_number,
+            payment_date: r.payment_date,
+            amount: cashOrder.currency === "JPY"
+              ? r.submitted_amount
+              : Math.round(r.submitted_amount / phpJpyRate),
+          }));
+
+          const rr = await appendManyReceipts(cashOrder.cash_receipt_sheet_id, slots);
+          if (rr.overflow > 0) {
+            console.error(
+              `[review-payment-submission] cash-receipt overflow: cash_order_id=${cashOrder.id} ` +
+              `capacity=${rr.capacity} overflow=${rr.overflow}`,
+            );
           }
         } catch (cashReceiptErr) {
           console.warn(
-            "[review-payment-submission] cash-receipt block failed (non-blocking):",
+            "[review-payment-submission] cash-receipt rebuild failed (non-blocking):",
             cashReceiptErr,
           );
         }
@@ -1124,14 +1108,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fire-and-forget: append-cash-receipt for single-allocation submissions
-    // (matches the line-834 precedent: confirmed_payment_id is only written
-    // when confirmedPaymentIds.length === 1; same rule applies here)
-    if (
-      confirmedPaymentIds.length === 1 &&
-      submission.account_id &&
-      submission.proof_url
-    ) {
+    // Rebuild ALL cash-receipt slots for this layaway account from DB truth
+    // (self-healing). Works for split / multi-allocation payments too — the
+    // old `confirmedPaymentIds.length === 1` gate and per-submission proof_url
+    // requirement are gone; we rebuild from every confirmed receipt (Bug #251).
+    if (submission.account_id) {
       try {
         // Fetch parent account's cash_receipt_sheet_id + invoice_number
         const { data: account, error: acctErr } = await supabase
@@ -1148,68 +1129,52 @@ Deno.serve(async (req) => {
         } else if (!account.cash_receipt_sheet_id) {
           // Invoice not yet generated — skip silently (expected case)
           console.log(
-            "[review-payment-submission] cash-receipt: no cash_receipt_sheet_id on account, skipping append",
+            "[review-payment-submission] cash-receipt: no cash_receipt_sheet_id on account, skipping rebuild",
           );
         } else {
-          // Compute slot_index
-          const { count: slotIndex, error: countErr } = await supabase
+          const { data: receipts, error: receiptsErr } = await supabase
             .from("payment_submissions")
-            .select("id", { count: "exact", head: true })
+            .select("proof_url, payment_date, submitted_amount")
             .eq("account_id", submission.account_id)
             .eq("status", "confirmed")
             .not("proof_url", "is", null)
-            .lte("created_at", submission.created_at);
+            .order("payment_date", { ascending: true })
+            .order("created_at", { ascending: true });
+          if (receiptsErr) throw receiptsErr;
 
-          if (countErr || slotIndex == null) {
-            console.warn(
-              "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
-              countErr,
-            );
-          } else if (slotIndex < 1 || slotIndex > 24) {
-            console.warn(
-              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-24), skipping append`,
-            );
-          } else {
-            // Fetch PHP→JPY rate
-            let phpJpyRate = 1.0;
-            const { data: rateRow } = await supabase
-              .from("system_settings")
-              .select("value")
-              .eq("key", "php_jpy_rate")
-              .single();
-            if (rateRow?.value) {
-              const parsed = parseFloat(String(rateRow.value));
-              if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
-            }
+          // PHP→JPY rate (JPY accounts skip conversion).
+          let phpJpyRate = 1.0;
+          const { data: rateRow } = await supabase
+            .from("system_settings")
+            .select("value")
+            .eq("key", "php_jpy_rate")
+            .single();
+          if (rateRow?.value) {
+            const parsed = parseFloat(String(rateRow.value));
+            if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+          }
 
-            // Fire-and-forget POST (.catch() per layaway-branch precedent at line 811)
-            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-cash-receipt`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({
-                sheet_id: account.cash_receipt_sheet_id,
-                slot_index: slotIndex,
-                proof_url: submission.proof_url,
-                invoice_number: account.invoice_number,
-                payment_date: submission.payment_date,
-                amount: account.currency === "JPY"
-                  ? submission.submitted_amount
-                  : Math.round(submission.submitted_amount / phpJpyRate),
-              }),
-            }).catch((err) => {
-              console.warn(
-                "[review-payment-submission] append-cash-receipt failed (non-blocking):",
-                err,
-              );
-            });
+          const slots: CashReceiptSlot[] = (receipts ?? []).map((r: any, idx: number) => ({
+            slot_index: idx + 1,
+            proof_url: r.proof_url as string,
+            invoice_number: account.invoice_number,
+            payment_date: r.payment_date,
+            amount: account.currency === "JPY"
+              ? r.submitted_amount
+              : Math.round(r.submitted_amount / phpJpyRate),
+          }));
+
+          const rr = await appendManyReceipts(account.cash_receipt_sheet_id, slots);
+          if (rr.overflow > 0) {
+            console.error(
+              `[review-payment-submission] cash-receipt overflow: account_id=${submission.account_id} ` +
+              `capacity=${rr.capacity} overflow=${rr.overflow}`,
+            );
           }
         }
       } catch (cashReceiptErr) {
         console.warn(
-          "[review-payment-submission] cash-receipt block failed (non-blocking):",
+          "[review-payment-submission] cash-receipt rebuild failed (non-blocking):",
           cashReceiptErr,
         );
       }

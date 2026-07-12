@@ -644,7 +644,7 @@ Deno.serve(async (req) => {
         .not("proof_url", "is", null)
         .order("payment_date", { ascending: true })
         .order("created_at", { ascending: true })
-        .limit(24);
+        .limit(30);
 
       if (account_id) {
         submissionsQuery.eq("account_id", account_id);
@@ -657,16 +657,8 @@ Deno.serve(async (req) => {
       if (receiptsErr) {
         console.warn("[generate-invoice] failed to fetch receipts (non-blocking):", receiptsErr);
       } else if (receipts && receipts.length > 0) {
-        // The Cash Receipt tab has a fixed 30-slot capacity (see SLOTS in
-        // _shared/cash-receipt.ts). Receipts beyond that are explicitly
-        // excluded and logged loudly rather than silently dropped.
-        const MAX_SLOTS = 30;
-        const embeddable = receipts.slice(0, MAX_SLOTS);
-        const overflow = receipts.length - embeddable.length;
-        if (overflow > 0) {
-          console.error(`[generate-invoice] ${overflow} receipt(s) exceeded the ${MAX_SLOTS}-slot Cash Receipt capacity and were NOT embedded (account_id=${account_id ?? cash_order_id})`);
-        }
-        const slots: CashReceiptSlot[] = embeddable.map((r, idx) => ({
+        // Capacity + overflow are owned by appendManyReceipts (derived per sheet).
+        const slots: CashReceiptSlot[] = receipts.map((r, idx) => ({
           slot_index: idx + 1,
           proof_url: r.proof_url as string,
           invoice_number: parentInvoiceNumber,
@@ -681,10 +673,11 @@ Deno.serve(async (req) => {
         }));
 
         const receiptResult = await appendManyReceipts(createdSheetId, slots);
-        embeddedReceiptCount = slots.length;
+        embeddedReceiptCount = receiptResult.written;
         console.log(
           `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId} ` +
-          `(rate=${phpJpyRate}): ${receiptResult.cells_updated} cells updated`,
+          `(rate=${phpJpyRate}): ${receiptResult.cells_updated} cells updated, ` +
+          `capacity=${receiptResult.capacity}, overflow=${receiptResult.overflow}`,
         );
       }
     } catch (receiptErr) {
