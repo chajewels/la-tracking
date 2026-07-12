@@ -4637,6 +4637,17 @@ export type Database = {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
         Returns: number
       }
+      consume_store_credit_for_shopify_atomic: {
+        Args: {
+          p_amount: number
+          p_cash_order_id?: string
+          p_currency: Database["public"]["Enums"]["account_currency"]
+          p_customer_id: string
+          p_shopify_reference?: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
