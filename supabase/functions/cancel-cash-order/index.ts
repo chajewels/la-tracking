@@ -21,6 +21,30 @@ async function resolveCustomerName(
   }
 }
 
+// Mirror a Hub store-credit movement into Shopify (single source of truth = Hub).
+// Never throws; a sync failure must never block the committed Hub operation.
+async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
+  try {
+    const res = await fetch(
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-store-credit-to-shopify`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const out = await res.json().catch(() => null);
+    console.log("[sync-to-shopify]", JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.warn("[sync-to-shopify] failed (non-blocking):", e);
+    return { success: false, error: String((e as Error)?.message ?? e) };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -167,7 +191,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json(data ?? { error: "no_response" });
+    // Mirror the issued credit into Shopify — ONLY when store credit was actually
+    // issued (data.store_credit not null). Non-blocking.
+    let shopify_sync: unknown = null;
+    const sc = (data as any)?.store_credit;
+    if ((data as any)?.success === true && preview !== true && sc) {
+      shopify_sync = await syncToShopify({
+        customer_id: sc.customer_id,
+        direction: "credit",
+        amount: Number(sc.amount),
+        currency: sc.currency,
+        lot_id: sc.lot_id,
+        expires_at: sc.expires_at,
+        reason: `Store credit issued on cancellation of ${(data as any).invoice_number ?? "cash order"}`,
+      });
+    }
+
+    return json({ ...(data ?? {}), shopify_sync });
   } catch (e) {
     console.error("[cancel-cash-order] unhandled:", e);
     return json({ error: String((e as any)?.message ?? e) }, 500);

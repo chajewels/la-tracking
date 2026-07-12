@@ -20,6 +20,30 @@ async function resolveCustomerName(
   }
 }
 
+// Mirror a Hub store-credit movement into Shopify (single source of truth = Hub).
+// Never throws; a sync failure must never block the committed Hub operation.
+async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
+  try {
+    const res = await fetch(
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-store-credit-to-shopify`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const out = await res.json().catch(() => null);
+    console.log("[sync-to-shopify]", JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.warn("[sync-to-shopify] failed (non-blocking):", e);
+    return { success: false, error: String((e as Error)?.message ?? e) };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -102,7 +126,21 @@ Deno.serve(async (req) => {
       console.warn("[issue-store-credit] staff_notifications insert failed (non-blocking):", notifyErr);
     }
 
-    return json(data ?? { error: "no_response" });
+    // Mirror the issuance into Shopify (credit). Non-blocking.
+    let shopify_sync: unknown = null;
+    if ((data as any)?.success === true) {
+      shopify_sync = await syncToShopify({
+        customer_id,
+        direction: "credit",
+        amount: Number((data as any).amount),
+        currency: (data as any).currency,
+        lot_id: (data as any).lot_id,
+        expires_at: (data as any).expires_at,
+        reason: "Hub store credit issued (manual)",
+      });
+    }
+
+    return json({ ...(data ?? {}), shopify_sync });
   } catch (e) {
     console.error("[issue-store-credit] unhandled:", e);
     return json({ error: String((e as any)?.message ?? e) }, 500);

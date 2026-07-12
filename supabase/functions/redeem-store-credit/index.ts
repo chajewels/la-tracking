@@ -20,6 +20,30 @@ async function resolveCustomerName(
   }
 }
 
+// Mirror a Hub store-credit movement into Shopify (single source of truth = Hub).
+// Never throws; a sync failure must never block the committed Hub operation.
+async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
+  try {
+    const res = await fetch(
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-store-credit-to-shopify`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const out = await res.json().catch(() => null);
+    console.log("[sync-to-shopify]", JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.warn("[sync-to-shopify] failed (non-blocking):", e);
+    return { success: false, error: String((e as Error)?.message ?? e) };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -134,7 +158,21 @@ Deno.serve(async (req) => {
       console.warn("[redeem-store-credit] staff_notifications insert failed (non-blocking):", notifyErr);
     }
 
-    return json({ ...(data ?? {}), loyalty_award: loyaltyAward });
+    // Credit was SPENT in the Hub, so DEBIT Shopify's mirror by the same amount —
+    // otherwise the customer could spend it again at Shopify checkout. Non-blocking.
+    let shopify_sync: unknown = null;
+    const r = data as any;
+    if (r?.success === true && preview !== true && Number(r.amount_applied) > 0 && r.customer_id) {
+      shopify_sync = await syncToShopify({
+        customer_id: r.customer_id,
+        direction: "debit",
+        amount: Number(r.amount_applied),
+        currency: r.currency,
+        reason: `Store credit applied in the Hub to ${r.invoice_number ?? "an order"}`,
+      });
+    }
+
+    return json({ ...(data ?? {}), loyalty_award: loyaltyAward, shopify_sync });
   } catch (e) {
     console.error("[redeem-store-credit] unhandled:", e);
     return json({ error: String((e as any)?.message ?? e) }, 500);
