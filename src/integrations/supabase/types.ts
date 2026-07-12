@@ -4616,6 +4616,7 @@ export type Database = {
           p_cash_order_id: string
           p_preview?: boolean
           p_reason: string
+          p_source?: string
           p_user_email?: string
           p_user_id?: string
         }
