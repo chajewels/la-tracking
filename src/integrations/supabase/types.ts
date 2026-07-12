@@ -4139,6 +4139,75 @@ export type Database = {
           },
         ]
       }
+      store_credit_shopify_sync: {
+        Row: {
+          amount: number
+          attempts: number
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          direction: string
+          error_detail: string | null
+          id: string
+          lot_id: string | null
+          reason: string | null
+          shopify_balance_after: number | null
+          shopify_customer_id: string | null
+          shopify_transaction_id: string | null
+          status: string
+          synced_at: string | null
+        }
+        Insert: {
+          amount: number
+          attempts?: number
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          direction: string
+          error_detail?: string | null
+          id?: string
+          lot_id?: string | null
+          reason?: string | null
+          shopify_balance_after?: number | null
+          shopify_customer_id?: string | null
+          shopify_transaction_id?: string | null
+          status?: string
+          synced_at?: string | null
+        }
+        Update: {
+          amount?: number
+          attempts?: number
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          direction?: string
+          error_detail?: string | null
+          id?: string
+          lot_id?: string | null
+          reason?: string | null
+          shopify_balance_after?: number | null
+          shopify_customer_id?: string | null
+          shopify_transaction_id?: string | null
+          status?: string
+          synced_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_credit_shopify_sync_customer_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_credit_shopify_sync_lot_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "store_credit_lots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       store_credit_transactions: {
         Row: {
           account_id: string | null
