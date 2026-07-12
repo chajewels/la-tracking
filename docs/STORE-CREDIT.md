@@ -116,3 +116,59 @@ Permission key in brackets.
   on cancellation.
 - **Not built:** no email is sent on points revocation or credit issuance. Only
   in-app.
+
+## PHASE B — SHOPIFY CANCELLATION → STORE CREDIT
+
+Built, shipped, and verified end-to-end on live Shopify orders (2026-07-11).
+
+### What it does
+Cancelling a paid order in Shopify now cancels the corresponding Hub cash order
+and auto-issues store credit for the money actually received. Same locked policy
+as a Hub-side cancellation: no cash refund, 1-year credit, earned points revoked,
+redeemed points never returned, payments not reversed.
+
+### How it works
+- Shopify webhook topic `ORDERS_CANCELLED` is registered via
+  `shopify-register-webhooks` (`TOPICS = ORDERS_CREATE, ORDERS_PAID,
+  ORDERS_CANCELLED`). Registration is app-signed via GraphQL
+  (`webhookSubscriptionCreate`) so the HMAC verifies — **NEVER hand-create a
+  webhook in the Shopify admin UI**; it is signed with a different secret and
+  will fail verification.
+- `shopify-webhook` handles `orders/cancelled`: looks up `cash_orders` by
+  `shopify_order_id`, then calls `cancel_cash_order_atomic` with
+  `p_source = 'shopify_webhook'`. The webhook contains NO money logic — the RPC
+  owns all of it.
+- No Hub order found → 200 + ignored (no `shopify_webhook_events` row, so a retry
+  can still succeed).
+- RPC error → 500 so Shopify RETRIES.
+- Already cancelled → the RPC returns `{ already_cancelled: true }` for system
+  callers instead of raising, so Shopify retries are idempotent.
+
+### Service-role caller pattern (p_source)
+A webhook has no user, but every money movement is attributed. Both
+`cancel_cash_order_atomic` AND `issue_store_credit_atomic` take
+`p_source text DEFAULT 'staff'`. When `p_source = 'shopify_webhook'`, the
+user-identity-required guard is skipped and the audit trail records
+actor = `'shopify_webhook'` — an honest attribution, rather than falsely naming a
+staff member. Human callers are unaffected: `p_source` defaults to `'staff'` and
+the identity guard still fires.
+
+### Operator rules (CRITICAL — tell anyone who can cancel Shopify orders, including Wonder)
+- When cancelling an order in Shopify, under "Refund payments" ALWAYS choose
+  **"Later"** (= no refund). The Hub issues the store credit automatically.
+  - **"Original payment method"** = a real cash refund. The customer would get
+    their money back AND Hub store credit — paid twice.
+  - **"Store credit"** = SHOPIFY'S OWN store-credit ledger, which is a completely
+    separate system from the Hub's: no expiry, invisible to the Hub, and it would
+    double-compensate the customer. Do not use it.
+- Shopify Settings → Customer accounts → "Self-serve returns and cancellations"
+  must stay **OFF**. If customers could self-cancel, they would auto-mint Hub
+  store credit with no staff review.
+
+### Not in scope
+- `refunds/create` (PARTIAL refunds) is NOT handled. Phase A/B only support
+  full-order reversal. A partial refund in Shopify does nothing in the Hub.
+  Policy undecided.
+- Shopify cannot see Hub store credit. A customer with Hub credit shopping on
+  cha-jewels.com is charged full price. Mirroring Hub credit into Shopify's
+  native store-credit account is PHASE C (not built).

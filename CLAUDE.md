@@ -97,6 +97,15 @@ Reference docs (read the relevant one when a task touches that area):
   - Lot model: consumption is FIFO by SOONEST EXPIRY. Voiding a lot cancels ONLY
     the unspent remainder; any portion already applied to an order is a real
     payment and is NOT reversed.
+  - Shopify cancellation auto-issues Hub store credit (cash orders only, same
+    locked policy) — see docs/STORE-CREDIT.md Phase B.
+  - When cancelling in Shopify, ALWAYS choose "Later" (no refund). "Original
+    payment method" refunds cash; "Store credit" uses SHOPIFY's separate credit
+    ledger. Either one double-pays the customer on top of the Hub credit.
+  - Service-role callers pass p_source = 'shopify_webhook'; the audit trail then
+    records actor = 'shopify_webhook' and the user-identity guard is skipped for
+    that source only. Human callers default to p_source = 'staff' and the guard
+    still fires.
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 
