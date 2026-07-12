@@ -657,7 +657,16 @@ Deno.serve(async (req) => {
       if (receiptsErr) {
         console.warn("[generate-invoice] failed to fetch receipts (non-blocking):", receiptsErr);
       } else if (receipts && receipts.length > 0) {
-        const slots: CashReceiptSlot[] = receipts.map((r, idx) => ({
+        // The Cash Receipt tab has a fixed 30-slot capacity (see SLOTS in
+        // _shared/cash-receipt.ts). Receipts beyond that are explicitly
+        // excluded and logged loudly rather than silently dropped.
+        const MAX_SLOTS = 30;
+        const embeddable = receipts.slice(0, MAX_SLOTS);
+        const overflow = receipts.length - embeddable.length;
+        if (overflow > 0) {
+          console.error(`[generate-invoice] ${overflow} receipt(s) exceeded the ${MAX_SLOTS}-slot Cash Receipt capacity and were NOT embedded (account_id=${account_id ?? cash_order_id})`);
+        }
+        const slots: CashReceiptSlot[] = embeddable.map((r, idx) => ({
           slot_index: idx + 1,
           proof_url: r.proof_url as string,
           invoice_number: parentInvoiceNumber,

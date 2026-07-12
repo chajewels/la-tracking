@@ -24,12 +24,13 @@ export const TAB = "Cash Receipt";
  * - image: receives =IMAGE() formula
  * - metadata: receives multi-line "INVOICE #: ... DATE: ... AMOUNT: ..." text
  *
- * Layout: 4 columns (B, I, P, W) × 6 bands = 24 slots, numbered
+ * Layout: 5 columns (B, I, P, W, AD) × 6 bands = 30 slots, numbered
  * COLUMN-MAJOR (top-to-bottom down each column, then right to the
  * next column) so that receipts — filled in chronological order —
  * read in correct sequence AND print on a single page when the
  * Cash Receipt tab is printed. Slots 1-6 fill column B, 7-12 fill
- * column I, 13-18 fill column P, 19-24 fill column W.
+ * column I, 13-18 fill column P, 19-24 fill column W, 25-30 fill
+ * column AD.
  *
  * Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
  * 163/198, 214/249, 265/300. (Band 5/6 anchors are 214/265, not
@@ -64,6 +65,13 @@ export const SLOTS: Record<number, SlotCells> = {
   22: { image: `${TAB}!W163`, metadata: `${TAB}!W198` },
   23: { image: `${TAB}!W214`, metadata: `${TAB}!W249` },
   24: { image: `${TAB}!W265`, metadata: `${TAB}!W300` },
+  // Column AD (slots 25-30, top to bottom)
+  25: { image: `${TAB}!AD5`,   metadata: `${TAB}!AD40`  },
+  26: { image: `${TAB}!AD58`,  metadata: `${TAB}!AD93`  },
+  27: { image: `${TAB}!AD110`, metadata: `${TAB}!AD145` },
+  28: { image: `${TAB}!AD163`, metadata: `${TAB}!AD198` },
+  29: { image: `${TAB}!AD214`, metadata: `${TAB}!AD249` },
+  30: { image: `${TAB}!AD265`, metadata: `${TAB}!AD300` },
 };
 
 /**
