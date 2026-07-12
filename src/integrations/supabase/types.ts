@@ -4994,6 +4994,7 @@ export type Database = {
           p_currency: Database["public"]["Enums"]["account_currency"]
           p_customer_id: string
           p_notes?: string
+          p_source?: string
           p_source_account_id?: string
           p_source_cash_order_id?: string
           p_source_type: string
