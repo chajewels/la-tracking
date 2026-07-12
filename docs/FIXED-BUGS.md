@@ -3479,3 +3479,16 @@ Note: existing overpaid-DP accounts (other than 19122) will now correctly show t
     the DEPLOYED build did not contain it. Fixed by syncing the mirror. Lesson:
     assert on deployed SOURCE CONTENT (grep the unique string + line count), never
     trust "deployed successfully".
+
+## Shopify cancellation → store credit (Phase B) — bugs fixed 2026-07-12
+
+  - Shopify cancellation silently did nothing in the Hub. The webhook receiver
+    explicitly discarded every topic except orders/create and orders/paid, and
+    ORDERS_CANCELLED had never been registered with Shopify. A cancelled/refunded
+    Shopify order stayed `completed` in the Hub, so the books were wrong. Fixed by
+    registering the topic and adding the handler branch.
+  - Shopify cancellation then failed with user_identity_required.
+    cancel_cash_order_atomic had a service-role path but issue_store_credit_atomic
+    — which it calls — did not, and received the same NULL user. Fixed by adding
+    p_source to the inner RPC and threading it through. Cost three live test orders
+    to find; the PL/pgSQL error CONTEXT named the real culprit.

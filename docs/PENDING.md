@@ -228,3 +228,16 @@
     (A4b).
   - Shopify orders/cancelled + refunds/create do NOT yet hook into store credit
     (Phase B).
+
+### STORE CREDIT — Phase C + partial refunds (2026-07-12)
+  - PHASE C — mirror Hub store credit into Shopify's native store-credit account
+    so customers can spend it at checkout. Prerequisites are now CLEAR: "Store
+    credit" is enabled under Shopify Settings -> Customer accounts, and the app
+    holds the required scopes. NOT STARTED. Main design risk: DOUBLE-SPEND — the
+    Hub and Shopify would be two ledgers over one pot of money. Requires the Hub
+    as the single source of truth, with every issue/redeem/void/expire mirrored to
+    Shopify, and any Shopify-checkout spend pulled back into the Hub. PHP credit
+    cannot mirror (the Shopify store is JPY-only).
+  - refunds/create (PARTIAL refunds from Shopify) — still unhandled. Phase A/B
+    support full-order reversal only; a partial refund in Shopify does nothing in
+    the Hub. Policy undecided.

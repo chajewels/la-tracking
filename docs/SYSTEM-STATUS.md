@@ -588,3 +588,10 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
 - Notifications: staff bell (store_credit_issued / _redeemed / _voided / loyalty_revoked) and customer portal (loyalty_notifications: "Points revoked" + "Store credit issued" on cancellation). No email — in-app only.
 - Key behavior: cancelling a COMPLETED cash order auto-issues store credit = money actually received (excludes LOYALTY-% synthetic payments), revokes earned loyalty points, and keeps redeemed points permanently gone.
 - Verified end-to-end on live orders (Test-0012 / Test-0013 / Test-0014). Full spec: docs/STORE-CREDIT.md.
+
+## 2026-07-12 — Phase B: Shopify cancellation → store credit (shipped)
+- ORDERS_CANCELLED registered (app-signed, via shopify-register-webhooks).
+- shopify-webhook now handles orders/cancelled -> cancel_cash_order_atomic (p_source = 'shopify_webhook'); webhook holds no money logic.
+- Service-role path (p_source) added to BOTH cancel_cash_order_atomic and issue_store_credit_atomic.
+- Verified end-to-end on live Shopify orders #1006 and #1007 (SH-1006 / SH-1007): order cancelled in the Hub, ¥134,980 store credit auto-issued, earned loyalty points revoked, audit actor = shopify_webhook.
+- The Shopify app now holds read_store_credit_account_transactions and write_store_credit_account_transactions (app version cha-jewels-3, approved on the store). This UNBLOCKS Phase C but is NOT yet used by any code.

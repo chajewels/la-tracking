@@ -618,3 +618,15 @@ RULE: mutating SECURITY DEFINER RPCs (issue_store_credit_atomic, redeem_store_cr
 Detection: after any batch RPC run, verify the LEDGER amounts, not just the row statuses — e.g. for store credit, every 'voided' transaction amount must equal the lot's remaining amount at void time. A wrong amount with a right status is the signature of this bug.
 
 (Found 2026-07-11 during Phase A store-credit cleanup; the misrecorded row was corrected and an audit_logs 'ledger_correction' entry written.)
+
+### Operational learning — a relaxed identity guard on an outer RPC is useless if an inner RPC still enforces one (2026-07-12)
+cancel_cash_order_atomic was given a service-role path (p_source = 'shopify_webhook') so a webhook with no user could cancel an order. It still failed with user_identity_required — because it CALLS issue_store_credit_atomic, which had its own identity guard and received the same NULL p_user_id. The error appeared to come from the outer function.
+RULE: when relaxing an identity/permission guard for a system caller, follow the ENTIRE call chain and relax every nested RPC that receives the same null identity.
+DETECTION: read the full PL/pgSQL error CONTEXT — it names the actual failing function and line, e.g. "PL/pgSQL function issue_store_credit_atomic(...) line 14 at RAISE / PL/pgSQL function cancel_cash_order_atomic(...) line 83 at assignment". Cost three live test orders.
+
+### Operational learning — a workspace grep does not prove what is deployed (2026-07-12)
+A grep of the Lovable workspace file passed while the DEPLOYED build was stale, so a "deployed successfully" report was misleading and the old code kept running.
+RULE: before deploying an edge function, require the relevant code block to be PRINTED VERBATIM from the file — a grep COUNT is not proof. After deploying, confirm behaviour against the LIVE function (edge logs, or a real call), never against a success message.
+
+### Operational learning — adding a Shopify app access scope (2026-07-12)
+Scopes live in the app VERSION, not in a settings toggle: Shopify Dev Dashboard -> app -> Versions -> New version -> Scopes (comma-separated) -> Release. Releasing a new version does NOT apply the scopes to the store — the merchant must re-install/approve the app (app -> Home -> Install app). After re-authorizing, re-run shopify-register-webhooks and confirm every topic returns `already_registered` with the SAME subscription IDs: that proves the Admin API token, the webhook subscriptions and the HMAC secret all survived.
