@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
+import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -108,8 +109,8 @@ export default function SettingsPage() {
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
 
-  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features';
-  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features'];
+  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit';
+  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [settingsTab, setSettingsTabState] = useState<SettingsTabKey>(() => {
     const urlTab = searchParams.get('tab') as SettingsTabKey | null;
@@ -792,6 +793,13 @@ export default function SettingsPage() {
           {isAdmin && (
             <TabsContent value="features" className="mt-4">
               <FeatureTogglesTab />
+            </TabsContent>
+          )}
+
+          {/* ── STORE CREDIT RECONCILIATION TAB ── */}
+          {(isAdmin || isFinance) && (
+            <TabsContent value="store-credit" className="mt-4">
+              <StoreCreditReconciliationTab />
             </TabsContent>
           )}
 

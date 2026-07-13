@@ -157,6 +157,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Roles', tab: 'roles' },
       { label: 'Matrix', tab: 'matrix' },
       { label: 'Features', tab: 'features' },
+      { label: 'Store Credit', tab: 'store-credit' },
     ],
   },
   { label: 'Policy Hub', icon: BookOpen, path: ROUTES.POLICY_HUB },
