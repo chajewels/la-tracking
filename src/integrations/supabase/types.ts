@@ -4075,6 +4075,7 @@ export type Database = {
           remaining_amount: number
           source_account_id: string | null
           source_cash_order_id: string | null
+          source_refund_id: string | null
           source_type: string
           status: Database["public"]["Enums"]["store_credit_lot_status"]
           updated_at: string
@@ -4093,6 +4094,7 @@ export type Database = {
           remaining_amount: number
           source_account_id?: string | null
           source_cash_order_id?: string | null
+          source_refund_id?: string | null
           source_type: string
           status?: Database["public"]["Enums"]["store_credit_lot_status"]
           updated_at?: string
@@ -4111,6 +4113,7 @@ export type Database = {
           remaining_amount?: number
           source_account_id?: string | null
           source_cash_order_id?: string | null
+          source_refund_id?: string | null
           source_type?: string
           status?: Database["public"]["Enums"]["store_credit_lot_status"]
           updated_at?: string
@@ -5130,6 +5133,7 @@ export type Database = {
           p_source?: string
           p_source_account_id?: string
           p_source_cash_order_id?: string
+          p_source_refund_id?: string
           p_source_type: string
           p_user_email?: string
           p_user_id?: string
