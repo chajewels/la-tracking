@@ -4,7 +4,7 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 // ─────────────────────────────────────────────────────────────
 // shopify-register-webhooks
 // Registers the Path-B storefront webhooks (orders/create, orders/paid,
-// orders/cancelled) with Shopify via the Admin GraphQL API so they are HMAC-signed with the
+// orders/cancelled, orders/updated) with Shopify via the Admin GraphQL API so they are HMAC-signed with the
 // app's SHOPIFY_API_SECRET — matching the shopify-webhook receiver's
 // verification. Idempotent: re-running skips subscriptions that already
 // point at our callbackUrl for the same topic.
@@ -21,7 +21,7 @@ const LOG = "[shopify-register-webhooks]";
 // The receiver's public invoke URL — the callbackUrl the webhooks POST to.
 const CALLBACK_URL = "https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/shopify-webhook";
 
-const TOPICS = ["ORDERS_CREATE", "ORDERS_PAID", "ORDERS_CANCELLED"] as const;
+const TOPICS = ["ORDERS_CREATE", "ORDERS_PAID", "ORDERS_CANCELLED", "ORDERS_UPDATED"] as const;
 
 const CREATE_MUTATION = `
 mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {

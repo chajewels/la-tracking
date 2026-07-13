@@ -2,9 +2,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Phase 4 — Shopify storefront order webhook receiver (PATH B).
 // PUBLIC, security-critical endpoint: HMAC-verify BEFORE any processing.
-// Handles orders/create + orders/paid + orders/cancelled only; other topics
-// are acknowledged (200) and ignored. orders/cancelled hands off to
+// Handles orders/create + orders/paid + orders/cancelled + orders/updated only;
+// other topics are acknowledged (200) and ignored. orders/cancelled hands off to
 // cancel_cash_order_atomic (store-credit issuance + earned-points revocation).
+// orders/updated re-syncs the Hub order's line items and total_amount to Shopify
+// (which is authoritative for what was ORDERED); total_paid is never changed.
 // All DB access is via the service-role client — there is
 // no user JWT on an inbound webhook. This function MUST run with
 // verify_jwt = false at the gateway (configured at deploy time).
@@ -275,9 +277,10 @@ Deno.serve(async (req) => {
     return json({ error: "missing order id" }, 400);
   }
 
-  // orders/create + orders/paid + orders/cancelled are handled. Everything else
-  // (update/etc.) is acknowledged and ignored.
-  if (topic !== "orders/create" && topic !== "orders/paid" && topic !== "orders/cancelled") {
+  // orders/create + orders/paid + orders/cancelled + orders/updated are handled.
+  // Everything else is acknowledged and ignored.
+  if (topic !== "orders/create" && topic !== "orders/paid" &&
+      topic !== "orders/cancelled" && topic !== "orders/updated") {
     console.log(`${LOG} ignoring topic=${topic} order=${shopifyOrderId}`);
     return json({ ignored: topic }, 200);
   }
@@ -611,6 +614,122 @@ Deno.serve(async (req) => {
       }
 
       return json({ ok: true, topic, cash_order_id: cashOrder.id, result: cancelResult }, 200);
+    }
+
+    // ── orders/updated ──
+    // The order was edited in Shopify (items added/removed/changed, totals changed).
+    // Re-sync the Hub order to match. Shopify is the source of truth for what was ORDERED;
+    // the Hub remains the source of truth for what was PAID.
+    if (topic === "orders/updated") {
+      const { data: cashOrder } = await supabase
+        .from("cash_orders")
+        .select("id, status, invoice_number, total_amount, total_paid")
+        .eq("shopify_order_id", shopifyOrderId)
+        .maybeSingle();
+
+      // Never synced (e.g. pre-integration order) — acknowledge and ignore.
+      if (!cashOrder) {
+        console.log(`${LOG} orders/updated no hub cash_order for ${shopifyOrderId}, ignoring`);
+        return json({ ignored: "no_hub_order", shopify_order_id: shopifyOrderId }, 200);
+      }
+
+      // A cancelled order must not be resurrected by an update.
+      if (cashOrder.status === "cancelled") {
+        console.log(`${LOG} orders/updated order ${shopifyOrderId} is cancelled in the Hub — ignoring`);
+        return json({ ignored: "order_cancelled" }, 200);
+      }
+
+      const newTotal = Number(order.total_price) || 0;
+      const oldTotal = Number(cashOrder.total_amount) || 0;
+      const paid = Number(cashOrder.total_paid) || 0;
+
+      // ── Line items: replace the Hub's set with Shopify's current set ──
+      // Shopify is authoritative for what was ordered. Delete and re-insert is simplest and
+      // correct: cash_order_items carries no payment or allocation state.
+      if (Array.isArray(order.line_items)) {
+        const { error: delErr } = await supabase
+          .from("cash_order_items")
+          .delete()
+          .eq("cash_order_id", cashOrder.id);
+        if (delErr) {
+          return await recordError(`orders/updated: could not clear line items: ${delErr.message}`);
+        }
+
+        if (order.line_items.length > 0) {
+          const rows = order.line_items.map((line: any) => {
+            const unit = Number(line.price) || 0;
+            const qty = Number(line.quantity) || 1;
+            const title = line.variant_title ? `${line.title} (${line.variant_title})` : line.title;
+            return {
+              cash_order_id: cashOrder.id,
+              shopify_line_item_id: String(line.id),
+              title,
+              sku: line.sku ?? null,
+              quantity: qty,
+              unit_price_jpy: unit,
+              line_total_jpy: unit * qty,
+              product_id: null,
+              image_url: null,
+            };
+          });
+          const { error: itemsErr } = await supabase.from("cash_order_items").insert(rows);
+          if (itemsErr) {
+            return await recordError(`orders/updated: line item insert failed: ${itemsErr.message}`);
+          }
+        }
+      }
+
+      // ── Totals ──
+      // total_amount follows Shopify. total_paid is the HUB'S and must NEVER be changed here —
+      // it is derived from the payment rows and is the Hub's own source of truth.
+      const newRemaining = Math.max(0, newTotal - paid);
+      const { error: updErr } = await supabase
+        .from("cash_orders")
+        .update({
+          total_amount: newTotal,
+          remaining_balance: newRemaining,
+          loyalty_jpy_amount: newTotal,
+          status: newRemaining <= 0 && paid > 0 ? "completed" : cashOrder.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", cashOrder.id);
+      if (updErr) {
+        return await recordError(`orders/updated: cash_order update failed: ${updErr.message}`);
+      }
+
+      // ── Overpayment warning ──
+      // The order was reduced BELOW what has already been paid. The customer has paid more than
+      // the order is now worth. This needs a human — the Hub does NOT auto-refund or auto-issue
+      // store credit here, because the correct remedy depends on why the order changed.
+      if (paid > newTotal) {
+        console.warn(
+          `${LOG} OVERPAID order=${shopifyOrderId} invoice=${cashOrder.invoice_number} ` +
+          `paid=${paid} new_total=${newTotal} overpaid_by=${paid - newTotal} — needs review`,
+        );
+        try {
+          await supabase.from("staff_notifications").insert({
+            type: "shopify_order_overpaid",
+            title: "Shopify order reduced below amount paid",
+            body: `Order #${cashOrder.invoice_number} was edited in Shopify and its total is now ¥${Number(newTotal).toLocaleString("en-US")}, but ¥${Number(paid).toLocaleString("en-US")} has already been paid. Overpaid by ¥${Number(paid - newTotal).toLocaleString("en-US")}. This needs review.`,
+            invoice_number: cashOrder.invoice_number,
+            metadata: { shopify_order_id: shopifyOrderId, paid, new_total: newTotal, old_total: oldTotal },
+          });
+        } catch (e) {
+          console.warn(`${LOG} overpaid notification failed:`, e);
+        }
+      }
+
+      console.log(
+        `${LOG} orders/updated done order=${shopifyOrderId} invoice=${cashOrder.invoice_number} ` +
+        `total ${oldTotal} -> ${newTotal} paid=${paid} remaining=${newRemaining}`,
+      );
+
+      // NOTE: deliberately do NOT record a shopify_webhook_events row here. orders/updated can fire
+      // MANY times for one order, and the existing idempotency check is keyed on
+      // (shopify_order_id, topic) — recording it would cause every subsequent update to be skipped
+      // as "already processed".
+
+      return json({ ok: true, topic, cash_order_id: cashOrder.id, total: newTotal }, 200);
     }
 
     // ════════════════════════════════════════════════════════════
