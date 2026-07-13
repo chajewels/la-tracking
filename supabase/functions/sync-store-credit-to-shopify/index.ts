@@ -183,7 +183,6 @@ Deno.serve(async (req) => {
             storeCreditAccountTransaction {
               id
               amount { amount currencyCode }
-              account { id balance { amount currencyCode } }
             }
             userErrors { field message }
           }
@@ -202,7 +201,6 @@ Deno.serve(async (req) => {
             storeCreditAccountTransaction {
               id
               amount { amount currencyCode }
-              account { id balance { amount currencyCode } }
             }
             userErrors { field message }
           }
@@ -235,22 +233,38 @@ Deno.serve(async (req) => {
       return await recordFailure(`transport error: ${String((e as any)?.message ?? e)}`);
     }
 
-    if (gj?.errors) {
-      return await recordFailure(`GraphQL errors: ${JSON.stringify(gj.errors)}`);
-    }
-
     const root = direction === "credit"
       ? gj?.data?.storeCreditAccountCredit
       : gj?.data?.storeCreditAccountDebit;
     const userErrors: any[] = Array.isArray(root?.userErrors) ? root.userErrors : [];
+
+    // userErrors = Shopify rejected the write (business validation). A real failure.
     if (userErrors.length > 0) {
       return await recordFailure(`userErrors: ${JSON.stringify(userErrors)}`);
     }
 
     const txn = root?.storeCreditAccountTransaction;
+
+    // No transaction returned AND a top-level GraphQL error => the mutation did
+    // not execute. This is the only case where gj.errors signals a real failure.
+    if (!txn) {
+      return await recordFailure(
+        gj?.errors
+          ? `GraphQL errors: ${JSON.stringify(gj.errors)}`
+          : "no transaction returned by Shopify",
+      );
+    }
+
+    // A transaction WAS returned — the write committed. If gj.errors is non-empty
+    // at this point it is a partial error on a field we requested but do not need
+    // (e.g. a nested read requiring a scope we don't hold). Log it as a warning and
+    // treat the sync as SUCCESSFUL. Recording it as 'failed' would invite a retry
+    // and DOUBLE-CREDIT the customer.
+    if (gj?.errors) {
+      console.warn(`${LOG} write succeeded but response had partial errors (non-fatal): ${JSON.stringify(gj.errors)}`);
+    }
+
     const shopifyTransactionId: string | null = txn?.id ?? null;
-    const balanceRaw = txn?.account?.balance?.amount;
-    const shopifyBalanceAfter = balanceRaw != null ? Number(balanceRaw) : null;
 
     try {
       await supabase.from("store_credit_shopify_sync")
@@ -258,7 +272,7 @@ Deno.serve(async (req) => {
           status: "synced",
           synced_at: new Date().toISOString(),
           shopify_transaction_id: shopifyTransactionId,
-          shopify_balance_after: shopifyBalanceAfter,
+          shopify_balance_after: null,
         })
         .eq("id", syncRowId);
     } catch (e) {
@@ -267,11 +281,10 @@ Deno.serve(async (req) => {
 
     console.log(
       `${LOG} synced customer=${customer_id} direction=${direction} amount=${amountStr} ` +
-      `txn=${shopifyTransactionId} balance_after=${shopifyBalanceAfter}`,
+      `txn=${shopifyTransactionId}`,
     );
     return json({
       success: true,
-      shopify_balance_after: shopifyBalanceAfter,
       shopify_transaction_id: shopifyTransactionId,
     });
   } catch (e) {
