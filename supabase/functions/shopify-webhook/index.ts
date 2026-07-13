@@ -238,6 +238,31 @@ async function recomputeCashOrderTotals(supabase: any, cashOrderId: string, tota
   return { paid, remaining };
 }
 
+// Mirror a Hub store-credit movement into Shopify (single source of truth = Hub).
+// Same shape as cancel-cash-order's helper. Never throws; a sync failure must
+// never block the webhook — sync-store-credit-to-shopify records its own retry row.
+async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
+  try {
+    const res = await fetch(
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-store-credit-to-shopify`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const out = await res.json().catch(() => null);
+    console.log(`${LOG} [sync-to-shopify]`, JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.warn(`${LOG} [sync-to-shopify] failed (non-blocking):`, e);
+    return { success: false, error: String((e as Error)?.message ?? e) };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -611,6 +636,28 @@ Deno.serve(async (req) => {
         `invoice=${cashOrder.invoice_number} result=${JSON.stringify(cancelResult)}`,
       );
 
+      // Mirror the minted credit into Shopify. cancel_cash_order_atomic issues the
+      // Hub lot but the Shopify push lives in the EDGE FUNCTIONS — the cancel-cash-order
+      // function does this, and this branch must too, or Hub-minted credit from a
+      // Shopify-side cancellation never reaches Shopify (ledger drift). Non-blocking:
+      // a sync failure must NEVER fail the webhook (the sync records its own retry row).
+      const sc = (cancelResult as any)?.store_credit;
+      if (sc?.lot_id) {
+        try {
+          await syncToShopify({
+            customer_id: sc.customer_id,
+            direction: "credit",
+            amount: Number(sc.amount),
+            currency: sc.currency,
+            lot_id: sc.lot_id,
+            expires_at: sc.expires_at,
+            reason: "cancelled_cash",
+          });
+        } catch (e) {
+          console.warn(`${LOG} orders/cancelled shopify sync failed (non-blocking):`, e);
+        }
+      }
+
       // Record the processed event (idempotency ledger) — same shape/columns the
       // other branches use, so Shopify retries short-circuit at the idempotency check.
       const { error: evtErr } = await supabase.from("shopify_webhook_events").insert({
@@ -633,7 +680,7 @@ Deno.serve(async (req) => {
     if (topic === "orders/updated") {
       const { data: cashOrder } = await supabase
         .from("cash_orders")
-        .select("id, status, invoice_number, total_amount, total_paid")
+        .select("id, status, invoice_number, total_amount, total_paid, customer_id, currency")
         .eq("shopify_order_id", shopifyOrderId)
         .maybeSingle();
 
@@ -736,6 +783,145 @@ Deno.serve(async (req) => {
           });
         } catch (e) {
           console.warn(`${LOG} overpaid notification failed:`, e);
+        }
+      }
+
+      // ── Refunds → store credit ──
+      // Business policy: ALL reversals become Hub store credit; there are no cash
+      // refunds. A Shopify partial refund (line edited out of a PAID order) mints a
+      // Hub lot for the refunded value, capped at what the customer actually overpaid.
+      // Idempotent two ways: issue_store_credit_atomic's double-issue guard is keyed
+      // on source_refund_id, and the headroom math subtracts credit already issued —
+      // so orders/updated re-fires mint nothing extra.
+      const refunds = Array.isArray(order?.refunds) ? order.refunds : [];
+      if (refunds.length > 0) {
+        // Paid-side headroom: what was paid beyond the CURRENT total, minus credit
+        // already minted for this order's refunds. Unpaid orders have zero headroom
+        // (removing an unpaid line owes the customer nothing).
+        const { data: priorLots } = await supabase
+          .from("store_credit_lots")
+          .select("original_amount")
+          .eq("source_cash_order_id", cashOrder.id)
+          .eq("source_type", "shopify_partial_refund")
+          .neq("status", "voided");
+        const alreadyIssued = (priorLots ?? []).reduce(
+          (s: number, l: any) => s + (Number(l?.original_amount) || 0), 0,
+        );
+        let headroom = Math.max(0, paid - newTotal - alreadyIssued);
+
+        for (const r of refunds) {
+          if (r?.id == null) continue;
+          const refundId = String(r.id);
+
+          // REAL-MONEY GATE: a refund transaction with a positive successful amount
+          // means real cash left via Shopify — a policy violation (store credit only).
+          // Do NOT mint on top of it; a human must review.
+          const cashOut = (Array.isArray(r.transactions) ? r.transactions : []).some(
+            (t: any) => Number(t?.amount) > 0 && t?.status === "success",
+          );
+          if (cashOut) {
+            const cashAmount = (Array.isArray(r.transactions) ? r.transactions : []).reduce(
+              (s: number, t: any) =>
+                s + (Number(t?.amount) > 0 && t?.status === "success" ? Number(t.amount) : 0), 0,
+            );
+            console.warn(
+              `${LOG} orders/updated CASH REFUND detected order=${shopifyOrderId} ` +
+              `invoice=${cashOrder.invoice_number} refund=${refundId} amount=${cashAmount} — not minting`,
+            );
+            try {
+              await supabase.from("staff_notifications").insert({
+                type: "shopify_cash_refund_detected",
+                title: "Real cash refund detected in Shopify",
+                body: `Order #${cashOrder.invoice_number}: refund ${refundId} moved ¥${Number(cashAmount).toLocaleString("en-US")} of real money out via Shopify. Policy requires store credit only — review immediately.`,
+                invoice_number: cashOrder.invoice_number,
+                metadata: { shopify_order_id: shopifyOrderId, refund_id: refundId, amount: cashAmount },
+              });
+            } catch (e) {
+              console.warn(`${LOG} cash-refund notification failed:`, e);
+            }
+            continue;
+          }
+
+          const refundAmount = (Array.isArray(r.refund_line_items) ? r.refund_line_items : [])
+            .reduce((s: number, rl: any) => s + (Number(rl?.subtotal) || 0), 0);
+          const mintAmount = Math.min(refundAmount, headroom);
+          // Unpaid orders and already-credited refunds fall out here naturally.
+          if (mintAmount <= 0) continue;
+
+          const { data: issueResult, error: issueErr } = await supabase.rpc(
+            "issue_store_credit_atomic",
+            {
+              p_customer_id: cashOrder.customer_id,
+              p_currency: cashOrder.currency,
+              p_amount: mintAmount,
+              p_source_type: "shopify_partial_refund",
+              p_source_account_id: null,
+              p_source_cash_order_id: cashOrder.id,
+              p_user_id: null,
+              p_user_email: null,
+              p_notes: `Auto-issued for Shopify partial refund ${refundId} on ${cashOrder.invoice_number}`,
+              p_source: "shopify_webhook",
+              p_source_refund_id: refundId,
+            },
+          );
+
+          if (issueErr) {
+            // The RPC's double-issue guard is keyed on source_refund_id — a repeat
+            // orders/updated delivery for an already-credited refund is NOT an error.
+            if (String(issueErr.message ?? "").includes("store_credit_already_issued_for_refund")) {
+              console.log(`${LOG} refund ${refundId} already credited — skipping (idempotent re-fire)`);
+            } else {
+              // Do not fail the webhook: the totals re-sync above already succeeded,
+              // and orders/updated will re-fire so the mint can be retried.
+              console.error(`${LOG} issue_store_credit_atomic failed for refund ${refundId}:`, issueErr);
+            }
+            continue;
+          }
+
+          headroom -= mintAmount;
+          const lotId = (issueResult as any)?.lot_id ?? null;
+          console.log(
+            `${LOG} orders/updated minted store credit order=${shopifyOrderId} ` +
+            `invoice=${cashOrder.invoice_number} refund=${refundId} amount=${mintAmount} lot=${lotId}`,
+          );
+
+          // Mirror the minted credit into Shopify + notify staff. Non-blocking —
+          // a failure here never fails the webhook (the sync records its own retry row).
+          try {
+            await syncToShopify({
+              customer_id: cashOrder.customer_id,
+              direction: "credit",
+              amount: mintAmount,
+              currency: cashOrder.currency,
+              lot_id: lotId,
+              reason: `Store credit issued for Shopify partial refund ${refundId} on ${cashOrder.invoice_number}`,
+            });
+
+            // Loyalty points were awarded on the OLD order total; if an earn lot
+            // exists for this invoice, staff must review/adjust it manually.
+            const { data: loyaltyLot } = await supabase
+              .from("loyalty_point_lots")
+              .select("id")
+              .eq("source_type", "order_earn")
+              .eq("source_reference", cashOrder.invoice_number)
+              .is("revoked_at", null)
+              .limit(1)
+              .maybeSingle();
+
+            await supabase.from("staff_notifications").insert({
+              type: "shopify_partial_refund_credit",
+              title: "Store credit issued for Shopify partial refund",
+              body:
+                `Order #${cashOrder.invoice_number}: ¥${Number(mintAmount).toLocaleString("en-US")} store credit auto-issued for Shopify refund ${refundId}.` +
+                (loyaltyLot
+                  ? " Loyalty points were awarded on the old order total — review and adjust via Loyalty admin."
+                  : ""),
+              invoice_number: cashOrder.invoice_number,
+              metadata: { shopify_order_id: shopifyOrderId, refund_id: refundId, amount: mintAmount, lot_id: lotId },
+            });
+          } catch (e) {
+            console.warn(`${LOG} refund-credit post-mint steps failed (non-blocking):`, e);
+          }
         }
       }
 
