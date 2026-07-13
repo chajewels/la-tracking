@@ -153,21 +153,39 @@ async function applyShopifyStoreCredit(
 
   if (!(creditAmount > 0)) return 0;
 
-  // Idempotent insert. A duplicate reference (23505) means we already recorded it — that is
-  // success, not failure.
+  // Idempotency, primary defence: check for an existing non-voided payment with this
+  // reference before inserting. orders/create and orders/paid both call this helper,
+  // so without the check the same store-credit payment would be recorded twice (and
+  // the lot drawn down twice). scRef is used for BOTH the lookup and the insert so
+  // they can never disagree.
+  const scRef = `SHOPIFY-SC-${shopifyOrderId}`;
+  const { data: existing } = await supabase
+    .from("cash_payments")
+    .select("id")
+    .eq("reference_number", scRef)
+    .is("voided_at", null)
+    .maybeSingle();
+  if (existing) {
+    console.log(`${LOG} store-credit payment already recorded order=${shopifyOrderId} (ref ${scRef}) — skipping insert and drawdown`);
+    return creditAmount;
+  }
+
+  // Second line of defence: a concurrent delivery could slip between the check above
+  // and this insert. The partial unique index idx_cash_payments_reference_unique then
+  // raises 23505 — treat that as success (the other delivery is doing the drawdown).
   const { error: scErr } = await supabase.from("cash_payments").insert({
     cash_order_id: cashOrder.id,
     amount_paid: creditAmount,
-    currency: "JPY",
+    currency: (order?.currency ?? "JPY"),
     payment_method: "store_credit",
     date_paid: phtToday(),
-    reference_number: `SHOPIFY-SC-${shopifyOrderId}`,
+    reference_number: scRef,
     remarks: "Paid with Shopify store credit (consumed at checkout)",
   });
   if (scErr) {
     if ((scErr as any)?.code === "23505") {
-      console.log(`${LOG} store-credit payment already recorded order=${shopifyOrderId} — skipping drawdown`);
-      return creditAmount;   // already handled on a previous delivery
+      console.log(`${LOG} store-credit payment already recorded order=${shopifyOrderId} (ref ${scRef}, concurrent) — skipping drawdown`);
+      return creditAmount;   // another delivery inserted it and is drawing down
     }
     console.error(`${LOG} store-credit payment insert failed order=${shopifyOrderId}: ${scErr.message}`);
     return 0;
@@ -182,7 +200,7 @@ async function applyShopifyStoreCredit(
         p_currency: order?.currency ?? "JPY",
         p_amount: creditAmount,
         p_cash_order_id: cashOrder.id,
-        p_shopify_reference: `SHOPIFY-SC-${shopifyOrderId}`,
+        p_shopify_reference: scRef,
         p_source: "shopify_webhook",
       },
     );
