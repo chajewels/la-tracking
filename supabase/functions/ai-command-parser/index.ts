@@ -338,6 +338,25 @@ If customer wants insurance:
 Note: Declared value affects customs duties
 and insurance coverage for the shipment.
 
+=== GIFT DECLARATION ===
+
+A parcel may be declared as a gift ONLY when it genuinely is a gift
+(e.g. sent by the purchaser to a different recipient as a present).
+Items purchased by the recipient themselves must be declared as
+merchandise / purchased goods.
+
+All declaration details — recipient, contents, declared value, and
+gift status — must accurately reflect the actual shipment and comply
+with the customs regulations of the destination country.
+
+Cha Jewels cannot declare a parcel in a way that misrepresents its
+contents or value, including for the purpose of reducing or avoiding
+import duties or taxes.
+
+Customs duties, taxes, insurance, and any special declaration
+requirements are the customer's responsibility. These are assessed
+by the destination country and are outside Cha Jewels' control.
+
 === SHIPPING VERIFICATION PROTOCOL ===
 
 Bago i-ship ang kahit anong order, ang Cha Jewels
