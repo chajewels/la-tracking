@@ -621,6 +621,41 @@ Deno.serve(async (req) => {
     // Re-sync the Hub order to match. Shopify is the source of truth for what was ORDERED;
     // the Hub remains the source of truth for what was PAID.
     if (topic === "orders/updated") {
+      // TEMPORARY DIAGNOSTIC — remove after investigation.
+      console.log(`${LOG} UPDATED-DIAG order=${shopifyOrderId} ` + JSON.stringify({
+        total_price: order?.total_price ?? null,
+        current_total_price: order?.current_total_price ?? null,
+        subtotal_price: order?.subtotal_price ?? null,
+        current_subtotal_price: order?.current_subtotal_price ?? null,
+        current_total_discounts: order?.current_total_discounts ?? null,
+        total_outstanding: order?.total_outstanding ?? null,
+        financial_status: order?.financial_status ?? null,
+        line_items: Array.isArray(order?.line_items)
+          ? order.line_items.map((l: any) => ({
+              id: l?.id, title: l?.title, sku: l?.sku,
+              quantity: l?.quantity,
+              current_quantity: l?.current_quantity ?? null,
+              fulfillable_quantity: l?.fulfillable_quantity ?? null,
+              price: l?.price,
+            }))
+          : null,
+        refunds: Array.isArray(order?.refunds)
+          ? order.refunds.map((r: any) => ({
+              id: r?.id,
+              created_at: r?.created_at,
+              refund_line_items: Array.isArray(r?.refund_line_items)
+                ? r.refund_line_items.map((rl: any) => ({
+                    line_item_id: rl?.line_item_id,
+                    quantity: rl?.quantity,
+                    subtotal: rl?.subtotal,
+                  }))
+                : null,
+              transactions: Array.isArray(r?.transactions)
+                ? r.transactions.map((t: any) => ({ kind: t?.kind, status: t?.status, amount: t?.amount, gateway: t?.gateway }))
+                : null,
+            }))
+          : null,
+      }));
       const { data: cashOrder } = await supabase
         .from("cash_orders")
         .select("id, status, invoice_number, total_amount, total_paid")
