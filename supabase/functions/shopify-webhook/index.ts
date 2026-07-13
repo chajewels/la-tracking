@@ -399,7 +399,11 @@ Deno.serve(async (req) => {
       }
 
       // Build the cash_order (mirrors create-cash-order's insert shape).
-      const totalAmount = Number(order.total_price) || 0;
+      // total_price is CUMULATIVE — the sum of everything ever added to the order; it NEVER
+      // decreases when a line is edited out. current_total_price is what the customer actually
+      // owes now. Fall back to total_price only when the current value is absent.
+      const currentTotal = Number(order?.current_total_price ?? order?.total_price) || 0;
+      const totalAmount = currentTotal;
       const orderDate = (typeof order.created_at === "string" ? order.created_at.split("T")[0] : null) || phtToday();
       const expiresAt = new Date(new Date(orderDate + "T00:00:00Z").getTime() + 30 * 86400000).toISOString();
       const invoiceNumber = "SH-" + String(order.order_number ?? order.name ?? order.id);
@@ -442,12 +446,18 @@ Deno.serve(async (req) => {
       }
 
       // Line items — best-effort. If they fail the order still stands.
-      console.log(`${LOG} orders/create line_items count=${Array.isArray(order.line_items) ? order.line_items.length : 0} for ${shopifyOrderId}`);
-      if (cashOrderId && Array.isArray(order.line_items) && order.line_items.length > 0) {
+      const liveLines = (Array.isArray(order.line_items) ? order.line_items : []).filter((l: any) => {
+        // current_quantity is 0 for a line that was edited out of the order. It REMAINS in the
+        // line_items array — Shopify never deletes it — so we must filter it out ourselves.
+        const cq = l?.current_quantity;
+        return cq === undefined || cq === null ? true : Number(cq) > 0;
+      });
+      console.log(`${LOG} orders/create line_items count=${liveLines.length} for ${shopifyOrderId}`);
+      if (cashOrderId && liveLines.length > 0) {
         try {
-          const rows = order.line_items.map((line: any) => {
+          const rows = liveLines.map((line: any) => {
             const unit = Number(line.price) || 0;
-            const qty = Number(line.quantity) || 1;
+            const qty = Number(line.current_quantity ?? line.quantity) || 1;
             const title = line.variant_title ? `${line.title} (${line.variant_title})` : line.title;
             return {
               cash_order_id: cashOrderId,
@@ -621,41 +631,6 @@ Deno.serve(async (req) => {
     // Re-sync the Hub order to match. Shopify is the source of truth for what was ORDERED;
     // the Hub remains the source of truth for what was PAID.
     if (topic === "orders/updated") {
-      // TEMPORARY DIAGNOSTIC — remove after investigation.
-      console.log(`${LOG} UPDATED-DIAG order=${shopifyOrderId} ` + JSON.stringify({
-        total_price: order?.total_price ?? null,
-        current_total_price: order?.current_total_price ?? null,
-        subtotal_price: order?.subtotal_price ?? null,
-        current_subtotal_price: order?.current_subtotal_price ?? null,
-        current_total_discounts: order?.current_total_discounts ?? null,
-        total_outstanding: order?.total_outstanding ?? null,
-        financial_status: order?.financial_status ?? null,
-        line_items: Array.isArray(order?.line_items)
-          ? order.line_items.map((l: any) => ({
-              id: l?.id, title: l?.title, sku: l?.sku,
-              quantity: l?.quantity,
-              current_quantity: l?.current_quantity ?? null,
-              fulfillable_quantity: l?.fulfillable_quantity ?? null,
-              price: l?.price,
-            }))
-          : null,
-        refunds: Array.isArray(order?.refunds)
-          ? order.refunds.map((r: any) => ({
-              id: r?.id,
-              created_at: r?.created_at,
-              refund_line_items: Array.isArray(r?.refund_line_items)
-                ? r.refund_line_items.map((rl: any) => ({
-                    line_item_id: rl?.line_item_id,
-                    quantity: rl?.quantity,
-                    subtotal: rl?.subtotal,
-                  }))
-                : null,
-              transactions: Array.isArray(r?.transactions)
-                ? r.transactions.map((t: any) => ({ kind: t?.kind, status: t?.status, amount: t?.amount, gateway: t?.gateway }))
-                : null,
-            }))
-          : null,
-      }));
       const { data: cashOrder } = await supabase
         .from("cash_orders")
         .select("id, status, invoice_number, total_amount, total_paid")
@@ -674,7 +649,10 @@ Deno.serve(async (req) => {
         return json({ ignored: "order_cancelled" }, 200);
       }
 
-      const newTotal = Number(order.total_price) || 0;
+      // total_price is CUMULATIVE — the sum of everything ever added to the order; it NEVER
+      // decreases when a line is edited out. current_total_price is what the customer owes now.
+      // Fall back to total_price only when the current value is absent.
+      const newTotal = Number(order?.current_total_price ?? order?.total_price) || 0;
       const oldTotal = Number(cashOrder.total_amount) || 0;
       const paid = Number(cashOrder.total_paid) || 0;
 
@@ -682,6 +660,13 @@ Deno.serve(async (req) => {
       // Shopify is authoritative for what was ordered. Delete and re-insert is simplest and
       // correct: cash_order_items carries no payment or allocation state.
       if (Array.isArray(order.line_items)) {
+        const liveLines = order.line_items.filter((l: any) => {
+          // current_quantity is 0 for a line that was edited out of the order. It REMAINS in the
+          // line_items array — Shopify never deletes it — so we must filter it out ourselves.
+          const cq = l?.current_quantity;
+          return cq === undefined || cq === null ? true : Number(cq) > 0;
+        });
+
         const { error: delErr } = await supabase
           .from("cash_order_items")
           .delete()
@@ -690,10 +675,10 @@ Deno.serve(async (req) => {
           return await recordError(`orders/updated: could not clear line items: ${delErr.message}`);
         }
 
-        if (order.line_items.length > 0) {
-          const rows = order.line_items.map((line: any) => {
+        if (liveLines.length > 0) {
+          const rows = liveLines.map((line: any) => {
             const unit = Number(line.price) || 0;
-            const qty = Number(line.quantity) || 1;
+            const qty = Number(line.current_quantity ?? line.quantity) || 1;
             const title = line.variant_title ? `${line.title} (${line.variant_title})` : line.title;
             return {
               cash_order_id: cashOrder.id,
