@@ -106,6 +106,16 @@ Reference docs (read the relevant one when a task touches that area):
     records actor = 'shopify_webhook' and the user-identity guard is skipped for
     that source only. Human callers default to p_source = 'staff' and the guard
     still fires.
+  - Hub ↔ Shopify sync is LIVE (Phase C, see docs/STORE-CREDIT.md). The Hub
+    MINTS; Shopify MIRRORS. Authority one-way, sync bidirectional. Shopify never
+    mints.
+  - NEVER issue/void/redeem store credit via SQL — the Shopify push lives in the
+    edge functions, not the RPCs. Calling an RPC directly bypasses the sync and
+    drifts the ledgers. Use the UI.
+  - NEVER use Shopify's "Collect payment" on an order that used store credit (it
+    charges the full total and ignores the credit). Use "Capture payment".
+  - Drift detection: reconcile-store-credit runs nightly; Settings → Store Credit.
+    It REPORTS ONLY and must never auto-repair.
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 

@@ -630,3 +630,19 @@ RULE: before deploying an edge function, require the relevant code block to be P
 
 ### Operational learning — adding a Shopify app access scope (2026-07-12)
 Scopes live in the app VERSION, not in a settings toggle: Shopify Dev Dashboard -> app -> Versions -> New version -> Scopes (comma-separated) -> Release. Releasing a new version does NOT apply the scopes to the store — the merchant must re-install/approve the app (app -> Home -> Install app). After re-authorizing, re-run shopify-register-webhooks and confirm every topic returns `already_registered` with the SAME subscription IDs: that proves the Admin API token, the webhook subscriptions and the HMAC secret all survived.
+
+### Operational learning — Shopify debits store credit at CHECKOUT, and records it as kind "authorization" (2026-07-13)
+When an order is only AUTHORIZED (e.g. store credit + a pending bank transfer), Shopify's store-credit transaction has kind "authorization", NOT "sale" — but the customer's balance is ALREADY debited (the transaction carries receipt.debit_operation_id). A filter of `kind === "sale"` silently drops it, so the Hub never records the payment and never draws down its lots — leaving credit that Shopify has already spent still showing as available, and double-spendable. On a fully-settled order the SAME transaction appears as kind "sale", which is why this was missed for days.
+RULE: for STORE CREDIT accept both "sale" and "authorization" (status must still be "success"). For REAL MONEY accept ONLY "sale" — a pending bank-deposit transaction is kind "sale"/status "pending" and must never be booked as revenue received.
+
+### Operational learning — never assume a unique constraint exists; verify it (2026-07-13)
+Idempotency was built on catching Postgres error 23505 for a duplicate payment reference. But cash_payments had NO unique constraint on reference_number, so the exception could never fire and a store-credit payment was recorded TWICE (once by orders/create, once by orders/paid), inflating an order's total_paid by ¥50,000. A partial unique index (idx_cash_payments_reference_unique, WHERE reference_number IS NOT NULL AND voided_at IS NULL) has been added.
+RULE: an exception-based idempotency guard is only as good as the constraint it depends on. VERIFY the constraint exists, and prefer an explicit check-before-insert as the primary defence, with the exception as a second line.
+
+### Operational learning — a successful write with a partial response error is NOT a failure (2026-07-13)
+sync-store-credit-to-shopify requested `account { balance }` in its mutation response. That field needs a scope we did not have, so Shopify returned the SUCCESSFUL write plus a partial GraphQL error on that nested field — and the code, which failed on any gj.errors, recorded two successful pushes as 'failed'. A false 'failed' is worse than no log: it invites a retry, and a retry would DOUBLE-CREDIT the customer.
+RULE: judge a GraphQL mutation's success on userErrors and on whether the transaction was returned — not on the mere presence of a top-level errors array. And do not request response fields you do not need.
+
+### Operational learning — store-credit writes must go through the edge functions, never the RPCs (2026-07-13)
+The Shopify sync lives in the EDGE FUNCTIONS (issue-store-credit, void-store-credit-lot, redeem-store-credit, cancel-cash-order), not in the RPCs they call. Voiding a lot by calling void_store_credit_lot_atomic directly in SQL updated the Hub but never pushed the debit to Shopify — silently drifting the two ledgers.
+RULE: once a mirror/sync exists, any write performed via SQL bypasses it. Use the application.

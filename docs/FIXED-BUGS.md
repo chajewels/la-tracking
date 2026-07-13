@@ -3511,3 +3511,31 @@ sheets on their next payment); retire reposition-cash-receipts (HTTP 410); remov
 column AD (25-30) actually works; drop the confirmedPaymentIds.length === 1 gate so split payments
 also embed.
 Follow-up (b110e73, 2cc40db, 2026-07-12): the self-healing rebuild only fires when a submission is CONFIRMED, so sheets damaged before the fix — whose payments were already confirmed — could never heal on their own (verified on invoice 18951: all 3 payments confirmed, B93 still blank). Added a one-off repair sweep: new edge function rebuild-cash-receipts (admin-gated via hasPermission(user.id,'system_health'), no service-role/anon bypass per Bug #170) that walks every layaway_accounts AND cash_orders row with a non-null cash_receipt_sheet_id (180 sheets), rebuilds all slots from payment_submissions via appendManyReceipts, and is resumable via a ${kind}:${id} cursor with batch_size (default 20, clamped 1-25) and dry_run defaulting to TRUE. Per-record try/catch and ~1s pacing keep one bad sheet or the Google Sheets quota from aborting a batch. UI: RebuildCashReceiptsCard (src/components/admin/RebuildCashReceiptsCard.tsx) rendered inside the System Audit modal in Dashboard.tsx, gated by can('system_health') — it was first added to UnifiedSystemHealthTab.tsx, which is ORPHANED (imported by nothing) and therefore never rendered. Verified end-to-end on 18951: derived capacity=13 from the sheet's own merges (old 13-slot template, 26 merges), and B93 was restored to "INVOICE #: 18951 / DATE: 2026-05-30 / AMOUNT: 4,830 JPY". Accounts whose receipt count exceeds their sheet's capacity are reported as overflow and must be regenerated onto the 30-slot template — the sweep cannot fix those.
+
+## Hub ↔ Shopify store-credit sync (Phase C) — bugs fixed 2026-07-13
+
+  - PHANTOM REVENUE: a Shopify order paid entirely with store credit booked a
+    full-value cash payment in the Hub. orders/paid recorded amount_paid =
+    order.total_price with no inspection of HOW the order was paid — so ¥134,980
+    of revenue was recorded for an order where Shopify collected ¥0. Fixed by
+    splitting the transactions by gateway and recording the store-credit portion
+    as payment_method = 'store_credit'.
+  - DOUBLE-SPEND WINDOW: Shopify debits store credit at CHECKOUT but the Hub only
+    reacted at orders/paid. For a bank-transfer order that window is DAYS — and
+    FOREVER if the customer never pays. During it the Hub still showed the credit
+    as available and offered an "Apply Store Credit" button. Fixed by handling
+    store credit in orders/create as well, idempotently.
+  - AUTHORIZATION vs SALE: the store-credit transaction on a partially-settled
+    order has kind "authorization", not "sale", so the filter dropped it and no
+    drawdown occurred. Fixed by accepting both kinds for store credit (real money
+    still requires kind "sale").
+  - DUPLICATE PAYMENT: the same store-credit payment was recorded twice
+    (orders/create AND orders/paid) because the 23505 idempotency guard relied on
+    a unique constraint that did not exist. Fixed with a partial unique index plus
+    an explicit check-before-insert.
+  - FALSE SYNC FAILURE: two successful pushes to Shopify were recorded as 'failed'
+    because the response read-back of a nested field was denied by a missing
+    scope, and the code treated any GraphQL error as total failure. Dangerous — a
+    retry would have double-credited the customer. Fixed by judging success on
+    userErrors + the returned transaction, and by no longer requesting the account
+    balance.

@@ -231,13 +231,32 @@
 
 ### STORE CREDIT — Phase C + partial refunds (2026-07-12)
   - PHASE C — mirror Hub store credit into Shopify's native store-credit account
-    so customers can spend it at checkout. Prerequisites are now CLEAR: "Store
-    credit" is enabled under Shopify Settings -> Customer accounts, and the app
-    holds the required scopes. NOT STARTED. Main design risk: DOUBLE-SPEND — the
-    Hub and Shopify would be two ledgers over one pot of money. Requires the Hub
-    as the single source of truth, with every issue/redeem/void/expire mirrored to
-    Shopify, and any Shopify-checkout spend pulled back into the Hub. PHP credit
-    cannot mirror (the Shopify store is JPY-only).
-  - refunds/create (PARTIAL refunds from Shopify) — still unhandled. Phase A/B
+    so customers can spend it at checkout. SHIPPED 2026-07-13 (see
+    docs/STORE-CREDIT.md Phase C). The Hub MINTS, Shopify MIRRORS — one-way
+    authority, bidirectional sync, Shopify never mints; drift detected nightly by
+    reconcile-store-credit (report-only). PHP credit cannot mirror (the Shopify
+    store is JPY-only).
+  - refunds/create (PARTIAL refunds from Shopify) — still unhandled. Phase A/B/C
     support full-order reversal only; a partial refund in Shopify does nothing in
     the Hub. Policy undecided.
+
+### STORE CREDIT — Phase C shipped; remaining pending (2026-07-13)
+  - PURGE ALL SHOPIFY TEST DATA BEFORE GO-LIVE (LAUNCH BLOCKER). 13 test orders
+    (SH-1001 … SH-1013) plus their payments, line items, loyalty transactions,
+    store-credit lots and test customers are still in the database. All are
+    currently cancelled with zero paid, so they do not pollute revenue — but they
+    must be purged before launch. Ideally via a delete-cash-order tool rather than
+    hand-written SQL.
+  - refunds/create (PARTIAL refunds from Shopify) — still unhandled. Policy
+    undecided.
+  - A6 — store-credit expiry warning: credit is forfeited at 1 year with NO
+    reminder to the customer.
+  - A8 — no email on points revocation or store-credit issuance (in-app
+    notifications only).
+  - delete-cash-order — still unscoped; now also needed for the pre-launch purge.
+  - WONDER (storefront): (1) the Shopify order-confirmation email tells a
+    bank-transfer customer we are "preparing your shipment" before they have paid —
+    it must be payment-status aware; (2) checkout should prompt customer sign-in,
+    otherwise customers cannot see or spend their store credit and will be charged
+    full price.
+  - PAGE365 integration — requirements document sent; awaiting their response.

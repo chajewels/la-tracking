@@ -171,4 +171,103 @@ the identity guard still fires.
   Policy undecided.
 - Shopify cannot see Hub store credit. A customer with Hub credit shopping on
   cha-jewels.com is charged full price. Mirroring Hub credit into Shopify's
-  native store-credit account is PHASE C (not built).
+  native store-credit account is PHASE C (now built — see below).
+
+## PHASE C — HUB ↔ SHOPIFY STORE-CREDIT SYNC
+
+Built, shipped, and verified end-to-end on live Shopify orders (2026-07-13).
+
+### What it does
+The Hub's store credit is now mirrored into Shopify's native store-credit
+account, so a customer can spend it at Shopify checkout. When they do, the Hub
+records it correctly and draws down its own lots.
+
+### The model (locked)
+The HUB MINTS. SHOPIFY MIRRORS. Authority is one-way; sync is bidirectional.
+- Every Hub credit movement (issue / redeem / void / cancellation) is pushed to
+  Shopify.
+- A spend at Shopify checkout is pulled back into the Hub, which draws down its
+  lots.
+- Shopify NEVER mints credit. Its balance is a mirror, not a source.
+Reason: if both could mint, we would inherit Shopify's rules — no expiry, no lot
+model, no FIFO, no source tracking, no audit. The Hub's 1-year expiry policy
+would quietly stop applying.
+
+### Customer linkage (C0)
+`public.customers.shopify_customer_id` (text, unique partial index where not
+null). The Hub's `customer_code` remains the primary identity; this is a LINK to
+the Shopify identity. Many Hub customers legitimately have NO Shopify ID
+(live-selling / layaway / PHP customers). `shopify-webhook` match chain:
+`shopify_customer_id` → email → phone → create-and-flag. The webhook backfills
+`shopify_customer_id` onto customers matched by email/phone (never overwrites an
+existing link).
+
+### How a Shopify checkout spend reaches the Hub
+- Shopify DEBITS the customer's balance at CHECKOUT (orders/create), not at
+  payment.
+- So `applyShopifyStoreCredit()` runs in BOTH orders/create AND orders/paid —
+  whichever sees the transaction first. Idempotent via the unique reference
+  `SHOPIFY-SC-<orderId>`.
+- It records the store-credit portion as a `cash_payments` row with
+  `payment_method = 'store_credit'` (money that did NOT arrive), and draws down
+  the Hub's lots FIFO via `consume_store_credit_for_shopify_atomic`.
+- Real-money transactions are recorded separately, one row per gateway.
+- Order totals are then RECOMPUTED from the payment rows — never assumed.
+
+### RPCs (added in Phase C)
+- `consume_store_credit_for_shopify_atomic(...)` — a spend ALREADY happened in
+  Shopify; draw the Hub's lots down to match. Does NOT create a payment and does
+  NOT touch the order. Tolerates a SHORTFALL (Shopify credit the Hub never
+  issued): consumes what exists, records the shortfall, never fails — the money
+  has already moved in Shopify.
+
+### Edge functions (added in Phase C)
+- `sync-store-credit-to-shopify` — pushes a Hub movement into Shopify
+  (`storeCreditAccountCredit` / `storeCreditAccountDebit`). Called by
+  `issue-store-credit`, `cancel-cash-order`, `redeem-store-credit` and
+  `void-store-credit-lot` AFTER their RPC succeeds. SKIPS silently for non-JPY
+  currency (the Shopify store is JPY-only; PHP credit stays Hub-only) and for
+  customers with no `shopify_customer_id`. A Shopify failure NEVER fails the Hub
+  operation — it records a row in `store_credit_shopify_sync` and returns 200.
+  NOTE: `shopify-webhook` is deliberately NOT wired to it. When a customer spends
+  at Shopify checkout, Shopify has ALREADY debited its own balance; pushing a
+  debit there would DOUBLE-DEBIT.
+- `reconcile-store-credit` — REPORT-ONLY drift detector (see below).
+
+### Tables (added in Phase C)
+- `store_credit_shopify_sync` — every push attempt: direction, amount, status
+  (pending|synced|failed|skipped), `shopify_transaction_id`, `error_detail`.
+  Makes a failed push visible and retryable instead of silent.
+- `store_credit_reconciliation` — one row per customer per run: `hub_balance`,
+  `shopify_balance`, `delta`, status (match|drift|shopify_unreadable).
+
+### C4 — Drift detection
+`reconcile-store-credit` compares, for every customer with a
+`shopify_customer_id`, the Hub balance (active, unexpired JPY lots) against the
+Shopify balance (`storeCreditAccounts` query), and records the delta. It also
+surfaces pending/failed rows in `store_credit_shopify_sync`.
+Runs nightly via pg_cron (`reconcile-store-credit-daily`, 18:15 UTC / 03:15 JST).
+Visible at Settings → Store Credit in the Hub.
+IT REPORTS. IT DOES NOT REPAIR — deliberately. Over the course of this build the
+"correct" side was the Hub in some cases and Shopify in others; an auto-repair
+would have destroyed correct data and masked the underlying bug. Drift is a
+SYMPTOM. A human must diagnose the cause.
+
+### Operator rules (CRITICAL — tell anyone who touches Shopify orders)
+- NEVER record store credit in Shopify directly. The "Store credit" option in
+  Shopify's cancel-order dialog is SHOPIFY'S OWN separate credit ledger — no
+  expiry, invisible to the Hub. Using it double-compensates the customer. Always
+  cancel with "Later" (no refund).
+- NEVER use "Collect payment" in the Shopify admin on an order that used store
+  credit at checkout. It ignores the applied credit and charges the FULL order
+  total, so the customer pays twice over. Use "Capture payment" instead, which
+  settles what was actually authorised.
+- NEVER issue / void / redeem store credit via SQL now that the sync is live. The
+  Shopify push lives in the EDGE FUNCTIONS, not in the RPCs — calling an RPC
+  directly bypasses the sync and silently drifts the two ledgers. Always use the
+  Hub UI.
+
+### Not in scope
+- `refunds/create` (PARTIAL refunds from Shopify) is still unhandled. Policy
+  undecided.
+- PHP store credit is never mirrored (the Shopify store is JPY-only).
