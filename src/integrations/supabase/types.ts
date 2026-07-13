@@ -4139,6 +4139,56 @@ export type Database = {
           },
         ]
       }
+      store_credit_reconciliation: {
+        Row: {
+          checked_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          delta: number | null
+          detail: string | null
+          hub_balance: number
+          id: string
+          run_id: string
+          shopify_balance: number | null
+          shopify_customer_id: string | null
+          status: string
+        }
+        Insert: {
+          checked_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          delta?: number | null
+          detail?: string | null
+          hub_balance?: number
+          id?: string
+          run_id: string
+          shopify_balance?: number | null
+          shopify_customer_id?: string | null
+          status: string
+        }
+        Update: {
+          checked_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          delta?: number | null
+          detail?: string | null
+          hub_balance?: number
+          id?: string
+          run_id?: string
+          shopify_balance?: number | null
+          shopify_customer_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_credit_reconciliation_customer_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       store_credit_shopify_sync: {
         Row: {
           amount: number
