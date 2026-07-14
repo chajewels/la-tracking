@@ -166,9 +166,8 @@ the identity guard still fires.
   store credit with no staff review.
 
 ### Not in scope
-- `refunds/create` (PARTIAL refunds) is NOT handled. Phase A/B only support
-  full-order reversal. A partial refund in Shopify does nothing in the Hub.
-  Policy undecided.
+- Partial refunds are now handled via the orders/updated flow — see
+  "Partial refunds (Shopify)" under Phase C below.
 - Shopify cannot see Hub store credit. A customer with Hub credit shopping on
   cha-jewels.com is charged full price. Mirroring Hub credit into Shopify's
   native store-credit account is PHASE C (now built — see below).
@@ -267,7 +266,37 @@ SYMPTOM. A human must diagnose the cause.
   directly bypasses the sync and silently drifts the two ledgers. Always use the
   Hub UI.
 
+### Partial refunds (Shopify)
+Policy LOCKED 2026-07-14: ALL reversals become Hub store credit; there are no
+cash refunds. Partial refunds ride the orders/updated payload's `refunds[]`
+array (the `refunds/create` topic is NOT registered — not needed).
+
+Flow per refund:
+1. Real-money gate — any successful positive transaction on the refund means
+   real cash left via a gateway = policy violation → no mint +
+   `shopify_cash_refund_detected` staff notification.
+2. `mintAmount = min(sum refund_line_items.subtotal, headroom)` where
+   `headroom = max(0, paid - newTotal - credit already issued for this order's
+   partials)`.
+3. `issue_store_credit_atomic` (source_type `'shopify_partial_refund'`,
+   `p_source_refund_id` = Shopify refund id — DB-level per-refund idempotency).
+4. `sync-store-credit-to-shopify` push (Hub mints, Shopify mirrors).
+5. `shopify_partial_refund_credit` staff notification — includes a
+   loyalty-review line when an active `order_earn` lot exists; POINTS
+   ADJUSTMENT ON PARTIALS IS MANUAL — `revoke_loyalty_points` is
+   all-or-nothing by design and award-loyalty-points guard 4b blocks re-award
+   after revoke.
+
+Unpaid orders: zero headroom → re-sync only, no credit (policy).
+
+`cancel_cash_order_atomic` now nets out partial-refund credit: a full cancel
+after partials mints money_received minus non-voided `shopify_partial_refund`
+lots, so total credit per order never exceeds money actually received
+(verified: SH-1015 293,960 = 134,980 + 158,980).
+
+Verified live 2026-07-14 on SH-1015/SH-1016: single partial, multi-partial
+shared headroom, idempotent re-fires, real-cash gate, capped full cancel,
+cancelled-branch mirror, zero-total guard.
+
 ### Not in scope
-- `refunds/create` (PARTIAL refunds from Shopify) is still unhandled. Policy
-  undecided.
 - PHP store credit is never mirrored (the Shopify store is JPY-only).

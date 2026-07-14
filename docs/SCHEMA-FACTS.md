@@ -646,3 +646,10 @@ RULE: judge a GraphQL mutation's success on userErrors and on whether the transa
 ### Operational learning — store-credit writes must go through the edge functions, never the RPCs (2026-07-13)
 The Shopify sync lives in the EDGE FUNCTIONS (issue-store-credit, void-store-credit-lot, redeem-store-credit, cancel-cash-order), not in the RPCs they call. Voiding a lot by calling void_store_credit_lot_atomic directly in SQL updated the Hub but never pushed the debit to Shopify — silently drifting the two ledgers.
 RULE: once a mirror/sync exists, any write performed via SQL bypasses it. Use the application.
+
+### Operational learning — Shopify order-edit payload semantics (2026-07-14)
+- Shopify's total_price is CUMULATIVE (the sum of everything ever added to the order; it never decreases). current_total_price is the real current total. Removed lines persist in line_items forever at current_quantity: 0. Every re-add mints a NEW line_item id.
+- An order edit on a paid order manifests as a refunds[] entry in the orders/updated payload; transactions[] empty = no money moved ("owed to customer" state), populated with a successful positive amount = real cash left via gateway.
+- Shopify's "You owe the customer a refund ¥X" banner and "Outstanding balance" on edited paid orders is PERMANENT AND COSMETIC in our design — settlement happens as Hub store credit. NEVER settle it via the Refund page.
+- store_credit_lots.source_refund_id (added 2026-07-14) + partial unique index (WHERE source_refund_id IS NOT NULL AND status <> 'voided') provides DB-level per-refund idempotency.
+- shopify_webhook_events has processed_at, NOT created_at.

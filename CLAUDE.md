@@ -102,6 +102,13 @@ Reference docs (read the relevant one when a task touches that area):
   - When cancelling in Shopify, ALWAYS choose "Later" (no refund). "Original
     payment method" refunds cash; "Store credit" uses SHOPIFY's separate credit
     ledger. Either one double-pays the customer on top of the Hub credit.
+    Partial refunds MUST be done via Edit order → Update order ONLY; NEVER the
+    Refund page (all three of its methods move value on Shopify's side — the
+    real-cash gate will block the Hub mint and the customer gets paid through
+    the wrong ledger).
+  - Shopify partial refunds auto-mint Hub credit (source_type
+    shopify_partial_refund, keyed per refund id); the "You owe the customer"
+    banner in Shopify is permanent and cosmetic — never settle it.
   - Service-role callers pass p_source = 'shopify_webhook'; the audit trail then
     records actor = 'shopify_webhook' and the user-identity guard is skipped for
     that source only. Human callers default to p_source = 'staff' and the guard

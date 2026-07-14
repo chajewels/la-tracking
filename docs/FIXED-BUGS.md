@@ -3539,3 +3539,35 @@ Follow-up (b110e73, 2cc40db, 2026-07-12): the self-healing rebuild only fires wh
     retry would have double-credited the customer. Fixed by judging success on
     userErrors + the returned transaction, and by no longer requesting the account
     balance.
+
+## Shopify order edits & partial refunds — bugs fixed 2026-07-14
+
+  - Shopify webhook used cumulative total_price and imported edited-out lines.
+    orders/create + orders/updated read Shopify's total_price (cumulative, never
+    decreases) and imported all line_items including current_quantity:0 lines,
+    overstating edited orders (SH-1014: ¥428,940 vs true ¥293,960, 3 items vs 2).
+    Fixed cdfe017: totals from current_total_price ?? total_price; lines filtered
+    to current_quantity > 0 (absent = keep); qty = current_quantity ?? quantity.
+  - store_credit_lots_source_type_chk missed on new source type. The partial-
+    refund build extended issue_store_credit_atomic's validation with
+    'shopify_partial_refund' but the table CHECK constraint independently
+    enforces the same list and rejected the insert (23514) on first live mint.
+    Fixed by ALTER TABLE dropping/re-adding the constraint with the new value.
+    RULE: adding a source type requires BOTH the RPC validation list AND the
+    table constraint.
+  - Webhook idempotency matched error rows — one failure permanently bricked an
+    order+topic. The already-processed lookup matched ANY shopify_webhook_events
+    row; recordError writes status='error' rows; so one 500'd event blocked all
+    future events of that topic for that order AND neutered Shopify's retries
+    (proven in production on orders/updated for SH-1015 after a zero-total
+    constraint violation). Fixed 678131e: lookup filters .eq("status","processed").
+  - orders/updated crashed on zero-total edits. Shopify's cancellation/refund
+    flows can emit orders/updated with current_total_price 0; writing it violated
+    cash_orders_total_amount_check and recordError'd. Fixed 678131e: zero-total
+    guard skips re-sync, fires shopify_order_zeroed staff notification, returns
+    200; Hub keeps last valid state.
+  - orders/cancelled minted Hub credit but never mirrored it to Shopify. The
+    Hub-UI cancel path pushed via sync-store-credit-to-shopify; the webhook
+    branch called cancel_cash_order_atomic directly with no push — Shopify-side
+    cancellations silently drifted the ledgers. Fixed 6f69353: cancelled branch
+    now pushes the minted lot (non-blocking).
