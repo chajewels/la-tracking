@@ -332,11 +332,17 @@ Deno.serve(async (req) => {
 
   try {
     // ── 3. Idempotency: skip if this (order, topic) was already processed ──
+    // Only status='processed' rows block reprocessing. Rows written by recordError
+    // (status 'error') must NOT block: the function returns 500 on error precisely
+    // so Shopify retries, and the retry must actually be allowed to run. Previously
+    // one recorded error permanently blocked all future events of that topic for
+    // that order (proven in production on orders/updated).
     const { data: existingEvent } = await supabase
       .from("shopify_webhook_events")
       .select("id")
       .eq("shopify_order_id", shopifyOrderId)
       .eq("topic", topic)
+      .eq("status", "processed")
       .maybeSingle();
     if (existingEvent) {
       console.log(`${LOG} already processed topic=${topic} order=${shopifyOrderId}`);
@@ -702,6 +708,31 @@ Deno.serve(async (req) => {
       const newTotal = Number(order?.current_total_price ?? order?.total_price) || 0;
       const oldTotal = Number(cashOrder.total_amount) || 0;
       const paid = Number(cashOrder.total_paid) || 0;
+
+      // ── Zero-total guard ──
+      // The cash_orders total_amount CHECK constraint forbids zero/negative totals,
+      // and an order edited down to ¥0 is an anomaly a human should resolve — usually
+      // by cancelling in Shopify, which the orders/cancelled flow handles with full
+      // store-credit math. Keep the Hub's last valid state: no totals write, no item
+      // rewrite, no minting on a zeroed pass.
+      if (newTotal <= 0) {
+        console.warn(
+          `${LOG} orders/updated order=${shopifyOrderId} invoice=${cashOrder.invoice_number} ` +
+          `paid=${paid} was reduced to zero in Shopify — skipping re-sync`,
+        );
+        try {
+          await supabase.from("staff_notifications").insert({
+            type: "shopify_order_zeroed",
+            title: "Shopify order reduced to zero",
+            body: `Order #${cashOrder.invoice_number} was edited in Shopify and its total is now ¥0; the Hub keeps the last valid state. ¥${Number(paid).toLocaleString("en-US")} has been paid. Review whether this order should be cancelled instead.`,
+            invoice_number: cashOrder.invoice_number,
+            metadata: { shopify_order_id: shopifyOrderId, paid },
+          });
+        } catch (e) {
+          console.warn(`${LOG} zeroed-order notification failed:`, e);
+        }
+        return json({ ok: true, topic, skipped: "zero_total" }, 200);
+      }
 
       // ── Line items: replace the Hub's set with Shopify's current set ──
       // Shopify is authoritative for what was ordered. Delete and re-insert is simplest and
