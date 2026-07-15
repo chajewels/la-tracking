@@ -3571,3 +3571,23 @@ Follow-up (b110e73, 2cc40db, 2026-07-12): the self-healing rebuild only fires wh
     branch called cancel_cash_order_atomic directly with no push — Shopify-side
     cancellations silently drifted the ledgers. Fixed 6f69353: cancelled branch
     now pushes the minted lot (non-blocking).
+  - Cancelled orders resurrected by concurrent webhooks. Shopify fires
+    orders/cancelled and orders/updated (and sometimes orders/paid)
+    near-simultaneously on a cancel. Handlers guarded status only at fetch time,
+    so a handler that read the order before the cancel committed later wrote
+    status back to 'completed' — cancelled_at survived, producing contradictory
+    rows. Proven twice in production: SH-1017 (orders/updated totals write) and
+    SH-1018 (orders/paid booked ¥188,960 onto a cancelled order and completed
+    it). Fixed da3f225 + b97798f: every cash_orders status writer in
+    shopify-webhook now chains .neq("status","cancelled") (orders/updated
+    totals write + recomputeCashOrderTotals), and orders/paid gained an
+    entry guard — payment for a Hub-cancelled order books NOTHING and fires a
+    shopify_paid_after_cancel staff notification (policy A: money decisions in
+    race windows are manual). RULE: cancelled is terminal; any new cash_orders
+    status writer must carry the .neq guard.
+  - Item images never matched: GID vs numeric product id. products.
+    shopify_product_id stores the GraphQL GID ("gid://shopify/Product/12345")
+    while webhook payload line.product_id is the bare number — the image_url
+    Map lookup never hit, so Shopify-synced orders showed empty item boxes.
+    Fixed b97798f: query converts numeric ids to GIDs, Map keys on the numeric
+    tail (String(id).split("/").pop()). Verified SH-1019 (thumbnails render).

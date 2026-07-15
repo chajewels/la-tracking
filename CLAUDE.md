@@ -109,6 +109,10 @@ Reference docs (read the relevant one when a task touches that area):
   - Shopify partial refunds auto-mint Hub credit (source_type
     shopify_partial_refund, keyed per refund id); the "You owe the customer"
     banner in Shopify is permanent and cosmetic — never settle it.
+  - cash_orders 'cancelled' is TERMINAL. Every status writer in shopify-webhook
+    must chain .neq("status","cancelled") — fetch-time status checks are racy
+    (proven SH-1017/SH-1018). Payment arriving for a cancelled order books
+    nothing; staff notification shopify_paid_after_cancel handles it manually.
   - Service-role callers pass p_source = 'shopify_webhook'; the audit trail then
     records actor = 'shopify_webhook' and the user-identity guard is skipped for
     that source only. Human callers default to p_source = 'staff' and the guard

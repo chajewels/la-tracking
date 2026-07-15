@@ -656,3 +656,8 @@ RULE: once a mirror/sync exists, any write performed via SQL bypasses it. Use th
 
 ### revoke_loyalty_points_partial (added 2026-07-15)
 revoke_loyalty_points_partial(p_customer_id, p_source_reference, p_refund_spend_jpy, p_cash_order_id, p_refund_id, p_notes, p_created_by_user_id) returns jsonb — DB-only (post-baseline), service_role + sandbox_exec only. Revoke-and-replace on loyalty_point_lots; the effective multiplier is recovered per-lot as original_amount / (floor(spend_basis/10000) × 100). loyalty_point_lots.spend_basis_jpy is the single source for partial recomputation — replacement lots carry the reduced basis forward.
+
+### Operational learning — Shopify webhook integration facts (2026-07-15)
+- products.shopify_product_id is a GraphQL GID; webhook payload line_items[].product_id is numeric. Normalize on EVERY join between them (GID tail = numeric id).
+- Shopify draft orders fire NO webhooks. The order (and the Hub row) exists only after the draft converts: "Mark as paid" converts already-paid (orders/create + orders/paid together); "Payment due later" -> Create order converts unpaid (orders/create only).
+- Shopify offers no Mark-as-paid on cancelled orders — the paid-after-cancel race is webhook-delivery inversion only, unreachable from the admin UI. The orders/paid guard is therefore code-verified by design.
