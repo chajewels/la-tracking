@@ -5213,6 +5213,18 @@ export type Database = {
         }
         Returns: string
       }
+      revoke_loyalty_points_partial: {
+        Args: {
+          p_cash_order_id?: string
+          p_created_by_user_id?: string
+          p_customer_id: string
+          p_notes?: string
+          p_refund_id?: string
+          p_refund_spend_jpy: number
+          p_source_reference: string
+        }
+        Returns: Json
+      }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
       staff_notify: {
         Args: {
