@@ -1138,7 +1138,7 @@ export default function AccountDetail() {
           <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
           {!isLockedTest && (
           <div className="flex gap-2 flex-wrap">
-            {isAdmin && can('edit_invoice') && (
+            {can('edit_invoice') && (
               <EditAccountDialog
                 account={{
                   id: account.id,

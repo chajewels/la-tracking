@@ -1026,7 +1026,7 @@ export default function CashOrderDetail() {
               Edit Expiry
             </Button>
           )}
-          {(isAdmin || isStaff) && (
+          {can('edit_invoice') && (
             <Button
               variant="outline"
               onClick={openManageInvoice}
