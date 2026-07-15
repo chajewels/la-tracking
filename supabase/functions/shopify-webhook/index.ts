@@ -234,7 +234,11 @@ async function recomputeCashOrderTotals(supabase: any, cashOrderId: string, tota
     status: remaining <= 0 ? "completed" : "pending",
     completed_at: remaining <= 0 ? new Date().toISOString() : null,
     updated_at: new Date().toISOString(),
-  }).eq("id", cashOrderId);
+  }).eq("id", cashOrderId)
+    // No recompute may ever resurrect a cancelled order (concurrent
+    // orders/cancelled can commit between fetch and write). A zero-row
+    // match is not an error.
+    .neq("status", "cancelled");
   return { paid, remaining };
 }
 
@@ -495,8 +499,11 @@ Deno.serve(async (req) => {
               const { data: prodRows } = await supabase
                 .from("products")
                 .select("shopify_product_id, image_url")
-                .in("shopify_product_id", productIds);
-              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id), p.image_url ?? null]));
+                .in("shopify_product_id", productIds.map((id) => `gid://shopify/Product/${id}`));
+              // products.shopify_product_id stores GIDs ("gid://shopify/Product/12345")
+              // while payload line.product_id is numeric — key the map on the numeric
+              // tail so the row-mapper's String(line.product_id) lookup matches.
+              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id).split("/").pop() ?? "", p.image_url ?? null]));
             }
           } catch (e) {
             console.warn(`${LOG} product image lookup failed (non-blocking):`, e);
@@ -778,8 +785,11 @@ Deno.serve(async (req) => {
               const { data: prodRows } = await supabase
                 .from("products")
                 .select("shopify_product_id, image_url")
-                .in("shopify_product_id", productIds);
-              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id), p.image_url ?? null]));
+                .in("shopify_product_id", productIds.map((id) => `gid://shopify/Product/${id}`));
+              // products.shopify_product_id stores GIDs ("gid://shopify/Product/12345")
+              // while payload line.product_id is numeric — key the map on the numeric
+              // tail so the row-mapper's String(line.product_id) lookup matches.
+              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id).split("/").pop() ?? "", p.image_url ?? null]));
             }
           } catch (e) {
             console.warn(`${LOG} product image lookup failed (non-blocking):`, e);
@@ -1054,13 +1064,47 @@ Deno.serve(async (req) => {
     // the retry through.
     const { data: cashOrder } = await supabase
       .from("cash_orders")
-      .select("id, customer_id, total_amount, total_paid")
+      .select("id, customer_id, total_amount, total_paid, status")
       .eq("shopify_order_id", shopifyOrderId)
       .maybeSingle();
 
     if (!cashOrder) {
       console.log(`${LOG} orders/paid: order ${shopifyOrderId} not found — returning 500 for Shopify retry`);
       return json({ error: "order_not_found_yet" }, 500);
+    }
+
+    if ((cashOrder as any).status === "cancelled") {
+      // Real money arrived for an order the Hub has already cancelled (inverted
+      // webhook delivery or Shopify mark-as-paid after cancel). Money decisions
+      // in race windows are manual by policy: book NOTHING, change NOTHING,
+      // alert staff loudly. (Proven on SH-1018.)
+      const paidAmount = Number(order?.total_price) || 0;
+      console.warn(
+        `${LOG} orders/paid: order ${shopifyOrderId} is CANCELLED in the Hub — ` +
+        `payment of ${paidAmount} NOT booked; staff notified`,
+      );
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "shopify_paid_after_cancel",
+          title: "Payment received for CANCELLED order",
+          body: `Shopify order ${shopifyOrderId} was marked paid (¥${paidAmount.toLocaleString("en-US")}) but the Hub order is already cancelled. Verify in Shopify. If money was truly received, book the payment and issue store credit manually via the Hub UI.`,
+          metadata: { shopify_order_id: shopifyOrderId, amount: paidAmount },
+        });
+      } catch (e) {
+        console.warn(`${LOG} paid-after-cancel notification failed:`, e);
+      }
+      // Record the processed event (idempotency ledger) — this event is handled;
+      // the follow-up is a manual staff decision, not a webhook retry.
+      const { error: evtErr } = await supabase.from("shopify_webhook_events").insert({
+        shopify_order_id: shopifyOrderId,
+        topic,
+        webhook_id: webhookId,
+        status: "processed",
+      });
+      if (evtErr && evtErr.code !== UNIQUE_VIOLATION) {
+        console.warn(`${LOG} event record failed for ${shopifyOrderId}: ${evtErr.message}`);
+      }
+      return json({ ok: true, skipped: "order_cancelled" }, 200);
     }
 
     const totalAmount = Number(cashOrder.total_amount) || 0;
