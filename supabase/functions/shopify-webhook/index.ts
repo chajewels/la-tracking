@@ -820,7 +820,13 @@ Deno.serve(async (req) => {
           status: newRemaining <= 0 && paid > 0 ? "completed" : cashOrder.status,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", cashOrder.id);
+        .eq("id", cashOrder.id)
+        // The early cancelled-guard above is a fast path but RACY — Shopify fires
+        // orders/cancelled and orders/updated concurrently on a cancel, and the cancel
+        // may commit between our fetch and this write (proven on SH-1017, where this
+        // update resurrected a cancelled order back to "completed"). This filter makes
+        // resurrection impossible at the DB level. A zero-row match is NOT an error.
+        .neq("status", "cancelled");
       if (updErr) {
         return await recordError(`orders/updated: cash_order update failed: ${updErr.message}`);
       }
@@ -859,11 +865,14 @@ Deno.serve(async (req) => {
         // Paid-side headroom: what was paid beyond the CURRENT total, minus credit
         // already minted for this order's refunds. Unpaid orders have zero headroom
         // (removing an unpaid line owes the customer nothing).
+        // cancelled_cash counts too: in the cancel race, cancel_cash_order_atomic may
+        // have already minted the full remaining credit — this refund pass must never
+        // mint on top of it. Invariant: total credit per order <= money received.
         const { data: priorLots } = await supabase
           .from("store_credit_lots")
           .select("original_amount")
           .eq("source_cash_order_id", cashOrder.id)
-          .eq("source_type", "shopify_partial_refund")
+          .in("source_type", ["shopify_partial_refund", "cancelled_cash"])
           .neq("status", "voided");
         const alreadyIssued = (priorLots ?? []).reduce(
           (s: number, l: any) => s + (Number(l?.original_amount) || 0), 0,
