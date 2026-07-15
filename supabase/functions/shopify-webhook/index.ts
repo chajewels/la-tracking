@@ -928,27 +928,61 @@ Deno.serve(async (req) => {
               reason: `Store credit issued for Shopify partial refund ${refundId} on ${cashOrder.invoice_number}`,
             });
 
-            // Loyalty points were awarded on the OLD order total; if an earn lot
-            // exists for this invoice, staff must review/adjust it manually.
-            const { data: loyaltyLot } = await supabase
-              .from("loyalty_point_lots")
-              .select("id")
-              .eq("source_type", "order_earn")
-              .eq("source_reference", cashOrder.invoice_number)
-              .is("revoked_at", null)
-              .limit(1)
-              .maybeSingle();
+            // Loyalty points were awarded on the OLD order total — proportionally
+            // adjust them for the refunded spend. Non-blocking: the RPC no-ops when
+            // nothing was awarded (no_member / no_active_lot); on error, fall back to
+            // the manual-review line rather than failing the webhook.
+            let loyaltyLine = "";
+            let pointsDelta: number | null = null;
+            try {
+              const { data: revokeResult, error: revokeErr } = await supabase.rpc(
+                "revoke_loyalty_points_partial",
+                {
+                  p_customer_id: cashOrder.customer_id,
+                  p_source_reference: cashOrder.invoice_number,
+                  p_refund_spend_jpy: mintAmount,
+                  p_cash_order_id: cashOrder.id,
+                  p_refund_id: refundId,
+                  p_notes: null,
+                  p_created_by_user_id: null,
+                },
+              );
+              if (revokeErr) throw revokeErr;
+              const rr = revokeResult as any;
+              if (rr?.noop) {
+                // Nothing was awarded, nothing to adjust — no loyalty line.
+                console.log(`${LOG} loyalty partial revoke noop=${rr.noop} refund=${refundId} invoice=${cashOrder.invoice_number}`);
+              } else if (Number(rr?.points_delta) > 0) {
+                pointsDelta = Number(rr.points_delta);
+                console.log(
+                  `${LOG} loyalty partial revoke refund=${refundId} invoice=${cashOrder.invoice_number} ` +
+                  `points_delta=-${pointsDelta} new_basis=${rr?.new_basis} tier_changed=${rr?.tier_changed === true}`,
+                );
+                loyaltyLine =
+                  ` Loyalty points auto-adjusted: -${pointsDelta} points (spend basis ¥${Number(rr?.old_basis ?? 0).toLocaleString("en-US")} -> ¥${Number(rr?.new_basis ?? 0).toLocaleString("en-US")}).` +
+                  (rr?.tier_changed === true ? " Tier changed — review member." : "");
+              } else {
+                console.log(`${LOG} loyalty partial revoke refund=${refundId} invoice=${cashOrder.invoice_number} points_delta=0`);
+              }
+            } catch (revokeE) {
+              console.error(`${LOG} revoke_loyalty_points_partial failed for refund ${refundId}:`, revokeE);
+              loyaltyLine = " Loyalty points were awarded on the old order total — auto-adjust FAILED; review and adjust via Loyalty admin.";
+            }
 
             await supabase.from("staff_notifications").insert({
               type: "shopify_partial_refund_credit",
               title: "Store credit issued for Shopify partial refund",
               body:
                 `Order #${cashOrder.invoice_number}: ¥${Number(mintAmount).toLocaleString("en-US")} store credit auto-issued for Shopify refund ${refundId}.` +
-                (loyaltyLot
-                  ? " Loyalty points were awarded on the old order total — review and adjust via Loyalty admin."
-                  : ""),
+                loyaltyLine,
               invoice_number: cashOrder.invoice_number,
-              metadata: { shopify_order_id: shopifyOrderId, refund_id: refundId, amount: mintAmount, lot_id: lotId },
+              metadata: {
+                shopify_order_id: shopifyOrderId,
+                refund_id: refundId,
+                amount: mintAmount,
+                lot_id: lotId,
+                ...(pointsDelta != null ? { points_delta: pointsDelta } : {}),
+              },
             });
           } catch (e) {
             console.warn(`${LOG} refund-credit post-mint steps failed (non-blocking):`, e);
