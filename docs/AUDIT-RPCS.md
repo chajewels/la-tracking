@@ -11,14 +11,24 @@
   with checks array, each entry { label, expected, stored, pass }.
 
   CHECK-10 ("sum of pending months matches remaining balance") —
-  2026-06-19 addition: a new `v_dp_overpaid` term =
-  `GREATEST(0, v_dp_paid - downpayment_amount)` is subtracted from
-  `v_sum_pending`. This mirrors the existing `v_unpaid_dp` term but for
-  the OVERPAID direction. When the downpayment collected exceeds
-  `downpayment_amount`, the overage reduces remaining_balance via
-  total_paid but was never reflected on the pending side, so CHECK-10
-  fired false positives. Subtracting `v_dp_overpaid` reconciles the two
-  sides. Examples that previously false-failed: invoices 19119, 19128.
+  FINAL LOGIC (2026-07-15): subtract only the UNALLOCATED DP overage.
+    v_dp_overpaid  = GREATEST(0, v_dp_paid - downpayment_amount)
+    v_dp_allocated = SUM(allocated_amount) of non-voided DP payments
+    v_sum_pending := v_sum_pending - GREATEST(0, v_dp_overpaid - v_dp_allocated)
+  Rationale: DP payments may or may not allocate to schedule rows.
+  When DP overage IS allocated onto a row (dp_allocated > 0) it is already
+  in v_sum_pending — subtracting it again double-counts. When it is NOT
+  allocated (dp_allocated = 0, INVARIANT 11 case) it never reached the
+  pending side and must be subtracted. Subtracting only the unallocated
+  remainder reconciles both shapes.
+  History: 2026-06-19 added a BLANKET `v_dp_overpaid` subtraction (correct
+  only for unallocated overage; examples 19119, 19128). 2026-07-06 (Bug
+  #250) REMOVED it on the premise that DP excess always waterfalls into
+  schedule rows (correct only for allocated overage) — this reintroduced
+  false failures on 19128/19196/19217/19237/19240. 2026-07-15 replaced
+  both with the conditional above, verified against all 7 accounts
+  (allocated: 19122, 19260 → subtract 0; unallocated: the other 5 →
+  subtract full overage).
 
 ### audit_all_accounts() RETURNS TABLE
 
