@@ -653,3 +653,6 @@ RULE: once a mirror/sync exists, any write performed via SQL bypasses it. Use th
 - Shopify's "You owe the customer a refund ¥X" banner and "Outstanding balance" on edited paid orders is PERMANENT AND COSMETIC in our design — settlement happens as Hub store credit. NEVER settle it via the Refund page.
 - store_credit_lots.source_refund_id (added 2026-07-14) + partial unique index (WHERE source_refund_id IS NOT NULL AND status <> 'voided') provides DB-level per-refund idempotency.
 - shopify_webhook_events has processed_at, NOT created_at.
+
+### revoke_loyalty_points_partial (added 2026-07-15)
+revoke_loyalty_points_partial(p_customer_id, p_source_reference, p_refund_spend_jpy, p_cash_order_id, p_refund_id, p_notes, p_created_by_user_id) returns jsonb — DB-only (post-baseline), service_role + sandbox_exec only. Revoke-and-replace on loyalty_point_lots; the effective multiplier is recovered per-lot as original_amount / (floor(spend_basis/10000) × 100). loyalty_point_lots.spend_basis_jpy is the single source for partial recomputation — replacement lots carry the reduced basis forward.

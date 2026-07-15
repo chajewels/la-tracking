@@ -1690,6 +1690,10 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      Shopify orders too. Do not add automatic point-return on order
      cancellation.
 
+  10. Partial Shopify refunds auto-adjust earned points proportionally
+     (revoke_loyalty_points_partial, revoke-and-replace, expiry preserved,
+     redeemed never returned). promo_bonus lots are NOT touched on partials.
+
 ## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
 
   - `loyalty_members.last_purchase_at` = order_date of the member's

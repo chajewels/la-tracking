@@ -281,11 +281,23 @@ Flow per refund:
 3. `issue_store_credit_atomic` (source_type `'shopify_partial_refund'`,
    `p_source_refund_id` = Shopify refund id — DB-level per-refund idempotency).
 4. `sync-store-credit-to-shopify` push (Hub mints, Shopify mirrors).
-5. `shopify_partial_refund_credit` staff notification — includes a
-   loyalty-review line when an active `order_earn` lot exists; POINTS
-   ADJUSTMENT ON PARTIALS IS MANUAL — `revoke_loyalty_points` is
-   all-or-nothing by design and award-loyalty-points guard 4b blocks re-award
-   after revoke.
+5. `shopify_partial_refund_credit` staff notification. Loyalty points are
+   AUTO-ADJUSTED on partials (2026-07-15) via revoke_loyalty_points_partial:
+   lot-level revoke-and-replace — the active order_earn lot for the invoice
+   is revoked and replaced with a lot recomputed on the reduced spend basis
+   using the lot's own effective multiplier
+   (entitled = round(new_units × original / old_units)); earned_at/expires_at
+   preserved (no expiry reset); consumed/redeemed points stay consumed
+   (rule 9); member counters and tier recomputed with downgrade flag; one
+   'revoked' transaction carrying the Shopify refund id. promo_bonus lots
+   deliberately untouched on partials (policy 2026-07-15). No-ops cleanly
+   when no member or no active lot. Iterative: each partial recomputes from
+   the current replacement lot. Full cancel sweeps the replacement via the
+   existing all-or-nothing revoke_loyalty_points. Idempotency piggybacks the
+   per-refund store-credit mint (adjust runs only on a fresh mint). Webhook
+   call is non-blocking; on RPC failure the staff notification carries a
+   manual-review line. Verified live 2026-07-15 on SH-1017:
+   2400 -> 1800 -> 1300 -> swept, clocks preserved.
 
 Unpaid orders: zero headroom → re-sync only, no credit (policy).
 
