@@ -486,6 +486,21 @@ Deno.serve(async (req) => {
       console.log(`${LOG} orders/create line_items count=${liveLines.length} for ${shopifyOrderId}`);
       if (cashOrderId && liveLines.length > 0) {
         try {
+          // Product images from the products cache — cosmetic; NEVER fail or skip
+          // item insertion because the image lookup failed.
+          let imageMap = new Map<string, string | null>();
+          try {
+            const productIds = [...new Set(liveLines.map((l: any) => l?.product_id).filter(Boolean).map(String))];
+            if (productIds.length > 0) {
+              const { data: prodRows } = await supabase
+                .from("products")
+                .select("shopify_product_id, image_url")
+                .in("shopify_product_id", productIds);
+              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id), p.image_url ?? null]));
+            }
+          } catch (e) {
+            console.warn(`${LOG} product image lookup failed (non-blocking):`, e);
+          }
           const rows = liveLines.map((line: any) => {
             const unit = Number(line.price) || 0;
             const qty = Number(line.current_quantity ?? line.quantity) || 1;
@@ -499,7 +514,7 @@ Deno.serve(async (req) => {
               unit_price_jpy: unit,
               line_total_jpy: unit * qty,
               product_id: null,
-              image_url: null,
+              image_url: imageMap.get(String(line.product_id)) ?? null,
             };
           });
           // Plain insert — cash_order_items.shopify_line_item_id has a PARTIAL
@@ -754,6 +769,21 @@ Deno.serve(async (req) => {
         }
 
         if (liveLines.length > 0) {
+          // Product images from the products cache — cosmetic; NEVER fail or skip
+          // item insertion because the image lookup failed.
+          let imageMap = new Map<string, string | null>();
+          try {
+            const productIds = [...new Set(liveLines.map((l: any) => l?.product_id).filter(Boolean).map(String))];
+            if (productIds.length > 0) {
+              const { data: prodRows } = await supabase
+                .from("products")
+                .select("shopify_product_id, image_url")
+                .in("shopify_product_id", productIds);
+              imageMap = new Map((prodRows ?? []).map((p: any) => [String(p.shopify_product_id), p.image_url ?? null]));
+            }
+          } catch (e) {
+            console.warn(`${LOG} product image lookup failed (non-blocking):`, e);
+          }
           const rows = liveLines.map((line: any) => {
             const unit = Number(line.price) || 0;
             const qty = Number(line.current_quantity ?? line.quantity) || 1;
@@ -767,7 +797,7 @@ Deno.serve(async (req) => {
               unit_price_jpy: unit,
               line_total_jpy: unit * qty,
               product_id: null,
-              image_url: null,
+              image_url: imageMap.get(String(line.product_id)) ?? null,
             };
           });
           const { error: itemsErr } = await supabase.from("cash_order_items").insert(rows);
