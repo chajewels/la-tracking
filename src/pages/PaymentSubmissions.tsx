@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   AlertTriangle, Check, CheckCircle, Clock, CreditCard, Eye, ExternalLink,
-  Filter, Image as ImageIcon, Loader2, MessageSquare, RotateCcw, Search, Send, XCircle, FileText,
+  Filter, Image as ImageIcon, Loader2, MessageSquare, Pencil, RotateCcw, Search, Send, X, XCircle, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
@@ -327,6 +327,123 @@ const ActionDialogModal = memo(function ActionDialogModal({
         </div>
       </div>
     </>
+  );
+});
+
+const InlineAmountEdit = memo(function InlineAmountEdit({
+  submissionId,
+  amount,
+  currency,
+  canEdit,
+  userId,
+}: {
+  submissionId: string;
+  amount: number;
+  currency: string;
+  canEdit: boolean;
+  userId: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [pending, setPending] = useState(false);
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setValue(String(amount));
+    setEditing(true);
+  };
+
+  const cancel = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditing(false);
+  };
+
+  const save = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const newVal = Number(value);
+    if (!Number.isFinite(newVal) || newVal <= 0) {
+      toast.error('Enter a valid amount greater than 0');
+      return;
+    }
+    if (newVal === Number(amount)) { setEditing(false); return; }
+    setPending(true);
+
+    queryClient.setQueriesData<SubmissionRow[]>(
+      { queryKey: ['payment-submissions'] },
+      (old) => old?.map((row) =>
+        row.id === submissionId ? { ...row, submitted_amount: newVal } : row
+      ),
+    );
+
+    const { error } = await supabase
+      .from('payment_submissions')
+      .update({ submitted_amount: newVal })
+      .eq('id', submissionId);
+
+    setPending(false);
+
+    if (error) {
+      queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+      toast.error('Failed to update amount', { description: error.message });
+      return;
+    }
+
+    try {
+      await (supabase.from('audit_logs') as any).insert([{
+        entity_type: 'payment_submission',
+        entity_id: submissionId,
+        action: 'edit_submitted_amount',
+        old_value_json: { submitted_amount: Number(amount) },
+        new_value_json: { submitted_amount: newVal },
+        performed_by_user_id: userId || null,
+      }]);
+    } catch { /* audit failure is non-fatal */ }
+
+    setEditing(false);
+    toast.success('Submitted amount updated');
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <Input
+          type="number"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+          className="h-7 w-32 text-lg font-bold tabular-nums px-2"
+          autoFocus
+          disabled={pending}
+        />
+        <Button variant="ghost" size="icon" className="h-6 w-6 text-success" onClick={save} disabled={pending}>
+          <Check className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={cancel} disabled={pending}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <p className="text-lg font-bold font-display text-foreground tabular-nums">
+        {formatCurrency(amount, currency as 'PHP' | 'JPY')}
+      </p>
+      {canEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 text-muted-foreground hover:text-foreground"
+          title="Edit submitted amount"
+          onClick={startEdit}
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
   );
 });
 
@@ -898,9 +1015,13 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="text-lg font-bold font-display text-foreground tabular-nums">
-                                {formatCurrency(sub.submitted_amount, currency)}
-                              </p>
+                              <InlineAmountEdit
+                                submissionId={sub.id}
+                                amount={Number(sub.submitted_amount)}
+                                currency={currency}
+                                userId={session?.user?.id ?? null}
+                                canEdit={canConfirm && !isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
+                              />
                               {isSplit && (
                                 <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/20">
                                   Split
