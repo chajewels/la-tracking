@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { formatCurrency } from '@/lib/calculations';
 import { getConversionRate } from '@/lib/currency-converter';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import type { Currency } from '@/lib/types';
 
 interface ScheduleItem {
@@ -51,6 +52,8 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
+  const { can } = usePermissions();
+  const canEditSchedule = can('edit_schedule');
   const currency = account.currency as Currency;
 
   // Account fields
@@ -105,6 +108,33 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
     }));
   };
 
+  // Mirrors create-layaway-account: pool = total − DP, floor split, remainder on last editable row.
+  // Rows with any money on them (paid_amount > 0 or status paid/cancelled) are frozen; their
+  // base amounts are subtracted from the pool and only untouched rows are redistributed.
+  const recalcInstallments = (totalStr: string, dpStr: string) => {
+    if (!canEditSchedule) return;
+    const total = Math.round(parseFloat(totalStr) || 0);
+    const dp = Math.round(parseFloat(dpStr) || 0);
+    if (total <= 0) return;
+    const editableRows = schedule.filter(s => Number(s.paid_amount) === 0 && s.status !== 'paid' && s.status !== 'cancelled');
+    if (editableRows.length === 0) return;
+    const frozenBase = schedule
+      .filter(s => !editableRows.some(e => e.id === s.id))
+      .reduce((sum, s) => sum + Number(s.base_installment_amount), 0);
+    const pool = total - dp - Math.round(frozenBase);
+    if (pool < 0) return;
+    const per = Math.floor(pool / editableRows.length);
+    const remainder = pool - per * editableRows.length;
+    setScheduleEdits(prev => {
+      const next = { ...prev };
+      editableRows.forEach((row, idx) => {
+        const isLast = idx === editableRows.length - 1;
+        next[row.id] = { ...next[row.id], base_amount: String(isLast ? per + remainder : per) };
+      });
+      return next;
+    });
+  };
+
   const addNewInstallment = () => {
     const lastItem = schedule[schedule.length - 1];
     const lastDate = lastItem ? new Date(lastItem.due_date) : new Date(account.order_date);
@@ -118,6 +148,15 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
 
   const removeNewInstallment = (idx: number) => {
     setNewInstallments(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const fnErrorMessage = async (error: unknown, data: unknown): Promise<string> => {
+    if ((data as any)?.error) return (data as any).error;
+    try {
+      const body = await (error as any)?.context?.json();
+      if (body?.error) return body.error;
+    } catch { /* ignore */ }
+    return (error as any)?.message || 'Request failed';
   };
 
   const handleSave = async () => {
@@ -210,6 +249,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
 
       // 3. Update schedule items that were edited
       for (const [scheduleId, edits] of Object.entries(scheduleEdits)) {
+        if (!canEditSchedule) break;
         const original = schedule.find(s => s.id === scheduleId);
         if (!original) continue;
 
@@ -231,8 +271,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             const { data, error } = await supabase.functions.invoke('edit-schedule-item', {
               body: { schedule_id: scheduleId, new_base_amount: scheduleUpdate.base_installment_amount as number },
             });
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
+            if (error || data?.error) throw new Error(await fnErrorMessage(error, data));
           }
 
           // Direct update for due_date changes only
@@ -257,6 +296,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
 
       // 4. Add new installments
       for (const newInst of newInstallments) {
+        if (!canEditSchedule) break;
         const amount = parseFloat(newInst.base_amount);
         if (isNaN(amount) || amount <= 0 || !newInst.due_date) continue;
 
@@ -335,7 +375,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                   type="number"
                   step="0.01"
                   value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
+                  onChange={(e) => { setTotalAmount(e.target.value); recalcInstallments(e.target.value, downpayment); }}
                   readOnly={!isAdmin}
                   disabled={!isAdmin || isDisabledStatus}
                   className={`h-9 text-sm tabular-nums ${isAdmin ? 'bg-background' : 'bg-muted cursor-not-allowed'}`}
@@ -353,7 +393,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                   type="number"
                   step="0.01"
                   value={downpayment}
-                  onChange={(e) => setDownpayment(e.target.value)}
+                  onChange={(e) => { setDownpayment(e.target.value); recalcInstallments(totalAmount, e.target.value); }}
                   className="h-9 text-sm bg-background tabular-nums"
                   disabled={isDisabledStatus}
                 />
@@ -524,11 +564,14 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             <div className="flex items-center justify-between border-b border-border pb-2">
               <h4 className="text-sm font-semibold text-card-foreground">Payment Schedule</h4>
               {!isDisabledStatus && (
-                <Button variant="outline" size="sm" onClick={addNewInstallment} className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10">
+                <Button variant="outline" size="sm" onClick={addNewInstallment} disabled={!canEditSchedule} title={!canEditSchedule ? 'Requires Edit Schedule permission' : undefined} className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10">
                   <Plus className="h-3 w-3 mr-1" /> Add Installment
                 </Button>
               )}
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Months auto-recalculate when Total or Downpayment changes; you can still adjust any row before saving.
+            </p>
 
             {/* Existing schedule items */}
             <div className="space-y-2">
@@ -547,7 +590,8 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                       value={edits.due_date ?? item.due_date}
                       onChange={(e) => updateScheduleEdit(item.id, 'due_date', e.target.value)}
                       className="h-8 text-xs bg-background"
-                      disabled={!isEditable}
+                      disabled={!isEditable || !canEditSchedule}
+                      title={!canEditSchedule ? 'Requires Edit Schedule permission' : undefined}
                     />
                     <Input
                       type="number"
@@ -555,7 +599,8 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                       value={edits.base_amount ?? String(item.base_installment_amount)}
                       onChange={(e) => updateScheduleEdit(item.id, 'base_amount', e.target.value)}
                       className="h-8 text-xs bg-background tabular-nums"
-                      disabled={!isEditable}
+                      disabled={!isEditable || !canEditSchedule}
+                      title={!canEditSchedule ? 'Requires Edit Schedule permission' : undefined}
                     />
                     <span className={`text-[10px] text-center font-medium ${
                       isPaid ? 'text-success' : item.status === 'overdue' ? 'text-destructive' : 'text-muted-foreground'
