@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 5 go-live COMPLETE (2026-07-10) — real Shopify orders flow into the Hub end-to-end (create → customer match → items → paid → payment + loyalty award), verified with live orders SH-1002 (marked-paid) and SH-1003 (bank deposit). Loyalty opt-in at checkout enrolls customers (verified). OPEN: reversal handling (cancel/refund → store credit) and inventory writeback are not built — see Open items.
+Status: Phase 5 go-live COMPLETE (2026-07-10) — real Shopify orders flow into the Hub end-to-end (create → customer match → items → paid → payment + loyalty award), verified with live orders SH-1002 (marked-paid) and SH-1003 (bank deposit). Loyalty opt-in at checkout enrolls customers (verified). OPEN: inventory writeback only (deferred by design) — reversal handling (full cancel + partial refunds → store credit) is BUILT and live-verified 2026-07-14; see docs/STORE-CREDIT.md 'Partial refunds (Shopify)'.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -123,15 +123,11 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
     the existing JPY formula (JPY-only store = no conversion). Confirm at Phase 4.
   - Whether A4724-style codes are set as true Shopify SKU fields vs. only in the
     title — sync must check per product (Phase 1).
-  - REVERSAL HANDLING (not built) — Shopify orders/cancelled + refunds/create are
-    NOT registered, so a cancelled/refunded Shopify order (e.g. SH-1002, refunded
-    in Shopify) still shows Completed/paid in the Hub. Per business policy, reversals
-    do NOT refund money — they convert to STORE CREDIT (usable up to 1 year). This
-    requires a system-wide store-credit feature (no store_credit table/system exists
-    today, even for native orders) and Cynthia's policy decisions (issuance, expiry,
-    usage, cash+layaway scope, redeemed-points handling) BEFORE building. Must be
-    built system-wide (native first), then Shopify reversals hook into it — not
-    Shopify-only. Parked pending policy.
+  - REVERSAL HANDLING — BUILT (2026-07-13/14). orders/cancelled + partial refunds
+    via orders/updated refunds[] both convert to Hub store credit and mirror to
+    Shopify. Full mechanics + verification record in docs/STORE-CREDIT.md.
+    refunds/create topic deliberately NOT registered — refund data rides the
+    orders/updated payload.
   - INVENTORY WRITEBACK (not built) — Hub picking / Shopify refunds do not sync stock
     back to Shopify (one-way design). A refunded Shopify item is not auto-restocked
     via the Hub. Deferred.
