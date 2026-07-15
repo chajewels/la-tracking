@@ -39,6 +39,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'reassign_owner', label: 'Reassign Owner' },
       { key: 'view_cash_orders', label: 'View Cash Orders', section: 'Cash Orders' },
       { key: 'create_cash_order', label: 'Create Cash Order' },
+      { key: 'cancel_cash_order', label: 'Cancel Cash Order' },
       { key: 'void_cash_payment', label: 'Void Cash Payment', section: 'Cash Payments' },
       { key: 'restore_cash_payment', label: 'Restore Cash Payment' },
       { key: 'submit_cash_payment_staff', label: 'Submit Cash Payment (Staff Direct Entry)' },
@@ -117,6 +118,20 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'manage_team', label: 'Manage Team' },
       { key: 'revoke_token', label: 'Revoke Tokens' },
       { key: 'regenerate_token', label: 'Regenerate Tokens' },
+    ],
+  },
+  {
+    module: 'Store Credit',
+    permissions: [
+      { key: 'issue_store_credit', label: 'Issue Store Credit' },
+      { key: 'redeem_store_credit', label: 'Redeem Store Credit' },
+      { key: 'void_store_credit', label: 'Void Store Credit' },
+    ],
+  },
+  {
+    module: 'Inquiries',
+    permissions: [
+      { key: 'view_inquiries', label: 'View Inquiries' },
     ],
   },
 ];
