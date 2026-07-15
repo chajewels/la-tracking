@@ -145,10 +145,20 @@ Deno.serve(async (req) => {
         const applied = Number(r.amount_applied ?? 0).toLocaleString("en-US");
         const balance = Number(r.new_credit_balance ?? 0).toLocaleString("en-US");
         const name = await resolveCustomerName(supabase, r.customer_id);
+        let actorName: string | null = user.email ?? null;
+        try {
+          const { data: actorProfile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (actorProfile?.full_name) actorName = actorProfile.full_name as string;
+        } catch { /* keep email fallback */ }
+        const actorSuffix = actorName ? ` · by ${actorName}` : "";
         await supabase.from("staff_notifications").insert({
           type: "store_credit_redeemed",
           title: "Store credit applied",
-          body: `${name ? name + " — " : ""}${symbol}${applied} store credit applied to ${r.order_type === "cash" ? "Cash Order" : "INV"} #${r.invoice_number}${r.is_downpayment ? " as downpayment" : ""} · remaining balance ${symbol}${balance}`,
+          body: `${name ? name + " — " : ""}${symbol}${applied} store credit applied to ${r.order_type === "cash" ? "Cash Order" : "INV"} #${r.invoice_number}${r.is_downpayment ? " as downpayment" : ""} · remaining balance ${symbol}${balance}${actorSuffix}`,
           customer_id: r.customer_id ?? null,
           invoice_number: r.invoice_number ?? null,
           metadata: data,

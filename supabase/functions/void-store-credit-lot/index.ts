@@ -97,10 +97,20 @@ Deno.serve(async (req) => {
         const symbol = r.currency === "PHP" ? "₱" : "¥";
         const amt = Number(r.voided_amount ?? 0).toLocaleString("en-US");
         const name = await resolveCustomerName(supabase, r.customer_id);
+        let actorName: string | null = user.email ?? null;
+        try {
+          const { data: actorProfile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (actorProfile?.full_name) actorName = actorProfile.full_name as string;
+        } catch { /* keep email fallback */ }
+        const actorSuffix = actorName ? ` · by ${actorName}` : "";
         await supabase.from("staff_notifications").insert({
           type: "store_credit_voided",
           title: "Store credit voided",
-          body: `${name ? name + " — " : ""}${symbol}${amt} store credit voided · ${reason}`,
+          body: `${name ? name + " — " : ""}${symbol}${amt} store credit voided · ${reason}${actorSuffix}`,
           customer_id: r.customer_id ?? null,
           invoice_number: null,
           metadata: r,
