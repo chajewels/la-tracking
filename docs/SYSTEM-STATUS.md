@@ -616,3 +616,4 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
 ## Pancake POS integration
 - pancake-order-webhook receiver live (Phase 1) — captures Pancake POS order events into pancake_events ledger; verify_jwt=false; auth via x-pancake-secret shared header; no cash_orders write yet.
 - pancake-process-events (Phase 2, BRANCH feat/pancake-process-events — NOT on main, NOT deployed) — drains pending pancake_events into cash_orders + cash_order_items; customer cascade email -> pancake_fb_id -> phone -> create+flag; invoice PKE-<order_id>; skips empty shells and cancellations; does not re-sync updates.
+- get-pancake-order (Phase 1 read path, BRANCH feat/pancake-process-events — NOT on main, NOT deployed) — invoice pre-fill from pancake_events ledger; mirrors get-page365-order request/response contract; accepts PKE-<order_id> or bare order_id; read-only.
