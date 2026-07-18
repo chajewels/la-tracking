@@ -2621,6 +2621,48 @@ export type Database = {
           },
         ]
       }
+      pancake_events: {
+        Row: {
+          attempts: number
+          error_detail: string | null
+          event_type: string
+          event_updated_at: string
+          id: string
+          pancake_order_id: string
+          processed_at: string | null
+          raw_payload: Json
+          received_at: string
+          status: string
+          system_id: number | null
+        }
+        Insert: {
+          attempts?: number
+          error_detail?: string | null
+          event_type: string
+          event_updated_at: string
+          id?: string
+          pancake_order_id: string
+          processed_at?: string | null
+          raw_payload: Json
+          received_at?: string
+          status?: string
+          system_id?: number | null
+        }
+        Update: {
+          attempts?: number
+          error_detail?: string | null
+          event_type?: string
+          event_updated_at?: string
+          id?: string
+          pancake_order_id?: string
+          processed_at?: string | null
+          raw_payload?: Json
+          received_at?: string
+          status?: string
+          system_id?: number | null
+        }
+        Relationships: []
+      }
       payment_allocations: {
         Row: {
           allocated_amount: number
