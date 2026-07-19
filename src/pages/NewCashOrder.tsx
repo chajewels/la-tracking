@@ -37,7 +37,8 @@ interface CatalogProduct {
 
 // Local line item, written to public.cash_order_items after the order is created.
 interface CashOrderLineItem {
-  product_id: string;
+  row_key: string;
+  product_id: string | null;
   title: string;
   sku: string | null;
   unit_price_jpy: number;
@@ -173,30 +174,30 @@ export default function NewCashOrder() {
   const addLineItem = useCallback((p: CatalogProduct) => {
     const price = p.price_jpy ?? 0;
     setLineItems((prev) => {
-      const idx = prev.findIndex((li) => li.product_id === p.id);
+      const idx = prev.findIndex((li) => li.row_key === p.id);
       if (idx >= 0) {
         const next = [...prev];
         const quantity = next[idx].quantity + 1;
         next[idx] = { ...next[idx], quantity, line_total_jpy: next[idx].unit_price_jpy * quantity };
         return next;
       }
-      return [...prev, { product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price, image_url: p.image_url }];
+      return [...prev, { row_key: p.id, product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price, image_url: p.image_url }];
     });
     markDirty();
   }, [markDirty]);
 
-  const updateLineItemQty = useCallback((productId: string, raw: string) => {
+  const updateLineItemQty = useCallback((rowKey: string, raw: string) => {
     const quantity = Math.max(1, Math.floor(Number(raw) || 1));
     setLineItems((prev) => prev.map((li) => (
-      li.product_id === productId
+      li.row_key === rowKey
         ? { ...li, quantity, line_total_jpy: li.unit_price_jpy * quantity }
         : li
     )));
     markDirty();
   }, [markDirty]);
 
-  const removeLineItem = useCallback((productId: string) => {
-    setLineItems((prev) => prev.filter((li) => li.product_id !== productId));
+  const removeLineItem = useCallback((rowKey: string) => {
+    setLineItems((prev) => prev.filter((li) => li.row_key !== rowKey));
     markDirty();
   }, [markDirty]);
 
@@ -635,7 +636,7 @@ export default function NewCashOrder() {
               {lineItems.length > 0 && (
                 <div className="space-y-2">
                   {lineItems.map((li) => (
-                    <div key={li.product_id} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                    <div key={li.row_key} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
                       {li.image_url && (
                         <img
                           src={li.image_url}
@@ -653,7 +654,7 @@ export default function NewCashOrder() {
                         type="number"
                         min={1}
                         value={li.quantity}
-                        onChange={(e) => updateLineItemQty(li.product_id, e.target.value)}
+                        onChange={(e) => updateLineItemQty(li.row_key, e.target.value)}
                         className="w-14 rounded border border-border bg-background px-2 py-1 text-center text-sm tabular-nums"
                         aria-label={`Quantity for ${li.title}`}
                       />
@@ -662,7 +663,7 @@ export default function NewCashOrder() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => removeLineItem(li.product_id)}
+                        onClick={() => removeLineItem(li.row_key)}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${li.title}`}
                       >
