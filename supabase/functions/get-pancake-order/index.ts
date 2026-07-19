@@ -66,20 +66,42 @@ Deno.serve(async (req) => {
     const rawKey = String(body?.invoice_number ?? "").trim();
     if (!rawKey) return jsonResponse(400, { error: "invoice_number is required" });
 
-    // "PKE-90085118275294" -> "90085118275294"; a bare order id passes through.
-    const orderId = rawKey.replace(/^PKE-/i, "").trim();
+    // "PKE-069" -> "069"; a bare key passes through.
+    const key = rawKey.replace(/^PKE-/i, "").trim();
 
-    // Newest captured event for this order wins (updates supersede creates).
-    const { data: rows, error } = await authClient
-      .from("pancake_events")
-      .select("raw_payload")
-      .eq("pancake_order_id", orderId)
-      .order("event_updated_at", { ascending: false })
-      .limit(1);
+    // The invoice carries Pancake's system_id - the number the POS displays
+    // (PKE-069 -> system_id 69). Number() strips the leading zeros. Earlier
+    // test invoices used the long internal order_id, so that stays a fallback.
+    // Newest captured event wins (updates supersede creates).
+    const numericKey = Number(key);
+    let rows: Array<{ raw_payload: unknown }> | null = null;
 
-    if (error) {
-      console.error("get-pancake-order query error:", error);
-      return jsonResponse(500, { error: error.message });
+    if (Number.isFinite(numericKey) && numericKey > 0) {
+      const { data, error } = await authClient
+        .from("pancake_events")
+        .select("raw_payload")
+        .eq("raw_payload->>system_id", String(numericKey))
+        .order("event_updated_at", { ascending: false })
+        .limit(1);
+      if (error) {
+        console.error("get-pancake-order system_id query error:", error);
+        return jsonResponse(500, { error: error.message });
+      }
+      rows = data as Array<{ raw_payload: unknown }> | null;
+    }
+
+    if (!rows || rows.length === 0) {
+      const { data, error } = await authClient
+        .from("pancake_events")
+        .select("raw_payload")
+        .eq("pancake_order_id", key)
+        .order("event_updated_at", { ascending: false })
+        .limit(1);
+      if (error) {
+        console.error("get-pancake-order order_id query error:", error);
+        return jsonResponse(500, { error: error.message });
+      }
+      rows = data as Array<{ raw_payload: unknown }> | null;
     }
     if (!rows || rows.length === 0) return jsonResponse(200, { found: false });
 
