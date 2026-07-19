@@ -267,6 +267,56 @@ export default function NewAccount() {
 
       setInvoiceNumber(`PKE-${evt.pancake_order_id}`);
 
+      // ---- Customer matching (read-only, NEVER creates) --------------------
+      // Cascade: email -> pancake_fb_id -> phone. Verified against a real
+      // payload: customer.emails arrived EMPTY while the address sat at
+      // top-level bill_email, so bill_email is tried FIRST (the reverse of the
+      // superseded processor). customer.fb_id arrived null.
+      // Phone is LAST and strictest: two live customers share 07083073318, so
+      // a phone hit is frequently ambiguous and must never auto-select.
+      // shipping_address.phone_number is NEVER used - it arrived truncated
+      // ("0708") on a real order.
+      const cust = (p.customer ?? {}) as Record<string, unknown>;
+      const emailsArr = Array.isArray(cust.emails) ? (cust.emails as unknown[]) : [];
+      const pkeEmail =
+        (typeof p.bill_email === 'string' && p.bill_email.trim() ? p.bill_email.trim() : null) ??
+        (emailsArr.length > 0 ? String(emailsArr[0]).trim() : null);
+      const pkeFbId = typeof cust.fb_id === 'string' && cust.fb_id ? cust.fb_id : null;
+      const phonesArr = Array.isArray(cust.phone_numbers) ? (cust.phone_numbers as unknown[]) : [];
+      const pkePhone =
+        (typeof p.bill_phone_number === 'string' && p.bill_phone_number.trim() ? p.bill_phone_number.trim() : null) ??
+        (phonesArr.length > 0 ? String(phonesArr[0]).trim() : null);
+      const onlyDigits = (v: string) => v.replace(/\D/g, '');
+
+      let matchedCust: DbCustomer | null = null;
+      if (pkeEmail) {
+        const { data } = await supabase.from('customers').select('*').ilike('email', pkeEmail).limit(2);
+        if (data && data.length === 1) matchedCust = data[0] as DbCustomer;
+      }
+      if (!matchedCust && pkeFbId) {
+        // pancake_fb_id is absent from the generated types (stale), so this
+        // one query is cast at the call site rather than hand-editing types.ts.
+        const { data } = await (supabase.from('customers') as any)
+          .select('*').eq('pancake_fb_id', pkeFbId).limit(2);
+        if (data && data.length === 1) matchedCust = data[0] as DbCustomer;
+      }
+      if (!matchedCust && pkePhone && onlyDigits(pkePhone).length >= 9) {
+        const last9 = onlyDigits(pkePhone).slice(-9);
+        const { data } = await supabase.from('customers').select('*')
+          .ilike('mobile_number', `%${last9}%`).limit(10);
+        const exact = (data ?? []).filter((c) => onlyDigits(String(c.mobile_number ?? '')).endsWith(last9));
+        if (exact.length === 1) matchedCust = exact[0] as DbCustomer;
+      }
+      if (cancelled) return;
+      if (matchedCust) {
+        setSelectedExistingCustomer(matchedCust);
+        setCustomerId(matchedCust.id);
+        setCustomerSearch(matchedCust.full_name || '');
+        toast.success(`Matched existing customer: ${matchedCust.full_name}`);
+      } else {
+        toast.warning('No unique customer match. Select or create the customer manually.');
+      }
+
       const oc = String(p.order_currency ?? 'JPY').toUpperCase();
       if (oc && oc !== 'JPY') {
         toast.warning(`Pancake order currency is ${oc}, not JPY. Check the amounts.`);
