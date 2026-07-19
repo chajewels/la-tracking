@@ -70,6 +70,17 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid JSON" }, 400);
   }
 
+  // Shop guard — reject events from any shop other than the configured one,
+  // preventing cross-shop contamination of the ledger. The payload carries
+  // shop_id as a JSON NUMBER while PANCAKE_POS_SHOP_ID is a STRING, so both
+  // sides must be coerced — a strict !== on raw values rejects every
+  // legitimate event. Returns 200, not 4xx, so Pancake does not retry.
+  const expectedShopId = Deno.env.get("PANCAKE_POS_SHOP_ID");
+  if (expectedShopId && Number(body["shop_id"]) !== Number(expectedShopId)) {
+    console.warn(`${LOG} rejected: wrong shop`, { shop_id: body["shop_id"] });
+    return json({ ok: true, skipped: "wrong_shop" }, 200);
+  }
+
   const pancakeOrderId = extractOrderId(body["order_link"], body["system_id"]);
   const eventType = typeof body["event_type"] === "string" ? (body["event_type"] as string) : "unknown";
   const eventUpdatedAt =
