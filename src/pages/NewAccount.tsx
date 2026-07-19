@@ -265,7 +265,16 @@ export default function NewAccount() {
       const p = (evt.raw_payload ?? {}) as Record<string, unknown>;
       const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
 
-      setInvoiceNumber(`PKE-${evt.pancake_order_id}`);
+      // Invoice uses system_id - the number the POS actually displays (#065) -
+      // not the long internal order_id, which appears nowhere in the Pancake UI
+      // and cannot be cross-referenced by staff. Verified dense and monotonic
+      // (60-68 across 9 orders, no gaps, one per order).
+      // The long order_id stays the MACHINE identity and is persisted to
+      // cash_orders.pancake_order_id / layaway_accounts.pancake_order_id, which
+      // already carry partial unique indexes. THAT is what prevents a double
+      // confirmation - not the invoice number.
+      const pkeSystemId = String(p.system_id ?? '').trim();
+      setInvoiceNumber(pkeSystemId ? `PKE-${pkeSystemId.padStart(3, '0')}` : `PKE-${evt.pancake_order_id}`);
 
       // ---- Customer matching (read-only, NEVER creates) --------------------
       // Cascade: email -> pancake_fb_id -> phone. Verified against a real
