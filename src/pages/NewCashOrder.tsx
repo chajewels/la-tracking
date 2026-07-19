@@ -64,6 +64,7 @@ export default function NewCashOrder() {
   const urlCustomerName = searchParams.get('customer_name');
   const urlAmount = searchParams.get('amount');
   const urlCurrency = searchParams.get('currency');
+  const urlPancakeOrderId = searchParams.get('pancake_order_id');
   const initialCurrency: Currency =
     urlCurrency === 'JPY' || urlCurrency === 'PHP' ? urlCurrency : 'JPY';
 
@@ -152,6 +153,101 @@ export default function NewCashOrder() {
       setCatalog((data ?? []) as CatalogProduct[]);
     })();
   }, []);
+
+  // ---- Pancake holding-area hydration -------------------------------------
+  // Fires ONLY when ?pancake_order_id is present (i.e. opened from the Pancake
+  // holding area). Manual entry and the CA bot never send it, so they are
+  // untouched. Reads the captured ledger row, not Pancake's API.
+  //
+  // Item matching is by EXACT TITLE against non-archived products: Shopify
+  // products carry no SKU (with_sku = 0) and products.barcode holds a single
+  // constant across all 173 rows, so title is the only usable key. A title
+  // matching 2+ products falls back to unmatched rather than guessing a FK.
+  //
+  // unit_price_jpy always comes from Pancake retail_price, never the catalog,
+  // so the order reconciles against total_price if catalog prices later drift.
+  useEffect(() => {
+    if (!urlPancakeOrderId) return;
+    let cancelled = false;
+    (async () => {
+      const { data: evt, error } = await supabase
+        .from('pancake_events')
+        .select('pancake_order_id, raw_payload')
+        .eq('pancake_order_id', urlPancakeOrderId)
+        .order('event_updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error || !evt) {
+        toast.error('Could not load the Pancake order. Fill the form manually.');
+        return;
+      }
+      const p = (evt.raw_payload ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+
+      setInvoiceNumber(`PKE-${evt.pancake_order_id}`);
+
+      const oc = String(p.order_currency ?? 'JPY').toUpperCase();
+      if (oc && oc !== 'JPY') {
+        toast.warning(`Pancake order currency is ${oc}, not JPY. Check the amounts.`);
+      }
+
+      const total = num(p.total_price);
+      if (total > 0) {
+        setTotalAmount(String(total));
+        setTotalAmountManuallyEdited(true);
+      }
+      const disc = num(p.total_discount);
+      if (disc > 0) { setDiscountMode('amount'); setDiscountInput(String(disc)); }
+      const ship = num(p.shipping_fee);
+      if (ship > 0) setShippingInput(String(ship));
+
+      const rawItems = Array.isArray(p.items) ? (p.items as Record<string, unknown>[]) : [];
+      const titles = rawItems
+        .map((it) => String((it.variation_info as Record<string, unknown> | undefined)?.name ?? '').trim())
+        .filter((t) => t.length > 0);
+
+      const byTitle = new Map<string, { id: string; image_url: string | null } | null>();
+      if (titles.length > 0) {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, title, image_url')
+          .in('title', titles)
+          .neq('status', 'archived');
+        const counts = new Map<string, number>();
+        (prods ?? []).forEach((pr) => counts.set(pr.title, (counts.get(pr.title) ?? 0) + 1));
+        (prods ?? []).forEach((pr) => {
+          byTitle.set(pr.title, counts.get(pr.title) === 1 ? { id: pr.id, image_url: pr.image_url } : null);
+        });
+      }
+      if (cancelled) return;
+
+      let unmatched = 0;
+      const seeded = rawItems.map((it, idx) => {
+        const vi = (it.variation_info ?? {}) as Record<string, unknown>;
+        const title = String(vi.name ?? '').trim() || 'Pancake item';
+        const price = num(vi.retail_price);
+        const qty = Math.max(1, Math.floor(num(it.quantity)) || 1);
+        const hit = byTitle.get(title) ?? null;
+        if (!hit) unmatched += 1;
+        return {
+          row_key: hit ? hit.id : `pke:${idx}`,
+          product_id: hit ? hit.id : null,
+          title,
+          sku: null,
+          unit_price_jpy: price,
+          quantity: qty,
+          line_total_jpy: price * qty,
+          image_url: hit ? hit.image_url : null,
+        };
+      });
+      if (seeded.length > 0) setLineItems(seeded);
+      if (unmatched > 0) {
+        toast.warning(`${unmatched} Pancake item(s) not matched to the catalog. Re-pick them if you need catalog links.`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [urlPancakeOrderId]);
 
   const itemsSubtotal = lineItems.reduce((sum, li) => sum + li.line_total_jpy, 0);
   // Items subtotal in the ACCOUNT currency (line items are stored in JPY).
@@ -405,6 +501,17 @@ export default function NewCashOrder() {
 
       submittedRef.current = true;
       setFormDirty(false);
+      if (urlPancakeOrderId) {
+        const { error: pkeErr } = await supabase
+          .from('pancake_events')
+          .update({ status: 'processed' })
+          .eq('pancake_order_id', urlPancakeOrderId)
+          .eq('status', 'pending');
+        if (pkeErr) {
+          toast.warning('Created, but the Pancake holding-area row was not cleared. Tell an admin.');
+        }
+      }
+
       toast.success(`Cash order #${invoiceNumber.trim()} created successfully`);
       if (newId) navigate(`/cash-orders/${newId}`);
       else navigate('/customers?tab=cash');
