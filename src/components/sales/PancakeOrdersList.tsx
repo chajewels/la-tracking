@@ -90,7 +90,13 @@ export default function PancakeOrdersList({ searchValue = '' }: Props) {
       const rawItems: PancakeItem[] = Array.isArray(p.items) ? p.items : [];
       const total = num(p.total_price);
       if (rawItems.length === 0 || total <= 0) continue;
-      if (Number(p.status) === 6) continue; // cancelled
+      // Terminal Pancake states, verified from live data (code -> status_name):
+      // 0 new, 1 submitted, 6 canceled, 7 removed, 9 pending.
+      // 6 and 7 are terminal - a removed order still carries items and a
+      // total, so without excluding 7 staff could confirm an order that no
+      // longer exists in Pancake and create a real financial record for it.
+      const pkeStatus = Number(p.status);
+      if (pkeStatus === 6 || pkeStatus === 7) continue;
 
       // Payment reporting (DISPLAY ONLY - never written to payments).
       // Verified on a real paid order: prepaid === sum(bank_payments) === 134980,
