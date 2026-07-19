@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
       notes,
       agreement_version,
       is_trade, // boolean — optional, trade program flag (locked after creation)
+      pancake_order_id, // string — optional, Pancake machine identity (holding area)
     } = body;
 
     if (!customer_id || !invoice_number || !currency || total_amount == null || !expires_at) {
@@ -165,6 +166,14 @@ Deno.serve(async (req) => {
       is_trade: is_trade ?? false,
       created_by_user_id: user.id,
     };
+    if (pancake_order_id) {
+      // Pancake machine identity. Written here (service-role) rather than
+      // client-side because finance can create cash orders but lacks UPDATE on
+      // cash_orders, so a client-side tag would fail silently and the same
+      // Pancake order could be confirmed twice.
+      insertRow.pancake_order_id = String(pancake_order_id);
+      insertRow.source_channel = "pancake";
+    }
     if (agreement_version) {
       insertRow.agreement_version = agreement_version;
       insertRow.accepted_by_user_id = user.id;
