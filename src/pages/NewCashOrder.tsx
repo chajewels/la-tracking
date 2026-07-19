@@ -497,6 +497,12 @@ export default function NewCashOrder() {
       if (notes.trim()) payload.notes = notes.trim();
       if (acceptAgreement) payload.agreement_version = 'v1';
       payload.is_trade = isTrade;
+      // Pancake MACHINE identity. The invoice (PKE-069) is the human
+      // reference; this column carries the partial unique index that stops
+      // the same Pancake order being confirmed twice. Written service-role by
+      // the edge function because finance can create cash orders but lacks
+      // UPDATE on cash_orders, so a client-side tag would fail silently.
+      if (urlPancakeOrderId) payload.pancake_order_id = urlPancakeOrderId;
 
       const { data, error } = await supabase.functions.invoke('create-cash-order', { body: payload });
 

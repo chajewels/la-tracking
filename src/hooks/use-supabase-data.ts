@@ -555,6 +555,7 @@ export function useCreateAccount() {
       custom_installments?: number[];
       loyalty_jpy_amount?: number | null;
       is_trade?: boolean;
+      pancake_order_id?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,

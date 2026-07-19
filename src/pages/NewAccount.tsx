@@ -738,6 +738,8 @@ export default function NewAccount() {
         custom_installments: installmentsToSend,
         loyalty_jpy_amount: loyaltyJpyAmount,
         is_trade: isTrade,
+        // Pancake MACHINE identity - see NewCashOrder for the full rationale.
+        pancake_order_id: urlPancakeOrderId ?? undefined,
       });
 
       // Mark as submitted to allow navigation
