@@ -37,6 +37,8 @@ interface PendingOrder {
   orderLink: string | null;
   paidAmount: number;
   paidMethod: string | null;
+  codAmount: number;
+  systemId: string;
 }
 
 interface Props {
@@ -107,13 +109,16 @@ export default function PancakeOrdersList({ searchValue = '' }: Props) {
         ? (p.bank_payments as Record<string, unknown>) : {};
       const bankSum = Object.values(bankObj).reduce<number>((acc, v) => acc + num(v), 0);
       const pkePrepaid = num(p.prepaid);
-      const pkeOther = num(p.cash) + num(p.cod) + num(p.charged_by_card)
+      // COD is EXCLUDED from paid - it is money to COLLECT on delivery,
+      // not money received. Same trap as money_to_collect. A COD order
+      // showed PAID 53,980 while unpaid in Pancake.
+      const pkeCod = num(p.cod);
+      const pkeOther = num(p.cash) + num(p.charged_by_card)
         + num(p.charged_by_qrpay) + num(p.charged_by_momo);
       const pkePaid = pkePrepaid > 0 ? pkePrepaid : pkeOther;
       const pkeMethod = pkePaid <= 0 ? null
         : bankSum > 0 ? 'bank'
         : num(p.cash) > 0 ? 'cash'
-        : num(p.cod) > 0 ? 'COD'
         : num(p.charged_by_card) > 0 ? 'card'
         : num(p.charged_by_qrpay) > 0 ? 'QR'
         : num(p.charged_by_momo) > 0 ? 'momo'
@@ -133,6 +138,8 @@ export default function PancakeOrdersList({ searchValue = '' }: Props) {
         total,
         paidAmount: pkePaid,
         paidMethod: pkeMethod,
+        codAmount: pkeCod,
+        systemId: String(p.system_id ?? '').trim(),
         currency: String(p.order_currency ?? 'JPY'),
         orderDate: String(p.inserted_at ?? '').split('T')[0],
         items: rawItems.map((it) => ({
@@ -193,7 +200,7 @@ export default function PancakeOrdersList({ searchValue = '' }: Props) {
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium text-foreground">{o.customerName}</span>
-                <Badge variant="outline">PKE-{o.pancakeOrderId}</Badge>
+                <Badge variant="outline">PKE-{o.systemId ? o.systemId.padStart(3, '0') : o.pancakeOrderId}</Badge>
                 {o.orderLink && (
                   <a
                     href={o.orderLink}
@@ -213,6 +220,11 @@ export default function PancakeOrdersList({ searchValue = '' }: Props) {
               </p>
               <p className="text-sm font-semibold text-foreground">
                 {o.currency} {o.total.toLocaleString()}
+                {o.codAmount > 0 && (
+                  <Badge variant="outline" className="ml-2 border-amber-500/40 text-amber-600 dark:text-amber-400">
+                    COD {o.currency} {o.codAmount.toLocaleString()} due
+                  </Badge>
+                )}
                 {o.paidAmount > 0 && (
                   <Badge variant="outline" className="ml-2 border-green-500/40 text-green-600 dark:text-green-400">
                     PAID {o.currency} {o.paidAmount.toLocaleString()}
