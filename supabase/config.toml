@@ -161,3 +161,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.pancake-order-webhook]
     verify_jwt = false
+  [functions.pancake-process-events]
+    verify_jwt = false
+  [functions.get-pancake-order]
+    verify_jwt = true

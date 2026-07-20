@@ -6,17 +6,19 @@ import { Tabs, TabsContent } from '@/components/ui/tabs';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 import CashOrdersList from '@/components/customers/CashOrdersList';
+import PancakeOrdersList from '@/components/sales/PancakeOrdersList';
 import AccountList from './AccountList';
 import PaymentsHub from './PaymentsHub';
 import Waivers from './Waivers';
 
 const MemoCashOrdersList = memo(CashOrdersList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
+const MemoPancakeOrdersList = memo(PancakeOrdersList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
 const MemoAccountList = memo(AccountList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
 const MemoPaymentsHub = memo(PaymentsHub) as FC<{ embedded?: boolean; searchValue?: string }>;
 const MemoWaivers = memo(Waivers);
 
-type SalesTabKey = 'cash' | 'layaway' | 'payments' | 'waivers';
-const VALID_TABS: SalesTabKey[] = ['cash', 'layaway', 'payments', 'waivers'];
+type SalesTabKey = 'pancake' | 'cash' | 'layaway' | 'payments' | 'waivers';
+const VALID_TABS: SalesTabKey[] = ['pancake', 'cash', 'layaway', 'payments', 'waivers'];
 const DEFAULT_TAB: SalesTabKey = 'cash';
 
 interface SalesProps {
@@ -31,6 +33,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
   });
   // One search state per tab so a query typed on Cash doesn't bleed
   // into Layaway / Payments / Waivers when the user switches tabs.
+  const [pancakeSearch, setPancakeSearch] = useState('');
   const [cashSearch, setCashSearch] = useState('');
   const [layawaySearch, setLayawaySearch] = useState('');
   const [paymentsSearch, setPaymentsSearch] = useState('');
@@ -86,6 +89,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
         <WorkspaceToolbar
           searchValue={
+            tab === 'pancake' ? pancakeSearch :
             tab === 'cash' ? cashSearch :
             tab === 'layaway' ? layawaySearch :
             tab === 'payments' ? paymentsSearch :
@@ -93,6 +97,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             ''
           }
           onSearchChange={
+            tab === 'pancake' ? setPancakeSearch :
             tab === 'cash' ? setCashSearch :
             tab === 'layaway' ? setLayawaySearch :
             tab === 'payments' ? setPaymentsSearch :
@@ -100,6 +105,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             () => {}
           }
           searchPlaceholder={
+            tab === 'pancake' ? 'Search Pancake orders...' :
             tab === 'cash' ? 'Search cash orders...' :
             tab === 'layaway' ? 'Search layaway accounts...' :
             tab === 'payments' ? 'Search payments...' :
@@ -112,6 +118,9 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
         />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">
+          <TabsContent value="pancake" className="mt-5">
+            <MemoPancakeOrdersList embedded searchValue={pancakeSearch} />
+          </TabsContent>
           <TabsContent value="cash" className="mt-5">
             <MemoCashOrdersList embedded searchValue={cashSearch} exportRef={cashExportRef} />
           </TabsContent>

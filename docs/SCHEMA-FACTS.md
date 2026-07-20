@@ -661,3 +661,18 @@ revoke_loyalty_points_partial(p_customer_id, p_source_reference, p_refund_spend_
 - products.shopify_product_id is a GraphQL GID; webhook payload line_items[].product_id is numeric. Normalize on EVERY join between them (GID tail = numeric id).
 - Shopify draft orders fire NO webhooks. The order (and the Hub row) exists only after the draft converts: "Mark as paid" converts already-paid (orders/create + orders/paid together); "Payment due later" -> Create order converts unpaid (orders/create only).
 - Shopify offers no Mark-as-paid on cancelled orders — the paid-after-cancel race is webhook-delivery inversion only, unreachable from the admin UI. The orders/paid guard is therefore code-verified by design.
+
+### Operational learning — Pancake POS payload facts (2026-07-19, verified against real orders)
+- system_id is the number the POS displays (#065). Verified dense and monotonic: 60-68 across 9 orders, one per order, no gaps. `id` mirrors it. The long order_id in order_link (e.g. 10881693605) appears nowhere in the Pancake UI.
+- money_to_collect is NOT an outstanding balance. It read 134,980 on a fully PREPAID order. Never treat it as an amount owed.
+- prepaid equals the sum of bank_payments on a bank-paid order (both 134,980). Never add them together — prepaid is the aggregate.
+- buyer_total_amount was NULL on a real order; total_price is the figure to use. STILL OPEN: total_price vs the sum of lines + shipping - discount on a real MULTI-ITEM order (none captured yet).
+- Status codes — COMPLETE map, decoded from live data 2026-07-19 (code -> status_name): 0 = new, 1 = submitted, 6 = canceled, 7 = removed, 9 = pending. TWO are terminal: 6 and 7. A "removed" order still carries items and a non-zero total (270229047947548 showed 1 item at 134,980), so filtering only on 6 lets a removed order appear confirmable — that was a real defect, fixed in 0f0a813. Note the POS displayed "waiting for pickup" for status 1, so status_name is the reliable label, never an inference from the code. Codes outside this set remain unmapped; treat them as non-terminal.
+- customer.emails arrived EMPTY while the address sat at top-level bill_email. Customer matching MUST try bill_email first. customer.fb_id arrived null; fb_id is also page-scoped (<page_id>_<user_id>) so the same person on two pages yields two ids.
+- shipping_address.phone_number arrived TRUNCATED ("0708" for 07083073318). Never use it for matching. bill_phone_number and customer.phone_numbers[0] were both correct.
+- Phone matching is unreliable by construction: NO phone normalisation exists anywhere in the codebase (mobile_number is free text, .trim() only), and two live customers share 07083073318. Match on email first; accept phone only on a unique digits-only match.
+- shop_id is a JSON NUMBER; PANCAKE_POS_SHOP_ID is a STRING. Coerce both sides or every legitimate event is rejected.
+- Item matching is by EXACT product TITLE. products.barcode is unusable — 173 non-archived products, 173 with a barcode, only 1 DISTINCT value; with_sku = 0. Titles are near-unique but not guaranteed (2 duplicate pairs exist), so 2+ matches falls back to unmatched rather than guessing.
+- cash_order_items.product_id and layaway_account_items.product_id are FOREIGN KEYs to products, so unmatched Pancake lines MUST write product_id = NULL. A local row_key carries React identity instead.
+- retail_price is tax-INCLUSIVE — confirmed on a real order showing Tax 10% with line total == subtotal == total_price.
+- The products mirror never prunes: shopify-sync-products only upserts and shopify-webhook handles no products/* topics, so a product deleted in Shopify persists in the Hub. Mode is delta once shopify_products_last_synced_at is set, so synced_at is NOT a liveness signal.

@@ -77,6 +77,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
   {
     label: 'Sales', icon: ShoppingBag, parentPath: ROUTES.SALES,
     children: [
+      { label: 'Pancake', tab: 'pancake' },
       { label: 'Cash', tab: 'cash' },
       { label: 'Layaway', tab: 'layaway' },
       { label: 'Payments', tab: 'payments', badgeKey: 'sales_payments' },

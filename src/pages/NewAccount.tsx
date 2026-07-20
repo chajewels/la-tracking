@@ -48,7 +48,8 @@ interface CatalogProduct {
 // Local line item, written to public.layaway_account_items after the account
 // is created (mirrors NewCashOrder's CashOrderLineItem shape).
 interface LayawayLineItem {
-  product_id: string;
+  row_key: string;
+  product_id: string | null;
   title: string;
   sku: string | null;
   unit_price_jpy: number;
@@ -79,6 +80,7 @@ export default function NewAccount() {
   const urlCustomerName = searchParams.get('customer_name');
   const urlAmount = searchParams.get('amount');
   const urlCurrency = searchParams.get('currency');
+  const urlPancakeOrderId = searchParams.get('pancake_order_id');
   const urlPlanMonths = searchParams.get('plan_months');
   const urlNotes = searchParams.get('notes');
 
@@ -232,6 +234,160 @@ export default function NewAccount() {
     })();
   }, []);
 
+  // ---- Pancake holding-area hydration -------------------------------------
+  // Fires ONLY when ?pancake_order_id is present (i.e. opened from the Pancake
+  // holding area). Manual entry and the CA bot never send it, so they are
+  // untouched. Reads the captured ledger row, not Pancake's API.
+  //
+  // Item matching is by EXACT TITLE against non-archived products: Shopify
+  // products carry no SKU (with_sku = 0) and products.barcode holds a single
+  // constant across all 173 rows, so title is the only usable key. A title
+  // matching 2+ products falls back to unmatched rather than guessing a FK.
+  //
+  // unit_price_jpy always comes from Pancake retail_price, never the catalog,
+  // so the order reconciles against total_price if catalog prices later drift.
+  useEffect(() => {
+    if (!urlPancakeOrderId) return;
+    let cancelled = false;
+    (async () => {
+      const { data: evt, error } = await supabase
+        .from('pancake_events')
+        .select('pancake_order_id, raw_payload')
+        .eq('pancake_order_id', urlPancakeOrderId)
+        .order('event_updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error || !evt) {
+        toast.error('Could not load the Pancake order. Fill the form manually.');
+        return;
+      }
+      const p = (evt.raw_payload ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+
+      // Invoice uses system_id - the number the POS actually displays (#065) -
+      // not the long internal order_id, which appears nowhere in the Pancake UI
+      // and cannot be cross-referenced by staff. Verified dense and monotonic
+      // (60-68 across 9 orders, no gaps, one per order).
+      // The long order_id stays the MACHINE identity and is persisted to
+      // cash_orders.pancake_order_id / layaway_accounts.pancake_order_id, which
+      // already carry partial unique indexes. THAT is what prevents a double
+      // confirmation - not the invoice number.
+      const pkeSystemId = String(p.system_id ?? '').trim();
+      setInvoiceNumber(pkeSystemId ? `PKE-${pkeSystemId.padStart(3, '0')}` : `PKE-${evt.pancake_order_id}`);
+
+      // ---- Customer matching (read-only, NEVER creates) --------------------
+      // Cascade: email -> pancake_fb_id -> phone. Verified against a real
+      // payload: customer.emails arrived EMPTY while the address sat at
+      // top-level bill_email, so bill_email is tried FIRST (the reverse of the
+      // superseded processor). customer.fb_id arrived null.
+      // Phone is LAST and strictest: two live customers share 07083073318, so
+      // a phone hit is frequently ambiguous and must never auto-select.
+      // shipping_address.phone_number is NEVER used - it arrived truncated
+      // ("0708") on a real order.
+      const cust = (p.customer ?? {}) as Record<string, unknown>;
+      const emailsArr = Array.isArray(cust.emails) ? (cust.emails as unknown[]) : [];
+      const pkeEmail =
+        (typeof p.bill_email === 'string' && p.bill_email.trim() ? p.bill_email.trim() : null) ??
+        (emailsArr.length > 0 ? String(emailsArr[0]).trim() : null);
+      const pkeFbId = typeof cust.fb_id === 'string' && cust.fb_id ? cust.fb_id : null;
+      const phonesArr = Array.isArray(cust.phone_numbers) ? (cust.phone_numbers as unknown[]) : [];
+      const pkePhone =
+        (typeof p.bill_phone_number === 'string' && p.bill_phone_number.trim() ? p.bill_phone_number.trim() : null) ??
+        (phonesArr.length > 0 ? String(phonesArr[0]).trim() : null);
+      const onlyDigits = (v: string) => v.replace(/\D/g, '');
+
+      let matchedCust: DbCustomer | null = null;
+      if (pkeEmail) {
+        const { data } = await supabase.from('customers').select('*').ilike('email', pkeEmail).limit(2);
+        if (data && data.length === 1) matchedCust = data[0] as DbCustomer;
+      }
+      if (!matchedCust && pkeFbId) {
+        // pancake_fb_id is absent from the generated types (stale), so this
+        // one query is cast at the call site rather than hand-editing types.ts.
+        const { data } = await (supabase.from('customers') as any)
+          .select('*').eq('pancake_fb_id', pkeFbId).limit(2);
+        if (data && data.length === 1) matchedCust = data[0] as DbCustomer;
+      }
+      if (!matchedCust && pkePhone && onlyDigits(pkePhone).length >= 9) {
+        const last9 = onlyDigits(pkePhone).slice(-9);
+        const { data } = await supabase.from('customers').select('*')
+          .ilike('mobile_number', `%${last9}%`).limit(10);
+        const exact = (data ?? []).filter((c) => onlyDigits(String(c.mobile_number ?? '')).endsWith(last9));
+        if (exact.length === 1) matchedCust = exact[0] as DbCustomer;
+      }
+      if (cancelled) return;
+      if (matchedCust) {
+        setSelectedExistingCustomer(matchedCust);
+        setCustomerId(matchedCust.id);
+        setCustomerSearch(matchedCust.full_name || '');
+        toast.success(`Matched existing customer: ${matchedCust.full_name}`);
+      } else {
+        toast.warning('No unique customer match. Select or create the customer manually.');
+      }
+
+      const oc = String(p.order_currency ?? 'JPY').toUpperCase();
+      if (oc && oc !== 'JPY') {
+        toast.warning(`Pancake order currency is ${oc}, not JPY. Check the amounts.`);
+      }
+
+      const total = num(p.total_price);
+      if (total > 0) {
+        setTotalAmount(String(total));
+        setTotalAmountManuallyEdited(true);
+      }
+      const disc = num(p.total_discount);
+      if (disc > 0) { setDiscountMode('amount'); setDiscountInput(String(disc)); }
+      const ship = num(p.shipping_fee);
+      if (ship > 0) setShippingInput(String(ship));
+
+      const rawItems = Array.isArray(p.items) ? (p.items as Record<string, unknown>[]) : [];
+      const titles = rawItems
+        .map((it) => String((it.variation_info as Record<string, unknown> | undefined)?.name ?? '').trim())
+        .filter((t) => t.length > 0);
+
+      const byTitle = new Map<string, { id: string; image_url: string | null } | null>();
+      if (titles.length > 0) {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, title, image_url')
+          .in('title', titles)
+          .neq('status', 'archived');
+        const counts = new Map<string, number>();
+        (prods ?? []).forEach((pr) => counts.set(pr.title, (counts.get(pr.title) ?? 0) + 1));
+        (prods ?? []).forEach((pr) => {
+          byTitle.set(pr.title, counts.get(pr.title) === 1 ? { id: pr.id, image_url: pr.image_url } : null);
+        });
+      }
+      if (cancelled) return;
+
+      let unmatched = 0;
+      const seeded = rawItems.map((it, idx) => {
+        const vi = (it.variation_info ?? {}) as Record<string, unknown>;
+        const title = String(vi.name ?? '').trim() || 'Pancake item';
+        const price = num(vi.retail_price);
+        const qty = Math.max(1, Math.floor(num(it.quantity)) || 1);
+        const hit = byTitle.get(title) ?? null;
+        if (!hit) unmatched += 1;
+        return {
+          row_key: hit ? hit.id : `pke:${idx}`,
+          product_id: hit ? hit.id : null,
+          title,
+          sku: null,
+          unit_price_jpy: price,
+          quantity: qty,
+          line_total_jpy: price * qty,
+          image_url: hit ? hit.image_url : null,
+        };
+      });
+      if (seeded.length > 0) setLineItems(seeded);
+      if (unmatched > 0) {
+        toast.warning(`${unmatched} Pancake item(s) not matched to the catalog. Re-pick them if you need catalog links.`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [urlPancakeOrderId]);
+
   const itemsSubtotal = lineItems.reduce((sum, li) => sum + li.line_total_jpy, 0);
   // Items subtotal in the ACCOUNT currency (line items are stored in JPY).
   const itemsSubtotalAcct = currency === 'PHP' ? Math.round(itemsSubtotal * phpJpyRate) : itemsSubtotal;
@@ -253,30 +409,30 @@ export default function NewAccount() {
   const addLineItem = useCallback((p: CatalogProduct) => {
     const price = p.price_jpy ?? 0;
     setLineItems((prev) => {
-      const idx = prev.findIndex((li) => li.product_id === p.id);
+      const idx = prev.findIndex((li) => li.row_key === p.id);
       if (idx >= 0) {
         const next = [...prev];
         const quantity = next[idx].quantity + 1;
         next[idx] = { ...next[idx], quantity, line_total_jpy: next[idx].unit_price_jpy * quantity };
         return next;
       }
-      return [...prev, { product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price, image_url: p.image_url }];
+      return [...prev, { row_key: p.id, product_id: p.id, title: p.title, sku: p.sku, unit_price_jpy: price, quantity: 1, line_total_jpy: price, image_url: p.image_url }];
     });
     markDirty();
   }, [markDirty]);
 
-  const updateLineItemQty = useCallback((productId: string, raw: string) => {
+  const updateLineItemQty = useCallback((rowKey: string, raw: string) => {
     const quantity = Math.max(1, Math.floor(Number(raw) || 1));
     setLineItems((prev) => prev.map((li) => (
-      li.product_id === productId
+      li.row_key === rowKey
         ? { ...li, quantity, line_total_jpy: li.unit_price_jpy * quantity }
         : li
     )));
     markDirty();
   }, [markDirty]);
 
-  const removeLineItem = useCallback((productId: string) => {
-    setLineItems((prev) => prev.filter((li) => li.product_id !== productId));
+  const removeLineItem = useCallback((rowKey: string) => {
+    setLineItems((prev) => prev.filter((li) => li.row_key !== rowKey));
     markDirty();
   }, [markDirty]);
 
@@ -582,6 +738,8 @@ export default function NewAccount() {
         custom_installments: installmentsToSend,
         loyalty_jpy_amount: loyaltyJpyAmount,
         is_trade: isTrade,
+        // Pancake MACHINE identity - see NewCashOrder for the full rationale.
+        pancake_order_id: urlPancakeOrderId ?? undefined,
       });
 
       // Mark as submitted to allow navigation
@@ -641,6 +799,17 @@ export default function NewAccount() {
           if (dsErr) throw dsErr;
         } catch {
           toast.warning('Account created, but discount/shipping could not be saved. You can edit it from the account page.');
+        }
+      }
+
+      if (urlPancakeOrderId) {
+        const { error: pkeErr } = await supabase
+          .from('pancake_events')
+          .update({ status: 'processed' })
+          .eq('pancake_order_id', urlPancakeOrderId)
+          .eq('status', 'pending');
+        if (pkeErr) {
+          toast.warning('Created, but the Pancake holding-area row was not cleared. Tell an admin.');
         }
       }
 
@@ -974,7 +1143,7 @@ export default function NewAccount() {
               {lineItems.length > 0 && (
                 <div className="space-y-2">
                   {lineItems.map((li) => (
-                    <div key={li.product_id} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                    <div key={li.row_key} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
                       {li.image_url && (
                         <img
                           src={li.image_url}
@@ -992,7 +1161,7 @@ export default function NewAccount() {
                         type="number"
                         min={1}
                         value={li.quantity}
-                        onChange={(e) => updateLineItemQty(li.product_id, e.target.value)}
+                        onChange={(e) => updateLineItemQty(li.row_key, e.target.value)}
                         className="w-14 rounded border border-border bg-background px-2 py-1 text-center text-sm tabular-nums"
                         aria-label={`Quantity for ${li.title}`}
                       />
@@ -1001,7 +1170,7 @@ export default function NewAccount() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => removeLineItem(li.product_id)}
+                        onClick={() => removeLineItem(li.row_key)}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${li.title}`}
                       >

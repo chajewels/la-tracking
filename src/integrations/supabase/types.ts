@@ -262,6 +262,7 @@ export type Database = {
           loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
+          pancake_order_id: string | null
           remaining_balance: number
           shipping_fee: number
           shopify_order_id: string | null
@@ -297,6 +298,7 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          pancake_order_id?: string | null
           remaining_balance: number
           shipping_fee?: number
           shopify_order_id?: string | null
@@ -332,6 +334,7 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          pancake_order_id?: string | null
           remaining_balance?: number
           shipping_fee?: number
           shopify_order_id?: string | null
@@ -752,6 +755,7 @@ export type Database = {
           mobile_number: string | null
           needs_review: boolean
           notes: string | null
+          pancake_fb_id: string | null
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
@@ -780,6 +784,7 @@ export type Database = {
           mobile_number?: string | null
           needs_review?: boolean
           notes?: string | null
+          pancake_fb_id?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -808,6 +813,7 @@ export type Database = {
           mobile_number?: string | null
           needs_review?: boolean
           notes?: string | null
+          pancake_fb_id?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -1351,6 +1357,7 @@ export type Database = {
           loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
+          pancake_order_id: string | null
           payment_plan_months: number
           penalty_count_at_reactivation: number | null
           reactivated_at: string | null
@@ -1387,6 +1394,7 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date: string
+          pancake_order_id?: string | null
           payment_plan_months: number
           penalty_count_at_reactivation?: number | null
           reactivated_at?: string | null
@@ -1423,6 +1431,7 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          pancake_order_id?: string | null
           payment_plan_months?: number
           penalty_count_at_reactivation?: number | null
           reactivated_at?: string | null

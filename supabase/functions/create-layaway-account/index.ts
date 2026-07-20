@@ -59,6 +59,7 @@ Deno.serve(async (req) => {
       lump_sum_total, // number — optional, total lump sum from customer
       custom_installments, // number[] — optional, exact amounts per month
       is_trade, // boolean — optional, trade program flag (locked after creation)
+      pancake_order_id, // string — optional, Pancake machine identity (holding area)
     } = body;
 
     // Validation
@@ -155,6 +156,7 @@ Deno.serve(async (req) => {
         remaining_balance: totalAmountNum,
         notes,
         is_trade: is_trade ?? false,
+        ...(pancake_order_id ? { pancake_order_id: String(pancake_order_id) } : {}),
         created_by_user_id: user.id,
       })
       .select()
