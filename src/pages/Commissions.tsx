@@ -772,7 +772,7 @@ function OverviewTab({
         <ChartCard title="Per-month Pool & Eligible">
           <BarChart data={perMonthChart}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
+            <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} interval={0} angle={-45} textAnchor="end" height={60} />
             <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => name === 'pool' ? formatPHP(v) : v.toLocaleString()} />
@@ -787,7 +787,7 @@ function OverviewTab({
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis type="number" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <YAxis type="category" dataKey="name" width={100} stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatPHP(v)} />
+            <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: 'hsl(var(--card-foreground))' }} formatter={(v: number) => formatPHP(v)} />
             <Bar {...chartAnim} dataKey="total" radius={[0, 4, 4, 0]}>
               {perAgentTotals.map((a) => (
                 <Cell key={a.name} fill={a.color} />
@@ -799,7 +799,7 @@ function OverviewTab({
         <ChartCard title="Per-month Sales (¥)">
           <LineChart data={perMonthChart}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
+            <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} interval={0} angle={-45} textAnchor="end" height={60} />
             <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatJPY(v)} />
             <Line {...chartAnim} type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3 }} />
@@ -811,7 +811,7 @@ function OverviewTab({
             <Pie {...chartAnim} data={statusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
               {statusDist.map(s => <Cell key={s.name} fill={s.color} />)}
             </Pie>
-            <Tooltip contentStyle={tooltipStyle} />
+            <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: 'hsl(var(--card-foreground))' }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
           </PieChart>
         </ChartCard>
@@ -1307,6 +1307,8 @@ function ConfigTab({
   const [splitDrafts, setSplitDrafts] = useState<Record<string, CommissionSplit>>({});
   const [newSplitMonth, setNewSplitMonth] = useState('');
   const [savingMonth, setSavingMonth] = useState<string | null>(null);
+  const [deletingMonth, setDeletingMonth] = useState<string | null>(null);
+  const [addingMonth, setAddingMonth] = useState(false);
 
   useEffect(() => {
     const drafts: Record<string, CommissionSplit> = {};
@@ -1365,14 +1367,32 @@ function ConfigTab({
     }
   }
 
-  function addBlankSplit() {
+  async function deleteSplit(month: string) {
+    const label = monthLabelFromKey(month.slice(0, 7));
+    if (!window.confirm(`Delete the ${label} split? ${label} onward will fall back to inheriting the previous configured month. This cannot be undone.`)) return;
+    setDeletingMonth(month);
+    try {
+      const { error } = await supabase.from('commission_splits').delete().eq('month', month);
+      if (error) throw error;
+      toast.success(`${label} split deleted`);
+      onRefresh();
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message ?? 'Failed to delete split');
+    } finally {
+      setDeletingMonth(null);
+    }
+  }
+
+  async function addBlankSplit() {
     if (!newSplitMonth) { toast.error('Pick a month first'); return; }
-    const monthKey = toDateInputValue(newSplitMonth);
-    const firstOfMonth = monthKey.slice(0, 7) + '-01';
+    const firstOfMonth = `${newSplitMonth.slice(0, 7)}-01`;
     if (splitDrafts[firstOfMonth]) { toast.error('A split for that month already exists'); return; }
-    // Seed from latest prior split.
+    // Seed from the split this month was ALREADY inheriting, so the new row is
+    // an exact copy (percentages, merge_groups, pool/item) and computed results
+    // do not change until a percentage is edited. Pre-history months fall back
+    // to the OLDEST split, not the newest.
     const sorted = [...splits].sort((a, b) => b.month.localeCompare(a.month));
-    const seed = sorted.find(s => s.month <= firstOfMonth) ?? sorted[0] ?? null;
+    const seed = sorted.find(s => s.month <= firstOfMonth) ?? sorted[sorted.length - 1] ?? null;
     const fresh: CommissionSplit = seed
       ? { ...seed, month: firstOfMonth, merge_groups: seed.merge_groups ? seed.merge_groups.map(g => [...g]) : [] }
       : {
@@ -1381,8 +1401,32 @@ function ConfigTab({
           support_pct: 20, verifier_pct: 20, top_sales_pct: 10,
           merge_groups: [], pool_per_item_php: 100,
         };
-    setSplitDrafts(prev => ({ ...prev, [firstOfMonth]: fresh }));
-    setNewSplitMonth('');
+    setAddingMonth(true);
+    try {
+      const { error } = await supabase.from('commission_splits').insert({
+        month: fresh.month,
+        closer_pct: fresh.closer_pct,
+        processor_pct: fresh.processor_pct,
+        coordinator_pct: fresh.coordinator_pct,
+        support_pct: fresh.support_pct,
+        verifier_pct: fresh.verifier_pct,
+        top_sales_pct: fresh.top_sales_pct,
+        merge_groups: fresh.merge_groups ?? [],
+        pool_per_item_php: fresh.pool_per_item_php,
+      });
+      if (error) throw error;
+      toast.success(
+        seed
+          ? `${monthLabelFromKey(firstOfMonth.slice(0, 7))} added — inherited from ${monthLabelFromKey(seed.month.slice(0, 7))}`
+          : `${monthLabelFromKey(firstOfMonth.slice(0, 7))} added — seeded from defaults`
+      );
+      setNewSplitMonth('');
+      onRefresh();
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message ?? 'Failed to add month');
+    } finally {
+      setAddingMonth(false);
+    }
   }
 
   const splitMonths = useMemo(
@@ -1465,9 +1509,9 @@ function ConfigTab({
             <p className="text-[11px] text-muted-foreground">Months without a row inherit the latest prior month.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Input type="month" value={newSplitMonth} onChange={e => setNewSplitMonth(e.target.value + '-01')} className="h-9 w-40" />
-            <Button size="sm" variant="outline" onClick={addBlankSplit}>
-              <Plus className="mr-1 h-4 w-4" /> Add Month
+            <Input type="month" value={newSplitMonth} onChange={e => setNewSplitMonth(e.target.value)} className="h-9 w-40" />
+            <Button size="sm" variant="outline" onClick={addBlankSplit} disabled={addingMonth || !newSplitMonth}>
+              {addingMonth ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />} Add Month
             </Button>
           </div>
         </div>
@@ -1524,9 +1568,21 @@ function ConfigTab({
                           {sum}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <Button size="sm" variant="outline" className="h-7" onClick={() => saveSplit(month)} disabled={savingMonth === month || !sumOk}>
-                            {savingMonth === month ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button size="sm" variant="outline" className="h-7" onClick={() => saveSplit(month)} disabled={savingMonth === month || deletingMonth === month || !sumOk}>
+                              {savingMonth === month ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                              onClick={() => deleteSplit(month)}
+                              disabled={savingMonth === month || deletingMonth === month}
+                              aria-label={`Delete ${monthLabelFromKey(month.slice(0, 7))} split`}
+                            >
+                              {deletingMonth === month ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                       <tr className="border-t border-border/40 bg-muted/10">
@@ -1563,6 +1619,7 @@ const tooltipStyle: React.CSSProperties = {
   border: '1px solid hsl(var(--border))',
   borderRadius: 6,
   fontSize: 12,
+  color: 'hsl(var(--card-foreground))',
 };
 
 function KpiCard({ label, value }: { label: string; value: string }) {
