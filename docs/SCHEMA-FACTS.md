@@ -669,3 +669,20 @@ RULE: schedule edits are split across TWO audit tables. add-installment / delete
 RULE: EditAccountDialog.recalcInstallments redistributes the pool (total − DP − frozen base) across every row that is not paid/cancelled — including OVERDUE rows that already carry penalties. Typing a new Total therefore retroactively raises the base owed on a past-due month. Frozen rows are only those with paid_amount > 0 or status paid/cancelled.
 - Restoring a deleted middle month requires direct SQL, not add-installment: that function appends at MAX(installment_number) + 1 and rejects any due_date not after all existing rows. Insert the row at its original installment_number (validate_schedule_chronology only compares against installment_number − 1, so a middle insert passes), set SET LOCAL app.bypass_immutable_schedule_cols = 'on' to rewrite sibling base amounts, and leave layaway_accounts untouched if total_amount is already correct.
 - Do NOT hand-insert backdated penalties. penalty-engine walks every past-dated trigger it has no penalty_fees row for (`if (now < trigger.date) break;`) and backfills on its next run, writing penalty_fees + layaway_schedule.penalty_amount + total_due_amount consistently. To run it early without handling any key, execute the daily-penalty-engine cron statement in the SQL Editor — it pulls the bearer from vault.decrypted_secrets.
+
+### commission_splits — top-sales tiers (2026-08-01)
+
+- `top_sales_pct` = **Top 1**, `top_sales_2_pct` = **Top 2** (added 2026-08-01,
+  `numeric DEFAULT 0 NOT NULL`). Existing months defaulted to 0, and the engine
+  skips a tier at 0, so the column was a no-op on all historical commissions.
+- Both tiers are decided on the **closer column only**, independent of
+  `merge_groups`: most appearances wins, ties break on higher closer-column
+  amount. Top 2 is resolved with Top 1's key excluded, so it is always the
+  SECOND closer and never the same agent as Top 1.
+- Bonus = `round(pool × pct / 100)` per tier. Both **stack** on top of any role
+  win — a Top 1/Top 2 winner can also win Verifier and keeps both.
+- An unfilled tier (pct 0, or no eligible agent — e.g. a month with only one
+  closer) is simply **not paid**; the pool under-distributes by that share.
+  This matches how Top 1 already behaved when no agent had closer activity.
+- There is **NO CHECK constraint** on the percentage sum. The "must equal 100"
+  rule is enforced client-side only, in `Commissions.tsx` `totalPct` / `saveSplit`.

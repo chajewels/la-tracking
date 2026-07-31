@@ -27,10 +27,13 @@
  *      later roles. earn += round(pool × pct/100).
  *   6. tiedRole: any non-winning agent whose count in some role equals
  *      that role's winner's count gets a display-only tiedRole flag.
- *   7. Top Sales bonus: most CLOSER-COLUMN appearances (independent of
- *      any merging), tie on closer-column amount. bonus = round(
- *      pool × top_sales_pct/100). May overlap a role win. Skipped when
- *      top_sales_pct = 0.
+ *   7. Top Sales bonus, two tiers: most CLOSER-COLUMN appearances
+ *      (independent of any merging), tie on closer-column amount.
+ *      Top 1 = round(pool × top_sales_pct/100). Top 2 = the same rule
+ *      with Top 1 excluded = round(pool × top_sales_2_pct/100), so Top 2
+ *      is always the SECOND closer and never the same agent as Top 1.
+ *      Either may overlap a role win. A tier is skipped when its pct is 0
+ *      or no eligible agent remains; an unfilled tier is not paid.
  *   8. total = earn + bonus.
  *   9. Defensive: missing/null merge_groups → []; a role appears in at
  *      most one group; malformed group entries (< 2 valid members) are
@@ -75,6 +78,7 @@ export interface CommissionSplit {
   support_pct: number;
   verifier_pct: number;
   top_sales_pct: number;
+  top_sales_2_pct: number;
   merge_groups: string[][] | null; // [] or [["support","verifier"]] etc.
   pool_per_item_php: number;
 }
@@ -94,6 +98,7 @@ export interface AgentMonthResult {
   wonRole: string | null;
   tiedRole: string | null;
   isTopSales: boolean;
+  isTopSales2: boolean;
   earn: number;
   bonus: number;
   total: number;
@@ -115,6 +120,8 @@ export interface MonthlyComputation {
   agents: AgentMonthResult[];
   topSalesWinner: string | null; // canonical (display) name
   topSalesBonus: number;
+  topSales2Winner: string | null;
+  topSales2Bonus: number;
 }
 
 export const CANONICAL_ROLES = ['closer', 'processor', 'coordinator', 'support', 'verifier'] as const;
@@ -248,6 +255,7 @@ function bumpAgent(
       wonRole: null,
       tiedRole: null,
       isTopSales: false,
+      isTopSales2: false,
       earn: 0,
       bonus: 0,
       total: 0,
@@ -355,41 +363,77 @@ export function computeMonth(
     }
   }
 
-  // Top Sales — pure closer-column basis.
-  let topSalesWinnerName: string | null = null;
+  // Top Sales — pure closer-column basis, two tiers.
+  // Top 1 = most closer-column appearances, tie on higher closer amount.
+  // Top 2 = the same rule over the remaining agents, Top 1 excluded, i.e.
+  // always "the second closer". Each tier is skipped when its pct is 0 or
+  // when no eligible agent remains — an unfilled tier is simply not paid
+  // and the pool under-distributes by that share (matches Top 1 today).
+  // Both tiers stack on top of any role win.
   const topPct = split ? Number(split.top_sales_pct) || 0 : 0;
+  const top2Pct = split ? Number(split.top_sales_2_pct) || 0 : 0;
+  let topSalesWinnerName: string | null = null;
+  let topSales2WinnerName: string | null = null;
   let topSalesBonus = 0;
-  if (topPct > 0 && closerCol.size > 0) {
+  let topSales2Bonus = 0;
+
+  const pickTopCloser = (
+    excludeKey: string | null,
+  ): { key: string; name: string } | null => {
     let bestKey: string | null = null;
     let best: { name: string; count: number; amount: number } | null = null;
     for (const [key, entry] of closerCol) {
+      if (excludeKey !== null && key === excludeKey) continue;
       if (entry.count <= 0) continue;
       if (!best || entry.count > best.count || (entry.count === best.count && entry.amount > best.amount)) {
         bestKey = key;
         best = entry;
       }
     }
-    if (best && bestKey) {
-      topSalesBonus = Math.round(pool * topPct / 100);
-      topSalesWinnerName = best.name;
-      let agent = agentMap.get(bestKey);
-      if (!agent) {
-        agent = {
-          name: best.name,
-          canonicalKey: bestKey,
-          counts: {},
-          amounts: {},
-          wonRole: null,
-          tiedRole: null,
-          isTopSales: false,
-          earn: 0,
-          bonus: 0,
-          total: 0,
-        };
-        agentMap.set(bestKey, agent);
-      }
-      agent.isTopSales = true;
-      agent.bonus += topSalesBonus;
+    return best && bestKey ? { key: bestKey, name: best.name } : null;
+  };
+
+  const ensureAgent = (key: string, name: string): AgentMonthResult => {
+    let agent = agentMap.get(key);
+    if (!agent) {
+      agent = {
+        name,
+        canonicalKey: key,
+        counts: {},
+        amounts: {},
+        wonRole: null,
+        tiedRole: null,
+        isTopSales: false,
+        isTopSales2: false,
+        earn: 0,
+        bonus: 0,
+        total: 0,
+      };
+      agentMap.set(key, agent);
+    }
+    return agent;
+  };
+
+  // Leader is resolved whenever EITHER tier is funded, so that Top 2 still
+  // means "second closer" even if top_sales_pct happens to be 0.
+  const leader = (topPct > 0 || top2Pct > 0) && closerCol.size > 0 ? pickTopCloser(null) : null;
+
+  if (topPct > 0 && leader) {
+    topSalesBonus = Math.round(pool * topPct / 100);
+    topSalesWinnerName = leader.name;
+    const agent = ensureAgent(leader.key, leader.name);
+    agent.isTopSales = true;
+    agent.bonus += topSalesBonus;
+  }
+
+  if (top2Pct > 0 && leader) {
+    const second = pickTopCloser(leader.key);
+    if (second) {
+      topSales2Bonus = Math.round(pool * top2Pct / 100);
+      topSales2WinnerName = second.name;
+      const agent = ensureAgent(second.key, second.name);
+      agent.isTopSales2 = true;
+      agent.bonus += topSales2Bonus;
     }
   }
 
@@ -415,6 +459,8 @@ export function computeMonth(
     agents,
     topSalesWinner: topSalesWinnerName,
     topSalesBonus,
+    topSales2Winner: topSales2WinnerName,
+    topSales2Bonus,
   };
 }
 

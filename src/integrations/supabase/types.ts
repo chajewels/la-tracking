@@ -455,6 +455,7 @@ export type Database = {
           pool_per_item_php: number
           processor_pct: number
           support_pct: number
+          top_sales_2_pct: number
           top_sales_pct: number
           updated_at: string
           verifier_pct: number
@@ -467,6 +468,7 @@ export type Database = {
           pool_per_item_php?: number
           processor_pct?: number
           support_pct?: number
+          top_sales_2_pct?: number
           top_sales_pct?: number
           updated_at?: string
           verifier_pct?: number
@@ -479,6 +481,7 @@ export type Database = {
           pool_per_item_php?: number
           processor_pct?: number
           support_pct?: number
+          top_sales_2_pct?: number
           top_sales_pct?: number
           updated_at?: string
           verifier_pct?: number

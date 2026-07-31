@@ -850,10 +850,18 @@ function OverviewTab({
               })}
               {(activeMonth.split.top_sales_pct || 0) > 0 && (
                 <tr className="border-t border-border bg-muted/20">
-                  <td className="px-3 py-2 flex items-center gap-1.5"><Star className="h-3.5 w-3.5 text-primary" /> Top Sales</td>
+                  <td className="px-3 py-2 flex items-center gap-1.5"><Star className="h-3.5 w-3.5 text-primary" /> Top 1</td>
                   <td className="px-3 py-2 text-right tabular-nums">{activeMonth.split.top_sales_pct}%</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatPHP(activeMonth.topSalesBonus)}</td>
                   <td className="px-3 py-2">{activeMonth.topSalesWinner ?? <span className="text-muted-foreground">—</span>}</td>
+                </tr>
+              )}
+              {(activeMonth.split.top_sales_2_pct || 0) > 0 && (
+                <tr className="border-t border-border bg-muted/20">
+                  <td className="px-3 py-2 flex items-center gap-1.5"><Star className="h-3.5 w-3.5 text-primary/60" /> Top 2</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{activeMonth.split.top_sales_2_pct}%</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatPHP(activeMonth.topSales2Bonus)}</td>
+                  <td className="px-3 py-2">{activeMonth.topSales2Winner ?? <span className="text-muted-foreground">—</span>}</td>
                 </tr>
               )}
             </tbody>
@@ -923,7 +931,12 @@ function AgentsTab({
                 <div className="flex items-center gap-1">
                   {a.isTopSales && (
                     <Badge variant="outline" className="border-primary/40 bg-primary/10 text-[10px] text-primary">
-                      <Star className="mr-1 h-3 w-3" /> Top Sales
+                      <Star className="mr-1 h-3 w-3" /> Top 1
+                    </Badge>
+                  )}
+                  {a.isTopSales2 && (
+                    <Badge variant="outline" className="border-primary/25 bg-primary/5 text-[10px] text-primary/80">
+                      <Star className="mr-1 h-3 w-3" /> Top 2
                     </Badge>
                   )}
                   {a.tiedRole && (
@@ -1004,7 +1017,8 @@ function MonthlyTab({
                 <th className="px-3 py-2 text-right font-medium">Pending</th>
                 <th className="px-3 py-2 text-right font-medium">Sales ¥</th>
                 <th className="px-3 py-2 text-right font-medium">Pool ₱</th>
-                <th className="px-3 py-2 text-left font-medium">Top Sales</th>
+                <th className="px-3 py-2 text-left font-medium">Top 1</th>
+                <th className="px-3 py-2 text-left font-medium">Top 2</th>
               </tr>
             </thead>
             <tbody>
@@ -1024,11 +1038,12 @@ function MonthlyTab({
                     <td className="px-3 py-2 text-right tabular-nums">{formatJPY(m.salesAmt)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatPHP(m.pool)}</td>
                     <td className="px-3 py-2">{m.topSalesWinner ?? <span className="text-muted-foreground">—</span>}</td>
+                    <td className="px-3 py-2">{m.topSales2Winner ?? <span className="text-muted-foreground">—</span>}</td>
                   </tr>
                 );
               })}
               {monthly.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-10 text-center text-sm text-muted-foreground">No data</td></tr>
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-sm text-muted-foreground">No data</td></tr>
               )}
             </tbody>
           </table>
@@ -1330,14 +1345,15 @@ function ConfigTab({
       + (Number(s.coordinator_pct) || 0)
       + (Number(s.support_pct) || 0)
       + (Number(s.verifier_pct) || 0)
-      + (Number(s.top_sales_pct) || 0);
+      + (Number(s.top_sales_pct) || 0)
+      + (Number(s.top_sales_2_pct) || 0);
   }
 
   async function saveSplit(month: string) {
     const draft = splitDrafts[month];
     if (!draft) return;
     if (totalPct(draft) !== 100) {
-      toast.error('Closer + Processor + Coordinator + Support + Verifier + Top Sales must equal 100.');
+      toast.error('Closer + Processor + Coordinator + Support + Verifier + Top 1 + Top 2 must equal 100.');
       return;
     }
     setSavingMonth(month);
@@ -1350,6 +1366,7 @@ function ConfigTab({
         support_pct: draft.support_pct,
         verifier_pct: draft.verifier_pct,
         top_sales_pct: draft.top_sales_pct,
+        top_sales_2_pct: draft.top_sales_2_pct,
         merge_groups: draft.merge_groups ?? [],
         pool_per_item_php: draft.pool_per_item_php,
       };
@@ -1398,7 +1415,7 @@ function ConfigTab({
       : {
           month: firstOfMonth,
           closer_pct: 30, processor_pct: 20, coordinator_pct: 0,
-          support_pct: 20, verifier_pct: 20, top_sales_pct: 10,
+          support_pct: 20, verifier_pct: 20, top_sales_pct: 10, top_sales_2_pct: 0,
           merge_groups: [], pool_per_item_php: 100,
         };
     setAddingMonth(true);
@@ -1411,6 +1428,7 @@ function ConfigTab({
         support_pct: fresh.support_pct,
         verifier_pct: fresh.verifier_pct,
         top_sales_pct: fresh.top_sales_pct,
+        top_sales_2_pct: fresh.top_sales_2_pct,
         merge_groups: fresh.merge_groups ?? [],
         pool_per_item_php: fresh.pool_per_item_php,
       });
@@ -1525,7 +1543,8 @@ function ConfigTab({
                 <th className="px-2 py-2 text-right font-medium">Coord %</th>
                 <th className="px-2 py-2 text-right font-medium">Sup %</th>
                 <th className="px-2 py-2 text-right font-medium">Ver %</th>
-                <th className="px-2 py-2 text-right font-medium">Top %</th>
+                <th className="px-2 py-2 text-right font-medium">Top 1 %</th>
+                <th className="px-2 py-2 text-right font-medium">Top 2 %</th>
                 <th className="px-3 py-2 text-right font-medium">Pool/Item ₱</th>
                 <th className="px-2 py-2 text-right font-medium">Sum</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
@@ -1533,7 +1552,7 @@ function ConfigTab({
             </thead>
             <tbody>
               {splitMonths.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
+                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
               ) : (
                 splitMonths.map(month => {
                   const d = splitDrafts[month];
@@ -1543,7 +1562,7 @@ function ConfigTab({
                     <Fragment key={month}>
                       <tr className="border-t border-border">
                         <td className="px-3 py-2 text-xs font-medium">{monthLabelFromKey(month.slice(0, 7))}</td>
-                        {(['closer_pct', 'processor_pct', 'coordinator_pct', 'support_pct', 'verifier_pct', 'top_sales_pct'] as const).map(k => (
+                        {(['closer_pct', 'processor_pct', 'coordinator_pct', 'support_pct', 'verifier_pct', 'top_sales_pct', 'top_sales_2_pct'] as const).map(k => (
                           <td key={k} className="px-1 py-1">
                             <Input
                               type="number"
@@ -1586,7 +1605,7 @@ function ConfigTab({
                         </td>
                       </tr>
                       <tr className="border-t border-border/40 bg-muted/10">
-                        <td colSpan={10} className="px-3 py-2">
+                        <td colSpan={11} className="px-3 py-2">
                           <MergeChipsEditor
                             split={d}
                             onChange={(groups) => updateDraft(month, 'merge_groups', groups)}
@@ -1719,7 +1738,7 @@ export default function Commissions() {
       const [salesData, agentsRes, splitsRes] = await Promise.all([
         fetchAllSalesLog(),
         client.from('commission_agents').select('id, name, color, active, start_month, sort_order'),
-        client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
+        client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, top_sales_2_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
       ]);
       if (agentsRes.error) throw agentsRes.error;
       if (splitsRes.error) throw splitsRes.error;
