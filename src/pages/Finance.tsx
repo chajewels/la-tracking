@@ -5,7 +5,7 @@ import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from '
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Brush,
+  ResponsiveContainer, Legend, Brush, ComposedChart,
 } from 'recharts';
 import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
 import MonthlyCashOrdersChart from '@/components/finance/MonthlyCashOrdersChart';
@@ -36,6 +36,8 @@ import {
   forecastDrilldownQueryOptions,
   dailyLayawayQueryOptions,
   dailyLayawayLastMonthQueryOptions,
+  dailyCashOrdersQueryOptions,
+  dailyCashOrdersLastMonthQueryOptions,
   collectionAnalyticsQueryOptions,
   staffPerformanceQueryOptions,
   topOutstandingCustomersQueryOptions,
@@ -267,7 +269,14 @@ export default function Finance() {
   });
 
   const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
-    ...dailyLayawayQueryOptions(currencyFilter),
+    // Pinned to 'ALL' so this chart is ALWAYS JPY-normalised, independent of the
+    // currency toggle — it shares one Y axis with the cash-order line.
+    ...dailyLayawayQueryOptions('ALL'),
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const { data: dailyCashOrders } = useQuery({
+    ...dailyCashOrdersQueryOptions(),
     enabled: tab === 'overview' && !!session,
   });
 
@@ -276,11 +285,22 @@ export default function Finance() {
     const today = now.getDate();
     const byDay = new Map<number, number>();
     (dailyLayawaySales ?? []).forEach(r => { byDay.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
-    return Array.from({ length: today }, (_, i) => ({ day: i + 1, value: Math.round(byDay.get(i + 1) ?? 0) }));
-  }, [dailyLayawaySales]);
+    const byDayCash = new Map<number, number>();
+    (dailyCashOrders ?? []).forEach(r => { byDayCash.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
+    return Array.from({ length: today }, (_, i) => ({
+      day: i + 1,
+      value: Math.round(byDay.get(i + 1) ?? 0),
+      cash: Math.round(byDayCash.get(i + 1) ?? 0),
+    }));
+  }, [dailyLayawaySales, dailyCashOrders]);
 
   const { data: dailyLayawayLastMonth, isLoading: dailyLayawayLastMonthLoading } = useQuery({
-    ...dailyLayawayLastMonthQueryOptions(currencyFilter),
+    ...dailyLayawayLastMonthQueryOptions('ALL'),
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const { data: dailyCashOrdersLastMonth } = useQuery({
+    ...dailyCashOrdersLastMonthQueryOptions(),
     enabled: tab === 'overview' && !!session,
   });
 
@@ -289,8 +309,14 @@ export default function Finance() {
     const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
     const byDay = new Map<number, number>();
     (dailyLayawayLastMonth ?? []).forEach(r => { byDay.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
-    return Array.from({ length: lastDay }, (_, i) => ({ day: i + 1, value: Math.round(byDay.get(i + 1) ?? 0) }));
-  }, [dailyLayawayLastMonth]);
+    const byDayCash = new Map<number, number>();
+    (dailyCashOrdersLastMonth ?? []).forEach(r => { byDayCash.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
+    return Array.from({ length: lastDay }, (_, i) => ({
+      day: i + 1,
+      value: Math.round(byDay.get(i + 1) ?? 0),
+      cash: Math.round(byDayCash.get(i + 1) ?? 0),
+    }));
+  }, [dailyLayawayLastMonth, dailyCashOrdersLastMonth]);
 
   const { data: tradeKpis } = useQuery({
     queryKey: ['trade-kpis'],
@@ -605,12 +631,12 @@ export default function Finance() {
               <div className="lg:col-span-1 flex flex-col gap-6">
               {/* New Layaway Sales — daily (month-to-date) */}
               <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Sales · This month</h3>
                 {dailyLayawayLoading ? (
                   <Skeleton className="h-[220px] rounded-lg" />
                 ) : (
                   <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <ComposedChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.6} />
@@ -618,22 +644,24 @@ export default function Finance() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
+                      <XAxis dataKey="day" fontSize={9} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={0} angle={-45} textAnchor="end" height={48} />
                       <YAxis hide />
-                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Area {...chartAnim} type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: chartColors.primary }} />
-                    </AreaChart>
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), 'JPY')} labelFormatter={(d) => `Day ${d}`} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area {...chartAnim} type="monotone" name="Layaway" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: chartColors.primary }} />
+                      <Line {...chartAnim} type="monotone" name="Cash Orders" dataKey="cash" stroke={chartColors.positive} strokeWidth={2} dot={{ r: 2, fill: chartColors.positive }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </div>
               {/* Layaway Sales — last month (full previous month) */}
               <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> Layaway Sales · Last month</h3>
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> Sales · Last month</h3>
                 {dailyLayawayLastMonthLoading ? (
                   <Skeleton className="h-[220px] rounded-lg" />
                 ) : (
                   <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={dailyLayawayLastMonthSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <ComposedChart data={dailyLayawayLastMonthSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="dailyLayawayLastGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.6} />
@@ -641,11 +669,13 @@ export default function Finance() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawayLastMonthSeries.length / 8) - 1)} />
+                      <XAxis dataKey="day" fontSize={9} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={0} angle={-45} textAnchor="end" height={48} />
                       <YAxis hide />
-                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Area {...chartAnim} type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayLastGradient)" dot={{ r: 3, fill: chartColors.primary }} />
-                    </AreaChart>
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), 'JPY')} labelFormatter={(d) => `Day ${d}`} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area {...chartAnim} type="monotone" name="Layaway" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayLastGradient)" dot={{ r: 3, fill: chartColors.primary }} />
+                      <Line {...chartAnim} type="monotone" name="Cash Orders" dataKey="cash" stroke={chartColors.positive} strokeWidth={2} dot={{ r: 2, fill: chartColors.positive }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </div>

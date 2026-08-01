@@ -7,6 +7,8 @@ import {
   forecastScheduleQueryOptions,
   dailyLayawayQueryOptions,
   dailyLayawayLastMonthQueryOptions,
+  dailyCashOrdersQueryOptions,
+  dailyCashOrdersLastMonthQueryOptions,
   collectionAnalyticsQueryOptions,
   staffPerformanceQueryOptions,
   topOutstandingCustomersQueryOptions,
@@ -54,6 +56,8 @@ export function usePrefetchHeavyPages() {
       queryClient.prefetchQuery(forecastScheduleQueryOptions());
       queryClient.prefetchQuery(dailyLayawayQueryOptions('ALL'));
       queryClient.prefetchQuery(dailyLayawayLastMonthQueryOptions('ALL'));
+      queryClient.prefetchQuery(dailyCashOrdersQueryOptions());
+      queryClient.prefetchQuery(dailyCashOrdersLastMonthQueryOptions());
       queryClient.prefetchQuery(collectionAnalyticsQueryOptions('ALL'));
       queryClient.prefetchQuery(staffPerformanceQueryOptions());
       queryClient.prefetchQuery(topOutstandingCustomersQueryOptions());

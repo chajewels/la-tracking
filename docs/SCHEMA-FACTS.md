@@ -692,3 +692,25 @@ RULE: EditAccountDialog.recalcInstallments redistributes the pool (total − DP 
 `trg_validate_schedule_start_year` and its function `validate_schedule_start_year` were DROPPED in production on 2026-08-01 (Bug #253). They are still present in supabase/migrations/20260705230000_baseline_live_schema.sql at lines ~6481-6502 and ~6936 — that file is a historical snapshot and was deliberately NOT edited. Live schema is authoritative: the start-year trigger does not exist. Do not recreate it; it hardcoded a 2025-26 season.
 
 Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFORE INSERT OR UPDATE OF due_date) — installment N due_date must be after installment N-1. This is the durable schedule guard.
+
+### Finance overview daily sales charts — layaway + cash orders (2026-08-01)
+
+- "New Sales · This month" and "Sales · Last month" plot TWO series: layaway
+  (gold area, `get_daily_new_layaway_sales[_last_month]`) and cash orders
+  (green line, `get_daily_cash_orders[_last_month]`).
+- Both are **always JPY**, independent of the Finance currency toggle: the
+  layaway RPCs are called with `'ALL'` (their JPY-normalising mode) and the cash
+  RPCs are JPY-only by design with no `currency_mode` parameter. PHP is
+  converted with `total_amount / rate` (DIVISION) from
+  `system_settings.php_jpy_rate`. This matches the Cash Orders KPI row, which is
+  already always-JPY.
+- `cash_orders.currency` has a DDL default of `'JPY'` but that default is
+  effectively dead: `NewCashOrder.tsx` renders a required Currency picker and
+  always sends `currency` explicitly. **PHP cash orders are real** and the PHP
+  conversion arm in these RPCs is load-bearing, not dead code.
+- **The two series use DIFFERENT definitions of a "sale" — deliberate:**
+  layaway counts an account once it has any non-voided payment; cash counts an
+  order at `status = 'completed'`. Both bucket by `order_date` (NOT
+  `completed_at`), so both lines answer the same time question.
+- Both series are zero-filled for every day of the month client-side, and the
+  X axis uses `interval={0}` with -45° labels so days with no sales are visible.

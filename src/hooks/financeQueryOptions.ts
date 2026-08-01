@@ -58,6 +58,28 @@ export const dailyLayawayLastMonthQueryOptions = (currencyFilter: CurrencyFilter
   },
 });
 
+export const dailyCashOrdersQueryOptions = () => ({
+  queryKey: ['daily-cash-orders'] as const,
+  staleTime: 120_000,
+  placeholderData: keepPreviousData,
+  queryFn: async () => {
+    const { data, error } = await supabase.rpc('get_daily_cash_orders' as any);
+    if (error) throw error;
+    return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
+  },
+});
+
+export const dailyCashOrdersLastMonthQueryOptions = () => ({
+  queryKey: ['daily-cash-orders-last-month'] as const,
+  staleTime: 120_000,
+  placeholderData: keepPreviousData,
+  queryFn: async () => {
+    const { data, error } = await supabase.rpc('get_daily_cash_orders_last_month' as any);
+    if (error) throw error;
+    return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
+  },
+});
+
 export const collectionAnalyticsQueryOptions = (currencyFilter: CurrencyFilter) => ({
   queryKey: ['collection-analytics', currencyFilter] as const,
   staleTime: 120_000,
