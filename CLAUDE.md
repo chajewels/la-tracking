@@ -484,6 +484,7 @@ To add a new screenshot for any Help section:
 
 ## Account Creation Rules
 
+- Installment 1 due date = order month + 1 month, never the order month itself. Same day-of-month as order_date; if that day does not exist in the target month, fall back to the last day of that month. Enforced in three places that must always agree: create-layaway-account (index.ts, `getMonth() + i + 1`), restructure-account (index.ts, `getMonth() + i + 1`), and the frontend preview generateScheduleDates() in src/lib/calculations.ts. Any change to one must be mirrored in the other two.
 - Downpayment is NEVER marked paid at creation
 - `dp_paid` always starts at 0; `total_paid = 0` on new accounts
 - DP is only marked paid after payment submission is validated by staff

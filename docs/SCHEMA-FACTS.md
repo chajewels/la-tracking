@@ -686,3 +686,9 @@ RULE: EditAccountDialog.recalcInstallments redistributes the pool (total − DP 
   This matches how Top 1 already behaved when no agent had closer activity.
 - There is **NO CHECK constraint** on the percentage sum. The "must equal 100"
   rule is enforced client-side only, in `Commissions.tsx` `totalPct` / `saveSplit`.
+
+### layaway_schedule triggers (updated 2026-08-01)
+
+`trg_validate_schedule_start_year` and its function `validate_schedule_start_year` were DROPPED in production on 2026-08-01 (Bug #253). They are still present in supabase/migrations/20260705230000_baseline_live_schema.sql at lines ~6481-6502 and ~6936 — that file is a historical snapshot and was deliberately NOT edited. Live schema is authoritative: the start-year trigger does not exist. Do not recreate it; it hardcoded a 2025-26 season.
+
+Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFORE INSERT OR UPDATE OF due_date) — installment N due_date must be after installment N-1. This is the durable schedule guard.

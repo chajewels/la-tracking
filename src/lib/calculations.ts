@@ -33,7 +33,7 @@ export function generateScheduleDates(orderDate: string, planMonths: number): st
 
   for (let i = 0; i < planMonths; i++) {
     const date = new Date(y, m - 1, dayOfMonth);      // local-time constructor — no UTC parsing
-    date.setMonth(date.getMonth() + i);               // setMonth handles year rollover automatically
+    date.setMonth(date.getMonth() + i + 1);           // installment 1 = order month + 1 (matches create-layaway-account)
     // Handle months with fewer days (e.g., Feb 30 → Feb 28)
     if (date.getDate() !== dayOfMonth) {
       date.setDate(0); // last day of previous month
