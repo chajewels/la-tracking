@@ -615,3 +615,9 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
 
 ## Pancake POS integration
 - pancake-order-webhook receiver live (Phase 1) — captures Pancake POS order events into pancake_events ledger; verify_jwt=false; auth via x-pancake-secret shared header; no cash_orders write yet.
+
+## Retired edge functions
+
+- 2026-08-01: parse-import-docs RETIRED (returns 410, body `{ error, disabled: true }`). It was one-time tooling for the March 2026 bulk-import cohort and its AI system prompt hardcoded the 2024-2025 season for year inference — "Use year 2025 for months Oct-Dec and 2025 for Jan-Sep" (both branches read 2025, a contradiction that was never caught) and "due_date (use year 2025 for most dates)". Any document parsed after that season would be stamped 2025. Zero callers: nothing in src/ invoked it. Retired during the hardcode audit that followed Bug #253. config.toml keeps verify_jwt = true, so unauthenticated calls get 401 and authenticated calls get 410. Do not re-enable — a replacement must take the base year as an explicit parameter.
+- 2026-08-01 (audit note): bulk-import is also orphaned — no src/ caller, and BulkPaymentImport.tsx invokes record-payment, not bulk-import (the shared name is only a downloaded CSV filename). It was LEFT IN PLACE because it contains no hardcoded dates of its own — it writes layaway_schedule.due_date verbatim from its payload. It is now the only remaining unreferenced write path into layaway_schedule; revisit if it is ever exposed to the UI.
+- 2026-04-10: recalculate-penalties DISABLED (returns 410). It silently waived penalties that penalty-engine correctly created. Use penalty-engine (daily cron), add-penalty, or approve-waiver.
