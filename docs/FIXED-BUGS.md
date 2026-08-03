@@ -3610,7 +3610,7 @@ Follow-up (b110e73, 2cc40db, 2026-07-12): the self-healing rebuild only fires wh
 - **Not affected:** no monetary impact. NewAccount.tsx builds `custom_installments` purely by index with no dates in the payload, so custom amounts always landed on the correct backend dates — the defect was labelling only. `create-layaway-account` needed no change; its date logic was already correct.
 - **Related:** restructure-account was exposed to the same trigger when zero installments are paid (`nextInstallmentNumber = 1`, `lastPaidDate = orderDate`). Unblocked by the same drop. `buildSchedule()` in calculations.ts is dead code (zero callers) but consumes the same fixed helper.
 
-### Bug #253 — schedule rows stuck at `partially_paid` when the denominator changed after allocation (2026-08-03) ✅
+### Bug #254 — schedule rows stuck at `partially_paid` when the denominator changed after allocation (2026-08-03) ✅
 
 - **Symptom:** Per-Account Health showed 1 failed / 495. Invoice #19387 failed
   `audit_account` CHECK 7 "schedule status consistent with allocations". Four

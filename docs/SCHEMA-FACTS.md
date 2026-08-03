@@ -715,7 +715,7 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
 - Both series are zero-filled for every day of the month client-side, and the
   X axis uses `interval={0}` with -45° labels so days with no sales are visible.
 
-### layaway_schedule status recomputation (2026-08-03, Bug #253)
+### layaway_schedule status recomputation (2026-08-03, Bug #254)
 
 - `layaway_schedule.status` is NOT derived — it is a stored column written by
   whichever path last touched the row. Any operation that changes the
