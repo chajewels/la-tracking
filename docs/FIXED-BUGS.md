@@ -3609,3 +3609,55 @@ Follow-up (b110e73, 2cc40db, 2026-07-12): the self-healing rebuild only fires wh
 - **Fix:** dropped `trg_validate_schedule_start_year` and `validate_schedule_start_year` (Option A — the guardrail was scoped to the 2025-26 import season and had expired; `trg_validate_schedule_chronology` remains as the durable guard). Frontend changed to `+ i + 1`. Rule documented in CLAUDE.md Account Creation Rules.
 - **Not affected:** no monetary impact. NewAccount.tsx builds `custom_installments` purely by index with no dates in the payload, so custom amounts always landed on the correct backend dates — the defect was labelling only. `create-layaway-account` needed no change; its date logic was already correct.
 - **Related:** restructure-account was exposed to the same trigger when zero installments are paid (`nextInstallmentNumber = 1`, `lastPaidDate = orderDate`). Unblocked by the same drop. `buildSchedule()` in calculations.ts is dead code (zero callers) but consumes the same fixed helper.
+
+### Bug #253 — schedule rows stuck at `partially_paid` when the denominator changed after allocation (2026-08-03) ✅
+
+- **Symptom:** Per-Account Health showed 1 failed / 495. Invoice #19387 failed
+  `audit_account` CHECK 7 "schedule status consistent with allocations". Four
+  further rows on #17041, #17174, #17599 (x2) had the same failure. #19387's
+  account was also stuck `active` with `remaining_balance = 0` — a customer who
+  had paid in full still showing as open.
+- **TWO DISTINCT CAUSES, same symptom:**
+  1. **#19387 — base edited after allocation.** Audit trail: payment allocated
+     14:29:33 against `base_installment_amount = 2650.00`, applying 2649.80 —
+     20 centavos short, so `partially_paid` was CORRECT at the time. At 14:31:23
+     staff edited the base down to 2649.80 via `edit-schedule-item` →
+     `admin_update_schedule_base`, which writes `base_installment_amount`,
+     `total_due_amount` and (only when already paid) `paid_amount` — but NEVER
+     `status`. The allocation was now exactly full; nothing re-evaluated it.
+     The account's `status` was likewise never recomputed, only its
+     `remaining_balance`.
+  2. **#17041 / #17174 / #17599 (2026-04-21) — penalty allocated in a later
+     transaction than the installment.** In `allocate_payment_atomic`,
+     `v_paid_amt` is written as the INSTALLMENT portion only, while `v_fully`
+     tests `v_new_paid + v_row_pen`. When the penalty lands in a separate
+     transaction, the earlier pass sees `v_row_pen = 0`, writes
+     `partially_paid` and a base-only `paid_amount`. The later penalty
+     allocation completes the ceiling but re-evaluates nothing.
+- **Fix (cause 1):** `admin_update_schedule_base` now recomputes schedule status
+  from non-voided allocations after the base write, UPWARD ONLY, and closes the
+  account (`completed` + `completed_at`) when the balance is zero and no
+  schedule row is left open. Both writes guarded. Applied via SQL 2026-08-03.
+- **Fix (cause 2):** data-only correction of the 4 affected rows (`status` →
+  `paid`, `paid_amount` → allocation sum), guarded so allocations exceeding the
+  ceiling could not be swept in. No allocations deleted, no money moved — all
+  three accounts were already `completed` with correct balances.
+- **Verified:** `audit_account` returns `all_pass: true` for 19387, 17041,
+  17174, 17599.
+- **FALSE ALARMS during investigation — do not re-chase:**
+  - `check_allocation_ceiling` was suspected of being bypassed. It was NOT.
+    Re-checking all 18 rows across the three accounts gave `over_ceiling = 0.00`
+    on every row; the trigger is enabled (`tgenabled = 'O'`) and correct. The
+    apparent overage came from computing the ceiling off `base` alone while
+    ignoring `penalty_amount`, which is non-zero on exactly those four rows.
+  - The round-number "gaps" (4000/3000/2000/1000) were not missing money — they
+    are legitimate `allocation_type = 'penalty'` rows from STEP A of the
+    waterfall. `audit_account` CHECK 4 correctly passes them, since it only
+    flags allocations exceeding the payment amount.
+  - This is NOT the remainder-placement defect. `total_due_amount` equals
+    `base + penalty + carried` on every affected row.
+- **STILL OPEN (not fixed by this):** cause 2 has no structural prevention.
+  `allocate_payment_atomic` still writes `v_paid_amt` installment-only while
+  `v_fully` accounts for `v_row_pen`, so a penalty allocated in a separate
+  transaction from its installment can still strand a row. No instances since
+  2026-04-21.

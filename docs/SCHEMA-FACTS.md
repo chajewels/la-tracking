@@ -714,3 +714,29 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   `completed_at`), so both lines answer the same time question.
 - Both series are zero-filled for every day of the month client-side, and the
   X axis uses `interval={0}` with -45° labels so days with no sales are visible.
+
+### layaway_schedule status recomputation (2026-08-03, Bug #253)
+
+- `layaway_schedule.status` is NOT derived — it is a stored column written by
+  whichever path last touched the row. Any operation that changes the
+  DENOMINATOR (`base_installment_amount`, `penalty_amount`, `carried_amount`,
+  `total_due_amount`) must recompute status, or the row silently strands.
+- `admin_update_schedule_base` is the SANCTIONED bypass of
+  `prevent_base_amount_change` — it sets `app.bypass_immutable_schedule_cols`
+  deliberately (this is by design, not a leak). As of 2026-08-03 it also owns
+  status recomputation: UPWARD ONLY (`partially_paid`/`pending`/`overdue` →
+  `paid` when non-voided allocations cover `total_due_amount` within 0.01), plus
+  a guarded account close to `completed`.
+- **Downgrades are deliberately NOT automated.** A row raised above its
+  allocations stays `paid` and is surfaced by `audit_account` CHECK 7 ARM A for
+  human review. `prevent_paid_row_modification` permits `paid`-row writes only
+  under three narrow rules, and silently regressing a paid row is the wrong
+  default on a money table.
+- **`paid_amount` vs allocations asymmetry in `allocate_payment_atomic`:**
+  `v_paid_amt` is the INSTALLMENT portion only; `v_fully` tests
+  `v_new_paid + v_row_pen`. So on a row with penalties, `paid_amount` is
+  legitimately LESS than the allocation sum. Do not "fix" `paid_amount` to match
+  allocations without accounting for `allocation_type = 'penalty'` rows.
+- `audit_account` CHECK 4 ("no duplicate allocations") only fires when a single
+  payment's allocations EXCEED `amount_paid`. Multiple allocation rows per
+  payment — and per schedule row — are normal and expected.
