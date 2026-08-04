@@ -455,6 +455,9 @@ export default function CashOrderDetail() {
   const [manageOpen, setManageOpen] = useState(false);
   const [manageTotal, setManageTotal] = useState('');
   const [manageSaving, setManageSaving] = useState(false);
+  // Business order date (cash_orders.order_date). NOT created_at — the DB
+  // insert timestamp is an immutable audit fact and is never edited here.
+  const [manageOrderDate, setManageOrderDate] = useState('');
   // Discount & shipping (descriptive; order currency). Model 1 — these do NOT
   // auto-change total_amount; the admin explicitly clicks "Apply to total".
   const [manageDiscountMode, setManageDiscountMode] = useState<'amount' | 'percent'>(order?.discount_type === 'percent' ? 'percent' : 'amount');
@@ -474,6 +477,7 @@ export default function CashOrderDetail() {
   const openManageInvoice = useCallback(() => {
     if (!order) return;
     setManageTotal(String(Number(order.total_amount)));
+    setManageOrderDate(String(order.order_date).slice(0, 10));
     setManageDiscountMode(order.discount_type === 'percent' ? 'percent' : 'amount');
     setManageDiscountInput(order.discount_type ? String(order.discount_value ?? '') : '');
     setManageShippingInput(order.shipping_fee ? String(order.shipping_fee) : '');
@@ -493,13 +497,20 @@ export default function CashOrderDetail() {
       // Skip the write entirely if nothing changed — total OR discount/shipping.
       const nextDiscountType = manageDiscountInput === '' ? null : manageDiscountMode;
       const nextDiscountValue = manageDiscountInput === '' ? null : (parseFloat(manageDiscountInput) || 0);
+      const nextOrderDate = manageOrderDate.slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(nextOrderDate) || isNaN(new Date(nextOrderDate).getTime())) {
+        toast.error('Enter a valid order date');
+        setManageSaving(false);
+        return;
+      }
+      const dateChanged = nextOrderDate !== String(order.order_date).slice(0, 10);
       const totalChanged = newTotal !== Number(order.total_amount);
       const discountChanged =
         manageDiscountAmount !== Number(order.discount_amount || 0) ||
         nextDiscountType !== (order.discount_type ?? null) ||
         nextDiscountValue !== (order.discount_value ?? null);
       const shippingChanged = manageShippingFee !== Number(order.shipping_fee || 0);
-      if (!totalChanged && !discountChanged && !shippingChanged) {
+      if (!totalChanged && !discountChanged && !shippingChanged && !dateChanged) {
         setManageOpen(false);
         setManageSaving(false);
         return;
@@ -520,10 +531,12 @@ export default function CashOrderDetail() {
         discount_type: nextDiscountType,
         discount_value: nextDiscountValue,
         shipping_fee: manageShippingFee,
+        order_date: nextOrderDate,
       };
       if (!isAdmin) {
         delete (updatePayload as any).total_amount;
         delete (updatePayload as any).remaining_balance;
+        delete (updatePayload as any).order_date;
       }
       if (Object.keys(updatePayload).length === 0) {
         toast.error('Only admins can edit the cash order total');
@@ -546,8 +559,9 @@ export default function CashOrderDetail() {
           old_value_json: {
             total_amount: Number(order.total_amount),
             remaining_balance: Number(order.remaining_balance),
+            order_date: String(order.order_date).slice(0, 10),
           },
-          new_value_json: { total_amount: newTotal, remaining_balance },
+          new_value_json: { total_amount: newTotal, remaining_balance, order_date: nextOrderDate },
           performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
         });
       } catch { /* non-blocking */ }
@@ -557,12 +571,14 @@ export default function CashOrderDetail() {
       qc.invalidateQueries({ queryKey: ['cash-order', id] });
       qc.invalidateQueries({ queryKey: ['cash-orders'] });
       qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      qc.invalidateQueries({ queryKey: ['daily-cash-orders'] });
+      qc.invalidateQueries({ queryKey: ['daily-cash-orders-last-month'] });
     } catch (err: unknown) {
       toast.error((err as Error).message || 'Failed to update total');
     } finally {
       setManageSaving(false);
     }
-  }, [order, manageTotal, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, isAdmin, qc, id]);
+  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, isAdmin, qc, id]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -1654,6 +1670,20 @@ export default function CashOrderDetail() {
             not change the amount paid or loyalty.
           </p>
           <div className="space-y-2">
+            <Label htmlFor="manage-order-date">Order Date</Label>
+            <Input
+              id="manage-order-date"
+              type="date"
+              value={manageOrderDate}
+              onChange={e => setManageOrderDate(e.target.value)}
+              readOnly={!isAdmin}
+              disabled={!isAdmin}
+              className={`h-9 text-sm ${isAdmin ? 'bg-background border-border' : 'bg-muted cursor-not-allowed'}`}
+              title={isAdmin ? undefined : 'Only admins can edit the order date.'}
+            />
+            <p className="text-[11px] text-muted-foreground pb-1">
+              Business date of the order. Changing it moves this order between months in sales reporting.
+            </p>
             <Label htmlFor="manage-total">Total Amount ({currency})</Label>
             <Input
               id="manage-total"
