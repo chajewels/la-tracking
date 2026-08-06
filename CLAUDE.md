@@ -699,15 +699,24 @@ To add a new screenshot for any Help section:
 - Two tabs: Inquiry List (filterable + paginated table, add/edit) + Demand Map (Top 20 bar chart + quadrant scatter)
 - All dropdowns configurable via `inquiry_dropdown_options` with inline + Add in form
 - Accumulated total: read-only view `product_inquiries_with_accumulated` adds
-  `accumulated_inquiry_count` = SUM(inquiry_count) partitioned by
-  `lower(coalesce(nullif(btrim(item_code),''), nullif(btrim(product_name),'')))`.
-  Inquiry List reads the VIEW; Demand Map reads the BASE TABLE.
+  `accumulated_inquiry_count` = RUNNING SUM(inquiry_count), partitioned by
+  `lower(coalesce(nullif(btrim(item_code),''), nullif(btrim(product_name),'')))`,
+  ordered `last_inquired_date ASC NULLS FIRST, created_at ASC, id ASC`, frame
+  `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`. Each row shows the item's
+  total AS OF that inquiry; the item's grand total is the value on its MOST
+  RECENT row. Explicit ROWS (not default RANGE) so tied dates still increment
+  one at a time. Inquiry List reads the VIEW; Demand Map reads the BASE TABLE.
 - The view contains a window function and is therefore not auto-updatable — staff
   cannot write the column via PostgREST (SQLSTATE 55000, verified 2026-08-06).
   This is the protection; no guard trigger and no hidden input are involved.
   Never add an INSTEAD OF UPDATE trigger to this view.
-- INVARIANT: never SUM `accumulated_inquiry_count`. It is already an item-level
-  total repeated on every row of that item; summing it squares the figure.
+- INVARIANT: never SUM or AVG `accumulated_inquiry_count`. It is a running
+  cumulative figure, so aggregating it across rows is always meaningless. To get
+  an item's grand total, read the value on its most recent row, or aggregate
+  `inquiry_count` from the BASE TABLE (which is what the Demand Map does).
+- Changed from grand-total to running-total on 2026-08-06 per owner request:
+  staff need to see demand accumulating per logged inquiry, not the same figure
+  repeated. Verified EM378 runs 1..16 and PND8 runs to 30 across 17 rows.
 - Per-row `inquiry_count` remains staff-editable and is the only input to the
   accumulation (860 rows / 937 total counts as of 2026-08-06).
 - loadList casts the relation name (`as any`) until types.ts regenerates to
