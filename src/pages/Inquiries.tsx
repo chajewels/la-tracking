@@ -46,6 +46,7 @@ interface InquiryRow {
   order_placed: string | null;
   inquirer_name: string | null;
   entered_by: string | null;
+  accumulated_inquiry_count?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1062,8 +1063,12 @@ export default function Inquiries() {
     setListLoading(true);
     try {
       const client = supabase;
-      let q = client
-        .from('product_inquiries')
+      // Reads the VIEW (base table + accumulated_inquiry_count). The `as any` on
+      // the relation name is required until types.ts regenerates to include this
+      // view — see CLAUDE.md "GENERATED FILES". Remove the cast once it appears
+      // under Views in types.ts. The Demand Map deliberately reads the BASE TABLE.
+      let q: any = client
+        .from('product_inquiries_with_accumulated' as any)
         .select('*', { count: 'exact' })
         .order('last_inquired_date', { ascending: false, nullsFirst: false });
 
@@ -1252,6 +1257,7 @@ export default function Inquiries() {
                     <th className="px-3 py-2 text-left font-medium">Product Name</th>
                     <th className="px-3 py-2 text-left font-medium">Category</th>
                     <th className="px-3 py-2 text-right font-medium">Inq.</th>
+                    <th className="px-3 py-2 text-right font-medium">Total Inq.</th>
                     <th className="px-3 py-2 text-left font-medium">Last Inquired</th>
                     <th className="px-3 py-2 text-left font-medium">Source</th>
                     <th className="px-3 py-2 text-left font-medium">Action Needed</th>
@@ -1265,14 +1271,14 @@ export default function Inquiries() {
                   {listLoading ? (
                     Array.from({ length: 6 }).map((_, i) => (
                       <tr key={i} className="border-t border-border">
-                        <td colSpan={11} className="px-3 py-3">
+                        <td colSpan={12} className="px-3 py-3">
                           <Skeleton className="h-5 w-full" />
                         </td>
                       </tr>
                     ))
                   ) : rows.length === 0 ? (
                     <tr className="border-t border-border">
-                      <td colSpan={11} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                      <td colSpan={12} className="px-3 py-10 text-center text-sm text-muted-foreground">
                         {hasActiveFilters ? 'No inquiries match these filters.' : 'No inquiries yet. Click "New Inquiry" to add one.'}
                       </td>
                     </tr>
@@ -1291,6 +1297,12 @@ export default function Inquiries() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.inquiry_count ?? 0}</td>
+                        <td
+                          className="px-3 py-2 text-right font-medium tabular-nums text-card-foreground"
+                          title="Auto-calculated: total inquiries across every row sharing this item code. Not editable."
+                        >
+                          {r.accumulated_inquiry_count ?? '—'}
+                        </td>
                         <td className="px-3 py-2 text-xs">{formatDate(r.last_inquired_date)}</td>
                         <td className="px-3 py-2">
                           {r.source ? (
