@@ -1070,7 +1070,13 @@ export default function Inquiries() {
       let q: any = client
         .from('product_inquiries_with_accumulated' as any)
         .select('*', { count: 'exact' })
-        .order('last_inquired_date', { ascending: false, nullsFirst: false });
+        // Must be the exact reverse of the view's window ORDER BY
+        // (last_inquired_date ASC NULLS FIRST, created_at ASC, id ASC) so the
+        // running Total Inq. column reads monotonically down the list. Do not
+        // remove the secondary sorts.
+        .order('last_inquired_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false });
 
       const term = search.trim();
       if (term) {
