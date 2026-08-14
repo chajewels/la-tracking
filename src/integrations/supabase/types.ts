@@ -4666,6 +4666,26 @@ export type Database = {
       }
     }
     Views: {
+      product_inquiries_with_accumulated: {
+        Row: {
+          accumulated_inquiry_count: number | null
+          action_needed: string | null
+          category: string | null
+          created_at: string | null
+          entered_by: string | null
+          id: string | null
+          inquirer_name: string | null
+          inquiry_count: number | null
+          item_code: string | null
+          last_inquired_date: string | null
+          order_placed: string | null
+          popular_inquiries_notes: string | null
+          product_name: string | null
+          source: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
       schedule_with_actuals: {
         Row: {
           account_id: string | null
@@ -5039,6 +5059,8 @@ export type Database = {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
       }
+      get_daily_cash_orders: { Args: never; Returns: Json }
+      get_daily_cash_orders_last_month: { Args: never; Returns: Json }
       get_daily_new_layaway_sales: {
         Args: { currency_mode?: string }
         Returns: Json
