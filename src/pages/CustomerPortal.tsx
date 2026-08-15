@@ -94,6 +94,7 @@ interface PortalAccount {
   status: string;
   status_label: string;
   forfeited_at: string | null;
+  has_pending_extension?: boolean;
   progress_percent: number;
   paid_installments: number;
   total_installments: number;
@@ -1680,77 +1681,43 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   const [extModalOpen, setExtModalOpen] = useState(false);
   const [extReason, setExtReason] = useState('');
   const [extSubmitting, setExtSubmitting] = useState(false);
-  const [extPending, setExtPending] = useState(false);
+  const [extPending, setExtPending] = useState(!!account.has_pending_extension);
   const [extSubmitted, setExtSubmitted] = useState(false);
-
-  useEffect(() => {
-    if (!isForfeited) return;
-    (async () => {
-      try {
-        const authHeaders = await getPortalAuthHeaders(portalToken);
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/extension_requests?account_id=eq.${account.id}&status=eq.pending&limit=1`, {
-          headers: { 'apikey': SUPABASE_KEY, ...authHeaders },
-        });
-        const data = await r.json();
-        if (Array.isArray(data) && data.length > 0) setExtPending(true);
-      } catch {
-        // silent — matches prior behavior
-      }
-    })();
-  }, [isForfeited, account.id, portalToken]);
 
   const handleExtensionRequest = async () => {
     setExtSubmitting(true);
     try {
       const authHeaders = await getPortalAuthHeaders(portalToken);
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/extension_requests`, {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/request-extension`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
           ...authHeaders,
-          'Prefer': 'return=representation',
         },
         body: JSON.stringify({
-          account_id: account.id,
-          customer_id: customerId,
           portal_token: portalToken || null,
+          account_id: account.id,
           reason: extReason.trim() || null,
-          status: 'pending',
         }),
       });
+      const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errBody = await res.text();
-        console.error('[Extension Request] POST failed:', res.status, errBody);
-        throw new Error(errBody || 'Failed to submit');
+        console.error('[Extension Request] failed:', res.status, payload);
+        if (payload?.code === 'already_pending') {
+          setExtPending(true);
+          setExtModalOpen(false);
+        }
+        alert(payload?.error || 'Failed to submit extension request. Please try again.');
+        return;
       }
       setExtSubmitted(true);
       setExtPending(true);
       setExtModalOpen(false);
       setExtReason('');
-      // Notify admin via email
-      fetch(`${SUPABASE_URL}/functions/v1/send-transactional-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({
-          template_name: 'extension-requested',
-          recipient_email: 'sales@chajewelsjp.com',
-          templateData: {
-            customerName,
-            invoiceNumber: account.invoice_number,
-            reason: extReason.trim() || 'No reason provided',
-            currency: account.currency,
-            remainingBalance: fmt(account.remaining_balance, account.currency),
-            portalUrl: getPortalLinkForCustomer({
-              auth_user_id: null,
-              portal_token: portalToken || null,
-            }, 'portal'),
-          },
-        }),
-      }).catch(() => {});
     } catch (err) {
       console.error('Extension request failed:', err);
-      alert('Failed to submit extension request. Please try again.');
+      alert('Could not reach the server. Please check your connection and try again.');
     } finally {
       setExtSubmitting(false);
     }

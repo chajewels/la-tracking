@@ -382,6 +382,20 @@ Deno.serve(async (req) => {
     const serviceJobsRaw = serviceJobsRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
 
+    // Pending extension requests per account, read service-side. The old
+    // client-side PostgREST check in CustomerPortal.tsx was RLS-blocked on the
+    // anon token path and always returned [], so the duplicate-request guard
+    // never fired. Reading it here makes the guard work for both auth modes.
+    const pendingExtensionAccountIds = new Set<string>();
+    if (accountIds.length > 0) {
+      const { data: pendingExtRows } = await supabase
+        .from("extension_requests")
+        .select("account_id")
+        .in("account_id", accountIds)
+        .eq("status", "pending");
+      for (const r of (pendingExtRows || []) as any[]) pendingExtensionAccountIds.add(r.account_id);
+    }
+
     // Store credit — JPY and PHP are SEPARATE balances, never converted or
     // summed together. A store-credit failure must never break the payload.
     let storeCredit: {
@@ -849,6 +863,7 @@ Deno.serve(async (req) => {
         payment_plan_months: acc.payment_plan_months,
         status: acc.status,
         forfeited_at: acc.forfeited_at || null,
+        has_pending_extension: pendingExtensionAccountIds.has(acc.id),
         status_label: statusLabel,
         progress_percent: progressPercent,
         paid_installments: paidInstallments,

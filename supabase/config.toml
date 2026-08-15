@@ -151,6 +151,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.submit-cash-payment]
     verify_jwt = false
+  [functions.request-extension]
+    verify_jwt = false
   [functions.submit-payment]
     verify_jwt = false
   [functions.unwaive-waiver]

@@ -183,6 +183,10 @@ Reference docs (read the relevant one when a task touches that area):
   app.chajewelsjp.com. Internal staff must NEVER use
   portal.chajewelsjp.com for their work.
 
+  All customer-portal writes go through a service-role edge function. Never
+  write to a table directly from the portal via PostgREST — anon RLS policies
+  that reference another RLS-protected table silently fail closed (Bug #165).
+
 ## TEST ACCOUNT EXCLUSION — NON-NEGOTIABLE
 
 Real accounts have purely numeric invoice numbers. All test/scaffolding accounts have non-numeric invoices (families: TEST-001..005, CJ-2026-*). The canonical exclusion applied to EVERY operational and financial surface is: keep numeric only — SQL `invoice_number ~ '^[0-9]+$'`; PostgREST `.filter('<embed>.invoice_number','match','^[0-9]+$')`. The old `TEST-%`/`TEST%` filters are INCOMPLETE (miss the CJ- family) and must be replaced by this rule.

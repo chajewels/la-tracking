@@ -541,4 +541,15 @@
     writing. Do not manufacture a doc edit when investigation shows none
     is needed.
 
+  - Extension request window off-by-one (deferred, not a defect for now):
+    documented as "7 days" in the customer-facing UI copy, but
+    `CustomerPortal.tsx` computes `floor(elapsedDays) <= 7`, which actually
+    gives 8x24h from `forfeited_at` before the window closes. Mirrored
+    intentionally in `supabase/functions/request-extension/index.ts`
+    (`WINDOW_DAYS = 7`, same `floor(...) <= 7` comparison) so frontend and
+    backend agree. If this is ever tightened to a true 7-day window, the
+    frontend and `request-extension/index.ts` must be changed together in
+    the same commit — one enforces the account-status/ownership/pending
+    checks server-side, the other renders the countdown.
+
 
