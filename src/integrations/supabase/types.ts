@@ -3232,6 +3232,7 @@ export type Database = {
           account_id: string
           approved_at: string | null
           approved_by_user_id: string | null
+          auto_unwaived_at: string | null
           created_at: string
           id: string
           penalty_amount: number
@@ -3247,6 +3248,7 @@ export type Database = {
           account_id: string
           approved_at?: string | null
           approved_by_user_id?: string | null
+          auto_unwaived_at?: string | null
           created_at?: string
           id?: string
           penalty_amount: number
@@ -3262,6 +3264,7 @@ export type Database = {
           account_id?: string
           approved_at?: string | null
           approved_by_user_id?: string | null
+          auto_unwaived_at?: string | null
           created_at?: string
           id?: string
           penalty_amount?: number
@@ -5430,7 +5433,7 @@ export type Database = {
         | "needs_clarification"
         | "cancelled"
       user_status: "active" | "inactive" | "suspended"
-      waiver_status: "pending" | "approved" | "rejected"
+      waiver_status: "pending" | "approved" | "rejected" | "auto_unwaived"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5647,7 +5650,7 @@ export const Constants = {
         "cancelled",
       ],
       user_status: ["active", "inactive", "suspended"],
-      waiver_status: ["pending", "approved", "rejected"],
+      waiver_status: ["pending", "approved", "rejected", "auto_unwaived"],
     },
   },
 } as const
