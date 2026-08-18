@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     // ── Fetch waiver requests + linked penalty_fees ───────────────────────────
     const { data: waivers, error: waiverFetchErr } = await supabase
       .from("penalty_waiver_requests")
-      .select("*, penalty_fees(id, penalty_stage, penalty_cycle, penalty_amount, status)")
+      .select("*, penalty_fees(id, penalty_stage, penalty_cycle, penalty_amount, status, penalty_date)")
       .in("id", waiver_request_ids);
 
     if (waiverFetchErr || !waivers || waivers.length === 0) {
@@ -202,6 +202,30 @@ Deno.serve(async (req) => {
       },
     });
 
+    // ── Grace deadline: earliest deadline across the penalties in this batch ──
+    // min(penalty_fees.penalty_date) + penalty_waiver_grace_days. Staff approving
+    // late give the customer less time — deadline is anchored to penalty_date,
+    // never to approval time. Same parse pattern as penalty-engine's read.
+    let waiverGraceDays = 7;
+    {
+      const { data: graceRow } = await supabase
+        .from("system_settings").select("value").eq("key", "penalty_waiver_grace_days").maybeSingle();
+      const parsed = Number((graceRow as any)?.value);
+      if (Number.isFinite(parsed) && parsed >= 0) waiverGraceDays = Math.floor(parsed);
+    }
+    const penaltyDates = (waivers as any[])
+      .map((w) => w.penalty_fees?.penalty_date)
+      .filter((d): d is string => !!d)
+      .sort();
+    let graceDeadline: string | undefined;
+    if (penaltyDates.length > 0) {
+      const deadline = new Date(`${penaltyDates[0]}T00:00:00Z`);
+      deadline.setUTCDate(deadline.getUTCDate() + waiverGraceDays);
+      graceDeadline = new Intl.DateTimeFormat("en-GB", {
+        day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+      }).format(deadline);
+    }
+
     // Send penalty-waived email (fire-and-forget)
     try {
       const { data: acctForEmail } = await supabase
@@ -230,6 +254,7 @@ Deno.serve(async (req) => {
               currency: (acctForEmail as any)?.currency,
               remainingBalance: Number(newRemaining).toLocaleString("en-US"),
               portalUrl,
+              graceDeadline,
             },
           }),
         });

@@ -19,6 +19,7 @@ import { template as paymentVoided } from './payment-voided.tsx'
 import { template as penaltyApplied } from './penalty-applied.tsx'
 import { template as penaltyEscalation } from './penalty-escalation.tsx'
 import { template as penaltyWaived } from './penalty-waived.tsx'
+import { template as penaltyWaiverRevoked } from './penalty-waiver-revoked.tsx'
 import { template as accountForfeited } from './account-forfeited.tsx'
 import { template as extensionGranted } from './extension-granted.tsx'
 import { template as extensionRequested } from './extension-requested.tsx'
@@ -50,6 +51,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'penalty-applied': penaltyApplied,
   'penalty-escalation': penaltyEscalation,
   'penalty-waived': penaltyWaived,
+  'penalty-waiver-revoked': penaltyWaiverRevoked,
   'account-forfeited': accountForfeited,
   'extension-granted': extensionGranted,
   'extension-requested': extensionRequested,

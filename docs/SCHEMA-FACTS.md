@@ -740,3 +740,14 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
 - `audit_account` CHECK 4 ("no duplicate allocations") only fires when a single
   payment's allocations EXCEED `amount_paid`. Multiple allocation rows per
   payment — and per schedule row — are normal and expected.
+
+### penalty_fees / penalty_waiver_requests columns (updated 2026-08-18)
+
+- `penalty_fees` has NO `waiver_status` column (12 columns total).
+  `waiver_status` belongs to `penalty_waiver_requests`, not `penalty_fees`.
+  Writing `waiver_status` to `penalty_fees` fails silently at the PostgREST
+  layer (unknown column) — see Bug #257.
+- `penalty_waiver_requests.status` (the `waiver_status` enum) is now:
+  `pending | approved | rejected | auto_unwaived`.
+- `penalty_waiver_requests.auto_unwaived_at` (timestamptz, nullable) — stamped
+  when penalty-engine reinstates a penalty past its grace window.

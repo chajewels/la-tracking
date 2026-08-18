@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
       const chunk = scheduleIds.slice(i, i + 200);
       const { data: penBatch } = await supabase
         .from("penalty_fees")
-        .select("id, schedule_id, penalty_stage, penalty_cycle, penalty_amount, status")
+        .select("id, schedule_id, penalty_stage, penalty_cycle, penalty_amount, status, penalty_date")
         .in("schedule_id", chunk);
       if (penBatch) allExistingPenalties = allExistingPenalties.concat(penBatch);
     }
@@ -212,12 +212,12 @@ Deno.serve(async (req) => {
     // Track waived penalty IDs separately so we can UPDATE them to unpaid instead of INSERT
     const existingPenaltyMap = new Map<string, Set<string>>();
     const currentPenaltyTotals = new Map<string, number>();
-    const waivedPenaltyIds = new Map<string, Map<string, string>>();
+    const waivedPenaltyIds = new Map<string, Map<string, { id: string; penaltyDate: string }>>();
     for (const p of allExistingPenalties) {
       const key = `${p.penalty_stage}:${p.penalty_cycle}`;
       if (p.status === "waived") {
         if (!waivedPenaltyIds.has(p.schedule_id)) waivedPenaltyIds.set(p.schedule_id, new Map());
-        waivedPenaltyIds.get(p.schedule_id)!.set(key, p.id);
+        waivedPenaltyIds.get(p.schedule_id)!.set(key, { id: p.id, penaltyDate: p.penalty_date });
       } else {
         if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
         existingPenaltyMap.get(p.schedule_id)!.add(key);
@@ -226,6 +226,16 @@ Deno.serve(async (req) => {
         }
       }
     }
+
+    // Waiver grace window (days after penalty_date that an approved waiver holds)
+    let waiverGraceDays = 7;
+    {
+      const { data: graceRow } = await supabase
+        .from("system_settings").select("value").eq("key", "penalty_waiver_grace_days").maybeSingle();
+      const parsed = Number(graceRow?.value);
+      if (Number.isFinite(parsed) && parsed >= 0) waiverGraceDays = Math.floor(parsed);
+    }
+    const reinstatedPenalties: Array<{ id: string; accountId: string; scheduleId: string; penaltyAmount: number; currency: string }> = [];
 
     // ── Step 3: Determine which penalties to create ──
     const penaltiesToInsert: any[] = [];
@@ -337,7 +347,7 @@ Deno.serve(async (req) => {
       }
 
       let newPenaltyForItem = 0;
-      const waivedUpdates: Array<{ id: string; penaltyAmount: number; penaltyDate: string }> = [];
+      const waivedUpdates: Array<{ id: string; penaltyAmount: number }> = [];
 
       for (const trigger of triggerDates) {
         if (now < trigger.date) break;
@@ -357,11 +367,17 @@ Deno.serve(async (req) => {
         const penaltyDate = trigger.date.toISOString().split("T")[0];
 
         // Check if a waived penalty occupies this stage:cycle slot
-        const waivedId = waivedPenaltyIds.get(item.id)?.get(key);
+        const waivedRow = waivedPenaltyIds.get(item.id)?.get(key);
 
-        if (waivedId) {
-          // UPDATE the waived row back to unpaid instead of INSERT
-          waivedUpdates.push({ id: waivedId, penaltyAmount, penaltyDate });
+        if (waivedRow) {
+          // An approved waiver holds this penalty for waiverGraceDays counted
+          // from its OWN penalty_date. Inside the window: touch nothing at all
+          // — no increment, no schedule write. That is what keeps
+          // layaway_schedule.penalty_amount consistent with penalty_fees.
+          const graceEnd = new Date(`${waivedRow.penaltyDate}T00:00:00Z`);
+          graceEnd.setUTCDate(graceEnd.getUTCDate() + waiverGraceDays);
+          if (now <= graceEnd) continue;
+          waivedUpdates.push({ id: waivedRow.id, penaltyAmount });
         } else {
           // Normal INSERT path — no waived row exists at this slot
           penaltiesToInsert.push({
@@ -379,16 +395,48 @@ Deno.serve(async (req) => {
         existingKeys.add(key);
         if (!existingPenaltyMap.has(item.id)) existingPenaltyMap.set(item.id, new Set());
         existingPenaltyMap.get(item.id)!.add(key);
-        newPenaltyForItem += penaltyAmount;
+        if (!waivedPenaltyIds.get(item.id)?.has(key)) newPenaltyForItem += penaltyAmount;
       }
 
-      // Execute waived-to-unpaid updates for this item
+      // Execute waived-to-unpaid updates for this item. penalty_date is NOT
+      // modified — it records when the penalty was incurred. Only count the
+      // amount toward the schedule total once the write has actually landed,
+      // so a failure can never inflate layaway_schedule.penalty_amount.
       for (const upd of waivedUpdates) {
         const { error: wErr } = await supabase
           .from("penalty_fees")
-          .update({ status: "unpaid", waived_at: null, waiver_status: null, penalty_date: upd.penaltyDate })
+          .update({ status: "unpaid", waived_at: null })
           .eq("id", upd.id);
-        if (wErr) console.error(`[penalty-engine] failed to unwaive ${upd.id}:`, wErr);
+        if (wErr) {
+          console.error(`[penalty-engine] failed to unwaive ${upd.id}:`, wErr);
+          continue;
+        }
+        newPenaltyForItem += upd.penaltyAmount;
+
+        const { error: wrErr } = await supabase
+          .from("penalty_waiver_requests")
+          .update({ status: "auto_unwaived", auto_unwaived_at: new Date().toISOString() })
+          .eq("penalty_fee_id", upd.id)
+          .eq("status", "approved");
+        if (wrErr) console.error(`[penalty-engine] failed to mark waiver auto_unwaived for ${upd.id}:`, wrErr);
+
+        await supabase.from("audit_logs").insert({
+          entity_type: "penalty_waiver",
+          entity_id: accountId,
+          action: "waiver_auto_unwaived",
+          new_value_json: {
+            penalty_fee_id: upd.id,
+            schedule_id: item.id,
+            penalty_amount: upd.penaltyAmount,
+            grace_days: waiverGraceDays,
+            note: `Auto-unwaived: payment not settled within the ${waiverGraceDays}-day grace period.`,
+          },
+        });
+
+        reinstatedPenalties.push({
+          id: upd.id, accountId, scheduleId: item.id,
+          penaltyAmount: upd.penaltyAmount, currency,
+        });
       }
 
       if (newPenaltyForItem > 0) {
@@ -596,6 +644,41 @@ Deno.serve(async (req) => {
       }
     } catch (emailErr) {
       console.warn("[penalty-engine] email dispatch failed (non-blocking):", emailErr);
+    }
+
+    // Reinstatement emails (fire-and-forget)
+    try {
+      for (const r of reinstatedPenalties) {
+        const { data: acct } = await supabase
+          .from("layaway_accounts")
+          .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+          .eq("id", r.accountId).single();
+        const email = (acct as any)?.customers?.email;
+        if (!email) continue;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "penalty-waiver-revoked",
+            recipientEmail: email,
+            idempotencyKey: `waiver-revoked-${r.id}`,
+            templateData: {
+              customerName: (acct as any)?.customers?.full_name,
+              invoiceNumber: (acct as any)?.invoice_number,
+              penaltyAmount: Number(r.penaltyAmount).toLocaleString("en-US"),
+              currency: r.currency,
+              remainingBalance: Number((acct as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+              graceDays: waiverGraceDays,
+              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${(acct as any)?.invoice_number || ""}`,
+            },
+          }),
+        });
+      }
+    } catch (e) {
+      console.error("[penalty-engine] reinstatement email failed (non-blocking):", e);
     }
 
     // ── Step 10: Staff bell — per-account penalty notifications ──

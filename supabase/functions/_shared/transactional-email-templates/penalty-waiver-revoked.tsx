@@ -10,53 +10,47 @@ const SITE_NAME = 'Cha Jewels Hub'
 interface Props {
   customerName?: string
   invoiceNumber?: string
-  waivedAmount?: string
+  penaltyAmount?: string
   currency?: string
   remainingBalance?: string
+  graceDays?: number
   portalUrl?: string
-  graceDeadline?: string
 }
 
-const PenaltyWaivedEmail = ({
+const PenaltyWaiverRevokedEmail = ({
   customerName = 'Valued Customer',
   invoiceNumber = '00000',
-  waivedAmount = '0',
+  penaltyAmount = '0',
   currency = 'PHP',
   remainingBalance = '0',
+  graceDays = 7,
   portalUrl,
-  graceDeadline,
 }: Props) => {
   const symbol = currency === 'PHP' ? '₱' : '¥'
   return (
     <Html lang="en" dir="ltr">
       <Head />
-      <Preview>Penalty waived on INV #{invoiceNumber}</Preview>
+      <Preview>Penalty reinstated on INV #{invoiceNumber}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>
             <Text style={brandText}>💎 {SITE_NAME}</Text>
           </Section>
-          <Heading style={{ ...h1, color: '#16a34a' }}>Penalty Waived</Heading>
+          <Heading style={{ ...h1, color: '#dc2626' }}>Penalty Reinstated</Heading>
           <Text style={greeting}>Hi {customerName},</Text>
           <Text style={text}>
-            Good news! A penalty of <strong>{symbol} {waivedAmount}</strong>{' '}
-            on <strong>INV #{invoiceNumber}</strong> has been waived by our
-            team. Your remaining balance has been updated.
+            The penalty waiver on <strong>INV #{invoiceNumber}</strong> has
+            been revoked because payment was not received within the{' '}
+            {graceDays}-day grace period. A <strong>{symbol} {penaltyAmount}</strong>{' '}
+            penalty has been reinstated and is now included in your balance.
           </Text>
-          {graceDeadline && (
-            <Text style={text}>
-              Please settle the outstanding balance by <strong>{graceDeadline}</strong>.
-              If payment is not received by that date, the waiver will be revoked
-              and the penalty reinstated.
-            </Text>
-          )}
           <Section style={detailsBox}>
-            <Text style={detailRow}><strong>Waived Amount:</strong> {symbol} {waivedAmount}</Text>
-            <Text style={detailRow}><strong>New Remaining Balance:</strong> {symbol} {remainingBalance}</Text>
+            <Text style={detailRow}><strong>Reinstated Penalty:</strong> {symbol} {penaltyAmount}</Text>
+            <Text style={detailRow}><strong>Outstanding Balance:</strong> {symbol} {remainingBalance}</Text>
           </Section>
           {portalUrl && (
             <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
-              <Button style={{ ...button, backgroundColor: '#16a34a' }} href={portalUrl}>
+              <Button style={{ ...button, backgroundColor: '#dc2626' }} href={portalUrl}>
                 View My Account
               </Button>
             </Section>
@@ -73,16 +67,17 @@ const PenaltyWaivedEmail = ({
 }
 
 export const template = {
-  component: PenaltyWaivedEmail,
+  component: PenaltyWaiverRevokedEmail,
   subject: (data: Record<string, any>) =>
-    `✅ Penalty Waived — INV #${data.invoiceNumber || ''}`,
-  displayName: 'Penalty waived',
+    `Penalty reinstated — Invoice ${data.invoiceNumber || ''}`,
+  displayName: 'Penalty waiver revoked',
   previewData: {
     customerName: 'Maria Santos',
-    invoiceNumber: '18456',
-    waivedAmount: '500',
+    invoiceNumber: '18823',
+    penaltyAmount: '500',
     currency: 'PHP',
-    remainingBalance: '13,500',
+    remainingBalance: '14,000',
+    graceDays: 7,
   },
 } satisfies TemplateEntry
 
@@ -93,7 +88,7 @@ const brandText = { fontSize: '18px', fontWeight: 'bold' as const, color: '#1a1a
 const h1 = { fontSize: '20px', fontWeight: 'bold' as const, textAlign: 'center' as const, margin: '16px 24px 8px' }
 const greeting = { fontSize: '15px', color: '#1a1a2e', padding: '0 24px', margin: '16px 0 4px' }
 const text = { fontSize: '14px', color: '#55575d', lineHeight: '1.6', padding: '0 24px', margin: '0 0 16px' }
-const detailsBox = { backgroundColor: '#f0fdf4', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px' }
+const detailsBox = { backgroundColor: '#fef2f2', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', borderLeft: '4px solid #dc2626' }
 const detailRow = { fontSize: '13px', color: '#1a1a2e', margin: '4px 0', lineHeight: '1.5' }
 const button = { color: '#ffffff', padding: '12px 28px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold' as const, textDecoration: 'none', display: 'inline-block' as const }
 const hr = { borderColor: '#e5e7eb', margin: '24px' }

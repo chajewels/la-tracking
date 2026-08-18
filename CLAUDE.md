@@ -1357,6 +1357,29 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   Accounts with pending payment submissions (status='submitted' or 'under_review')
   are frozen — no new penalties until the submission is resolved.
 
+### Waiver grace period + auto-unwaive (added 2026-08-18):
+  An approved waiver holds a penalty for penalty_waiver_grace_days
+  (system_settings, default 7) counted from penalty_fees.penalty_date —
+  NOT from the approval date. Staff approving a waiver late give the
+  customer less time, by design; the deadline is anchored to when the
+  penalty was incurred, not to admin action.
+
+  Inside the window: penalty-engine leaves the waived row completely
+  alone — no increment, no schedule write.
+
+  Past the window: penalty-engine reinstates the penalty (status back
+  to 'unpaid'), sets the linked penalty_waiver_requests row to
+  'auto_unwaived' (auto_unwaived_at stamped), logs an audit_logs entry,
+  and emails the customer (penalty-waiver-revoked template).
+
+  penalty_date is NEVER rewritten by any of this — it permanently
+  records when the penalty was originally incurred, not when it was
+  waived or reinstated.
+
+  approve-waiver's confirmation email (penalty-waived template) shows
+  the same deadline via an optional graceDeadline prop, computed as
+  min(penalty_date across the batch) + penalty_waiver_grace_days.
+
 ## FORFEITURE STANDARD — NON-NEGOTIABLE (added 2026-04-12)
 
 ### Status flow:
