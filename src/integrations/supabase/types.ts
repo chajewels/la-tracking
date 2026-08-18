@@ -4863,6 +4863,10 @@ export type Database = {
         }
         Returns: Json
       }
+      derive_cash_order_loyalty_jpy: {
+        Args: { p_cash_order_id: string }
+        Returns: number
+      }
       derive_order_loyalty_jpy: {
         Args: { p_account_id: string }
         Returns: number
