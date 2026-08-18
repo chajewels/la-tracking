@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2 } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -120,6 +120,7 @@ export default function AccountDetail() {
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
+  const [awardingLoyalty, setAwardingLoyalty] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -984,6 +985,37 @@ export default function AccountDetail() {
       </AppLayout>
     );
   }
+  const canAwardLoyalty = can('loyalty_adjust_points');
+
+  const handleAwardLoyalty = async () => {
+    if (!account) return;
+    setAwardingLoyalty(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('award-loyalty-points', {
+        body: { account_id: account.id },
+      });
+      if (error) throw error;
+      const res = data as Record<string, unknown> | null;
+      if (res?.skipped) {
+        toast.info(`No points awarded — ${String(res.reason ?? 'skipped')}`);
+      } else if (res?.awarded) {
+        const pts = Number(res.points_earned ?? 0);
+        const bonus = Number(res.bonus_points ?? 0);
+        toast.success(
+          `Awarded ${pts.toLocaleString()} points${bonus > 0 ? ` (+${bonus.toLocaleString()} bonus)` : ''}` +
+          (res.tier_upgraded ? ` — tier upgraded to ${String(res.new_tier)}` : '')
+        );
+        queryClient.invalidateQueries({ queryKey: ['account', account.id] });
+      } else {
+        toast.error('Unexpected response from award-loyalty-points');
+      }
+    } catch (err) {
+      toast.error((err as Error).message || 'Failed to award loyalty points');
+    } finally {
+      setAwardingLoyalty(false);
+    }
+  };
+
   const handleCopy = () => {
     navigator.clipboard.writeText(message);
     setCopied(true);
@@ -2309,6 +2341,20 @@ export default function AccountDetail() {
           <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
             <MessageCircle className="h-4 w-4 text-info" /> Customer Message
           </h3>
+          {canAwardLoyalty && (
+            <div className="mb-4">
+              <Button
+                onClick={handleAwardLoyalty}
+                disabled={awardingLoyalty}
+                variant="outline"
+                size="sm"
+                className="border-primary/30 text-primary hover:bg-primary/10"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1" />
+                {awardingLoyalty ? 'Awarding…' : 'Award loyalty points'}
+              </Button>
+            </div>
+          )}
           <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
             <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
               {message}

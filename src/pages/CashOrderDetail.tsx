@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check,
+  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -776,6 +776,7 @@ export default function CashOrderDetail() {
     },
   });
   const [copied, setCopied] = useState(false);
+  const [awardingLoyalty, setAwardingLoyalty] = useState(false);
 
   const message = useMemo(() => {
     if (!order) return '';
@@ -887,6 +888,36 @@ export default function CashOrderDetail() {
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
+  const canAwardLoyalty = can('loyalty_adjust_points');
+
+  const handleAwardLoyalty = async () => {
+    if (!order) return;
+    setAwardingLoyalty(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('award-loyalty-points', {
+        body: { cash_order_id: order.id },
+      });
+      if (error) throw error;
+      const res = data as Record<string, unknown> | null;
+      if (res?.skipped) {
+        toast.info(`No points awarded — ${String(res.reason ?? 'skipped')}`);
+      } else if (res?.awarded) {
+        const pts = Number(res.points_earned ?? 0);
+        const bonus = Number(res.bonus_points ?? 0);
+        toast.success(
+          `Awarded ${pts.toLocaleString()} points${bonus > 0 ? ` (+${bonus.toLocaleString()} bonus)` : ''}` +
+          (res.tier_upgraded ? ` — tier upgraded to ${String(res.new_tier)}` : '')
+        );
+        qc.invalidateQueries({ queryKey: ['cash-order', id] });
+      } else {
+        toast.error('Unexpected response from award-loyalty-points');
+      }
+    } catch (err) {
+      toast.error((err as Error).message || 'Failed to award loyalty points');
+    } finally {
+      setAwardingLoyalty(false);
+    }
+  };
 
   return (
     <AppLayout>
@@ -1527,6 +1558,20 @@ export default function CashOrderDetail() {
           <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
             <MessageCircle className="h-4 w-4 text-info" /> Customer Message
           </h3>
+          {canAwardLoyalty && (
+            <div className="mb-4">
+              <Button
+                onClick={handleAwardLoyalty}
+                disabled={awardingLoyalty}
+                variant="outline"
+                size="sm"
+                className="border-primary/30 text-primary hover:bg-primary/10"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1" />
+                {awardingLoyalty ? 'Awarding…' : 'Award loyalty points'}
+              </Button>
+            </div>
+          )}
           <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
             <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
               {message}
