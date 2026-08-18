@@ -552,4 +552,13 @@
     the same commit — one enforces the account-status/ownership/pending
     checks server-side, the other renders the countdown.
 
+  - derive_order_loyalty_jpy and derive_cash_order_loyalty_jpy both write
+    NULL when `system_settings.php_jpy_rate` is missing, for PHP orders
+    only — the `CASE` returns NULL and `updated_at` is bumped for no gain
+    (the row is rewritten with the same NULL it already had). Latent in
+    both RPCs, harmless today (the rate is always configured in
+    production), but if the setting is ever deleted or misnamed, PHP
+    retroactive-award derivation silently no-ops instead of erroring. Not
+    fixed.
+
 

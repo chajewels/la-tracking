@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings,
+  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 
 // Shape of cancel-cash-order's preview response (preview:true writes nothing).
 interface CancelPreview {
@@ -84,6 +85,7 @@ interface CashOrderRow {
     postal_code: string | null;
     country: string | null;
     mobile_number: string | null;
+    messenger_link: string | null;
   } | null;
 }
 
@@ -147,7 +149,7 @@ function useCashOrderDetail(id: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders')
-        .select('*, customers(id, full_name, address_line1, city, postal_code, country, mobile_number)')
+        .select('*, customers(id, full_name, address_line1, city, postal_code, country, mobile_number, messenger_link)')
         .eq('id', id!)
         .maybeSingle();
       if (error) throw error;
@@ -741,6 +743,116 @@ export default function CashOrderDetail() {
     () => (payments || []).filter(p => !p.voided_at),
     [payments],
   );
+
+  // ── Customer message (mirrors AccountDetail.tsx:189-216, 858-870) ──
+  // Hooks must stay ABOVE the orderLoading / !order early returns below.
+  const cashCustomerId = order?.customer_id;
+  const { data: portalToken } = useQuery({
+    queryKey: ['portal-token', cashCustomerId],
+    enabled: !!cashCustomerId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('customer_portal_tokens')
+        .select('token')
+        .eq('customer_id', cashCustomerId!)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.token || null;
+    },
+  });
+  const { data: authUserId } = useQuery({
+    queryKey: ['customer_auth_user_id', cashCustomerId],
+    enabled: !!cashCustomerId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('auth_user_id')
+        .eq('id', cashCustomerId!)
+        .maybeSingle();
+      return ((data as any)?.auth_user_id as string | null) ?? null;
+    },
+  });
+  const [copied, setCopied] = useState(false);
+
+  const message = useMemo(() => {
+    if (!order) return '';
+    const cur = order.currency as Currency;
+    const hasAuthMeans = !!authUserId || !!portalToken;
+    const portalUrl = hasAuthMeans
+      ? getPortalLinkForCustomer(
+          { auth_user_id: authUserId ?? null, portal_token: portalToken ?? null },
+          'portal',
+        )
+      : null;
+
+    const _pinDigits = (order.customers?.mobile_number ?? '').replace(/\D/g, '');
+    const customerPin = _pinDigits.length >= 4 ? _pinDigits.slice(-4) : null;
+    const pinLine = (!!portalToken && !authUserId && customerPin)
+      ? `🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}\n`
+      : '';
+
+    // Line items are stored in JPY and rendered as JPY in the Items card
+    // above — keep the message consistent with that.
+    const appendItemLines = (msg: string) => {
+      const lines = orderItems ?? [];
+      if (lines.length === 0) return msg;
+      msg += `\nItems:\n`;
+      lines.forEach((li) => {
+        const qty = Number(li.quantity ?? 1);
+        msg += `  • ${li.title}${qty > 1 ? ` x${qty}` : ''} — ${formatCurrency(Number(li.line_total_jpy ?? 0), 'JPY')}\n`;
+      });
+      return msg;
+    };
+
+    let msg = '';
+
+    if (order.status === 'cancelled' || order.status === 'expired') {
+      msg += order.status === 'cancelled'
+        ? `⛔ NOTICE: This order has been CANCELLED.\n\n`
+        : `⛔ NOTICE: This order has EXPIRED.\n\n`;
+      msg += `Inv # ${order.invoice_number}\n`;
+      msg += `Status: ${order.status === 'cancelled' ? 'CANCELLED' : 'EXPIRED'}\n`;
+      msg += `\nFor any questions, please contact Cha Jewels directly.`;
+      return msg;
+    }
+
+    if (order.status === 'completed') {
+      msg += `Thank you for your payment. ${formatCurrency(Number(order.total_paid), cur)} has been received.\n\n`;
+      msg += `Inv # ${order.invoice_number}\n`;
+      msg += `Status: FULLY PAID\n`;
+      msg = appendItemLines(msg);
+      if (portalUrl) msg += `\nView your order details here:\n🔗 ${portalUrl}\n`;
+      if (pinLine) msg += pinLine;
+      msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+      return msg;
+    }
+
+    msg += `Inv # ${order.invoice_number}\n\n`;
+    msg += `Total Amount: ${formatCurrency(Number(order.total_amount), cur)}\n`;
+    msg += `Amount Paid: ${formatCurrency(Number(order.total_paid), cur)}\n`;
+    msg += `Remaining Balance: ${formatCurrency(Number(order.remaining_balance), cur)}\n`;
+    msg = appendItemLines(msg);
+    if (portalUrl) msg += `\nView your order and payment details here:\n🔗 ${portalUrl}\n`;
+    if (pinLine) msg += pinLine;
+    if (order.expires_at) {
+      const exp = new Date(order.expires_at).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+      msg += `\nPlease complete payment by: ${exp}\n`;
+    }
+    msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+    return msg;
+  }, [order, orderItems, portalToken, authUserId]);
+
+  const handleCopyMessage = () => {
+    navigator.clipboard.writeText(message);
+    setCopied(true);
+    toast.success('Message copied to clipboard');
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   if (orderLoading) {
     return (
@@ -1409,6 +1521,31 @@ export default function CashOrderDetail() {
 
         {/* Services (service_jobs scoped to this invoice) */}
         <ServiceJobsSection invoiceNumber={order?.invoice_number} />
+
+        {/* Customer Message — mirrors AccountDetail.tsx */}
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-info" /> Customer Message
+          </h3>
+          <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+            <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
+              {message}
+            </pre>
+          </div>
+          <div className="flex gap-2 mt-4 flex-wrap">
+            <Button onClick={handleCopyMessage} variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+              {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+              {copied ? 'Copied!' : 'Copy Message'}
+            </Button>
+            {order.customers?.messenger_link && (
+              <a href={order.customers.messenger_link} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                  <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
+                </Button>
+              </a>
+            )}
+          </div>
+        </div>
 
         {/* Account Notes */}
         {(isAdmin || isFinance || isStaff) && (

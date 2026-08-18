@@ -18,24 +18,38 @@
     - Layaway: `loyalty_jpy_amount >= 10000` OR `loyalty_jpy_amount IS NULL`
       (NULL is permitted — typical when a non-member created the order;
       derived at enrollment time, see below)
-    - Cash: `loyalty_jpy_amount >= 10000`
+    - Cash: `loyalty_jpy_amount >= 10000` OR `loyalty_jpy_amount IS NULL`
+      (mirrors layaway as of 2026-08-16 — previously cash had NO NULL
+      tolerance and no derive path, so cash orders created while the
+      customer was not yet a member never qualified; see Bug entry in
+      docs/FIXED-BUGS.md)
     - Layaway status NOT IN ('cancelled', 'forfeited',
       'final_forfeited')
     - Cash status NOT IN ('cancelled', 'expired')
 
-  NULL loyalty_jpy_amount derivation (layaway only):
+  NULL loyalty_jpy_amount derivation (layaway AND cash, as of 2026-08-16):
     - If the matched layaway order has `loyalty_jpy_amount IS NULL`,
       join-loyalty-program calls
       `derive_order_loyalty_jpy(p_account_id => row.account_id)` to
       populate the value for THAT ONE ACCOUNT ONLY before invoking
       award-loyalty-points.
-    - Derivation formula (inside the RPC):
-        JPY accounts → loyalty_jpy_amount = total_amount
-        PHP accounts → loyalty_jpy_amount = total_amount / php_jpy_rate
-    - NON-NEGOTIABLE: derive_order_loyalty_jpy is the ONLY write path
-      for loyalty_jpy_amount in this flow. Never bulk-update across
-      the customer's other accounts. Only the single account_id
-      returned by get_recent_qualifying_order is ever touched.
+    - If the matched cash order has `loyalty_jpy_amount IS NULL`,
+      join-loyalty-program calls the sibling RPC
+      `derive_cash_order_loyalty_jpy(p_cash_order_id => cashOrderId)` to
+      populate the value for THAT ONE CASH ORDER ONLY before invoking
+      award-loyalty-points. Same non-blocking try/warn pattern as the
+      layaway call — a derive failure never fails enrollment.
+    - Derivation formula (inside both RPCs):
+        JPY → loyalty_jpy_amount = total_amount
+        PHP → loyalty_jpy_amount = round(total_amount / php_jpy_rate)
+      `shipping_fee` is deliberately NOT subtracted on the cash side —
+      matches layaway, which has no shipping column at all, so the two
+      formulas stay in lockstep on the JPY basis they do share.
+    - NON-NEGOTIABLE: derive_order_loyalty_jpy / derive_cash_order_loyalty_jpy
+      are the ONLY write paths for loyalty_jpy_amount in this flow. Never
+      bulk-update across the customer's other accounts or orders. Only the
+      single account_id / cash_order_id returned by
+      get_recent_qualifying_order is ever touched.
     - award-loyalty-points re-reads the now-populated value; its
       `>= 10000` gate still applies, so trivially small orders are
       skipped naturally.

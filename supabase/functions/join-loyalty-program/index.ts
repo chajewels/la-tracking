@@ -269,7 +269,24 @@ Deno.serve(async (req) => {
               }
             }
           } else {
-            awardBody.cash_order_id = row.cash_order_id ?? row.source_id ?? null;
+            const cashOrderId = row.cash_order_id ?? row.source_id ?? null;
+            awardBody.cash_order_id = cashOrderId;
+            // Mirror of the layaway derivation above. A cash order created
+            // while the customer was NOT a member carries
+            // loyalty_jpy_amount = NULL; derive it for THIS ONE order only
+            // so award-loyalty-points can read it. Never bulk-update.
+            if (cashOrderId && row.loyalty_jpy_amount == null) {
+              const { error: deriveCashErr } = await supabase.rpc(
+                "derive_cash_order_loyalty_jpy",
+                { p_cash_order_id: cashOrderId },
+              );
+              if (deriveCashErr) {
+                console.warn(
+                  "[join-loyalty-program] derive_cash_order_loyalty_jpy failed (non-blocking):",
+                  deriveCashErr,
+                );
+              }
+            }
           }
           if (awardBody.account_id || awardBody.cash_order_id) {
             const _awRes = await fetch(
