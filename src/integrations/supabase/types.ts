@@ -3235,12 +3235,14 @@ export type Database = {
           auto_unwaived_at: string | null
           created_at: string
           id: string
+          is_auto: boolean
           penalty_amount: number
           penalty_fee_id: string
           reason: string
           rejected_at: string | null
-          requested_by_user_id: string
+          requested_by_user_id: string | null
           schedule_id: string
+          source_submission_id: string | null
           status: Database["public"]["Enums"]["waiver_status"]
           updated_at: string
         }
@@ -3251,12 +3253,14 @@ export type Database = {
           auto_unwaived_at?: string | null
           created_at?: string
           id?: string
+          is_auto?: boolean
           penalty_amount: number
           penalty_fee_id: string
           reason: string
           rejected_at?: string | null
-          requested_by_user_id: string
+          requested_by_user_id?: string | null
           schedule_id: string
+          source_submission_id?: string | null
           status?: Database["public"]["Enums"]["waiver_status"]
           updated_at?: string
         }
@@ -3267,12 +3271,14 @@ export type Database = {
           auto_unwaived_at?: string | null
           created_at?: string
           id?: string
+          is_auto?: boolean
           penalty_amount?: number
           penalty_fee_id?: string
           reason?: string
           rejected_at?: string | null
-          requested_by_user_id?: string
+          requested_by_user_id?: string | null
           schedule_id?: string
+          source_submission_id?: string | null
           status?: Database["public"]["Enums"]["waiver_status"]
           updated_at?: string
         }
