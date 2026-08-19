@@ -561,4 +561,13 @@
     retroactive-award derivation silently no-ops instead of erroring. Not
     fixed.
 
+  - loyalty-inactivity-check line 172 filters members with
+    `.gt("remaining_points", 0)`, so any member holding zero points is
+    excluded from inactivity evaluation entirely. A Radiant member who
+    redeems their full balance and then goes quiet for 200+ days is never
+    downgraded during the absence — the expiry path never sees them and
+    the gap path cannot fire until they return. That population is only
+    ever caught retroactively. Surfaced while investigating Bug #258.
+    Design question, not fixed.
+
 

@@ -157,6 +157,19 @@ movement only — point lots are not affected by these rules.
      default for Glimmer (no requalify target by design) and for any
      legacy member whose downgrade predates the baseline column.
 
+  5. **One absence, one tier charge (Bug #258, 2026-08-19).** A gap
+     downgrade is skipped when an `expired` transaction falls inside the
+     gap window `[topTwo[1], topTwo[0]]`. Points expiry and gap downgrade
+     are two charges for the same inactivity period, and an absence
+     settled by expiry must not be re-charged as a tier drop on return.
+     This matters most at the floor tier: a Glimmer member's expiry drops
+     no tier (`tierChanged = false`), so `is_downgraded` is never set and
+     the gap path's `!is_downgraded` guard stays open — a returning order
+     that lifts them above `display_order 1` would otherwise be
+     immediately penalised for the absence it just ended. Note that the
+     gap clock measures the interval between the two most recent past
+     orders, so it can only ever evaluate retroactively, on return.
+
 ### Loyalty trail in account notes (added 2026-06-06)
 
 Every linked loyalty event now writes an `account_notes` row so the

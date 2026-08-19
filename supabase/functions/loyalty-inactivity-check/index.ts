@@ -148,6 +148,7 @@ Deno.serve(async (req) => {
     warnings_sent: 0,
     expiries_processed: 0,
     downgrades_processed: 0,
+    downgrades_skipped_settled: 0,
     errors: [] as { member_id: string; error: string }[],
   };
 
@@ -503,7 +504,32 @@ Deno.serve(async (req) => {
         gapBetweenLastTwo > GAP_DOWNGRADE_DAYS;
       const canDowngrade = gapTooBig && !member.is_downgraded &&
         currentTier.display_order > 1;
-      if (canDowngrade) {
+      // Gap-settlement guard: an absence already charged by the 180-day
+      // points expiry must not be charged a second time as a tier drop.
+      // The gap window is [topTwo[1], topTwo[0]] — the interval between the
+      // two most recent successful orders. An 'expired' transaction inside
+      // that window means this absence is already settled. Without this,
+      // a returning order manufactures the gap (topTwo[0] becomes the new
+      // order), restores remaining_points so the member re-enters the
+      // candidate set, and lifts display_order above 1 — re-charging an
+      // absence that was settled while the member sat at the floor tier.
+      let gapAlreadySettled = false;
+      if (canDowngrade && topTwo.length >= 2) {
+        const { data: settlingExpiry } = await supabase
+          .from("loyalty_transactions")
+          .select("id")
+          .eq("member_id", member.id)
+          .eq("transaction_type", "expired")
+          .gte("created_at", topTwo[1].toISOString())
+          .lte("created_at", topTwo[0].toISOString())
+          .limit(1)
+          .maybeSingle();
+        gapAlreadySettled = !!settlingExpiry;
+      }
+      if (canDowngrade && gapAlreadySettled) {
+        summary.downgrades_skipped_settled += 1;
+      }
+      if (canDowngrade && !gapAlreadySettled) {
         const nextLower = tierByOrder.get(currentTier.display_order - 1);
         if (!nextLower) {
           summary.errors.push({
