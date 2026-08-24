@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import {
 import { Plus, Pencil, Loader2 } from 'lucide-react';
 import TradeInDialog, { RESALE_STATUSES, type TradeInRow, type ResaleStatus } from './TradeInDialog';
 import { formatCurrency } from '@/lib/calculations';
+import { useInvoiceAccountMap, invoiceHref } from '@/hooks/useInvoiceAccountMap';
 
 type StatusFilter = 'All' | ResaleStatus;
 
@@ -71,6 +73,16 @@ export default function TradeInsTab({ searchValue }: TradeInsTabProps = {}) {
       return true;
     });
   }, [rows, statusFilter, fromDate, toDate, searchValue]);
+
+  const { data: invoiceMap = {} } = useInvoiceAccountMap(
+    useMemo(
+      () => filtered.flatMap((r) => [
+        String(r.old_invoice_number ?? ''),
+        String(r.new_invoice_number ?? ''),
+      ]),
+      [filtered],
+    ),
+  );
 
   const clearFilters = () => {
     setStatusFilter('All');
@@ -165,8 +177,32 @@ export default function TradeInsTab({ searchValue }: TradeInsTabProps = {}) {
                 <tr key={r.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
                   <td className="py-2 px-3 tabular-nums whitespace-nowrap">{r.date_trade}</td>
                   <td className="py-2 px-3">{r.customers?.full_name ?? '—'}</td>
-                  <td className="py-2 px-3 tabular-nums">{r.old_invoice_number}</td>
-                  <td className="py-2 px-3 tabular-nums">{r.new_invoice_number ?? '—'}</td>
+                  <td className="py-2 px-3 tabular-nums">
+                    {invoiceMap[String(r.old_invoice_number ?? '')] ? (
+                      <Link
+                        to={invoiceHref(invoiceMap[String(r.old_invoice_number)])}
+                        className="text-primary hover:underline"
+                      >
+                        {r.old_invoice_number}
+                      </Link>
+                    ) : (
+                      r.old_invoice_number
+                    )}
+                  </td>
+                  <td className="py-2 px-3 tabular-nums">
+                    {r.new_invoice_number
+                      ? (invoiceMap[String(r.new_invoice_number)] ? (
+                          <Link
+                            to={invoiceHref(invoiceMap[String(r.new_invoice_number)])}
+                            className="text-primary hover:underline"
+                          >
+                            {r.new_invoice_number}
+                          </Link>
+                        ) : (
+                          r.new_invoice_number
+                        ))
+                      : '—'}
+                  </td>
                   <td className="py-2 px-3">{r.item_code}</td>
                   <td className="py-2 px-3 max-w-[260px] truncate" title={r.item_description}>
                     {r.item_description}

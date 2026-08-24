@@ -185,11 +185,12 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
     if (!oldInvoice.trim()) e.oldInvoice = 'Old Invoice # is required';
     else if (oldError) e.oldInvoice = oldError;
     else if (!customerId && !isEdit) e.oldInvoice = 'Old Invoice # not found';
+    if (newInvoice.trim() && newWarning) e.newInvoice = newWarning;
     if (!itemCode.trim()) e.itemCode = 'Item Code is required';
     if (!itemDescription.trim()) e.itemDescription = 'Item Description is required';
     if (!tradeAmount.trim()) e.tradeAmount = 'Trade Amount is required';
     return e;
-  }, [oldInvoice, oldError, customerId, isEdit, itemCode, itemDescription, tradeAmount]);
+  }, [oldInvoice, oldError, customerId, isEdit, itemCode, itemDescription, tradeAmount, newInvoice, newWarning]);
 
   const canSave = Object.keys(errors).length === 0;
 

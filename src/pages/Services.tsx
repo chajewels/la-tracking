@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -18,6 +18,7 @@ import ServiceJobDialog, {
 import { serviceStatusBadgeClass, serviceTypeBadgeClass } from '@/components/services/service-badge-styles';
 import TradeInsTab from '@/components/services/TradeInsTab';
 import { formatCurrency } from '@/lib/calculations';
+import { useInvoiceAccountMap, invoiceHref } from '@/hooks/useInvoiceAccountMap';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
@@ -148,6 +149,10 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
     });
   }, [jobs, statusFilter, typeFilter, updatedByFilter, fromDate, toDate, activeOnly, search]);
 
+  const { data: invoiceMap = {} } = useInvoiceAccountMap(
+    useMemo(() => filtered.map((j) => String(j.invoice_number ?? '')), [filtered]),
+  );
+
   const clearFilters = () => {
     setStatusFilter('All');
     setTypeFilter('All');
@@ -268,7 +273,18 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
               {filtered.map((j) => (
                 <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
                   <td className="py-2 px-3 tabular-nums whitespace-nowrap">{j.date_received}</td>
-                  <td className="py-2 px-3 tabular-nums">{j.invoice_number}</td>
+                  <td className="py-2 px-3 tabular-nums">
+                    {invoiceMap[String(j.invoice_number ?? '')] ? (
+                      <Link
+                        to={invoiceHref(invoiceMap[String(j.invoice_number)])}
+                        className="text-primary hover:underline"
+                      >
+                        {j.invoice_number}
+                      </Link>
+                    ) : (
+                      j.invoice_number
+                    )}
+                  </td>
                   <td className="py-2 px-3">{j.customers?.full_name ?? '—'}</td>
                   <td className="py-2 px-3 max-w-[260px] truncate" title={j.service_description ?? ''}>
                     {j.service_description ?? '—'}

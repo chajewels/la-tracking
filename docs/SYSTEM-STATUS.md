@@ -625,3 +625,20 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
 ## Manual loyalty award (added 2026-08-16)
 
 - AccountDetail and CashOrderDetail now expose an "Award loyalty points" action in the Customer Message card, gated on `can('loyalty_adjust_points')`. Invokes the existing `award-loyalty-points` edge function with `account_id` / `cash_order_id` respectively — no new edge function, the admin/finance JWT path it already accepts (index.ts:55-65) previously had no frontend caller. Intended for orders whose downpayment/completion was confirmed before the customer enrolled in loyalty, so they never received their automatic award. Safe to re-click — the function is idempotent per source (step 4b).
+
+## Service job / trade-in invoice linking (added 2026-08-20)
+
+- Service jobs and trade-ins: invoice numbers now link to their owning
+  account. `service_jobs` and `trade_ins` store no account FK — only
+  `invoice_number` text plus (on service_jobs) `account_type` — so links
+  are resolved at render time by the shared `useInvoiceAccountMap` hook,
+  which batches `.in('invoice_number', …)` against both
+  `layaway_accounts` and `cash_orders` (both UNIQUE + indexed on that
+  column). Layaway wins on collision, matching the lookup precedence in
+  ServiceJobDialog.resolveInvoice and TradeInDialog.lookupInvoice.
+  Unmatched invoices render as plain text — a live condition, not an
+  error state: a 2026-08 audit found 100+ service_jobs rows (invoice
+  range 13385–19246, most recent dated 2026-07-03) whose invoice matches
+  no surviving account. Entry validation already blocked unmatched
+  invoices on service_jobs.invoice_number and trade_ins.old_invoice_number;
+  trade_ins.new_invoice_number warned but did not block, and now blocks.
