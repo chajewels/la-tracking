@@ -5280,6 +5280,14 @@ export type Database = {
         }
         Returns: Json
       }
+      rename_invoice_number_atomic: {
+        Args: {
+          p_account_id: string
+          p_new_invoice_number: string
+          p_performed_by_user_id?: string
+        }
+        Returns: Json
+      }
       restore_lots_for_redemption: {
         Args: { p_redemption_id: string }
         Returns: number
