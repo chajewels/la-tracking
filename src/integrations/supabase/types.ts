@@ -4858,6 +4858,10 @@ export type Database = {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
         Returns: Json
       }
+      delete_cash_order_atomic: {
+        Args: { p_cash_order_id: string; p_performed_by_user_id?: string }
+        Returns: Json
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
