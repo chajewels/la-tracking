@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles,
+  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles, Trash2,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,7 @@ import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
+import { useDeleteCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
@@ -777,6 +778,8 @@ export default function CashOrderDetail() {
   });
   const [copied, setCopied] = useState(false);
   const [awardingLoyalty, setAwardingLoyalty] = useState(false);
+  const deleteCashOrder = useDeleteCashOrder();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const message = useMemo(() => {
     if (!order) return '';
@@ -1174,6 +1177,16 @@ export default function CashOrderDetail() {
             >
               <XCircle className="h-4 w-4 mr-1.5" />
               Cancel Order
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="border-destructive/30 text-destructive hover:bg-destructive/10"
+              onClick={() => setDeleteConfirmOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Delete Order
             </Button>
           )}
           {(isAdmin || isStaff) && (
@@ -2058,6 +2071,45 @@ export default function CashOrderDetail() {
           {zoomImage && <img src={zoomImage} alt="" className="w-full h-auto rounded-lg object-contain max-h-[80vh]" />}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Cash Order Confirmation */}
+      {deleteConfirmOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60"
+            style={{ zIndex: 9998, pointerEvents: 'auto' }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+          >
+            <h2 className="text-lg font-semibold text-card-foreground mb-1">Delete Cash Order?</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              This will permanently delete INV #{order.invoice_number} and all associated payments, items, invoices, and payment proofs. Loyalty points from this order will be revoked. This action cannot be undone.
+            </p>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+              <Button variant="outline" className="border-border mt-2 sm:mt-0" onClick={() => setDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteCashOrder.isPending}
+                onClick={async () => {
+                  try {
+                    await deleteCashOrder.mutateAsync(order.id);
+                    toast.success(`Cash order INV #${order.invoice_number} deleted`);
+                    navigate('/sales?tab=cash');
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to delete cash order');
+                  }
+                }}
+              >
+                {deleteCashOrder.isPending ? 'Deleting…' : 'Delete Order'}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </AppLayout>
   );
 }

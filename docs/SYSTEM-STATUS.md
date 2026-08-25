@@ -642,3 +642,18 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   no surviving account. Entry validation already blocked unmatched
   invoices on service_jobs.invoice_number and trade_ins.old_invoice_number;
   trade_ins.new_invoice_number warned but did not block, and now blocks.
+
+- Cash order deletion added (2026-08-25). `delete_cash_order_atomic` RPC +
+  `delete-cash-order` edge function + admin-only Delete Order button on
+  CashOrderDetail. Delete order is payment_proofs → generated_invoices →
+  cash_payments → cash_orders; payment_proofs must go first because its
+  cash_payment_id is ON DELETE SET NULL. account_notes and cash_order_items
+  cascade automatically. loyalty_transactions, loyalty_redemptions,
+  payment_submissions, store_credit_lots.source_cash_order_id and
+  store_credit_transactions are ON DELETE SET NULL and survive with a nulled
+  link — the edge function calls revoke-loyalty-points BEFORE the RPC so
+  member balances do not stay inflated. Known gap: store credit lots minted
+  from a deleted order remain spendable with an orphaned source reference.
+  Separately, delete_account_atomic now also clears generated_invoices
+  (previously ON DELETE RESTRICT with no cleanup step, which blocked deletion
+  of any account that had ever had an invoice generated).

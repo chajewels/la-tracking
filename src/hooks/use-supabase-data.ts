@@ -751,6 +751,37 @@ export function useRestorePayment() {
 // ──────────────────────────────────────────────
 // DELETE ACCOUNT (via edge function)
 // ──────────────────────────────────────────────
+// ──────────────────────────────────────────────
+// DELETE CASH ORDER (via edge function)
+// ──────────────────────────────────────────────
+export function useDeleteCashOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (cashOrderId: string) => {
+      const { data, error } = await supabase.functions.invoke('delete-cash-order', {
+        body: { cash_order_id: cashOrderId },
+      });
+      if (error) {
+        // Extract detailed error from FunctionsHttpError response body
+        let detailedMsg = error.message || 'Failed to delete cash order';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) detailedMsg = body.error;
+          }
+        } catch {
+          // Fallback to generic message
+        }
+        throw new Error(detailedMsg);
+      }
+      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+      if (!data?.success) throw new Error('Delete operation did not complete successfully');
+      return data;
+    },
+    onSuccess: () => invalidateAll(qc),
+  });
+}
+
 export function useDeleteAccount() {
   const qc = useQueryClient();
   return useMutation({
