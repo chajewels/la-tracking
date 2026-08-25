@@ -78,7 +78,12 @@ Deno.serve(async (req) => {
           cash_order_id: order.id,
           invoice_number: order.invoice_number,
           notes: `Cash order deleted: ${order.invoice_number}`,
-          trigger_event: "delete_cash_order",
+          // Must be a key of TRIGGER_TO_REASON in revoke-loyalty-points —
+          // "delete_cash_order" is not one, and returns 400 (fire-and-forget,
+          // so the delete silently proceeds without revoking). Reusing
+          // delete_account maps to RevokeReason "account_deleted", which
+          // accurately describes a deleted cash order.
+          trigger_event: "delete_account",
           spend_jpy: 0,
         }),
       }).catch((e) => { console.warn("[delete-cash-order] revoke-loyalty-points failed (non-blocking):", e); return null; });
