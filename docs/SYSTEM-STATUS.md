@@ -657,3 +657,17 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   Separately, delete_account_atomic now also clears generated_invoices
   (previously ON DELETE RESTRICT with no cleanup step, which blocked deletion
   of any account that had ever had an invoice generated).
+
+- Invoice renumbering now goes through rename_invoice_number_atomic (2026-08-25).
+  Previously handleInvoiceSave updated only layaway_accounts, leaving stale
+  invoice_number copies in up to twelve unconstrained tables. An audit of the
+  five historical renames found 64 stale rows (18784→18771: 47 in
+  reconciliation_log, 10 in staff_notifications, 6 in csr_notifications;
+  18846→18646: 1 in csr_notifications; 19533→19553: 1 in staff_notifications),
+  all repaired. The RPC also btrims the new value, guards against duplicates in
+  both layaway_accounts and cash_orders, and writes its own audit_logs entry.
+  Separately, delete_account_atomic and delete_cash_order_atomic now clear
+  staff_notifications and snapshot total_amount, total_paid, currency, status,
+  customer_id and payment_count into old_value_json — previously only the
+  invoice number was recorded, so a deleted completed account's value left the
+  books unquantified.

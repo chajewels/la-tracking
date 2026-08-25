@@ -314,26 +314,27 @@ export default function AccountDetail() {
     }
     setInvoiceSaving(true);
     try {
-      const { error } = await supabase
-        .from('layaway_accounts')
-        .update({ invoice_number: trimmed })
-        .eq('id', account.id);
+      // rename_invoice_number_atomic updates layaway_accounts plus all twelve
+      // denormalized invoice_number copies (staff_notifications,
+      // csr_notifications, reconciliation_log, service_jobs, trade_ins x2,
+      // sales_log, loyalty_transactions, loyalty_redemptions,
+      // loyalty_point_lots.source_reference, payment_submission_allocations,
+      // promo_views) in one transaction, and writes the audit log itself.
+      // None of those tables has an FK, so a plain UPDATE on layaway_accounts
+      // silently orphaned every downstream reference.
+      const { data: renameResult, error } = await supabase.rpc('rename_invoice_number_atomic' as any, {
+        p_account_id: account.id,
+        p_new_invoice_number: trimmed,
+        p_performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
+      });
       if (error) {
-        if (error.message.includes('duplicate key') || error.message.includes('invoice_number')) {
-          toast.error(`Invoice number "${trimmed}" already exists.`);
-        } else {
-          toast.error(error.message);
-        }
+        toast.error(error.message);
         return;
       }
-      await supabase.from('audit_logs').insert({
-        entity_type: 'layaway_account',
-        entity_id: account.id,
-        action: 'update_invoice_number',
-        old_value_json: { invoice_number: account.invoice_number },
-        new_value_json: { invoice_number: trimmed },
-        performed_by_user_id: (await supabase.auth.getUser()).data.user?.id,
-      });
+      if (renameResult?.error) {
+        toast.error(renameResult.error);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
