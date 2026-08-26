@@ -200,8 +200,11 @@ Deno.serve(async (req) => {
     ]);
     // Build allocation sum map: schedule_id → total allocated (non-voided payments only)
     const allocBySchedule = new Map<string, number>();
+    const allocRowsBySchedule = new Map<string, any[]>();
     for (const alloc of allocRes) {
       allocBySchedule.set(alloc.schedule_id, (allocBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
+      if (!allocRowsBySchedule.has(alloc.schedule_id)) allocRowsBySchedule.set(alloc.schedule_id, []);
+      allocRowsBySchedule.get(alloc.schedule_id)!.push(alloc);
     }
 
     const customerMap = new Map((custRes.data || []).map((c: any) => [c.id, c.full_name]));
@@ -409,22 +412,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Safety guard: skip if a payment was received within the last 90 days
-      const { data: recentPayments } = await supabase
-        .from("payments")
-        .select("date_paid")
-        .eq("account_id", account.id)
-        .is("voided_at", null)
-        .order("date_paid", { ascending: false })
-        .limit(1);
-      const lastPaymentDate = recentPayments?.[0]?.date_paid ?? null;
-      const ninetyDaysAgo = new Date(now);
-      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-      if (lastPaymentDate && new Date(lastPaymentDate + "T00:00:00Z") >= ninetyDaysAgo) {
-        console.log(`Skipped forfeit for ${account.id} — payment within 90 days (${lastPaymentDate})`);
-        continue;
-      }
-
       // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
       const paidItems = schedItems.filter((s: any) => {
         const allocated = allocBySchedule.get(s.id) || 0;
@@ -441,6 +428,28 @@ Deno.serve(async (req) => {
 
       const firstUnpaid = unpaidItems.sort((a: any, b: any) => a.installment_number - b.installment_number)[0];
       const firstUnpaidDueDate = firstUnpaid.due_date;
+
+      // Safety guard: the 90-day forfeit clock resets only on a payment that
+      // CLOSED an installment. Previously any non-voided payment reset it, so a
+      // token partial bought another 90 days while the month stayed unpaid —
+      // e.g. ₱93.05 against a ₱6,000 row on invoice 18304, leaving it ₱5,406.95
+      // short and blocking forfeiture despite the account being exactly 3 months
+      // overdue. Business rule: a payment that does not close the month due is
+      // not a payment for forfeiture purposes. This block must sit AFTER
+      // paidItems/unpaidItems are computed, which is why it moved down here.
+      const closingDates: string[] = [];
+      for (const s of paidItems) {
+        for (const a of (allocRowsBySchedule.get(s.id) || [])) {
+          if (a.date_paid) closingDates.push(a.date_paid);
+        }
+      }
+      const lastClosingDate = closingDates.sort().pop() ?? null;
+      const ninetyDaysAgo = new Date(now);
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      if (lastClosingDate && new Date(lastClosingDate + "T00:00:00Z") >= ninetyDaysAgo) {
+        console.log(`Skipped forfeit for ${account.id} — installment closed within 90 days (${lastClosingDate})`);
+        continue;
+      }
 
       // ── Count penalty occurrences on unpaid items ──
       const unpaidScheduleIds = new Set(unpaidItems.map((s: any) => s.id));
@@ -648,16 +657,23 @@ async function fetchAllocations(supabase: any, accountIds: string[]): Promise<an
   if (all.length === 0) return [];
   const paymentIds = [...new Set(all.map((a: any) => a.payment_id))];
   const voidedIds = new Set<string>();
+  const dateByPayment = new Map<string, string>();
   for (let i = 0; i < paymentIds.length; i += 200) {
     const chunk = paymentIds.slice(i, i + 200);
     const { data } = await supabase
       .from("payments")
-      .select("id")
-      .in("id", chunk)
-      .not("voided_at", "is", null);
-    if (data) data.forEach((p: any) => voidedIds.add(p.id));
+      .select("id, date_paid, voided_at")
+      .in("id", chunk);
+    if (data) {
+      for (const p of data) {
+        if (p.voided_at !== null) voidedIds.add(p.id);
+        else if (p.date_paid) dateByPayment.set(p.id, p.date_paid);
+      }
+    }
   }
-  return all.filter((a: any) => !voidedIds.has(a.payment_id));
+  return all
+    .filter((a: any) => !voidedIds.has(a.payment_id))
+    .map((a: any) => ({ ...a, date_paid: dateByPayment.get(a.payment_id) ?? null }));
 }
 
 /** Fetch all rows from a table filtered by account_id IN (ids), paginated */
