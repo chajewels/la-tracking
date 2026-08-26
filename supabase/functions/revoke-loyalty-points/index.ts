@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
         p_invoice_number: invoice_number ?? null,
         p_notes: notes ?? null,
         p_created_by_user_id: createdByUserId,
+        p_trigger_event: trigger_event,
       },
     );
     if (rpcErr) {
