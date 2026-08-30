@@ -264,12 +264,17 @@ export type Database = {
           order_date: string
           pancake_order_id: string | null
           remaining_balance: number
+          shipped_at: string | null
           shipping_fee: number
+          shipping_method_id: string | null
           shopify_order_id: string | null
           source_channel: string
           status: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
           total_paid: number
+          tracking_number: string | null
+          tracking_set_by: string | null
+          tracking_updated_at: string | null
           updated_at: string
         }
         Insert: {
@@ -300,12 +305,17 @@ export type Database = {
           order_date?: string
           pancake_order_id?: string | null
           remaining_balance: number
+          shipped_at?: string | null
           shipping_fee?: number
+          shipping_method_id?: string | null
           shopify_order_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount: number
           total_paid?: number
+          tracking_number?: string | null
+          tracking_set_by?: string | null
+          tracking_updated_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -336,12 +346,17 @@ export type Database = {
           order_date?: string
           pancake_order_id?: string | null
           remaining_balance?: number
+          shipped_at?: string | null
           shipping_fee?: number
+          shipping_method_id?: string | null
           shopify_order_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["cash_order_status"]
           total_amount?: number
           total_paid?: number
+          tracking_number?: string | null
+          tracking_set_by?: string | null
+          tracking_updated_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -350,6 +365,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_orders_shipping_method_id_fkey"
+            columns: ["shipping_method_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_methods"
             referencedColumns: ["id"]
           },
         ]
@@ -1366,10 +1388,15 @@ export type Database = {
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
+          shipped_at: string | null
           shipping_fee: number
+          shipping_method_id: string | null
           status: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid: number
+          tracking_number: string | null
+          tracking_set_by: string | null
+          tracking_updated_at: string | null
           updated_at: string
         }
         Insert: {
@@ -1403,10 +1430,15 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
+          shipped_at?: string | null
           shipping_fee?: number
+          shipping_method_id?: string | null
           status?: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid?: number
+          tracking_number?: string | null
+          tracking_set_by?: string | null
+          tracking_updated_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -1440,10 +1472,15 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
+          shipped_at?: string | null
           shipping_fee?: number
+          shipping_method_id?: string | null
           status?: Database["public"]["Enums"]["account_status"]
           total_amount?: number
           total_paid?: number
+          tracking_number?: string | null
+          tracking_set_by?: string | null
+          tracking_updated_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1452,6 +1489,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_accounts_shipping_method_id_fkey"
+            columns: ["shipping_method_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_methods"
             referencedColumns: ["id"]
           },
         ]
@@ -2629,6 +2673,64 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_tracking_history: {
+        Row: {
+          account_id: string | null
+          action: string
+          cash_order_id: string | null
+          changed_at: string
+          changed_by: string
+          id: string
+          reason: string | null
+          shipping_method_id: string | null
+          tracking_number: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          action: string
+          cash_order_id?: string | null
+          changed_at?: string
+          changed_by: string
+          id?: string
+          reason?: string | null
+          shipping_method_id?: string | null
+          tracking_number?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          action?: string
+          cash_order_id?: string | null
+          changed_at?: string
+          changed_by?: string
+          id?: string
+          reason?: string | null
+          shipping_method_id?: string | null
+          tracking_number?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_tracking_history_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_tracking_history_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_tracking_history_shipping_method_id_fkey"
+            columns: ["shipping_method_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_methods"
             referencedColumns: ["id"]
           },
         ]
@@ -4030,6 +4132,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      shipping_methods: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          provider_name: string
+          sort_order: number
+          supports_deeplink: boolean | null
+          title: string
+          tracking_url_template: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          provider_name: string
+          sort_order?: number
+          supports_deeplink?: boolean | null
+          title: string
+          tracking_url_template: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          provider_name?: string
+          sort_order?: number
+          supports_deeplink?: boolean | null
+          title?: string
+          tracking_url_template?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       shopify_webhook_events: {
         Row: {
