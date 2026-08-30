@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
 
     // ── Paginate all products, upsert per page ──
     while (hasNextPage) {
-      const gqlRes = await fetch(gqlUrl, {
+      const gqlRes: Response = await fetch(gqlUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
           500,
         );
       }
-      const gql = await gqlRes.json();
+      const gql: any = await gqlRes.json();
       if (gql.errors) {
         return jsonResponse(
           { error: `Shopify GraphQL errors: ${JSON.stringify(gql.errors)}`, mode, pages, upserted },
@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      const conn = gql?.data?.products;
+      const conn: any = gql?.data?.products;
       const nodes: any[] = conn?.nodes ?? [];
       pages += 1;
 
