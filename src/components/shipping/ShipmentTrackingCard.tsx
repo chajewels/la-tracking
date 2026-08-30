@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Truck, ExternalLink, Loader2 } from 'lucide-react';
+import { Truck, ExternalLink, Loader2, PackageCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -45,9 +45,7 @@ export default function ShipmentTrackingCard({
   const [saving, setSaving] = useState(false);
   const [methodId, setMethodId] = useState<string>(shippingMethodId ?? '');
   const [numberInput, setNumberInput] = useState<string>(trackingNumber ?? '');
-  const [shipDate, setShipDate] = useState<string>(
-    (shippedAt ?? '').slice(0, 10) || getPHTToday(),
-  );
+  const [confirmingUndo, setConfirmingUndo] = useState(false);
 
   const { data: methods = [] } = useQuery<ShippingMethod[]>({
     queryKey: ['shipping-methods'],
@@ -91,7 +89,6 @@ export default function ShipmentTrackingCard({
   const openEditor = () => {
     setMethodId(shippingMethodId ?? '');
     setNumberInput(trackingNumber ?? '');
-    setShipDate((shippedAt ?? '').slice(0, 10) || getPHTToday());
     setConfirmingClear(false);
     setEditing(true);
   };
@@ -114,10 +111,11 @@ export default function ShipmentTrackingCard({
         return;
       }
 
+      // Deliberately does NOT touch shipped_at — logging a tracking number and
+      // dispatching the parcel are two separate actions.
       const payload = {
         shipping_method_id: methodId,
         tracking_number: trimmed,
-        shipped_at: shipDate || null,
         tracking_set_by: uid,
         tracking_updated_at: new Date().toISOString(),
       };
@@ -155,6 +153,65 @@ export default function ShipmentTrackingCard({
       setSaving(false);
     }
   };
+
+  // Dispatch is recorded on shipped_at only — no status enum is touched.
+  // The history CHECK allows 'set' | 'updated' | 'cleared', so a dispatch
+  // event is an 'updated'.
+  const writeShippedAt = async (
+    nextShippedAt: string | null,
+    successMessage: string,
+    signedOutMessage: string,
+  ) => {
+    setSaving(true);
+    try {
+      const uid = await currentUserId();
+      if (!uid) {
+        toast.error(signedOutMessage);
+        return;
+      }
+
+      const { error: updateError } = kind === 'layaway'
+        ? await supabase.from('layaway_accounts')
+            .update({ shipped_at: nextShippedAt, tracking_updated_at: new Date().toISOString() })
+            .eq('id', recordId)
+        : await supabase.from('cash_orders')
+            .update({ shipped_at: nextShippedAt, tracking_updated_at: new Date().toISOString() })
+            .eq('id', recordId);
+      if (updateError) {
+        toast.error(updateError.message);
+        return;
+      }
+
+      const { error: historyError } = await supabase
+        .from('order_tracking_history')
+        .insert({
+          account_id: kind === 'layaway' ? recordId : null,
+          cash_order_id: kind === 'cash_order' ? recordId : null,
+          tracking_number: trackingNumber,
+          shipping_method_id: shippingMethodId,
+          action: 'updated',
+          changed_by: uid,
+        });
+      if (historyError) {
+        toast.error(historyError.message);
+        return;
+      }
+
+      toast.success(successMessage);
+      setConfirmingUndo(false);
+      onSaved();
+    } catch (err) {
+      toast.error((err as Error).message || 'Failed to update shipping status');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkShipped = () =>
+    writeShippedAt(getPHTToday(), 'Marked as shipped', 'You must be signed in to mark as shipped.');
+
+  const handleUndoShipped = () =>
+    writeShippedAt(null, 'Shipped mark removed', 'You must be signed in to change shipping status.');
 
   const handleClear = async () => {
     setSaving(true);
@@ -247,11 +304,41 @@ export default function ShipmentTrackingCard({
                   This carrier has no direct link yet — enter the number above on their page.
                 </p>
               )}
-              {shippedAt && (
-                <div className="text-xs text-muted-foreground">
-                  Shipped {String(shippedAt).slice(0, 10)}
+              {shippedAt ? (
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <span className="inline-flex items-center gap-1 text-xs text-success">
+                    <PackageCheck className="h-3.5 w-3.5" />
+                    Shipped {String(shippedAt).slice(0, 10)}
+                  </span>
+                  {canEdit && (confirmingUndo ? (
+                    <>
+                      <span className="text-xs text-muted-foreground">Mark as not shipped?</span>
+                      <Button size="sm" variant="outline" disabled={saving} onClick={handleUndoShipped}>
+                        {saving ? 'Working…' : 'Yes, undo'}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={saving} onClick={() => setConfirmingUndo(false)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-muted-foreground"
+                      onClick={() => setConfirmingUndo(true)}
+                    >
+                      Undo shipped
+                    </Button>
+                  ))}
                 </div>
-              )}
+              ) : canEdit ? (
+                <div className="pt-0.5">
+                  <Button size="sm" disabled={saving} onClick={handleMarkShipped}>
+                    {saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                    Mark as Shipped
+                  </Button>
+                </div>
+              ) : null}
               {trackingUpdatedAt && (
                 <div className="text-xs text-muted-foreground">
                   Updated {formatPHTDisplay(trackingUpdatedAt)}
@@ -325,18 +412,6 @@ export default function ShipmentTrackingCard({
               onChange={(e) => setNumberInput(e.target.value)}
               placeholder="e.g. EE123456789JP"
               className="h-9 text-sm tabular-nums"
-            />
-          </div>
-          <div>
-            <Label htmlFor="shipped-at" className="text-xs text-muted-foreground">
-              Shipped date
-            </Label>
-            <Input
-              id="shipped-at"
-              type="date"
-              value={shipDate}
-              onChange={(e) => setShipDate(e.target.value)}
-              className="h-9 text-sm"
             />
           </div>
           <div className="flex items-center gap-2 pt-1">

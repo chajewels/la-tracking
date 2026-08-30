@@ -704,3 +704,14 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   true; DHL and Yamato are landing pages until their real URL formats are
   captured, so those show the number for manual entry. Customer portal display
   is a separate follow-up.
+
+- "Mark as Shipped" added (2026-08-30). Dispatch is recorded via shipped_at on
+  cash_orders / layaway_accounts, NOT via a new status enum value. Considered and
+  rejected: adding 'shipped' to account_status would have required auditing ~70
+  sites testing `status = 'completed'`, with a missed site silently dropping the
+  account from analytics, trade-in counts, loyalty eligibility and KPIs; four
+  RPCs that re-derive status from remaining balance would also have overwritten
+  it. Saving a tracking number no longer stamps shipped_at — logging tracking and
+  marking shipped are separate actions. Clearing tracking also clears shipped_at.
+  Both detail pages show a "Shipped" badge alongside (not replacing) the status
+  badge.

@@ -1096,6 +1096,11 @@ export default function AccountDetail() {
                  effectiveStatus === 'grace_period' ? 'GRACE PERIOD' :
                  effectiveStatus.toUpperCase()}
               </Badge>
+              {account.shipped_at && (
+                <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
+                  SHIPPED
+                </Badge>
+              )}
               {isTestAccount && (
                 <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs font-bold">
                   🧪 TEST

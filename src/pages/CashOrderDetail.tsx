@@ -951,6 +951,14 @@ export default function CashOrderDetail() {
                     Cash Order #{order.invoice_number}
                   </h1>
                   <StatusBadge status={order.status} />
+                  {order.shipped_at && (
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800 text-xs"
+                    >
+                      Shipped
+                    </Badge>
+                  )}
                   {order.is_trade && (
                     <Badge
                       variant="outline"
