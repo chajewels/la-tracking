@@ -864,6 +864,12 @@ Deno.serve(async (req) => {
         status: acc.status,
         forfeited_at: acc.forfeited_at || null,
         has_pending_extension: pendingExtensionAccountIds.has(acc.id),
+        // Shipment tracking — the customer sees the carrier + number + shipped
+        // date only. order_tracking_history is a staff audit trail and is
+        // deliberately never exposed here.
+        tracking_number: acc.tracking_number ?? null,
+        shipping_method_id: acc.shipping_method_id ?? null,
+        shipped_at: acc.shipped_at ?? null,
         status_label: statusLabel,
         progress_percent: progressPercent,
         paid_installments: paidInstallments,
@@ -943,6 +949,9 @@ Deno.serve(async (req) => {
       total_paid: Number(o.total_paid),
       remaining_balance: Number(o.remaining_balance),
       status: o.status,
+      tracking_number: o.tracking_number ?? null,
+      shipping_method_id: o.shipping_method_id ?? null,
+      shipped_at: o.shipped_at ?? null,
       item_description: o.item_description ?? null,
       order_date: o.order_date ?? null,
       notes: o.notes ?? null,

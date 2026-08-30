@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-r
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
+import PortalTrackingRow from './PortalTrackingRow';
 import { methodLabel } from '@/lib/payment-method-registry';
 import { getConversionRate } from '@/lib/currency-converter';
 import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
@@ -50,6 +51,9 @@ export interface PortalCashOrder {
   cancellation_reason: string | null;
   cancelled_at: string | null;
   completed_at: string | null;
+  tracking_number?: string | null;
+  shipping_method_id?: string | null;
+  shipped_at?: string | null;
   created_at: string;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
@@ -271,6 +275,12 @@ function CashOrderCard({
         </div>
         <span style={statusPillStyle(order.status)}>{order.status}</span>
       </div>
+
+      <PortalTrackingRow
+        trackingNumber={order.tracking_number}
+        shippingMethodId={order.shipping_method_id}
+        shippedAt={order.shipped_at}
+      />
 
       {/* Completed banner */}
       {isCompleted && (

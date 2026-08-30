@@ -44,6 +44,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getConversionRate } from '@/lib/currency-converter';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import PortalTrackingRow from '@/components/portal/PortalTrackingRow';
 import PageMeta from '@/components/seo/PageMeta';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 import { pt, serviceLabel } from '@/i18n/portal';
@@ -95,6 +96,9 @@ interface PortalAccount {
   status_label: string;
   forfeited_at: string | null;
   has_pending_extension?: boolean;
+  tracking_number?: string | null;
+  shipping_method_id?: string | null;
+  shipped_at?: string | null;
   progress_percent: number;
   paid_installments: number;
   total_installments: number;
@@ -1400,6 +1404,12 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
           )}
         </div>
       </div>
+
+      <PortalTrackingRow
+        trackingNumber={account.tracking_number}
+        shippingMethodId={account.shipping_method_id}
+        shippedAt={account.shipped_at}
+      />
 
       {/* Progress Bar */}
       <div className="mb-4">

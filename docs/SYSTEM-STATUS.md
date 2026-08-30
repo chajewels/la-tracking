@@ -715,3 +715,15 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   marking shipped are separate actions. Clearing tracking also clears shipped_at.
   Both detail pages show a "Shipped" badge alongside (not replacing) the status
   badge.
+
+- Customer portal now shows tracking per account (2026-08-30): tracking number,
+  a Track button deep-linking via tracking_url_template where supports_deeplink
+  is true, and the shipped date. Applies to both layaway accounts and cash
+  orders, via the shared PortalTrackingRow component (one ['portal-shipping-methods']
+  query serves every card). order_tracking_history is deliberately not exposed to
+  customers. NOTE: an edge function change WAS required after all — customer-portal
+  selects * from both tables but then returns explicit projections that listed
+  neither tracking_number, shipping_method_id nor shipped_at, so the columns were
+  fetched and dropped. Those three fields are now added to both the layaway and
+  cash-order projections. The edit is committed but NOT deployed; the portal shows
+  nothing until customer-portal is redeployed.
