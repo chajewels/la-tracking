@@ -658,8 +658,8 @@ Deno.serve(async (req) => {
 
     // ── CANCEL ──────────────────────────────────────────────────────
     if (action === "cancel") {
-      if (!isAdmin) {
-        return json({ error: "Admin role required to cancel" }, 403);
+      if (!isAdmin && !isStaff) {
+        return json({ error: "Admin or staff role required to cancel" }, 403);
       }
       // Cancel branch handles status='pending' only.
       // For status='confirmed' (already-approved redemptions

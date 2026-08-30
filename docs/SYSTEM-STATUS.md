@@ -671,3 +671,14 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   customer_id and payment_count into old_value_json — previously only the
   invoice number was recorded, so a deleted completed account's value left the
   books unquantified.
+
+- Staff may now cancel pending loyalty redemptions (2026-08-28). Previously
+  RedemptionApprovalModal gated Approve on admin/finance/staff but "Cancel
+  Request" on admin only, and process-loyalty-redemption's cancel branch
+  returned 403 for non-admins — so staff could approve a redemption but had no
+  way to decline one. Both gates now accept admin or staff. Finance is
+  deliberately NOT included. Voiding a CONFIRMED redemption remains admin-only
+  (separate guard in the void branch) since it refunds points and re-increments
+  stock. No new status was added: declining a pending redemption is still the
+  'cancel' action, and loyalty_redemption_status remains pending / confirmed /
+  cancelled.

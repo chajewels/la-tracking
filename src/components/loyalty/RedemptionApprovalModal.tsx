@@ -522,7 +522,7 @@ export function RedemptionApprovalModal({
                 >
                   Close
                 </Button>
-                {isAdmin && (
+                {(isAdmin || isStaff) && (
                   <Button
                     type="button"
                     variant="outline"
