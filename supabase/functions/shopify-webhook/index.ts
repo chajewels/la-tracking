@@ -50,7 +50,7 @@ async function computeHmacBase64(secret: string, rawBytes: Uint8Array): Promise<
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign("HMAC", key, rawBytes);
+  const sig = await crypto.subtle.sign("HMAC", key, rawBytes as BufferSource);
   let binary = "";
   const bytes = new Uint8Array(sig);
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);

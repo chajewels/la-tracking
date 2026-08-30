@@ -85,7 +85,7 @@ export function getPortalLinkForCustomer(
  *          if customer lookup fails (defensive — never throws).
  */
 export async function buildPortalLinkForCustomerId(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   customerId: string,
   intent: PortalIntent = 'portal',
 ): Promise<string> {
@@ -124,7 +124,7 @@ export async function buildPortalLinkForCustomerId(
     .eq('is_active', true)
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { token: string; expires_at: string | null } | null };
 
   if (tokenRow?.token) {
     const expired =

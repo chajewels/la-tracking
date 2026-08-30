@@ -13,7 +13,7 @@ async function hashPinPbkdf2(pin: string, saltBytes?: Uint8Array): Promise<strin
   );
   const salt = saltBytes ?? crypto.getRandomValues(new Uint8Array(16));
   const derivedBits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, 256,
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 100000, hash: "SHA-256" }, keyMaterial, 256,
   );
   const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, "0")).join("");
   const hashHex = Array.from(new Uint8Array(derivedBits)).map((b) => b.toString(16).padStart(2, "0")).join("");

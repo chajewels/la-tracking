@@ -13,7 +13,7 @@ async function hashPinPbkdf2(pin: string): Promise<string> {
   );
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const derivedBits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, 256,
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 100000, hash: "SHA-256" }, keyMaterial, 256,
   );
   const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, "0")).join("");
   const hashHex = Array.from(new Uint8Array(derivedBits)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -66,12 +66,14 @@ Deno.serve(async (req) => {
     }
 
     // Audit log (best-effort)
-    await supabase.from("audit_logs").insert({
-      entity_type: "customer",
-      entity_id: customer_id,
-      action: "portal_pin_set",
-      performed_by_user_id: user.id,
-    }).then(() => {}).catch(() => {});
+    try {
+      await supabase.from("audit_logs").insert({
+        entity_type: "customer",
+        entity_id: customer_id,
+        action: "portal_pin_set",
+        performed_by_user_id: user.id,
+      });
+    } catch { /* ignored */ }
 
     return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error: any) {

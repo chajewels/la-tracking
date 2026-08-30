@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
             status: "submitted",
             submission_type: inputAlloc.is_downpayment ? 'downpayment' : 'installment',
             sender_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
-            proof_url: proof_url.trim(),
+            proof_url: proof_url!.trim(),
           })
           .select("id")
           .single();

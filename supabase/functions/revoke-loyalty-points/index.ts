@@ -134,6 +134,9 @@ Deno.serve(async (req) => {
       }
       memberId = memberLookup.id;
     }
+    if (!memberId) {
+      return json({ error: "member_id is required" }, 400);
+    }
 
     // 4. Snapshot pre-revoke
     const { data: preMember, error: preErr } = await supabase

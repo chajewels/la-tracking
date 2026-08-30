@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
     // portal_token (legacy token-auth). approve/cancel/void require
     // a real internal user JWT — their respective branch role checks
     // would reject customer auth anyway, so we 401 early here.
-    let user: { id: string } | null = null;
+    let user: { id: string; email?: string } | null = null;
     let roles: string[] = [];
     let customerId: string | null = null;
 
@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
         authHeader.replace("Bearer ", ""),
       );
       if (authUser) {
-        user = authUser;
+        user = authUser as { id: string; email?: string };
         roles = await getUserRoles(supabase, authUser.id);
       }
     }
@@ -453,7 +453,7 @@ Deno.serve(async (req) => {
 
     // ── APPROVE ─────────────────────────────────────────────────────
     if (action === "approve") {
-      if (!isInternal) {
+      if (!isInternal || !user) {
         return json({ error: "Internal role required" }, 403);
       }
 
@@ -658,7 +658,7 @@ Deno.serve(async (req) => {
 
     // ── CANCEL ──────────────────────────────────────────────────────
     if (action === "cancel") {
-      if (!isAdmin && !isStaff) {
+      if ((!isAdmin && !isStaff) || !user) {
         return json({ error: "Admin or staff role required to cancel" }, 403);
       }
       // Cancel branch handles status='pending' only.
@@ -776,7 +776,7 @@ Deno.serve(async (req) => {
     if (action === "void") {
       // 1. Auth gate — void is destructive (cancels a confirmed redemption +
       // refunds points + reverses order-side discount). Admin-only by design.
-      if (!isAdmin) {
+      if (!isAdmin || !user) {
         return json({ error: "Admin role required to void" }, 403);
       }
 

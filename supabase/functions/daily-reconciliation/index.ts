@@ -27,10 +27,8 @@ async function fetchWithRetryOnRateLimit(
       if (!isRateLimit || attempt >= maxRetries) {
         throw e;
       }
-      const retryAfterMs =
-        typeof (e as { retryAfterMs?: number }).retryAfterMs === 'number'
-          ? (e as { retryAfterMs: number }).retryAfterMs
-          : 200;
+      const maybeRetry = (e as unknown as { retryAfterMs?: number }).retryAfterMs;
+      const retryAfterMs = typeof maybeRetry === 'number' ? maybeRetry : 200;
       console.warn(
         `Rate limited at fetch, retry after ${retryAfterMs + 50}ms (attempt ${attempt + 1}/${maxRetries})`
       );

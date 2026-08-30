@@ -43,7 +43,6 @@ export const MagicLinkEmail = ({
             <tr>
               <td
                 align="center"
-                bgcolor="#CEA021"
                 style={{ backgroundColor: '#CEA021', borderRadius: '10px' }}
               >
                 <a

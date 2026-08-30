@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
 });
 
 async function fetchAllRows(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   spec: TableSpec,
 ): Promise<Record<string, unknown>[]> {
   const all: Record<string, unknown>[] = [];

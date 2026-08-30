@@ -440,15 +440,15 @@ Deno.serve(async (req) => {
               .is("voided_at", null);
 
             const dbPaidSum = (pmtRows ?? []).reduce((sum, r) => sum + Number(r.amount_paid), 0);
-            const totalPaidWithDownpayment = dbPaidSum;
-            const verifiedRemainingBalance = a.total_amount - totalPaidWithDownpayment;
+            const verifiedTotalPaid = dbPaidSum;
+            const verifiedRemainingBalance = a.total_amount - verifiedTotalPaid;
             const verifiedAllPaid = a.schedule.every(s => s.is_paid) && verifiedRemainingBalance <= 0;
             const verifiedStatus = verifiedAllPaid ? "completed" : "active";
 
             await supabase
               .from("layaway_accounts")
               .update({
-                total_paid: totalPaidWithDownpayment,
+                total_paid: verifiedTotalPaid,
                 remaining_balance: Math.max(0, verifiedRemainingBalance),
                 status: verifiedStatus,
               })
