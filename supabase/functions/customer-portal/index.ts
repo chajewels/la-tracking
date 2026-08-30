@@ -382,6 +382,27 @@ Deno.serve(async (req) => {
     const serviceJobsRaw = serviceJobsRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
 
+    // Carrier lookup, resolved service-side. shipping_methods has a
+    // `FOR SELECT TO authenticated` policy, so a portal-token customer (anon)
+    // reads zero rows and the Track button never renders — the same class of
+    // problem as the extension check below. Fetched ONCE per request and
+    // matched by id, never per account. Deliberately NOT filtered to
+    // is_active: an order may reference a carrier that was later retired, and
+    // its tracking link should still work.
+    const shippingMethodById = new Map<string, {
+      id: string;
+      provider_name: string;
+      title: string;
+      tracking_url_template: string;
+      supports_deeplink: boolean | null;
+    }>();
+    {
+      const { data: methodRows } = await supabase
+        .from("shipping_methods")
+        .select("id, provider_name, title, tracking_url_template, supports_deeplink");
+      for (const m of (methodRows || []) as any[]) shippingMethodById.set(m.id, m);
+    }
+
     // Pending extension requests per account, read service-side. The old
     // client-side PostgREST check in CustomerPortal.tsx was RLS-blocked on the
     // anon token path and always returned [], so the duplicate-request guard
@@ -870,6 +891,9 @@ Deno.serve(async (req) => {
         tracking_number: acc.tracking_number ?? null,
         shipping_method_id: acc.shipping_method_id ?? null,
         shipped_at: acc.shipped_at ?? null,
+        shipping_method: acc.shipping_method_id
+          ? (shippingMethodById.get(acc.shipping_method_id) ?? null)
+          : null,
         status_label: statusLabel,
         progress_percent: progressPercent,
         paid_installments: paidInstallments,
@@ -952,6 +976,9 @@ Deno.serve(async (req) => {
       tracking_number: o.tracking_number ?? null,
       shipping_method_id: o.shipping_method_id ?? null,
       shipped_at: o.shipped_at ?? null,
+      shipping_method: o.shipping_method_id
+        ? (shippingMethodById.get(o.shipping_method_id) ?? null)
+        : null,
       item_description: o.item_description ?? null,
       order_date: o.order_date ?? null,
       notes: o.notes ?? null,

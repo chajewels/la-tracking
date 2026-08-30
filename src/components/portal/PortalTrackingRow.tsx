@@ -1,5 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { palette, hslTriplets } from '@/theme/portal-tokens';
 
 // Maison inline-style palette — mirrors the `M` objects in CustomerPortal.tsx
@@ -14,32 +12,17 @@ const M = {
   success: palette.success,
 } as const;
 
-interface PortalShippingMethod {
+// The carrier arrives already resolved on the account/order payload. It is
+// NOT read from the client: shipping_methods is `FOR SELECT TO authenticated`,
+// and a portal-token customer is anon, so a browser query returns zero rows
+// and the Track button would never render. customer-portal resolves it
+// service-side after verifying the token.
+export interface PortalShippingMethod {
   id: string;
   provider_name: string;
   title: string;
   tracking_url_template: string;
   supports_deeplink: boolean | null;
-}
-
-// Shared by the layaway account card and the cash order card so both surfaces
-// stay identical by construction. The query key is shared too, so the carrier
-// list is fetched once no matter how many cards render.
-export function usePortalShippingMethods() {
-  return useQuery<PortalShippingMethod[]>({
-    queryKey: ['portal-shipping-methods'],
-    staleTime: 300_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('shipping_methods')
-        .select('id, provider_name, title, tracking_url_template, supports_deeplink')
-        .eq('is_active', true)
-        .order('provider_name', { ascending: true })
-        .order('title', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as PortalShippingMethod[];
-    },
-  });
 }
 
 function fmtDate(dateStr: string | null | undefined): string {
@@ -53,21 +36,19 @@ function fmtDate(dateStr: string | null | undefined): string {
 
 interface PortalTrackingRowProps {
   trackingNumber?: string | null;
-  shippingMethodId?: string | null;
+  shippingMethod?: PortalShippingMethod | null;
   shippedAt?: string | null;
 }
 
 export default function PortalTrackingRow({
   trackingNumber,
-  shippingMethodId,
+  shippingMethod,
   shippedAt,
 }: PortalTrackingRowProps) {
-  const { data: methods = [] } = usePortalShippingMethods();
-
   // Nothing to show until a tracking number exists — no empty state.
   if (!trackingNumber) return null;
 
-  const method = methods.find((m) => m.id === shippingMethodId) ?? null;
+  const method = shippingMethod ?? null;
 
   // Deep link when the carrier's template carries the placeholder; otherwise
   // send them to the carrier's landing page. Either way the number is on
@@ -105,6 +86,9 @@ export default function PortalTrackingRow({
             href={trackUrl}
             target="_blank"
             rel="noopener noreferrer"
+            // The enclosing card is clickable and opens account history —
+            // without this the click falls through and the carrier page never opens.
+            onClick={(e) => e.stopPropagation()}
             className="shrink-0"
             style={{
               fontFamily: 'Inter,sans-serif',

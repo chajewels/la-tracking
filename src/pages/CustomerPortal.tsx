@@ -44,7 +44,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getConversionRate } from '@/lib/currency-converter';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
-import PortalTrackingRow from '@/components/portal/PortalTrackingRow';
+import PortalTrackingRow, { type PortalShippingMethod } from '@/components/portal/PortalTrackingRow';
 import PageMeta from '@/components/seo/PageMeta';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 import { pt, serviceLabel } from '@/i18n/portal';
@@ -99,6 +99,8 @@ interface PortalAccount {
   tracking_number?: string | null;
   shipping_method_id?: string | null;
   shipped_at?: string | null;
+  // Resolved service-side by customer-portal — see PortalTrackingRow.
+  shipping_method?: PortalShippingMethod | null;
   progress_percent: number;
   paid_installments: number;
   total_installments: number;
@@ -1407,7 +1409,7 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 
       <PortalTrackingRow
         trackingNumber={account.tracking_number}
-        shippingMethodId={account.shipping_method_id}
+        shippingMethod={account.shipping_method}
         shippedAt={account.shipped_at}
       />
 
