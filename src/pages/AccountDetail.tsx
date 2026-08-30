@@ -322,17 +322,24 @@ export default function AccountDetail() {
       // promo_views) in one transaction, and writes the audit log itself.
       // None of those tables has an FK, so a plain UPDATE on layaway_accounts
       // silently orphaned every downstream reference.
-      const { data: renameResult, error } = await supabase.rpc('rename_invoice_number_atomic' as any, {
+      const { data: renameResult, error } = await supabase.rpc('rename_invoice_number_atomic', {
         p_account_id: account.id,
         p_new_invoice_number: trimmed,
-        p_performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
+        // undefined (not null) so the key is omitted and the RPC's SQL DEFAULT
+        // applies — the generated signature types this param as optional, which
+        // Supabase only does for args that carry a DEFAULT. Same value reaches
+        // the function either way; null just isn't assignable to `string | undefined`.
+        p_performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? undefined,
       });
       if (error) {
         toast.error(error.message);
         return;
       }
-      if (renameResult?.error) {
-        toast.error(renameResult.error);
+      // The RPC returns jsonb, which types.ts resolves to the non-indexable Json
+      // union. Cast the RESULT only — never the RPC name.
+      const renameError = (renameResult as { error?: string } | null)?.error;
+      if (renameError) {
+        toast.error(renameError);
         return;
       }
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });

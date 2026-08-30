@@ -1063,12 +1063,11 @@ export default function Inquiries() {
     setListLoading(true);
     try {
       const client = supabase;
-      // Reads the VIEW (base table + accumulated_inquiry_count). The `as any` on
-      // the relation name is required until types.ts regenerates to include this
-      // view — see CLAUDE.md "GENERATED FILES". Remove the cast once it appears
-      // under Views in types.ts. The Demand Map deliberately reads the BASE TABLE.
+      // Reads the VIEW (base table + accumulated_inquiry_count), now present
+      // under Views in types.ts so no cast is needed. The Demand Map
+      // deliberately reads the BASE TABLE.
       let q: any = client
-        .from('product_inquiries_with_accumulated' as any)
+        .from('product_inquiries_with_accumulated')
         .select('*', { count: 'exact' })
         // Must be the exact reverse of the view's window ORDER BY
         // (last_inquired_date ASC NULLS FIRST, created_at ASC, id ASC) so the
