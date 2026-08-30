@@ -692,3 +692,15 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   treated as positive; previously a leading + or - was mandatory and unsigned
   descriptions failed validation with no fee derived. Existing service_jobs rows
   are NOT recalculated — this affects new entries and description edits only.
+
+- Shipment tracking UI added to both account types (2026-08-30). Shared
+  ShipmentTrackingCard renders on AccountDetail and CashOrderDetail; admin and
+  staff can set, update, or clear a carrier + tracking number, and every change
+  writes an order_tracking_history row (set / updated / cleared). shipped_at
+  defaults to today but is editable for parcels entered after dispatch. The
+  card enforces the DB constraint that tracking_number and shipping_method_id
+  are both set or both null — clearing is a single action that nulls both.
+  "Track parcel" deep-links via tracking_url_template when supports_deeplink is
+  true; DHL and Yamato are landing pages until their real URL formats are
+  captured, so those show the number for manual entry. Customer portal display
+  is a separate follow-up.

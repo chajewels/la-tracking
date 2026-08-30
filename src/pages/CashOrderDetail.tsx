@@ -30,6 +30,7 @@ import ProgressRing from '@/components/shared/ProgressRing';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
+import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder } from '@/hooks/use-supabase-data';
@@ -78,6 +79,13 @@ interface CashOrderRow {
   discount_type: string | null;
   discount_value: number | null;
   shipping_fee: number | null;
+  // Shipment tracking (select('*') already fetches these; declaring them so
+  // ShipmentTrackingCard receives typed props instead of casts).
+  shipping_method_id: string | null;
+  tracking_number: string | null;
+  shipped_at: string | null;
+  tracking_set_by: string | null;
+  tracking_updated_at: string | null;
   customers: {
     id: string;
     full_name: string;
@@ -1604,6 +1612,18 @@ export default function CashOrderDetail() {
             )}
           </div>
         </div>
+
+        {/* Shipment Tracking */}
+        <ShipmentTrackingCard
+          kind="cash_order"
+          recordId={order.id}
+          trackingNumber={order.tracking_number ?? null}
+          shippingMethodId={order.shipping_method_id ?? null}
+          shippedAt={order.shipped_at ?? null}
+          trackingUpdatedAt={order.tracking_updated_at ?? null}
+          canEdit={isAdmin || isStaff}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+        />
 
         {/* Account Notes */}
         {(isAdmin || isFinance || isStaff) && (

@@ -43,6 +43,7 @@ import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import { supabase } from '@/integrations/supabase/client';
+import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getPHTToday } from '@/lib/date-utils';
@@ -283,6 +284,7 @@ export default function AccountDetail() {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
+  const isStaff = (roles as any[]).includes('staff');
   const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
   const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const { can: canPerm } = usePermissions();
@@ -2235,6 +2237,18 @@ export default function AccountDetail() {
             )}
           </div>
         </div>
+
+        {/* Shipment Tracking */}
+        <ShipmentTrackingCard
+          kind="layaway"
+          recordId={account.id}
+          trackingNumber={account.tracking_number ?? null}
+          shippingMethodId={account.shipping_method_id ?? null}
+          shippedAt={account.shipped_at ?? null}
+          trackingUpdatedAt={account.tracking_updated_at ?? null}
+          canEdit={isAdmin || isStaff}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['account', id] })}
+        />
 
         {/* Account Notes Panel */}
         {(isAdmin || isFinance || (roles as any[]).includes('staff')) && (
