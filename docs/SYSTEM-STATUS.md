@@ -682,3 +682,13 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   stock. No new status was added: declining a pending redemption is still the
   'cancel' action, and loyalty_redemption_status remains pending / confirmed /
   cancelled.
+
+- Ring Resize fee table corrected (2026-08-28). Was a hand-written ladder
+  stepping every 1.0 from +4.5 and returning null below -8.5. Now:
+  0.5–4 and all negatives = ¥1,500; above +4, ceil(size - 4) * 500 added, no
+  cap. Owner-confirmed: +5.5 = ¥2,500 (base ¥1,500 + ¥1,000 for the 1.5 above
+  +4). The old table priced +5.5 at ¥2,000 and +9.5 at ¥4,000. The size parser
+  and RING_RESIZE_SIZE_PATTERN now accept an unsigned size (".5" / "0.5"),
+  treated as positive; previously a leading + or - was mandatory and unsigned
+  descriptions failed validation with no fee derived. Existing service_jobs rows
+  are NOT recalculated — this affects new entries and description edits only.

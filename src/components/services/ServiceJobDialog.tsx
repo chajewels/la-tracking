@@ -39,7 +39,7 @@ export const SERVICE_STATUSES = [
 export type ServiceStatus = typeof SERVICE_STATUSES[number];
 
 // Pattern for Ring Resize size validation in the description.
-export const RING_RESIZE_SIZE_PATTERN = /[+-]\d+(\.\d+)?/;
+export const RING_RESIZE_SIZE_PATTERN = /[+-]?(\d+(\.\d+)?|\.\d+)/;
 
 export const UPDATED_BY_OPTIONS = [
   'Brenda',
@@ -78,30 +78,25 @@ interface ServiceJobDialogProps {
 }
 
 // Ring resize fee table — derives fee from the size token in the description.
+// Owner-specified 2026-08-28:
+//   0.5–4, and all negative sizes at any depth → ¥1,500
+//   above +4, each STARTED whole size adds ¥500 → ceil(size - 4) * 500
+//   e.g. +4.5 and +5 → ¥2,000; +5.5 and +6 → ¥2,500; +6.5 and +7 → ¥3,000
+// The previous table stepped every 1.0 from 4.5 and stopped negatives at -8.5.
 function ringResizeFee(sizeRaw: number): number | null {
   if (sizeRaw === 0) return null;
-  if (sizeRaw > 0) {
-    if (sizeRaw <= 4.5) return 1500;
-    if (sizeRaw <= 5.5) return 2000;
-    if (sizeRaw <= 6.5) return 2500;
-    if (sizeRaw <= 7.5) return 3000;
-    if (sizeRaw <= 8.5) return 3500;
-    if (sizeRaw <= 9.5) return 4000;
-    if (sizeRaw <= 10.5) return 4500;
-    if (sizeRaw <= 11.5) return 5000;
-    if (sizeRaw <= 12.5) return 5500;
-    if (sizeRaw <= 13.5) return 6000;
-    if (sizeRaw <= 14.5) return 6500;
-    return 7000; // +15 and above
-  }
-  // Negative direction
-  if (sizeRaw >= -8.5) return 1500;
-  return null; // below -8.5, manual entry
+  // Negative resizes are a flat base fee regardless of depth.
+  if (sizeRaw < 0) return 1500;
+  if (sizeRaw <= 4) return 1500;
+  return 1500 + Math.ceil(sizeRaw - 4) * 500;
 }
 
 function parseRingResizeSize(description: string): number | null {
   // Match +N or -N (optionally with decimals), e.g. +3.5, -2, +0.75
-  const m = description.match(/([+-])\s*(\d+(?:\.\d+)?)/);
+  // Sign is optional — a bare ".5" or "0.5" is treated as positive. Requires
+  // either a digit before the decimal or a leading dot, so "7.5US" in free text
+  // still parses as 7.5 exactly as before.
+  const m = description.match(/([+-])?\s*(\d+(?:\.\d+)?|\.\d+)/);
   if (!m) return null;
   const sign = m[1] === '-' ? -1 : 1;
   const num = parseFloat(m[2]);
