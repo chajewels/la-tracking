@@ -47,6 +47,7 @@ export const LOYALTY_EMAIL_KEYS = [
   "loyalty_email_redemption_voided",
   "loyalty_email_broadcast",
   "loyalty_email_tier_revoked",
+  "loyalty_email_tier_restored",
 ] as const;
 
 export type LoyaltyEmailKey = typeof LOYALTY_EMAIL_KEYS[number];

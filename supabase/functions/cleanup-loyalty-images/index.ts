@@ -60,7 +60,7 @@ const AUDIT_SENTINEL_ID = "00000000-0000-0000-0000-0000000000a2";
 // any infrastructure error so the function never silently deletes
 // because of a missing key, RLS denial, or transient DB failure.
 async function resolveDryRun(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   url: URL,
 ): Promise<boolean> {
   const param = url.searchParams.get("dry_run");
@@ -72,7 +72,7 @@ async function resolveDryRun(
       .from("system_settings")
       .select("value")
       .eq("key", SETTINGS_KEY)
-      .maybeSingle();
+      .maybeSingle() as { data: { value: unknown } | null; error: any };
 
     if (error) {
       console.warn(

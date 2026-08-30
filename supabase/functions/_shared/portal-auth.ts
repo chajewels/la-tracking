@@ -49,7 +49,7 @@ export interface PortalAuthInput {
  * @throws Error with structured message if auth fails
  */
 export async function resolvePortalAuth(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   input: PortalAuthInput,
 ): Promise<PortalAuthResult> {
   const { token, portal_token, session_id, authHeader } = input;
@@ -71,7 +71,7 @@ export async function resolvePortalAuth(
           .from('customers')
           .select('id')
           .eq('auth_user_id', authUserId)
-          .maybeSingle();
+          .maybeSingle() as { data: { id: string } | null; error: any };
         if (custErr) {
           console.error('JWT customer lookup failed:', custErr);
           throw new Error('No customer linked to this account');
@@ -101,7 +101,7 @@ export async function resolvePortalAuth(
       .from('customer_portal_sessions')
       .select('session_id, customer_id, source_token_id, expires_at')
       .eq('session_id', session_id)
-      .single();
+      .single() as { data: { session_id: string; customer_id: string; source_token_id: string; expires_at: string } | null; error: any };
 
     if (sessionErr || !session) {
       console.error('Session lookup failed:', sessionErr);
@@ -118,7 +118,7 @@ export async function resolvePortalAuth(
       .from('customer_portal_tokens')
       .select('id, is_active')
       .eq('id', session.source_token_id)
-      .single();
+      .single() as { data: { id: string; is_active: boolean } | null; error: any };
 
     if (tokenErr || !token) {
       console.error('Token lookup failed:', tokenErr);
@@ -134,7 +134,7 @@ export async function resolvePortalAuth(
       .from('customer_portal_sessions')
       .update({ last_used_at: new Date().toISOString() })
       .eq('session_id', session_id)
-      .then(({ error }) => {
+      .then(({ error }: { error: any }) => {
         if (error) console.error('Failed to update session last_used_at:', error);
       });
 
@@ -150,8 +150,8 @@ export async function resolvePortalAuth(
   const { data: tokenRow, error: tokenErr } = await supabase
     .from('customer_portal_tokens')
     .select('id, customer_id, is_active, expires_at')
-    .eq('token', effectiveToken)
-    .single();
+    .eq('token', effectiveToken!)
+    .single() as { data: { id: string; customer_id: string; is_active: boolean; expires_at: string | null } | null; error: any };
 
   if (tokenErr || !tokenRow) {
     throw new Error('Invalid token');
