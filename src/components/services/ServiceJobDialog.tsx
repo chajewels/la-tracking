@@ -93,13 +93,15 @@ function ringResizeFee(sizeRaw: number): number | null {
 
 function parseRingResizeSize(description: string): number | null {
   // Match +N or -N (optionally with decimals), e.g. +3.5, -2, +0.75
-  // Sign is optional — a bare ".5" or "0.5" is treated as positive. Requires
-  // either a digit before the decimal or a leading dot, so "7.5US" in free text
-  // still parses as 7.5 exactly as before.
-  const m = description.match(/([+-])?\s*(\d+(?:\.\d+)?|\.\d+)/);
+  // A SIGNED token always wins, because descriptions routinely state the target
+  // ring size before the delta — "R1153 | Resize to 7.5US | +3" must derive +3,
+  // not 7.5. Only when no signed token exists anywhere do we accept a bare
+  // unsigned number (".5", "0.5") and treat it as positive.
+  const signed = description.match(/([+-])\s*(\d+(?:\.\d+)?|\.\d+)/);
+  const m = signed ?? description.match(/(?:^|[^\d.])(\d+(?:\.\d+)?|\.\d+)/);
   if (!m) return null;
-  const sign = m[1] === '-' ? -1 : 1;
-  const num = parseFloat(m[2]);
+  const sign = signed && signed[1] === '-' ? -1 : 1;
+  const num = parseFloat(signed ? m[2] : m[1]);
   if (!Number.isFinite(num)) return null;
   return sign * num;
 }
