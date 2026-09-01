@@ -48,7 +48,7 @@ export default function FeaturedBanner({ setTab }: FeaturedBannerProps) {
           />
         </div>
       )}
-      <div className="bg-gradient-to-br from-primary/8 via-accent/15 to-primary/5 p-6 border-gold-accent">
+      <div className="relative bg-gradient-to-br from-primary/8 via-accent/15 to-primary/5 p-6 border-gold-accent">
         <div className="absolute top-3 right-4 text-primary/20 animate-soft-glow">✦</div>
         <div
           className="absolute bottom-4 right-8 text-primary/10 animate-soft-glow"
