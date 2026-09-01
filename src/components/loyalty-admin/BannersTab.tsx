@@ -80,7 +80,12 @@ export default function BannersTab() {
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const canToggle = isAdmin || isFinance;
-  const canEdit = isAdmin;
+  // Staff may create and edit banners (owner direction 2026-09-01); the matching
+  // loyalty_banners INSERT/UPDATE policies allow admin/finance/staff. Deletion
+  // stays admin-only via canDelete.
+  const isStaff = rolesArr.includes('staff');
+  const canEdit = isAdmin || isFinance || isStaff;
+  const canDelete = isAdmin;
 
   const { data, isLoading, isError } = useLoyaltyBanners();
   const updateMutation = useUpdateLoyaltyBanner();
@@ -233,6 +238,7 @@ export default function BannersTab() {
               empty="No featured banners. Customer hero card area will be hidden."
               banners={grouped.featured}
               canEdit={canEdit}
+              canDelete={canDelete}
               canToggle={canToggle}
               togglingId={togglingId}
               onEdit={handleEdit}
@@ -246,6 +252,7 @@ export default function BannersTab() {
               empty="No promo banners. Customer promo card list will be hidden."
               banners={grouped.promo}
               canEdit={canEdit}
+              canDelete={canDelete}
               canToggle={canToggle}
               togglingId={togglingId}
               onEdit={handleEdit}
@@ -302,6 +309,7 @@ interface SectionProps {
   empty: string;
   banners: LoyaltyBannerRow[];
   canEdit: boolean;
+  canDelete: boolean;
   canToggle: boolean;
   togglingId: string | null;
   onEdit: (b: LoyaltyBannerRow) => void;
@@ -314,6 +322,7 @@ function Section({
   empty,
   banners,
   canEdit,
+  canDelete,
   canToggle,
   togglingId,
   onEdit,
@@ -334,6 +343,7 @@ function Section({
               key={b.id}
               banner={b}
               canEdit={canEdit}
+              canDelete={canDelete}
               canToggle={canToggle}
               toggling={togglingId === b.id}
               onEdit={onEdit}
@@ -350,6 +360,7 @@ function Section({
 interface BannerCardProps {
   banner: LoyaltyBannerRow;
   canEdit: boolean;
+  canDelete: boolean;
   canToggle: boolean;
   toggling: boolean;
   onEdit: (b: LoyaltyBannerRow) => void;
@@ -360,6 +371,7 @@ interface BannerCardProps {
 function BannerCard({
   banner,
   canEdit,
+  canDelete,
   canToggle,
   toggling,
   onEdit,
@@ -473,24 +485,28 @@ function BannerCard({
         />
       </div>
 
-      {canEdit && (
+      {(canEdit || canDelete) && (
         <div className="mt-3 flex justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onEdit(banner)}
-            className="h-7 px-2 text-[11px]"
-          >
-            <Pencil className="h-3 w-3 mr-1" /> Edit
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onDelete(banner)}
-            className="h-7 px-2 text-[11px] text-destructive hover:bg-destructive/10"
-          >
-            <Trash2 className="h-3 w-3 mr-1" /> Delete
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onEdit(banner)}
+              className="h-7 px-2 text-[11px]"
+            >
+              <Pencil className="h-3 w-3 mr-1" /> Edit
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDelete(banner)}
+              className="h-7 px-2 text-[11px] text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3 w-3 mr-1" /> Delete
+            </Button>
+          )}
         </div>
       )}
     </div>
