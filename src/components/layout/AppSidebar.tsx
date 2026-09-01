@@ -111,6 +111,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Members', tab: 'members' },
       { label: 'Tiers', tab: 'tiers' },
       { label: 'Rewards', tab: 'rewards' },
+      { label: 'Promotions', tab: 'promotions' },
       { label: 'Redemptions', tab: 'redemptions', badgeKey: 'loyalty_redemptions' },
       { label: 'Transactions', tab: 'transactions' },
       { label: 'Banners', tab: 'banners' },
