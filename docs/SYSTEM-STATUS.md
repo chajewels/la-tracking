@@ -727,3 +727,10 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   fetched and dropped. Those three fields are now added to both the layaway and
   cash-order projections. The edit is committed but NOT deployed; the portal shows
   nothing until customer-portal is redeployed.
+
+- Featured loyalty banners now display their uploaded image (2026-09-01).
+  BannerEditDialog has always offered an image upload for both banner types and
+  writes image_url for both, but FeaturedBanner.tsx never read the field, so
+  featured images were stored and silently dropped. Rendered as a 16/9
+  object-cover band above the existing gradient card; banners without an image
+  are unchanged. PromoBanners.tsx already rendered image_url and was unaffected.

@@ -36,6 +36,18 @@ export default function FeaturedBanner({ setTab }: FeaturedBannerProps) {
       transition={{ delay: 0.5 }}
       className="relative overflow-hidden rounded-2xl shadow-soft"
     >
+      {banner.image_url && (
+        <div className="w-full aspect-[16/9] overflow-hidden bg-muted">
+          <img
+            src={banner.image_url}
+            alt=""
+            className="h-full w-full object-cover"
+            onError={(e) => {
+              (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+            }}
+          />
+        </div>
+      )}
       <div className="bg-gradient-to-br from-primary/8 via-accent/15 to-primary/5 p-6 border-gold-accent">
         <div className="absolute top-3 right-4 text-primary/20 animate-soft-glow">✦</div>
         <div
