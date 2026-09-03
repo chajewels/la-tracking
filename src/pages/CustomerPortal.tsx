@@ -439,6 +439,7 @@ export default function CustomerPortal() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
+  const [orderTab, setOrderTab] = useState<'active' | 'completed'>('active');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
   const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
   const { updateReady, applyUpdate, hasDirtyForm } = usePwaUpdate();
@@ -696,6 +697,22 @@ export default function CustomerPortal() {
     }
   });
 
+  // Cash-order parallel to accountIsCompleted above. Both tabs hold layaway
+  // accounts AND cash orders — the split a customer cares about is settled vs
+  // outstanding, not which payment mechanism was used.
+  const cashOrderIsCompleted = (o: PortalCashOrder) =>
+    o.status === 'completed' || (o.remaining_balance ?? 0) <= 0;
+
+  const activeAccounts = filtered.filter(a => !accountIsCompleted(a));
+  const completedAccounts = filtered.filter(a => accountIsCompleted(a));
+  const allCash = data.cash_orders || [];
+  const activeCash = allCash.filter(o => !cashOrderIsCompleted(o));
+  const completedCash = allCash.filter(o => cashOrderIsCompleted(o));
+  const activeCount = activeAccounts.length + activeCash.length;
+  const completedCount = completedAccounts.length + completedCash.length;
+  const tabAccounts = orderTab === 'active' ? activeAccounts : completedAccounts;
+  const tabCash = orderTab === 'active' ? activeCash : completedCash;
+
   const currency = data.summary.primary_currency;
   const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
 
@@ -914,21 +931,76 @@ export default function CustomerPortal() {
               </Select>
             </div>
 
+            {/* Active / Completed tabs — each holds layaway accounts AND cash
+                orders. Search and the Status/Sort selects stay above so they
+                apply to both tabs and an invoice lookup works without
+                switching. */}
+            <div
+              role="tablist"
+              aria-label="Order status"
+              className="flex gap-1"
+              style={{ background: M.s2, border: `1px solid ${M.br}`, borderRadius: '999px', padding: '4px' }}
+            >
+              {([
+                { key: 'active' as const, label: 'Active', count: activeCount },
+                { key: 'completed' as const, label: 'Completed', count: completedCount },
+              ]).map((t) => {
+                const selected = orderTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setOrderTab(t.key)}
+                    className="flex-1 transition-colors"
+                    style={{
+                      fontFamily: 'Inter,sans-serif',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase' as const,
+                      color: selected ? M.onGold : M.ts,
+                      background: selected ? M.gr : 'transparent',
+                      border: 'none',
+                      borderRadius: '999px',
+                      padding: '10px 16px',
+                      minHeight: '44px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t.label}
+                    <span style={{ marginLeft: '6px', fontWeight: 500, opacity: 0.75 }}>{t.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Account Cards */}
             <div ref={accountsGridRef} />
-            {filtered.length === 0 ? (
+            {tabAccounts.length === 0 && tabCash.length === 0 ? (
               <div className="maison-portal font-body rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] text-center" style={{ padding: '4rem 2rem' }}>
                 <Diamond className="h-10 w-10 mx-auto mb-4 text-primary" />
                 <p className="font-display text-foreground" style={{ fontSize: '18px', marginBottom: '8px' }}>
-                  {data.accounts.length === 0 ? pt('home.noAccountsTitle') : pt('home.noMatchTitle')}
+                  {data.accounts.length === 0
+                    ? pt('home.noAccountsTitle')
+                    : (search || statusFilter !== 'all')
+                      ? pt('home.noMatchTitle')
+                      : orderTab === 'active' ? 'No active orders' : 'No completed orders yet'}
                 </p>
                 <p className="text-muted-foreground" style={{ fontSize: '13px' }}>
-                  {data.accounts.length === 0 ? pt('home.noAccountsBody') : pt('home.noMatchBody')}
+                  {data.accounts.length === 0
+                    ? pt('home.noAccountsBody')
+                    : (search || statusFilter !== 'all')
+                      ? pt('home.noMatchBody')
+                      : orderTab === 'active'
+                        ? 'Everything you have with us is fully settled.'
+                        : 'Your finished orders will appear here.'}
                 </p>
               </div>
-            ) : (
+            ) : tabAccounts.length > 0 ? (
               <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4">
-                {filtered.map((account) => (
+                {tabAccounts.map((account) => (
                   <AccountCard
                     key={account.id}
                     account={account}
@@ -937,11 +1009,12 @@ export default function CustomerPortal() {
                   />
                 ))}
               </div>
-            )}
+            ) : null}
 
-            {/* Cash Orders — renders only when the customer has cash orders */}
+            {/* Cash Orders — inside the tab, beneath the account grid. Self-hides
+                when this tab has none. */}
             <CashOrdersSection
-              cashOrders={data.cash_orders || []}
+              cashOrders={tabCash}
               cashPayments={data.cash_payments || []}
               customerName={data.customer_name}
               portalToken={token!}

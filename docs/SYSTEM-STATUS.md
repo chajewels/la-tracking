@@ -734,3 +734,11 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   featured images were stored and silently dropped. Rendered as a 16/9
   object-cover band above the existing gradient card; banners without an image
   are unchanged. PromoBanners.tsx already rendered image_url and was unaffected.
+
+- Customer portal split into Active / Completed tabs (2026-09-01). Previously
+  layaway accounts, cash orders and services stacked in one vertical scroll with
+  completed accounts merely sorted last, making past purchases hard to find. Both
+  tabs now contain layaway accounts AND cash orders together, split on settled vs
+  outstanding. Reuses the existing accountIsCompleted helper; cash orders use a
+  parallel cashOrderIsCompleted check. Search and the Status/Sort selects sit
+  above the tabs and apply to both. Tab labels carry live counts.
