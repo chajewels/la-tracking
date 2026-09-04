@@ -564,27 +564,30 @@ Deno.serve(async (req) => {
 
         if (activePromo) {
           if (await gate("loyalty_email_bonus")) {
-            await fetch(baseUrl, {
-              method: "POST",
-              headers: authHeader,
-              body: JSON.stringify({
-                templateName: "loyalty-bonus",
+            try {
+              const result = await sendTemplateEmail(
+                "loyalty-bonus",
                 recipientEmail,
-                idempotencyKey:
-                  `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
-                templateData: {
-                  customerName,
-                  bonusPoints: bonusTxPoints,
-                  promoName: activePromo.name,
-                  promoEndDate: fmtFriendlyDate(activePromo.end_date),
-                  invoiceNumber,
-                  remainingPoints: newRemaining,
-                  portalUrl,
+                {
+                  templateData: {
+                    customerName,
+                    bonusPoints: bonusTxPoints,
+                    promoName: activePromo.name,
+                    promoEndDate: fmtFriendlyDate(activePromo.end_date),
+                    invoiceNumber,
+                    remainingPoints: newRemaining,
+                    portalUrl,
+                  },
+                  idempotencyKey:
+                    `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
                 },
-              }),
-            }).catch((e) =>
-              console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
-            );
+              );
+              if (!result.sent) {
+                console.log(`[award-loyalty-points] "loyalty-bonus" suppressed for ${recipientEmail}`);
+              }
+            } catch (e) {
+              console.warn("[award-loyalty-points] loyalty-bonus email failed:", e);
+            }
           } else {
             console.log(
               "[email-gate] loyalty-bonus skipped — toggle 'loyalty_email_bonus' is OFF",
