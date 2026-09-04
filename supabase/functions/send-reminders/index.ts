@@ -61,35 +61,6 @@ function generateMessengerMessage(alert: AlertItem): string {
   }
 }
 
-// Helper: retry fetch on Deno runtime rate limit (RateLimitError)
-// Bug #110 fix (2026-05-18): Supabase Edge Function outbound fetch is rate-limited
-// per-invocation; without retry, due_today alerts (positional 31-35 in iteration)
-// consistently failed since the rate limit window kicks in mid-batch.
-async function fetchWithRetryOnRateLimit(
-  url: string,
-  init: RequestInit,
-  maxRetries = 3
-): Promise<Response> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fetch(url, init);
-    } catch (e) {
-      const isRateLimit =
-        e && typeof e === 'object' && 'name' in e &&
-        (e as { name: string }).name === 'RateLimitError';
-      if (!isRateLimit || attempt >= maxRetries) {
-        throw e;
-      }
-      const maybeRetry = (e as unknown as { retryAfterMs?: number }).retryAfterMs;
-      const retryAfterMs = typeof maybeRetry === 'number' ? maybeRetry : 200;
-      console.warn(
-        `Rate limited at fetch, retry after ${retryAfterMs + 50}ms (attempt ${attempt + 1}/${maxRetries})`
-      );
-      await new Promise((r) => setTimeout(r, retryAfterMs + 50));
-    }
-  }
-  throw new Error('fetchWithRetryOnRateLimit: exhausted retries unexpectedly');
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
