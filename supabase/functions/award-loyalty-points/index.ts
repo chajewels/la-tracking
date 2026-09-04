@@ -597,29 +597,32 @@ Deno.serve(async (req) => {
 
         if (tierUpgraded) {
           if (await gate("loyalty_email_tier_upgrade")) {
-            await fetch(baseUrl, {
-              method: "POST",
-              headers: authHeader,
-              body: JSON.stringify({
-                templateName: "loyalty-tier-upgrade",
+            try {
+              const result = await sendTemplateEmail(
+                "loyalty-tier-upgrade",
                 recipientEmail,
-                idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
-                templateData: {
-                  customerName,
-                  oldTier: oldTierName,
-                  newTier: newTierName,
-                  newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
-                  cumulativeSpendJpy: newCumulative,
-                  remainingPoints: newRemaining,
-                  portalUrl,
+                {
+                  templateData: {
+                    customerName,
+                    oldTier: oldTierName,
+                    newTier: newTierName,
+                    newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
+                    cumulativeSpendJpy: newCumulative,
+                    remainingPoints: newRemaining,
+                    portalUrl,
+                  },
+                  idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
                 },
-              }),
-            }).catch((e) =>
+              );
+              if (!result.sent) {
+                console.log(`[award-loyalty-points] "loyalty-tier-upgrade" suppressed for ${recipientEmail}`);
+              }
+            } catch (e) {
               console.warn(
                 "[award-loyalty-points] loyalty-tier-upgrade email failed:",
                 e,
-              )
-            );
+              );
+            }
           } else {
             console.log(
               "[email-gate] loyalty-tier-upgrade skipped — toggle 'loyalty_email_tier_upgrade' is OFF",
