@@ -6,8 +6,8 @@ import {
 } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import {
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import {
   buildExpiryFiredNotification,
   buildPreExpiryNotification,
   buildTierDowngradeNotification,
