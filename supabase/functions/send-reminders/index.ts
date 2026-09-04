@@ -237,16 +237,10 @@ Deno.serve(async (req) => {
             day: "numeric",
             year: "numeric",
           });
-          const graceRes = await fetchWithRetryOnRateLimit(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${serviceRoleKey}`,
-            },
-            body: JSON.stringify({
-              templateName: "payment-reminder",
-              recipientEmail: alert.customerEmail,
-              idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+          const graceResult = await sendTemplateEmail(
+            "payment-reminder",
+            alert.customerEmail!,
+            {
               templateData: {
                 customerName: alert.customer,
                 invoiceNumber: alert.invoice,
@@ -257,13 +251,10 @@ Deno.serve(async (req) => {
                 graceEndDate: graceEndStr,
                 portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
               },
-            }),
-          });
-          const graceBody = await graceRes.text();
-          if (!graceRes.ok) {
-            console.error(`Grace-period email failed for ${alert.customer}: ${graceRes.status} ${graceBody}`);
-            emailsFailed++;
-          } else {
+              idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+            },
+          );
+          if (graceResult.sent) {
             emailsSent++;
             await supabase
               .from("reminder_logs")
@@ -272,6 +263,8 @@ Deno.serve(async (req) => {
               .eq("customer_id", alert.customerId)
               .order("created_at", { ascending: false })
               .limit(1);
+          } else {
+            console.log(`[send-reminders] grace-period email suppressed for ${alert.customerEmail}`);
           }
           if (emailAlerts.length > 1) {
             await new Promise((r) => setTimeout(r, 500));
