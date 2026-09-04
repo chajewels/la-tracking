@@ -272,16 +272,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const emailRes = await fetchWithRetryOnRateLimit(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({
-            templateName: "payment-reminder",
-            recipientEmail: alert.customerEmail,
-            idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+        const emailResult = await sendTemplateEmail(
+          "payment-reminder",
+          alert.customerEmail!,
+          {
             templateData: {
               customerName: alert.customer,
               invoiceNumber: alert.invoice,
@@ -294,13 +288,10 @@ Deno.serve(async (req) => {
               daysOverdue: alert.daysOverdue,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
             },
-          }),
-        });
-        const emailBody = await emailRes.text();
-        if (!emailRes.ok) {
-          console.error(`Email failed for ${alert.customer}: ${emailRes.status} ${emailBody}`);
-          emailsFailed++;
-        } else {
+            idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+          },
+        );
+        if (emailResult.sent) {
           emailsSent++;
           await supabase
             .from("reminder_logs")
@@ -309,6 +300,8 @@ Deno.serve(async (req) => {
             .eq("customer_id", alert.customerId)
             .order("created_at", { ascending: false })
             .limit(1);
+        } else {
+          console.log(`[send-reminders] reminder email suppressed for ${alert.customerEmail}`);
         }
       } catch (e) {
         console.error(`Email exception for ${alert.customer}:`, e);
