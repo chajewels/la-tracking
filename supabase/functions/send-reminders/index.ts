@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
