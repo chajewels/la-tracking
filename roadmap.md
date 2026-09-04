@@ -1,3 +1,4 @@
 # Task Roadmap
 
-- [ ] Fix preview build errors in edge functions (email templates, portal-link, award-loyalty-points, bulk-import, cleanup-loyalty-images, portal-auth, customer-portal, etc.)
+- [x] Fix preview build errors (frontend typecheck + edge function checks pass)
+- [x] Move email sending to Lovable-managed delivery (app emails, auth emails, delivery-event receiver)
