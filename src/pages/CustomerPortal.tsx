@@ -700,12 +700,20 @@ export default function CustomerPortal() {
   // Cash-order parallel to accountIsCompleted above. Both tabs hold layaway
   // accounts AND cash orders — the split a customer cares about is settled vs
   // outstanding, not which payment mechanism was used.
-  const cashOrderIsCompleted = (o: PortalCashOrder) =>
-    o.status === 'completed' || (o.remaining_balance ?? 0) <= 0;
+  // Only a genuinely completed order belongs in the Completed tab. A zero
+  // balance is not sufficient: an 'expired' order (lapsed reservation) also
+  // carries no balance but is not something the customer bought.
+  const cashOrderIsCompleted = (o: PortalCashOrder) => o.status === 'completed';
 
   const activeAccounts = filtered.filter(a => !accountIsCompleted(a));
   const completedAccounts = filtered.filter(a => accountIsCompleted(a));
-  const allCash = data.cash_orders || [];
+  // Same invoice search the accounts already apply, so searching narrows both
+  // halves of a tab. Status/Sort stay accounts-only — their options are layaway
+  // status labels.
+  const allCash = (data.cash_orders || []).filter((o) => {
+    if (!search) return true;
+    return o.invoice_number.toLowerCase().includes(search.toLowerCase());
+  });
   const activeCash = allCash.filter(o => !cashOrderIsCompleted(o));
   const completedCash = allCash.filter(o => cashOrderIsCompleted(o));
   const activeCount = activeAccounts.length + activeCash.length;
