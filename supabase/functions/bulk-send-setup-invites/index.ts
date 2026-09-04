@@ -163,39 +163,22 @@ Deno.serve(async (req) => {
       const customerPin = digits.length >= 4 ? digits.slice(-4) : "----";
 
       try {
-        const { data: invokeData, error: invokeError } = await supabase.functions.invoke(
-          "send-transactional-email",
+        const result = await sendTemplateEmail(
+          "portal-setup-invite",
+          c.email,
           {
-            body: {
-              template_name: "portal-setup-invite",
-              recipient_email: c.email,
-              templateData: {
-                customerName: c.full_name,
-                setupUrl,
-                customerEmail: c.email,
-                customerPin,
-              },
+            templateData: {
+              customerName: c.full_name,
+              setupUrl,
+              customerEmail: c.email,
+              customerPin,
             },
+            idempotencyKey: `portal-setup-invite-${c.id}`,
           },
         );
 
-        // send-transactional-email returns { success: true, queued: true } on
-        // enqueue; { success: false, reason: 'email_suppressed' } on suppression
-        // (still a success status, but we treat it as a failure for tracking).
-        const dispatched =
-          !invokeError &&
-          invokeData &&
-          typeof invokeData === "object" &&
-          (invokeData as { success?: boolean }).success === true;
-
-        if (!dispatched) {
-          const errMsg = invokeError?.message
-            ?? (invokeData as { reason?: string; error?: string })?.reason
-            ?? (invokeData as { reason?: string; error?: string })?.error
-            ?? "send-transactional-email did not return success";
-          errors.push({ customer_code: c.customer_code, error: errMsg });
-          failed += 1;
-          continue;
+        if (!result.sent) {
+          console.log(`[bulk-send-setup-invites] portal-setup-invite suppressed for ${c.email}`);
         }
 
         // Stamp setup_link_sent_at — failure here logs but doesn't abort batch
