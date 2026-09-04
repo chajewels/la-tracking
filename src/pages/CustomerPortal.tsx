@@ -439,7 +439,7 @@ export default function CustomerPortal() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
-  const [orderTab, setOrderTab] = useState<'active' | 'completed'>('active');
+  const [orderTab, setOrderTab] = useState<'active' | 'completed' | 'closed'>('active');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
   const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
   const { updateReady, applyUpdate, hasDirtyForm } = usePwaUpdate();
@@ -685,6 +685,10 @@ export default function CustomerPortal() {
     a.status_label === 'Fully Paid' || a.status === 'completed'
     || (a.remaining_balance <= 0 && a.schedule.length > 0 && a.schedule.every(s => s.status === 'paid' || s.status === 'cancelled'));
 
+  // Cancelled / forfeited accounts are neither active nor a completed purchase.
+  const accountIsClosed = (a: PortalAccount) =>
+    a.status === 'cancelled' || a.status === 'forfeited' || a.status === 'final_forfeited';
+
   filtered = [...filtered].sort((a, b) => {
     const aC = accountIsCompleted(a) ? 1 : 0;
     const bC = accountIsCompleted(b) ? 1 : 0;
@@ -705,8 +709,11 @@ export default function CustomerPortal() {
   // carries no balance but is not something the customer bought.
   const cashOrderIsCompleted = (o: PortalCashOrder) => o.status === 'completed';
 
-  const activeAccounts = filtered.filter(a => !accountIsCompleted(a));
-  const completedAccounts = filtered.filter(a => accountIsCompleted(a));
+  // accountIsClosed takes precedence — a forfeited account with a zero balance
+  // also satisfies accountIsCompleted, and must not appear in two tabs.
+  const activeAccounts = filtered.filter(a => !accountIsCompleted(a) && !accountIsClosed(a));
+  const completedAccounts = filtered.filter(a => accountIsCompleted(a) && !accountIsClosed(a));
+  const closedAccounts = filtered.filter(a => accountIsClosed(a));
   // Same invoice search the accounts already apply, so searching narrows both
   // halves of a tab. Status/Sort stay accounts-only — their options are layaway
   // status labels.
@@ -714,12 +721,18 @@ export default function CustomerPortal() {
     if (!search) return true;
     return o.invoice_number.toLowerCase().includes(search.toLowerCase());
   });
-  const activeCash = allCash.filter(o => !cashOrderIsCompleted(o));
+  // A lapsed reservation is neither active nor purchased — it belongs with the
+  // cancelled and forfeited records, not above the customer's live orders.
+  const closedCash = allCash.filter(o => o.status === 'expired' || o.status === 'cancelled');
+  const activeCash = allCash.filter(o => !cashOrderIsCompleted(o) && o.status !== 'expired' && o.status !== 'cancelled');
   const completedCash = allCash.filter(o => cashOrderIsCompleted(o));
   const activeCount = activeAccounts.length + activeCash.length;
   const completedCount = completedAccounts.length + completedCash.length;
-  const tabAccounts = orderTab === 'active' ? activeAccounts : completedAccounts;
-  const tabCash = orderTab === 'active' ? activeCash : completedCash;
+  const closedCount = closedAccounts.length + closedCash.length;
+  const tabAccounts = orderTab === 'active' ? activeAccounts
+    : orderTab === 'completed' ? completedAccounts : closedAccounts;
+  const tabCash = orderTab === 'active' ? activeCash
+    : orderTab === 'completed' ? completedCash : closedCash;
 
   const currency = data.summary.primary_currency;
   const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
@@ -952,6 +965,11 @@ export default function CustomerPortal() {
               {([
                 { key: 'active' as const, label: 'Active', count: activeCount },
                 { key: 'completed' as const, label: 'Completed', count: completedCount },
+                // Most customers have nothing closed — an always-visible empty
+                // tab would be clutter, so the pill appears only when populated.
+                ...(closedCount > 0
+                  ? [{ key: 'closed' as const, label: 'Closed', count: closedCount }]
+                  : []),
               ]).map((t) => {
                 const selected = orderTab === t.key;
                 return (
@@ -994,7 +1012,9 @@ export default function CustomerPortal() {
                     ? pt('home.noAccountsTitle')
                     : (search || statusFilter !== 'all')
                       ? pt('home.noMatchTitle')
-                      : orderTab === 'active' ? 'No active orders' : 'No completed orders yet'}
+                      : orderTab === 'active' ? 'No active orders'
+                        : orderTab === 'completed' ? 'No completed orders yet'
+                          : 'No cancelled or forfeited orders'}
                 </p>
                 <p className="text-muted-foreground" style={{ fontSize: '13px' }}>
                   {data.accounts.length === 0
@@ -1003,7 +1023,9 @@ export default function CustomerPortal() {
                       ? pt('home.noMatchBody')
                       : orderTab === 'active'
                         ? 'Everything you have with us is fully settled.'
-                        : 'Your finished orders will appear here.'}
+                        : orderTab === 'completed'
+                          ? 'Your finished orders will appear here.'
+                          : 'None of your orders have been cancelled or forfeited.'}
                 </p>
               </div>
             ) : tabAccounts.length > 0 ? (

@@ -742,3 +742,14 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   outstanding. Reuses the existing accountIsCompleted helper; cash orders use a
   parallel cashOrderIsCompleted check. Search and the Status/Sort selects sit
   above the tabs and apply to both. Tab labels carry live counts.
+
+- Customer portal gained a third tab, Closed (2026-09-01), holding cancelled and
+  forfeited layaway accounts plus expired and cancelled cash orders. These
+  previously fell into Active — not being "completed" — and sorted by order_date,
+  placing recent forfeits above live accounts. Production holds 50 forfeited
+  accounts. accountIsClosed tests the raw status rather than status_label and
+  takes precedence over accountIsCompleted, so a zero-balance forfeit cannot
+  appear in two tabs. The Closed pill renders only when the customer has at least
+  one such record; the per-account badge still reads the exact status. Separately,
+  the edge function's statusLabel chain had no 'final_forfeited' case and would
+  have rendered "Final_forfeited"; it now maps to "Forfeited".
