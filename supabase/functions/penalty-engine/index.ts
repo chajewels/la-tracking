@@ -650,16 +650,10 @@ Deno.serve(async (req) => {
           .eq("id", r.accountId).single();
         const email = (acct as any)?.customers?.email;
         if (!email) continue;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            templateName: "penalty-waiver-revoked",
-            recipientEmail: email,
-            idempotencyKey: `waiver-revoked-${r.id}`,
+        const result = await sendTemplateEmail(
+          "penalty-waiver-revoked",
+          email,
+          {
             templateData: {
               customerName: (acct as any)?.customers?.full_name,
               invoiceNumber: (acct as any)?.invoice_number,
@@ -669,8 +663,12 @@ Deno.serve(async (req) => {
               graceDays: waiverGraceDays,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${(acct as any)?.invoice_number || ""}`,
             },
-          }),
-        });
+            idempotencyKey: `waiver-revoked-${r.id}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[penalty-engine] "penalty-waiver-revoked" suppressed for ${email}`);
+        }
       }
     } catch (e) {
       console.error("[penalty-engine] reinstatement email failed (non-blocking):", e);

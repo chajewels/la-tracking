@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -251,16 +252,10 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = customer?.email;
       if (customerEmail) {
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            templateName: "cash-payment-submitted",
-            recipientEmail: customerEmail,
-            idempotencyKey: `cash-payment-submitted-${submission.id}`,
+        const result = await sendTemplateEmail(
+          "cash-payment-submitted",
+          customerEmail,
+          {
             templateData: {
               customerName: customer?.full_name || "Valued Customer",
               invoiceNumber: cashOrder.invoice_number,
@@ -271,11 +266,11 @@ Deno.serve(async (req) => {
               currency: cashOrder.currency,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
             },
-          }),
-        });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[submit-cash-payment] send-transactional-email failed (${_emRes.status}): ${_t}`);
+            idempotencyKey: `cash-payment-submitted-${submission.id}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[submit-cash-payment] "cash-payment-submitted" suppressed for ${customerEmail}`);
         }
       }
     } catch (emailErr) {
