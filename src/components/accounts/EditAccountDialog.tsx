@@ -218,7 +218,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
       if (Object.keys(accountUpdates).length > 0) {
         const { error } = await supabase
           .from('layaway_accounts')
-          .update(accountUpdates)
+          .update(accountUpdates as any)
           .eq('id', account.id);
         if (error) throw error;
 

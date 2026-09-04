@@ -423,7 +423,7 @@ export default function CashOrderDetail() {
 
       const { error } = await supabase
         .from('cash_orders')
-        .update(updatePayload)
+        .update(updatePayload as any)
         .eq('id', order.id);
       if (error) throw error;
       // Best-effort audit log
@@ -557,7 +557,7 @@ export default function CashOrderDetail() {
 
       const { error } = await supabase
         .from('cash_orders')
-        .update(updatePayload)
+        .update(updatePayload as any)
         .eq('id', order.id);
       if (error) throw error;
 
