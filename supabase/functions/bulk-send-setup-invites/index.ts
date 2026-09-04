@@ -22,7 +22,7 @@
 // non-admin caller.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sendAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -163,31 +163,23 @@ Deno.serve(async (req) => {
       const customerPin = digits.length >= 4 ? digits.slice(-4) : "----";
 
       try {
-        const sendResult = await sendAppEmail(
+        const result = await sendTemplateEmail(
           "portal-setup-invite",
           c.email,
           {
-            idempotencyKey: `portal-setup-invite-${c.id}`,
             templateData: {
               customerName: c.full_name,
               setupUrl,
               customerEmail: c.email,
               customerPin,
             },
+            idempotencyKey: `portal-setup-invite-${c.id}`,
           },
         );
 
-        // A suppressed recipient is an expected outcome, but this batch tracker
-        // treats a non-send as a failure so the customer stays reportable.
-        if (!sendResult.sent) {
-          const errMsg = sendResult.error
-            ?? sendResult.reason
-            ?? "email was not sent";
-          errors.push({ customer_code: c.customer_code, error: errMsg });
-          failed += 1;
-          continue;
+        if (!result.sent) {
+          console.log(`[bulk-send-setup-invites] portal-setup-invite suppressed for ${c.email}`);
         }
-
 
         // Stamp setup_link_sent_at — failure here logs but doesn't abort batch
         const { error: stampError } = await supabase

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,10 +300,10 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       if (customerEmail) {
-        const _emRes = await postAppEmail({
-            templateName: "payment-submitted",
-            recipientEmail: customerEmail,
-            idempotencyKey: `payment-submitted-${submission.id}`,
+        const result = await sendTemplateEmail(
+          "payment-submitted",
+          customerEmail,
+          {
             templateData: {
               customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",
               invoiceNumber: acctForEmail?.invoice_number || "",
@@ -313,10 +313,11 @@ Deno.serve(async (req) => {
               currency: acctForEmail?.currency || "PHP",
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${acctForEmail?.invoice_number || ""}`,
             },
-          });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[submit-payment] app email send failed (${_emRes.status}): ${_t}`);
+            idempotencyKey: `payment-submitted-${submission.id}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[submit-payment] "payment-submitted" suppressed for ${customerEmail}`);
         }
       }
     } catch (emailErr) {

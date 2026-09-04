@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -272,10 +272,10 @@ Deno.serve(async (req) => {
       const customerName = (acctForEmail as any)?.customers?.full_name;
       if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        const _emRes = await postAppEmail({
-            templateName: "payment-voided",
-            recipientEmail: customerEmail,
-            idempotencyKey: `payment-voided-${payment_id}`,
+        const result = await sendTemplateEmail(
+          "payment-voided",
+          customerEmail,
+          {
             templateData: {
               customerName,
               invoiceNumber: (acctForEmail as any)?.invoice_number,
@@ -285,10 +285,11 @@ Deno.serve(async (req) => {
               remainingBalance: Number(newRemainingBalance).toLocaleString("en-US"),
               portalUrl,
             },
-          });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[void-payment] app email send failed (${_emRes.status}): ${_t}`);
+            idempotencyKey: `payment-voided-${payment_id}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[void-payment] "payment-voided" suppressed for ${customerEmail}`);
         }
       }
     } catch (emailErr) {

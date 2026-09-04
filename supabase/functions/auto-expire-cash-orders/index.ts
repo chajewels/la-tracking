@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,10 +60,10 @@ Deno.serve(async (req) => {
       if (!customerEmail) return;
       try {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${invoiceNumber}`;
-        const _emRes = await postAppEmail({
-            templateName: "cash-order-expired",
-            recipientEmail: customerEmail,
-            idempotencyKey: `cash-order-expired-${cashOrderId}`,
+        const result = await sendTemplateEmail(
+          "cash-order-expired",
+          customerEmail,
+          {
             templateData: {
               customerName: customerName || "Valued Customer",
               invoiceNumber,
@@ -74,10 +74,11 @@ Deno.serve(async (req) => {
               expiresAt,
               portalUrl,
             },
-          });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[auto-expire-cash-orders] app email send failed (${_emRes.status}): ${_t}`);
+            idempotencyKey: `cash-order-expired-${cashOrderId}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[auto-expire-cash-orders] "cash-order-expired" suppressed for ${customerEmail}`);
         }
       } catch (emailErr) {
         console.warn(`[auto-expire-cash-orders] email send failed for ${invoiceNumber} (non-blocking):`, emailErr);

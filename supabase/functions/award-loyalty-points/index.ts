@@ -5,11 +5,11 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import {
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
   buildWelcomeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -532,18 +532,13 @@ Deno.serve(async (req) => {
       const recipientEmail = customer?.email;
       if (recipientEmail) {
         const customerName = customer?.full_name || "Valued Customer";
-        const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
-        const authHeader = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        };
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
 
         if (await gate("loyalty_email_earned")) {
-          const _emRes = await postAppEmail({
-              templateName: "loyalty-earned",
-              recipientEmail,
-              idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
+          const result = await sendTemplateEmail(
+            "loyalty-earned",
+            recipientEmail,
+            {
               templateData: {
                 customerName,
                 pointsEarned: points,
@@ -555,10 +550,11 @@ Deno.serve(async (req) => {
                 cumulativeSpendJpy: newCumulative,
                 portalUrl,
               },
-            }).catch((e) => { console.warn("[award-loyalty-points] loyalty-earned email failed:", e); return null; });
-          if (_emRes && !_emRes.ok) {
-            const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[award-loyalty-points] app email (earned) send failed (${_emRes.status}): ${_t}`);
+              idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
+            },
+          );
+          if (!result.sent) {
+            console.log(`[award-loyalty-points] "loyalty-earned" suppressed for ${recipientEmail}`);
           }
         } else {
           console.log(
@@ -568,23 +564,30 @@ Deno.serve(async (req) => {
 
         if (activePromo) {
           if (await gate("loyalty_email_bonus")) {
-            await postAppEmail({
-                templateName: "loyalty-bonus",
+            try {
+              const result = await sendTemplateEmail(
+                "loyalty-bonus",
                 recipientEmail,
-                idempotencyKey:
-                  `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
-                templateData: {
-                  customerName,
-                  bonusPoints: bonusTxPoints,
-                  promoName: activePromo.name,
-                  promoEndDate: fmtFriendlyDate(activePromo.end_date),
-                  invoiceNumber,
-                  remainingPoints: newRemaining,
-                  portalUrl,
+                {
+                  templateData: {
+                    customerName,
+                    bonusPoints: bonusTxPoints,
+                    promoName: activePromo.name,
+                    promoEndDate: fmtFriendlyDate(activePromo.end_date),
+                    invoiceNumber,
+                    remainingPoints: newRemaining,
+                    portalUrl,
+                  },
+                  idempotencyKey:
+                    `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
                 },
-              }).catch((e) =>
-              console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
-            );
+              );
+              if (!result.sent) {
+                console.log(`[award-loyalty-points] "loyalty-bonus" suppressed for ${recipientEmail}`);
+              }
+            } catch (e) {
+              console.warn("[award-loyalty-points] loyalty-bonus email failed:", e);
+            }
           } else {
             console.log(
               "[email-gate] loyalty-bonus skipped — toggle 'loyalty_email_bonus' is OFF",
@@ -594,25 +597,32 @@ Deno.serve(async (req) => {
 
         if (tierUpgraded) {
           if (await gate("loyalty_email_tier_upgrade")) {
-            await postAppEmail({
-                templateName: "loyalty-tier-upgrade",
+            try {
+              const result = await sendTemplateEmail(
+                "loyalty-tier-upgrade",
                 recipientEmail,
-                idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
-                templateData: {
-                  customerName,
-                  oldTier: oldTierName,
-                  newTier: newTierName,
-                  newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
-                  cumulativeSpendJpy: newCumulative,
-                  remainingPoints: newRemaining,
-                  portalUrl,
+                {
+                  templateData: {
+                    customerName,
+                    oldTier: oldTierName,
+                    newTier: newTierName,
+                    newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
+                    cumulativeSpendJpy: newCumulative,
+                    remainingPoints: newRemaining,
+                    portalUrl,
+                  },
+                  idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
                 },
-              }).catch((e) =>
+              );
+              if (!result.sent) {
+                console.log(`[award-loyalty-points] "loyalty-tier-upgrade" suppressed for ${recipientEmail}`);
+              }
+            } catch (e) {
               console.warn(
                 "[award-loyalty-points] loyalty-tier-upgrade email failed:",
                 e,
-              )
-            );
+              );
+            }
           } else {
             console.log(
               "[email-gate] loyalty-tier-upgrade skipped — toggle 'loyalty_email_tier_upgrade' is OFF",

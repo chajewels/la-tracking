@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -625,15 +625,16 @@ Deno.serve(async (req) => {
                 portalUrl,
               };
 
-        const _emRes = await postAppEmail({
-            templateName,
-            recipientEmail: customerEmail,
+        const result = await sendTemplateEmail(
+          templateName,
+          customerEmail,
+          {
+            templateData: templateData,
             idempotencyKey: `${templateName}-${p.account_id}-${p.schedule_id}-${p.penalty_stage}-${p.penalty_cycle}`,
-            templateData,
-          });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[penalty-engine] app email send failed (${_emRes.status}): ${_t}`);
+          },
+        );
+        if (!result.sent) {
+          console.log(`[penalty-engine] templateName suppressed for ${customerEmail}`);
         }
       }
     } catch (emailErr) {
@@ -649,10 +650,10 @@ Deno.serve(async (req) => {
           .eq("id", r.accountId).single();
         const email = (acct as any)?.customers?.email;
         if (!email) continue;
-        await postAppEmail({
-            templateName: "penalty-waiver-revoked",
-            recipientEmail: email,
-            idempotencyKey: `waiver-revoked-${r.id}`,
+        const result = await sendTemplateEmail(
+          "penalty-waiver-revoked",
+          email,
+          {
             templateData: {
               customerName: (acct as any)?.customers?.full_name,
               invoiceNumber: (acct as any)?.invoice_number,
@@ -662,7 +663,12 @@ Deno.serve(async (req) => {
               graceDays: waiverGraceDays,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${(acct as any)?.invoice_number || ""}`,
             },
-          });
+            idempotencyKey: `waiver-revoked-${r.id}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[penalty-engine] "penalty-waiver-revoked" suppressed for ${email}`);
+        }
       }
     } catch (e) {
       console.error("[penalty-engine] reinstatement email failed (non-blocking):", e);

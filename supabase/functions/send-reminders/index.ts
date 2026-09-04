@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,35 +61,6 @@ function generateMessengerMessage(alert: AlertItem): string {
   }
 }
 
-// Helper: retry fetch on Deno runtime rate limit (RateLimitError)
-// Bug #110 fix (2026-05-18): Supabase Edge Function outbound fetch is rate-limited
-// per-invocation; without retry, due_today alerts (positional 31-35 in iteration)
-// consistently failed since the rate limit window kicks in mid-batch.
-async function fetchWithRetryOnRateLimit(
-  url: string,
-  init: RequestInit,
-  maxRetries = 3
-): Promise<Response> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fetch(url, init);
-    } catch (e) {
-      const isRateLimit =
-        e && typeof e === 'object' && 'name' in e &&
-        (e as { name: string }).name === 'RateLimitError';
-      if (!isRateLimit || attempt >= maxRetries) {
-        throw e;
-      }
-      const maybeRetry = (e as unknown as { retryAfterMs?: number }).retryAfterMs;
-      const retryAfterMs = typeof maybeRetry === 'number' ? maybeRetry : 200;
-      console.warn(
-        `Rate limited at fetch, retry after ${retryAfterMs + 50}ms (attempt ${attempt + 1}/${maxRetries})`
-      );
-      await new Promise((r) => setTimeout(r, retryAfterMs + 50));
-    }
-  }
-  throw new Error('fetchWithRetryOnRateLimit: exhausted retries unexpectedly');
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -266,10 +237,10 @@ Deno.serve(async (req) => {
             day: "numeric",
             year: "numeric",
           });
-          const graceRes = await postAppEmail({
-              templateName: "payment-reminder",
-              recipientEmail: alert.customerEmail,
-              idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+          const graceResult = await sendTemplateEmail(
+            "payment-reminder",
+            alert.customerEmail!,
+            {
               templateData: {
                 customerName: alert.customer,
                 invoiceNumber: alert.invoice,
@@ -280,12 +251,10 @@ Deno.serve(async (req) => {
                 graceEndDate: graceEndStr,
                 portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
               },
-            });
-          const graceBody = await graceRes.text();
-          if (!graceRes.ok) {
-            console.error(`Grace-period email failed for ${alert.customer}: ${graceRes.status} ${graceBody}`);
-            emailsFailed++;
-          } else {
+              idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+            },
+          );
+          if (graceResult.sent) {
             emailsSent++;
             await supabase
               .from("reminder_logs")
@@ -294,6 +263,8 @@ Deno.serve(async (req) => {
               .eq("customer_id", alert.customerId)
               .order("created_at", { ascending: false })
               .limit(1);
+          } else {
+            console.log(`[send-reminders] grace-period email suppressed for ${alert.customerEmail}`);
           }
           if (emailAlerts.length > 1) {
             await new Promise((r) => setTimeout(r, 500));
@@ -301,10 +272,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const emailRes = await postAppEmail({
-            templateName: "payment-reminder",
-            recipientEmail: alert.customerEmail,
-            idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+        const emailResult = await sendTemplateEmail(
+          "payment-reminder",
+          alert.customerEmail!,
+          {
             templateData: {
               customerName: alert.customer,
               invoiceNumber: alert.invoice,
@@ -317,12 +288,10 @@ Deno.serve(async (req) => {
               daysOverdue: alert.daysOverdue,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
             },
-          });
-        const emailBody = await emailRes.text();
-        if (!emailRes.ok) {
-          console.error(`Email failed for ${alert.customer}: ${emailRes.status} ${emailBody}`);
-          emailsFailed++;
-        } else {
+            idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+          },
+        );
+        if (emailResult.sent) {
           emailsSent++;
           await supabase
             .from("reminder_logs")
@@ -331,6 +300,8 @@ Deno.serve(async (req) => {
             .eq("customer_id", alert.customerId)
             .order("created_at", { ascending: false })
             .limit(1);
+        } else {
+          console.log(`[send-reminders] reminder email suppressed for ${alert.customerEmail}`);
         }
       } catch (e) {
         console.error(`Email exception for ${alert.customer}:`, e);

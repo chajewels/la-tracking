@@ -6,12 +6,12 @@ import {
 } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import {
   buildExpiryFiredNotification,
   buildPreExpiryNotification,
   buildTierDowngradeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
-import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,18 +58,16 @@ async function sendEmail(
       );
       return;
     }
-    const _emRes = await postAppEmail({
-          templateName,
-          recipientEmail,
-          idempotencyKey,
-          templateData,
-        }).catch((e) => {
-      console.warn(`[loyalty-inactivity-check] ${templateName} email failed:`, e);
-      return null;
-    });
-    if (_emRes && !_emRes.ok) {
-      const _t = await _emRes.text().catch(() => "<no body>");
-      console.error(`[loyalty-inactivity-check] ${templateName} email failed (${_emRes.status}): ${_t}`);
+    const result = await sendTemplateEmail(
+      templateName,
+      recipientEmail,
+      {
+        templateData: templateData,
+        idempotencyKey: idempotencyKey,
+      },
+    );
+    if (!result.sent) {
+      console.log(`[loyalty-inactivity-check] templateName suppressed for ${recipientEmail}`);
     }
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] ${templateName} email block failed:`, e);
