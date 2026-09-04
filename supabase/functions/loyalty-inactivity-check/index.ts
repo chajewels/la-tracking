@@ -11,6 +11,7 @@ import {
   buildPreExpiryNotification,
   buildTierDowngradeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,22 +58,12 @@ async function sendEmail(
       );
       return;
     }
-    const _emRes = await fetch(
-      `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({
+    const _emRes = await postAppEmail({
           templateName,
           recipientEmail,
           idempotencyKey,
           templateData,
-        }),
-      },
-    ).catch((e) => {
+        }).catch((e) => {
       console.warn(`[loyalty-inactivity-check] ${templateName} email failed:`, e);
       return null;
     });

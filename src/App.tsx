@@ -84,7 +84,6 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const PaymentVault = lazy(() => import("./pages/PaymentVault"));
 const PaymentsHub = lazy(() => import("./pages/PaymentsHub"));
 const BulkPaymentImport = lazy(() => import("./pages/BulkPaymentImport"));
-const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
 const Promotions = lazy(() => import("./pages/Promotions"));
 const LoyaltyAdmin = lazy(() => import("./pages/LoyaltyAdmin"));
 const ExecutiveDashboard = lazy(() => import("./pages/ExecutiveDashboard"));
@@ -166,7 +165,6 @@ const App = () => (
                 <Route path="/portal/reset-password" element={<PortalResetPassword />} />
                 <Route path="/portal/setup" element={<PortalSetup />} />
                 <Route path="/loyalty" element={<LoyaltyPortal />} />
-                <Route path="/unsubscribe" element={<Unsubscribe />} />
                 <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
                 
                 

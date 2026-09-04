@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -265,13 +266,7 @@ Deno.serve(async (req) => {
             day: "numeric",
             year: "numeric",
           });
-          const graceRes = await fetchWithRetryOnRateLimit(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${serviceRoleKey}`,
-            },
-            body: JSON.stringify({
+          const graceRes = await postAppEmail({
               templateName: "payment-reminder",
               recipientEmail: alert.customerEmail,
               idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
@@ -285,8 +280,7 @@ Deno.serve(async (req) => {
                 graceEndDate: graceEndStr,
                 portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
               },
-            }),
-          });
+            });
           const graceBody = await graceRes.text();
           if (!graceRes.ok) {
             console.error(`Grace-period email failed for ${alert.customer}: ${graceRes.status} ${graceBody}`);
@@ -307,13 +301,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const emailRes = await fetchWithRetryOnRateLimit(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({
+        const emailRes = await postAppEmail({
             templateName: "payment-reminder",
             recipientEmail: alert.customerEmail,
             idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
@@ -329,8 +317,7 @@ Deno.serve(async (req) => {
               daysOverdue: alert.daysOverdue,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
             },
-          }),
-        });
+          });
         const emailBody = await emailRes.text();
         if (!emailRes.ok) {
           console.error(`Email failed for ${alert.customer}: ${emailRes.status} ${emailBody}`);

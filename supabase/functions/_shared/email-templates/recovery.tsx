@@ -4,6 +4,7 @@ import * as React from 'npm:react@18.3.1'
 
 import {
   Body,
+  Button,
   Container,
   Head,
   Heading,
@@ -22,50 +23,20 @@ export const RecoveryEmail = ({
   confirmationUrl,
 }: RecoveryEmailProps) => (
   <Html lang="en" dir="ltr">
-    <Head />
-    <Preview>Reset your password for Cha Jewels</Preview>
+    <Head>
+      <style>{darkModeCss}</style>
+    </Head>
+    <Preview>Reset your password for {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Heading style={h1}>Reset your password</Heading>
         <Text style={text}>
-          We received a request to reset your password for Cha Jewels. Click
+          We received a request to reset your password for {siteName}. Click
           the button below to choose a new password.
         </Text>
-        <table
-          cellPadding={0}
-          cellSpacing={0}
-          border={0}
-          align="center"
-          role="presentation"
-          style={{ margin: '24px auto', borderCollapse: 'separate' as const }}
-        >
-          <tbody>
-            <tr>
-              <td
-                align="center"
-                style={{ backgroundColor: '#CEA021', borderRadius: '10px' }}
-              >
-                <a
-                  href={confirmationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-block',
-                    padding: '12px 24px',
-                    fontFamily: "'Montserrat', 'Inter', Arial, sans-serif",
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#ffffff',
-                    textDecoration: 'none',
-                    lineHeight: '100%',
-                  }}
-                >
-                  Reset Password
-                </a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <Button className="dm-btn" style={button} href={confirmationUrl}>
+          Reset Password
+        </Button>
         <Text style={footer}>
           If you didn't request a password reset, you can safely ignore this
           email. Your password will not be changed.
@@ -77,8 +48,35 @@ export const RecoveryEmail = ({
 
 export default RecoveryEmail
 
-const main = { backgroundColor: '#ffffff', fontFamily: "'Montserrat', 'Inter', Arial, sans-serif" }
-const container = { padding: '30px 25px' }
-const h1 = { fontSize: '22px', fontWeight: '600' as const, color: '#0b0b0b', margin: '0 0 20px' }
-const text = { fontSize: '14px', color: '#666666', lineHeight: '1.6', margin: '0 0 25px' }
+const main = { backgroundColor: '#ffffff', fontFamily: 'Arial, sans-serif' }
+const container = { padding: '20px 25px' }
+const h1 = {
+  fontSize: '22px',
+  fontWeight: 'bold' as const,
+  color: '#000000',
+  margin: '0 0 20px',
+}
+const text = {
+  fontSize: '14px',
+  color: '#55575d',
+  lineHeight: '1.5',
+  margin: '0 0 25px',
+}
+const button = {
+  backgroundColor: '#000000',
+  color: '#ffffff',
+  fontSize: '14px',
+  border: '1px solid #000000',
+  borderRadius: '8px',
+  padding: '12px 20px',
+  textDecoration: 'none',
+}
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+// Rendered as a text child, which React may HTML-escape: keep this CSS free of >, &, and quotes.
+const darkModeCss = `
+  @media (prefers-color-scheme: dark) {
+    .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+  }
+  [data-ogsc] .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+  [data-ogsb] .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+`

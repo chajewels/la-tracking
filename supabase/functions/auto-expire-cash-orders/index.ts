@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,13 +60,7 @@ Deno.serve(async (req) => {
       if (!customerEmail) return;
       try {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${invoiceNumber}`;
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
+        const _emRes = await postAppEmail({
             templateName: "cash-order-expired",
             recipientEmail: customerEmail,
             idempotencyKey: `cash-order-expired-${cashOrderId}`,
@@ -79,11 +74,10 @@ Deno.serve(async (req) => {
               expiresAt,
               portalUrl,
             },
-          }),
-        });
+          });
         if (!_emRes.ok) {
           const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[auto-expire-cash-orders] send-transactional-email failed (${_emRes.status}): ${_t}`);
+          console.error(`[auto-expire-cash-orders] app email send failed (${_emRes.status}): ${_t}`);
         }
       } catch (emailErr) {
         console.warn(`[auto-expire-cash-orders] email send failed for ${invoiceNumber} (non-blocking):`, emailErr);

@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -335,15 +336,7 @@ Deno.serve(async (req) => {
             customerId,
             'loyalty',
           );
-          const _emRes = await fetch(
-            `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({
+          const _emRes = await postAppEmail({
                 templateName: "loyalty-welcome",
                 recipientEmail: customer.email,
                 idempotencyKey: `loyalty-welcome-${member.id}`,
@@ -352,15 +345,13 @@ Deno.serve(async (req) => {
                   enrolledDate: enrolledAt,
                   portalUrl,
                 },
-              }),
-            },
-          ).catch((e) => {
+              }).catch((e) => {
             console.warn("[join-loyalty-program] welcome email failed:", e);
             return null;
           });
           if (_emRes && !_emRes.ok) {
             const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[join-loyalty-program] send-transactional-email (welcome) failed (${_emRes.status}): ${_t}`);
+            console.error(`[join-loyalty-program] app email (welcome) send failed (${_emRes.status}): ${_t}`);
           }
         } else {
           console.log(

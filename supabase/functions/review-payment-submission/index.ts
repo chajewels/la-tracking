@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -578,13 +579,7 @@ Deno.serve(async (req) => {
           .single();
         const customerEmail = customer?.email;
         if (customerEmail) {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
+          await postAppEmail({
               templateName: "cash-payment-confirmed",
               recipientEmail: customerEmail,
               idempotencyKey: `cash-payment-confirmed-${cashPayment.id}`,
@@ -598,8 +593,7 @@ Deno.serve(async (req) => {
                 isFullyPaid,
                 portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
               },
-            }),
-          });
+            });
         }
       } catch (emailErr) {
         console.warn("[review-payment-submission] cash-payment-confirmed email failed (non-blocking):", emailErr);
@@ -1227,19 +1221,12 @@ Deno.serve(async (req) => {
         }
 
         if (templateName) {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
+          await postAppEmail({
               templateName,
               recipientEmail: customerEmail,
               idempotencyKey: `${templateName}-${submission_id}`,
               templateData: baseData,
-            }),
-          });
+            });
         }
       }
     } catch (emailErr) {

@@ -9,6 +9,7 @@ import {
   buildTierUpgradeNotification,
   buildWelcomeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -539,10 +540,7 @@ Deno.serve(async (req) => {
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
 
         if (await gate("loyalty_email_earned")) {
-          const _emRes = await fetch(baseUrl, {
-            method: "POST",
-            headers: authHeader,
-            body: JSON.stringify({
+          const _emRes = await postAppEmail({
               templateName: "loyalty-earned",
               recipientEmail,
               idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
@@ -557,11 +555,10 @@ Deno.serve(async (req) => {
                 cumulativeSpendJpy: newCumulative,
                 portalUrl,
               },
-            }),
-          }).catch((e) => { console.warn("[award-loyalty-points] loyalty-earned email failed:", e); return null; });
+            }).catch((e) => { console.warn("[award-loyalty-points] loyalty-earned email failed:", e); return null; });
           if (_emRes && !_emRes.ok) {
             const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[award-loyalty-points] send-transactional-email (earned) failed (${_emRes.status}): ${_t}`);
+            console.error(`[award-loyalty-points] app email (earned) send failed (${_emRes.status}): ${_t}`);
           }
         } else {
           console.log(
@@ -571,10 +568,7 @@ Deno.serve(async (req) => {
 
         if (activePromo) {
           if (await gate("loyalty_email_bonus")) {
-            await fetch(baseUrl, {
-              method: "POST",
-              headers: authHeader,
-              body: JSON.stringify({
+            await postAppEmail({
                 templateName: "loyalty-bonus",
                 recipientEmail,
                 idempotencyKey:
@@ -588,8 +582,7 @@ Deno.serve(async (req) => {
                   remainingPoints: newRemaining,
                   portalUrl,
                 },
-              }),
-            }).catch((e) =>
+              }).catch((e) =>
               console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
             );
           } else {
@@ -601,10 +594,7 @@ Deno.serve(async (req) => {
 
         if (tierUpgraded) {
           if (await gate("loyalty_email_tier_upgrade")) {
-            await fetch(baseUrl, {
-              method: "POST",
-              headers: authHeader,
-              body: JSON.stringify({
+            await postAppEmail({
                 templateName: "loyalty-tier-upgrade",
                 recipientEmail,
                 idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
@@ -617,8 +607,7 @@ Deno.serve(async (req) => {
                   remainingPoints: newRemaining,
                   portalUrl,
                 },
-              }),
-            }).catch((e) =>
+              }).catch((e) =>
               console.warn(
                 "[award-loyalty-points] loyalty-tier-upgrade email failed:",
                 e,

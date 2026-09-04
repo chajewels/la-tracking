@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -237,13 +238,7 @@ Deno.serve(async (req) => {
       const customerName = (acctForEmail as any)?.customers?.full_name;
       if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
+        const _emRes = await postAppEmail({
             templateName: "penalty-waived",
             recipientEmail: customerEmail,
             idempotencyKey: `penalty-waived-${accountId}-${Date.now()}`,
@@ -256,11 +251,10 @@ Deno.serve(async (req) => {
               portalUrl,
               graceDeadline,
             },
-          }),
-        });
+          });
         if (!_emRes.ok) {
           const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[approve-waiver] send-transactional-email failed (${_emRes.status}): ${_t}`);
+          console.error(`[approve-waiver] app email send failed (${_emRes.status}): ${_t}`);
         }
       }
     } catch (emailErr) {

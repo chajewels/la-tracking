@@ -4,6 +4,7 @@ import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -227,13 +228,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_tier_revoked")) {
             const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
-            const _emRes = await fetch(baseUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({
+            const _emRes = await postAppEmail({
                 templateName: "loyalty-tier-revoked",
                 recipientEmail,
                 idempotencyKey: `loyalty-tier-revoked-${memberId}-${transactionId}`,
@@ -245,8 +240,7 @@ Deno.serve(async (req) => {
                   remainingPoints,
                   portalUrl,
                 },
-              }),
-            }).catch((e) => {
+              }).catch((e) => {
               console.warn(
                 "[revoke-loyalty-points] loyalty-tier-revoked email failed:",
                 e,
@@ -255,7 +249,7 @@ Deno.serve(async (req) => {
             });
             if (_emRes && !_emRes.ok) {
               const _t = await _emRes.text().catch(() => "<no body>");
-              console.error(`[revoke-loyalty-points] send-transactional-email (tier_revoked) failed (${_emRes.status}): ${_t}`);
+              console.error(`[revoke-loyalty-points] app email (tier_revoked) send failed (${_emRes.status}): ${_t}`);
             }
           } else {
             console.log(

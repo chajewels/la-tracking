@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -126,13 +127,7 @@ Deno.serve(async (req) => {
         const customerName = (acctForEmail as any)?.customers?.full_name;
         if (!customerEmail) return;
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
+        const _emRes = await postAppEmail({
             templateName: "account-forfeited",
             recipientEmail: customerEmail,
             idempotencyKey: `account-forfeited-${accountId}-${Date.now()}`,
@@ -145,11 +140,10 @@ Deno.serve(async (req) => {
               extensionAvailable,
               portalUrl,
             },
-          }),
-        });
+          });
         if (!_emRes.ok) {
           const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[auto-forfeit] send-transactional-email failed (${_emRes.status}): ${_t}`);
+          console.error(`[auto-forfeit] app email send failed (${_emRes.status}): ${_t}`);
         }
       } catch (emailErr) {
         console.warn("[auto-forfeit] email send failed (non-blocking):", emailErr);

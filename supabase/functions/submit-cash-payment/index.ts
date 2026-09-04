@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -251,13 +252,7 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = customer?.email;
       if (customerEmail) {
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
+        const _emRes = await postAppEmail({
             templateName: "cash-payment-submitted",
             recipientEmail: customerEmail,
             idempotencyKey: `cash-payment-submitted-${submission.id}`,
@@ -271,11 +266,10 @@ Deno.serve(async (req) => {
               currency: cashOrder.currency,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
             },
-          }),
-        });
+          });
         if (!_emRes.ok) {
           const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[submit-cash-payment] send-transactional-email failed (${_emRes.status}): ${_t}`);
+          console.error(`[submit-cash-payment] app email send failed (${_emRes.status}): ${_t}`);
         }
       }
     } catch (emailErr) {

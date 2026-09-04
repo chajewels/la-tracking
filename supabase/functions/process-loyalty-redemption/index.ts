@@ -7,6 +7,7 @@ import {
   buildRedemptionApprovedNotification,
   buildRedemptionCancelledNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { postAppEmail } from "../_shared/send-app-email.ts";
 
 // Phase 4.2 — for in-portal redemption notifications. Catalog rewards
 // resolve to loyalty_rewards.name; the 3 legacy enum types use a
@@ -528,15 +529,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redeem")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
-            const _emRes1 = await fetch(
-              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                },
-                body: JSON.stringify({
+            const _emRes1 = await postAppEmail({
                   templateName: "loyalty-redeem",
                   recipientEmail,
                   idempotencyKey: `loyalty-redeem-${redemption.id}`,
@@ -553,15 +546,13 @@ Deno.serve(async (req) => {
                     remainingPoints: (approveResult as any)?.new_remaining_points ?? 0,
                     portalUrl,
                   },
-                }),
-              },
-            ).catch((e) => {
+                }).catch((e) => {
               console.warn("[process-loyalty-redemption] redeem email failed:", e);
               return null;
             });
             if (_emRes1 && !_emRes1.ok) {
               const _t = await _emRes1.text().catch(() => "<no body>");
-              console.error(`[process-loyalty-redemption] send-transactional-email (redeem) failed (${_emRes1.status}): ${_t}`);
+              console.error(`[process-loyalty-redemption] app email (redeem) send failed (${_emRes1.status}): ${_t}`);
             }
           } else {
             console.log(
@@ -919,15 +910,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redemption_voided")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member?.customer_id, "loyalty");
-            const _emRes2 = await fetch(
-              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                },
-                body: JSON.stringify({
+            const _emRes2 = await postAppEmail({
                   templateName: "loyalty-redemption-voided",
                   recipientEmail,
                   idempotencyKey: `loyalty-redemption-voided-${redemption.id}`,
@@ -941,15 +924,13 @@ Deno.serve(async (req) => {
                     voidedAt: cancelledAt,
                     portalUrl,
                   },
-                }),
-              },
-            ).catch((e) => {
+                }).catch((e) => {
               console.warn("[process-loyalty-redemption] void email failed:", e);
               return null;
             });
             if (_emRes2 && !_emRes2.ok) {
               const _t = await _emRes2.text().catch(() => "<no body>");
-              console.error(`[process-loyalty-redemption] send-transactional-email (void) failed (${_emRes2.status}): ${_t}`);
+              console.error(`[process-loyalty-redemption] app email (void) send failed (${_emRes2.status}): ${_t}`);
             }
           } else {
             console.log(

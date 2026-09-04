@@ -31,8 +31,6 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.sync-backup-sheets]
     verify_jwt = true
-  [functions.process-email-queue]
-    verify_jwt = true
   [functions.reactivate-account]
     verify_jwt = false
   [functions.record-multi-payment]
@@ -47,13 +45,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.void-payment]
     verify_jwt = false
-  [functions.send-transactional-email]
-    verify_jwt = true
   [functions.preview-transactional-email]
-    verify_jwt = false
-  [functions.handle-email-unsubscribe]
-    verify_jwt = false
-  [functions.handle-email-suppression]
     verify_jwt = false
   [functions.daily-reconciliation]
     verify_jwt = true
