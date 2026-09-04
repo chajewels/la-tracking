@@ -532,11 +532,6 @@ Deno.serve(async (req) => {
       const recipientEmail = customer?.email;
       if (recipientEmail) {
         const customerName = customer?.full_name || "Valued Customer";
-        const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
-        const authHeader = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        };
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
 
         if (await gate("loyalty_email_earned")) {
