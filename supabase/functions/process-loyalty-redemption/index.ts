@@ -4,6 +4,7 @@ import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import {
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
   buildRedemptionApprovedNotification,
   buildRedemptionCancelledNotification,
 } from "../_shared/loyalty-notification-templates.ts";
@@ -528,40 +529,28 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redeem")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
-            const _emRes1 = await fetch(
-              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+            const result = await sendTemplateEmail(
+              "loyalty-redeem",
+              recipientEmail,
               {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                },
-                body: JSON.stringify({
-                  templateName: "loyalty-redeem",
-                  recipientEmail,
-                  idempotencyKey: `loyalty-redeem-${redemption.id}`,
-                  templateData: {
-                    customerName,
-                    pointsRedeemed: Number(redemption.points_redeemed),
-                    valueAppliedJpy: Number(redemption.value_applied_jpy),
-                    valueAppliedPhp: redemption.value_applied_php != null
+                templateData: {
+                  customerName,
+                  pointsRedeemed: Number(redemption.points_redeemed),
+                  valueAppliedJpy: Number(redemption.value_applied_jpy),
+                  valueAppliedPhp: redemption.value_applied_php != null
                       ? Number(redemption.value_applied_php)
                       : null,
-                    redemptionType: redemption.redemption_type,
-                    invoiceNumber: redemption.invoice_number,
-                    notes: redemption.notes ?? null,
-                    remainingPoints: (approveResult as any)?.new_remaining_points ?? 0,
-                    portalUrl,
-                  },
-                }),
+                  redemptionType: redemption.redemption_type,
+                  invoiceNumber: redemption.invoice_number,
+                  notes: redemption.notes ?? null,
+                  remainingPoints: (approveResult as any)?.new_remaining_points ?? 0,
+                  portalUrl,
+                },
+                idempotencyKey: `loyalty-redeem-${redemption.id}`,
               },
-            ).catch((e) => {
-              console.warn("[process-loyalty-redemption] redeem email failed:", e);
-              return null;
-            });
-            if (_emRes1 && !_emRes1.ok) {
-              const _t = await _emRes1.text().catch(() => "<no body>");
-              console.error(`[process-loyalty-redemption] send-transactional-email (redeem) failed (${_emRes1.status}): ${_t}`);
+            );
+            if (!result.sent) {
+              console.log(`[process-loyalty-redemption] "loyalty-redeem" suppressed for ${recipientEmail}`);
             }
           } else {
             console.log(
@@ -919,37 +908,25 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redemption_voided")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member?.customer_id, "loyalty");
-            const _emRes2 = await fetch(
-              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+            const result = await sendTemplateEmail(
+              "loyalty-redemption-voided",
+              recipientEmail,
               {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                templateData: {
+                  customerName,
+                  pointsRefunded: pointsToRefund,
+                  voidReason: trimmedReason,
+                  redemptionType: redemption.redemption_type,
+                  invoiceNumber: redemption.invoice_number,
+                  newRemainingPoints: newRemaining,
+                  voidedAt: cancelledAt,
+                  portalUrl,
                 },
-                body: JSON.stringify({
-                  templateName: "loyalty-redemption-voided",
-                  recipientEmail,
-                  idempotencyKey: `loyalty-redemption-voided-${redemption.id}`,
-                  templateData: {
-                    customerName,
-                    pointsRefunded: pointsToRefund,
-                    voidReason: trimmedReason,
-                    redemptionType: redemption.redemption_type,
-                    invoiceNumber: redemption.invoice_number,
-                    newRemainingPoints: newRemaining,
-                    voidedAt: cancelledAt,
-                    portalUrl,
-                  },
-                }),
+                idempotencyKey: `loyalty-redemption-voided-${redemption.id}`,
               },
-            ).catch((e) => {
-              console.warn("[process-loyalty-redemption] void email failed:", e);
-              return null;
-            });
-            if (_emRes2 && !_emRes2.ok) {
-              const _t = await _emRes2.text().catch(() => "<no body>");
-              console.error(`[process-loyalty-redemption] send-transactional-email (void) failed (${_emRes2.status}): ${_t}`);
+            );
+            if (!result.sent) {
+              console.log(`[process-loyalty-redemption] "loyalty-redemption-voided" suppressed for ${recipientEmail}`);
             }
           } else {
             console.log(

@@ -16,6 +16,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/jwt-claims.ts";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { getPortalLinkForCustomer } from "../_shared/portal-link.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,24 +168,21 @@ async function sendBroadcastEmails(
         const portalUrl = portalUrlFor(m.customer_id);
         const ctaUrl = resolveCtaUrl(linkTarget, portalUrl);
         try {
-          const _emRes = await fetch(emailEndpoint, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              templateName: "loyalty-broadcast",
-              recipientEmail: email,
-              idempotencyKey: `loyalty-broadcast-${notificationId}-${m.id}`,
+          const result = await sendTemplateEmail(
+            "loyalty-broadcast",
+            email,
+            {
               templateData: {
                 memberFirstName: firstName,
                 notificationTitle: title,
                 notificationBody: bodyText,
                 ctaUrl,
               },
-            }),
-          });
-          if (!_emRes.ok) {
-            const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[process-loyalty-notification-queue] send-transactional-email failed (${_emRes.status}) for ${email}: ${_t}`);
+              idempotencyKey: `loyalty-broadcast-${notificationId}-${m.id}`,
+            },
+          );
+          if (!result.sent) {
+            console.log(`[process-loyalty-notification-queue] "loyalty-broadcast" suppressed for ${email}`);
           }
         } catch (e) {
           console.warn(

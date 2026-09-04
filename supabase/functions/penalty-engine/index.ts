@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -624,22 +625,16 @@ Deno.serve(async (req) => {
                 portalUrl,
               };
 
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            templateName,
-            recipientEmail: customerEmail,
+        const result = await sendTemplateEmail(
+          templateName,
+          customerEmail,
+          {
+            templateData: templateData,
             idempotencyKey: `${templateName}-${p.account_id}-${p.schedule_id}-${p.penalty_stage}-${p.penalty_cycle}`,
-            templateData,
-          }),
-        });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[penalty-engine] send-transactional-email failed (${_emRes.status}): ${_t}`);
+          },
+        );
+        if (!result.sent) {
+          console.log(`[penalty-engine] templateName suppressed for ${customerEmail}`);
         }
       }
     } catch (emailErr) {

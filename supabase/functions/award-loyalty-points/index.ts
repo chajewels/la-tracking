@@ -5,6 +5,7 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import {
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
   buildWelcomeNotification,
@@ -539,13 +540,10 @@ Deno.serve(async (req) => {
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
 
         if (await gate("loyalty_email_earned")) {
-          const _emRes = await fetch(baseUrl, {
-            method: "POST",
-            headers: authHeader,
-            body: JSON.stringify({
-              templateName: "loyalty-earned",
-              recipientEmail,
-              idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
+          const result = await sendTemplateEmail(
+            "loyalty-earned",
+            recipientEmail,
+            {
               templateData: {
                 customerName,
                 pointsEarned: points,
@@ -557,11 +555,11 @@ Deno.serve(async (req) => {
                 cumulativeSpendJpy: newCumulative,
                 portalUrl,
               },
-            }),
-          }).catch((e) => { console.warn("[award-loyalty-points] loyalty-earned email failed:", e); return null; });
-          if (_emRes && !_emRes.ok) {
-            const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[award-loyalty-points] send-transactional-email (earned) failed (${_emRes.status}): ${_t}`);
+              idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
+            },
+          );
+          if (!result.sent) {
+            console.log(`[award-loyalty-points] "loyalty-earned" suppressed for ${recipientEmail}`);
           }
         } else {
           console.log(

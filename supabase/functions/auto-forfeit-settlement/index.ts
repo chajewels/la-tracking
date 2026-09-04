@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -126,16 +127,10 @@ Deno.serve(async (req) => {
         const customerName = (acctForEmail as any)?.customers?.full_name;
         if (!customerEmail) return;
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            templateName: "account-forfeited",
-            recipientEmail: customerEmail,
-            idempotencyKey: `account-forfeited-${accountId}-${Date.now()}`,
+        const result = await sendTemplateEmail(
+          "account-forfeited",
+          customerEmail,
+          {
             templateData: {
               customerName,
               invoiceNumber: (acctForEmail as any)?.invoice_number,
@@ -145,11 +140,11 @@ Deno.serve(async (req) => {
               extensionAvailable,
               portalUrl,
             },
-          }),
-        });
-        if (!_emRes.ok) {
-          const _t = await _emRes.text().catch(() => "<no body>");
-          console.error(`[auto-forfeit] send-transactional-email failed (${_emRes.status}): ${_t}`);
+            idempotencyKey: `account-forfeited-${accountId}-${Date.now()}`,
+          },
+        );
+        if (!result.sent) {
+          console.log(`[auto-forfeit-settlement] "account-forfeited" suppressed for ${customerEmail}`);
         }
       } catch (emailErr) {
         console.warn("[auto-forfeit] email send failed (non-blocking):", emailErr);

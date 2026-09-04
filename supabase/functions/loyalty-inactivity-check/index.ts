@@ -7,6 +7,7 @@ import {
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import {
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
   buildExpiryFiredNotification,
   buildPreExpiryNotification,
   buildTierDowngradeNotification,
@@ -57,28 +58,16 @@ async function sendEmail(
       );
       return;
     }
-    const _emRes = await fetch(
-      `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+    const result = await sendTemplateEmail(
+      templateName,
+      recipientEmail,
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({
-          templateName,
-          recipientEmail,
-          idempotencyKey,
-          templateData,
-        }),
+        templateData: templateData,
+        idempotencyKey: idempotencyKey,
       },
-    ).catch((e) => {
-      console.warn(`[loyalty-inactivity-check] ${templateName} email failed:`, e);
-      return null;
-    });
-    if (_emRes && !_emRes.ok) {
-      const _t = await _emRes.text().catch(() => "<no body>");
-      console.error(`[loyalty-inactivity-check] ${templateName} email failed (${_emRes.status}): ${_t}`);
+    );
+    if (!result.sent) {
+      console.log(`[loyalty-inactivity-check] templateName suppressed for ${recipientEmail}`);
     }
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] ${templateName} email block failed:`, e);

@@ -4,6 +4,7 @@ import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,16 +168,10 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_tier_restored")) {
             const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
-            const _emRes = await fetch(baseUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({
-                templateName: "loyalty-tier-restored",
-                recipientEmail,
-                idempotencyKey: `loyalty-tier-restored-${memberId}-${postCurrentTierId}-${revoke_transaction_id}`,
+            const result = await sendTemplateEmail(
+              "loyalty-tier-restored",
+              recipientEmail,
+              {
                 templateData: {
                   customerName,
                   oldTier: preTierName,
@@ -186,17 +181,11 @@ Deno.serve(async (req) => {
                   remainingPoints,
                   portalUrl,
                 },
-              }),
-            }).catch((e) => {
-              console.warn(
-                "[restore-loyalty-points] loyalty-tier-restored email failed:",
-                e,
-              );
-              return null;
-            });
-            if (_emRes && !_emRes.ok) {
-              const _t = await _emRes.text().catch(() => "<no body>");
-              console.error(`[restore-loyalty-points] send-transactional-email (tier_restored) failed (${_emRes.status}): ${_t}`);
+                idempotencyKey: `loyalty-tier-restored-${memberId}-${postCurrentTierId}-${revoke_transaction_id}`,
+              },
+            );
+            if (!result.sent) {
+              console.log(`[restore-loyalty-points] "loyalty-tier-restored" suppressed for ${recipientEmail}`);
             }
           } else {
             console.log(

@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -335,32 +336,20 @@ Deno.serve(async (req) => {
             customerId,
             'loyalty',
           );
-          const _emRes = await fetch(
-            `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+          const result = await sendTemplateEmail(
+            "loyalty-welcome",
+            customer.email,
             {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              templateData: {
+                customerName: customer.full_name || "Valued Customer",
+                enrolledDate: enrolledAt,
+                portalUrl,
               },
-              body: JSON.stringify({
-                templateName: "loyalty-welcome",
-                recipientEmail: customer.email,
-                idempotencyKey: `loyalty-welcome-${member.id}`,
-                templateData: {
-                  customerName: customer.full_name || "Valued Customer",
-                  enrolledDate: enrolledAt,
-                  portalUrl,
-                },
-              }),
+              idempotencyKey: `loyalty-welcome-${member.id}`,
             },
-          ).catch((e) => {
-            console.warn("[join-loyalty-program] welcome email failed:", e);
-            return null;
-          });
-          if (_emRes && !_emRes.ok) {
-            const _t = await _emRes.text().catch(() => "<no body>");
-            console.error(`[join-loyalty-program] send-transactional-email (welcome) failed (${_emRes.status}): ${_t}`);
+          );
+          if (!result.sent) {
+            console.log(`[join-loyalty-program] "loyalty-welcome" suppressed for ${customer.email}`);
           }
         } else {
           console.log(

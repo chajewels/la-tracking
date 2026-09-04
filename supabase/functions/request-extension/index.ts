@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,15 +109,10 @@ Deno.serve(async (req) => {
         ? "¥" + Math.round(rb).toLocaleString("en-US")
         : "₱" + rb.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({
-          template_name: "extension-requested",
-          recipient_email: "sales@chajewelsjp.com",
+      const result = await sendTemplateEmail(
+        "extension-requested",
+        "sales@chajewelsjp.com",
+        {
           templateData: {
             customerName: cust?.full_name || "Valued customer",
             invoiceNumber: acct.invoice_number,
@@ -125,8 +121,11 @@ Deno.serve(async (req) => {
             remainingBalance,
             portalUrl,
           },
-        }),
-      });
+        },
+      );
+      if (!result.sent) {
+        console.log(`[request-extension] "extension-requested" suppressed for ${"sales@chajewelsjp.com"}`);
+      }
     } catch (mailErr) {
       console.error("[request-extension] staff email failed (non-blocking):", mailErr);
     }
