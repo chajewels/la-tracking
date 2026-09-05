@@ -866,6 +866,7 @@ Deno.serve(async (req) => {
         acc.status === 'active' ? (unpaidSchedule.some((s: any) => s.due_date < today) ? 'Overdue' : 'Active') :
         acc.status === 'final_settlement' ? 'Final Settlement' :
         acc.status === 'forfeited' ? 'Forfeited' :
+        acc.status === 'final_forfeited' ? 'Forfeited' :
         acc.status === 'cancelled' ? 'Cancelled' :
         acc.status === 'reactivated' ? 'Active' :
         acc.status === 'extension_active' ? 'Active' :
