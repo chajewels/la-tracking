@@ -80,11 +80,21 @@ const MemberCard = () => {
   );
   let lotExpiryText: string | null = null;
   let lotExpiringSoon = false;
+  let expiringTotal = 0;
   if (nextExpiringLot && nextExpiringLot.expires_at) {
     const exp = new Date(nextExpiringLot.expires_at);
     const ymd = nextExpiringLot.expires_at.slice(0, 10);
-    lotExpiryText =
-      `Your next ${nextExpiringLot.remaining_amount.toLocaleString()} points expire on ${ymd}`;
+    // Every active lot shares one expiry date — points expire 180 days after
+    // the member's last purchase and any new order resets the window for the
+    // WHOLE balance. Reporting the earliest single lot understated it
+    // (CJ-2026-03184 read "2,500" when all 3,900 expired that day). Match on
+    // the YYYY-MM-DD prefix: lots written at different times share a date but
+    // differ in the time component. No expired_at / revoked_at test is needed
+    // — customer-portal already returns only non-revoked, non-consumed lots.
+    expiringTotal = (lots ?? [])
+      .filter(l => l.expires_at && l.expires_at.slice(0, 10) === ymd && l.remaining_amount > 0)
+      .reduce((sum, l) => sum + l.remaining_amount, 0);
+    lotExpiryText = `Your ${expiringTotal.toLocaleString()} points expire on ${ymd}`;
     const msLeft = exp.getTime() - Date.now();
     lotExpiringSoon = msLeft <= 30 * 24 * 60 * 60 * 1000;
   }
@@ -217,7 +227,7 @@ const MemberCard = () => {
                 className="inline-block mt-2 rounded-full px-2.5 py-1 text-[11px] font-semibold"
                 style={{ color: 'hsl(0, 75%, 38%)', backgroundColor: 'hsl(20, 90%, 90%)' }}
               >
-                {nextExpiringLot.remaining_amount.toLocaleString()} points expiring soon
+                {expiringTotal.toLocaleString()} points expiring soon
               </span>
             )}
             <p
