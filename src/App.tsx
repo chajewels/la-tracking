@@ -96,6 +96,8 @@ const Sales = lazy(() => import("./pages/Sales"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const PolicyHub = lazy(() => import("./pages/PolicyHub"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
+const WebsiteCatalog = lazy(() => import("./pages/WebsiteCatalog"));
+
 
 // DEV-only fixture preview (Playwright verification harness). The DEV guard
 // is statically evaluated by Vite, so neither the route nor the chunk exists
