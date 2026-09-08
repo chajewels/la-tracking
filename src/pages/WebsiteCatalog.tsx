@@ -305,7 +305,9 @@ export default function WebsiteCatalog() {
       <PageMeta
         title="Website Catalog | Cha Jewels Hub"
         description="Manage the products, variants and imagery published on the Cha Jewels public website."
+        path="/website-catalog"
       />
+
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
