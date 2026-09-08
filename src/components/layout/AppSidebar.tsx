@@ -19,7 +19,9 @@ import {
   Wrench,
   ShoppingBag,
   BookOpen,
+  Globe,
 } from 'lucide-react';
+
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
@@ -104,6 +106,8 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Announcements', tab: 'announcements' },
     ],
   },
+  { label: 'Website Catalog', icon: Globe, path: ROUTES.WEBSITE_CATALOG, permPath: ROUTES.WEBSITE_CATALOG },
+
   {
     label: 'Loyalty', icon: Sparkles, parentPath: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN,
     children: [

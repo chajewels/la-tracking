@@ -96,6 +96,8 @@ const Sales = lazy(() => import("./pages/Sales"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const PolicyHub = lazy(() => import("./pages/PolicyHub"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
+const WebsiteCatalog = lazy(() => import("./pages/WebsiteCatalog"));
+
 
 // DEV-only fixture preview (Playwright verification harness). The DEV guard
 // is statically evaluated by Vite, so neither the route nor the chunk exists
@@ -190,6 +192,8 @@ const App = () => (
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
+                <Route path="/website-catalog" element={<Protected><WebsiteCatalog /></Protected>} />
+
                 <Route path="/loyalty/admin" element={<Protected><LoyaltyAdmin /></Protected>} />
                 <Route path="/loyalty/redemptions" element={<Navigate to="/loyalty/admin?tab=redemptions" replace />} />
                 <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />
