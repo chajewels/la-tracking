@@ -91,7 +91,13 @@ async function translateToJa(text: string, name: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke("translate-product-description", {
     body: { text, name },
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // invoke() reports a bare "non-2xx status" — the useful message (rate limit,
+    // credits exhausted, banned terminology) is in the response body.
+    const res = (error as any)?.context as Response | undefined;
+    const detail = res ? await res.json().catch(() => null) : null;
+    throw new Error(detail?.error ?? error.message);
+  }
   const ja = String((data as any)?.description_ja ?? "").trim();
   if (!ja) throw new Error((data as any)?.error ?? "Translation came back empty.");
   return ja;
