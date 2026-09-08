@@ -26,5 +26,7 @@ export const ROUTES = {
   EXECUTIVE_DASHBOARD: "/executive-dashboard",
   SALES: "/sales",
   HELP: "/help",
+  WEBSITE_CATALOG: "/website-catalog",
+
   POLICY_HUB: "/policy-hub",
 };
