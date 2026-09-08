@@ -19,7 +19,9 @@ import {
   Wrench,
   ShoppingBag,
   BookOpen,
+  Globe,
 } from 'lucide-react';
+
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
