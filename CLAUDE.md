@@ -957,6 +957,7 @@ When completing a partially_paid month:
     daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
     auto-expire-cash-orders:       00:30 UTC = 08:30 PHT ✅
+    daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
     deactivate-expired-promotions: every hour            ✅
     loyalty-notification-queue:    every hour            ✅
     fc-alert-evaluation:           every 30 minutes      ✅
@@ -972,6 +973,13 @@ When completing a partially_paid month:
        (needs fully reconciled account data)
     6. daily-reconciliation must never be scheduled
        before 00:15 UTC
+
+  daily-fx-rate is INDEPENDENT of that chain — it writes only
+  fx_rates and touches no account data. It sits at 00:45 UTC so it
+  never competes with the pipeline. fx_rates.jpy_php = PHP per 1 JPY
+  (same direction as system_settings.php_jpy_rate); the `website`
+  edge function derives price_php = round(price_jpy * jpy_php) at
+  read time and NEVER stores a peso price.
 
   RACE CONDITION RULE (RETIRED 2026-05-20):
     The duplicate daily-payment-reminders cron was removed
