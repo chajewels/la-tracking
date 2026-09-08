@@ -192,6 +192,8 @@ const App = () => (
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
+                <Route path="/website-catalog" element={<Protected><WebsiteCatalog /></Protected>} />
+
                 <Route path="/loyalty/admin" element={<Protected><LoyaltyAdmin /></Protected>} />
                 <Route path="/loyalty/redemptions" element={<Navigate to="/loyalty/admin?tab=redemptions" replace />} />
                 <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />

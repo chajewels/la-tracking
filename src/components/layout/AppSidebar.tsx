@@ -104,6 +104,8 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Announcements', tab: 'announcements' },
     ],
   },
+  { label: 'Website Catalog', icon: Globe, path: ROUTES.WEBSITE_CATALOG, permPath: ROUTES.WEBSITE_CATALOG },
+
   {
     label: 'Loyalty', icon: Sparkles, parentPath: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN,
     children: [
