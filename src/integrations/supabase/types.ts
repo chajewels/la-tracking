@@ -1152,6 +1152,30 @@ export type Database = {
         }
         Relationships: []
       }
+      fx_rates: {
+        Row: {
+          created_at: string
+          date: string
+          jpy_php: number
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          jpy_php: number
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          jpy_php?: number
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       generated_invoices: {
         Row: {
           account_id: string | null
@@ -5887,7 +5911,14 @@ export type Database = {
       user_status: "active" | "inactive" | "suspended"
       waiver_status: "pending" | "approved" | "rejected" | "auto_unwaived"
       website_claim_status: "held" | "paid" | "layaway" | "expired" | "released"
-      website_product_karat: "K18" | "PT900" | "PT950"
+      website_product_karat:
+        | "K18"
+        | "K14"
+        | "K10"
+        | "PT1000"
+        | "PT900"
+        | "PT950"
+        | "SILVER925"
       website_product_status: "draft" | "active" | "archived"
     }
     CompositeTypes: {
@@ -6107,7 +6138,15 @@ export const Constants = {
       user_status: ["active", "inactive", "suspended"],
       waiver_status: ["pending", "approved", "rejected", "auto_unwaived"],
       website_claim_status: ["held", "paid", "layaway", "expired", "released"],
-      website_product_karat: ["K18", "PT900", "PT950"],
+      website_product_karat: [
+        "K18",
+        "K14",
+        "K10",
+        "PT1000",
+        "PT900",
+        "PT950",
+        "SILVER925",
+      ],
       website_product_status: ["draft", "active", "archived"],
     },
   },
