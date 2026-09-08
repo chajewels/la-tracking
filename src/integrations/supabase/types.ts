@@ -2444,6 +2444,44 @@ export type Database = {
         }
         Relationships: []
       }
+      loyalty_signups: {
+        Row: {
+          contact: string
+          converted_customer_id: string | null
+          created_at: string
+          id: string
+          lang: string
+          name: string
+          region: string
+        }
+        Insert: {
+          contact: string
+          converted_customer_id?: string | null
+          created_at?: string
+          id?: string
+          lang: string
+          name: string
+          region: string
+        }
+        Update: {
+          contact?: string
+          converted_customer_id?: string | null
+          created_at?: string
+          id?: string
+          lang?: string
+          name?: string
+          region?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_signups_converted_customer_id_fkey"
+            columns: ["converted_customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       loyalty_tiers: {
         Row: {
           benefits: Json
@@ -2452,6 +2490,7 @@ export type Database = {
           created_at: string
           display_order: number
           free_shipping_min_items: number | null
+          hold_minutes: number
           id: string
           min_spend_jpy: number
           mystery_gift: boolean
@@ -2466,6 +2505,7 @@ export type Database = {
           created_at?: string
           display_order: number
           free_shipping_min_items?: number | null
+          hold_minutes?: number
           id?: string
           min_spend_jpy: number
           mystery_gift?: boolean
@@ -2480,6 +2520,7 @@ export type Database = {
           created_at?: string
           display_order?: number
           free_shipping_min_items?: number | null
+          hold_minutes?: number
           id?: string
           min_spend_jpy?: number
           mystery_gift?: boolean
@@ -4814,6 +4855,253 @@ export type Database = {
         }
         Relationships: []
       }
+      website_collection_products: {
+        Row: {
+          collection_id: string
+          product_id: string
+          sort: number
+        }
+        Insert: {
+          collection_id: string
+          product_id: string
+          sort?: number
+        }
+        Update: {
+          collection_id?: string
+          product_id?: string
+          sort?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_collection_products_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "website_collections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_collection_products_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_collections: {
+        Row: {
+          created_at: string
+          description: string | null
+          hero_media: string | null
+          id: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          hero_media?: string | null
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          hero_media?: string | null
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      website_live_claims: {
+        Row: {
+          code: string
+          created_at: string
+          csr_id: string | null
+          customer_id: string | null
+          expires_at: string
+          id: string
+          price_locked: number
+          product_variant_id: string
+          status: Database["public"]["Enums"]["website_claim_status"]
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          csr_id?: string | null
+          customer_id?: string | null
+          expires_at: string
+          id?: string
+          price_locked: number
+          product_variant_id: string
+          status?: Database["public"]["Enums"]["website_claim_status"]
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          csr_id?: string | null
+          customer_id?: string | null
+          expires_at?: string
+          id?: string
+          price_locked?: number
+          product_variant_id?: string
+          status?: Database["public"]["Enums"]["website_claim_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_live_claims_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_live_claims_product_variant_id_fkey"
+            columns: ["product_variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_product_media: {
+        Row: {
+          alt: string | null
+          created_at: string
+          id: string
+          sort: number
+          url: string
+          variant_id: string
+        }
+        Insert: {
+          alt?: string | null
+          created_at?: string
+          id?: string
+          sort?: number
+          url: string
+          variant_id: string
+        }
+        Update: {
+          alt?: string | null
+          created_at?: string
+          id?: string
+          sort?: number
+          url?: string
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_product_media_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_product_variants: {
+        Row: {
+          cost_basis: number | null
+          created_at: string
+          id: string
+          price_jpy: number
+          price_php: number | null
+          product_id: string
+          size: string | null
+          sort: number
+          stock_qty: number
+          stone: string | null
+          updated_at: string
+        }
+        Insert: {
+          cost_basis?: number | null
+          created_at?: string
+          id?: string
+          price_jpy: number
+          price_php?: number | null
+          product_id: string
+          size?: string | null
+          sort?: number
+          stock_qty?: number
+          stone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cost_basis?: number | null
+          created_at?: string
+          id?: string
+          price_jpy?: number
+          price_php?: number | null
+          product_id?: string
+          size?: string | null
+          sort?: number
+          stock_qty?: number
+          stone?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_products: {
+        Row: {
+          created_at: string
+          description_en: string | null
+          description_ja: string | null
+          description_tl: string | null
+          id: string
+          karat: Database["public"]["Enums"]["website_product_karat"] | null
+          name: string
+          sku: string
+          slug: string
+          status: Database["public"]["Enums"]["website_product_status"]
+          updated_at: string
+          weight_g: number | null
+        }
+        Insert: {
+          created_at?: string
+          description_en?: string | null
+          description_ja?: string | null
+          description_tl?: string | null
+          id?: string
+          karat?: Database["public"]["Enums"]["website_product_karat"] | null
+          name: string
+          sku: string
+          slug: string
+          status?: Database["public"]["Enums"]["website_product_status"]
+          updated_at?: string
+          weight_g?: number | null
+        }
+        Update: {
+          created_at?: string
+          description_en?: string | null
+          description_ja?: string | null
+          description_tl?: string | null
+          id?: string
+          karat?: Database["public"]["Enums"]["website_product_karat"] | null
+          name?: string
+          sku?: string
+          slug?: string
+          status?: Database["public"]["Enums"]["website_product_status"]
+          updated_at?: string
+          weight_g?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       product_inquiries_with_accumulated: {
@@ -5374,6 +5662,10 @@ export type Database = {
         }
         Returns: Json
       }
+      layaway_quote: {
+        Args: { p_currency: string; p_price: number; p_term_months: number }
+        Returns: Json
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -5594,6 +5886,9 @@ export type Database = {
         | "cancelled"
       user_status: "active" | "inactive" | "suspended"
       waiver_status: "pending" | "approved" | "rejected" | "auto_unwaived"
+      website_claim_status: "held" | "paid" | "layaway" | "expired" | "released"
+      website_product_karat: "K18" | "PT900" | "PT950"
+      website_product_status: "draft" | "active" | "archived"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5811,6 +6106,9 @@ export const Constants = {
       ],
       user_status: ["active", "inactive", "suspended"],
       waiver_status: ["pending", "approved", "rejected", "auto_unwaived"],
+      website_claim_status: ["held", "paid", "layaway", "expired", "released"],
+      website_product_karat: ["K18", "PT900", "PT950"],
+      website_product_status: ["draft", "active", "archived"],
     },
   },
 } as const
