@@ -18,15 +18,31 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Globe, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 
 /** Public website catalog manager. Feeds the `website` API used by chajewelsjp.com. */
 
 const MEDIA_BUCKET = "promotions";
 const MEDIA_PREFIX = "website";
 
-type Karat = "K18" | "PT900" | "PT950";
+type Karat = "K18" | "K14" | "K10" | "PT1000" | "PT950" | "PT900" | "SILVER925";
 type Status = "draft" | "active" | "archived";
+
+/**
+ * The only metal values the catalog stores. K18 covers Au750 / 18K — those are
+ * never separate options, so the label carries them instead.
+ */
+const METAL_OPTIONS: { value: Karat; label: string }[] = [
+  { value: "K18", label: "K18 (Au750 / 18K)" },
+  { value: "K14", label: "K14" },
+  { value: "K10", label: "K10" },
+  { value: "PT1000", label: "PT1000" },
+  { value: "PT950", label: "PT950" },
+  { value: "PT900", label: "PT900" },
+  { value: "SILVER925", label: "SILVER925" },
+];
+const metalLabel = (k: string | null | undefined) =>
+  METAL_OPTIONS.find((m) => m.value === k)?.label ?? "—";
 
 interface MediaRow { id?: string; url: string; alt: string | null; sort: number }
 interface VariantRow {
@@ -34,7 +50,6 @@ interface VariantRow {
   size: string | null;
   stone: string | null;
   price_jpy: number;
-  price_php: number | null;
   cost_basis: number | null;
   stock_qty: number;
   sort: number;
@@ -49,19 +64,20 @@ interface ProductForm {
   weight_g: number | null;
   description_en: string;
   description_ja: string;
-  description_tl: string;
+  /** English text as last saved — the translation only refreshes when it changes. */
+  savedEn: string;
   status: Status;
   collectionIds: string[];
   variants: VariantRow[];
 }
 
 const emptyVariant = (sort: number): VariantRow => ({
-  size: "", stone: "", price_jpy: 0, price_php: null, cost_basis: null, stock_qty: 0, sort, media: [],
+  size: "", stone: "", price_jpy: 0, cost_basis: null, stock_qty: 0, sort, media: [],
 });
 
 const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", karat: "K18", weight_g: null,
-  description_en: "", description_ja: "", description_tl: "",
+  description_en: "", description_ja: "", savedEn: "",
   status: "draft", collectionIds: [], variants: [emptyVariant(0)],
 });
 
@@ -70,6 +86,17 @@ const slugify = (s: string) =>
 
 const yen = (n: number) => `¥ ${Math.round(n).toLocaleString("en-US")}`;
 
+/** Formal-retail Japanese from Lovable AI. Server-side — the key never ships. */
+async function translateToJa(text: string, name: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("translate-product-description", {
+    body: { text, name },
+  });
+  if (error) throw new Error(error.message);
+  const ja = String((data as any)?.description_ja ?? "").trim();
+  if (!ja) throw new Error((data as any)?.error ?? "Translation came back empty.");
+  return ja;
+}
+
 export default function WebsiteCatalog() {
   const { roles } = useAuth();
   const isAdmin = roles?.includes("admin");
@@ -77,13 +104,14 @@ export default function WebsiteCatalog() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyProduct());
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
 
   const collections = useQuery({
     queryKey: ["website-collections"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("website_collections" as any)
-        .select("id, slug, name")
+        .select("id, slug, name, description")
         .order("name");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -96,13 +124,27 @@ export default function WebsiteCatalog() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, karat, weight_g, description_en, description_ja, description_tl, status, created_at, " +
-          "website_product_variants(id, size, stone, price_jpy, price_php, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
+          "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, created_at, " +
+          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
           "website_collection_products(collection_id)"
         )
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];
+    },
+  });
+
+  const fx = useQuery({
+    queryKey: ["website-fx-rate"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fx_rates" as any)
+        .select("date, jpy_php")
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
     },
   });
 
@@ -130,7 +172,6 @@ export default function WebsiteCatalog() {
         size: v.size ?? "",
         stone: v.stone ?? "",
         price_jpy: Number(v.price_jpy ?? 0),
-        price_php: v.price_php === null ? null : Number(v.price_php),
         cost_basis: v.cost_basis === null ? null : Number(v.cost_basis),
         stock_qty: Number(v.stock_qty ?? 0),
         sort: Number(v.sort ?? 0),
@@ -147,12 +188,30 @@ export default function WebsiteCatalog() {
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
       description_en: p.description_en ?? "",
       description_ja: p.description_ja ?? "",
-      description_tl: p.description_tl ?? "",
+      savedEn: p.description_en ?? "",
       status: p.status ?? "draft",
       collectionIds: ((p.website_collection_products ?? []) as any[]).map((c) => c.collection_id),
       variants: variants.length ? variants : [emptyVariant(0)],
     });
     setOpen(true);
+  }
+
+  async function regenerateJapanese() {
+    const en = form.description_en.trim();
+    if (!en) {
+      toast({ title: "Nothing to translate", description: "Write the English description first." });
+      return;
+    }
+    setTranslating(true);
+    try {
+      const ja = await translateToJa(en, form.name);
+      setForm((f) => ({ ...f, description_ja: ja }));
+      toast({ title: "Japanese updated" });
+    } catch (e: any) {
+      toast({ title: "Could not translate", description: e.message, variant: "destructive" });
+    } finally {
+      setTranslating(false);
+    }
   }
 
   const save = useMutation({
@@ -161,15 +220,35 @@ export default function WebsiteCatalog() {
       if (!f.variants.length) throw new Error("Add at least one variant.");
       const slug = (f.slug.trim() || slugify(f.name));
 
+      // Japanese is derived from the English text: refresh it when the English
+      // changed, or when it has never been generated. Never on an unchanged product.
+      const en = f.description_en.trim();
+      let ja = f.description_ja.trim();
+      if (!en) {
+        ja = "";
+      } else if (en !== f.savedEn.trim() || !ja) {
+        setTranslating(true);
+        try {
+          ja = await translateToJa(en, f.name);
+        } catch (e: any) {
+          toast({
+            title: "Japanese not regenerated",
+            description: `${e.message} The product still saved — use Regenerate to retry.`,
+            variant: "destructive",
+          });
+        } finally {
+          setTranslating(false);
+        }
+      }
+
       const productPayload = {
         sku: f.sku.trim(),
         slug,
         name: f.name.trim(),
         karat: f.karat,
         weight_g: f.weight_g,
-        description_en: f.description_en.trim() || null,
-        description_ja: f.description_ja.trim() || null,
-        description_tl: f.description_tl.trim() || null,
+        description_en: en || null,
+        description_ja: ja || null,
         status: f.status,
       };
 
@@ -193,7 +272,6 @@ export default function WebsiteCatalog() {
           size: v.size?.trim() || null,
           stone: v.stone?.trim() || null,
           price_jpy: Math.round(Number(v.price_jpy) || 0),
-          price_php: v.price_php === null || v.price_php === undefined ? null : Math.round(Number(v.price_php)),
           cost_basis: v.cost_basis === null || v.cost_basis === undefined ? null : Math.round(Number(v.cost_basis)),
           stock_qty: Math.round(Number(v.stock_qty) || 0),
           sort: i,
@@ -300,11 +378,15 @@ export default function WebsiteCatalog() {
     });
   }
 
+  const jpyPhp = fx.data ? Number((fx.data as any).jpy_php) : null;
+  const peso = (n: number) =>
+    jpyPhp ? `₱ ${Math.round(n * jpyPhp).toLocaleString("en-US")}` : "—";
+
   return (
     <div className="space-y-6">
       <PageMeta
         title="Website Catalog | Cha Jewels Hub"
-        description="Manage the products, variants and imagery published on the Cha Jewels public website."
+        description="Manage the products, jewelry types and imagery published on the Cha Jewels public website."
         path="/website-catalog"
       />
 
@@ -329,6 +411,11 @@ export default function WebsiteCatalog() {
           <CardTitle className="text-base">
             Products {products.data ? `(${products.data.length})` : ""}
           </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {jpyPhp
+              ? `Peso prices are calculated on the website from the daily rate — ¥1 = ₱${jpyPhp} as of ${(fx.data as any).date}. Nothing peso-denominated is stored here.`
+              : "No exchange rate on file yet — the website will show yen only until the daily rate lands."}
+          </p>
         </CardHeader>
         <CardContent className="p-0">
           {products.isLoading ? (
@@ -347,6 +434,7 @@ export default function WebsiteCatalog() {
                   <TableHead>SKU</TableHead>
                   <TableHead>Metal</TableHead>
                   <TableHead className="text-right">From</TableHead>
+                  <TableHead className="text-right">Approx.</TableHead>
                   <TableHead className="text-right">Variants</TableHead>
                   <TableHead className="text-right">Stock</TableHead>
                   <TableHead>Status</TableHead>
@@ -358,8 +446,11 @@ export default function WebsiteCatalog() {
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => openEdit(p)}>
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
-                    <TableCell>{p.karat ?? "—"}</TableCell>
+                    <TableCell>{metalLabel(p.karat)}</TableCell>
                     <TableCell className="text-right tabular-nums">{p.fromPrice ? yen(p.fromPrice) : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {p.fromPrice ? peso(p.fromPrice) : "—"}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{p.variantCount}</TableCell>
                     <TableCell className="text-right tabular-nums">{p.stock}</TableCell>
                     <TableCell>
@@ -385,6 +476,8 @@ export default function WebsiteCatalog() {
           )}
         </CardContent>
       </Card>
+
+      <JewelryTypes isAdmin={!!isAdmin} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
@@ -422,9 +515,9 @@ export default function WebsiteCatalog() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not specified</SelectItem>
-                    <SelectItem value="K18">K18</SelectItem>
-                    <SelectItem value="PT900">PT900</SelectItem>
-                    <SelectItem value="PT950">PT950</SelectItem>
+                    {METAL_OPTIONS.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -449,7 +542,7 @@ export default function WebsiteCatalog() {
             </div>
 
             <div className="space-y-2">
-              <Label>Collections</Label>
+              <Label>Jewelry type</Label>
               <div className="flex flex-wrap gap-4">
                 {(collections.data ?? []).map((c: any) => (
                   <label key={c.id} className="flex items-center gap-2 text-sm">
@@ -468,18 +561,38 @@ export default function WebsiteCatalog() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>Description (English)</Label>
-                <Textarea rows={4} value={form.description_en} onChange={(e) => setForm((f) => ({ ...f, description_en: e.target.value }))} />
+                <Textarea
+                  rows={5}
+                  value={form.description_en}
+                  onChange={(e) => setForm((f) => ({ ...f, description_en: e.target.value }))}
+                  placeholder="K18 gold, Made in Japan. 40cm, 2.0g."
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label>Description (Japanese)</Label>
-                <Textarea rows={4} value={form.description_ja} onChange={(e) => setForm((f) => ({ ...f, description_ja: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description (Tagalog)</Label>
-                <Textarea rows={4} value={form.description_tl} onChange={(e) => setForm((f) => ({ ...f, description_tl: e.target.value }))} />
+
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs text-muted-foreground">
+                    Japanese (translated automatically — read-only)
+                  </Label>
+                  <Button
+                    type="button" variant="outline" size="sm"
+                    onClick={regenerateJapanese}
+                    disabled={translating || !form.description_en.trim()}
+                  >
+                    {translating
+                      ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                    Regenerate
+                  </Button>
+                </div>
+                <Textarea
+                  rows={5} readOnly value={form.description_ja}
+                  className="cursor-default bg-transparent"
+                  placeholder="Generated on save when the English text changes."
+                />
               </div>
             </div>
 
@@ -496,7 +609,7 @@ export default function WebsiteCatalog() {
 
               {form.variants.map((v, i) => (
                 <div key={v.id ?? `new-${i}`} className="space-y-3 rounded-lg border border-border p-3">
-                  <div className="grid gap-3 sm:grid-cols-5">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Size</Label>
                       <Input value={v.size ?? ""} onChange={(e) => patchVariant(i, { size: e.target.value })} />
@@ -508,13 +621,9 @@ export default function WebsiteCatalog() {
                     <div className="space-y-1">
                       <Label className="text-xs">Price (¥)</Label>
                       <Input type="number" value={v.price_jpy} onChange={(e) => patchVariant(i, { price_jpy: Number(e.target.value) })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Price (₱)</Label>
-                      <Input
-                        type="number" value={v.price_php ?? ""}
-                        onChange={(e) => patchVariant(i, { price_php: e.target.value === "" ? null : Number(e.target.value) })}
-                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        {v.price_jpy > 0 ? `≈ ${peso(v.price_jpy)} on the website` : " "}
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Stock</Label>
@@ -523,7 +632,7 @@ export default function WebsiteCatalog() {
                   </div>
 
                   {isAdmin && (
-                    <div className="grid gap-3 sm:grid-cols-5">
+                    <div className="grid gap-3 sm:grid-cols-4">
                       <div className="space-y-1">
                         <Label className="text-xs">Cost basis (¥, internal)</Label>
                         <Input
@@ -576,5 +685,164 @@ export default function WebsiteCatalog() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Jewelry types (website_collections). Necklaces, Pendants, Earrings, Bracelets,
+ * Rings, Anklets, Sets ship as the starting set — staff add more here.
+ */
+function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
+  const qc = useQueryClient();
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const types = useQuery({
+    queryKey: ["website-collections"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("website_collections" as any)
+        .select("id, slug, name, description")
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["website-collections"] });
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const name = newName.trim();
+      if (!name) throw new Error("Give the type a name.");
+      const { error } = await supabase.from("website_collections" as any).insert({
+        name, slug: slugify(name), description: newDescription.trim() || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: "Type added" });
+      setNewName(""); setNewDescription(""); invalidate();
+    },
+    onError: (e: any) => toast({ title: "Could not add type", description: e.message, variant: "destructive" }),
+  });
+
+  const saveDescription = useMutation({
+    mutationFn: async ({ id, description }: { id: string; description: string }) => {
+      const { error } = await supabase.from("website_collections" as any)
+        .update({ description: description.trim() || null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      toast({ title: "Description saved" });
+      setDrafts((d) => { const next = { ...d }; delete next[v.id]; return next; });
+      invalidate();
+    },
+    onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+  });
+
+  const removeType = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("website_collections" as any).delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: "Type removed" }); invalidate(); },
+    onError: (e: any) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="hairline-b">
+        <CardTitle className="text-base">
+          Jewelry types {types.data ? `(${types.data.length})` : ""}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          These are the categories the website browses by. The English description shows on the type's page.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-4">
+        {types.isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-40">Type</TableHead>
+                <TableHead className="w-40">Slug</TableHead>
+                <TableHead>Description (English)</TableHead>
+                <TableHead className="w-28" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(types.data ?? []).map((t: any) => {
+                const value = drafts[t.id] ?? t.description ?? "";
+                const dirty = drafts[t.id] !== undefined && drafts[t.id] !== (t.description ?? "");
+                return (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-medium">{t.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.slug}</TableCell>
+                    <TableCell>
+                      <Input
+                        value={value}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="outline" size="sm" disabled={!dirty || saveDescription.isPending}
+                          onClick={() => saveDescription.mutate({ id: t.id, description: value })}
+                        >
+                          Save
+                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost" size="icon"
+                            onClick={() => {
+                              if (confirm(`Remove the ${t.name} type? Products stay, they just lose this type.`)) {
+                                removeType.mutate(t.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        <div className="grid gap-3 rounded-lg border border-dashed border-border p-3 sm:grid-cols-[minmax(0,12rem)_1fr_auto]">
+          <div className="space-y-1">
+            <Label className="text-xs">New type</Label>
+            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Brooches" />
+            {newName.trim() && (
+              <p className="text-[11px] text-muted-foreground">slug: {slugify(newName)}</p>
+            )}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Description (English)</Label>
+            <Input
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              placeholder="One line shown on the type's page."
+            />
+          </div>
+          <div className="flex items-end">
+            <Button onClick={() => add.mutate()} disabled={!newName.trim() || add.isPending}>
+              {add.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add type
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -13,12 +13,29 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const PRODUCT_FIELDS =
-  "id, sku, slug, name, karat, weight_g, description_en, description_ja, description_tl, status, updated_at";
+  "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, updated_at";
 const VARIANT_SELECT =
-  "product_variants:website_product_variants(id, size, stone, price_jpy, price_php, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
+  "product_variants:website_product_variants(id, size, stone, price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
 const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
 
 type AnyRec = Record<string, unknown>;
+
+/** Latest JPY->PHP rate. price_php is derived per request, never stored. */
+interface FxRate { jpy_php: number; as_of: string }
+
+async function latestFx(supabase: ReturnType<typeof createClient>): Promise<FxRate | null> {
+  const { data, error } = await supabase
+    .from("fx_rates")
+    .select("date, jpy_php")
+    .order("date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const rate = Number((data as AnyRec).jpy_php);
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return { jpy_php: rate, as_of: String((data as AnyRec).date) };
+}
 
 /** Defence in depth: strip internal keys from any shape before it leaves the function. */
 const FORBIDDEN = new Set(["cost_basis", "margin", "commission", "commission_rate", "commission_amount"]);
@@ -35,7 +52,11 @@ function scrub<T>(value: T): T {
   return value;
 }
 
-function sortVariants(product: AnyRec | null): AnyRec | null {
+/**
+ * Sorts variants and media, and derives price_php from the day's rate.
+ * CLAUDE.md currency direction: PHP = JPY x rate. Null when no rate is on file.
+ */
+function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null {
   if (!product) return product;
   const variants = (product.product_variants as AnyRec[] | undefined) ?? [];
   variants.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
@@ -43,6 +64,8 @@ function sortVariants(product: AnyRec | null): AnyRec | null {
     const media = (v.product_media as AnyRec[] | undefined) ?? [];
     media.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
     delete v.sort;
+    const jpy = Number(v.price_jpy ?? 0);
+    v.price_php = fx && Number.isFinite(jpy) ? Math.round(jpy * fx.jpy_php) : null;
   }
   return product;
 }
@@ -68,6 +91,13 @@ Deno.serve(async (req) => {
   const segments = path.split("/").filter(Boolean);
 
   try {
+    // GET /fx
+    if (req.method === "GET" && segments[0] === "fx" && !segments[1]) {
+      const fx = await latestFx(supabase);
+      if (!fx) return notFound();
+      return jsonResponse({ jpy_php: fx.jpy_php, as_of: fx.as_of });
+    }
+
     // GET /catalog/collections
     if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "collections" && !segments[2]) {
       const { data, error } = await supabase
@@ -96,10 +126,11 @@ Deno.serve(async (req) => {
         .order("sort");
       if (linkError) throw linkError;
 
+      const fx = await latestFx(supabase);
       const products = (links ?? [])
         .map((l: AnyRec) => l.product as AnyRec | null)
         .filter((p): p is AnyRec => !!p && p.status === "active")
-        .map((p) => sortVariants(p));
+        .map((p) => shapeProduct(p, fx));
 
       return jsonResponse(scrub({ ...collection, products }));
     }
@@ -115,7 +146,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (error) throw error;
       if (!data) return notFound();
-      return jsonResponse(scrub(sortVariants(data as AnyRec)));
+      const fx = await latestFx(supabase);
+      return jsonResponse(scrub(shapeProduct(data as AnyRec, fx)));
     }
 
     // GET /catalog/products?featured=1&limit=8 | ?fields=slug,updated_at&limit=5000
@@ -144,7 +176,8 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(limit);
       if (error) throw error;
-      const products = (data ?? []).map((p) => sortVariants(p as AnyRec));
+      const fx = await latestFx(supabase);
+      const products = (data ?? []).map((p) => shapeProduct(p as AnyRec, fx));
       return jsonResponse(scrub(products));
     }
 

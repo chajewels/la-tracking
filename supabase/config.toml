@@ -168,3 +168,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.notify_website]
     verify_jwt = true
 
+  [functions.fetch-fx-rate]
+    verify_jwt = true
+  [functions.translate-product-description]
+    verify_jwt = true
