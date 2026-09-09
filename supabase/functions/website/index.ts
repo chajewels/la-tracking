@@ -13,7 +13,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const PRODUCT_FIELDS =
-  "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, updated_at";
+  "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, condition, updated_at";
 const VARIANT_SELECT =
   "product_variants:website_product_variants(id, size, stone, price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
 const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
