@@ -270,12 +270,27 @@ shipped with syntax errors that no check in the repo could see —
 compiled by CI at all (the truncation in `review-payment-submission` survived
 five days on `main`).
 
-  - **Parse check — `deno lint supabase/functions` — BLOCKING.** All lint rule
-    tags are disabled via `supabase/functions/deno.json` (`"lint": {"rules":
-    {"tags": []}}`), so this is a pure syntax gate: it fails only on a file that
-    cannot be parsed. That is exactly the class of defect that got through.
-    Do NOT re-enable rule tags here without a separate cleanup pass — the fleet
-    has never been linted and would go red on day one.
+  - **Parse check — `deno lint supabase/functions` — BLOCKING.** This is a
+    near-pure syntax gate: `deno lint` parses every file, and a file that
+    cannot be parsed fails the step regardless of which rules are on. That is
+    exactly the class of defect that got through.
+
+    `supabase/functions/deno.json` turns off all rule *tags* and re-enables
+    exactly five rules:
+    `no-dupe-args`, `no-dupe-keys`, `no-dupe-class-members`,
+    `no-unsafe-finally`, `no-with`. Each is a genuine bug rather than a style
+    opinion, and all five are clean across the fleet today.
+
+    The five are not decoration — `deno lint` REFUSES to run with an empty rule
+    set (`error: No rules have been configured`, exit 1), which is how the
+    first version of this job failed. Do NOT empty the `include` list, and do
+    NOT re-enable the rule tags without a separate cleanup pass: the fleet has
+    never been linted and the full `recommended` set would go red on day one.
+
+    Verified 2026-09-09 against Deno 2.9.6 (the version CI installs): passes on
+    all 149 files at `main`, and fails with a `SyntaxError` on both real
+    defects from commit `5138a7e` — the truncated `review-payment-submission`
+    and the spliced import in `award-loyalty-points`.
 
   - **Type check — `deno check supabase/functions/*/index.ts` — REPORTING ONLY**
     (`continue-on-error: true`). ~100 functions with ~77 distinct `esm.sh`
