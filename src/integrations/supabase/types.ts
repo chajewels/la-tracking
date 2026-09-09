@@ -5037,7 +5037,6 @@ export type Database = {
           created_at: string
           id: string
           price_jpy: number
-          price_php: number | null
           product_id: string
           size: string | null
           sort: number
@@ -5050,7 +5049,6 @@ export type Database = {
           created_at?: string
           id?: string
           price_jpy: number
-          price_php?: number | null
           product_id: string
           size?: string | null
           sort?: number
@@ -5063,7 +5061,6 @@ export type Database = {
           created_at?: string
           id?: string
           price_jpy?: number
-          price_php?: number | null
           product_id?: string
           size?: string | null
           sort?: number
@@ -5086,7 +5083,6 @@ export type Database = {
           created_at: string
           description_en: string | null
           description_ja: string | null
-          description_tl: string | null
           id: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
@@ -5100,7 +5096,6 @@ export type Database = {
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
-          description_tl?: string | null
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
@@ -5114,7 +5109,6 @@ export type Database = {
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
-          description_tl?: string | null
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name?: string
