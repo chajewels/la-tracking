@@ -5,11 +5,11 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import {
-import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
   buildWelcomeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
