@@ -328,16 +328,31 @@ To add a new screenshot for any Help section:
       pushes to main deploy the frontend to production hosting; feature
       branches deploy nothing. docs/AUTO-DEPLOY.md describes a different,
       removed workflow (Supabase edge functions) and does not apply.
-    - PACKAGE-LOCK PRIVATE-REGISTRY QUIRK (survives — main-side fix only):
-      as of fbc9338 (MCP integration), package-lock.json pins ~94 tarball
-      URLs to Lovable's private registry
-      (europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache).
-      `npm ci` and fresh installs OUTSIDE Lovable/CI fail with 403 on the
-      newer entries; plain `npm install` on the GitHub Actions runner
-      succeeds (evidence: firebase-deploy green on fbc9338 and every run
-      since). Do NOT edit the lockfile from a feature branch. REVISIT
-      TRIGGER: if a future deploy fails at npm install, regenerate the
-      lockfile against registry.npmjs.org as a main-side fix.
+    - PACKAGE-LOCK PRIVATE-REGISTRY QUIRK (RESOLVED 2026-09-09): from
+      fbc9338 (MCP integration) until 2026-09-09, package-lock.json pinned
+      ~94 tarball URLs to Lovable's private registry
+      (europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache), so
+      `npm ci` and fresh installs OUTSIDE Lovable/CI failed with 403 on the
+      newer entries. The Claude Code web sandbox made this worse than
+      documented: its egress proxy REJECTS europe-west1-npm.pkg.dev
+      outright (connect_rejected, organization policy), so `npm install`
+      there hangs rather than failing fast, and killing it mid-run leaves
+      node_modules unusable. The lockfile was regenerated against
+      registry.npmjs.org as the sanctioned main-side fix. Keep it that way:
+      if private-registry URLs reappear, regenerate on main again — never
+      from a feature branch.
+
+    - SHEETJS (`xlsx`) PINNED AT 0.18.5 (accepted 2026-09-09): 0.18.5 is
+      the last release SheetJS published to npm. It carries a
+      prototype-pollution advisory (GHSA-4r6h-8v6p-xvw6) and a ReDoS
+      (GHSA-5pgg-2g8v-p4x9); both are fixed only in >=0.19.3 / >=0.20.2,
+      which ship from cdn.sheetjs.com and not from npm. Accepted because
+      the only parser is the Website Catalog spreadsheet importer — an
+      admin-only, browser-side parse of a file that admin chose. Do NOT
+      feed customer- or portal-supplied files through it. REVISIT TRIGGER:
+      if SheetJS resumes publishing to npm, or if any parsing moves
+      server-side or accepts a file from outside the Hub, upgrade or
+      replace the library.
 
   Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
   Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)
