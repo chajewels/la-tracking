@@ -1,8 +1,0 @@
-{
-  "lint": {
-    "rules": {
-      "tags": [],
-      "include": ["no-dupe-args", "no-dupe-keys", "no-dupe-class-members", "no-unsafe-finally", "no-with"]
-    }
-  }
-}

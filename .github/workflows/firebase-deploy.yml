@@ -56,9 +56,11 @@ jobs:
         with:
           deno-version: v2.x
 
+      # Both steps use development/deno.ci.json, which lives OUTSIDE
+      # supabase/functions/ so the Supabase edge runtime can never read it.
       - name: Parse check (blocking)
-        run: deno lint supabase/functions
+        run: deno lint --config development/deno.ci.json supabase/functions
 
       - name: Type check (reporting only — see docs/PENDING.md)
         continue-on-error: true
-        run: deno check supabase/functions/*/index.ts
+        run: deno check --config development/deno.ci.json supabase/functions/*/index.ts

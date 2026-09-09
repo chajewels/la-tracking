@@ -261,7 +261,7 @@
     full price.
   - PAGE365 integration — requirements document sent; awaiting their response.
 
-### Edge-function `deno check` cleanup (engineering backlog, added 2026-09-09)
+### Edge-function Deno CI gate — config isolation + `deno check` cleanup (added 2026-09-09)
 
 CI now runs a two-step Deno gate on `supabase/functions` (job `edge-functions`
 in `.github/workflows/firebase-deploy.yml`), added after three edge functions
@@ -270,43 +270,85 @@ shipped with syntax errors that no check in the repo could see —
 compiled by CI at all (the truncation in `review-payment-submission` survived
 five days on `main`).
 
-  - **Parse check — `deno lint supabase/functions` — BLOCKING.** This is a
-    near-pure syntax gate: `deno lint` parses every file, and a file that
-    cannot be parsed fails the step regardless of which rules are on. That is
-    exactly the class of defect that got through.
+**Config lives OUTSIDE the deployment directory — do not move it back.**
+Both steps pass `--config development/deno.ci.json`. There is deliberately NO
+`deno.json` anywhere under `supabase/functions/`, because that directory is
+what the Supabase edge runtime reads at deploy time and `nodeModulesDir`
+changes module resolution. An untested resolution setting sitting next to the
+sole writer to the `payments` table is not a risk worth taking for an advisory
+check. `development/deno.ci.json` also sets `"lock": false` so no `deno.lock`
+churns in the repo.
 
-    `supabase/functions/deno.json` turns off all rule *tags* and re-enables
-    exactly five rules:
+  - **Parse check — `deno lint --config development/deno.ci.json
+    supabase/functions` — BLOCKING.** A near-pure syntax gate: `deno lint`
+    parses every file and resolves no imports, so a file that cannot be parsed
+    fails the step regardless of which rules are enabled or what the network
+    is doing. That is exactly the class of defect that got through.
+
+    The config turns off all rule *tags* and re-enables exactly five rules:
     `no-dupe-args`, `no-dupe-keys`, `no-dupe-class-members`,
     `no-unsafe-finally`, `no-with`. Each is a genuine bug rather than a style
     opinion, and all five are clean across the fleet today.
 
-    The five are not decoration — `deno lint` REFUSES to run with an empty rule
-    set (`error: No rules have been configured`, exit 1), which is how the
-    first version of this job failed. Do NOT empty the `include` list, and do
-    NOT re-enable the rule tags without a separate cleanup pass: the fleet has
-    never been linted and the full `recommended` set would go red on day one.
+    The five are not decoration — `deno lint` REFUSES to run with an empty
+    rule set (`error: No rules have been configured`, exit 1), which is how
+    the first version of this job failed. Do NOT empty the `include` list, and
+    do NOT re-enable the rule tags without a separate cleanup pass: the fleet
+    has never been linted and the full `recommended` set would go red on day
+    one.
 
-    Verified 2026-09-09 against Deno 2.9.6 (the version CI installs): passes on
-    all 149 files at `main`, and fails with a `SyntaxError` on both real
-    defects from commit `5138a7e` — the truncated `review-payment-submission`
+    Verified 2026-09-09 against Deno 2.9.6 (the version CI installs): clean on
+    all 149 files at `main`, and red with a `SyntaxError` on both real defects
+    from commit `5138a7e` — the 601-line truncated `review-payment-submission`
     and the spliced import in `award-loyalty-points`.
 
-  - **Type check — `deno check supabase/functions/*/index.ts` — REPORTING ONLY**
-    (`continue-on-error: true`). ~100 functions with ~77 distinct `esm.sh`
-    imports have never been type-checked; turning this blocking today would fail
-    the build on pre-existing debt unrelated to any given change.
+  - **Type check — `deno check --config development/deno.ci.json
+    supabase/functions/*/index.ts` — REPORTING ONLY**
+    (`continue-on-error: true`).
 
-**The backlog item:** work through the `deno check` warnings function by
-function until the step is clean, then drop `continue-on-error: true` so the
-type check becomes blocking too. Until then it is a signal, not a gate — read
-the step's output on a red-adjacent change rather than assuming green.
+    Its first incarnation reported NOTHING. Without `nodeModulesDir`, Deno
+    refuses to resolve any `npm:` specifier with no `node_modules` present and
+    aborts on the very first file it meets — `continue-on-error` then swallowed
+    the exit code, and GitHub's API reported the step as "success". A green
+    tick on a step that type-checked zero functions. `nodeModulesDir: "auto"`
+    in the isolated config is what makes it actually resolve and run.
 
-Two limits worth restating, so this is not mistaken for more protection than it
-is:
+**The backlog item:** read what this step now reports, work through the
+warnings function by function, then drop `continue-on-error: true` so the type
+check becomes blocking too. Lovable reported the fleet passing `deno check`
+with zero failures on 2026-09-09, so this may be a short list rather than a
+long one — read the step output on `main` before assuming either way.
+
+Two limits worth restating, so this is not mistaken for more protection than
+it is:
   - The job is **decoupled** from `build-and-deploy` (no `needs:`) — a Deno
     failure never blocks the frontend deploy, and a frontend failure never
     hides a Deno failure.
   - CI does not deploy edge functions (Lovable IDE is the only deploy path —
-    see CLAUDE.md TOOL OWNERSHIP RULES). This is a **detection** gate on `main`,
-    not a prevention gate on the deploy.
+    see CLAUDE.md TOOL OWNERSHIP RULES). This is a **detection** gate on
+    `main`, not a prevention gate on the deploy.
+
+**Seven per-function `deno.json` files already exist** under
+`supabase/functions/<name>/` (the React-email functions: `auth-email-hook`,
+`send-transactional-email`, `preview-transactional-email`,
+`process-email-queue`, `handle-email-events`, `handle-email-suppression`,
+`handle-email-unsubscribe`). They carry real deploy-time settings —
+`jsx: react-jsx`, `jsxImportSource: npm:react@18.3.1` — and are proof that the
+Supabase deploy path DOES read `deno.json` inside `supabase/functions/`. Leave
+them alone; they are the reason the CI config lives elsewhere.
+
+Consequence for the type-check step: an explicit `--config` overrides Deno's
+config discovery, so those seven JSX settings are NOT applied during the CI
+`deno check`. Any JSX-shaped complaint it reports against those functions is an
+artifact of the CI invocation, not a real defect. Resolve that before making
+the step blocking — either by checking those seven separately with their own
+configs, or by folding the JSX compiler options into `development/deno.ci.json`.
+The parse check is unaffected: `deno lint` reads JSX by file extension and is
+clean on all of them.
+
+**Do not measure edge-function type debt from the Claude Code web sandbox.**
+Its egress proxy answers 403 to CONNECT for `esm.sh`, and nearly every edge
+function imports `supabase-js` from there on line 1 — so a local sweep fails
+~90 of 99 functions on network errors that look nothing like type errors until
+you read the actual stderr. GitHub Actions reaches `esm.sh` fine (run 2096
+downloads `.d.ts` files from it successfully). Measure in CI, not locally.

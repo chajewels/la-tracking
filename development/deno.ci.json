@@ -1,0 +1,11 @@
+{
+  "//": "CI-ONLY Deno config. Deliberately lives OUTSIDE supabase/functions/ so the Supabase edge runtime can never read it. See docs/PENDING.md.",
+  "nodeModulesDir": "auto",
+  "lock": false,
+  "lint": {
+    "rules": {
+      "tags": [],
+      "include": ["no-dupe-args", "no-dupe-keys", "no-dupe-class-members", "no-unsafe-finally", "no-with"]
+    }
+  }
+}
