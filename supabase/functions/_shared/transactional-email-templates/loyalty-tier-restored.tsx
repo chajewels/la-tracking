@@ -47,7 +47,7 @@ const LoyaltyTierRestoredEmail = ({
           <Section style={headerBar}>
             <Text style={brandText}>💎 {SITE_NAME}</Text>
           </Section>
-          <Heading style={{ ...h1, color: '#D4AF37' }}>Welcome Back to {newTier}</Heading>
+          <Heading style={{ ...h1, color: '#C9A227' }}>Welcome Back to {newTier}</Heading>
           <Text style={greeting}>Hi {customerName},</Text>
           <Text style={text}>
             Good news — your loyalty tier has been restored from <strong>{oldTier}</strong> back to{' '}
@@ -69,7 +69,7 @@ const LoyaltyTierRestoredEmail = ({
 
           {portalUrl && (
             <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
-              <Button style={{ ...button, backgroundColor: '#D4AF37' }} href={portalUrl}>
+              <Button style={{ ...button, backgroundColor: '#C9A227' }} href={portalUrl}>
                 View My Loyalty Dashboard
               </Button>
             </Section>
@@ -104,12 +104,12 @@ export const template = {
 
 const main = { backgroundColor: '#ffffff', fontFamily: "'Montserrat', 'Inter', Arial, sans-serif" }
 const container = { padding: '0', maxWidth: '560px', margin: '0 auto' }
-const headerBar = { borderTop: '4px solid #D4AF37', padding: '24px 24px 8px', textAlign: 'center' as const }
+const headerBar = { borderTop: '4px solid #C9A227', padding: '24px 24px 8px', textAlign: 'center' as const }
 const brandText = { fontSize: '18px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0', letterSpacing: '0.5px' }
 const h1 = { fontSize: '20px', fontWeight: 'bold' as const, textAlign: 'center' as const, margin: '16px 24px 8px' }
 const greeting = { fontSize: '15px', color: '#1a1a2e', padding: '0 24px', margin: '16px 0 4px' }
 const text = { fontSize: '14px', color: '#55575d', lineHeight: '1.6', padding: '0 24px', margin: '0 0 16px' }
-const reassureBox = { backgroundColor: '#fffbeb', border: '1px solid #D4AF37', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
+const reassureBox = { backgroundColor: '#fffbeb', border: '1px solid #C9A227', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
 const reassureTitle = { fontSize: '14px', fontWeight: 'bold' as const, color: '#92400e', margin: '0' }
 const reassureBalance = { fontSize: '16px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '6px 0 0' }
 const reassureMultiplier = { fontSize: '13px', color: '#92400e', margin: '4px 0 0' }
@@ -117,4 +117,4 @@ const closing = { fontSize: '14px', color: '#55575d', textAlign: 'center' as con
 const button = { color: '#1a1500', padding: '12px 28px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold' as const, textDecoration: 'none', display: 'inline-block' as const }
 const hr = { borderColor: '#e5e7eb', margin: '24px' }
 const footer = { fontSize: '12px', color: '#9ca3af', padding: '0 24px', margin: '0 0 8px', lineHeight: '1.5' }
-const footerBrand = { fontSize: '11px', color: '#d4af37', textAlign: 'center' as const, padding: '0 24px 24px', margin: '0', fontWeight: 'bold' as const }
+const footerBrand = { fontSize: '11px', color: '#C9A227', textAlign: 'center' as const, padding: '0 24px 24px', margin: '0', fontWeight: 'bold' as const }

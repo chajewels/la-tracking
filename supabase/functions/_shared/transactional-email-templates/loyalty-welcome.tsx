@@ -53,7 +53,7 @@ const LoyaltyWelcomeEmail = ({
 
           {portalUrl && (
             <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
-              <Button style={{ ...button, backgroundColor: '#D4AF37' }} href={portalUrl}>
+              <Button style={{ ...button, backgroundColor: '#C9A227' }} href={portalUrl}>
                 View My Loyalty Dashboard
               </Button>
             </Section>
@@ -109,12 +109,12 @@ export const template = {
 
 const main = { backgroundColor: '#ffffff', fontFamily: "'Montserrat', 'Inter', Arial, sans-serif" }
 const container = { padding: '0', maxWidth: '560px', margin: '0 auto' }
-const headerBar = { borderTop: '4px solid #D4AF37', padding: '24px 24px 8px', textAlign: 'center' as const }
+const headerBar = { borderTop: '4px solid #C9A227', padding: '24px 24px 8px', textAlign: 'center' as const }
 const brandText = { fontSize: '18px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0', letterSpacing: '0.5px' }
 const h1 = { fontSize: '20px', fontWeight: 'bold' as const, textAlign: 'center' as const, margin: '16px 24px 8px' }
 const greeting = { fontSize: '15px', color: '#1a1a2e', padding: '0 24px', margin: '16px 0 4px' }
 const text = { fontSize: '14px', color: '#55575d', lineHeight: '1.6', padding: '0 24px', margin: '0 0 16px' }
-const tierBox = { backgroundColor: '#fffaf0', border: '1px solid #D4AF37', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
+const tierBox = { backgroundColor: '#fffaf0', border: '1px solid #C9A227', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
 const tierLabel = { fontSize: '11px', color: '#a37e1f', letterSpacing: '0.18em', textTransform: 'uppercase' as const, margin: '0 0 6px' }
 const tierName = { fontSize: '22px', fontWeight: 'bold' as const, color: '#a37e1f', letterSpacing: '0.12em', margin: '0' }
 const tierMultiplier = { fontSize: '13px', color: '#a37e1f', margin: '6px 0 0' }
@@ -125,7 +125,7 @@ const button = { color: '#1a1500', padding: '12px 28px', borderRadius: '8px', fo
 const footnote = { fontSize: '13px', color: '#a37e1f', textAlign: 'center' as const, padding: '0 24px', margin: '8px 0 0', fontStyle: 'italic' as const }
 const hr = { borderColor: '#e5e7eb', margin: '24px' }
 const footer = { fontSize: '12px', color: '#9ca3af', padding: '0 24px', margin: '0 0 8px', lineHeight: '1.5' }
-const footerBrand = { fontSize: '11px', color: '#d4af37', textAlign: 'center' as const, padding: '0 24px 24px', margin: '0', fontWeight: 'bold' as const }
+const footerBrand = { fontSize: '11px', color: '#C9A227', textAlign: 'center' as const, padding: '0 24px 24px', margin: '0', fontWeight: 'bold' as const }
 const communityBox = { backgroundColor: '#f8f6f0', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
 const communityTitle = { fontSize: '13px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0 0 6px', letterSpacing: '0.04em' }
 const communityText = { fontSize: '13px', color: '#55575d', margin: '0 0 4px', lineHeight: '1.5' }

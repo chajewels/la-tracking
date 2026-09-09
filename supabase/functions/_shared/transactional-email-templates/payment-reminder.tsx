@@ -167,7 +167,7 @@ export const template = {
 const main = { backgroundColor: '#ffffff', fontFamily: "'Montserrat', 'Inter', Arial, sans-serif" }
 const container = { padding: '0', maxWidth: '560px', margin: '0 auto' }
 const headerBar = {
-  borderTop: '4px solid #D4AF37',
+  borderTop: '4px solid #C9A227',
   padding: '24px 24px 8px',
   textAlign: 'center' as const,
 }
@@ -244,7 +244,7 @@ const footer = {
 }
 const footerBrand = {
   fontSize: '11px',
-  color: '#d4af37',
+  color: '#C9A227',
   textAlign: 'center' as const,
   padding: '0 24px 24px',
   margin: '0',

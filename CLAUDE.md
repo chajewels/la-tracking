@@ -310,10 +310,24 @@ To add a new screenshot for any Help section:
   divider is the 1px gold hairline: .hairline-gold / .hairline-b /
   .hairline-t (gold-500 at 40%).
 
-  Check (brand-gold family only — a full any-hex sweep returns hundreds of
-  legitimate chart/UI colors and is intentionally out of scope):
-    grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
-  Target: 0 hits. The gold-literal migration COMPLETED 2026-07-06 (Phase 5)
+  TWO checks, different purposes. Both must pass; running only the first
+  is what let the retired gold survive in the email templates until
+  2026-09-09 (see below).
+
+  1. RETIRED GOLD — repo-wide, CASE-INSENSITIVE, target 0 hits:
+       grep -rniE "#D4AF37|#E7D7A2|#E8C84A" src supabase/functions --include="*.tsx" --include="*.ts"
+     The -i is not optional: 29 of the 79 occurrences found on 2026-09-09
+     were lowercase `#d4af37` and invisible to a case-sensitive grep.
+
+  2. TOKEN DISCIPLINE — src only, target 0 hits:
+       grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
+     Scoped to src BY DESIGN. Do NOT widen this one to supabase/functions:
+     the transactional email templates must inline literal hex (mail
+     clients do not resolve CSS custom properties), so they legitimately
+     carry ~79 canonical #C9A227 literals and would fail it forever.
+     Check 1 is what governs them.
+
+  Target: 0 hits on both. The gold-literal migration COMPLETED 2026-07-06 (Phase 5)
   — all former debt rows (Finance/Commissions/Timesheet/Inquiries charts,
   ForgotPassword, Login, PortalLogin, AuthContext splash, AdminSplashScreen,
   TierCelebrationModal confetti) now import from src/theme/tokens. The
@@ -341,6 +355,22 @@ To add a new screenshot for any Help section:
       registry.npmjs.org as the sanctioned main-side fix. Keep it that way:
       if private-registry URLs reappear, regenerate on main again — never
       from a feature branch.
+
+    - TRANSACTIONAL EMAIL TEMPLATES (RESOLVED 2026-09-09): all 29
+      templates under supabase/functions/_shared/transactional-email-
+      templates/ carried the RETIRED #D4AF37 — 79 occurrences (50
+      uppercase, 29 lowercase in every footerBrand). They survived the
+      2026-07-06 Phase 5 migration because the only documented check was
+      scoped to `src`, and these live under supabase/. Swapped to
+      #C9A227 and the check widened (above). These files intentionally
+      use literal hex — emails cannot read CSS variables — so the rule
+      for them is "canonical literal only", never "no literal".
+      NOTE (unfixed, separate decision): the shared `button` style sets
+      color #ffffff on the gold fill. White on #C9A227 measures ~2.4:1,
+      short of AA — slightly better than the ~2.1:1 it was on #D4AF37,
+      but still failing. extension-requested.tsx already uses dark
+      #1a1a2e text on gold and is the accessible pattern. Left as-is
+      because it is a visual change, not a token swap.
 
     - SHEETJS (`xlsx`) PINNED AT 0.18.5 (accepted 2026-09-09): 0.18.5 is
       the last release SheetJS published to npm. It carries a
