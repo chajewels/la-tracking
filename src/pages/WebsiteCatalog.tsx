@@ -17,30 +17,32 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import ProductImportDialog from "@/components/website/ProductImportDialog";
+import { CONDITION_VALUES, ConditionValue, METAL_VALUES } from "@/lib/website-catalog-import";
 
 /** Public website catalog manager. Feeds the `website` API used by chajewelsjp.com. */
 
 const MEDIA_BUCKET = "promotions";
 const MEDIA_PREFIX = "website";
+/** Served from public/ — the Page365 upload sheet with the hub_* columns. */
+const TEMPLATE_PATH = "/templates/cha-jewels-product-upload-template.xlsx";
 
-type Karat = "K18" | "K14" | "K10" | "PT1000" | "PT950" | "PT900" | "SILVER925";
+type Karat = (typeof METAL_VALUES)[number];
 type Status = "draft" | "active" | "archived";
 
 /**
- * The only metal values the catalog stores. K18 covers Au750 / 18K — those are
- * never separate options, so the label carries them instead.
+ * Labels for the stored metal values (METAL_VALUES is the single source of
+ * truth, shared with the importer). K18 covers Au750 / 18K — those are never
+ * separate options, so the label carries them instead.
  */
-const METAL_OPTIONS: { value: Karat; label: string }[] = [
-  { value: "K18", label: "K18 (Au750 / 18K)" },
-  { value: "K14", label: "K14" },
-  { value: "K10", label: "K10" },
-  { value: "PT1000", label: "PT1000" },
-  { value: "PT950", label: "PT950" },
-  { value: "PT900", label: "PT900" },
-  { value: "SILVER925", label: "SILVER925" },
-];
+const METAL_LABELS: Partial<Record<Karat, string>> = { K18: "K18 (Au750 / 18K)" };
+const METAL_OPTIONS = METAL_VALUES.map((value) => ({
+  value,
+  label: METAL_LABELS[value] ?? value,
+}));
 const metalLabel = (k: string | null | undefined) =>
   METAL_OPTIONS.find((m) => m.value === k)?.label ?? "—";
 
@@ -62,6 +64,7 @@ interface ProductForm {
   name: string;
   karat: Karat | null;
   weight_g: number | null;
+  condition: ConditionValue;
   description_en: string;
   description_ja: string;
   /** English text as last saved — the translation only refreshes when it changes. */
@@ -76,7 +79,7 @@ const emptyVariant = (sort: number): VariantRow => ({
 });
 
 const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", karat: "K18", weight_g: null,
+  sku: "", slug: "", name: "", karat: "K18", weight_g: null, condition: "New",
   description_en: "", description_ja: "", savedEn: "",
   status: "draft", collectionIds: [], variants: [emptyVariant(0)],
 });
@@ -130,7 +133,7 @@ export default function WebsiteCatalog() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, created_at, " +
+          "id, sku, slug, name, karat, weight_g, condition, description_en, description_ja, status, created_at, " +
           "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
           "website_collection_products(collection_id)"
         )
@@ -192,6 +195,7 @@ export default function WebsiteCatalog() {
       name: p.name ?? "",
       karat: p.karat ?? null,
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
+      condition: (p.condition === "Preloved" ? "Preloved" : "New") as ConditionValue,
       description_en: p.description_en ?? "",
       description_ja: p.description_ja ?? "",
       savedEn: p.description_en ?? "",
@@ -253,6 +257,7 @@ export default function WebsiteCatalog() {
         name: f.name.trim(),
         karat: f.karat,
         weight_g: f.weight_g,
+        condition: f.condition,
         description_en: en || null,
         description_ja: ja || null,
         status: f.status,
@@ -407,9 +412,21 @@ export default function WebsiteCatalog() {
             Everything shown on chajewelsjp.com. Only <span className="text-foreground">Active</span> products are published.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <Plus className="mr-2 h-4 w-4" /> New product
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" asChild>
+            <a href={TEMPLATE_PATH} download>
+              <Download className="mr-2 h-4 w-4" /> Download template
+            </a>
+          </Button>
+          <ProductImportDialog
+            collections={(collections.data ?? []) as any[]}
+            isAdmin={!!isAdmin}
+            translate={translateToJa}
+          />
+          <Button onClick={openNew}>
+            <Plus className="mr-2 h-4 w-4" /> Add product
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -439,6 +456,7 @@ export default function WebsiteCatalog() {
                   <TableHead>Name</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Metal</TableHead>
+                  <TableHead>Condition</TableHead>
                   <TableHead className="text-right">From</TableHead>
                   <TableHead className="text-right">Approx.</TableHead>
                   <TableHead className="text-right">Variants</TableHead>
@@ -453,6 +471,11 @@ export default function WebsiteCatalog() {
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
                     <TableCell>{metalLabel(p.karat)}</TableCell>
+                    <TableCell>
+                      {p.condition === "Preloved"
+                        ? <Badge variant="secondary">Preloved</Badge>
+                        : <span className="text-muted-foreground">New</span>}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{p.fromPrice ? yen(p.fromPrice) : "—"}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {p.fromPrice ? peso(p.fromPrice) : "—"}
@@ -494,6 +517,10 @@ export default function WebsiteCatalog() {
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
+                <Label>SKU</Label>
+                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} placeholder="R3341" />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input
                   value={form.name}
@@ -504,14 +531,33 @@ export default function WebsiteCatalog() {
                   placeholder="K18 Rope Chain 45cm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>SKU</Label>
-                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} placeholder="CJ-K18-0001" />
-              </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 sm:col-span-2">
                 <Label>Web address (slug)</Label>
                 <Input value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value) }))} />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Jewelry type</Label>
+              <div className="flex flex-wrap gap-4">
+                {(collections.data ?? []).map((c: any) => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={form.collectionIds.includes(c.id)}
+                      onCheckedChange={(checked) => setForm((f) => ({
+                        ...f,
+                        collectionIds: checked
+                          ? [...f.collectionIds, c.id]
+                          : f.collectionIds.filter((id) => id !== c.id),
+                      }))}
+                    />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Metal</Label>
                 <Select
@@ -534,37 +580,22 @@ export default function WebsiteCatalog() {
                   onChange={(e) => setForm((f) => ({ ...f, weight_g: e.target.value === "" ? null : Number(e.target.value) }))}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft (hidden)</SelectItem>
-                    <SelectItem value="active">Active (published)</SelectItem>
-                    <SelectItem value="archived">Archived</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Jewelry type</Label>
-              <div className="flex flex-wrap gap-4">
-                {(collections.data ?? []).map((c: any) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={form.collectionIds.includes(c.id)}
-                      onCheckedChange={(checked) => setForm((f) => ({
-                        ...f,
-                        collectionIds: checked
-                          ? [...f.collectionIds, c.id]
-                          : f.collectionIds.filter((id) => id !== c.id),
-                      }))}
-                    />
-                    {c.name}
+              <Label>Condition</Label>
+              <RadioGroup
+                value={form.condition}
+                onValueChange={(v) => setForm((f) => ({ ...f, condition: v as ConditionValue }))}
+                className="flex gap-6"
+              >
+                {CONDITION_VALUES.map((c) => (
+                  <label key={c} className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value={c} id={`condition-${c}`} />
+                    {c}
                   </label>
                 ))}
-              </div>
+              </RadioGroup>
             </div>
 
             <div className="space-y-3">
@@ -679,7 +710,20 @@ export default function WebsiteCatalog() {
                 </div>
               ))}
             </div>
+
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
+                <SelectTrigger className="sm:max-w-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft (hidden)</SelectItem>
+                  <SelectItem value="active">Active (published)</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
