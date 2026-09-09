@@ -4942,6 +4942,42 @@ export type Database = {
         }
         Relationships: []
       }
+      website_import_batches: {
+        Row: {
+          created: number | null
+          created_at: string
+          errors: Json | null
+          file_name: string | null
+          id: string
+          row_count: number | null
+          skipped: number | null
+          updated: number | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          created?: number | null
+          created_at?: string
+          errors?: Json | null
+          file_name?: string | null
+          id?: string
+          row_count?: number | null
+          skipped?: number | null
+          updated?: number | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          created?: number | null
+          created_at?: string
+          errors?: Json | null
+          file_name?: string | null
+          id?: string
+          row_count?: number | null
+          skipped?: number | null
+          updated?: number | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       website_live_claims: {
         Row: {
           code: string
@@ -5080,6 +5116,7 @@ export type Database = {
       }
       website_products: {
         Row: {
+          condition: string
           created_at: string
           description_en: string | null
           description_ja: string | null
@@ -5093,6 +5130,7 @@ export type Database = {
           weight_g: number | null
         }
         Insert: {
+          condition?: string
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
@@ -5106,6 +5144,7 @@ export type Database = {
           weight_g?: number | null
         }
         Update: {
+          condition?: string
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
@@ -5629,6 +5668,10 @@ export type Database = {
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
+      has_permission: {
+        Args: { _permission_key: string; _user_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
