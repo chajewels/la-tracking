@@ -260,3 +260,38 @@
     otherwise customers cannot see or spend their store credit and will be charged
     full price.
   - PAGE365 integration — requirements document sent; awaiting their response.
+
+### Edge-function `deno check` cleanup (engineering backlog, added 2026-09-09)
+
+CI now runs a two-step Deno gate on `supabase/functions` (job `edge-functions`
+in `.github/workflows/firebase-deploy.yml`), added after three edge functions
+shipped with syntax errors that no check in the repo could see —
+`tsconfig.app.json` includes only `src`, so `supabase/functions` had never been
+compiled by CI at all (the truncation in `review-payment-submission` survived
+five days on `main`).
+
+  - **Parse check — `deno lint supabase/functions` — BLOCKING.** All lint rule
+    tags are disabled via `supabase/functions/deno.json` (`"lint": {"rules":
+    {"tags": []}}`), so this is a pure syntax gate: it fails only on a file that
+    cannot be parsed. That is exactly the class of defect that got through.
+    Do NOT re-enable rule tags here without a separate cleanup pass — the fleet
+    has never been linted and would go red on day one.
+
+  - **Type check — `deno check supabase/functions/*/index.ts` — REPORTING ONLY**
+    (`continue-on-error: true`). ~100 functions with ~77 distinct `esm.sh`
+    imports have never been type-checked; turning this blocking today would fail
+    the build on pre-existing debt unrelated to any given change.
+
+**The backlog item:** work through the `deno check` warnings function by
+function until the step is clean, then drop `continue-on-error: true` so the
+type check becomes blocking too. Until then it is a signal, not a gate — read
+the step's output on a red-adjacent change rather than assuming green.
+
+Two limits worth restating, so this is not mistaken for more protection than it
+is:
+  - The job is **decoupled** from `build-and-deploy` (no `needs:`) — a Deno
+    failure never blocks the frontend deploy, and a frontend failure never
+    hides a Deno failure.
+  - CI does not deploy edge functions (Lovable IDE is the only deploy path —
+    see CLAUDE.md TOOL OWNERSHIP RULES). This is a **detection** gate on `main`,
+    not a prevention gate on the deploy.
