@@ -4,7 +4,8 @@ import { isServiceRole } from "./jwt-claims.ts";
 import { checkPermission } from "./check-permission.ts";
 
 export interface AuthContext {
-  supabase: ReturnType<typeof createClient>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
   user: { id: string; email?: string } | null;
   token: string;
   isService: boolean;

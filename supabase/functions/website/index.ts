@@ -23,7 +23,8 @@ type AnyRec = Record<string, unknown>;
 /** Latest JPY->PHP rate. price_php is derived per request, never stored. */
 interface FxRate { jpy_php: number; as_of: string }
 
-async function latestFx(supabase: ReturnType<typeof createClient>): Promise<FxRate | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function latestFx(supabase: any): Promise<FxRate | null> {
   const { data, error } = await supabase
     .from("fx_rates")
     .select("date, jpy_php")
