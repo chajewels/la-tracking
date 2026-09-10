@@ -2509,6 +2509,7 @@ export type Database = {
       loyalty_tiers: {
         Row: {
           benefits: Json
+          benefits_ja: Json | null
           birthday_bonus_points: number
           color_hex: string | null
           created_at: string
@@ -2524,6 +2525,7 @@ export type Database = {
         }
         Insert: {
           benefits?: Json
+          benefits_ja?: Json | null
           birthday_bonus_points?: number
           color_hex?: string | null
           created_at?: string
@@ -2539,6 +2541,7 @@ export type Database = {
         }
         Update: {
           benefits?: Json
+          benefits_ja?: Json | null
           birthday_bonus_points?: number
           color_hex?: string | null
           created_at?: string
