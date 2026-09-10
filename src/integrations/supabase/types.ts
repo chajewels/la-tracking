@@ -593,6 +593,65 @@ export type Database = {
           },
         ]
       }
+      customer_addresses: {
+        Row: {
+          city: string | null
+          country: string
+          created_at: string
+          customer_id: string
+          id: string
+          is_default: boolean
+          label: string | null
+          line1: string
+          line2: string | null
+          phone: string | null
+          postal_code: string | null
+          recipient_name: string | null
+          region: string | null
+          updated_at: string
+        }
+        Insert: {
+          city?: string | null
+          country?: string
+          created_at?: string
+          customer_id: string
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          line1: string
+          line2?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          recipient_name?: string | null
+          region?: string | null
+          updated_at?: string
+        }
+        Update: {
+          city?: string | null
+          country?: string
+          created_at?: string
+          customer_id?: string
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          line1?: string
+          line2?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          recipient_name?: string | null
+          region?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_addresses_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_analytics: {
         Row: {
           completion_probability_score: number | null
@@ -5822,6 +5881,10 @@ export type Database = {
           p_new_invoice_number: string
           p_performed_by_user_id?: string
         }
+        Returns: Json
+      }
+      replace_customer_addresses: {
+        Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
       }
       restore_lots_for_redemption: {
