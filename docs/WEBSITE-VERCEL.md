@@ -56,11 +56,42 @@ them to `PRODUCT_FIELDS`.
 `min_spend_jpy`, `requalify_spend` ← `requalify_spend_jpy`, `multiplier` ←
 `points_multiplier`, `hold_minutes` ← `hold_minutes`.
 
-**Benefits:** the table stores a single untagged `benefits` jsonb **array** (in
-English). It is returned in **both** `benefits_en` and `benefits_ja`. If the
-column is ever converted to `{ en: [], ja: [] }`, the route already reads those
-keys and falls back to the other language when one side is empty. There is no
-separate Japanese benefits column today.
+**Benefits:** `benefits` is a single untagged jsonb **array** in English.
+`benefits_ja` (added 2026-09-10, migration
+`20260910120000_loyalty_tiers_benefits_ja.sql`) holds the Japanese translation —
+same order, same length. It is nullable by design and the route's precedence is:
+
+1. the `benefits_ja` column,
+2. a `ja` key inside `benefits`, if that column is ever converted to
+   `{ en: [], ja: [] }`,
+3. English.
+
+So a tier added later without Japanese copy degrades to English rather than
+rendering an empty list. Do not make `benefits_ja` NOT NULL — the fallback is
+the point. Keep the two arrays the same length; the storefront renders whichever
+the visitor's language selects, one bullet per entry.
+
+**Tier ladder as of 2026-09-10** — the storefront's `lib/loyalty.ts` fallback
+must not drift from this:
+
+| Tier | Threshold | Requalify | Multiplier | Hold |
+|---|---|---|---|---|
+| Glimmer | ¥0 | none | 1x | 60 min |
+| Radiant | ¥1,000,000 | ¥500,000 | 2x | 60 min |
+| Elite | ¥4,000,000 | ¥2,000,000 | 2x | 60 min |
+| Crown VIP | ¥8,000,000 | ¥4,000,000 | 3x | 60 min |
+
+**Hold time is uniform at 60 minutes and is NOT a tier benefit.** The storefront
+briefly advertised an escalating hold (3h / 12h / 24h) that no tier has ever
+had; never reintroduce per-tier hold copy.
+
+**No revalidation trigger covers `loyalty_tiers`.** The five triggers in §2 are
+on the `website_*` tables only, so a tier edit does not notify the storefront.
+`/loyalty` picks up changes when its own 300-second ISR window expires; the
+`catalog` tag that `/api/revalidate` clears does not cover the `loyalty` tag the
+tiers fetch uses. A tier edit is therefore visible within five minutes, not
+instantly — acceptable today, but worth knowing before anyone reports the page
+as stale.
 
 ### Wholesale inquiries
 

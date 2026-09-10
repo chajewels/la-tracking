@@ -246,20 +246,24 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("loyalty_tiers")
         .select(
-          "name, min_spend_jpy, requalify_spend_jpy, points_multiplier, hold_minutes, benefits, display_order",
+          "name, min_spend_jpy, requalify_spend_jpy, points_multiplier, hold_minutes, benefits, benefits_ja, display_order",
         )
         .order("display_order", { ascending: true });
       if (error) throw error;
       const tiers = (data ?? []).map((t: AnyRec) => {
+        const toList = (v: unknown): string[] =>
+          Array.isArray(v) ? v.map((b) => String(b)) : [];
         const raw = t.benefits;
-        const list = Array.isArray(raw)
-          ? raw.map((b) => String(b))
-          : raw && typeof raw === "object"
-            ? null
-            : [];
-        const obj = (raw ?? {}) as AnyRec;
-        const en = list ?? (Array.isArray(obj.en) ? obj.en.map((b: unknown) => String(b)) : []);
-        const ja = list ?? (Array.isArray(obj.ja) ? obj.ja.map((b: unknown) => String(b)) : en);
+        // `benefits` is an untagged English array today. The { en, ja } object
+        // shape is still honoured in case it is ever converted.
+        const obj = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as AnyRec;
+        const en = Array.isArray(raw) ? toList(raw) : toList(obj.en);
+        // Precedence: the benefits_ja column, then a ja key inside benefits,
+        // then English — so a tier with no Japanese copy degrades to English
+        // rather than rendering an empty list.
+        const jaCol = toList(t.benefits_ja);
+        const jaEmbedded = toList(obj.ja);
+        const ja = jaCol.length ? jaCol : jaEmbedded.length ? jaEmbedded : en;
         return {
           slug: String(t.name ?? "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
           name: t.name,
