@@ -38,6 +38,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RECENT-UPDATES.md — older changelog (archived)
 - docs/SHOPIFY-INTEGRATION.md — Shopify↔Hub integration architecture & roadmap (design locked, Phase 0 done)
 - docs/STORE-CREDIT.md — store credit (Phase A): policy, schema, RPCs, edge functions, UI, notifications
+- docs/WEBSITE-VERCEL.md — Vercel storefront integration: `website` API contract, revalidation chain, the three secrets, go-live checklist
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
 
