@@ -82,9 +82,23 @@ history and loyalty balance. Shipping it needs an E.164 normalisation pass and
 a decision on those 10 collisions first.
 
 **Addresses:** `customer_addresses` (created step 1) is the storefront's source;
-the flat columns on `customers` are the Hub UI's and were **not** dropped. The
-backfill seeded the table from them once (704 rows). Both are live — do not
-assume one is authoritative for the other's reader until the Hub UI moves over.
+the flat columns on `customers` are the Hub UI's and were **not** dropped.
+
+**There is no address data on `customers` to migrate, and the step-1 backfill
+that tried was removed.** `address_line1`, `city` and `postal_code` are empty
+for every one of the 882 customers; only `location` is populated, and it holds a
+**country** (Japan 371, Philippines 139, United States 118, Canada 54, …). The
+backfill's `COALESCE(address_line1, city, location)` fallback therefore wrote
+871 rows whose street line was a country name, with no postal code and
+`is_default` set — which checkout would have preselected. Migration
+`20260910160000` deleted them. Real addresses start arriving at checkout in
+step 2.
+
+The lesson worth keeping: the pre-check counted
+`COALESCE(address_line1, city, postal_code, country)` and got 704, but the
+INSERT read `COALESCE(address_line1, city, location)`. The estimate and the
+write looked at different columns, so the estimate could not have caught this.
+Count the exact expression the write uses.
 
 ### Loyalty tier field mapping
 
