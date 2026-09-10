@@ -5159,6 +5159,45 @@ export type Database = {
         }
         Relationships: []
       }
+      wholesale_inquiries: {
+        Row: {
+          business: string
+          created_at: string
+          email: string
+          id: string
+          lang: string
+          market: string
+          name: string
+          notes: string | null
+          phone: string | null
+          volume: string
+        }
+        Insert: {
+          business: string
+          created_at?: string
+          email: string
+          id?: string
+          lang: string
+          market: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          volume: string
+        }
+        Update: {
+          business?: string
+          created_at?: string
+          email?: string
+          id?: string
+          lang?: string
+          market?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          volume?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       product_inquiries_with_accumulated: {
