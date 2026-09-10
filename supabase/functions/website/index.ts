@@ -241,6 +241,82 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true });
     }
 
+    // GET /loyalty/tiers
+    if (req.method === "GET" && segments[0] === "loyalty" && segments[1] === "tiers" && !segments[2]) {
+      const { data, error } = await supabase
+        .from("loyalty_tiers")
+        .select(
+          "name, min_spend_jpy, requalify_spend_jpy, points_multiplier, hold_minutes, benefits, display_order",
+        )
+        .order("display_order", { ascending: true });
+      if (error) throw error;
+      const tiers = (data ?? []).map((t: AnyRec) => {
+        const raw = t.benefits;
+        const list = Array.isArray(raw)
+          ? raw.map((b) => String(b))
+          : raw && typeof raw === "object"
+            ? null
+            : [];
+        const obj = (raw ?? {}) as AnyRec;
+        const en = list ?? (Array.isArray(obj.en) ? obj.en.map((b: unknown) => String(b)) : []);
+        const ja = list ?? (Array.isArray(obj.ja) ? obj.ja.map((b: unknown) => String(b)) : en);
+        return {
+          slug: String(t.name ?? "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+          name: t.name,
+          threshold_jpy: Number(t.min_spend_jpy ?? 0),
+          requalify_spend: t.requalify_spend_jpy === null || t.requalify_spend_jpy === undefined
+            ? null
+            : Number(t.requalify_spend_jpy),
+          multiplier: Number(t.points_multiplier ?? 1),
+          hold_minutes: t.hold_minutes === null || t.hold_minutes === undefined
+            ? null
+            : Number(t.hold_minutes),
+          benefits_ja: ja.length ? ja : en,
+          benefits_en: en.length ? en : ja,
+        };
+      });
+      return jsonResponse(scrub(tiers));
+    }
+
+    // POST /wholesale/inquiry
+    if (req.method === "POST" && segments[0] === "wholesale" && segments[1] === "inquiry") {
+      const body = await req.json().catch(() => ({}));
+      const name = String(body?.name ?? "").trim();
+      const business = String(body?.business ?? "").trim();
+      const email = String(body?.email ?? "").trim();
+      const phone = String(body?.phone ?? "").trim();
+      const notes = String(body?.notes ?? "").trim();
+      const market = String(body?.market ?? "").trim().toUpperCase();
+      const volume = String(body?.volume ?? "").trim().toUpperCase();
+      const lang = String(body?.lang ?? "").trim().toLowerCase();
+      const tooLong = (v: string) => v.length > 200;
+      if (!name || !business || !email || tooLong(name) || tooLong(business) || tooLong(email)) {
+        return jsonResponse({ error: "invalid_body" }, 400);
+      }
+      if (!["JP", "PH", "BOTH", "OTHER"].includes(market)) {
+        return jsonResponse({ error: "invalid_body" }, 400);
+      }
+      if (!["TEST", "20_50", "50_200", "200_PLUS"].includes(volume)) {
+        return jsonResponse({ error: "invalid_body" }, 400);
+      }
+      if (!["ja", "en"].includes(lang)) {
+        return jsonResponse({ error: "invalid_body" }, 400);
+      }
+      const { error } = await supabase.from("wholesale_inquiries").insert({
+        name,
+        business,
+        email,
+        phone: phone || null,
+        market,
+        volume,
+        notes: notes || null,
+        lang,
+      });
+      if (error) throw error;
+      return jsonResponse({ ok: true });
+    }
+
+
     return notFound();
   } catch (err) {
     console.error("website api error", (err as Error)?.message ?? err);

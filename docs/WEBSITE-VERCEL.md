@@ -46,6 +46,31 @@ them to `PRODUCT_FIELDS`.
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |
 | `POST /claims/:code/checkout` | — | **501 not_implemented.** Phase 2. |
 | `POST /loyalty/join` | Signup capture | Body `{ name, contact, region, lang }`. `region` JP\|PH\|OTHER, `lang` ja\|en. Writes `loyalty_signups`. |
+| `GET /loyalty/tiers` | Tier ladder | Reads `loyalty_tiers` ordered by `display_order`. Returns `{ slug, name, threshold_jpy, requalify_spend, multiplier, hold_minutes, benefits_ja, benefits_en }`. |
+| `POST /wholesale/inquiry` | Wholesale form | Body `{ name, business, email, phone?, market, volume, notes?, lang }`. `market` JP\|PH\|BOTH\|OTHER, `volume` TEST\|20_50\|50_200\|200_PLUS, `lang` ja\|en. Writes `wholesale_inquiries`. |
+
+### Loyalty tier field mapping
+
+`loyalty_tiers` has no `slug` column — the slug is derived from `name`
+(lower-cased, non-alphanumerics collapsed to `-`). `threshold_jpy` ←
+`min_spend_jpy`, `requalify_spend` ← `requalify_spend_jpy`, `multiplier` ←
+`points_multiplier`, `hold_minutes` ← `hold_minutes`.
+
+**Benefits:** the table stores a single untagged `benefits` jsonb **array** (in
+English). It is returned in **both** `benefits_en` and `benefits_ja`. If the
+column is ever converted to `{ en: [], ja: [] }`, the route already reads those
+keys and falls back to the other language when one side is empty. There is no
+separate Japanese benefits column today.
+
+### Wholesale inquiries
+
+`wholesale_inquiries` is written by the service-role client inside this function.
+RLS grants **no** `anon` access; `authenticated` may only `SELECT`, gated on
+`public.has_permission(auth.uid(), 'manage_website_catalog')`. There is no
+insert, update or delete policy — the public form's only path in is this
+endpoint. Staff read submissions in the Hub under **Website Catalog → Wholesale
+inquiries** (read-only list).
+
 
 ### Currency — peso is never stored
 
