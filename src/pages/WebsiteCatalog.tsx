@@ -508,6 +508,9 @@ export default function WebsiteCatalog() {
 
       <JewelryTypes isAdmin={!!isAdmin} />
 
+      <WholesaleInquiries />
+
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
