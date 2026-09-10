@@ -47,7 +47,44 @@ them to `PRODUCT_FIELDS`.
 | `POST /claims/:code/checkout` | — | **501 not_implemented.** Phase 2. |
 | `POST /loyalty/join` | Signup capture | Body `{ name, contact, region, lang }`. `region` JP\|PH\|OTHER, `lang` ja\|en. Writes `loyalty_signups`. |
 | `GET /loyalty/tiers` | Tier ladder | Reads `loyalty_tiers` ordered by `display_order`. Returns `{ slug, name, threshold_jpy, requalify_spend, multiplier, hold_minutes, benefits_ja, benefits_en }`. |
+| `POST /auth/customer` | **Customer JWT + API key** | Links or creates the `customers` row for the signed-in user. 409 `email_already_linked` when another auth user owns that email. Does NOT auto-enrol in loyalty. |
+| `GET /me` | **Customer JWT + API key** | Profile, addresses, loyalty snapshot, `saved_card` (always false until step 3). 404 `not_linked` before `/auth/customer` has run. |
+| `PUT /me/addresses` | **Customer JWT + API key** | Replaces the whole address list via the `replace_customer_addresses` RPC — atomic, so a bad payload leaves the existing list intact. |
 | `POST /wholesale/inquiry` | Wholesale form | Body `{ name, business, email, phone?, market, volume, notes?, lang }`. `market` JP\|PH\|BOTH\|OTHER, `volume` TEST\|20_50\|50_200\|200_PLUS, `lang` ja\|en. Writes `wholesale_inquiries`. |
+
+### Customer account routes — two credentials, not one (Phase 2 step 1)
+
+`/auth/customer`, `/me` and `/me/addresses` require **both** `x-api-key` (the
+storefront's server-side key, already checked for every route) **and**
+`Authorization: Bearer <customer JWT>`. A leaked customer token cannot reach the
+Hub without the server key, and the key alone cannot read anyone's profile.
+
+**Linking is by VERIFIED email only.** Same rule as the live
+`setup-customer-account`, protected by the existing partial unique index on
+`lower(email) WHERE auth_user_id IS NOT NULL`, plus a new partial unique index
+on `auth_user_id` itself (one customer per auth user).
+
+Refusals are deliberate, not gaps:
+
+| Response | Why |
+|---|---|
+| `422 email_required_for_account` | The JWT has no email — a phone-OTP session. See below. |
+| `403 email_unverified` | An unverified address would let anyone claim a customer row by signing up with it. |
+| `409 email_already_linked` | Another auth user already owns that email's customer row. Also returned when a concurrent request wins the link race — the `UPDATE … .is("auth_user_id", null)` guard makes that a no-op rather than a takeover. |
+
+**Phone OTP is blocked, and it is the plan's stated primary auth.** The plan
+(`docs/PHASE2-WEBSITE.md`) specifies phone OTP with email fallback, but a
+phone-OTP JWT carries no email and `mobile_number` has no unique index.
+Measured 2026-09-10: **863 customers have a phone, only 77 are clean E.164, and
+10 groups collide** once digits are normalised. Linking on phone today could
+attach a signup to the wrong customer — handing over someone else's order
+history and loyalty balance. Shipping it needs an E.164 normalisation pass and
+a decision on those 10 collisions first.
+
+**Addresses:** `customer_addresses` (created step 1) is the storefront's source;
+the flat columns on `customers` are the Hub UI's and were **not** dropped. The
+backfill seeded the table from them once (704 rows). Both are live — do not
+assume one is authoritative for the other's reader until the Hub UI moves over.
 
 ### Loyalty tier field mapping
 

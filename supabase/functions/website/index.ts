@@ -20,6 +20,77 @@ const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
 
 type AnyRec = Record<string, unknown>;
 
+/**
+ * Customer-scoped routes (Phase 2 step 1) require BOTH credentials:
+ *   x-api-key        already checked for every route below — proves the caller
+ *                    is the storefront's own server, not a browser.
+ *   Authorization    a Supabase Auth customer JWT — proves WHICH customer.
+ * Defence in depth: a leaked customer token cannot reach the Hub without the
+ * server-side key, and the key alone cannot read anyone's profile.
+ *
+ * Linking is by VERIFIED EMAIL only, matching the live rule in
+ * setup-customer-account. A JWT with no email (phone OTP) is refused rather
+ * than linked by phone: see the phone-OTP note in migration
+ * 20260910140000_phase2_step1_customer_auth_addresses.sql.
+ */
+const CUSTOMER_FIELDS = "id, customer_code, full_name, email, mobile_number, auth_user_id";
+
+interface CustomerUser { id: string; email: string }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function requireCustomerUser(req: Request, supabase: any): Promise<CustomerUser | Response> {
+  const header = req.headers.get("Authorization") ?? "";
+  if (!header.startsWith("Bearer ")) {
+    return jsonResponse({ error: "customer_auth_required" }, 401);
+  }
+  const { data, error } = await supabase.auth.getUser(header.slice(7));
+  if (error || !data?.user) {
+    return jsonResponse({ error: "customer_auth_required" }, 401);
+  }
+  const email = (data.user.email ?? "").trim();
+  if (!email) {
+    // Phone-OTP session. Cannot be linked safely yet — 863 customers have a
+    // phone but only 77 are clean E.164 and 10 groups collide on digits, so a
+    // phone match could attach this signup to the wrong customer.
+    return jsonResponse({ error: "email_required_for_account" }, 422);
+  }
+  // An unverified email would let anyone claim a customer row by signing up
+  // with that address.
+  if (!data.user.email_confirmed_at && !data.user.confirmed_at) {
+    return jsonResponse({ error: "email_unverified" }, 403);
+  }
+  return { id: data.user.id, email };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function customerForAuthUser(supabase: any, authUserId: string): Promise<AnyRec | null> {
+  const { data, error } = await supabase
+    .from("customers").select(CUSTOMER_FIELDS).eq("auth_user_id", authUserId).maybeSingle();
+  if (error) throw error;
+  return (data as AnyRec | null) ?? null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loyaltySnapshot(supabase: any, customerId: string) {
+  const { data, error } = await supabase
+    .from("loyalty_members")
+    .select("remaining_points, cumulative_spend_jpy, current_tier_id, loyalty_tiers:current_tier_id(name, points_multiplier)")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null };
+  const tier = (data as AnyRec).loyalty_tiers as AnyRec | null;
+  return {
+    enrolled: true,
+    points: Number((data as AnyRec).remaining_points ?? 0),
+    tier: tier?.name ?? null,
+    multiplier: tier?.points_multiplier === undefined || tier?.points_multiplier === null
+      ? null
+      : Number(tier.points_multiplier),
+  };
+}
+
+
 /** Latest JPY->PHP rate. price_php is derived per request, never stored. */
 interface FxRate { jpy_php: number; as_of: string }
 
@@ -320,6 +391,102 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true });
     }
 
+
+    // ================================================ customer account routes
+    // POST /auth/customer — link or create the customers row for this JWT.
+    if (req.method === "POST" && segments[0] === "auth" && segments[1] === "customer" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+
+      const existing = await customerForAuthUser(supabase, who.id);
+      if (existing) return jsonResponse(scrub({ customer: existing, created: false }));
+
+      // Match an existing customer by verified email, same as
+      // setup-customer-account. ilike is safe here: an email cannot contain
+      // the _ or % wildcards.
+      const { data: byEmail, error: lookupErr } = await supabase
+        .from("customers").select(CUSTOMER_FIELDS).ilike("email", who.email);
+      if (lookupErr) throw lookupErr;
+
+      const candidates = (byEmail ?? []) as AnyRec[];
+      const claimed = candidates.find((c) => c.auth_user_id && c.auth_user_id !== who.id);
+      if (claimed) {
+        // Someone else's auth user already owns this email's customer row.
+        return jsonResponse({ error: "email_already_linked" }, 409);
+      }
+      const unlinked = candidates.find((c) => !c.auth_user_id);
+      if (unlinked) {
+        const { data: linked, error: linkErr } = await supabase
+          .from("customers").update({ auth_user_id: who.id })
+          .eq("id", unlinked.id).is("auth_user_id", null)
+          .select(CUSTOMER_FIELDS).maybeSingle();
+        if (linkErr) throw linkErr;
+        // A concurrent request may have taken it between the read and the
+        // write; the .is() guard makes that a no-op rather than a takeover.
+        if (!linked) return jsonResponse({ error: "email_already_linked" }, 409);
+        return jsonResponse(scrub({ customer: linked, created: false }));
+      }
+
+      const body = await req.json().catch(() => ({}));
+      const fullName = String((body as AnyRec)?.full_name ?? "").trim() || who.email.split("@")[0];
+      // customer_code comes from the existing BEFORE INSERT trigger.
+      // NOTE: unlike setup-customer-account, this does NOT auto-enrol in
+      // loyalty — enrolment stays with join-loyalty-program so the
+      // loyalty_enabled gate is honoured in one place.
+      const { data: created, error: insErr } = await supabase
+        .from("customers").insert({ full_name: fullName, email: who.email, auth_user_id: who.id })
+        .select(CUSTOMER_FIELDS).maybeSingle();
+      if (insErr) throw insErr;
+      return jsonResponse(scrub({ customer: created, created: true }));
+    }
+
+    // GET /me — profile, addresses, loyalty snapshot, saved-card status.
+    if (req.method === "GET" && segments[0] === "me" && !segments[1]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const [{ data: addresses, error: addrErr }, loyalty] = await Promise.all([
+        supabase.from("customer_addresses")
+          .select("id, label, recipient_name, line1, line2, city, region, postal_code, country, phone, is_default")
+          .eq("customer_id", customer.id)
+          .order("is_default", { ascending: false }).order("created_at", { ascending: true }),
+        loyaltySnapshot(supabase, String(customer.id)),
+      ]);
+      if (addrErr) throw addrErr;
+
+      return jsonResponse(scrub({
+        customer,
+        addresses: addresses ?? [],
+        loyalty,
+        // customer_cards arrives in step 3 (Square). Reported as false rather
+        // than omitted so the storefront can render the account shell now.
+        saved_card: false,
+      }));
+    }
+
+    // PUT /me/addresses — replace the whole list, atomically.
+    if (req.method === "PUT" && segments[0] === "me" && segments[1] === "addresses" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = await req.json().catch(() => ({}));
+      const list = (body as AnyRec)?.addresses;
+      if (!Array.isArray(list)) return jsonResponse({ error: "addresses_must_be_array" }, 400);
+
+      const { data, error } = await supabase.rpc("replace_customer_addresses", {
+        p_customer_id: customer.id,
+        p_addresses: list,
+      });
+      if (error) throw error;
+      const result = (data ?? {}) as AnyRec;
+      // The RPC reports validation failures in its payload, not by throwing.
+      if (result.error) return jsonResponse({ error: result.error }, 400);
+      return jsonResponse(scrub(result));
+    }
 
     return notFound();
   } catch (err) {
