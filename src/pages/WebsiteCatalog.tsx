@@ -899,3 +899,88 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
     </Card>
   );
 }
+
+/**
+ * Read-only feed of wholesale enquiries submitted on the public website.
+ * Rows are written by the `website` edge function; nobody edits them here.
+ */
+const MARKET_LABELS: Record<string, string> = {
+  JP: "Japan", PH: "Philippines", BOTH: "Japan & Philippines", OTHER: "Other",
+};
+const VOLUME_LABELS: Record<string, string> = {
+  TEST: "Test order", "20_50": "20–50 pieces", "50_200": "50–200 pieces", "200_PLUS": "200+ pieces",
+};
+
+function WholesaleInquiries() {
+  const inquiries = useQuery({
+    queryKey: ["wholesale-inquiries"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wholesale_inquiries" as any)
+        .select("id, name, business, email, phone, market, volume, notes, lang, created_at")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="hairline-b">
+        <CardTitle className="text-base">
+          Wholesale inquiries {inquiries.data ? `(${inquiries.data.length})` : ""}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Submitted through the wholesale form on chajewelsjp.com. View only.
+        </p>
+      </CardHeader>
+      <CardContent className="p-0">
+        {inquiries.isLoading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        ) : (inquiries.data ?? []).length === 0 ? (
+          <p className="px-6 py-10 text-sm text-muted-foreground">No inquiries yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Received</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Business</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Market</TableHead>
+                <TableHead>Volume</TableHead>
+                <TableHead>Notes</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(inquiries.data ?? []).map((r: any) => (
+                <TableRow key={r.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {new Date(r.created_at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" })}
+                  </TableCell>
+                  <TableCell className="font-medium text-foreground">{r.name}</TableCell>
+                  <TableCell>{r.business}</TableCell>
+                  <TableCell className="text-xs">
+                    <div>{r.email}</div>
+                    {r.phone && <div className="text-muted-foreground">{r.phone}</div>}
+                  </TableCell>
+                  <TableCell>{MARKET_LABELS[r.market] ?? r.market}</TableCell>
+                  <TableCell>{VOLUME_LABELS[r.volume] ?? r.volume}</TableCell>
+                  <TableCell className="max-w-[22rem] text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="uppercase">{r.lang}</Badge>
+                      <span className="truncate">{r.notes ?? "—"}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
