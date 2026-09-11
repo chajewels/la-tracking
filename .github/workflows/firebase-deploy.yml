@@ -128,11 +128,15 @@ jobs:
           URL: ${{ steps.preview.outputs.url }}
           CHANNEL: ${{ steps.preview.outputs.channel }}
           EXPIRES: ${{ steps.preview.outputs.expires }}
+          # NOT $GITHUB_SHA: on a pull_request event that is the ephemeral
+          # merge commit, which appears in no branch and matches nothing a
+          # reviewer can see. head.sha is the commit they actually pushed.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           MARKER='<!-- firebase-hosting-preview -->'
           BODY=$(printf '%s\n\n**Firebase Hosting preview**\n\n| Channel | Preview | Commit | Expires |\n| --- | --- | --- | --- |\n| `%s` | %s | `%s` | %s |\n' \
-            "$MARKER" "$CHANNEL" "$URL" "${GITHUB_SHA:0:7}" "${EXPIRES:-30d}")
+            "$MARKER" "$CHANNEL" "$URL" "${HEAD_SHA:0:7}" "${EXPIRES:-30d}")
           ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
                  --jq "map(select(.body | startswith(\"$MARKER\"))) | .[0].id // empty")
           if [ -n "$ID" ]; then
