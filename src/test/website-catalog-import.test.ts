@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import {
   CollectionOption, DATA_START_ROW, ImportRowInput, SHEET_NAME,
-  hasForbiddenGoldTerm, isBlankRow, resolveCollection, validateRow,
+  hasForbiddenGoldTerm, isBlankRow, parseOrigin, resolveCollection, validateRow,
 } from "@/lib/website-catalog-import";
 
 /**
@@ -30,7 +30,8 @@ const ctx = { collections: COLLECTIONS, isAdmin: true, existingSkus: new Set<str
 const blank: ImportRowInput = {
   sheetRow: 5, buy_code: "", product_name: "", product_description: "", price: "",
   cost: "", stock_amount: "", hub_jewelry_type: "", hub_metal: "", hub_weight_g: "",
-  hub_stone: "", hub_size: "", hub_condition: "", hub_status: "", images: [],
+  hub_stone: "", hub_size: "", hub_condition: "", hub_status: "",
+  hub_origin: "", hub_brand: "", images: [],
 };
 
 const good: ImportRowInput = {
@@ -78,7 +79,7 @@ describe("hasForbiddenGoldTerm", () => {
   });
 
   it("leaves the approved phrasing alone", () => {
-    expect(hasForbiddenGoldTerm("K18 gold, Made in Japan")).toBe(false);
+    expect(hasForbiddenGoldTerm("K18 gold, hallmark checked in Japan")).toBe(false);
     expect(hasForbiddenGoldTerm("Preloved, authenticated in Japan.")).toBe(false);
     expect(hasForbiddenGoldTerm("750 yellow and white gold layered wave ring")).toBe(false);
   });
@@ -98,6 +99,39 @@ describe("validateRow", () => {
     const row = validateRow({ ...good, buy_code: " r3341 ", stock_amount: "" }, ctx);
     expect(row.value?.sku).toBe("R3341");
     expect(row.value?.stock_qty).toBe(1);
+  });
+
+  it("defaults a blank origin to UNKNOWN with no brand — never guesses", () => {
+    const row = validateRow(good, ctx);
+    expect(row.value?.origin).toBe("UNKNOWN");
+    expect(row.value?.brand).toBeNull();
+  });
+
+  it("accepts the template's origin labels and the enum values, case-insensitively", () => {
+    const cases: [string, string][] = [
+      ["Made in Japan", "JAPAN"], ["japan", "JAPAN"], ["JAPAN", "JAPAN"],
+      ["Branded", "BRAND"], ["brand", "BRAND"], ["Other", "OTHER"], ["unknown", "UNKNOWN"],
+    ];
+    for (const [input, origin] of cases) {
+      const row = validateRow({ ...good, hub_origin: input, hub_brand: origin === "BRAND" ? "Tiffany & Co." : "" }, ctx);
+      expect(row.errors, input).toEqual([]);
+      expect(row.value?.origin, input).toBe(origin);
+    }
+    expect(parseOrigin("  made   in  japan ")).toBe("JAPAN");
+  });
+
+  it("rejects an origin outside the four values instead of landing on Unknown", () => {
+    const row = validateRow({ ...good, hub_origin: "Italy" }, ctx);
+    expect(row.value).toBeUndefined();
+    expect(row.errors.join(" ")).toContain("hub_origin");
+  });
+
+  it("requires a brand name for a Branded piece", () => {
+    const missing = validateRow({ ...good, hub_origin: "Branded" }, ctx);
+    expect(missing.errors.join(" ")).toContain("hub_brand is required");
+    const present = validateRow({ ...good, hub_origin: "Branded", hub_brand: " Tiffany & Co. " }, ctx);
+    expect(present.errors).toEqual([]);
+    expect(present.value?.brand).toBe("Tiffany & Co.");
   });
 
   it("rejects a metal outside the enum", () => {
@@ -171,12 +205,16 @@ describe("the shipped template", () => {
     hub_size: cell(r, "hub_size"),
     hub_condition: cell(r, "hub_condition"),
     hub_status: cell(r, "hub_status"),
+    hub_origin: cell(r, "hub_origin"),
+    hub_brand: cell(r, "hub_brand"),
     images: Array.from({ length: 10 }, (_, i) => cell(r, `image_${i + 1}`)),
   });
 
   it("carries the header the importer keys off", () => {
     expect(header).toContain("buy_code");
     expect(header).toContain("hub_condition");
+    expect(header).toContain("hub_origin");
+    expect(header).toContain("hub_brand");
     expect(header).toContain("image_10");
   });
 
@@ -201,6 +239,9 @@ describe("the shipped template", () => {
       expect(r.value?.condition).toBe("Preloved");
       expect(r.value?.status).toBe("draft");
       expect(r.value?.karat).toBe("K18");
+      // The example rows state no origin: the site must claim nothing for them.
+      expect(r.value?.origin).toBe("UNKNOWN");
+      expect(r.value?.brand).toBeNull();
     }
     expect(rows.map((r) => r.value?.weight_g)).toEqual([16.2, 19]);
     expect(rows.map((r) => r.value?.price_jpy)).toEqual([628980, 679980]);

@@ -23,6 +23,38 @@ export type MetalValue = (typeof METAL_VALUES)[number];
 export const CONDITION_VALUES = ["New", "Preloved"] as const;
 export type ConditionValue = (typeof CONDITION_VALUES)[number];
 
+/**
+ * Origin is DATA, never an assumption. The storefront claims an origin only
+ * when this says JAPAN, shows a brand name (and no origin) when it says BRAND,
+ * and says nothing for OTHER or UNKNOWN. Nothing here or downstream guesses an
+ * origin from the metal, the name or the description.
+ */
+export const ORIGIN_VALUES = ["JAPAN", "BRAND", "OTHER", "UNKNOWN"] as const;
+export type OriginValue = (typeof ORIGIN_VALUES)[number];
+
+/** What each origin is called in the Hub UI and the upload template. */
+export const ORIGIN_LABELS: Record<OriginValue, string> = {
+  JAPAN: "Made in Japan",
+  BRAND: "Branded",
+  OTHER: "Other",
+  UNKNOWN: "Unknown",
+};
+
+/**
+ * Accepts the template's dropdown labels, the enum values, and the obvious
+ * shorthands, case-insensitively. Returns null for anything else so the row
+ * errors instead of silently landing on UNKNOWN with a typo in the sheet.
+ */
+export function parseOrigin(raw: string): OriginValue | null {
+  const v = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!v) return "UNKNOWN";
+  if (["japan", "made in japan", "jp", "日本製"].includes(v)) return "JAPAN";
+  if (["brand", "branded"].includes(v)) return "BRAND";
+  if (v === "other") return "OTHER";
+  if (v === "unknown") return "UNKNOWN";
+  return null;
+}
+
 export type ProductStatus = "draft" | "active" | "archived";
 
 /**
@@ -54,6 +86,10 @@ export interface ImportRowInput {
   hub_size: string;
   hub_condition: string;
   hub_status: string;
+  /** Optional in the sheet; blank means UNKNOWN. */
+  hub_origin: string;
+  /** Required only when hub_origin is Branded. */
+  hub_brand: string;
   images: string[];
 }
 
@@ -72,6 +108,8 @@ export interface ImportRow {
     weight_g: number;
     description_en: string;
     condition: ConditionValue;
+    origin: OriginValue;
+    brand: string | null;
     status: ProductStatus;
     size: string | null;
     stone: string | null;
@@ -180,13 +218,24 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
   const description = r.product_description.trim();
   if (!description) errors.push("product_description is required");
   else if (hasForbiddenGoldTerm(name, description)) {
-    errors.push('Forbidden gold terminology — use "K18 gold, Made in Japan"');
+    errors.push('Forbidden gold terminology — describe purity as "K18 gold", never "<country> gold"');
   }
 
   const conditionRaw = r.hub_condition.trim().toLowerCase();
   const condition = CONDITION_VALUES.find((c) => c.toLowerCase() === conditionRaw);
   if (!conditionRaw) errors.push("hub_condition is required");
   else if (!condition) errors.push(`hub_condition must be New or Preloved (got "${r.hub_condition.trim()}")`);
+
+  const origin = parseOrigin(r.hub_origin);
+  if (origin === null) {
+    errors.push(
+      `hub_origin must be Made in Japan, Branded, Other or Unknown (got "${r.hub_origin.trim()}")`,
+    );
+  }
+  const brand = r.hub_brand.trim() || null;
+  if (origin === "BRAND" && !brand) {
+    errors.push("hub_brand is required when hub_origin is Branded");
+  }
 
   const statusRaw = r.hub_status.trim().toLowerCase();
   const statusMap: Record<string, ProductStatus> = { active: "active", draft: "draft" };
@@ -242,6 +291,8 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
       weight_g: weight!,
       description_en: description,
       condition: condition!,
+      origin: origin!,
+      brand,
       status: status!,
       size: r.hub_size.trim() || null,
       stone: r.hub_stone.trim() || null,

@@ -248,10 +248,20 @@ stored peso price: a second copy of every price is a second thing to drift.
   `750`, `Au750` or `18K` as separate options.
 - **Collections** are jewelry types: necklaces, pendants, earrings, bracelets,
   rings, anklets, sets.
+- **Origin and brand** (`website_products.origin`, `.brand`, migration
+  `20260911190000`): `origin` is `JAPAN` | `BRAND` | `OTHER` | `UNKNOWN`
+  (default). It is the ONLY source of an origin claim on the site: `JAPAN`
+  renders 日本製 / Made in Japan for that piece, `BRAND` renders `brand` (name
+  only, never a logo) and claims no origin, `OTHER` and `UNKNOWN` render
+  nothing. Both fields ride on every product in the API. Every pre-existing
+  row is `UNKNOWN` until Cynthia sets it in the Hub — the site never guesses
+  an origin from metal, name or description, and site-wide copy may only say
+  "authenticated in Japan" / "hallmark checked in Japan".
 - **Terminology guard:** the `reject_forbidden_gold_terms()` trigger raises on
   country-branded gold (`japanese gold`, `saudi gold`, `italian gold`,
   `dubai gold`, `hk gold`, `chinese gold`) in `name`, `description_en` or
-  `description_ja`. Use "K18 gold, Made in Japan". The
+  `description_ja`. Describe purity as "K18 gold"; origin comes from the
+  `origin` column, never from copy. The
   `translate-product-description` prompt mirrors this ban, and its output is
   regex-checked before it is stored.
 
