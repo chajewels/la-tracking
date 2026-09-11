@@ -192,9 +192,9 @@ async function shippingFor(supabase: any, country: string, subtotalJpy: number):
   return row ? Number(row.fee_jpy) : null;
 }
 
-const INSTRUCTION_FIELDS =
-  "country, method_label_ja, method_label_en, bank_name, bank_branch, account_type, " +
-  "account_number, account_holder, gcash_number, gcash_name, note_ja, note_en, updated_at";
+const METHOD_FIELDS =
+  "id, region, method_type, label_ja, label_en, bank_name, bank_branch, account_type, " +
+  "account_number, account_holder, wallet_number, wallet_name, note_ja, note_en, sort_order";
 
 const txt = (v: unknown): string | null => {
   const s = String(v ?? "").trim();
@@ -202,68 +202,105 @@ const txt = (v: unknown): string | null => {
 };
 
 /**
- * Transfer details for a country, read from the STRUCTURED columns at request
- * time — so a correction an admin makes in the Hub is live on the site on the
- * next page load, with no deploy.
+ * Two transfer setups exist, not one per country: the yen accounts used when an
+ * order ships inside Japan, and the accounts/wallets used for everywhere else.
+ * Anything that is not Japan is OVERSEAS — a customer in a country nobody
+ * thought to add still gets the overseas methods rather than an empty page.
+ */
+function regionForCountry(country: string): "JP" | "OVERSEAS" {
+  const code = (country || "").trim().toUpperCase();
+  return code === "JP" || code === "JPN" || code === "JAPAN" ? "JP" : "OVERSEAS";
+}
+
+/**
+ * Is this row actually usable by a customer? Completeness is per method type,
+ * because a half-filled method is worse than none — it looks like an account
+ * and the money goes nowhere:
+ *   bank         — bank name + account number + holder (branch/type are extra)
+ *   gcash, maya  — wallet number + wallet name
+ *   other        — a label, plus at least one detail to act on
+ * This rule is mirrored in the Hub editor's status badge. If the two ever
+ * disagree, an admin sees "live" while checkout hides the method, so they must
+ * be changed together.
+ */
+function methodIsComplete(row: AnyRec): boolean {
+  switch (String(row.method_type)) {
+    case "bank":
+      return !!(txt(row.bank_name) && txt(row.account_number) && txt(row.account_holder));
+    case "gcash":
+    case "maya":
+      return !!(txt(row.wallet_number) && txt(row.wallet_name));
+    case "other":
+      return !!(
+        (txt(row.label_ja) || txt(row.label_en)) &&
+        (txt(row.note_ja) || txt(row.note_en) || txt(row.account_number) || txt(row.wallet_number))
+      );
+    default:
+      return false;
+  }
+}
+
+const DEFAULT_LABELS: Record<string, { ja: string; en: string }> = {
+  bank: { ja: "銀行振込", en: "Bank transfer" },
+  gcash: { ja: "GCash", en: "GCash" },
+  maya: { ja: "Maya", en: "Maya" },
+  other: { ja: "お支払い方法", en: "Payment method" },
+};
+
+/**
+ * Active, complete transfer methods for a region, in the admin's order, read at
+ * request time — a correction made in the Hub is live on the next page load
+ * with no deploy.
  *
- * Returns null when the country has no usable method. That is the whole point
- * of the structured columns: free-text body_ja/body_en could never be told
- * apart from a placeholder, so checkout had no way to know the account was not
- * ready. A method counts only when it is COMPLETE:
- *   bank  — name + account number + holder (a number with no bank is unusable)
- *   gcash — number + name
- * JP offers bank only; PH offers either. No fallback to another country's
- * account, and nothing is ever invented here.
+ * Returns [] when the region has nothing usable. That empty array is what makes
+ * checkout hide transfer entirely: the old free-text design could not tell a
+ * real account from a placeholder paragraph, so it had no way to know.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function transferInstructions(supabase: any, country: string): Promise<AnyRec | null> {
-  const code = (country || "JP").trim().toUpperCase();
+async function transferMethods(supabase: any, country: string): Promise<AnyRec[]> {
+  const region = regionForCountry(country);
   const { data, error } = await supabase
-    .from("payment_instructions")
-    .select(INSTRUCTION_FIELDS)
-    .eq("country", code)
+    .from("transfer_payment_methods")
+    .select(METHOD_FIELDS)
+    .eq("region", region)
     .eq("is_active", true)
-    .maybeSingle();
+    // created_at breaks sort_order ties so the order never shuffles between reads.
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
   if (error) throw error;
-  const row = data as AnyRec | null;
-  if (!row) return null;
 
-  const bankName = txt(row.bank_name);
-  const accountNumber = txt(row.account_number);
-  const accountHolder = txt(row.account_holder);
-  const gcashNumber = txt(row.gcash_number);
-  const gcashName = txt(row.gcash_name);
-
-  const bank = bankName && accountNumber && accountHolder
-    ? {
-      name: bankName,
-      branch: txt(row.bank_branch),
-      account_type: txt(row.account_type),
-      account_number: accountNumber,
-      account_holder: accountHolder,
-    }
-    : null;
-  const gcash = gcashNumber && gcashName ? { number: gcashNumber, name: gcashName } : null;
-
-  if (!bank && !gcash) return null;
-
-  return {
-    country: code,
-    method_label_ja: txt(row.method_label_ja) ?? "銀行振込",
-    method_label_en: txt(row.method_label_en) ?? "Bank transfer",
-    // PH renders gcash first; the storefront owns that ordering, both are here.
-    bank,
-    gcash,
-    note_ja: txt(row.note_ja),
-    note_en: txt(row.note_en),
-    updated_at: row.updated_at ?? null,
-  };
+  return ((data ?? []) as AnyRec[]).filter(methodIsComplete).map((row) => {
+    const type = String(row.method_type);
+    const fallback = DEFAULT_LABELS[type] ?? DEFAULT_LABELS.other;
+    const bankName = txt(row.bank_name);
+    const wallet = txt(row.wallet_number);
+    return {
+      id: row.id,
+      method_type: type,
+      label_ja: txt(row.label_ja) ?? fallback.ja,
+      label_en: txt(row.label_en) ?? fallback.en,
+      // Only the block this method actually uses is sent; the storefront renders
+      // whichever is present rather than guessing from the type.
+      bank: bankName
+        ? {
+          name: bankName,
+          branch: txt(row.bank_branch),
+          account_type: txt(row.account_type),
+          account_number: txt(row.account_number),
+          account_holder: txt(row.account_holder),
+        }
+        : null,
+      wallet: wallet ? { number: wallet, name: txt(row.wallet_name) } : null,
+      note_ja: txt(row.note_ja),
+      note_en: txt(row.note_en),
+    };
+  });
 }
 
 /** Cheap yes/no for the checkout gate — same completeness rule, no details returned. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function transferAvailable(supabase: any, country: string): Promise<boolean> {
-  return (await transferInstructions(supabase, country)) !== null;
+  return (await transferMethods(supabase, country)).length > 0;
 }
 
 function notFound() {
@@ -722,6 +759,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (quoteErr) throw quoteErr;
 
+      const quoteMethods = await transferMethods(supabase, String(address.country ?? ""));
+
       return jsonResponse(scrub({
         quote_id: quote?.id,
         items,
@@ -731,9 +770,13 @@ Deno.serve(async (req) => {
         // null shipping means we do not ship there at a published rate — the
         // storefront must stop and ask, never assume free.
         requires_manual_quote: shipping === null,
-        // Lets step 3 hide bank transfer instead of offering a method that
-        // would be refused at /checkout/pay.
-        transfer_available: await transferAvailable(supabase, String(address.country ?? "")),
+        // Lets the payment step render the real methods, and hide transfer
+        // entirely rather than offering one that /checkout/pay would refuse.
+        // Methods are region-scoped here, not filtered in the browser: the
+        // other region's account details never reach the page at all.
+        transfer_region: regionForCountry(String(address.country ?? "")),
+        transfer_methods: quoteMethods,
+        transfer_available: quoteMethods.length > 0,
         order_type: orderType,
         expires_at: quote?.expires_at,
       }));
@@ -766,7 +809,10 @@ Deno.serve(async (req) => {
         ((quoteRow as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
       );
       if (!(await transferAvailable(supabase, quoteCountry))) {
-        return jsonResponse({ error: "transfer_unavailable", country: quoteCountry }, 409);
+        return jsonResponse({
+          error: "transfer_unavailable",
+          region: regionForCountry(quoteCountry),
+        }, 409);
       }
 
       const { data, error } = await supabase.rpc("create_web_order_atomic", {
@@ -796,7 +842,8 @@ Deno.serve(async (req) => {
         web_reference: result.web_reference,
         total_jpy: result.total_jpy,
         transfer_due_at: result.transfer_due_at,
-        transfer_instructions: await transferInstructions(supabase, country),
+        transfer_region: regionForCountry(country),
+        transfer_methods: await transferMethods(supabase, country),
       }));
     }
 
@@ -851,10 +898,11 @@ Deno.serve(async (req) => {
       return jsonResponse(scrub({
         order,
         items: items ?? [],
-        // Instructions are only actionable while the transfer is outstanding.
-        transfer_instructions: (order as AnyRec).payment_status === "pending_transfer"
-          ? await transferInstructions(supabase, country)
-          : null,
+        transfer_region: regionForCountry(country),
+        // Methods are only actionable while the transfer is outstanding.
+        transfer_methods: (order as AnyRec).payment_status === "pending_transfer"
+          ? await transferMethods(supabase, country)
+          : [],
       }));
     }
 

@@ -14,7 +14,7 @@ import {
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
-import PaymentInstructionsTab from '@/components/settings/PaymentInstructionsTab';
+import PaymentMethodsTab from '@/components/settings/PaymentMethodsTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -809,7 +809,7 @@ export default function SettingsPage() {
               customers at website checkout. The component renders its own
               admins-only notice as a second gate. */}
           <TabsContent value="payment-details" className="mt-4">
-            <PaymentInstructionsTab />
+            <PaymentMethodsTab />
           </TabsContent>
 
         </Tabs>
