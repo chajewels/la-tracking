@@ -2175,6 +2175,11 @@ Customer / Amount), non-blocking relative to the tracking output.
    TransactionsTab error that bare `tsc --noEmit` had passed all
    session long.
 
+   Canonical typecheck: `npx tsc -p tsconfig.app.json --noEmit` — exit 0
+   with no output as of 2026-09-11 (f31ab09). Any error is a regression;
+   there is no accepted baseline. (`tsc --noEmit` without -p is a
+   documented false green.)
+
 6. KPI + CHART ANIMATION STANDARDS (set 2026-07-07):
    - KPI cards rendered with the shared StatCard pass countUpValue +
      formatValue + staggerIndex uniformly; bespoke KPI values use

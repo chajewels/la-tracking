@@ -248,6 +248,9 @@ Deno.serve(async (req) => {
         console.warn("[restore-payment] DP loyalty restore block failed (non-blocking):", restoreErr);
       }
 
+      // Sheet row now reflects the restored DP (Bug #263 follow-up). Awaited, non-blocking.
+      await refreshPaymentTracking(account?.invoice_number, "restore-payment/dp");
+
       return new Response(
         JSON.stringify({
           success: true,
