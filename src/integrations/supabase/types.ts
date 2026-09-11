@@ -5432,6 +5432,7 @@ export type Database = {
       }
       website_products: {
         Row: {
+          brand: string | null
           condition: string
           created_at: string
           description_en: string | null
@@ -5439,6 +5440,7 @@ export type Database = {
           id: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
+          origin: string
           sku: string
           slug: string
           status: Database["public"]["Enums"]["website_product_status"]
@@ -5446,6 +5448,7 @@ export type Database = {
           weight_g: number | null
         }
         Insert: {
+          brand?: string | null
           condition?: string
           created_at?: string
           description_en?: string | null
@@ -5453,6 +5456,7 @@ export type Database = {
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
+          origin?: string
           sku: string
           slug: string
           status?: Database["public"]["Enums"]["website_product_status"]
@@ -5460,6 +5464,7 @@ export type Database = {
           weight_g?: number | null
         }
         Update: {
+          brand?: string | null
           condition?: string
           created_at?: string
           description_en?: string | null
@@ -5467,6 +5472,7 @@ export type Database = {
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name?: string
+          origin?: string
           sku?: string
           slug?: string
           status?: Database["public"]["Enums"]["website_product_status"]
