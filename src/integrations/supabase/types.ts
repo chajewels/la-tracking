@@ -5084,6 +5084,72 @@ export type Database = {
           },
         ]
       }
+      transfer_payment_methods: {
+        Row: {
+          account_holder: string | null
+          account_number: string | null
+          account_type: string | null
+          bank_branch: string | null
+          bank_name: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          label_en: string | null
+          label_ja: string | null
+          method_type: string
+          note_en: string | null
+          note_ja: string | null
+          region: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+          wallet_name: string | null
+          wallet_number: string | null
+        }
+        Insert: {
+          account_holder?: string | null
+          account_number?: string | null
+          account_type?: string | null
+          bank_branch?: string | null
+          bank_name?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label_en?: string | null
+          label_ja?: string | null
+          method_type: string
+          note_en?: string | null
+          note_ja?: string | null
+          region: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          wallet_name?: string | null
+          wallet_number?: string | null
+        }
+        Update: {
+          account_holder?: string | null
+          account_number?: string | null
+          account_type?: string | null
+          bank_branch?: string | null
+          bank_name?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label_en?: string | null
+          label_ja?: string | null
+          method_type?: string
+          note_en?: string | null
+          note_ja?: string | null
+          region?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          wallet_name?: string | null
+          wallet_number?: string | null
+        }
+        Relationships: []
+      }
       user_permission_overrides: {
         Row: {
           created_at: string | null
