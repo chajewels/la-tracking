@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .firebase/
+
+# Local environment. Use .env.example as the template — never commit real values.
+.env
+.env.local
+.env.*.local
