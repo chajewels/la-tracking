@@ -1,6 +1,6 @@
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
-import { createAuthEmailHandler } from 'npm:@lovable.dev/email-js@0.1.0'
+import { createAuthEmailHandler, type AuthEmailDefinitions } from 'npm:@lovable.dev/email-js@0.1.0'
 import { SignupEmail } from '../_shared/email-templates/signup.tsx'
 import { InviteEmail } from '../_shared/email-templates/invite.tsx'
 import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
@@ -159,7 +159,7 @@ function isStorefrontLink(data: { callback_url?: string; url?: string }): boolea
 // owns only the email decisions: subjects, templates, and per-type props.
 // `from` is handler-wide in the SDK, so the storefront gets its own handler —
 // same definitions, different sender name and magic-link email.
-const STAFF_EMAILS = {
+const STAFF_EMAILS: AuthEmailDefinitions = {
     signup: {
       subject: 'Confirm your email',
       render: (data) =>
@@ -211,7 +211,7 @@ const STAFF_EMAILS = {
       render: (data) =>
         React.createElement(ReauthenticationEmail, { token: data.token ?? '' }),
     },
-} as const
+}
 
 const staffHandler = createAuthEmailHandler({
   apiKey: Deno.env.get('LOVABLE_API_KEY')!,
