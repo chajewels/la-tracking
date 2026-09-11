@@ -115,6 +115,10 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
           hub_size: cell(r, "hub_size"),
           hub_condition: cell(r, "hub_condition"),
           hub_status: cell(r, "hub_status"),
+          // Both columns are new to the template; an older sheet without them
+          // simply yields "" here, which validateRow reads as UNKNOWN / no brand.
+          hub_origin: cell(r, "hub_origin"),
+          hub_brand: cell(r, "hub_brand"),
           images: IMAGE_COLUMNS.map((c) => cell(r, c)),
         };
         if (isBlankRow(input)) continue;
@@ -170,6 +174,8 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
       description_en: v.description_en,
       description_ja: ja || null,
       condition: v.condition,
+      origin: v.origin,
+      brand: v.brand,
       status: v.status,
     };
 

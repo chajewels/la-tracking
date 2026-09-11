@@ -755,6 +755,21 @@ Every Lovable apply message must still assert on SOURCE CONTENT (grep counts
 plus line counts) before applying or deploying, and STOP if an assertion fails —
 see "GENERATED FILES & DEPLOY VERIFICATION".
 
+### ONE SENDER PER LOVABLE MESSAGE — AND THAT SENDER IS CLAUDE CODE
+
+Every Lovable apply/deploy message is sent exactly once, by Claude Code, from
+this session, after Cynthia's OK. Nobody else sends it — not Claude chat, not a
+second session, not Cynthia pasting it herself. Claude Code checks the Lovable
+message queue before every send and never resends after a transport timeout.
+
+Why this is a rule: on 2026-09-11 the transfer_payment_methods message went to
+Lovable twice — once from Claude chat at 11:34 UTC and once from Claude Code at
+12:51 UTC. Both runs were idempotent by construction (CREATE TABLE IF NOT
+EXISTS, copy skipped when populated), so nothing broke, but the second run's
+report misattributed the two bank rows Cynthia had entered in between to the
+migration's copy block, and it cost an hour of untangling. Two senders means
+two mirrors of the truth; one sender means one.
+
 - Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.
 
 ## TOOL OWNERSHIP RULES (updated 2026-05-10)
