@@ -142,6 +142,69 @@ function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null 
   return product;
 }
 
+/** Cart size ceiling. Generous for a jeweller, small enough to bound the loop. */
+const MAX_CART_LINES = 20;
+
+const ORDER_FIELDS =
+  "id, web_reference, invoice_number, status, payment_status, payment_method, order_type, " +
+  "currency, total_amount, total_paid, remaining_balance, shipping_fee, transfer_due_at, " +
+  "recipient_name, gift_note, order_date, created_at, completed_at, cancelled_at, " +
+  "tracking_number, shipped_at";
+
+/**
+ * create_web_order_atomic reports failures in its payload rather than throwing,
+ * so the HTTP status is chosen here. 409 for "the world moved" (someone bought
+ * it, the quote aged out), 404 for "not yours or not there", 501 for layaway.
+ */
+const CHECKOUT_ERROR_STATUS: Record<string, number> = {
+  quote_not_found: 404,
+  quote_expired: 409,
+  quote_already_used: 409,
+  out_of_stock: 409,
+  variant_missing: 409,
+  layaway_not_yet: 501,
+  shipping_quote_required: 400,
+  unsupported_method: 400,
+  empty_quote: 400,
+};
+
+/**
+ * Shipping fee for a country at a given subtotal: the active rate row with the
+ * HIGHEST min_subtotal_jpy the subtotal clears. Returns null when the country
+ * has no published rate — the caller must then ask for a manual quote rather
+ * than shipping for free.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function shippingFor(supabase: any, country: string, subtotalJpy: number): Promise<number | null> {
+  const code = (country || "").trim().toUpperCase();
+  if (!code) return null;
+  const { data, error } = await supabase
+    .from("shipping_rates")
+    .select("fee_jpy, min_subtotal_jpy")
+    .eq("country", code)
+    .eq("is_active", true)
+    .lte("min_subtotal_jpy", subtotalJpy)
+    .order("min_subtotal_jpy", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const row = (data ?? [])[0] as AnyRec | undefined;
+  return row ? Number(row.fee_jpy) : null;
+}
+
+/** Bank / GCash details for a country, both languages. Never invented here. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function transferInstructions(supabase: any, country: string): Promise<AnyRec | null> {
+  const code = (country || "JP").trim().toUpperCase();
+  const { data, error } = await supabase
+    .from("payment_instructions")
+    .select("country, method_label_ja, method_label_en, body_ja, body_en")
+    .in("country", [code, "JP"])
+    .eq("is_active", true);
+  if (error) throw error;
+  const rows = (data ?? []) as AnyRec[];
+  return rows.find((r) => r.country === code) ?? rows.find((r) => r.country === "JP") ?? null;
+}
+
 function notFound() {
   return jsonResponse({ error: "not_found" }, 404);
 }
@@ -486,6 +549,235 @@ Deno.serve(async (req) => {
       // The RPC reports validation failures in its payload, not by throwing.
       if (result.error) return jsonResponse({ error: result.error }, 400);
       return jsonResponse(scrub(result));
+    }
+
+    // ======================================================= checkout (step 2)
+    // POST /checkout/quote — price a basket. Does NOT reserve stock; the
+    // decrement happens at /checkout/pay so an abandoned checkout never holds
+    // a one-of-a-kind piece.
+    if (req.method === "POST" && segments[0] === "checkout" && segments[1] === "quote" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+      const mode = String(body.mode ?? "full");
+      if (mode === "layaway") {
+        // Layaway checkout is step 4. Answered explicitly so the storefront can
+        // show "coming soon" rather than a generic failure.
+        return jsonResponse({ error: "not_yet" }, 501);
+      }
+      if (mode !== "full") return jsonResponse({ error: "bad_mode" }, 400);
+
+      const rawItems = Array.isArray(body.items) ? (body.items as AnyRec[]) : [];
+      if (rawItems.length === 0) return jsonResponse({ error: "empty_cart" }, 400);
+      if (rawItems.length > MAX_CART_LINES) return jsonResponse({ error: "too_many_items" }, 400);
+
+      const orderType = String(body.order_type ?? "SELF").toUpperCase();
+      if (!["SELF", "GIFT", "PROXY"].includes(orderType)) {
+        return jsonResponse({ error: "bad_order_type" }, 400);
+      }
+
+      // Shipping address must be one of THIS customer's, not any id the caller
+      // knows — otherwise a quote could be priced against a stranger's country.
+      const addressId = String(body.ship_to_address_id ?? "").trim();
+      if (!addressId) return jsonResponse({ error: "address_required" }, 400);
+      const { data: address, error: addrErr } = await supabase
+        .from("customer_addresses")
+        .select("id, country, recipient_name, phone")
+        .eq("id", addressId).eq("customer_id", customer.id).maybeSingle();
+      if (addrErr) throw addrErr;
+      if (!address) return jsonResponse({ error: "address_not_found" }, 404);
+
+      // Collapse duplicate lines before pricing so two entries for the same
+      // variant are checked against stock as one quantity.
+      const wanted = new Map<string, number>();
+      for (const raw of rawItems) {
+        const id = String(raw?.variant_id ?? "").trim();
+        if (!id) return jsonResponse({ error: "variant_id_required" }, 400);
+        const qty = Math.floor(Number(raw?.qty ?? 1));
+        if (!Number.isFinite(qty) || qty < 1) return jsonResponse({ error: "bad_quantity" }, 400);
+        wanted.set(id, (wanted.get(id) ?? 0) + qty);
+      }
+
+      const { data: variants, error: varErr } = await supabase
+        .from("website_product_variants")
+        .select("id, product_id, size, stone, price_jpy, stock_qty, product:website_products(id, sku, name, slug, status)")
+        .in("id", [...wanted.keys()]);
+      if (varErr) throw varErr;
+
+      const found = new Map((variants ?? []).map((v: AnyRec) => [String(v.id), v]));
+      const items: AnyRec[] = [];
+      let subtotal = 0;
+      for (const [variantId, qty] of wanted) {
+        const variant = found.get(variantId) as AnyRec | undefined;
+        if (!variant) return jsonResponse({ error: "variant_not_found", variant_id: variantId }, 404);
+        const product = (variant.product ?? {}) as AnyRec;
+        if (product.status !== "active") {
+          return jsonResponse({ error: "product_unavailable", variant_id: variantId }, 409);
+        }
+        if (Number(variant.stock_qty ?? 0) < qty) {
+          return jsonResponse({
+            error: "out_of_stock",
+            variant_id: variantId,
+            available: Number(variant.stock_qty ?? 0),
+          }, 409);
+        }
+        const unit = Number(variant.price_jpy ?? 0);
+        subtotal += unit * qty;
+        items.push({
+          variant_id: variantId,
+          product_id: product.id ?? variant.product_id,
+          sku: product.sku ?? null,
+          slug: product.slug ?? null,
+          name: [product.name, variant.size, variant.stone].filter(Boolean).join(" / "),
+          qty,
+          unit_price_jpy: unit,
+          line_total_jpy: unit * qty,
+        });
+      }
+
+      const shipping = await shippingFor(supabase, String(address.country ?? ""), subtotal);
+      const total = subtotal + (shipping ?? 0);
+
+      const { data: quote, error: quoteErr } = await supabase
+        .from("checkout_quotes")
+        .insert({
+          customer_id: customer.id,
+          items,
+          mode: "full",
+          order_type: orderType,
+          ship_to_address_id: address.id,
+          // Recipient details only mean something for a gift or proxy order.
+          recipient_name: orderType === "SELF" ? null : (String(body.recipient_name ?? "").trim() || null),
+          recipient_phone: orderType === "SELF" ? null : (String(body.recipient_phone ?? "").trim() || null),
+          gift_note: orderType === "GIFT" ? (String(body.gift_note ?? "").trim() || null) : null,
+          subtotal_jpy: subtotal,
+          shipping_jpy: shipping,
+          total_jpy: total,
+        })
+        .select("id, expires_at")
+        .maybeSingle();
+      if (quoteErr) throw quoteErr;
+
+      return jsonResponse(scrub({
+        quote_id: quote?.id,
+        items,
+        subtotal_jpy: subtotal,
+        shipping_jpy: shipping,
+        total_jpy: total,
+        // null shipping means we do not ship there at a published rate — the
+        // storefront must stop and ask, never assume free.
+        requires_manual_quote: shipping === null,
+        order_type: orderType,
+        expires_at: quote?.expires_at,
+      }));
+    }
+
+    // POST /checkout/pay — turn a quote into a real order.
+    if (req.method === "POST" && segments[0] === "checkout" && segments[1] === "pay" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+      const method = String(body.method ?? "transfer");
+      if (method === "square") return jsonResponse({ error: "not_yet" }, 501);
+      if (method !== "transfer") return jsonResponse({ error: "bad_method" }, 400);
+      const quoteId = String(body.quote_id ?? "").trim();
+      if (!quoteId) return jsonResponse({ error: "quote_id_required" }, 400);
+
+      // Everything that matters — re-price, stock decrement, order, items,
+      // quote consumption — happens inside this one transaction.
+      const { data, error } = await supabase.rpc("create_web_order_atomic", {
+        p_customer_id: customer.id,
+        p_quote_id: quoteId,
+        p_method: "transfer",
+      });
+      if (error) throw error;
+      const result = (data ?? {}) as AnyRec;
+      if (result.error) {
+        const status = CHECKOUT_ERROR_STATUS[String(result.error)] ?? 400;
+        return jsonResponse(result, status);
+      }
+
+      // Country comes from the order that was just written, not from the
+      // request body — the instructions shown must match where it ships.
+      const { data: placed } = await supabase
+        .from("cash_orders")
+        .select("ship_to_address:customer_addresses(country)")
+        .eq("id", String(result.order_id)).maybeSingle();
+      const country = String(
+        ((placed as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
+      );
+
+      return jsonResponse(scrub({
+        order_id: result.order_id,
+        web_reference: result.web_reference,
+        total_jpy: result.total_jpy,
+        transfer_due_at: result.transfer_due_at,
+        transfer_instructions: await transferInstructions(supabase, country),
+      }));
+    }
+
+    // GET /orders — this customer's orders, newest first.
+    if (req.method === "GET" && segments[0] === "orders" && !segments[1]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const { data, error } = await supabase
+        .from("cash_orders")
+        .select(ORDER_FIELDS)
+        .eq("customer_id", customer.id)
+        .eq("source_channel", "web")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
+    }
+
+    // GET /orders/:id — one of this customer's orders, with its lines.
+    if (req.method === "GET" && segments[0] === "orders" && segments[1] && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      // Scoped by customer_id as well as id: an order id alone must never be
+      // enough to read someone else's order.
+      const { data: order, error } = await supabase
+        .from("cash_orders")
+        .select(`${ORDER_FIELDS}, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
+        .eq("id", segments[1])
+        .eq("customer_id", customer.id)
+        .eq("source_channel", "web")
+        .maybeSingle();
+      if (error) throw error;
+      if (!order) return notFound();
+
+      const { data: items, error: itemErr } = await supabase
+        .from("cash_order_items")
+        .select("id, variant_id, product_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+        .eq("cash_order_id", order.id)
+        .order("created_at");
+      if (itemErr) throw itemErr;
+
+      const country = String((order as AnyRec).ship_to_address
+        ? ((order as AnyRec).ship_to_address as AnyRec).country ?? "JP"
+        : "JP");
+
+      return jsonResponse(scrub({
+        order,
+        items: items ?? [],
+        // Instructions are only actionable while the transfer is outstanding.
+        transfer_instructions: (order as AnyRec).payment_status === "pending_transfer"
+          ? await transferInstructions(supabase, country)
+          : null,
+      }));
     }
 
     return notFound();

@@ -45,9 +45,19 @@ interface CashOrderRow {
   item_description: string | null;
   created_at: string;
   customers: { id: string; full_name: string; messenger_link: string | null } | null;
+  source_channel: string | null;
+  web_reference: string | null;
+  payment_status: string | null;
+  transfer_due_at: string | null;
 }
 
 const statusOptions: CashOrderStatus[] = ['all', 'pending', 'completed', 'cancelled'];
+
+// Where the order came from. 'web' is storefront checkout (Phase 2 step 2);
+// everything else is staff-entered or a marketplace sync.
+type ChannelFilter = 'all' | 'web' | 'hub';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
 const PAGE_SIZE = 50;
 
 function useCashOrders() {
@@ -57,7 +67,7 @@ function useCashOrders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders' as any)
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, customers(id, full_name, messenger_link)')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, customers(id, full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as CashOrderRow[];
@@ -97,6 +107,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
 
   const [filterStatus, setFilterStatus] = useState<CashOrderStatus>('all');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
+  const [filterChannel, setFilterChannel] = useState<ChannelFilter>('all');
   const [hideTest, setHideTest] = useState(true);
   const [page, setPage] = useState(0);
   // List-kit state: sort, card density, keyboard navigation.
@@ -119,14 +130,18 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     const search = searchRef.current.toLowerCase();
     const matchesSearch = !search ||
       (o.invoice_number || '').toLowerCase().includes(search) ||
-      (o.customers?.full_name || '').toLowerCase().includes(search);
+      (o.customers?.full_name || '').toLowerCase().includes(search) ||
+      // Customers quote CJ-W-000123, not the invoice number, when they write in.
+      (o.web_reference || '').toLowerCase().includes(search);
     const matchesStatus = filterStatus === 'all' || o.status === filterStatus;
     const matchesCurrency = filterCurrency === 'all' || o.currency === filterCurrency;
+    const isWeb = o.source_channel === 'web';
+    const matchesChannel = filterChannel === 'all' || (filterChannel === 'web' ? isWeb : !isWeb);
     const isTest = (o.invoice_number || '').startsWith('TEST-');
     const matchesTest = !hideTest || !isTest;
-    return matchesSearch && matchesStatus && matchesCurrency && matchesTest;
+    return matchesSearch && matchesStatus && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [orders, filterTick, filterStatus, filterCurrency, hideTest]);
+  }), [orders, filterTick, filterStatus, filterCurrency, filterChannel, hideTest]);
 
   // CSV export of the currently-filtered cash orders. Exposed via exportRef
   // so a parent (Sales workspace toolbar) can trigger the download button.
@@ -240,6 +255,21 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                 }`}
               >
                 {c === 'all' ? 'All' : c}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
+            {channelOptions.map((c) => (
+              <button
+                key={c}
+                onClick={() => setFilterChannel(c)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                  filterChannel === c
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {channelLabels[c]}
               </button>
             ))}
           </div>

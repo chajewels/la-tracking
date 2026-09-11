@@ -23,7 +23,7 @@ Supabase. Check those separately.
 
 ## 1. The read path — `website` edge function
 
-Source: `supabase/functions/website/index.ts` (252 lines). One function, routes
+Source: `supabase/functions/website/index.ts` (791 lines). One function, routes
 on path, so both `/website/x` and `/functions/v1/website/x` resolve.
 
 **Auth:** header `x-api-key` must equal the secret `WEBSITE_API_KEY`.
@@ -50,6 +50,10 @@ them to `PRODUCT_FIELDS`.
 | `POST /auth/customer` | **Customer JWT + API key** | Links or creates the `customers` row for the signed-in user. 409 `email_already_linked` when another auth user owns that email. Does NOT auto-enrol in loyalty. |
 | `GET /me` | **Customer JWT + API key** | Profile, addresses, loyalty snapshot, `saved_card` (always false until step 3). 404 `not_linked` before `/auth/customer` has run. |
 | `PUT /me/addresses` | **Customer JWT + API key** | Replaces the whole address list via the `replace_customer_addresses` RPC — atomic, so a bad payload leaves the existing list intact. |
+| `POST /checkout/quote` | **Customer JWT + API key** | Prices a basket. Body `{items:[{variant_id,qty}], mode:'full', order_type, ship_to_address_id, recipient_name?, recipient_phone?, gift_note?}`. `mode:'layaway'` → 501 `not_yet` (step 4). Does **not** reserve stock. |
+| `POST /checkout/pay` | **Customer JWT + API key** | Body `{quote_id, method:'transfer'}`. `method:'square'` → 501 `not_yet` (step 3). Calls `create_web_order_atomic`. |
+| `GET /orders` | **Customer JWT + API key** | This customer's web orders, newest first, 50. |
+| `GET /orders/:id` | **Customer JWT + API key** | One order + its lines + transfer instructions while unpaid. Scoped by `customer_id`, so an order id alone is never enough. |
 | `POST /wholesale/inquiry` | Wholesale form | Body `{ name, business, email, phone?, market, volume, notes?, lang }`. `market` JP\|PH\|BOTH\|OTHER, `volume` TEST\|20_50\|50_200\|200_PLUS, `lang` ja\|en. Writes `wholesale_inquiries`. |
 
 ### Customer account routes — two credentials, not one (Phase 2 step 1)
@@ -99,6 +103,67 @@ The lesson worth keeping: the pre-check counted
 INSERT read `COALESCE(address_line1, city, location)`. The estimate and the
 write looked at different columns, so the estimate could not have caught this.
 Count the exact expression the write uses.
+
+### Checkout and web orders (Phase 2 step 2)
+
+**A web order is a `cash_order`.** The step-2 task named `orders` / `order_items`
+/ `layaway_plans` / `layaway_payments` as existing tables to extend. None of
+those exist — the live shapes are `cash_orders`, `cash_order_items`,
+`layaway_accounts`, and `payments` + `layaway_schedule`. The task's own rule
+("if a different shape exists, map to it") was followed: `cash_orders` gained
+web columns and `source_channel = 'web'`. Creating parallel tables would have
+been the fork the task forbids, and would have hidden every web order from
+award-loyalty-points, the store-credit cancellation policy, the numeric
+test-account exclusion, Finance KPIs and the staff bell.
+
+**Two identifiers, on purpose.**
+
+| Column | Who sees it | Why |
+|---|---|---|
+| `invoice_number` | Hub / Finance | NOT NULL, UNIQUE, and **numeric** — CLAUDE.md's test-account exclusion treats `invoice_number ~ '^[0-9]+$'` as "this is a real account". Web orders draw from `web_order_number_seq`, starting at 900001, well clear of the physical invoice book (highest live value 19656). |
+| `web_reference` | Customer | `CJ-W-000123`, derived from the same sequence value. Display only, never a financial key. |
+
+**Status is two columns, and only one of them is new.** The `cash_order_status`
+enum (`pending` / `completed` / `cancelled` / `expired`) is untouched, so every
+existing Hub surface keeps working. A web order awaiting a transfer is
+`status='pending'` + `payment_status='pending_transfer'`; confirming the
+transfer makes it `status='completed'` + `payment_status='paid'`.
+
+**"Confirm transfer received" writes nothing bespoke.** It opens the same
+`RecordCashPaymentDialog` staff already use, so the payment goes through
+`submit-cash-payment` → `review-payment-submission` — the only writer of the
+`payments` table, and the thing that fires `award-loyalty-points` and the
+receipt. `payment_status` follows `status` by the
+`trg_sync_web_order_payment_status` trigger, so no caller has to remember it.
+
+**Stock is decremented at pay time, never at quote time.** A quote is a 30-minute
+price hold, not a reservation, so an abandoned checkout cannot sit on a
+one-of-a-kind piece. `create_web_order_atomic` does the re-price check, the
+`WHERE stock_qty >= qty` decrement, the order, the items and the quote
+consumption in **one transaction** — two buyers cannot both clear a stock check.
+Failure returns `{error}` in the payload (mapped to 409 `out_of_stock` etc.),
+not a 500.
+
+**72 hours, then the stock comes back.** `expire_transfer_orders()` runs hourly
+at `:17` and cancels unpaid web transfer orders past `transfer_due_at`,
+restoring each line's `stock_qty`. It is a **SQL function called directly by
+pg_cron**, not an edge function: no HTTP hop and no Vault service key to drift
+out of sync (the failure CLAUDE.md's CRON AUTH RULE exists to prevent), and the
+cancel plus the restore land in one transaction. `transfer_due_at` is
+deliberately **not** `expires_at` — the existing `auto-expire-cash-orders` cron
+acts on `expires_at` and would flip the order to `expired` *without* restoring
+stock.
+
+**Shipping is a rate card, and silence means "ask".** `shipping_rates(country,
+min_subtotal_jpy, fee_jpy)` — seeded JP ¥800 / free ≥¥50,000, PH ¥3,500 / free
+≥¥100,000. The match is the highest `min_subtotal_jpy` the subtotal clears. A
+country with no active row returns `shipping_jpy: null` and
+`requires_manual_quote: true`; the storefront must stop and ask rather than ship
+for free.
+
+**`payment_instructions` ships with placeholders.** JP bank and PH GCash rows
+exist in JA and EN saying details will follow by email. **Never populate this
+table with invented account numbers** — Cynthia enters the real ones in the Hub.
 
 ### Loyalty tier field mapping
 
