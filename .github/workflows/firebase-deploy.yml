@@ -1,9 +1,29 @@
 name: Deploy to Firebase Hosting
 
+# BRANCH WORKFLOW (see CLAUDE.md "Git Workflow")
+#   main    -> production hosting (chajewelslayaway). Changed only by a PR from
+#              develop, merged by Cynthia — plus Lovable's own commits, which
+#              land on main by design (documented exception in CLAUDE.md).
+#   develop -> the `develop` preview channel. This is where Claude Code's work
+#              lands, directly or via feature branches.
+#   any PR   -> its own `pr-<number>` preview channel, URL posted on the PR.
+#
+# `pull_request.branches` filters on the BASE branch, not the head. Both bases
+# are listed so a feature -> develop PR is checked as well as develop -> main;
+# filtering to main alone silently left feature PRs with no CI at all.
+
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
   workflow_dispatch:
+
+# One deploy per branch or PR at a time. A second push supersedes the first
+# rather than racing it onto the same channel.
+concurrency:
+  group: hosting-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
@@ -11,6 +31,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v5
@@ -23,6 +44,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Gates run on EVERY trigger — main, develop and pull requests alike.
+      # A preview that was never typechecked is not a useful preview.
       - name: Typecheck
         run: npx tsc -p tsconfig.app.json --noEmit
 
@@ -35,13 +58,88 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools@15.22.4
 
-      - name: Deploy to Firebase Hosting
+      - name: Write Firebase credentials
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/gcp-key.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
-          firebase deploy --only hosting --project cha-jewels-la-tracking --non-interactive --debug
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      # ------------------------------------------------------------ production
+      # Only a push to main (or a deliberate manual run on main) reaches the
+      # live site. A pull request never can, whatever its base branch.
+      - name: Deploy to production hosting
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && github.ref == 'refs/heads/main'
+        run: |
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
+          firebase deploy --only hosting \
+            --project cha-jewels-la-tracking --non-interactive --debug
+
+      # --------------------------------------------------------------- preview
+      # develop pushes refresh one long-lived `develop` channel; each PR gets
+      # its own `pr-<number>` channel so two open PRs never overwrite each
+      # other's preview. --only main is the HOSTING TARGET name from
+      # .firebaserc (target `main` -> site `chajewelslayaway`), not the branch.
+      - name: Deploy to preview channel
+        id: preview
+        if: >-
+          github.event_name == 'pull_request'
+          || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+              && github.ref == 'refs/heads/develop')
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANNEL="pr-${{ github.event.pull_request.number }}"
+          else
+            CHANNEL="develop"
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
+          # No --debug here: it writes to stdout and would corrupt --json.
+          firebase hosting:channel:deploy "$CHANNEL" \
+            --only main \
+            --project cha-jewels-la-tracking \
+            --expires 30d \
+            --non-interactive --json > channel.json
+
+          URL=$(jq -r '.result | to_entries[0].value.url // empty' channel.json)
+          EXPIRES=$(jq -r '.result | to_entries[0].value.expireTime // empty' channel.json)
+          if [ -z "$URL" ]; then
+            echo "::error::Channel deploy produced no URL"; cat channel.json; exit 1
+          fi
+          echo "url=$URL"         >> "$GITHUB_OUTPUT"
+          echo "expires=$EXPIRES" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preview channel::$CHANNEL -> $URL"
+          {
+            echo "### Firebase Hosting preview"
+            echo
+            echo "Channel \`$CHANNEL\` — $URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # One sticky comment per PR, edited in place. Posting a fresh comment on
+      # every push would bury the review conversation under deploy notices.
+      - name: Post the preview URL on the PR
+        if: github.event_name == 'pull_request' && steps.preview.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.preview.outputs.url }}
+          CHANNEL: ${{ steps.preview.outputs.channel }}
+          EXPIRES: ${{ steps.preview.outputs.expires }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- firebase-hosting-preview -->'
+          BODY=$(printf '%s\n\n**Firebase Hosting preview**\n\n| Channel | Preview | Commit | Expires |\n| --- | --- | --- | --- |\n| `%s` | %s | `%s` | %s |\n' \
+            "$MARKER" "$CHANNEL" "$URL" "${GITHUB_SHA:0:7}" "${EXPIRES:-30d}")
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+                 --jq "map(select(.body | startswith(\"$MARKER\"))) | .[0].id // empty")
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -f body="$BODY" >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$BODY" >/dev/null
+          fi
 
   edge-functions:
     name: Edge functions

@@ -339,10 +339,13 @@ To add a new screenshot for any Help section:
     - .github/workflows/.github/workflows/firebase-hosting.yml — INERT
       nested duplicate workflow (survives — lives outside src/, needs its
       own cleanup commit; GitHub never executes nested paths). NOTE: the
-      REAL deploy workflow .github/workflows/firebase-deploy.yml is LIVE —
-      pushes to main deploy the frontend to production hosting; feature
-      branches deploy nothing. docs/AUTO-DEPLOY.md describes a different,
-      removed workflow (Supabase edge functions) and does not apply.
+      REAL deploy workflow .github/workflows/firebase-deploy.yml is LIVE.
+      As of 2026-09-11 it deploys to PRODUCTION hosting only on a push to
+      main; pushes to develop go to the `develop` preview channel and each
+      PR gets a `pr-<number>` channel with the URL posted on the PR. The
+      Typecheck and Deno gates run on all three. docs/AUTO-DEPLOY.md
+      describes a different, removed workflow (Supabase edge functions)
+      and does not apply.
     - PACKAGE-LOCK PRIVATE-REGISTRY QUIRK (RESOLVED 2026-09-09): from
       fbc9338 (MCP integration) until 2026-09-09, package-lock.json pinned
       ~94 tarball URLs to Lovable's private registry
@@ -700,10 +703,58 @@ To add a new screenshot for any Help section:
     (leave paid_amount / allocated untouched). NEVER flatten total_due_amount to
     actual_remaining — that overwrites the gross and breaks void/restore.
 
-## Git Workflow
+## Git Workflow — NON-NEGOTIABLE (changed 2026-09-11)
 
-- Commit and push all changes directly to **main** branch
-- Do NOT create feature branches unless explicitly asked
+**`main` is production.** A push to `main` deploys the Hub frontend to live
+Firebase Hosting (`chajewelslayaway`). It is changed only by a PR from
+`develop`, merged by Cynthia — plus Lovable, see the exception below.
+
+**`develop` is where work lands.** All Claude Code work goes to `develop`, or to
+a short-lived feature branch merged into `develop`. Never push to `main`
+directly. A push to `develop` deploys to the `develop` Firebase Hosting preview
+channel; every PR gets its own `pr-<number>` channel, and the workflow posts the
+URL as a single sticky comment on the PR.
+
+This replaces the previous rule ("commit and push all changes directly to
+main"), which is why `main` used to be edited directly throughout this file's
+history. The same workflow is in force on the storefront repo
+(`chajewels/cha-jewels-web`); the two now match.
+
+### THE LOVABLE EXCEPTION — main is not protected against Lovable
+
+Lovable mirrors `main` and commits its own work to `main`. It does not use
+`develop` and cannot be made to. **This is accepted, not a gap**, because
+Lovable only touches the repo when Cynthia approves a message — the human
+review that a PR would otherwise provide happens before the message is sent,
+not after the commit lands. In effect an approved Lovable message *is* the
+review.
+
+Two consequences to work with rather than around:
+
+- **Never assume `main` equals `develop`.** Lovable may have moved `main` since
+  `develop` branched. Before opening a `develop` -> `main` PR, and before any
+  work that reads `main`, fetch it: `git fetch origin main`. Merge `main` into
+  `develop` when it has moved; never rebase `develop` onto it (other branches
+  are cut from `develop`).
+- **Do not "clean up" Lovable's direct commits to `main`.** They are legitimate.
+
+### MIGRATIONS MUST BE ON `main` BEFORE A LOVABLE APPLY MESSAGE
+
+Lovable deploys and applies migrations from its mirror of `main`. A migration
+sitting on `develop` is invisible to it, and an apply message naming a file
+Lovable cannot see fails its own source assertions — which is the intended
+behaviour, not a bug to work around by weakening the assertions.
+
+So a step's Hub work is merged **once, at the end of the step**: the migration
+and the Hub frontend that depends on it go `develop` -> `main` in the same PR,
+and only then is the Lovable apply-and-deploy message sent. Never merge a
+migration to `main` ahead of the frontend that needs it, and never send an apply
+message for a migration that is still on `develop`.
+
+Every Lovable apply message must still assert on SOURCE CONTENT (grep counts
+plus line counts) before applying or deploying, and STOP if an assertion fails —
+see "GENERATED FILES & DEPLOY VERIFICATION".
+
 - Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.
 
 ## TOOL OWNERSHIP RULES (updated 2026-05-10)
