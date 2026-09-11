@@ -41,3 +41,19 @@ COMMENT ON COLUMN public.website_products.brand IS
 --   -- every existing row is UNKNOWN, none carries a brand
 --   SELECT origin, count(*) FROM public.website_products GROUP BY origin;
 --   SELECT count(*) FROM public.website_products WHERE brand IS NOT NULL;
+
+-- ================================================ trigger message follows
+-- reject_forbidden_gold_terms() still told staff to write "K18 gold, Made in
+-- Japan" whenever it rejected a country-branded gold term — the very habit this
+-- migration ends. Same regex, same behaviour, new message. Origin now has a
+-- column; the description is not where it goes.
+CREATE OR REPLACE FUNCTION public.reject_forbidden_gold_terms()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF coalesce(NEW.name,'') || ' ' || coalesce(NEW.description_en,'') || ' ' || coalesce(NEW.description_ja,'')
+     ~* '\m(japan(ese)?|saudi|italian|dubai|hk|chinese) gold\M' THEN
+    RAISE EXCEPTION 'Forbidden gold terminology. Describe purity as "K18 gold"; origin is set in the product''s Origin field, not in the description.';
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.reject_forbidden_gold_terms() FROM anon, authenticated, PUBLIC;
