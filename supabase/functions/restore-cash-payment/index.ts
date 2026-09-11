@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -204,6 +205,9 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("id", body.cash_payment_id)
       .single();
+
+    // Sheet row now reflects the restored payment (Bug #263 follow-up). Awaited, non-blocking.
+    await refreshPaymentTracking(cashOrder.invoice_number, "restore-cash-payment");
 
     return jsonResponse(200, {
       success: true,

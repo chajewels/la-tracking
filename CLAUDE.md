@@ -2079,6 +2079,10 @@ Customer / Amount), non-blocking relative to the tracking output.
 
 2026-07-06: pre-cohort payment months are totalled into the first month column (merged by column), not dropped — Bug #246.
 
+2026-09-11: append-payment-tracking is now a per-invoice REWRITE (not additive). It locates the invoice across every sheet in system_settings.payment_tracking_sheets ([{id, cohort:"YYYY-MM"}], newest first) and rewrites G..(TOTAL-1) from get_tracking_for_invoices. Body: { invoice_number }. fill-payment-tracking prepends each generated sheet to that array; the scalar payment_tracking_sheet_id is kept for compatibility only. Callers must await the call (isolate shutdown killed unawaited appends).
+
+2026-09-11 (follow-up): every payment-mutation edge function (review-payment-submission, void-payment, edit-payment-amount, restore-payment, void-cash-payment, restore-cash-payment) calls `refreshPaymentTracking(invoice, caller)` from `_shared/payment-tracking.ts` before returning. Any new function that inserts, voids, edits, or restores a payment MUST add the same call. Only exception: shopify-webhook (Shopify orders are not in tracking rosters).
+
 ## SERVICES RULE (added 2026-04-12)
 
   account_services are included in total_amount at the time of service creation.
@@ -2221,6 +2225,11 @@ Customer / Amount), non-blocking relative to the tracking output.
    green. Evidence: deploy #1896 (2026-07-07) failed at Typecheck on a
    TransactionsTab error that bare `tsc --noEmit` had passed all
    session long.
+
+   Canonical typecheck: `npx tsc -p tsconfig.app.json --noEmit` — exit 0
+   with no output as of 2026-09-11 (f31ab09). Any error is a regression;
+   there is no accepted baseline. (`tsc --noEmit` without -p is a
+   documented false green.)
 
 6. KPI + CHART ANIMATION STANDARDS (set 2026-07-07):
    - KPI cards rendered with the shared StatCard pass countUpValue +

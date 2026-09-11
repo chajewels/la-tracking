@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -198,6 +199,9 @@ Deno.serve(async (req) => {
         console.warn("[void-cash-payment] revoke block failed (non-blocking):", revokeErr);
       }
     }
+
+    // Sheet row now reflects the void (Bug #263 follow-up). Awaited, non-blocking.
+    await refreshPaymentTracking(order.invoice_number, "void-cash-payment");
 
     // 8. Return updated records
     return new Response(JSON.stringify({

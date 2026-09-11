@@ -8,36 +8,35 @@ const corsHeaders = {
 };
 
 /**
- * append-payment-tracking
+ * append-payment-tracking (v2 — per-invoice rewrite)
  *
- * Incrementally updates the ALREADY-GENERATED payment tracking Google Sheet
- * (id in system_settings.payment_tracking_sheet_id) after a single confirmed
- * payment — WITHOUT regenerating the sheet (that is fill-payment-tracking's job).
+ * Rewrites ONE invoice's month cells on whichever registered tracking sheet
+ * holds it, using get_tracking_for_invoices as the single source of truth
+ * (same RPC + same cohort/offset/pre-cohort-merge logic as fill-payment-tracking).
+ * Idempotent: safe to call after confirm, void, edit, restore.
  *
- * Service-role only (isServiceRole). Fire-and-forget caller:
- * review-payment-submission on each confirm. Never throws — returns
- * { ok: false, error } on failure so the caller is never blocked.
+ * Sheets are registered in system_settings.payment_tracking_sheets:
+ *   [{ "id": "<spreadsheetId>", "cohort": "YYYY-MM" }, ...]  (newest first)
+ * fill-payment-tracking prepends its output on every successful run.
  *
- * Sheet conventions (mirrors fill-payment-tracking):
- *   - Two tabs: "Overseas", "Japan".
- *   - Column B (index 1) holds the invoice number; the header row has
- *     "Customer" in column B.
- *   - Column D (index 3) = Sum of Amt Paid Posted; E (index 4) = Sum of Balance.
- *   - Month columns start at G (FIRST_MONTH_COL = 6); the header row labels
- *     them MAY/JUN/JUL... — match the payment month abbreviation.
+ * Body: { invoice_number }. Service-role only. Never throws to the caller;
+ * returns { ok:false, error } on failure. Only columns G..(TOTAL-1) on the
+ * invoice row are written; C/D/E/TOTAL formulas are left untouched.
  */
 
-const MONTH_ABBR = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const FIRST_MONTH_COL = 6; // column G (0-indexed)
-const COL_PAID = 3;        // column D — Sum of Amt Paid Posted
-const COL_BALANCE = 4;     // column E — Sum of Balance
 const TABS = ["Overseas", "Japan"];
 
+type SheetReg = { id: string; cohort: string };
+type TrackingRow = { invoice_number: string; order_date: string | null; status: string | null; month_paid_jpy: Record<string, number> | null };
+
 function colLetter(index: number): string {
-  return String.fromCharCode(65 + index);
+  let s = "";
+  let n = index;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
 }
 
-/** Row index whose column B (index 1) matches `colB` (case-insensitive). */
 function findRowIdx(rows: string[][], colB: string): number {
   const want = colB.trim().toLowerCase();
   for (let i = 0; i < rows.length; i++) {
@@ -46,12 +45,19 @@ function findRowIdx(rows: string[][], colB: string): number {
   return -1;
 }
 
-/** Parse a money-ish cell: strip commas/spaces/symbols. Blank/missing → 0. */
-function num(s: unknown): number {
-  const cleaned = String(s ?? "").replace(/[^0-9.\-]/g, "");
-  if (cleaned === "" || cleaned === "-") return 0;
+function findTotalCol(hdrRow: string[]): number {
+  for (let c = 0; c < hdrRow.length; c++) {
+    if (String(hdrRow[c] ?? "").trim().toUpperCase() === "TOTAL") return c;
+  }
+  return -1;
+}
+
+function parseMoney(s: unknown): number | null {
+  if (s === null || s === undefined) return null;
+  const cleaned = String(s).replace(/[^0-9.\-]/g, "");
+  if (cleaned === "" || cleaned === "-") return null;
   const n = Number(cleaned);
-  return Number.isNaN(n) ? 0 : n;
+  return isNaN(n) ? null : n;
 }
 
 async function readTab(token: string, sheetId: string, tab: string): Promise<string[][]> {
@@ -65,133 +71,111 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-  // Service-role-only gate.
   const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (!isServiceRole(authToken)) {
-    return json({ ok: false, error: "Forbidden" }, 403);
-  }
+  if (!isServiceRole(authToken)) return json({ ok: false, error: "Forbidden" }, 403);
 
+  let invoice_number = "";
   try {
-    const body = await req.json().catch(() => null) as
-      | { invoice_number?: string; payment_date?: string; amount_jpy?: number; currency?: string }
-      | null;
+    const body = await req.json().catch(() => null) as { invoice_number?: string } | null;
     if (!body) return json({ ok: false, error: "Invalid JSON body" }, 400);
+    invoice_number = String(body.invoice_number ?? "").trim();
+    if (!invoice_number) return json({ ok: false, error: "invoice_number required" }, 400);
 
-    const invoice_number = String(body.invoice_number ?? "").trim();
-    const payment_date = String(body.payment_date ?? "").trim();
-    const amount_jpy = Number(body.amount_jpy ?? 0);
-    const currency = String(body.currency ?? "");
-    if (!invoice_number || !payment_date || !Number.isFinite(amount_jpy)) {
-      return json({ ok: false, error: "invoice_number, payment_date, amount_jpy required" }, 400);
-    }
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
-    // 1. Sheet id from system_settings.payment_tracking_sheet_id (jsonb scalar).
+    // 1. Registered sheets (newest first).
     const { data: setting, error: settingErr } = await supabase
-      .from("system_settings")
-      .select("value")
-      .eq("key", "payment_tracking_sheet_id")
-      .maybeSingle();
-    if (settingErr) return json({ ok: false, error: `settings read failed: ${settingErr.message}` }, 500);
-
-    let sheetId = "";
+      .from("system_settings").select("value").eq("key", "payment_tracking_sheets").maybeSingle();
+    if (settingErr) return json({ ok: false, invoice_number, error: `settings read failed: ${settingErr.message}` });
+    let regs: SheetReg[] = [];
     const raw = setting?.value;
-    if (raw != null) {
-      if (typeof raw === "string") {
-        try {
-          const parsed = JSON.parse(raw);
-          sheetId = typeof parsed === "string" ? parsed : String(parsed ?? "");
-        } catch {
-          sheetId = raw;
-        }
-      } else {
-        sheetId = String(raw);
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed)) {
+        regs = parsed
+          .filter((x) => x && typeof x.id === "string" && /^\d{4}-\d{2}$/.test(String(x.cohort ?? "")))
+          .map((x) => ({ id: String(x.id).trim(), cohort: String(x.cohort) }));
       }
-    }
-    sheetId = sheetId.trim();
-    if (!sheetId) return json({ ok: false, error: "payment_tracking_sheet_id not set" }, 200);
+    } catch { /* fall through to empty */ }
+    if (regs.length === 0) return json({ ok: false, invoice_number, error: "payment_tracking_sheets not set or empty" });
 
-    // 2. Google auth.
+    // 2. Google auth + locate the invoice across registered sheets.
     const token = await getServiceAccountAccessToken();
-
-    // 3 + 4. Read both tabs, locate the invoice in column B.
-    let foundTab: string | null = null;
-    let rows: string[][] = [];
-    let rowIdx = -1;
-    for (const tab of TABS) {
-      const tabRows = await readTab(token, sheetId, tab);
-      const idx = findRowIdx(tabRows, invoice_number);
-      if (idx >= 0) {
-        foundTab = tab;
-        rows = tabRows;
-        rowIdx = idx;
-        break;
+    let hit: { reg: SheetReg; tab: string; rows: string[][]; rowIdx: number } | null = null;
+    for (const reg of regs) {
+      for (const tab of TABS) {
+        let tabRows: string[][];
+        try { tabRows = await readTab(token, reg.id, tab); }
+        catch (e) { console.warn(`[append-payment-tracking] ${invoice_number}: skip ${reg.id}/${tab}: ${(e as Error).message}`); continue; }
+        const idx = findRowIdx(tabRows, invoice_number);
+        if (idx >= 0) { hit = { reg, tab, rows: tabRows, rowIdx: idx }; break; }
       }
+      if (hit) break;
     }
-    if (!foundTab) {
-      // New accounts not yet in the sheet are silently skipped.
-      return json({ ok: true, note: "invoice not in sheet" });
-    }
+    if (!hit) return json({ ok: true, invoice_number, note: "invoice not in any registered sheet" });
 
-    // 5. Header row (column B = "Customer") → month column mapping.
+    const { reg, tab, rows, rowIdx } = hit;
     const hdrIdx = findRowIdx(rows, "Customer");
-    if (hdrIdx < 0) return json({ ok: false, error: `no "Customer" header in tab ${foundTab}` }, 200);
-
-    const monthNum = parseInt(payment_date.slice(5, 7), 10); // 1..12
-    if (!monthNum || monthNum < 1 || monthNum > 12) {
-      return json({ ok: false, error: `bad payment_date month: ${payment_date}` }, 200);
-    }
-    const wantAbbr = MONTH_ABBR[monthNum - 1];
+    if (hdrIdx < 0) return json({ ok: false, invoice_number, error: `no "Customer" header in ${reg.id}/${tab}` });
     const hdrRow = rows[hdrIdx] ?? [];
-    let monthCol = -1;
-    for (let c = FIRST_MONTH_COL; c < hdrRow.length; c++) {
-      if (String(hdrRow[c] ?? "").trim().toUpperCase() === wantAbbr) {
-        monthCol = c;
-        break;
-      }
-    }
-    if (monthCol < 0) {
-      return json({ ok: false, error: `month ${wantAbbr} column not found in tab ${foundTab}` }, 200);
+    const totalCol = findTotalCol(hdrRow);
+    if (totalCol <= FIRST_MONTH_COL) return json({ ok: false, invoice_number, error: `no "TOTAL" header in ${reg.id}/${tab}` });
+
+    const cm = /^(\d{4})-(\d{2})$/.exec(reg.cohort)!;
+    const cohortYear = parseInt(cm[1], 10);
+    const cohortMonth = parseInt(cm[2], 10);
+
+    // 3. DB truth for this invoice.
+    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_tracking_for_invoices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_invoices: [invoice_number] }),
+    });
+    if (!rpcRes.ok) return json({ ok: false, invoice_number, error: `RPC failed (${rpcRes.status}): ${await rpcRes.text()}` });
+    const tracking: TrackingRow[] = await rpcRes.json();
+    const merged: Record<string, number> = {};
+    for (const t of tracking) {
+      for (const [ym, v] of Object.entries(t.month_paid_jpy ?? {})) merged[ym] = (merged[ym] ?? 0) + Number(v);
     }
 
-    // 6 + 7. Invoice row: read current values, compute new cumulative totals.
+    // 4. Month → column, identical to fill-payment-tracking (pre-cohort → first column, merge by column).
+    const byCol = new Map<number, number>();
+    for (const [ym, value] of Object.entries(merged)) {
+      const m = /^(\d{4})-(\d{2})$/.exec(ym);
+      if (!m) continue;
+      const offset = (parseInt(m[1], 10) - cohortYear) * 12 + (parseInt(m[2], 10) - cohortMonth);
+      const colIndex = offset < 0 ? FIRST_MONTH_COL : FIRST_MONTH_COL + offset;
+      if (colIndex >= totalCol) continue;
+      byCol.set(colIndex, (byCol.get(colIndex) ?? 0) + value);
+    }
     const invoiceRow = rows[rowIdx] ?? [];
-    const newMonth = num(invoiceRow[monthCol]) + amount_jpy;
-    const newPaid = num(invoiceRow[COL_PAID]) + amount_jpy;
-    const newBalance = num(invoiceRow[COL_BALANCE]) - amount_jpy;
-
-    const rowNum = rowIdx + 1; // 1-based sheet row
-
-    // 8. Single batchUpdate (USER_ENTERED): month cell, col D, col E.
-    const data = [
-      { range: `${foundTab}!${colLetter(monthCol)}${rowNum}`, values: [[newMonth]] },
-      { range: `${foundTab}!${colLetter(COL_PAID)}${rowNum}`, values: [[newPaid]] },
-      { range: `${foundTab}!${colLetter(COL_BALANCE)}${rowNum}`, values: [[newBalance]] },
-    ];
-    const updRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
-      },
-    );
-    if (!updRes.ok) {
-      throw new Error(`values:batchUpdate failed (${updRes.status}): ${await updRes.text()}`);
+    const rowTotal = parseMoney(invoiceRow[2]);
+    const cells = [...byCol.entries()].map(([col, value]) => ({ col, value }));
+    if (rowTotal !== null && cells.length > 0) {
+      const sum = cells.reduce((a, c) => a + c.value, 0);
+      if (sum > rowTotal) { const diff = sum - rowTotal; cells.sort((a, b) => b.value - a.value); cells[0].value = Math.max(0, cells[0].value - diff); }
     }
+    const valueByCol = new Map(cells.map((c) => [c.col, c.value]));
+    const rowValues: (number | string)[] = [];
+    for (let c = FIRST_MONTH_COL; c < totalCol; c++) rowValues.push(valueByCol.has(c) ? valueByCol.get(c)! : "");
 
-    return json({ ok: true, invoice_number, tab: foundTab, row: rowNum, amount_jpy, currency });
+    // 5. Single write: G..(TOTAL-1) on the invoice row. C/D/E/TOTAL untouched.
+    const rowNum = rowIdx + 1;
+    const range = `${tab}!${colLetter(FIRST_MONTH_COL)}${rowNum}:${colLetter(totalCol - 1)}${rowNum}`;
+    const updRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${reg.id}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ range, majorDimension: "ROWS", values: [rowValues] }),
+    });
+    if (!updRes.ok) return json({ ok: false, invoice_number, error: `values.update failed (${updRes.status}): ${await updRes.text()}` });
+
+    return json({ ok: true, invoice_number, sheet: reg.id, cohort: reg.cohort, tab, row: rowNum, months_written: cells.length });
   } catch (err) {
-    console.error("[append-payment-tracking] error:", err);
-    return json({ ok: false, error: (err as Error).message || "internal_error" }, 200);
+    console.error(`[append-payment-tracking] ${invoice_number} error:`, err);
+    return json({ ok: false, invoice_number, error: (err as Error).message || "internal_error" });
   }
 });
