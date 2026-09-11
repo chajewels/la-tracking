@@ -538,36 +538,18 @@ Deno.serve(async (req) => {
           if (error) console.warn("[review-payment-submission] sales_log auto-flip (cash order) failed (non-blocking):", error);
         });
 
-      // Fire-and-forget: incrementally update the payment tracking sheet (cash order).
+      // Refresh the payment tracking sheet row for this cash order (awaited so the
+      // isolate does not shut down mid-request; never blocks the confirmation).
       try {
-        let phpJpyRate = 1.0;
-        const { data: rateRow } = await supabase
-          .from("system_settings")
-          .select("value")
-          .eq("key", "php_jpy_rate")
-          .single();
-        if (rateRow?.value) {
-          const parsed = parseFloat(String(rateRow.value));
-          if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
-        }
-        const amount_jpy = cashOrder.currency === "JPY"
-          ? submission.submitted_amount
-          : Math.round(submission.submitted_amount / phpJpyRate);
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
+        const trkRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            invoice_number: cashOrder.invoice_number,
-            payment_date: submission.payment_date,
-            amount_jpy,
-            currency: cashOrder.currency,
-          }),
-        }).catch(err => console.warn("[review-payment-submission] append-payment-tracking failed:", err));
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+          body: JSON.stringify({ invoice_number: cashOrder.invoice_number }),
+        });
+        const trkJson = await trkRes.json().catch(() => null);
+        if (!trkJson?.ok) console.warn("[review-payment-submission] append-payment-tracking (cash) not ok:", cashOrder.invoice_number, trkJson);
       } catch (e) {
-        console.warn("[review-payment-submission] append-payment-tracking (cash) prep failed (non-blocking):", e);
+        console.warn("[review-payment-submission] append-payment-tracking (cash) failed (non-blocking):", e);
       }
 
       // 7. Fire-and-forget: cash-payment-confirmed email
@@ -1065,45 +1047,34 @@ Deno.serve(async (req) => {
         });
     }
 
-    // Fire-and-forget: incrementally update the payment tracking sheet (layaway).
-    if (confirmedPaymentIds.length === 1 && submission.account_id && layawayInvoiceNumber) {
-      try {
-        // `account` is not in scope here — fetch the account's currency the same
-        // way layawayInvoiceNumber was fetched above.
-        const { data: acctRow } = await supabase
-          .from("layaway_accounts")
-          .select("currency")
-          .eq("id", submission.account_id)
-          .single();
-        const acctCurrency = acctRow?.currency ?? "JPY";
-        let phpJpyRate = 1.0;
-        const { data: rateRow } = await supabase
-          .from("system_settings")
-          .select("value")
-          .eq("key", "php_jpy_rate")
-          .single();
-        if (rateRow?.value) {
-          const parsed = parseFloat(String(rateRow.value));
-          if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+    // Refresh the payment tracking sheet row for EVERY confirmed invoice
+    // (single or multi-invoice split). Awaited so the isolate does not shut
+    // down mid-request; each call is isolated and never blocks the confirmation.
+    if (confirmedPaymentIds.length > 0) {
+      const trackingInvoices = new Set<string>();
+      const isSingleForTracking = allocs.length === 0 ||
+        (allocs.length === 1 && allocs[0].account_id === submission.account_id);
+      if (isSingleForTracking) {
+        if (layawayInvoiceNumber) trackingInvoices.add(layawayInvoiceNumber);
+        else if (submission.account_id) {
+          const { data: invRow2 } = await supabase.from("layaway_accounts").select("invoice_number").eq("id", submission.account_id).single();
+          if (invRow2?.invoice_number) trackingInvoices.add(invRow2.invoice_number);
         }
-        const amount_jpy = acctCurrency === "JPY"
-          ? submission.submitted_amount
-          : Math.round(submission.submitted_amount / phpJpyRate);
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            invoice_number: layawayInvoiceNumber,
-            payment_date: submission.payment_date,
-            amount_jpy,
-            currency: acctCurrency,
-          }),
-        }).catch(err => console.warn("[review-payment-submission] append-payment-tracking failed:", err));
-      } catch (e) {
-        console.warn("[review-payment-submission] append-payment-tracking (layaway) prep failed (non-blocking):", e);
+      } else {
+        for (const alloc of allocs) if (alloc.invoice_number) trackingInvoices.add(String(alloc.invoice_number));
+      }
+      for (const inv of trackingInvoices) {
+        try {
+          const trkRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+            body: JSON.stringify({ invoice_number: inv }),
+          });
+          const trkJson = await trkRes.json().catch(() => null);
+          if (!trkJson?.ok) console.warn("[review-payment-submission] append-payment-tracking (layaway) not ok:", inv, trkJson);
+        } catch (e) {
+          console.warn("[review-payment-submission] append-payment-tracking (layaway) failed (non-blocking):", inv, e);
+        }
       }
     }
 
