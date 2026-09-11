@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -521,6 +522,9 @@ Deno.serve(async (req) => {
     } catch (restoreErr) {
       console.warn("[restore-payment] installment loyalty restore block failed (non-blocking):", restoreErr);
     }
+
+    // Sheet row now reflects the restored payment (Bug #263 follow-up). Awaited, non-blocking.
+    await refreshPaymentTracking(account?.invoice_number, "restore-payment");
 
     return new Response(JSON.stringify({ success: true, payment_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

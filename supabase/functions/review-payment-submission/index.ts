@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -538,19 +539,8 @@ Deno.serve(async (req) => {
           if (error) console.warn("[review-payment-submission] sales_log auto-flip (cash order) failed (non-blocking):", error);
         });
 
-      // Refresh the payment tracking sheet row for this cash order (awaited so the
-      // isolate does not shut down mid-request; never blocks the confirmation).
-      try {
-        const trkRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-          body: JSON.stringify({ invoice_number: cashOrder.invoice_number }),
-        });
-        const trkJson = await trkRes.json().catch(() => null);
-        if (!trkJson?.ok) console.warn("[review-payment-submission] append-payment-tracking (cash) not ok:", cashOrder.invoice_number, trkJson);
-      } catch (e) {
-        console.warn("[review-payment-submission] append-payment-tracking (cash) failed (non-blocking):", e);
-      }
+      // Refresh the payment tracking sheet row for this cash order (awaited, non-blocking).
+      await refreshPaymentTracking(cashOrder.invoice_number, "review-payment-submission/cash");
 
       // 7. Fire-and-forget: cash-payment-confirmed email
       try {
@@ -1064,17 +1054,7 @@ Deno.serve(async (req) => {
         for (const alloc of allocs) if (alloc.invoice_number) trackingInvoices.add(String(alloc.invoice_number));
       }
       for (const inv of trackingInvoices) {
-        try {
-          const trkRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-            body: JSON.stringify({ invoice_number: inv }),
-          });
-          const trkJson = await trkRes.json().catch(() => null);
-          if (!trkJson?.ok) console.warn("[review-payment-submission] append-payment-tracking (layaway) not ok:", inv, trkJson);
-        } catch (e) {
-          console.warn("[review-payment-submission] append-payment-tracking (layaway) failed (non-blocking):", inv, e);
-        }
+        await refreshPaymentTracking(inv, "review-payment-submission/layaway");
       }
     }
 
