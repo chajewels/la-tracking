@@ -24,6 +24,7 @@ import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
+import { formatPHTDisplay } from '@/lib/date-utils';
 import { getConversionRate } from '@/lib/currency-converter';
 import { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
 import ProgressRing from '@/components/shared/ProgressRing';
@@ -75,6 +76,16 @@ interface CashOrderRow {
   cancelled_by_user_id?: string | null;
   created_at: string;
   is_trade?: boolean;
+  // Web checkout (Phase 2 step 2). select('*') already fetches these.
+  source_channel?: string | null;
+  web_reference?: string | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  transfer_due_at?: string | null;
+  order_type?: string | null;
+  recipient_name?: string | null;
+  recipient_phone?: string | null;
+  gift_note?: string | null;
   discount_amount: number | null;
   discount_type: string | null;
   discount_value: number | null;
@@ -967,6 +978,14 @@ export default function CashOrderDetail() {
                       🔄 Trade
                     </Badge>
                   )}
+                  {order.source_channel === 'web' && (
+                    <Badge
+                      variant="outline"
+                      className="bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/30 dark:text-sky-200 dark:border-sky-800 text-xs"
+                    >
+                      🌐 Web{order.web_reference ? ` · ${order.web_reference}` : ''}
+                    </Badge>
+                  )}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   {order.customers && (
@@ -1160,6 +1179,52 @@ export default function CashOrderDetail() {
             remaining: Number(order.remaining_balance),
           }}
         />
+
+        {/* Web order awaiting a bank / GCash transfer.
+            "Confirm transfer received" deliberately opens the SAME payment
+            dialog staff already use. There is no bespoke write here: recording
+            the payment goes through submit-cash-payment ->
+            review-payment-submission, which is the only path that writes the
+            payments table, completes the order, and fires the loyalty award
+            and receipt. A shortcut that flipped payment_status directly would
+            skip all three. payment_status follows to 'paid' by DB trigger when
+            the order completes. */}
+        {order.source_channel === 'web' && order.payment_status === 'pending_transfer' && (
+          <div className="rounded-xl border border-sky-300/60 bg-sky-50/60 p-4 dark:border-sky-800/60 dark:bg-sky-900/20">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Awaiting bank / GCash transfer</p>
+                <p className="text-xs text-muted-foreground">
+                  Reference <span className="font-mono">{order.web_reference ?? '—'}</span>
+                  {order.transfer_due_at && (
+                    <> · due {formatPHTDisplay(order.transfer_due_at)}</>
+                  )}
+                </p>
+                {order.transfer_due_at && new Date(order.transfer_due_at) < new Date() && (
+                  <p className="text-xs text-destructive">
+                    Past the 72-hour deadline — the hourly job will cancel this order and
+                    return the stock unless the transfer is confirmed.
+                  </p>
+                )}
+                {order.order_type && order.order_type !== 'SELF' && (
+                  <p className="text-xs text-muted-foreground">
+                    {order.order_type === 'GIFT' ? 'Gift' : 'Proxy'} order
+                    {order.recipient_name ? ` for ${order.recipient_name}` : ''}
+                    {order.recipient_phone ? ` · ${order.recipient_phone}` : ''}
+                  </p>
+                )}
+                {order.gift_note && (
+                  <p className="text-xs italic text-muted-foreground">“{order.gift_note}”</p>
+                )}
+              </div>
+              {canRecordPayment && (
+                <Button size="sm" onClick={() => setRecordOpen(true)}>
+                  Confirm transfer received
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
