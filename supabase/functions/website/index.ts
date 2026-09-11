@@ -166,6 +166,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   shipping_quote_required: 400,
   unsupported_method: 400,
   empty_quote: 400,
+  transfer_unavailable: 409,
 };
 
 /**
@@ -191,18 +192,78 @@ async function shippingFor(supabase: any, country: string, subtotalJpy: number):
   return row ? Number(row.fee_jpy) : null;
 }
 
-/** Bank / GCash details for a country, both languages. Never invented here. */
+const INSTRUCTION_FIELDS =
+  "country, method_label_ja, method_label_en, bank_name, bank_branch, account_type, " +
+  "account_number, account_holder, gcash_number, gcash_name, note_ja, note_en, updated_at";
+
+const txt = (v: unknown): string | null => {
+  const s = String(v ?? "").trim();
+  return s === "" ? null : s;
+};
+
+/**
+ * Transfer details for a country, read from the STRUCTURED columns at request
+ * time — so a correction an admin makes in the Hub is live on the site on the
+ * next page load, with no deploy.
+ *
+ * Returns null when the country has no usable method. That is the whole point
+ * of the structured columns: free-text body_ja/body_en could never be told
+ * apart from a placeholder, so checkout had no way to know the account was not
+ * ready. A method counts only when it is COMPLETE:
+ *   bank  — name + account number + holder (a number with no bank is unusable)
+ *   gcash — number + name
+ * JP offers bank only; PH offers either. No fallback to another country's
+ * account, and nothing is ever invented here.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function transferInstructions(supabase: any, country: string): Promise<AnyRec | null> {
   const code = (country || "JP").trim().toUpperCase();
   const { data, error } = await supabase
     .from("payment_instructions")
-    .select("country, method_label_ja, method_label_en, body_ja, body_en")
-    .in("country", [code, "JP"])
-    .eq("is_active", true);
+    .select(INSTRUCTION_FIELDS)
+    .eq("country", code)
+    .eq("is_active", true)
+    .maybeSingle();
   if (error) throw error;
-  const rows = (data ?? []) as AnyRec[];
-  return rows.find((r) => r.country === code) ?? rows.find((r) => r.country === "JP") ?? null;
+  const row = data as AnyRec | null;
+  if (!row) return null;
+
+  const bankName = txt(row.bank_name);
+  const accountNumber = txt(row.account_number);
+  const accountHolder = txt(row.account_holder);
+  const gcashNumber = txt(row.gcash_number);
+  const gcashName = txt(row.gcash_name);
+
+  const bank = bankName && accountNumber && accountHolder
+    ? {
+      name: bankName,
+      branch: txt(row.bank_branch),
+      account_type: txt(row.account_type),
+      account_number: accountNumber,
+      account_holder: accountHolder,
+    }
+    : null;
+  const gcash = gcashNumber && gcashName ? { number: gcashNumber, name: gcashName } : null;
+
+  if (!bank && !gcash) return null;
+
+  return {
+    country: code,
+    method_label_ja: txt(row.method_label_ja) ?? "銀行振込",
+    method_label_en: txt(row.method_label_en) ?? "Bank transfer",
+    // PH renders gcash first; the storefront owns that ordering, both are here.
+    bank,
+    gcash,
+    note_ja: txt(row.note_ja),
+    note_en: txt(row.note_en),
+    updated_at: row.updated_at ?? null,
+  };
+}
+
+/** Cheap yes/no for the checkout gate — same completeness rule, no details returned. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function transferAvailable(supabase: any, country: string): Promise<boolean> {
+  return (await transferInstructions(supabase, country)) !== null;
 }
 
 function notFound() {
@@ -670,6 +731,9 @@ Deno.serve(async (req) => {
         // null shipping means we do not ship there at a published rate — the
         // storefront must stop and ask, never assume free.
         requires_manual_quote: shipping === null,
+        // Lets step 3 hide bank transfer instead of offering a method that
+        // would be refused at /checkout/pay.
+        transfer_available: await transferAvailable(supabase, String(address.country ?? "")),
         order_type: orderType,
         expires_at: quote?.expires_at,
       }));
@@ -691,6 +755,20 @@ Deno.serve(async (req) => {
 
       // Everything that matters — re-price, stock decrement, order, items,
       // quote consumption — happens inside this one transaction.
+      // Refuse BEFORE the order exists when the destination has no usable
+      // transfer details. Server-side, not just a disabled button: an order
+      // created with nowhere to send the money is worse than no order.
+      const { data: quoteRow } = await supabase
+        .from("checkout_quotes")
+        .select("ship_to_address:customer_addresses(country)")
+        .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
+      const quoteCountry = String(
+        ((quoteRow as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
+      );
+      if (!(await transferAvailable(supabase, quoteCountry))) {
+        return jsonResponse({ error: "transfer_unavailable", country: quoteCountry }, 409);
+      }
+
       const { data, error } = await supabase.rpc("create_web_order_atomic", {
         p_customer_id: customer.id,
         p_quote_id: quoteId,

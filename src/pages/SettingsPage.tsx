@@ -14,6 +14,7 @@ import {
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
+import PaymentInstructionsTab from '@/components/settings/PaymentInstructionsTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -109,8 +110,8 @@ export default function SettingsPage() {
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
 
-  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit';
-  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit'];
+  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit' | 'payment-details';
+  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit', 'payment-details'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [settingsTab, setSettingsTabState] = useState<SettingsTabKey>(() => {
     const urlTab = searchParams.get('tab') as SettingsTabKey | null;
@@ -802,6 +803,14 @@ export default function SettingsPage() {
               <StoreCreditReconciliationTab />
             </TabsContent>
           )}
+
+          {/* ── PAYMENT DETAILS TAB ──
+              Admin only: these are live bank/GCash account details shown to
+              customers at website checkout. The component renders its own
+              admins-only notice as a second gate. */}
+          <TabsContent value="payment-details" className="mt-4">
+            <PaymentInstructionsTab />
+          </TabsContent>
 
         </Tabs>
 
