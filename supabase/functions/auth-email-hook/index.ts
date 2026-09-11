@@ -1,12 +1,13 @@
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
-import { createAuthEmailHandler } from 'npm:@lovable.dev/email-js@0.1.0'
+import { createAuthEmailHandler, type AuthEmailDefinitions } from 'npm:@lovable.dev/email-js@0.1.0'
 import { SignupEmail } from '../_shared/email-templates/signup.tsx'
 import { InviteEmail } from '../_shared/email-templates/invite.tsx'
 import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
 import { RecoveryEmail } from '../_shared/email-templates/recovery.tsx'
 import { EmailChangeEmail } from '../_shared/email-templates/email-change.tsx'
 import { ReauthenticationEmail } from '../_shared/email-templates/reauthentication.tsx'
+import { StorefrontMagicLinkEmail } from '../_shared/email-templates/storefront-magic-link.tsx'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -120,14 +121,45 @@ async function handlePreview(req: Request): Promise<Response> {
   })
 }
 
+// ---------------------------------------------------------------- audience
+// One Supabase Auth project serves two audiences: staff and portal users of the
+// Hub, and CUSTOMERS of the chajewelsjp.com storefront. The hook payload has no
+// user metadata, but every link carries where it lands — `callback_url`, or the
+// redirect_to inside the verify URL — and that is enough to tell them apart.
+// A storefront link gets Cha Jewels branding and no mention of the Hub; every
+// other email is exactly as before.
+const STOREFRONT_HOSTS = [
+  /(^|\.)chajewelsjapan\.com$/i,
+  // Vercel: production alias plus every git-branch / PR preview of this project.
+  /^cha-jewels-web\.vercel\.app$/i,
+  /^cha-jewels-web-[a-z0-9-]+-cha-jewels\.vercel\.app$/i,
+]
+
+function linkTarget(data: { callback_url?: string; url?: string }): string | null {
+  if (data.callback_url) return data.callback_url
+  try {
+    return new URL(data.url ?? '').searchParams.get('redirect_to')
+  } catch {
+    return null
+  }
+}
+
+function isStorefrontLink(data: { callback_url?: string; url?: string }): boolean {
+  const target = linkTarget(data)
+  if (!target) return false
+  try {
+    const host = new URL(target).hostname
+    return STOREFRONT_HOSTS.some((re) => re.test(host))
+  } catch {
+    return false
+  }
+}
+
 // The SDK handler owns verification, dispatch, and retry semantics; this file
 // owns only the email decisions: subjects, templates, and per-type props.
-const handler = createAuthEmailHandler({
-  apiKey: Deno.env.get('LOVABLE_API_KEY')!,
-  from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
-  senderDomain: SENDER_DOMAIN,
-  sendUrl: Deno.env.get('LOVABLE_SEND_URL'),
-  emails: {
+// `from` is handler-wide in the SDK, so the storefront gets its own handler —
+// same definitions, different sender name and magic-link email.
+const STAFF_EMAILS: AuthEmailDefinitions = {
     signup: {
       subject: 'Confirm your email',
       render: (data) =>
@@ -179,6 +211,28 @@ const handler = createAuthEmailHandler({
       render: (data) =>
         React.createElement(ReauthenticationEmail, { token: data.token ?? '' }),
     },
+}
+
+const staffHandler = createAuthEmailHandler({
+  apiKey: Deno.env.get('LOVABLE_API_KEY')!,
+  from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
+  senderDomain: SENDER_DOMAIN,
+  sendUrl: Deno.env.get('LOVABLE_SEND_URL'),
+  emails: STAFF_EMAILS,
+})
+
+const storefrontHandler = createAuthEmailHandler({
+  apiKey: Deno.env.get('LOVABLE_API_KEY')!,
+  from: `Cha Jewels <noreply@${FROM_DOMAIN}>`,
+  senderDomain: SENDER_DOMAIN,
+  sendUrl: Deno.env.get('LOVABLE_SEND_URL'),
+  emails: {
+    ...STAFF_EMAILS,
+    magiclink: {
+      subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
+      render: (data) =>
+        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: data.url }),
+    },
   },
 })
 
@@ -195,5 +249,10 @@ Deno.serve(async (req) => {
     return handlePreview(req)
   }
 
-  return handler(req)
+  // Peek at the payload only to choose a sender; the chosen handler verifies
+  // the signature on the untouched request before anything is sent, so a
+  // forged body can pick a template but never an email.
+  const peek = await req.clone().json().catch(() => null) as { data?: { action_type?: string; callback_url?: string; url?: string } } | null
+  const storefront = peek?.data?.action_type === 'magiclink' && isStorefrontLink(peek.data)
+  return (storefront ? storefrontHandler : staffHandler)(req)
 })
