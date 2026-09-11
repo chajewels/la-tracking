@@ -191,6 +191,7 @@ export type Database = {
           sku: string | null
           title: string
           unit_price_jpy: number
+          variant_id: string | null
         }
         Insert: {
           cash_order_id: string
@@ -204,6 +205,7 @@ export type Database = {
           sku?: string | null
           title: string
           unit_price_jpy: number
+          variant_id?: string | null
         }
         Update: {
           cash_order_id?: string
@@ -217,6 +219,7 @@ export type Database = {
           sku?: string | null
           title?: string
           unit_price_jpy?: number
+          variant_id?: string | null
         }
         Relationships: [
           {
@@ -231,6 +234,13 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_order_items_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
             referencedColumns: ["id"]
           },
         ]
@@ -254,6 +264,7 @@ export type Database = {
           discount_value: number | null
           expired_at: string | null
           expires_at: string | null
+          gift_note: string | null
           id: string
           invoice_number: string
           is_test: boolean
@@ -262,8 +273,15 @@ export type Database = {
           loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
+          order_type: string | null
           pancake_order_id: string | null
+          payment_method: string | null
+          payment_status: string | null
+          quote_id: string | null
+          recipient_name: string | null
+          recipient_phone: string | null
           remaining_balance: number
+          ship_to_address_id: string | null
           shipped_at: string | null
           shipping_fee: number
           shipping_method_id: string | null
@@ -275,7 +293,9 @@ export type Database = {
           tracking_number: string | null
           tracking_set_by: string | null
           tracking_updated_at: string | null
+          transfer_due_at: string | null
           updated_at: string
+          web_reference: string | null
         }
         Insert: {
           accepted_by_user_id?: string | null
@@ -295,6 +315,7 @@ export type Database = {
           discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
+          gift_note?: string | null
           id?: string
           invoice_number: string
           is_test?: boolean
@@ -303,8 +324,15 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          order_type?: string | null
           pancake_order_id?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          quote_id?: string | null
+          recipient_name?: string | null
+          recipient_phone?: string | null
           remaining_balance: number
+          ship_to_address_id?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -316,7 +344,9 @@ export type Database = {
           tracking_number?: string | null
           tracking_set_by?: string | null
           tracking_updated_at?: string | null
+          transfer_due_at?: string | null
           updated_at?: string
+          web_reference?: string | null
         }
         Update: {
           accepted_by_user_id?: string | null
@@ -336,6 +366,7 @@ export type Database = {
           discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
+          gift_note?: string | null
           id?: string
           invoice_number?: string
           is_test?: boolean
@@ -344,8 +375,15 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          order_type?: string | null
           pancake_order_id?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          quote_id?: string | null
+          recipient_name?: string | null
+          recipient_phone?: string | null
           remaining_balance?: number
+          ship_to_address_id?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -357,7 +395,9 @@ export type Database = {
           tracking_number?: string | null
           tracking_set_by?: string | null
           tracking_updated_at?: string | null
+          transfer_due_at?: string | null
           updated_at?: string
+          web_reference?: string | null
         }
         Relationships: [
           {
@@ -365,6 +405,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_orders_ship_to_address_id_fkey"
+            columns: ["ship_to_address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
             referencedColumns: ["id"]
           },
           {
@@ -434,6 +481,84 @@ export type Database = {
             columns: ["cash_order_id"]
             isOneToOne: false
             referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checkout_quotes: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          customer_id: string
+          deposit_jpy: number | null
+          expires_at: string
+          gift_note: string | null
+          id: string
+          items: Json
+          mode: string
+          order_type: string
+          recipient_name: string | null
+          recipient_phone: string | null
+          schedule: Json | null
+          ship_to_address_id: string | null
+          shipping_jpy: number | null
+          subtotal_jpy: number
+          term_months: number | null
+          total_jpy: number
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          customer_id: string
+          deposit_jpy?: number | null
+          expires_at?: string
+          gift_note?: string | null
+          id?: string
+          items: Json
+          mode?: string
+          order_type?: string
+          recipient_name?: string | null
+          recipient_phone?: string | null
+          schedule?: Json | null
+          ship_to_address_id?: string | null
+          shipping_jpy?: number | null
+          subtotal_jpy: number
+          term_months?: number | null
+          total_jpy: number
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          customer_id?: string
+          deposit_jpy?: number | null
+          expires_at?: string
+          gift_note?: string | null
+          id?: string
+          items?: Json
+          mode?: string
+          order_type?: string
+          recipient_name?: string | null
+          recipient_phone?: string | null
+          schedule?: Json | null
+          ship_to_address_id?: string | null
+          shipping_jpy?: number | null
+          subtotal_jpy?: number
+          term_months?: number | null
+          total_jpy?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_quotes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_quotes_ship_to_address_id_fkey"
+            columns: ["ship_to_address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
             referencedColumns: ["id"]
           },
         ]
@@ -3025,6 +3150,39 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_instructions: {
+        Row: {
+          body_en: string
+          body_ja: string
+          country: string
+          id: string
+          is_active: boolean
+          method_label_en: string
+          method_label_ja: string
+          updated_at: string
+        }
+        Insert: {
+          body_en: string
+          body_ja: string
+          country: string
+          id?: string
+          is_active?: boolean
+          method_label_en: string
+          method_label_ja: string
+          updated_at?: string
+        }
+        Update: {
+          body_en?: string
+          body_ja?: string
+          country?: string
+          id?: string
+          is_active?: boolean
+          method_label_en?: string
+          method_label_ja?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       payment_methods: {
         Row: {
           account_name: string | null
@@ -4299,6 +4457,36 @@ export type Database = {
         }
         Relationships: []
       }
+      shipping_rates: {
+        Row: {
+          country: string
+          created_at: string
+          fee_jpy: number
+          id: string
+          is_active: boolean
+          min_subtotal_jpy: number
+          updated_at: string
+        }
+        Insert: {
+          country: string
+          created_at?: string
+          fee_jpy: number
+          id?: string
+          is_active?: boolean
+          min_subtotal_jpy?: number
+          updated_at?: string
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          fee_jpy?: number
+          id?: string
+          is_active?: boolean
+          min_subtotal_jpy?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       shopify_webhook_events: {
         Row: {
           error_detail: string | null
@@ -5440,6 +5628,10 @@ export type Database = {
         }
         Returns: Json
       }
+      create_web_order_atomic: {
+        Args: { p_customer_id: string; p_method: string; p_quote_id: string }
+        Returns: Json
+      }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
@@ -5476,6 +5668,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      expire_transfer_orders: { Args: never; Returns: Json }
       fc_at_risk_accounts: {
         Args: never
         Returns: {

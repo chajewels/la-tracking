@@ -355,6 +355,27 @@ Deno.serve(async (req) => {
       console.warn("[fill-payment-tracking] payment_tracking_sheet_id upsert failed (non-blocking):", setErr);
     }
 
+    // Register this sheet for per-invoice appends across cohorts
+    // (system_settings.payment_tracking_sheets = [{id, cohort}] newest first).
+    // Non-blocking — failure must never fail the generation.
+    try {
+      const cohortKey = `${cohortYear}-${String(cohortMonth).padStart(2, "0")}`;
+      const { data: regRow } = await supabaseAuth
+        .from("system_settings").select("value").eq("key", "payment_tracking_sheets").maybeSingle();
+      let regs: Array<{ id: string; cohort: string }> = [];
+      try {
+        const parsed = typeof regRow?.value === "string" ? JSON.parse(regRow.value) : regRow?.value;
+        if (Array.isArray(parsed)) regs = parsed.filter((x) => x && typeof x.id === "string" && typeof x.cohort === "string");
+      } catch { /* start fresh */ }
+      regs = [{ id: outId, cohort: cohortKey }, ...regs.filter((r) => r.id !== outId)].slice(0, 24);
+      const { error: regErr } = await supabaseAuth
+        .from("system_settings")
+        .upsert({ key: "payment_tracking_sheets", value: regs }, { onConflict: "key" });
+      if (regErr) throw regErr;
+    } catch (regErr) {
+      console.warn("[fill-payment-tracking] payment_tracking_sheets upsert failed (non-blocking):", regErr);
+    }
+
     // 9. Tax declaration output — non-blocking. Re-reads tempSrcId (still
     // present; cleanup runs after this block). Failure here must NEVER
     // affect the tracking response.
