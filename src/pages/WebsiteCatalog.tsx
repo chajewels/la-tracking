@@ -21,7 +21,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
-import { CONDITION_VALUES, ConditionValue, METAL_VALUES } from "@/lib/website-catalog-import";
+import {
+  CONDITION_VALUES, ConditionValue, METAL_VALUES, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
+} from "@/lib/website-catalog-import";
 
 /** Public website catalog manager. Feeds the `website` API used by chajewelsjp.com. */
 
@@ -65,6 +67,9 @@ interface ProductForm {
   karat: Karat | null;
   weight_g: number | null;
   condition: ConditionValue;
+  /** The only source of any origin claim on the site — see OriginBadge there. */
+  origin: OriginValue;
+  brand: string;
   description_en: string;
   description_ja: string;
   /** English text as last saved — the translation only refreshes when it changes. */
@@ -80,6 +85,7 @@ const emptyVariant = (sort: number): VariantRow => ({
 
 const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", karat: "K18", weight_g: null, condition: "New",
+  origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
   status: "draft", collectionIds: [], variants: [emptyVariant(0)],
 });
@@ -133,7 +139,7 @@ export default function WebsiteCatalog() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, karat, weight_g, condition, description_en, description_ja, status, created_at, " +
+          "id, sku, slug, name, karat, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
           "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
           "website_collection_products(collection_id)"
         )
@@ -196,6 +202,8 @@ export default function WebsiteCatalog() {
       karat: p.karat ?? null,
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
       condition: (p.condition === "Preloved" ? "Preloved" : "New") as ConditionValue,
+      origin: (ORIGIN_VALUES as readonly string[]).includes(p.origin) ? (p.origin as OriginValue) : "UNKNOWN",
+      brand: p.brand ?? "",
       description_en: p.description_en ?? "",
       description_ja: p.description_ja ?? "",
       savedEn: p.description_en ?? "",
@@ -228,6 +236,7 @@ export default function WebsiteCatalog() {
     mutationFn: async (f: ProductForm) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
       if (!f.variants.length) throw new Error("Add at least one variant.");
+      if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
 
       // Japanese is derived from the English text: refresh it when the English
@@ -258,6 +267,8 @@ export default function WebsiteCatalog() {
         karat: f.karat,
         weight_g: f.weight_g,
         condition: f.condition,
+        origin: f.origin,
+        brand: f.brand.trim() || null,
         description_en: en || null,
         description_ja: ja || null,
         status: f.status,
@@ -457,6 +468,7 @@ export default function WebsiteCatalog() {
                   <TableHead>SKU</TableHead>
                   <TableHead>Metal</TableHead>
                   <TableHead>Condition</TableHead>
+                  <TableHead>Origin</TableHead>
                   <TableHead className="text-right">From</TableHead>
                   <TableHead className="text-right">Approx.</TableHead>
                   <TableHead className="text-right">Variants</TableHead>
@@ -475,6 +487,12 @@ export default function WebsiteCatalog() {
                       {p.condition === "Preloved"
                         ? <Badge variant="secondary">Preloved</Badge>
                         : <span className="text-muted-foreground">New</span>}
+                    </TableCell>
+                    <TableCell>
+                      {p.origin === "JAPAN" ? "Made in Japan"
+                        : p.origin === "BRAND" ? (p.brand || <span className="text-warning">Branded — no brand name</span>)
+                        : p.origin === "OTHER" ? <span className="text-muted-foreground">Other</span>
+                        : <span className="text-muted-foreground">Unknown</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{p.fromPrice ? yen(p.fromPrice) : "—"}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -601,6 +619,42 @@ export default function WebsiteCatalog() {
               </RadioGroup>
             </div>
 
+            {/* Origin is the ONLY thing that lets the site say where a piece is
+                from. Unknown is the honest default — the site then says nothing,
+                which beats claiming an origin nobody checked. */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Origin</Label>
+                <RadioGroup
+                  value={form.origin}
+                  onValueChange={(v) => setForm((f) => ({ ...f, origin: v as OriginValue }))}
+                  className="flex flex-wrap gap-x-6 gap-y-2"
+                >
+                  {ORIGIN_VALUES.map((o) => (
+                    <label key={o} className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value={o} id={`origin-${o}`} />
+                      {ORIGIN_LABELS[o]}
+                    </label>
+                  ))}
+                </RadioGroup>
+                <p className="text-xs text-muted-foreground">
+                  Made in Japan shows 日本製 on the site. Branded shows the brand name and makes no
+                  origin claim. Other and Unknown show nothing.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Brand{form.origin === "BRAND" ? "" : " (optional)"}</Label>
+                <Input
+                  value={form.brand}
+                  onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
+                  placeholder="Tiffany & Co."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown on the site only when Origin is Branded. Name only — never a logo.
+                </p>
+              </div>
+            </div>
+
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>Description (English)</Label>
@@ -608,7 +662,7 @@ export default function WebsiteCatalog() {
                   rows={5}
                   value={form.description_en}
                   onChange={(e) => setForm((f) => ({ ...f, description_en: e.target.value }))}
-                  placeholder="K18 gold, Made in Japan. 40cm, 2.0g."
+                  placeholder="K18 gold, 40cm, 2.0g."
                 />
               </div>
 
