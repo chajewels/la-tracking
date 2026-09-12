@@ -180,7 +180,7 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
       slug: existingProduct?.slug ?? v.slug,
       name: v.name,
       name_ja: nameJa || null,
-      karat: v.karat,
+      metals: v.metals,
       weight_g: v.weight_g,
       description_en: v.description_en,
       description_ja: ja || null,

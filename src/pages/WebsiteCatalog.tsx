@@ -23,7 +23,7 @@ import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucid
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import type { TranslateFn } from "@/lib/website-catalog-import";
 import {
-  CONDITION_VALUES, ConditionValue, METAL_VALUES, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
+  CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 
 /** Public website catalog manager. Feeds the `website` API used by chajewelsjp.com. */
@@ -33,21 +33,17 @@ const MEDIA_PREFIX = "website";
 /** Served from public/ — the Page365 upload sheet with the hub_* columns. */
 const TEMPLATE_PATH = "/templates/cha-jewels-product-upload-template.xlsx";
 
-type Karat = (typeof METAL_VALUES)[number];
 type Status = "draft" | "active" | "archived";
 
 /**
- * Labels for the stored metal values (METAL_VALUES is the single source of
- * truth, shared with the importer). K18 covers Au750 / 18K — those are never
- * separate options, so the label carries them instead.
+ * Metals are shown exactly as stamped (METAL_VALUES is the single source of
+ * truth, shared with the importer). A piece can carry several — PT900/K18 —
+ * in the order staff pick them. Nothing is merged: 750 is 750, not K18.
  */
-const METAL_LABELS: Partial<Record<Karat, string>> = { K18: "K18 (Au750 / 18K)" };
-const METAL_OPTIONS = METAL_VALUES.map((value) => ({
-  value,
-  label: METAL_LABELS[value] ?? value,
-}));
-const metalLabel = (k: string | null | undefined) =>
-  METAL_OPTIONS.find((m) => m.value === k)?.label ?? "—";
+const metalsLabel = (metals: unknown, karat?: string | null) => {
+  const list = Array.isArray(metals) && metals.length ? (metals as string[]) : karat ? [karat] : [];
+  return list.length ? list.join(" / ") : "—";
+};
 
 interface MediaRow { id?: string; url: string; alt: string | null; sort: number }
 interface VariantRow {
@@ -69,7 +65,8 @@ interface ProductForm {
   name_ja: string;
   /** English name as last saved — the Japanese name only refreshes when it changes. */
   savedName: string;
-  karat: Karat | null;
+  /** Stamps in the order picked; at least one to save. */
+  metals: MetalValue[];
   weight_g: number | null;
   condition: ConditionValue;
   /** The only source of any origin claim on the site — see OriginBadge there. */
@@ -89,7 +86,7 @@ const emptyVariant = (sort: number): VariantRow => ({
 });
 
 const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", name_ja: "", savedName: "", karat: "K18", weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", savedName: "", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
   status: "draft", collectionIds: [], variants: [emptyVariant(0)],
@@ -157,7 +154,7 @@ export default function WebsiteCatalog() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, name_ja, karat, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
+          "id, sku, slug, name, name_ja, karat, metals, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
           "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
           "website_collection_products(collection_id)"
         )
@@ -219,7 +216,8 @@ export default function WebsiteCatalog() {
       name: p.name ?? "",
       name_ja: p.name_ja ?? "",
       savedName: p.name ?? "",
-      karat: p.karat ?? null,
+      metals: (Array.isArray(p.metals) && p.metals.length ? p.metals : p.karat ? [p.karat] : [])
+        .filter((m: string): m is MetalValue => (METAL_VALUES as readonly string[]).includes(m)),
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
       condition: (p.condition === "Preloved" ? "Preloved" : "New") as ConditionValue,
       origin: (ORIGIN_VALUES as readonly string[]).includes(p.origin) ? (p.origin as OriginValue) : "UNKNOWN",
@@ -297,6 +295,7 @@ export default function WebsiteCatalog() {
   const save = useMutation({
     mutationFn: async (f: ProductForm) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
+      if (!f.metals.length) throw new Error("Pick at least one metal stamp.");
       if (!f.variants.length) throw new Error("Add at least one variant.");
       if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
@@ -335,7 +334,7 @@ export default function WebsiteCatalog() {
         slug,
         name,
         name_ja: nameJa || null,
-        karat: f.karat,
+        metals: f.metals,
         weight_g: f.weight_g,
         condition: f.condition,
         origin: f.origin,
@@ -561,7 +560,7 @@ export default function WebsiteCatalog() {
                       {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
-                    <TableCell>{metalLabel(p.karat)}</TableCell>
+                    <TableCell>{metalsLabel(p.metals, p.karat)}</TableCell>
                     <TableCell>
                       {p.condition === "Preloved"
                         ? <Badge variant="secondary">Preloved</Badge>
@@ -665,19 +664,34 @@ export default function WebsiteCatalog() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Metal</Label>
-                <Select
-                  value={form.karat ?? "none"}
-                  onValueChange={(v) => setForm((f) => ({ ...f, karat: v === "none" ? null : (v as Karat) }))}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Not specified</SelectItem>
-                    {METAL_OPTIONS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Metal stamps</Label>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Metal stamps">
+                  {METAL_VALUES.map((m) => {
+                    const idx = form.metals.indexOf(m);
+                    const on = idx >= 0;
+                    return (
+                      <button
+                        key={m} type="button" aria-pressed={on}
+                        onClick={() => setForm((f) => ({
+                          ...f,
+                          metals: on ? f.metals.filter((x) => x !== m) : [...f.metals, m],
+                        }))}
+                        className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                          on
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground"
+                        }`}
+                      >
+                        {on && form.metals.length > 1 ? `${idx + 1}. ` : ""}{m}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {form.metals.length
+                    ? <>Shown as <span className="text-foreground">{form.metals.join(" / ")}</span> — the order you pick is the order shown.</>
+                    : "Pick at least one. Exactly as stamped: 750 stays 750, it is not K18."}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label>Weight (grams)</Label>
