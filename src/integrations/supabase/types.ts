@@ -5445,6 +5445,7 @@ export type Database = {
           description_ja: string | null
           id: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
+          metals: string[]
           name: string
           name_ja: string | null
           origin: string
@@ -5462,6 +5463,7 @@ export type Database = {
           description_ja?: string | null
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
+          metals?: string[]
           name: string
           name_ja?: string | null
           origin?: string
@@ -5479,6 +5481,7 @@ export type Database = {
           description_ja?: string | null
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
+          metals?: string[]
           name?: string
           name_ja?: string | null
           origin?: string
@@ -6335,6 +6338,12 @@ export type Database = {
         | "PT900"
         | "PT950"
         | "SILVER925"
+        | "K24"
+        | "750"
+        | "18K"
+        | "PT850"
+        | "PM"
+        | "PM900"
       website_product_status: "draft" | "active" | "archived"
     }
     CompositeTypes: {
@@ -6562,6 +6571,12 @@ export const Constants = {
         "PT900",
         "PT950",
         "SILVER925",
+        "K24",
+        "750",
+        "18K",
+        "PT850",
+        "PM",
+        "PM900",
       ],
       website_product_status: ["draft", "active", "archived"],
     },
