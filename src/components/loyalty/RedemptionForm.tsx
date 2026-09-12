@@ -186,7 +186,7 @@ export function RedemptionForm({
     const match = orders.find((o) => o.invoice_number === trimmed);
     if (!match) return null;
     // Brand-new constraint for new_order_discount
-    if (match.kind === 'layaway' && Number(match.total_paid ?? 0) > 0) return null;
+    if (match.kind === 'layaway' && (Number(match.total_paid ?? 0) > 0 || ['cancelled', 'forfeited', 'completed', 'final_settlement'].includes(String(match.status)))) return null;
     if (match.kind === 'cash' && (match.status !== 'pending' || Number(match.total_paid ?? 0) > 0)) return null;
     return match;
   }, [redemptionType, invoiceInput, orders]);
