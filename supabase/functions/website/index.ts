@@ -183,7 +183,7 @@ async function withJapaneseTitles(supabase: any, items: AnyRec[]): Promise<AnyRe
     .select("id, name, name_ja")
     .in("id", ids);
   if (error) throw error;
-  const byId = new Map((data ?? []).map((p: AnyRec) => [String(p.id), p]));
+  const byId = new Map<string, AnyRec>((data ?? []).map((p: AnyRec) => [String(p.id), p]));
   return items.map((i) => {
     const p = i.product_id ? byId.get(String(i.product_id)) : undefined;
     const en = nonEmpty(p?.name);
