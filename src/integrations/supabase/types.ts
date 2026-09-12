@@ -5232,27 +5232,33 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
+          description_ja: string | null
           hero_media: string | null
           id: string
           name: string
+          name_ja: string | null
           slug: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           description?: string | null
+          description_ja?: string | null
           hero_media?: string | null
           id?: string
           name: string
+          name_ja?: string | null
           slug: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           description?: string | null
+          description_ja?: string | null
           hero_media?: string | null
           id?: string
           name?: string
+          name_ja?: string | null
           slug?: string
           updated_at?: string
         }
@@ -5440,6 +5446,7 @@ export type Database = {
           id: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
+          name_ja: string | null
           origin: string
           sku: string
           slug: string
@@ -5456,6 +5463,7 @@ export type Database = {
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name: string
+          name_ja?: string | null
           origin?: string
           sku: string
           slug: string
@@ -5472,6 +5480,7 @@ export type Database = {
           id?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           name?: string
+          name_ja?: string | null
           origin?: string
           sku?: string
           slug?: string
