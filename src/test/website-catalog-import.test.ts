@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import {
   CollectionOption, DATA_START_ROW, ImportRowInput, SHEET_NAME,
-  hasForbiddenGoldTerm, isBlankRow, parseOrigin, resolveCollection, validateRow,
+  hasForbiddenGoldTerm, isBlankRow, parseOrigin, resolveCollection, validateRow, parseMetals,
 } from "@/lib/website-catalog-import";
 
 /**
@@ -90,7 +90,7 @@ describe("validateRow", () => {
     const row = validateRow(good, ctx);
     expect(row.errors).toEqual([]);
     expect(row.value).toMatchObject({
-      sku: "R3341", collectionId: "c-rings", karat: "K18", weight_g: 16.2,
+      sku: "R3341", collectionId: "c-rings", metals: ["K18"], weight_g: 16.2,
       condition: "Preloved", status: "draft", size: "13", price_jpy: 628980, stock_qty: 1,
     });
   });
@@ -134,10 +134,28 @@ describe("validateRow", () => {
     expect(present.value?.brand).toBe("Tiffany & Co.");
   });
 
-  it("rejects a metal outside the enum", () => {
-    const row = validateRow({ ...good, hub_metal: "PT850" }, ctx);
+  it("rejects a metal outside the stamp list", () => {
+    const row = validateRow({ ...good, hub_metal: "AU750" }, ctx);
     expect(row.value).toBeUndefined();
-    expect(row.errors.join(" ")).toContain("PT850");
+    expect(row.errors.join(" ")).toContain("AU750");
+  });
+
+  it("keeps every stamp exactly as stamped — 750 and 18K are not folded into K18", () => {
+    expect(validateRow({ ...good, hub_metal: "750" }, ctx).value?.metals).toEqual(["750"]);
+    expect(validateRow({ ...good, hub_metal: "18K" }, ctx).value?.metals).toEqual(["18K"]);
+    expect(validateRow({ ...good, hub_metal: "pt850" }, ctx).value?.metals).toEqual(["PT850"]);
+  });
+
+  it("splits several stamps on / in sheet order, dropping repeats", () => {
+    expect(parseMetals("PT900/K18")).toEqual({ metals: ["PT900", "K18"], unknown: [] });
+    expect(parseMetals(" k18 / pt900 / K18 ")).toEqual({ metals: ["K18", "PT900"], unknown: [] });
+    expect(parseMetals("PT900/AU750")).toEqual({ metals: ["PT900"], unknown: ["AU750"] });
+    const row = validateRow({ ...good, hub_metal: "PT900/K18" }, ctx);
+    expect(row.errors).toEqual([]);
+    expect(row.value?.metals).toEqual(["PT900", "K18"]);
+    const bad = validateRow({ ...good, hub_metal: "PT900/AU750" }, ctx);
+    expect(bad.value).toBeUndefined();
+    expect(bad.errors.join(" ")).toContain("AU750");
   });
 
   it("rejects forbidden gold terminology before it reaches the DB", () => {
@@ -238,7 +256,7 @@ describe("the shipped template", () => {
       expect(r.value?.collectionId).toBe("c-rings");
       expect(r.value?.condition).toBe("Preloved");
       expect(r.value?.status).toBe("draft");
-      expect(r.value?.karat).toBe("K18");
+      expect(r.value?.metals).toEqual(["K18"]);
       // The example rows state no origin: the site must claim nothing for them.
       expect(r.value?.origin).toBe("UNKNOWN");
       expect(r.value?.brand).toBeNull();

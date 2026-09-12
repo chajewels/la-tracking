@@ -243,9 +243,17 @@ stored peso price: a second copy of every price is a second thing to drift.
 
 ### Catalog vocabulary
 
-- **Metals** (`website_product_karat`): `K18`, `K14`, `K10`, `PT1000`, `PT950`,
-  `PT900`, `SILVER925`. `K18` is the single value for Au750 / 18K — never
-  `750`, `Au750` or `18K` as separate options.
+- **Metals** (`website_products.metals text[]`, migration `20260912120000`):
+  the stamps on the piece, in the order staff enter them, at least one:
+  `K24`, `K18`, `750`, `18K`, `K14`, `K10`, `PT1000`, `PT950`, `PT900`,
+  `PT850`, `PM`, `PM900`, `SILVER925`. Displayed exactly as stamped — `750`
+  and `18K` are NOT folded into `K18`; the only label mapping is `SILVER925`
+  → シルバー925 / Silver 925. A piece can carry several (`PT900/K18`), shown
+  joined with " / ". The upload template's `hub_metal` column takes one or
+  more separated by `/`. `karat` (enum `website_product_karat`) is a
+  one-release bridge kept equal to `metals[1]` by the
+  `trg_website_products_metals` trigger and still rides on the API; a later
+  cleanup migration drops it.
 - **Collections** are jewelry types: necklaces, pendants, earrings, bracelets,
   rings, anklets, sets.
 - **Bilingual copy** (migration `20260912100000`): staff write English once;
