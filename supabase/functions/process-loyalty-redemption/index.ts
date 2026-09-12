@@ -76,6 +76,7 @@ const VALID_TYPES = new Set([
   "service_fee",
   "catalog_reward",
 ]);
+const CLOSED_LAYAWAY_STATUSES = new Set(["cancelled", "forfeited", "completed", "final_settlement"]);
 
 async function getUserRoles(supabase: any, userId: string): Promise<string[]> {
   const { data } = await supabase
@@ -279,10 +280,16 @@ Deno.serve(async (req) => {
         if (account_id) {
           const { data: acct } = await supabase
             .from("layaway_accounts")
-            .select("id, currency, total_paid, invoice_number")
+            .select("id, currency, total_paid, invoice_number, status")
             .eq("id", account_id)
             .maybeSingle();
           if (!acct) return json({ error: "Account not found" }, 404);
+          if (CLOSED_LAYAWAY_STATUSES.has(String(acct.status))) {
+            return json(
+              { error: `This order is ${acct.status} and cannot be used for a redemption` },
+              400,
+            );
+          }
           if (Number(acct.total_paid ?? 0) > 0) {
             return json(
               { error: "new_order_discount only allowed on brand-new orders (no payments yet)" },
@@ -345,7 +352,33 @@ Deno.serve(async (req) => {
           );
         }
       }
-      // catalog_reward: no order-link validation (reward validated earlier).
+      // catalog_reward: if the customer supplied an invoice_number it must be
+      // one of THEIR OWN open orders (layaway not closed, or cash pending).
+      // Blank stays allowed (2026-09-12 owner rule).
+      if (redemption_type === 'catalog_reward' && trimmedInvoice) {
+        const { data: ownLayaway } = await supabase
+          .from("layaway_accounts")
+          .select("id, status")
+          .eq("customer_id", member.customer_id)
+          .eq("invoice_number", trimmedInvoice)
+          .maybeSingle();
+        const { data: ownCash } = ownLayaway ? { data: null } : await supabase
+          .from("cash_orders")
+          .select("id, status")
+          .eq("customer_id", member.customer_id)
+          .eq("invoice_number", trimmedInvoice)
+          .maybeSingle();
+        if (!ownLayaway && !ownCash) {
+          return json({ error: "Invoice number not found on your account" }, 400);
+        }
+        const closed = ownLayaway
+          ? CLOSED_LAYAWAY_STATUSES.has(String(ownLayaway.status))
+          : String(ownCash!.status) !== "pending";
+        if (closed) {
+          const st = ownLayaway ? ownLayaway.status : ownCash!.status;
+          return json({ error: `This order is ${st} and cannot be used for a redemption` }, 400);
+        }
+      }
 
       // Current rate
       const { data: rateSetting } = await supabase
@@ -502,6 +535,10 @@ Deno.serve(async (req) => {
         if (msg.includes("redemption_not_pending")) return json({ error: "Redemption is no longer pending" }, 400);
         if (msg.includes("insufficient_points")) return json({ error: "Insufficient points (balance changed since create)" }, 400);
         if (msg.includes("reward_out_of_stock")) return json({ error: "Reward out of stock — approval aborted, nothing was debited" }, 409);
+        if (msg.includes("account_not_open")) {
+          const st = msg.split("account_not_open:")[1]?.split(/[\s"']/)[0] ?? "closed";
+          return json({ error: `Order is ${st} — approval aborted, nothing was debited. Cancel this redemption.` }, 409);
+        }
         if (msg.includes("not_found")) return json({ error: "Redemption or member not found" }, 404);
         console.error("[process-loyalty-redemption] approve_redemption_atomic failed:", approveErr);
         return json({ error: "Approve failed — no changes were applied", detail: msg }, 500);

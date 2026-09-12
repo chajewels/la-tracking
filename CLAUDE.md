@@ -1869,6 +1869,12 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      (revoke_loyalty_points_partial, revoke-and-replace, expiry preserved,
      redeemed never returned). promo_bonus lots are NOT touched on partials.
 
+  - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
+     cancelled/forfeited/completed/final_settlement; cash open = pending.
+     Enforced in RedemptionForm, process-loyalty-redemption create, and
+     approve_redemption_atomic. catalog_reward invoice_number, if given, must
+     be the customer's own open order.
+
 ## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
 
   - `loyalty_members.last_purchase_at` = order_date of the member's

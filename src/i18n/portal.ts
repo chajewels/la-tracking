@@ -351,7 +351,7 @@ export const portalEn = {
     invoiceNumber: 'Invoice Number',
     invoicePlaceholder: 'e.g. 19012',
     invoiceHint: 'Enter the invoice number your team gave you for the new order.',
-    invoiceNotFound: 'Invoice not found among your brand-new orders.',
+    invoiceNotFound: 'Invoice not found. Only brand-new open orders (no payments yet, not cancelled) can be used.',
     foundOrder: '✓ Found: {{kind}} — {{amount}}',
     kindLayaway: 'Layaway',
     kindCash: 'Cash Order',
