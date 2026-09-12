@@ -137,6 +137,7 @@ export default function WebsiteCatalog() {
   const [form, setForm] = useState<ProductForm>(emptyProduct());
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
 
   const collections = useQuery({
     queryKey: ["website-collections"],
@@ -253,6 +254,43 @@ export default function WebsiteCatalog() {
       toast({ title: "Could not translate", description: e.message, variant: "destructive" });
     } finally {
       setTranslating(false);
+    }
+  }
+
+  /**
+   * Re-translate EVERY product's Japanese name and description in one pass,
+   * sequentially so the AI rate limit is never hit. Name and description go in
+   * one call per product, so a design term ("Open Teardrop") comes back the
+   * same in both. English is never touched; a product whose translation fails
+   * is skipped and named in the summary.
+   */
+  async function regenerateAllJapanese() {
+    const rows = (products.data ?? []) as any[];
+    const targets = rows.filter((p) => String(p.name ?? "").trim());
+    if (!targets.length) { toast({ title: "Nothing to translate" }); return; }
+    if (!confirm(`Regenerate the Japanese name and description for ${targets.length} product${targets.length === 1 ? "" : "s"}? English text is not changed.`)) return;
+    setBulk({ done: 0, total: targets.length });
+    const failed: string[] = [];
+    for (const [i, p] of targets.entries()) {
+      try {
+        const en = String(p.description_en ?? "").trim();
+        const out = await translateJa({ name: String(p.name).trim(), description: en || undefined });
+        const { error } = await supabase.from("website_products" as any)
+          .update({ name_ja: out.name_ja || null, description_ja: en ? out.description_ja || null : null })
+          .eq("id", p.id);
+        if (error) throw error;
+      } catch (e: any) {
+        failed.push(`${p.sku ?? p.name}: ${e.message}`);
+      } finally {
+        setBulk({ done: i + 1, total: targets.length });
+      }
+    }
+    setBulk(null);
+    qc.invalidateQueries({ queryKey: ["website-products"] });
+    if (failed.length) {
+      toast({ title: `Japanese regenerated for ${targets.length - failed.length} of ${targets.length}`, description: failed.join(" · "), variant: "destructive" });
+    } else {
+      toast({ title: `Japanese regenerated for ${targets.length} product${targets.length === 1 ? "" : "s"}` });
     }
   }
 
@@ -467,6 +505,11 @@ export default function WebsiteCatalog() {
             isAdmin={!!isAdmin}
             translate={translateJa}
           />
+          <Button variant="outline" onClick={regenerateAllJapanese} disabled={!!bulk || !(products.data ?? []).length}>
+            {bulk
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Translating {bulk.done}/{bulk.total}</>
+              : <><RefreshCw className="mr-2 h-4 w-4" /> Regenerate all Japanese</>}
+          </Button>
           <Button onClick={openNew}>
             <Plus className="mr-2 h-4 w-4" /> Add product
           </Button>
