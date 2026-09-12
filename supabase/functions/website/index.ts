@@ -13,7 +13,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const PRODUCT_FIELDS =
-  "id, sku, slug, name, name_ja, karat, weight_g, description_en, description_ja, status, condition, origin, brand, updated_at";
+  "id, sku, slug, name, name_ja, karat, metals, weight_g, description_en, description_ja, status, condition, origin, brand, updated_at";
 const VARIANT_SELECT =
   "product_variants:website_product_variants(id, size, stone, price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
 const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
@@ -156,6 +156,11 @@ function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null 
   // on every product. `name` stays as the English alias for older readers.
   product.name_en = product.name ?? null;
   product.name_ja = nonEmpty(product.name_ja);
+  // Metal stamps in staff order, at least one. karat is the one-release
+  // bridge (= metals[1]) and stays on the payload until the cleanup drops it.
+  product.metals = Array.isArray(product.metals) && product.metals.length
+    ? product.metals
+    : product.karat ? [product.karat] : [];
   const variants = (product.product_variants as AnyRec[] | undefined) ?? [];
   variants.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
   for (const v of variants) {

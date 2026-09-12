@@ -15,10 +15,39 @@ export const SHEET_NAME = "Upload";
 /** 1-based worksheet row where data begins. Rows 2-4 are guidance text. */
 export const DATA_START_ROW = 5;
 
+/**
+ * Metal stamps, displayed exactly as stamped. 750 and 18K are NOT folded into
+ * K18 — a Tiffany piece stamped 750 says 750. A piece can carry several
+ * (PT900/K18); order is the order staff enter them. Mirrors the DB CHECK on
+ * website_products.metals.
+ */
 export const METAL_VALUES = [
-  "K18", "K14", "K10", "PT1000", "PT950", "PT900", "SILVER925",
+  "K24", "K18", "750", "18K", "K14", "K10",
+  "PT1000", "PT950", "PT900", "PT850", "PM", "PM900",
+  "SILVER925",
 ] as const;
 export type MetalValue = (typeof METAL_VALUES)[number];
+
+/** Separator in the upload template's hub_metal column: "PT900/K18". */
+export const METAL_SEPARATOR = "/";
+
+/**
+ * "PT900/K18" -> ["PT900", "K18"]; case-insensitive, whitespace-tolerant,
+ * duplicates dropped, order kept. Returns the unknown tokens separately so the
+ * row can name exactly what was wrong.
+ */
+export function parseMetals(raw: string): { metals: MetalValue[]; unknown: string[] } {
+  const metals: MetalValue[] = [];
+  const unknown: string[] = [];
+  for (const token of raw.split(METAL_SEPARATOR)) {
+    const t = token.trim().toUpperCase().replace(/\s+/g, "");
+    if (!t) continue;
+    const hit = METAL_VALUES.find((m) => m === t);
+    if (!hit) unknown.push(token.trim());
+    else if (!metals.includes(hit)) metals.push(hit);
+  }
+  return { metals, unknown };
+}
 
 export const CONDITION_VALUES = ["New", "Preloved"] as const;
 export type ConditionValue = (typeof CONDITION_VALUES)[number];
@@ -112,7 +141,8 @@ export interface ImportRow {
     name: string;
     slug: string;
     collectionId: string;
-    karat: MetalValue;
+    /** At least one, in sheet order. */
+    metals: MetalValue[];
     weight_g: number;
     description_en: string;
     condition: ConditionValue;
@@ -212,11 +242,14 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
     );
   }
 
-  const metalRaw = r.hub_metal.trim().toUpperCase();
-  const karat = METAL_VALUES.find((m) => m === metalRaw);
-  if (!metalRaw) errors.push("hub_metal is required");
-  else if (!karat) {
-    errors.push(`hub_metal "${r.hub_metal.trim()}" is not one of ${METAL_VALUES.join(", ")}`);
+  const { metals, unknown: unknownMetals } = parseMetals(r.hub_metal);
+  if (!r.hub_metal.trim()) errors.push("hub_metal is required");
+  else if (unknownMetals.length) {
+    errors.push(
+      `hub_metal "${unknownMetals.join('", "')}" is not one of ${METAL_VALUES.join(", ")} (separate several with ${METAL_SEPARATOR}, e.g. PT900${METAL_SEPARATOR}K18)`,
+    );
+  } else if (!metals.length) {
+    errors.push("hub_metal is required");
   }
 
   const weight = toNumber(r.hub_weight_g);
@@ -295,7 +328,7 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
       name,
       slug: slugify(name),
       collectionId: collection!.id,
-      karat: karat!,
+      metals,
       weight_g: weight!,
       description_en: description,
       condition: condition!,
