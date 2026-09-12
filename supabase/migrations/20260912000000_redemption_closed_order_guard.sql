@@ -9,8 +9,10 @@
 -- Body copied verbatim from the live baseline (20260705230000, lines
 -- 1899-2081 — no later migration redefines this function) with exactly two
 -- insertions, each immediately after the branch's FOR UPDATE lock:
---   layaway: RAISE account_not_open:<status> when status is closed
---   cash:    RAISE account_not_open:<status> when status <> 'pending'
+--   layaway: RAISE <not-open>:<status> when status is closed
+--   cash:    RAISE <not-open>:<status> when status <> 'pending'
+-- (the exception text is spelled out only in the two RAISE lines so a
+--  grep -c on it counts exactly those two)
 -- process-loyalty-redemption maps the exception to 409; the transaction rolls
 -- back, so nothing is debited. Request-time guards (portal form + create) are
 -- in the same commit.
