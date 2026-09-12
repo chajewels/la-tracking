@@ -21,6 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
+import type { TranslateFn } from "@/lib/website-catalog-import";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
@@ -64,6 +65,10 @@ interface ProductForm {
   sku: string;
   slug: string;
   name: string;
+  /** Generated from `name` on save — never typed by staff. */
+  name_ja: string;
+  /** English name as last saved — the Japanese name only refreshes when it changes. */
+  savedName: string;
   karat: Karat | null;
   weight_g: number | null;
   condition: ConditionValue;
@@ -84,7 +89,7 @@ const emptyVariant = (sort: number): VariantRow => ({
 });
 
 const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", karat: "K18", weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", savedName: "", karat: "K18", weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
   status: "draft", collectionIds: [], variants: [emptyVariant(0)],
@@ -95,10 +100,17 @@ const slugify = (s: string) =>
 
 const yen = (n: number) => `¥ ${Math.round(n).toLocaleString("en-US")}`;
 
-/** Formal-retail Japanese from Lovable AI. Server-side — the key never ships. */
-async function translateToJa(text: string, name: string): Promise<string> {
+/**
+ * Formal-retail Japanese from Lovable AI. Server-side — the key never ships.
+ * Name and description are translated independently by the edge function;
+ * pass only the fields that need refreshing. A field left out comes back "".
+ */
+const translateJa: TranslateFn = async (fields) => {
+  const name = fields.name?.trim() ?? "";
+  const description = fields.description?.trim() ?? "";
+  if (!name && !description) return { name_ja: "", description_ja: "" };
   const { data, error } = await supabase.functions.invoke("translate-product-description", {
-    body: { text, name },
+    body: { name: name || undefined, description: description || undefined },
   });
   if (error) {
     // invoke() reports a bare "non-2xx status" — the useful message (rate limit,
@@ -107,10 +119,15 @@ async function translateToJa(text: string, name: string): Promise<string> {
     const detail = res ? await res.json().catch(() => null) : null;
     throw new Error(detail?.error ?? error.message);
   }
-  const ja = String((data as any)?.description_ja ?? "").trim();
-  if (!ja) throw new Error((data as any)?.error ?? "Translation came back empty.");
-  return ja;
-}
+  const out = {
+    name_ja: String((data as any)?.name_ja ?? "").trim(),
+    description_ja: String((data as any)?.description_ja ?? "").trim(),
+  };
+  if ((name && !out.name_ja) || (description && !out.description_ja)) {
+    throw new Error((data as any)?.error ?? "Translation came back empty.");
+  }
+  return out;
+};
 
 export default function WebsiteCatalog() {
   const { roles } = useAuth();
@@ -139,7 +156,7 @@ export default function WebsiteCatalog() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, karat, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
+          "id, sku, slug, name, name_ja, karat, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
           "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
           "website_collection_products(collection_id)"
         )
@@ -199,6 +216,8 @@ export default function WebsiteCatalog() {
       sku: p.sku ?? "",
       slug: p.slug ?? "",
       name: p.name ?? "",
+      name_ja: p.name_ja ?? "",
+      savedName: p.name ?? "",
       karat: p.karat ?? null,
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
       condition: (p.condition === "Preloved" ? "Preloved" : "New") as ConditionValue,
@@ -215,15 +234,20 @@ export default function WebsiteCatalog() {
   }
 
   async function regenerateJapanese() {
+    const name = form.name.trim();
     const en = form.description_en.trim();
-    if (!en) {
-      toast({ title: "Nothing to translate", description: "Write the English description first." });
+    if (!name && !en) {
+      toast({ title: "Nothing to translate", description: "Write the English name or description first." });
       return;
     }
     setTranslating(true);
     try {
-      const ja = await translateToJa(en, form.name);
-      setForm((f) => ({ ...f, description_ja: ja }));
+      const ja = await translateJa({ name, description: en });
+      setForm((f) => ({
+        ...f,
+        name_ja: name ? ja.name_ja : "",
+        description_ja: en ? ja.description_ja : "",
+      }));
       toast({ title: "Japanese updated" });
     } catch (e: any) {
       toast({ title: "Could not translate", description: e.message, variant: "destructive" });
@@ -241,14 +265,22 @@ export default function WebsiteCatalog() {
 
       // Japanese is derived from the English text: refresh it when the English
       // changed, or when it has never been generated. Never on an unchanged product.
+      const name = f.name.trim();
       const en = f.description_en.trim();
+      let nameJa = f.name_ja.trim();
       let ja = f.description_ja.trim();
-      if (!en) {
-        ja = "";
-      } else if (en !== f.savedEn.trim() || !ja) {
+      if (!en) ja = "";
+      const needName = name !== f.savedName.trim() || !nameJa;
+      const needDesc = !!en && (en !== f.savedEn.trim() || !ja);
+      if (needName || needDesc) {
         setTranslating(true);
         try {
-          ja = await translateToJa(en, f.name);
+          const out = await translateJa({
+            name: needName ? name : undefined,
+            description: needDesc ? en : undefined,
+          });
+          if (needName) nameJa = out.name_ja;
+          if (needDesc) ja = out.description_ja;
         } catch (e: any) {
           toast({
             title: "Japanese not regenerated",
@@ -263,7 +295,8 @@ export default function WebsiteCatalog() {
       const productPayload = {
         sku: f.sku.trim(),
         slug,
-        name: f.name.trim(),
+        name,
+        name_ja: nameJa || null,
         karat: f.karat,
         weight_g: f.weight_g,
         condition: f.condition,
@@ -432,7 +465,7 @@ export default function WebsiteCatalog() {
           <ProductImportDialog
             collections={(collections.data ?? []) as any[]}
             isAdmin={!!isAdmin}
-            translate={translateToJa}
+            translate={translateJa}
           />
           <Button onClick={openNew}>
             <Plus className="mr-2 h-4 w-4" /> Add product
@@ -480,7 +513,10 @@ export default function WebsiteCatalog() {
               <TableBody>
                 {rows.map((p: any) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => openEdit(p)}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {p.name}
+                      {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
                     <TableCell>{metalLabel(p.karat)}</TableCell>
                     <TableCell>
@@ -550,6 +586,12 @@ export default function WebsiteCatalog() {
                     slug: f.id ? f.slug : slugify(e.target.value),
                   }))}
                   placeholder="K18 Rope Chain 45cm"
+                />
+                <Input
+                  readOnly lang="ja" value={form.name_ja}
+                  className="cursor-default bg-muted/30 text-muted-foreground"
+                  placeholder="Japanese name — generated on save"
+                  aria-label="Name (Japanese, generated)"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
@@ -669,12 +711,12 @@ export default function WebsiteCatalog() {
               <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs text-muted-foreground">
-                    Japanese (translated automatically — read-only)
+                    Japanese (name and description translated automatically — read-only)
                   </Label>
                   <Button
                     type="button" variant="outline" size="sm"
                     onClick={regenerateJapanese}
-                    disabled={translating || !form.description_en.trim()}
+                    disabled={translating || (!form.description_en.trim() && !form.name.trim())}
                   >
                     {translating
                       ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -798,19 +840,24 @@ export default function WebsiteCatalog() {
 /**
  * Jewelry types (website_collections). Necklaces, Pendants, Earrings, Bracelets,
  * Rings, Anklets, Sets ship as the starting set — staff add more here.
+ *
+ * Staff write English only. The Japanese name and description are generated on
+ * save (and by Regenerate) through the same translator the products use; the
+ * site shows Japanese by default and English on toggle.
  */
 function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const types = useQuery({
     queryKey: ["website-collections"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("website_collections" as any)
-        .select("id, slug, name, description")
+        .select("id, slug, name, name_ja, description, description_ja")
         .order("name");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -819,12 +866,32 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["website-collections"] });
 
+  /** Translation failures never block the English save — the row still lands; Regenerate retries. */
+  async function japaneseFor(fields: { name?: string; description?: string }): Promise<Partial<{ name_ja: string | null; description_ja: string | null }>> {
+    try {
+      const out = await translateJa(fields);
+      const patch: Partial<{ name_ja: string | null; description_ja: string | null }> = {};
+      if (fields.name !== undefined) patch.name_ja = out.name_ja || null;
+      if (fields.description !== undefined) patch.description_ja = out.description_ja || null;
+      return patch;
+    } catch (e: any) {
+      toast({
+        title: "Japanese not regenerated",
+        description: `${e.message} The English still saved — use Regenerate to retry.`,
+        variant: "destructive",
+      });
+      return {};
+    }
+  }
+
   const add = useMutation({
     mutationFn: async () => {
       const name = newName.trim();
       if (!name) throw new Error("Give the type a name.");
+      const description = newDescription.trim();
+      const ja = await japaneseFor({ name, description: description || undefined });
       const { error } = await supabase.from("website_collections" as any).insert({
-        name, slug: slugify(name), description: newDescription.trim() || null,
+        name, slug: slugify(name), description: description || null, ...ja,
       });
       if (error) throw error;
     },
@@ -836,9 +903,17 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
   });
 
   const saveDescription = useMutation({
-    mutationFn: async ({ id, description }: { id: string; description: string }) => {
+    mutationFn: async ({ id, description, name, hasNameJa }: { id: string; description: string; name: string; hasNameJa: boolean }) => {
+      setBusyId(id);
+      const en = description.trim();
+      const ja = await japaneseFor({
+        description: en || undefined,
+        // Backfill a missing Japanese name while we are here — one call, not two.
+        name: hasNameJa ? undefined : name,
+      });
       const { error } = await supabase.from("website_collections" as any)
-        .update({ description: description.trim() || null }).eq("id", id);
+        .update({ description: en || null, description_ja: en ? (ja.description_ja ?? null) : null, ...(ja.name_ja ? { name_ja: ja.name_ja } : {}) })
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_d, v) => {
@@ -847,6 +922,21 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
       invalidate();
     },
     onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onSettled: () => setBusyId(null),
+  });
+
+  const regenerate = useMutation({
+    mutationFn: async ({ id, name, description }: { id: string; name: string; description: string }) => {
+      setBusyId(id);
+      const out = await translateJa({ name, description: description.trim() || undefined });
+      const { error } = await supabase.from("website_collections" as any)
+        .update({ name_ja: out.name_ja || null, description_ja: description.trim() ? out.description_ja || null : null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: "Japanese updated" }); invalidate(); },
+    onError: (e: any) => toast({ title: "Could not translate", description: e.message, variant: "destructive" }),
+    onSettled: () => setBusyId(null),
   });
 
   const removeType = useMutation({
@@ -865,7 +955,8 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
           Jewelry types {types.data ? `(${types.data.length})` : ""}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          These are the categories the website browses by. The English description shows on the type's page.
+          These are the categories the website browses by. Write the English; the Japanese name and
+          description are generated on save and shown on the site by default.
         </p>
       </CardHeader>
       <CardContent className="space-y-4 pt-4">
@@ -877,19 +968,26 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-40">Type</TableHead>
-                <TableHead className="w-40">Slug</TableHead>
+                <TableHead className="w-44">Type</TableHead>
+                <TableHead className="w-32">Slug</TableHead>
                 <TableHead>Description (English)</TableHead>
-                <TableHead className="w-28" />
+                <TableHead className="w-[26%]">Japanese (generated)</TableHead>
+                <TableHead className="w-36" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {(types.data ?? []).map((t: any) => {
                 const value = drafts[t.id] ?? t.description ?? "";
                 const dirty = drafts[t.id] !== undefined && drafts[t.id] !== (t.description ?? "");
+                const busy = busyId === t.id;
                 return (
                   <TableRow key={t.id}>
-                    <TableCell className="font-medium">{t.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {t.name}
+                      <div className="text-xs font-normal text-muted-foreground" lang="ja">
+                        {t.name_ja || <span className="italic">no Japanese yet</span>}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{t.slug}</TableCell>
                     <TableCell>
                       <Input
@@ -897,13 +995,23 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
                         onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
                       />
                     </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" lang="ja">
+                      {t.description_ja || <span className="italic">—</span>}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button
-                          variant="outline" size="sm" disabled={!dirty || saveDescription.isPending}
-                          onClick={() => saveDescription.mutate({ id: t.id, description: value })}
+                          variant="outline" size="sm" disabled={!dirty || busy}
+                          onClick={() => saveDescription.mutate({ id: t.id, description: value, name: t.name, hasNameJa: !!t.name_ja })}
                         >
                           Save
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" title="Regenerate Japanese" aria-label="Regenerate Japanese"
+                          disabled={busy}
+                          onClick={() => regenerate.mutate({ id: t.id, name: t.name, description: t.description ?? "" })}
+                        >
+                          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                         </Button>
                         {isAdmin && (
                           <Button

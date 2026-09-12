@@ -13,7 +13,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const PRODUCT_FIELDS =
-  "id, sku, slug, name, karat, weight_g, description_en, description_ja, status, condition, origin, brand, updated_at";
+  "id, sku, slug, name, name_ja, karat, weight_g, description_en, description_ja, status, condition, origin, brand, updated_at";
 const VARIANT_SELECT =
   "product_variants:website_product_variants(id, size, stone, price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
 const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
@@ -128,8 +128,34 @@ function scrub<T>(value: T): T {
  * Sorts variants and media, and derives price_php from the day's rate.
  * CLAUDE.md currency direction: PHP = JPY x rate. Null when no rate is on file.
  */
+const nonEmpty = (v: unknown): string | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : null;
+};
+
+const COLLECTION_FIELDS = "id, slug, name, name_ja, hero_media, description, description_ja";
+
+/**
+ * Bilingual contract for jewelry types: name_en / name_ja / description_en /
+ * description_ja. `name` and `description` stay as English aliases so a
+ * storefront built before this change keeps rendering during the deploy gap.
+ */
+function shapeCollection(c: AnyRec): AnyRec {
+  return {
+    ...c,
+    name_en: c.name ?? null,
+    name_ja: nonEmpty(c.name_ja),
+    description_en: nonEmpty(c.description),
+    description_ja: nonEmpty(c.description_ja),
+  };
+}
+
 function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null {
   if (!product) return product;
+  // Bilingual contract: name_en / name_ja / description_en / description_ja
+  // on every product. `name` stays as the English alias for older readers.
+  product.name_en = product.name ?? null;
+  product.name_ja = nonEmpty(product.name_ja);
   const variants = (product.product_variants as AnyRec[] | undefined) ?? [];
   variants.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
   for (const v of variants) {
@@ -140,6 +166,32 @@ function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null 
     v.price_php = fx && Number.isFinite(jpy) ? Math.round(jpy * fx.jpy_php) : null;
   }
   return product;
+}
+
+/**
+ * Order lines store the English title at order time (create_web_order_atomic).
+ * The Japanese title is derived at read time from the product's current
+ * name_ja, so a translation generated after the order still shows. A line
+ * whose product is gone, or whose title no longer starts with the English
+ * name (renamed since), gets title_ja = null and the site falls back to title.
+ */
+async function withJapaneseTitles(supabase: any, items: AnyRec[]): Promise<AnyRec[]> {
+  const ids = [...new Set(items.map((i) => i.product_id).filter((id): id is string => typeof id === "string"))];
+  if (!ids.length) return items.map((i) => ({ ...i, title_ja: null }));
+  const { data, error } = await supabase
+    .from("website_products")
+    .select("id, name, name_ja")
+    .in("id", ids);
+  if (error) throw error;
+  const byId = new Map<string, AnyRec>((data ?? []).map((p: AnyRec) => [String(p.id), p]));
+  return items.map((i) => {
+    const p = i.product_id ? byId.get(String(i.product_id)) : undefined;
+    const en = nonEmpty(p?.name);
+    const ja = nonEmpty(p?.name_ja);
+    const title = String(i.title ?? "");
+    const title_ja = en && ja && title.startsWith(en) ? ja + title.slice(en.length) : null;
+    return { ...i, title_ja };
+  });
 }
 
 /** Cart size ceiling. Generous for a jeweller, small enough to bound the loop. */
@@ -335,10 +387,10 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "collections" && !segments[2]) {
       const { data, error } = await supabase
         .from("website_collections")
-        .select("id, slug, name, hero_media, description")
+        .select(COLLECTION_FIELDS)
         .order("name");
       if (error) throw error;
-      return jsonResponse(scrub(data ?? []));
+      return jsonResponse(scrub((data ?? []).map((c) => shapeCollection(c as AnyRec))));
     }
 
     // GET /catalog/collections/:slug
@@ -346,7 +398,7 @@ Deno.serve(async (req) => {
       const slug = decodeURIComponent(segments[2]);
       const { data: collection, error } = await supabase
         .from("website_collections")
-        .select("id, slug, name, hero_media, description")
+        .select(COLLECTION_FIELDS)
         .eq("slug", slug)
         .maybeSingle();
       if (error) throw error;
@@ -365,7 +417,7 @@ Deno.serve(async (req) => {
         .filter((p): p is AnyRec => !!p && p.status === "active")
         .map((p) => shapeProduct(p, fx));
 
-      return jsonResponse(scrub({ ...collection, products }));
+      return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
     }
 
     // GET /catalog/products/:slug
@@ -730,6 +782,10 @@ Deno.serve(async (req) => {
           sku: product.sku ?? null,
           slug: product.slug ?? null,
           name: [product.name, variant.size, variant.stone].filter(Boolean).join(" / "),
+          name_en: [product.name, variant.size, variant.stone].filter(Boolean).join(" / "),
+          name_ja: nonEmpty(product.name_ja)
+            ? [product.name_ja, variant.size, variant.stone].filter(Boolean).join(" / ")
+            : null,
           qty,
           unit_price_jpy: unit,
           line_total_jpy: unit * qty,
@@ -890,6 +946,7 @@ Deno.serve(async (req) => {
         .eq("cash_order_id", order.id)
         .order("created_at");
       if (itemErr) throw itemErr;
+      const lines = await withJapaneseTitles(supabase, (items ?? []) as AnyRec[]);
 
       const country = String((order as AnyRec).ship_to_address
         ? ((order as AnyRec).ship_to_address as AnyRec).country ?? "JP"
@@ -897,7 +954,7 @@ Deno.serve(async (req) => {
 
       return jsonResponse(scrub({
         order,
-        items: items ?? [],
+        items: lines,
         transfer_region: regionForCountry(country),
         // Methods are only actionable while the transfer is outstanding.
         transfer_methods: (order as AnyRec).payment_status === "pending_transfer"

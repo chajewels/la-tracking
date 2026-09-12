@@ -70,6 +70,14 @@ export function hasForbiddenGoldTerm(...parts: (string | null | undefined)[]): b
 
 export interface CollectionOption { id: string; name: string; slug: string }
 
+/**
+ * English -> Japanese for catalog copy (edge function translate-product-description).
+ * Name and description are translated independently; a field not passed comes
+ * back as "". Shared by the edit modal, the importer and the jewelry-types editor.
+ */
+export type JaTranslation = { name_ja: string; description_ja: string };
+export type TranslateFn = (fields: { name?: string; description?: string }) => Promise<JaTranslation>;
+
 export interface ImportRowInput {
   /** 1-based worksheet row, for error messages that match what the user sees. */
   sheetRow: number;
