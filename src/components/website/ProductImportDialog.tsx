@@ -17,6 +17,7 @@ import {
   CollectionOption, DATA_START_ROW, ImportRow, ImportRowInput, SHEET_NAME,
   isBlankRow, rowAction, validateRow,
 } from "@/lib/website-catalog-import";
+import type { TranslateFn } from "@/lib/website-catalog-import";
 
 /**
  * Spreadsheet import for the Website Catalog.
@@ -30,7 +31,7 @@ interface Props {
   collections: CollectionOption[];
   isAdmin: boolean;
   /** Same translate call the edit modal's Regenerate button uses. */
-  translate: (text: string, name: string) => Promise<string>;
+  translate: TranslateFn;
 }
 
 interface Summary { created: number; updated: number; skipped: number }
@@ -145,7 +146,7 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
 
     const { data: found, error: findErr } = await supabase
       .from("website_products" as any)
-      .select("id, slug, description_en, description_ja")
+      .select("id, slug, name, name_ja, description_en, description_ja")
       .eq("sku", v.sku)
       .maybeSingle();
     if (findErr) throw findErr;
@@ -155,10 +156,19 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
     // Japanese only when the English changed or none exists yet — same rule as
     // the modal, so re-uploading an unchanged sheet costs no AI calls.
     let ja = String(existingProduct?.description_ja ?? "");
+    let nameJa = String(existingProduct?.name_ja ?? "");
     const prevEn = String(existingProduct?.description_en ?? "").trim();
-    if (translateJa && (v.description_en !== prevEn || !ja)) {
+    const prevName = String(existingProduct?.name ?? "").trim();
+    const needDesc = !!v.description_en && (v.description_en !== prevEn || !ja);
+    const needName = v.name !== prevName || !nameJa;
+    if (translateJa && (needDesc || needName)) {
       try {
-        ja = await translate(v.description_en, v.name);
+        const out = await translate({
+          name: needName ? v.name : undefined,
+          description: needDesc ? v.description_en : undefined,
+        });
+        if (needName) nameJa = out.name_ja;
+        if (needDesc) ja = out.description_ja;
       } catch (e: any) {
         throw new Error(`Japanese translation failed: ${e.message}`);
       }
@@ -169,6 +179,7 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
       // Keep the existing web address on update — changing it breaks live links.
       slug: existingProduct?.slug ?? v.slug,
       name: v.name,
+      name_ja: nameJa || null,
       karat: v.karat,
       weight_g: v.weight_g,
       description_en: v.description_en,

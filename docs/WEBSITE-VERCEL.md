@@ -38,9 +38,9 @@ them to `PRODUCT_FIELDS`.
 |---|---|---|
 | `GET /catalog/products` | Listing grid | `?limit=` 1–5000, default 8. Active only, newest first. |
 | `GET /catalog/products?fields=…` | Sitemap feed | Allowed fields: `slug`, `updated_at`, `sku`, `name`, `status`. Anything else is dropped, not errored. Use `?fields=slug,updated_at&limit=5000`. |
-| `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. |
-| `GET /catalog/collections` | The seven jewelry types | Ordered by name. |
-| `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. |
+| `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. Every product (here and in the listing) carries `name_en` / `name_ja` / `description_en` / `description_ja`; `name` remains as the English alias. |
+| `GET /catalog/collections` | The seven jewelry types | Ordered by name. Bilingual: `name_en` / `name_ja` / `description_en` / `description_ja` (`name` and `description` remain as English aliases). |
+| `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. Same bilingual fields as the list. |
 | `GET /fx` | `{ jpy_php, as_of }` | 404 when `fx_rates` is empty. |
 | `POST /layaway/quote` | Term pricing | Body `{ price, term_months?, currency? }`. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |
@@ -248,6 +248,21 @@ stored peso price: a second copy of every price is a second thing to drift.
   `750`, `Au750` or `18K` as separate options.
 - **Collections** are jewelry types: necklaces, pendants, earrings, bracelets,
   rings, anklets, sets.
+- **Bilingual copy** (migration `20260912100000`): staff write English once;
+  the Hub generates Japanese on save. `website_products.name_ja` and
+  `website_collections.name_ja` / `.description_ja` are generated columns in
+  practice — read-only in the Hub UI, refreshed when the English changes or
+  by Regenerate — and are never typed by staff. The site shows Japanese by
+  default and falls back to English per field when the Japanese is empty.
+  `translate-product-description` takes `{ name?, description? }` and
+  translates each INDEPENDENTLY (the name is never prepended to the
+  description); it obeys a fixed glossary: Preloved → プレラブド (never 中古品),
+  brand and model names unchanged, metal marks (K18, 750, PT900) unchanged,
+  sizes / lengths / weights unchanged, jewelry types per the seeded list
+  (Anklets アンクレット, Bracelets ブレスレット, Earrings ピアス・イヤリング,
+  Necklaces ネックレス, Pendants ペンダント, Rings リング, Sets セット).
+  Order lines store the English `title` at order time; `/orders/:id` derives
+  `title_ja` at read time from the product's current `name_ja`.
 - **Origin and brand** (`website_products.origin`, `.brand`, migration
   `20260911190000`): `origin` is `JAPAN` | `BRAND` | `OTHER` | `UNKNOWN`
   (default). It is the ONLY source of an origin claim on the site: `JAPAN`
@@ -259,8 +274,8 @@ stored peso price: a second copy of every price is a second thing to drift.
   "authenticated in Japan" / "hallmark checked in Japan".
 - **Terminology guard:** the `reject_forbidden_gold_terms()` trigger raises on
   country-branded gold (`japanese gold`, `saudi gold`, `italian gold`,
-  `dubai gold`, `hk gold`, `chinese gold`) in `name`, `description_en` or
-  `description_ja`. Describe purity as "K18 gold"; origin comes from the
+  `dubai gold`, `hk gold`, `chinese gold`) in `name`, `name_ja`,
+  `description_en` or `description_ja`. Describe purity as "K18 gold"; origin comes from the
   `origin` column, never from copy. The
   `translate-product-description` prompt mirrors this ban, and its output is
   regex-checked before it is stored.
