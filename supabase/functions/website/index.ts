@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderConfirmationEmail, orderConfirmationSubject } from "../_shared/email-templates/order-confirmation.tsx";
+import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.tsx";
 import * as React from "npm:react@18.3.1";
 
 /**
@@ -935,7 +936,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         const { data: placedOrder } = await supabase
           .from("cash_orders").select("shipping_fee").eq("id", String(result.order_id)).maybeSingle();
         await sendStorefrontEmail({
-          to: { email: customer.email, is_test: customer.is_test === true },
+          to: { email: String(customer.email ?? ""), is_test: customer.is_test === true },
           subject: orderConfirmationSubject(String(result.web_reference)),
           label: "order-confirmation",
           reference: String(result.web_reference),
@@ -943,10 +944,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           element: React.createElement(OrderConfirmationEmail, {
             lang,
             reference: String(result.web_reference),
-            items: withJa.map((l) => ({ title: String(l.title ?? ""), title_ja: l.title_ja ?? null, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) })),
+            items: withJa.map((l) => ({ title: String(l.title ?? ""), title_ja: (l.title_ja as string | null) ?? null, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) })),
             shippingJpy: placedOrder ? Number((placedOrder as AnyRec).shipping_fee ?? 0) : null,
             totalJpy: Number(result.total_jpy ?? 0),
-            methods,
+            methods: methods as unknown as OrderEmailMethod[],
             transferDueAt: String(result.transfer_due_at),
             region,
             orderUrl: storefrontOrderUrl(String(result.order_id)),
