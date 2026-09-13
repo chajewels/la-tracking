@@ -3,6 +3,9 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
+import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shared/email-templates/order-payment-received.tsx";
+import * as React from "npm:react@18.3.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -346,7 +349,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, shipping_fee, total_amount")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -542,15 +545,57 @@ Deno.serve(async (req) => {
       // Refresh the payment tracking sheet row for this cash order (awaited, non-blocking).
       await refreshPaymentTracking(cashOrder.invoice_number, "review-payment-submission/cash");
 
-      // 7. Fire-and-forget: cash-payment-confirmed email
+      // 7. Fire-and-forget: the customer's confirmation email.
+      //    Web order, fully paid → the Cha Jewels "payment received" email
+      //    (storefront branding, customer's language, shipping note).
+      //    Anything else → the Hub's cash-payment-confirmed template as before.
+      const isWebOrder = (cashOrder as any).source_channel === "web";
       try {
         const { data: customer } = await supabase
           .from("customers")
-          .select("full_name, email")
+          .select("full_name, email, is_test")
           .eq("id", cashOrder.customer_id)
           .single();
         const customerEmail = customer?.email;
-        if (customerEmail) {
+        if (isWebOrder && isFullyPaid) {
+          const { data: lines } = await supabase
+            .from("cash_order_items")
+            .select("website_product_id, title, quantity, line_total_jpy")
+            .eq("cash_order_id", cashOrder.id)
+            .order("created_at");
+          const ids = [...new Set(((lines ?? []) as any[]).map((l) => l.website_product_id).filter(Boolean))];
+          const { data: prods } = ids.length
+            ? await supabase.from("website_products").select("id, name, name_ja").in("id", ids)
+            : { data: [] as any[] };
+          const byId = new Map<string, any>(((prods ?? []) as any[]).map((p) => [String(p.id), p]));
+          const items = ((lines ?? []) as any[]).map((l) => {
+            const pr = l.website_product_id ? byId.get(String(l.website_product_id)) : undefined;
+            const title = String(l.title ?? "");
+            const title_ja = pr?.name && pr?.name_ja && title.startsWith(pr.name) ? pr.name_ja + title.slice(pr.name.length) : null;
+            return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
+          });
+          const reference = String((cashOrder as any).web_reference ?? cashOrder.invoice_number);
+          await sendStorefrontEmail({
+            to: { email: customerEmail, is_test: (customer as any)?.is_test === true },
+            subject: orderPaymentReceivedSubject(reference),
+            label: "order-payment-received",
+            reference,
+            idempotencyKey: `order-payment-received-${cashPayment.id}`,
+            element: React.createElement(OrderPaymentReceivedEmail, {
+              lang: pickLang((cashOrder as any).customer_lang),
+              reference,
+              items,
+              shippingJpy: Number((cashOrder as any).shipping_fee ?? 0),
+              totalJpy: Number((cashOrder as any).total_amount ?? newTotalPaid),
+              amountReceivedJpy: Number(submittedAmount),
+              orderUrl: storefrontOrderUrl(String(cashOrder.id)),
+            }),
+          });
+        } else if (isWebOrder) {
+          // Partial transfer on a web order: no email yet — the order is still
+          // awaiting the balance and the Hub template would name the wrong reference.
+          console.log(JSON.stringify({ storefront_email: "order-payment-received", reference: (cashOrder as any).web_reference, outcome: "skipped_partial_payment" }));
+        } else if (customerEmail) {
           const result = await sendTemplateEmail(
             "cash-payment-confirmed",
             customerEmail,

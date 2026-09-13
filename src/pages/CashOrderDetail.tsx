@@ -9,6 +9,7 @@ import {
   Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles, Trash2,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+import { cashOrderRef, cashOrderRefLabel } from '@/lib/order-reference';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -627,10 +628,10 @@ export default function CashOrderDetail() {
       if (storeCredit) {
         const moneyReceived = Number((data as any)?.money_received ?? 0);
         toast.success(
-          `Cash order #${order.invoice_number} cancelled — ${formatCurrency(moneyReceived, order.currency as Currency)} store credit issued`,
+          `${order.source_channel === 'web' ? 'Order' : 'Cash order #'}${order.source_channel === 'web' ? ' ' : ''}${cashOrderRef(order)} cancelled — ${formatCurrency(moneyReceived, order.currency as Currency)} store credit issued`,
         );
       } else {
-        toast.success(`Cash order #${order.invoice_number} cancelled`);
+        toast.success(`${order.source_channel === 'web' ? 'Order ' : 'Cash order #'}${cashOrderRef(order)} cancelled`);
       }
       setCancelOpen(false);
       setCancelReason('');
@@ -836,7 +837,7 @@ export default function CashOrderDetail() {
       msg += order.status === 'cancelled'
         ? `⛔ NOTICE: This order has been CANCELLED.\n\n`
         : `⛔ NOTICE: This order has EXPIRED.\n\n`;
-      msg += `Inv # ${order.invoice_number}\n`;
+      msg += `${cashOrderRefLabel(order)}\n`;
       msg += `Status: ${order.status === 'cancelled' ? 'CANCELLED' : 'EXPIRED'}\n`;
       msg += `\nFor any questions, please contact Cha Jewels directly.`;
       return msg;
@@ -844,7 +845,7 @@ export default function CashOrderDetail() {
 
     if (order.status === 'completed') {
       msg += `Thank you for your payment. ${formatCurrency(Number(order.total_paid), cur)} has been received.\n\n`;
-      msg += `Inv # ${order.invoice_number}\n`;
+      msg += `${cashOrderRefLabel(order)}\n`;
       msg += `Status: FULLY PAID\n`;
       msg = appendItemLines(msg);
       if (portalUrl) msg += `\nView your order details here:\n🔗 ${portalUrl}\n`;
@@ -853,7 +854,7 @@ export default function CashOrderDetail() {
       return msg;
     }
 
-    msg += `Inv # ${order.invoice_number}\n\n`;
+    msg += `${cashOrderRefLabel(order)}\n\n`;
     msg += `Total Amount: ${formatCurrency(Number(order.total_amount), cur)}\n`;
     msg += `Amount Paid: ${formatCurrency(Number(order.total_paid), cur)}\n`;
     msg += `Remaining Balance: ${formatCurrency(Number(order.remaining_balance), cur)}\n`;
@@ -959,7 +960,7 @@ export default function CashOrderDetail() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display truncate">
-                    Cash Order #{order.invoice_number}
+                    {order.source_channel === 'web' ? `Order ${cashOrderRef(order)}` : `Cash Order #${order.invoice_number}`}
                   </h1>
                   <StatusBadge status={order.status} />
                   {order.shipped_at && (
@@ -983,7 +984,7 @@ export default function CashOrderDetail() {
                       variant="outline"
                       className="bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/30 dark:text-sky-200 dark:border-sky-800 text-xs"
                     >
-                      🌐 Web{order.web_reference ? ` · ${order.web_reference}` : ''}
+                      🌐 Web
                     </Badge>
                   )}
                 </div>
@@ -1195,7 +1196,7 @@ export default function CashOrderDetail() {
               <div className="space-y-1">
                 <p className="text-sm font-medium">Awaiting bank / GCash transfer</p>
                 <p className="text-xs text-muted-foreground">
-                  Reference <span className="font-mono">{order.web_reference ?? '—'}</span>
+                  Invoice <span className="font-mono">{order.invoice_number}</span>
                   {order.transfer_due_at && (
                     <> · due {formatPHTDisplay(order.transfer_due_at)}</>
                   )}

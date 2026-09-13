@@ -352,3 +352,10 @@ function imports `supabase-js` from there on line 1 — so a local sweep fails
 ~90 of 99 functions on network errors that look nothing like type errors until
 you read the actual stderr. GitHub Actions reaches `esm.sh` fine. Measure in
 CI, not locally.
+
+## Web orders — manual cancel does not release stock (2026-09-13)
+
+Cancelling a web order from CashOrderDetail sets the status but leaves
+`website_product_variants.stock_qty` decremented. Only the 72-hour expiry
+(`expire_web_order_atomic`) puts stock back. Needed: route the Hub cancel of a
+`source_channel = web` order through an RPC that restores stock the same way.

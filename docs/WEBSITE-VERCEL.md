@@ -451,6 +451,55 @@ or immediately by any `net._http_response` row with `status_code = 500`.
 
 ---
 
+## 4b. Order emails and the one reference (2026-09-13)
+
+**One reference.** A web order is `CJ-W-000123` (`cash_orders.web_reference`)
+to the customer AND to staff. The Hub shows it in the Sales list title, the
+order detail title, search, CSV export ("Reference" column, "Invoice #" kept
+beside it) and staff-bell notifications (`notify_submission_created` /
+`_reviewed` name the web reference for web orders). `invoice_number`
+(`TEST-900008` for a test customer, `900008` otherwise) stays the internal key
+and the 🧪 TEST badge signal; the detail view shows it as "Invoice". Helper:
+`src/lib/order-reference.ts` (`cashOrderRef`, `cashOrderRefLabel`,
+`isTestCashOrder`). Hub-created cash orders keep their invoice numbering.
+
+**Three customer emails**, all from `Cha Jewels <noreply@chajewelsjp.com>` via
+Lovable email on `notify.chajewelsjp.com` — the sign-in email's sender, never
+"Cha Jewels Hub". Templates live in `supabase/functions/_shared/email-templates/`
+(`order-confirmation.tsx`, `order-payment-received.tsx`, `order-expired.tsx`,
+shared pieces in `order-shared.tsx`); the sender/gate/log helper is
+`_shared/storefront-email.ts`.
+
+| Email | Sent by | When | Subject |
+|---|---|---|---|
+| Order confirmation | `website` `/checkout/pay` | order created | 「ご注文ありがとうございます CJ-W-… / Your Cha Jewels order CJ-W-…」 |
+| Payment received | `review-payment-submission` | CSR confirms and the web order is fully paid | 「お支払いを確認しました … / Payment received — …」 |
+| Order cancelled | `auto-expire-cash-orders` | 72-hour deadline passes | 「ご注文がキャンセルされました … / … has been cancelled」 |
+
+Body language = `cash_orders.customer_lang` (the storefront's language cookie at
+pay time, sent as `lang` in the `/checkout/pay` body; NULL reads as `ja`).
+Japanese emails carry the English text below; English emails are English only.
+The confirmation repeats exactly what the payment screen showed: items, total,
+every transfer method as a labelled card (the same `transfer_methods` payload),
+the transfer-name notice, the deadline as date+time in JST (Japan) or PHT
+(overseas), and the `/account/orders/[id]` link built from `WEBSITE_URL`.
+
+**Test gate.** A customer with `is_test = true` receives none of these unless the
+address is `@chajewelsjp.com` or `chajewelsjapan@gmail.com`, so an owner test
+order still produces the real email and a throwaway address gets nothing.
+
+**One log line per send**, JSON: `{"storefront_email": <label>, "reference",
+"to", "outcome": sent | suppressed | skipped_test_customer | skipped_no_address
+| skipped_not_configured | error}`. A send failure never fails the order, the
+confirmation or the expiry that triggered it.
+
+**Expiry now covers web orders.** `create_web_order_atomic` sets
+`expires_at = transfer_due_at`, so the existing 08:30 PHT cron sees them; a web
+order goes through `expire_web_order_atomic`, which flips the status AND puts
+the held stock back on sale in one transaction. Before this a web order never
+expired and never released its piece. Manual cancellation from the Hub detail
+page does NOT yet release web stock — tracked in docs/PENDING.md.
+
 ## 5. CI coverage
 
 `supabase/functions` is under a blocking Deno gate as of `823e6e9` (job
