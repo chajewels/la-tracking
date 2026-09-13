@@ -686,6 +686,9 @@ export default function CashOrderDetail() {
   useEffect(() => {
     if (!cancelOpen || !order) return;
     let cancelled = false;
+    // Fresh dialog every time: the reason must be typed for THIS cancellation,
+    // never inherited from an earlier attempt or a browser autofill.
+    setCancelReason('');
     setCancelPreview(null);
     setCancelPreviewError(null);
     setCancelPreviewLoading(true);
@@ -2002,6 +2005,8 @@ export default function CashOrderDetail() {
             <Label htmlFor="cancel-reason">Reason *</Label>
             <Input
               id="cancel-reason"
+              name="cancel-reason"
+              autoComplete="off"
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
               placeholder="Why is this order being cancelled?"
