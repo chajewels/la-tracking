@@ -372,6 +372,38 @@ Deno.serve(async (req) => {
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // 2c. Atomic claim of the submission (Bug #269). The layaway branch has
+      //     had this compare-and-swap since the 19031 double award; the cash
+      //     branch only had a read-then-check, so two confirms in flight both
+      //     inserted a cash_payment and both reached award-loyalty-points.
+      //     Zero rows flipped = someone else got here first: 409, write nothing.
+      const { data: cashFlipped, error: cashFlipErr } = await supabase
+        .from("payment_submissions")
+        .update({ status: "confirmed", reviewer_user_id: user.id, updated_at: new Date().toISOString() })
+        .eq("id", submission_id)
+        .in("status", ["submitted", "under_review"])
+        .select("id");
+      if (cashFlipErr) {
+        console.error("[review-payment-submission] CAS flip failed for cash confirm:", cashFlipErr);
+        return new Response(JSON.stringify({ error: "Failed to lock submission" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!cashFlipped || cashFlipped.length === 0) {
+        return new Response(JSON.stringify({
+          error: "Submission already processed",
+          confirmed_payment_id: submission.confirmed_payment_id ?? null,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Undo the claim if a later step fails before the payment exists.
+      const revertCashClaim = async () => {
+        const { error } = await supabase
+          .from("payment_submissions")
+          .update({ status: submission.status, reviewer_user_id: submission.reviewer_user_id ?? null })
+          .eq("id", submission_id);
+        if (error) console.error("[review-payment-submission] cash claim revert failed:", error);
+      };
+
       // 3. Insert cash_payments row
       const submittedByType = submission.portal_token ? "customer" : "staff";
       const { data: cashPayment, error: cpErr } = await supabase
@@ -392,6 +424,7 @@ Deno.serve(async (req) => {
         .single();
       if (cpErr || !cashPayment) {
         console.error("cash_payments insert error:", cpErr);
+        await revertCashClaim();
         return new Response(JSON.stringify({ error: cpErr?.message || "Failed to create cash_payment" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -435,8 +468,9 @@ Deno.serve(async (req) => {
         .select()
         .single();
       if (orderUpdErr) {
-        // Step 4 failed — rollback the cash_payment from step 3.
+        // Step 4 failed — rollback the cash_payment from step 3 and the claim.
         await supabase.from("cash_payments").delete().eq("id", cashPayment.id);
+        await revertCashClaim();
         return new Response(JSON.stringify({ error: "Failed to update cash_order: " + orderUpdErr.message }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -457,7 +491,8 @@ Deno.serve(async (req) => {
       if (subUpdErr) {
         console.error("[review-payment-submission] submission update failed for cash confirm — rolling back:", subUpdErr);
         // Step 5 failed — manual rollback of step 4 (cash_orders) and step 3
-        // (cash_payments) to prevent half-confirmed state.
+        // (cash_payments) to prevent half-confirmed state; the 2c claim too.
+        await revertCashClaim();
         const { error: orderRevertErr } = await supabase
           .from("cash_orders")
           .update({

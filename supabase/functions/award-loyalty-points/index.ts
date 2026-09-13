@@ -329,6 +329,31 @@ Deno.serve(async (req) => {
       : 0;
     const bonusTxPoints = deltaFromMultiplier + flatBonus;
 
+    // 7b. Idempotent award keyed on the order (Bug #269). The claim is an
+    //     INSERT into loyalty_award_claims (primary key = source), so two
+    //     concurrent invocations for the same order cannot both pass — the
+    //     read-then-check guards above (4b, 4c) can. Released on any failure
+    //     below the claim so a retry can run; confirmed with the earned row id.
+    const claimKind = sourceKind === "layaway" ? "layaway" : "cash";
+    const claimId = sourceKind === "layaway" ? account_id! : cash_order_id!;
+    {
+      const { data: claimed, error: claimErr } = await supabase.rpc("claim_loyalty_award", {
+        p_source_kind: claimKind,
+        p_source_id: claimId,
+      });
+      if (claimErr) {
+        console.error("[award-loyalty-points] claim_loyalty_award failed:", claimErr);
+        return json({ error: "award_claim_failed", detail: claimErr.message }, 500);
+      }
+      if (claimed !== true) {
+        return json({ skipped: true, reason: "already_awarded" });
+      }
+    }
+    const releaseClaim = async () => {
+      const { error } = await supabase.rpc("release_loyalty_award_claim", { p_source_kind: claimKind, p_source_id: claimId });
+      if (error) console.error("[award-loyalty-points] release_loyalty_award_claim failed:", error);
+    };
+
     // 8. Insert earned transaction
     const earnedTxRow: Record<string, unknown> = {
       member_id: member.id,
@@ -349,9 +374,16 @@ Deno.serve(async (req) => {
       .single();
     if (earnedErr) {
       console.error("[award-loyalty-points] earned tx insert failed:", earnedErr);
+      await releaseClaim();
       return json({ error: "earned_tx_insert_failed", detail: earnedErr.message }, 500);
     }
     const earnedTxId: string | null = (earnedTxData as { id?: string } | null)?.id ?? null;
+    if (earnedTxId) {
+      const { error: confirmErr } = await supabase.rpc("confirm_loyalty_award_claim", {
+        p_source_kind: claimKind, p_source_id: claimId, p_transaction_id: earnedTxId,
+      });
+      if (confirmErr) console.warn("[award-loyalty-points] confirm_loyalty_award_claim failed (non-blocking):", confirmErr);
+    }
 
     // 9. Insert bonus transaction if any bonus applies
     //    Skip when both delta_from_multiplier = 0 AND flat_bonus = 0

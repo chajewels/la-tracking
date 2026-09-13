@@ -275,3 +275,20 @@
   referenced a "transactional_email_log" table — that name
   is incorrect; the actual table is email_send_log.
 
+
+
+## loyalty_integrity_report() (added 2026-09-13, Bug #269)
+
+Staff-only (role check inside the function). Returns one row per member whose
+figures disagree; an empty result means the ledger (`loyalty_transactions`
+net), the live lots (`loyalty_point_lots` remaining, not revoked/expired/
+consumed), the served counter (`loyalty_members.remaining_points`) and the tier
+(vs the tier implied by lifetime `cumulative_spend_jpy`, downgraded members
+excluded) all agree.
+
+```sql
+SELECT * FROM public.loyalty_integrity_report();
+```
+
+Columns: member_id, customer_code, full_name, counter_points, lots_live,
+ledger_net, tier_now, tier_from_spend, is_downgraded, problem.

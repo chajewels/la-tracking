@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
 
     const { data: order } = await supabase
       .from("cash_orders")
-      .select("id, invoice_number, customer_id, status")
+      .select("id, invoice_number, customer_id, status, source_channel, web_reference")
       .eq("id", cash_order_id)
       .maybeSingle();
 
@@ -61,39 +61,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Loyalty revoke BEFORE deletion. loyalty_transactions.cash_order_id is
-    // ON DELETE SET NULL, so points and cumulative_spend_jpy survive the
-    // delete — without this the member's balance stays inflated by an order
-    // that no longer exists. Mirrors delete-account (Bug #99 Decision 9 path-a).
-    try {
-      const _rvRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({
-          customer_id: order.customer_id,
-          source_reference: order.invoice_number,
-          cash_order_id: order.id,
-          invoice_number: order.invoice_number,
-          notes: `Cash order deleted: ${order.invoice_number}`,
-          // Must be a key of TRIGGER_TO_REASON in revoke-loyalty-points —
-          // "delete_cash_order" is not one, and returns 400 (fire-and-forget,
-          // so the delete silently proceeds without revoking). Reusing
-          // delete_account maps to RevokeReason "account_deleted", which
-          // accurately describes a deleted cash order.
-          trigger_event: "delete_account",
-          spend_jpy: 0,
-        }),
-      }).catch((e) => { console.warn("[delete-cash-order] revoke-loyalty-points failed (non-blocking):", e); return null; });
-      if (_rvRes && !_rvRes.ok) {
-        const _t = await _rvRes.text().catch(() => "<no body>");
-        console.error(`[delete-cash-order] revoke-loyalty-points failed (${_rvRes.status}): ${_t}`);
-      }
-    } catch (revokeErr) {
-      console.warn("[delete-cash-order] revoke block failed (non-blocking):", revokeErr);
+    // Web orders are cancelled, never deleted: the customer's order history,
+    // the stock hold and the points reversal all hang off this row. The DB
+    // refuses too (trg_prevent_web_order_delete + delete_cash_order_atomic);
+    // this is the readable answer.
+    if (order.source_channel === "web") {
+      return new Response(JSON.stringify({
+        error: "web_order_delete_forbidden",
+        message: `${order.web_reference ?? order.invoice_number} is a web order. Cancel it instead.`,
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // Loyalty points are revoked INSIDE delete_cash_order_atomic, in the same
+    // transaction as the delete. The old fire-and-forget HTTP call to
+    // revoke-loyalty-points could lose the race (2026-08-25 ledger note).
 
     const { data, error: rpcError } = await supabase.rpc('delete_cash_order_atomic', {
       p_cash_order_id: cash_order_id,
@@ -107,7 +88,8 @@ Deno.serve(async (req) => {
     }
 
     if (data?.error) {
-      const status = data.error === 'Cash order not found' ? 404 : 500;
+      const status = data.error === 'Cash order not found' ? 404
+        : data.error === 'web_order_delete_forbidden' ? 409 : 500;
       return new Response(JSON.stringify({ error: data.error }), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

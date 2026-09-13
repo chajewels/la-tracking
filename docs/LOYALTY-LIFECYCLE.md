@@ -214,3 +214,16 @@ Conventions for all three writers:
   - Sheet sync, lot writes, transaction-row inserts, and member /
     redemption / payment updates are untouched.
 
+
+
+## Tier rule — decided 2026-09-13
+
+The tier is **lifetime cumulative spend** (`loyalty_members.cumulative_spend_jpy`
+against `loyalty_tiers.min_spend_jpy`), recomputed on award (ratchet-up only) and
+on revoke/restore. There is no 12-month window. The one time-based rule is the
+**180-day inactivity step-down** in `loyalty-inactivity-check` (one tier down,
+`downgrade_spend_baseline` stamped); afterwards `loyalty_tiers.requalify_spend_jpy`
+is the new spend, since the baseline, needed to regain the earned tier. The
+storefront's earlier "past 12 months" wording was wrong and was corrected
+(cha-jewels-web #19). Note: `loyalty_point_lots` does NOT carry `tier_at_time` /
+`multiplier_at_time`; that lives on `loyalty_transactions.tier_at_time`.

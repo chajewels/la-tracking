@@ -210,7 +210,10 @@ const ORDER_FIELDS =
   "id, web_reference, invoice_number, status, payment_status, payment_method, order_type, " +
   "currency, total_amount, total_paid, remaining_balance, shipping_fee, transfer_due_at, " +
   "recipient_name, gift_note, order_date, created_at, completed_at, cancelled_at, " +
-  "tracking_number, shipped_at";
+  "tracking_number, shipped_at, " +
+  // Cancelled orders stay in the customer's history with the reason and the
+  // refund decision; a lapse carries expired_at.
+  "cancellation_reason, refund_status, refund_note, expired_at";
 
 /**
  * create_web_order_atomic reports failures in its payload rather than throwing,

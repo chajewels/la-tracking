@@ -9,7 +9,7 @@ import {
   Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles, Trash2,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { cashOrderRef, cashOrderRefLabel } from '@/lib/order-reference';
+import { cashOrderRef, cashOrderRefLabel, isWebOrder } from '@/lib/order-reference';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Textarea } from '@/components/ui/textarea';
 import StatusBadge from '@/components/customers/StatusBadge';
 import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
@@ -52,7 +54,21 @@ interface CancelPreview {
   loyalty_redemption_excluded?: number;
   store_credit_to_issue?: number;
   earned_points_will_be_revoked?: boolean;
+  // Web-order lifecycle fields — absent on older deploys, read defensively.
+  is_web?: boolean;
+  stock_lines?: number;
+  refund_decision_required?: boolean;
 }
+
+// Refund decision for a web order that has money received. Only `no_refund`
+// mints store credit; the other two record that cash goes (or went) back.
+type RefundStatus = 'refund_issued' | 'refund_pending' | 'no_refund';
+const REFUND_OPTIONS: { value: RefundStatus; label: string; helper: string }[] = [
+  { value: 'refund_issued', label: 'Refund issued', helper: 'The money has been returned to the customer. No store credit.' },
+  { value: 'refund_pending', label: 'Refund pending', helper: 'A refund will be sent. No store credit.' },
+  { value: 'no_refund', label: 'No refund — store credit instead', helper: 'The amount received becomes store credit, valid one year.' },
+];
+const REFUND_NOTE_MAX = 300;
 
 interface CashOrderRow {
   id: string;
@@ -394,6 +410,9 @@ export default function CashOrderDetail() {
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
   const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
   const [cancelPreviewError, setCancelPreviewError] = useState<string | null>(null);
+  // Web orders only: required when money was received (see refundDecisionRequired).
+  const [refundStatus, setRefundStatus] = useState<RefundStatus | ''>('');
+  const [refundNote, setRefundNote] = useState('');
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -608,10 +627,20 @@ export default function CashOrderDetail() {
       toast.error('Please enter a cancellation reason');
       return;
     }
+    const web = isWebOrder(order) || cancelPreview?.is_web === true;
     setCancelling(true);
     try {
       const { data, error } = await supabase.functions.invoke('cancel-cash-order', {
-        body: { cash_order_id: order.id, reason: cancelReason.trim() },
+        body: {
+          cash_order_id: order.id,
+          reason: cancelReason.trim(),
+          ...(web
+            ? {
+                ...(refundStatus ? { refund_status: refundStatus } : {}),
+                ...(refundNote.trim() ? { refund_note: refundNote.trim().slice(0, REFUND_NOTE_MAX) } : {}),
+              }
+            : {}),
+        },
       });
       if (error) {
         let msg = error.message || 'Failed to cancel';
@@ -635,6 +664,8 @@ export default function CashOrderDetail() {
       }
       setCancelOpen(false);
       setCancelReason('');
+      setRefundStatus('');
+      setRefundNote('');
       qc.invalidateQueries({ queryKey: ['cash-order', id] });
       qc.invalidateQueries({ queryKey: ['cash-orders'] });
       qc.invalidateQueries({ queryKey: ['cash-payments', id] });
@@ -646,7 +677,7 @@ export default function CashOrderDetail() {
     } finally {
       setCancelling(false);
     }
-  }, [order, cancelReason, qc, id]);
+  }, [order, cancelReason, refundStatus, refundNote, cancelPreview, qc, id]);
 
   // Load the cancellation preview (money-moving consequences) whenever the
   // cancel dialog opens — preview:true writes nothing on the server.
@@ -656,6 +687,8 @@ export default function CashOrderDetail() {
     setCancelPreview(null);
     setCancelPreviewError(null);
     setCancelPreviewLoading(true);
+    setRefundStatus('');
+    setRefundNote('');
     (async () => {
       try {
         const { data, error } = await supabase.functions.invoke('cancel-cash-order', {
@@ -909,6 +942,24 @@ export default function CashOrderDetail() {
   const currency = order.currency as Currency;
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
+  // Cancel dialog — web-order refund decision. Web-ness comes from the order row
+  // (the preview's is_web only confirms it); money/stock figures come from the
+  // server preview and may be absent on older deploys.
+  const cancelIsWeb = isWebOrder(order) || cancelPreview?.is_web === true;
+  const cancelMoneyReceived = Number(cancelPreview?.money_received ?? 0);
+  const cancelStockLines = Number(cancelPreview?.stock_lines ?? 0);
+  const refundDecisionRequired =
+    cancelIsWeb && (cancelPreview?.refund_decision_required === true || cancelMoneyReceived > 0);
+  const refundDecisionMissing = refundDecisionRequired && !refundStatus;
+  // Store credit shown in the preview: Hub orders follow the server figure; web
+  // orders mint credit ONLY when "no refund" is chosen.
+  const cancelStoreCreditShown = cancelIsWeb
+    ? (refundStatus === 'no_refund'
+        ? (Number(cancelPreview?.store_credit_to_issue ?? 0) > 0
+            ? Number(cancelPreview?.store_credit_to_issue)
+            : cancelMoneyReceived)
+        : 0)
+    : Number(cancelPreview?.store_credit_to_issue ?? 0);
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
   const canAwardLoyalty = can('loyalty_adjust_points');
@@ -1261,7 +1312,7 @@ export default function CashOrderDetail() {
               Cancel Order
             </Button>
           )}
-          {isAdmin && (
+          {isAdmin && !isWebOrder(order) && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -1270,6 +1321,11 @@ export default function CashOrderDetail() {
               <Trash2 className="h-4 w-4 mr-1.5" />
               Delete Order
             </Button>
+          )}
+          {isAdmin && isWebOrder(order) && (
+            <p className="order-last basis-full text-xs text-muted-foreground">
+              Web orders are cancelled, never deleted: the customer's order history, the stock hold and the points reversal depend on this row.
+            </p>
           )}
           {(isAdmin || isStaff) && (
             <Button
@@ -1828,11 +1884,11 @@ export default function CashOrderDetail() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Cancel Cash Order
+              {cancelIsWeb ? `Cancel ${cashOrderRefLabel(order)}` : `Cancel Cash Order #${order.invoice_number}`}
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This marks cash order #{order.invoice_number} as cancelled. This action cannot be undone from the UI.
+            This marks {cancelIsWeb ? cashOrderRef(order) : `cash order #${order.invoice_number}`} as cancelled. This action cannot be undone from the UI.
           </p>
 
           {/* Money-moving consequences (from the server preview) */}
@@ -1847,7 +1903,7 @@ export default function CashOrderDetail() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Money received</span>
                 <span className="tabular-nums text-card-foreground">
-                  {formatCurrency(Number(cancelPreview.money_received ?? 0), currency)}
+                  {formatCurrency(cancelMoneyReceived, currency)}
                 </span>
               </div>
               {Number(cancelPreview.loyalty_redemption_excluded ?? 0) > 0 && (
@@ -1857,11 +1913,20 @@ export default function CashOrderDetail() {
                   (redeemed points are not returned)
                 </p>
               )}
-              {Number(cancelPreview.store_credit_to_issue ?? 0) > 0 ? (
+              {cancelIsWeb && cancelMoneyReceived > 0 ? (
+                <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-primary">
+                  <span>Store credit to issue</span>
+                  <span className="tabular-nums">
+                    {refundStatus === 'no_refund'
+                      ? `${formatCurrency(cancelStoreCreditShown, currency)} (valid 1 year)`
+                      : `${formatCurrency(0, currency)} (refund)`}
+                  </span>
+                </div>
+              ) : cancelStoreCreditShown > 0 ? (
                 <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-primary">
                   <span>Store credit to be issued</span>
                   <span className="tabular-nums">
-                    {formatCurrency(Number(cancelPreview.store_credit_to_issue), currency)} (valid 1 year)
+                    {formatCurrency(cancelStoreCreditShown, currency)} (valid 1 year)
                   </span>
                 </div>
               ) : (
@@ -1869,11 +1934,65 @@ export default function CashOrderDetail() {
                   No payments received — no store credit will be issued.
                 </p>
               )}
+              {cancelIsWeb && cancelStockLines > 0 && (
+                <p className="text-muted-foreground">
+                  Stock: {cancelStockLines} {cancelStockLines === 1 ? 'line' : 'lines'} will go back on sale
+                </p>
+              )}
               {cancelPreview.earned_points_will_be_revoked === true && (
-                <p className="text-amber-600">Loyalty points earned on this order will be revoked.</p>
+                <p className="text-warning">Loyalty points earned on this order will be revoked.</p>
               )}
             </div>
           ) : null}
+
+          {/* Web orders with money received: the refund decision is required */}
+          {refundDecisionRequired && cancelPreview && !cancelPreviewLoading && !cancelPreviewError && (
+            <div className="space-y-2">
+              <Label>Refund decision *</Label>
+              <RadioGroup
+                value={refundStatus}
+                onValueChange={v => setRefundStatus(v as RefundStatus)}
+                aria-required
+                className="gap-1.5"
+              >
+                {REFUND_OPTIONS.map(opt => (
+                  <label
+                    key={opt.value}
+                    htmlFor={`refund-${opt.value}`}
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 transition-colors ${
+                      refundStatus === opt.value ? 'border-primary/60 bg-primary/5' : 'border-border bg-background hover:border-primary/30'
+                    }`}
+                  >
+                    <RadioGroupItem id={`refund-${opt.value}`} value={opt.value} className="mt-0.5" />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm text-card-foreground">{opt.label}</span>
+                      <span className="block text-xs text-muted-foreground">{opt.helper}</span>
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+              <div className="space-y-1">
+                <Label htmlFor="refund-note">Note to the customer (optional, shown in their account)</Label>
+                <Textarea
+                  id="refund-note"
+                  value={refundNote}
+                  onChange={e => setRefundNote(e.target.value.slice(0, REFUND_NOTE_MAX))}
+                  maxLength={REFUND_NOTE_MAX}
+                  rows={2}
+                  className="bg-background border-border text-sm"
+                />
+                <p className="text-right text-[11px] tabular-nums text-muted-foreground">
+                  {refundNote.length}/{REFUND_NOTE_MAX}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {cancelIsWeb && (
+            <p className="text-xs text-muted-foreground">
+              The customer will receive a cancellation email with the reason and the refund decision.
+            </p>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="cancel-reason">Reason *</Label>
@@ -1895,7 +2014,8 @@ export default function CashOrderDetail() {
               onClick={confirmCancel}
               disabled={
                 cancelling || !cancelReason.trim() || !cancelArmed ||
-                cancelPreviewLoading || !!cancelPreviewError || !cancelPreview
+                cancelPreviewLoading || !!cancelPreviewError || !cancelPreview ||
+                refundDecisionMissing
               }
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}
