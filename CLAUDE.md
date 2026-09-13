@@ -737,6 +737,14 @@ Two consequences to work with rather than around:
   `develop` when it has moved; never rebase `develop` onto it (other branches
   are cut from `develop`).
 - **Do not "clean up" Lovable's direct commits to `main`.** They are legitimate.
+- **After EVERY squash-merge of a release PR into `main`, merge `main` back into
+  `develop` immediately** (`git fetch origin main && git checkout develop &&
+  git merge origin/main && git push origin develop`). A squash creates a commit
+  `develop` does not have, so the next `develop` -> `main` PR conflicts on any
+  file both sides touched since (2026-09-13: #35 was not merged back and #38
+  conflicted on docs/FIXED-BUGS.md). "Main and develop have identical content"
+  is NOT the same as "develop contains main"; only the merge-back makes the
+  next release PR clean.
 
 ### MIGRATIONS MUST BE ON `main` BEFORE A LOVABLE APPLY MESSAGE
 
