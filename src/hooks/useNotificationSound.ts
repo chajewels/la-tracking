@@ -19,6 +19,8 @@ const IMPORTANT_SPEECH: Record<string, string> = {
   submission_confirmed: 'Payment confirmed',
   penalty_applied: 'Penalty added',
   account_forfeited: 'Account forfeited',
+  email_send_refused: 'Customer emails refused',
+  email_delivery_outage: 'Email delivery check failed',
 };
 
 interface NotificationLike {
