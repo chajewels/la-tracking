@@ -24,6 +24,8 @@ export type Lang = 'ja' | 'en'
 
 export const STOREFRONT_FROM = 'Cha Jewels <noreply@chajewelsjp.com>'
 export const STOREFRONT_SENDER_DOMAIN = 'notify.chajewelsjp.com'
+/** Replies to any storefront email land with sales, not in the noreply void. */
+export const STOREFRONT_REPLY_TO = 'sales@chajewelsjp.com'
 
 const OWNER_ADDRESSES = new Set(['chajewelsjapan@gmail.com'])
 const OWNER_DOMAIN = '@chajewelsjp.com'
@@ -87,6 +89,7 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
         to: email,
         from: STOREFRONT_FROM,
         sender_domain: STOREFRONT_SENDER_DOMAIN,
+        reply_to: STOREFRONT_REPLY_TO,
         subject: args.subject,
         html,
         text,

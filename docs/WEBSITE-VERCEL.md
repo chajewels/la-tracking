@@ -398,6 +398,16 @@ those sit behind Vercel Deployment Protection, and Vercel's auth wall answers
 The secret comparison never runs, so aligning `REVALIDATE_SECRET` cannot fix
 it. Changing `WEBSITE_URL` needs a `notify_website` redeploy to take effect.
 
+### Test sign-in from the branch alias, never a per-deployment host
+
+Vercel gives each deployment a branch alias
+(`cha-jewels-web-git-<branch>-cha-jewels.vercel.app`, matched by the allow-list
+wildcard) and a per-deployment host (`cha-jewels-web-<hash>-cha-jewels.vercel.app`).
+The 02:40 UTC sign-in on 2026-09-13 came from a per-deployment host GoTrue did
+not accept: `redirect_to` fell back to the Site URL and the Hub template went out
+(hook audience log: no storefront host). From the `-git-develop-` alias the same
+flow produced the Cha Jewels template. Reviews and sign-in tests use the alias.
+
 ### Reading a 401 inside a 502
 
 `net._http_response` only carries `"status":401` — it cannot tell the two
@@ -483,6 +493,25 @@ The confirmation repeats exactly what the payment screen showed: items, total,
 every transfer method as a labelled card (the same `transfer_methods` payload),
 the transfer-name notice, the deadline as date+time in JST (Japan) or PHT
 (overseas), and the `/account/orders/[id]` link built from `WEBSITE_URL`.
+
+**Reply-To on every storefront email is `sales@chajewelsjp.com`** (2026-09-13):
+the three order emails via `STOREFRONT_REPLY_TO` in `_shared/storefront-email.ts`,
+and the storefront sign-in email via the inline storefront handler in
+`auth-email-hook` (the SDK's `createAuthEmailHandler` cannot set `reply_to`, so
+that branch runs the same verify-render-send body with the field added). Staff
+emails are unchanged.
+
+**The Lovable project must be PUBLISHED once before any non-auth send works.**
+Bug #267 (2026-09-13): the first real confirmation send, CJ-W-900009 to
+chajewelsjapan@gmail.com, was attempted correctly (the gate passed, the log
+line exists) and Lovable's email API answered
+`400 missing_unsubscribe — "This project is migrating to Lovable-managed email
+sending. Publish the project to complete the migration, then retry; do not set
+unsubscribe_token manually."` `get_project` shows `is_published: false`. The
+sign-in email is unaffected because auth sends carry the auth run's `run_id`.
+Nothing in code fixes this: Publish the Lovable project (Lovable hosting of the
+Hub frontend, unrelated to Firebase) and the next order's email goes out. Never
+set `unsubscribe_token` by hand — the API forbids it.
 
 **Test gate.** A customer with `is_test = true` receives none of these unless the
 address is `@chajewelsjp.com` or `chajewelsjapan@gmail.com`, so an owner test
