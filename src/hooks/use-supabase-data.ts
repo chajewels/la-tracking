@@ -767,14 +767,15 @@ export function useDeleteCashOrder() {
         try {
           if ('context' in error && (error as any).context?.body) {
             const body = await new Response((error as any).context.body).json();
-            if (body?.error) detailedMsg = body.error;
+            if (body?.message) detailedMsg = body.message;
+            else if (body?.error) detailedMsg = body.error;
           }
         } catch {
           // Fallback to generic message
         }
         throw new Error(detailedMsg);
       }
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+      if (data?.error) throw new Error(data.message ?? (typeof data.error === 'string' ? data.error : JSON.stringify(data.error)));
       if (!data?.success) throw new Error('Delete operation did not complete successfully');
       return data;
     },
@@ -795,14 +796,15 @@ export function useDeleteAccount() {
         try {
           if ('context' in error && (error as any).context?.body) {
             const body = await new Response((error as any).context.body).json();
-            if (body?.error) detailedMsg = body.error;
+            if (body?.message) detailedMsg = body.message;
+            else if (body?.error) detailedMsg = body.error;
           }
         } catch {
           // Fallback to generic message
         }
         throw new Error(detailedMsg);
       }
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+      if (data?.error) throw new Error(data.message ?? (typeof data.error === 'string' ? data.error : JSON.stringify(data.error)));
       if (!data?.success) throw new Error('Delete operation did not complete successfully');
       return data;
     },
