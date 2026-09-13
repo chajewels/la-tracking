@@ -1,6 +1,7 @@
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
-import { createAuthEmailHandler, type AuthEmailDefinitions } from 'npm:@lovable.dev/email-js@0.1.0'
+import { createAuthEmailHandler, sendLovableEmail, EmailAPIError, type AuthEmailDefinitions, type AuthEmailHookData } from 'npm:@lovable.dev/email-js@0.1.0'
+import { verifyWebhookRequest, WebhookError } from 'npm:@lovable.dev/webhooks-js@0.0.2'
 import { SignupEmail } from '../_shared/email-templates/signup.tsx'
 import { InviteEmail } from '../_shared/email-templates/invite.tsx'
 import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
@@ -312,27 +313,74 @@ const staffHandler = createAuthEmailHandler({
   emails: STAFF_EMAILS,
 })
 
-const storefrontHandler = createAuthEmailHandler({
-  apiKey: Deno.env.get('LOVABLE_API_KEY')!,
-  from: `Cha Jewels <noreply@${FROM_DOMAIN}>`,
-  senderDomain: SENDER_DOMAIN,
-  sendUrl: Deno.env.get('LOVABLE_SEND_URL'),
-  emails: {
-    ...STAFF_EMAILS,
-    magiclink: {
-      subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
-      render: (data) =>
-        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) }),
-    },
-    // First-time customer: GoTrue calls it a signup confirmation, the customer
-    // calls it the sign-in link they just asked for. Same email.
-    signup: {
-      subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
-      render: (data) =>
-        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) }),
-    },
-  },
-})
+/**
+ * Storefront sign-in emails carry Reply-To sales@chajewelsjp.com, which the
+ * SDK's createAuthEmailHandler cannot set. This is that handler's body with
+ * the one extra field: the SAME signature verification (verifyWebhookRequest,
+ * signed with the API key), the same run_id passed through so Lovable ties the
+ * send to the auth run, and the same 400/500 split on failure. Only magiclink
+ * and signup reach it — the audience gate below sends every other action type
+ * to staffHandler unchanged.
+ */
+const STOREFRONT_REPLY_TO = 'sales@chajewelsjp.com'
+const STOREFRONT_FROM = `Cha Jewels <noreply@${FROM_DOMAIN}>`
+const STOREFRONT_SUBJECT = 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link'
+
+type StorefrontHookPayload = { version?: string; run_id?: string; data?: AuthEmailHookData }
+
+async function storefrontHandler(req: Request): Promise<Response> {
+  const apiKey = Deno.env.get('LOVABLE_API_KEY')!
+  let event: StorefrontHookPayload
+  try {
+    ({ payload: event } = await verifyWebhookRequest<StorefrontHookPayload>({
+      req,
+      secret: apiKey,
+      parser: (body) => JSON.parse(body) as StorefrontHookPayload,
+    }))
+  } catch (error) {
+    if (error instanceof WebhookError) {
+      const status = error.code === 'invalid_signature' || error.code === 'missing_secret' ? 401 : 400
+      return Response.json({ error: error.message }, { status })
+    }
+    console.error('[auth-email-hook] storefront webhook verification failed:', error)
+    return Response.json({ error: 'Webhook verification failed' }, { status: 500 })
+  }
+  if (!event.run_id) return Response.json({ error: 'Missing run_id' }, { status: 400 })
+  if (event.version !== '1') return Response.json({ error: `Unsupported payload version: ${event.version}` }, { status: 400 })
+  const data = event.data
+  if (!data || !STOREFRONT_ACTION_TYPES.has(data.action_type)) {
+    return Response.json({ error: `Unknown auth email action type: ${data?.action_type}` }, { status: 400 })
+  }
+  try {
+    // signup (first-time customer) and magiclink are the same email to the
+    // customer: the sign-in link they just asked for.
+    const element = React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) })
+    const html = await renderAsync(element)
+    const text = await renderAsync(element, { plainText: true })
+    await sendLovableEmail(
+      {
+        run_id: event.run_id,
+        to: data.email,
+        from: STOREFRONT_FROM,
+        sender_domain: SENDER_DOMAIN,
+        reply_to: STOREFRONT_REPLY_TO,
+        subject: STOREFRONT_SUBJECT,
+        html,
+        text,
+        purpose: 'transactional',
+        label: data.action_type,
+      },
+      { apiKey, sendUrl: Deno.env.get('LOVABLE_SEND_URL') },
+    )
+  } catch (error) {
+    console.error('[auth-email-hook] storefront email send failed:', error)
+    if (error instanceof EmailAPIError && !error.retryable) {
+      return Response.json({ error: 'Email send rejected' }, { status: 400 })
+    }
+    return Response.json({ error: 'Failed to send email' }, { status: 500 })
+  }
+  return Response.json({ success: true, sent: true })
+}
 
 Deno.serve(async (req) => {
   const url = new URL(req.url)
