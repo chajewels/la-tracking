@@ -1,6 +1,7 @@
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0'
+import { recordEmailAttempt } from './email-log.ts'
 
 /**
  * Customer emails for chajewelsjp.com STOREFRONT orders.
@@ -22,6 +23,10 @@ import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0
  * ONE LOG LINE PER SEND, always: label, order reference, recipient, outcome.
  * Sending is fire-and-forget for the caller — a failed email never fails the
  * order, the confirmation or the expiry that triggered it.
+ *
+ * Since 2026-09-13 every attempt (sent / suppressed / error) is ALSO written to
+ * email_send_log via _shared/email-log.ts, channel 'storefront' — function
+ * logs retain minutes and hid the nine-day missing_unsubscribe outage.
  */
 
 export type Lang = 'ja' | 'en'
@@ -104,14 +109,17 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
       { apiKey, sendUrl: Deno.env.get('LOVABLE_SEND_URL') },
     )
     log('sent')
+    await recordEmailAttempt({ channel: 'storefront', template: label, recipient: email, status: 'sent', idempotencyKey: args.idempotencyKey, metadata: { reference } })
     return { sent: true }
   } catch (error) {
     if (error instanceof EmailAPIError && error.code === 'recipient_suppressed') {
       log('suppressed')
+      await recordEmailAttempt({ channel: 'storefront', template: label, recipient: email, status: 'suppressed', idempotencyKey: args.idempotencyKey, metadata: { reference } })
       return { sent: false, reason: 'recipient_suppressed' }
     }
     const detail = (error as Error)?.message ?? String(error)
     log('error', { detail })
+    await recordEmailAttempt({ channel: 'storefront', template: label, recipient: email, status: 'failed', idempotencyKey: args.idempotencyKey, error, metadata: { reference } })
     return { sent: false, reason: 'error', detail }
   }
 }

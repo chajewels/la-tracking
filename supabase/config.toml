@@ -25,6 +25,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.system-health-check]
     verify_jwt = true
+  [functions.email-health-check]
+    verify_jwt = true
   [functions.parse-import-docs]
     verify_jwt = true
   [functions.penalty-engine]

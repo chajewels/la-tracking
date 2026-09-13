@@ -66,6 +66,9 @@ function iconForType(type: string) {
       return <UserPlus className="h-4 w-4 text-emerald-400" />;
     case 'customer_notified':
       return <Mail className="h-4 w-4 text-amber-400" />;
+    case 'email_send_refused':
+    case 'email_delivery_outage':
+      return <Mail className="h-4 w-4 text-destructive" />;
     case 'extension_requested':
     case 'extension_granted':
     case 'waiver_requested':

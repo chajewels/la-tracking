@@ -32,3 +32,38 @@ WHERE ls.status = 'partially_paid'
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
+
+## EMAIL DELIVERY HEALTH (added 2026-09-13)
+
+Not part of the numbered system-health checks; a separate daily verdict.
+
+- RPC: `email_delivery_report(p_hours integer DEFAULT 24)` → jsonb
+  `{ expected{...}, expected_total, sent, failed, suppressed, storefront{sent,failed},
+     last_sent_at, refusal_streak_started_at, newest_error, newest_request_id,
+     status: ok | degraded | refused | silent }`. Staff roles only (checked inside).
+- Cron: `email-health-check` `50 0 * * *` UTC → `/functions/v1/email-health-check`
+  (Vault key `email_queue_service_role_key`). Writes `system_settings.email_health_status`,
+  raises `staff_notifications.type = 'email_delivery_outage'` when status ≠ ok (20h cooldown).
+- Per-send alert: `staff_notifications.type = 'email_send_refused'`, raised by
+  `_shared/email-log.ts` on the first refused attempt in 24h.
+- Hub surfaces: sidebar footer pill, Dashboard banner, Settings → General → Email delivery.
+
+Ad-hoc queries:
+
+    -- verdict now
+    SELECT public.email_delivery_report(24);
+
+    -- refusals by day and channel, last 14 days
+    SELECT created_at::date AS day, channel, count(*) FILTER (WHERE status='sent') AS sent,
+           count(*) FILTER (WHERE status IN ('failed','dlq')) AS refused
+      FROM email_send_log WHERE created_at >= now() - interval '14 days'
+     GROUP BY 1,2 ORDER BY 1 DESC, 2;
+
+    -- newest refusal with the Lovable request_id for a support ticket
+    SELECT created_at, channel, template_name, request_id, left(error_message, 200)
+      FROM email_send_log WHERE status IN ('failed','dlq') ORDER BY created_at DESC LIMIT 5;
+
+    -- last time the cron fired
+    SELECT runid, status, start_time, return_message FROM cron.job_run_details
+     WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname='email-health-check')
+     ORDER BY start_time DESC LIMIT 3;

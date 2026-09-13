@@ -2,6 +2,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0'
 import { TEMPLATES } from './registry.ts'
+import { recordEmailAttempt } from '../email-log.ts'
 
 // Server-only: reads LOVABLE_API_KEY. Import from edge functions only — never
 // expose sending to the browser.
@@ -66,6 +67,10 @@ export async function sendTemplateEmail(
       ? template.subject(templateData)
       : template.subject
 
+  // Every attempt lands in email_send_log (2026-09-13): sent, suppressed or
+  // failed with the API error and request_id. A failure also raises the staff
+  // bell the first time in a day. See _shared/email-log.ts.
+  const idempotencyKey = options.idempotencyKey || crypto.randomUUID()
   try {
     await sendLovableEmail(
       {
@@ -77,17 +82,20 @@ export async function sendTemplateEmail(
         text,
         purpose: 'transactional',
         label: templateName,
-        idempotency_key: options.idempotencyKey || crypto.randomUUID(),
+        idempotency_key: idempotencyKey,
         reply_to: options.replyTo,
       },
       { apiKey, sendUrl: Deno.env.get('LOVABLE_SEND_URL') }
     )
   } catch (error) {
     if (error instanceof EmailAPIError && error.code === 'recipient_suppressed') {
+      await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'suppressed', idempotencyKey })
       return { sent: false, reason: 'recipient_suppressed' }
     }
+    await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'failed', idempotencyKey, error })
     throw error
   }
 
+  await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'sent', idempotencyKey })
   return { sent: true }
 }
