@@ -326,7 +326,7 @@ explicit `ctx.isService` check). Forwards `{ productSlug?, collectionSlug? }`.
 | Code | Meaning |
 |---|---|
 | `500` | `WEBSITE_URL` and/or `REVALIDATE_SECRET` unset. Response names which in `missing[]`. |
-| `502` | Storefront rejected the call (`revalidate_rejected`, carries its status) or was unreachable. |
+| `502` | Storefront rejected the call (`revalidate_rejected`, carries its status) or was unreachable. A carried status of **401 has two possible causes** — see "Reading a 401" below. |
 | `200` | Storefront accepted the revalidation. |
 
 This matters because the caller is a trigger using `PERFORM net.http_post(...)`,
@@ -387,6 +387,35 @@ Three secrets gate the whole integration. None is a code change.
 | `WEBSITE_API_KEY` | Supabase function secret **and** Vercel env — identical value | `website` returns `401 unauthorized` to every request. Loud: the storefront shows nothing. |
 | `WEBSITE_URL` | Supabase function secret | `notify_website` → **500**, `missing: ["WEBSITE_URL"]`. No trailing slash (the relay strips exactly one). |
 | `REVALIDATE_SECRET` | Supabase function secret **and** Vercel env — identical value | `notify_website` → **500**. |
+
+### `WEBSITE_URL` must be a host with NO Vercel Deployment Protection
+
+`WEBSITE_URL` is `https://cha-jewels-web.vercel.app` — the storefront's
+unprotected production host. It must never point at a `*-git-<branch>-*`
+preview URL or at the team-scoped `cha-jewels-web-cha-jewels.vercel.app` host:
+those sit behind Vercel Deployment Protection, and Vercel's auth wall answers
+**401 "Protected deployment"** before the request reaches `/api/revalidate`.
+The secret comparison never runs, so aligning `REVALIDATE_SECRET` cannot fix
+it. Changing `WEBSITE_URL` needs a `notify_website` redeploy to take effect.
+
+### Reading a 401 inside a 502
+
+`net._http_response` only carries `"status":401` — it cannot tell the two
+apart. The storefront's response body can, and `notify_website` logs it
+(`revalidate rejected 401 <body>`):
+
+| Body | Cause | Fix |
+|---|---|---|
+| `Protected deployment` (Vercel HTML/JSON) | `WEBSITE_URL` points at a protected host | Point `WEBSITE_URL` at the production host, redeploy `notify_website` |
+| `{"ok":false}` (the route's own reply) | `REVALIDATE_SECRET` differs between Supabase and Vercel | Set one value on both sides, redeploy the storefront and `notify_website` |
+
+Incident, 2026-09-12: every revalidation since the integration went live had
+been 502/401. It was first attributed to a secret mismatch and the secrets were
+realigned with no effect; the notify_website log body then showed
+"Protected deployment". Pointing `WEBSITE_URL` at the production host and
+redeploying `notify_website` produced the first-ever 200 —
+`net._http_response` id 18703 at 14:38:38 UTC, payload
+`productSlug n4020-…`. §4 step 4 has been seen once.
 
 ### Verifying a secret is set
 
