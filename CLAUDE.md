@@ -1893,6 +1893,16 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      after which loyalty_tiers.requalify_spend_jpy is the NEW spend needed to
      regain the earned tier. Customer-facing copy (storefront /loyalty, FAQ,
      loyalty portal) must say "lifetime purchases" and explain the step-down.
+     NO GRACE PERIOD after a step-down and NO retroactive tier changes (owner
+     decision 2026-09-13). Communication only: warning email at 150 days
+     (loyalty_email_stepdown_warning, dedup loyalty_members.stepdown_warned_at),
+     notice email on the step-down day (loyalty_email_tier_downgrade), restored
+     email on requalification (loyalty_email_tier_restored) — all JA + EN, Cha
+     Jewels brand, Reply-To sales@, templates in _shared/email-templates/
+     loyalty-level.tsx. The reduced state (earned level + spend to regain =
+     requalify_spend − spend since baseline) is shown in the loyalty portal
+     (MemberCard, Tiers) and on the storefront /account via `website` GET /me
+     (reduced, earned_tier, regain_jpy).
 
   12. POINTS INTEGRITY (2026-09-13, Bug #269): loyalty_transactions is the
      ledger and is append-only (trigger allows only synced_to_sheet_at to

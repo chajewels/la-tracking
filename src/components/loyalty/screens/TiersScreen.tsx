@@ -62,6 +62,45 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
         </p>
       </div>
 
+      {/* Step-down state (2026-09-13) */}
+      {member.is_downgraded && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="bg-card rounded-2xl p-4 shadow-card border-gold-accent space-y-1.5"
+          data-testid="tiers-level-reduced"
+        >
+          <p className="text-[11px] tracking-[0.18em] uppercase font-body font-bold text-destructive">
+            レベル一時変更中 / Level temporarily reduced
+          </p>
+          <p className="text-[13px] font-body text-foreground">
+            {member.earned_tier ? (
+              <>
+                これまでに獲得されたレベルは <span className="font-semibold text-primary">{member.earned_tier}</span> です。
+                {member.regain_amount_jpy != null && (
+                  <> あと <span className="font-bold text-primary">¥{member.regain_amount_jpy.toLocaleString()}</span> のお買い上げで元に戻ります。</>
+                )}
+              </>
+            ) : (
+              <>180日間お買い上げがなかったため、レベルが1段階下がっています。</>
+            )}
+          </p>
+          <p className="text-[13px] font-body text-muted-foreground">
+            {member.earned_tier ? (
+              <>
+                The level you earned is <span className="font-semibold text-primary">{member.earned_tier}</span>.
+                {member.regain_amount_jpy != null && (
+                  <> Spend <span className="font-bold text-primary">¥{member.regain_amount_jpy.toLocaleString()}</span> more to regain it.</>
+                )}
+              </>
+            ) : (
+              <>180 days passed without a purchase, so your level has stepped down by one.</>
+            )}
+          </p>
+        </motion.div>
+      )}
+
       {/* Progress to next tier */}
       {nextTier && (
         <motion.div
@@ -173,7 +212,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
               </div>
 
               {/* Stat pills */}
-              <div className="flex gap-2 mb-3">
+              <div className="flex gap-2 mb-3 flex-wrap">
                 <div className="flex-1 bg-background/60 rounded-xl p-2.5 text-center" style={{ border: '1px solid hsla(36,30%,60%,0.12)' }}>
                   <p className="text-[10px] text-muted-foreground font-body tracking-wider uppercase mb-1">
                     Spend Required
@@ -193,6 +232,16 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
                     {pointsRate} / ¥10k
                   </p>
                 </div>
+                {tier.requalifyJpy != null && tier.requalifyJpy > 0 && (
+                  <div className="basis-full bg-background/60 rounded-xl p-2.5 text-center" style={{ border: '1px solid hsla(36,30%,60%,0.12)' }}>
+                    <p className="text-[10px] text-muted-foreground font-body tracking-wider uppercase mb-1">
+                      復帰条件 / To regain after 180 days of inactivity
+                    </p>
+                    <p className="font-display text-[13px] font-bold text-foreground">
+                      ¥{tier.requalifyJpy.toLocaleString()}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Benefits list */}
@@ -274,6 +323,27 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* How levels work — the inactivity rule, stated plainly (2026-09-13) */}
+      <div className="bg-card rounded-2xl p-5 shadow-card border-gold-accent" data-testid="tiers-level-rule">
+        <h3 className="font-display text-lg font-semibold text-foreground mb-3">
+          レベルの仕組み / How levels work
+        </h3>
+        <p className="text-[13px] font-body text-foreground leading-relaxed">
+          レベルはこれまでのお買い上げ合計で決まります。180日間お買い上げがない場合、レベルは1段階下がります。その後、獲得されたレベルの「復帰条件」の金額をお買い上げいただくと元のレベルに戻ります。
+        </p>
+        <p className="text-[13px] font-body text-muted-foreground leading-relaxed mt-2">
+          Your level is set by your lifetime purchases. If 180 days pass without a purchase, it steps down by one level. It comes back once you spend the regain amount shown on the level you earned.
+        </p>
+        <ul className="mt-3 space-y-1">
+          {tiers.filter((t) => t.requalifyJpy != null && t.requalifyJpy > 0).map((t) => (
+            <li key={t.name} className="flex items-center justify-between text-[12px] font-body py-1 border-b border-border/30 last:border-0">
+              <span className="text-foreground">{t.icon} {t.name}</span>
+              <span className="font-semibold text-primary">¥{(t.requalifyJpy as number).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* How to Level Up */}

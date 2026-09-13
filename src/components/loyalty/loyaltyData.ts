@@ -71,6 +71,14 @@ export interface LoyaltyMemberData {
   member_id: string;     // user-facing CJ-YYYY-XXXXX customer_code
   current_tier: TierName;
   is_downgraded: boolean;
+  /**
+   * Step-down state (2026-09-13). When is_downgraded, the level the member
+   * EARNED (unchanged by the step-down) and the spend still needed to regain
+   * it: the earned tier's requalify_spend minus spend since the step-down,
+   * floored at 0. Both null when the member is not stepped down.
+   */
+  earned_tier?: TierName | null;
+  regain_amount_jpy?: number | null;
   available_points: number;
   lifetime_points_earned: number;
   redeemed_points: number;
@@ -87,6 +95,8 @@ export interface LoyaltyTierData extends TierStatic {
   name: TierName;
   spendRequired: number;
   multiplier: number;
+  /** Spend needed to regain this level after a 180-day step-down (null = none). */
+  requalifyJpy?: number | null;
 }
 
 export interface LoyaltyTransactionData {

@@ -246,6 +246,56 @@ const MemberCard = () => {
               Base: ¥10,000 = 100 points
             </p>
           </div>
+          {member.is_downgraded && (
+            <div
+              className="mt-3 rounded-xl px-4 py-3 text-left"
+              style={{ background: 'hsla(36, 30%, 15%, 0.16)', border: '1px solid hsla(36, 50%, 25%, 0.35)' }}
+              data-testid="level-reduced"
+            >
+              <p
+                className="text-[11px] tracking-[0.18em] uppercase font-semibold"
+                style={{ color: 'hsl(0, 60%, 30%)' }}
+              >
+                レベル一時変更中 / Level temporarily reduced
+              </p>
+              <p className="text-[13px] mt-1.5 font-body leading-relaxed" style={{ color: 'hsl(36, 40%, 18%)' }}>
+                180日間お買い上げがなかったため、レベルが1段階下がっています。
+                {member.earned_tier && (
+                  <>
+                    {' '}これまでに獲得されたレベルは{' '}
+                    <span className="font-semibold">{member.earned_tier}</span> です。
+                  </>
+                )}
+                {member.regain_amount_jpy != null && (
+                  <>
+                    {' '}あと{' '}
+                    <span className="font-bold" style={{ color: 'hsl(36, 80%, 15%)' }}>
+                      ¥{member.regain_amount_jpy.toLocaleString()}
+                    </span>{' '}
+                    のお買い上げで元に戻ります。
+                  </>
+                )}
+              </p>
+              <p className="text-[13px] mt-1.5 font-body leading-relaxed" style={{ color: 'hsl(36, 40%, 18%)' }}>
+                180 days passed without a purchase, so your level has stepped down by one.
+                {member.earned_tier && (
+                  <>
+                    {' '}The level you earned is{' '}
+                    <span className="font-semibold">{member.earned_tier}</span>.
+                  </>
+                )}
+                {member.regain_amount_jpy != null && (
+                  <>
+                    {' '}Spend{' '}
+                    <span className="font-bold" style={{ color: 'hsl(36, 80%, 15%)' }}>
+                      ¥{member.regain_amount_jpy.toLocaleString()}
+                    </span>{' '}
+                    more to regain it.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <Activity size={10} style={{ color: statusColor }} />
             <p
