@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { pickLang, sendStorefrontEmail } from "../_shared/storefront-email.ts";
+import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
+import * as React from "npm:react@18.3.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,7 +91,7 @@ Deno.serve(async (req) => {
     // 1. Fetch pending cash orders past expires_at with outstanding balance
     const { data: orders, error: fetchErr } = await supabase
       .from("cash_orders")
-      .select("id, invoice_number, customer_id, currency, total_amount, total_paid, remaining_balance, expires_at, customers(full_name, email)")
+      .select("id, invoice_number, customer_id, currency, total_amount, total_paid, remaining_balance, expires_at, source_channel, web_reference, customer_lang, shipping_fee, transfer_due_at, ship_to_address:customer_addresses(country), customers(full_name, email, is_test)")
       .eq("status", "pending")
       .not("expires_at", "is", null)
       .lt("expires_at", nowIso)
@@ -123,17 +126,32 @@ Deno.serve(async (req) => {
     // 2. Per-order processing with try/catch — one failure won't abort the batch
     for (const order of orders) {
       try {
-        // 2a. Flip cash order to expired
-        const { error: updErr } = await supabase
-          .from("cash_orders")
-          .update({
-            status: "expired",
-            expired_at: nowIso,
-          })
-          .eq("id", order.id)
-          .eq("status", "pending"); // race guard — skip if already changed
-        if (updErr) {
-          throw new Error(`cash_orders update failed: ${updErr.message}`);
+        const isWebOrder = (order as any).source_channel === "web";
+
+        // 2a. Flip cash order to expired.
+        //     Web order: expire_web_order_atomic — status AND the stock the
+        //     order was holding, in one transaction, so a piece is never left
+        //     off sale by an order nobody will pay. Hub order: plain update.
+        if (isWebOrder) {
+          const { data: exp, error: expErr } = await supabase.rpc("expire_web_order_atomic", { p_order_id: order.id });
+          if (expErr) throw new Error(`expire_web_order_atomic failed: ${expErr.message}`);
+          if (!(exp as any)?.ok) {
+            // Already changed under us (paid or cancelled since the select): skip, no email.
+            console.log(`[auto-expire-cash-orders] ${(order as any).web_reference ?? order.invoice_number} not expired: ${(exp as any)?.reason}`);
+            continue;
+          }
+        } else {
+          const { error: updErr } = await supabase
+            .from("cash_orders")
+            .update({
+              status: "expired",
+              expired_at: nowIso,
+            })
+            .eq("id", order.id)
+            .eq("status", "pending"); // race guard — skip if already changed
+          if (updErr) {
+            throw new Error(`cash_orders update failed: ${updErr.message}`);
+          }
         }
 
         // 2b. Auto-reject all pending/under-review submissions for this order
@@ -174,19 +192,65 @@ Deno.serve(async (req) => {
           },
         });
 
-        // 2d. Fire-and-forget customer email
+        // 2d. Fire-and-forget customer email.
+        //     Web order → the Cha Jewels "order cancelled" email in the
+        //     customer's language (items, deadline that passed, back to shop).
+        //     Hub order → the Hub's cash-order-expired template as before.
         const customer = (order as any).customers;
-        await sendExpiredEmail(
-          order.id,
-          order.invoice_number,
-          order.currency,
-          Number(order.total_amount),
-          Number(order.total_paid),
-          Number(order.remaining_balance),
-          order.expires_at,
-          customer?.email ?? null,
-          customer?.full_name ?? null,
-        );
+        if (isWebOrder) {
+          try {
+            const { data: lines } = await supabase
+              .from("cash_order_items")
+              .select("website_product_id, title, quantity, line_total_jpy")
+              .eq("cash_order_id", order.id)
+              .order("created_at");
+            const ids = [...new Set(((lines ?? []) as any[]).map((l) => l.website_product_id).filter(Boolean))];
+            const { data: prods } = ids.length
+              ? await supabase.from("website_products").select("id, name, name_ja").in("id", ids)
+              : { data: [] as any[] };
+            const byId = new Map<string, any>(((prods ?? []) as any[]).map((p) => [String(p.id), p]));
+            const items = ((lines ?? []) as any[]).map((l) => {
+              const pr = l.website_product_id ? byId.get(String(l.website_product_id)) : undefined;
+              const title = String(l.title ?? "");
+              const title_ja = pr?.name && pr?.name_ja && title.startsWith(pr.name) ? pr.name_ja + title.slice(pr.name.length) : null;
+              return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
+            });
+            const reference = String((order as any).web_reference ?? order.invoice_number);
+            const country = String((order as any).ship_to_address?.country ?? "JP").toUpperCase();
+            const shopUrl = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
+            await sendStorefrontEmail({
+              to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
+              subject: orderExpiredSubject(reference),
+              label: "order-expired",
+              reference,
+              idempotencyKey: `order-expired-${order.id}`,
+              element: React.createElement(OrderExpiredEmail, {
+                lang: pickLang((order as any).customer_lang),
+                reference,
+                items,
+                shippingJpy: Number((order as any).shipping_fee ?? 0),
+                totalJpy: Number(order.total_amount),
+                transferDueAt: String((order as any).transfer_due_at ?? order.expires_at),
+                region: country === "JP" ? "JP" : "OVERSEAS",
+                shopUrl,
+              }),
+            });
+          } catch (mailErr) {
+            console.warn(`[auto-expire-cash-orders] order-expired email failed for ${(order as any).web_reference} (non-blocking):`, mailErr);
+          }
+        } else {
+          await sendExpiredEmail(
+            order.id,
+            order.invoice_number,
+            order.currency,
+            Number(order.total_amount),
+            Number(order.total_paid),
+            Number(order.remaining_balance),
+            order.expires_at,
+            customer?.email ?? null,
+            customer?.full_name ?? null,
+          );
+        }
 
         expiredResults.push({
           id: order.id,

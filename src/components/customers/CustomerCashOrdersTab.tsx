@@ -9,10 +9,13 @@ import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import StatusBadge from './StatusBadge';
+import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 
 interface CashOrderRow {
   id: string;
   invoice_number: string;
+  source_channel?: string | null;
+  web_reference?: string | null;
   currency: Currency;
   total_amount: number;
   total_paid: number;
@@ -33,7 +36,7 @@ function useCustomerCashOrders(customerId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders')
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference')
         .eq('customer_id', customerId!)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -104,7 +107,7 @@ export default memo(function CustomerCashOrdersTab({ customerId }: { customerId:
               const totalAmount = Number(order.total_amount);
               const totalPaid = Number(order.total_paid);
               const progress = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
-              const isTest = (order.invoice_number || '').startsWith('TEST-');
+              const isTest = isTestCashOrder(order);
 
               return (
                 <div
@@ -115,7 +118,7 @@ export default memo(function CustomerCashOrdersTab({ customerId }: { customerId:
                   <div className="flex items-start justify-between mb-3">
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-card-foreground font-display">
-                        #{order.invoice_number}
+                        {order.source_channel === 'web' ? cashOrderRef(order) : `#${order.invoice_number}`}
                       </p>
                       {order.item_description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
