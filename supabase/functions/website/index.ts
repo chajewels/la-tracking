@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 
 /**
  * Public website API (server-to-server).
@@ -364,7 +364,17 @@ function notFound() {
   return jsonResponse({ error: "not_found" }, 404);
 }
 
+// Every response carries x-request-id and every error body carries request_id,
+// so a failure the shopper sees ("Ref: …") can be matched to the one log line
+// that names its cause. The storefront may pass its own id through.
 Deno.serve(async (req) => {
+  const requestId = req.headers.get("x-request-id")?.trim() || crypto.randomUUID();
+  const res = await handle(req, requestId);
+  try { res.headers.set("x-request-id", requestId); } catch { /* immutable headers: body still carries it */ }
+  return res;
+});
+
+async function handle(req: Request, requestId: string): Promise<Response> {
   const pre = corsPreflight(req);
   if (pre) return pre;
 
@@ -885,7 +895,8 @@ Deno.serve(async (req) => {
       const result = (data ?? {}) as AnyRec;
       if (result.error) {
         const status = CHECKOUT_ERROR_STATUS[String(result.error)] ?? 400;
-        return jsonResponse(result, status);
+        console.warn("website checkout refused", requestId, String(result.error));
+        return jsonResponse({ ...result, request_id: requestId }, status);
       }
 
       // Country comes from the order that was just written, not from the
@@ -947,11 +958,16 @@ Deno.serve(async (req) => {
 
       const { data: items, error: itemErr } = await supabase
         .from("cash_order_items")
-        .select("id, variant_id, product_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+        .select("id, variant_id, product_id, website_product_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
         .eq("cash_order_id", order.id)
         .order("created_at");
       if (itemErr) throw itemErr;
-      const lines = await withJapaneseTitles(supabase, (items ?? []) as AnyRec[]);
+      // A website line stores its catalog reference in website_product_id
+      // (product_id is the Shopify FK). The storefront sees one field.
+      const lines = await withJapaneseTitles(
+        supabase,
+        ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: l.product_id ?? website_product_id ?? null })),
+      );
 
       const country = String((order as AnyRec).ship_to_address
         ? ((order as AnyRec).ship_to_address as AnyRec).country ?? "JP"
@@ -970,10 +986,10 @@ Deno.serve(async (req) => {
 
     return notFound();
   } catch (err) {
-    console.error("website api error", (err as Error)?.message ?? err);
-    return new Response(JSON.stringify({ error: "server_error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // The one line that explains a "Ref: …" on the storefront. Postgres errors
+    // carry code/details/hint; keep them — a bare message hides the FK name.
+    const e = err as { message?: string; code?: string; details?: string; hint?: string };
+    console.error("website api error", requestId, req.method, path, e?.code ?? "", e?.message ?? err, e?.details ?? "", e?.hint ?? "");
+    return jsonResponse({ error: "server_error", request_id: requestId }, 500);
   }
-});
+}
