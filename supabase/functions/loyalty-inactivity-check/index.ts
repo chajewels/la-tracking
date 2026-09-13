@@ -1,3 +1,4 @@
+import * as React from "npm:react@18.3.1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import {
@@ -10,8 +11,17 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import {
   buildExpiryFiredNotification,
   buildPreExpiryNotification,
+  buildStepdownWarningNotification,
   buildTierDowngradeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { sendStorefrontEmail } from "../_shared/storefront-email.ts";
+import {
+  formatLevelDate,
+  LevelStepdownEmail,
+  LevelWarningEmail,
+  levelStepdownSubject,
+  levelWarningSubject,
+} from "../_shared/email-templates/loyalty-level.tsx";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,6 +37,9 @@ const json = (body: unknown, status = 200) =>
 const DAY_MS = 24 * 60 * 60 * 1000;
 const INACTIVITY_DAYS = 180;
 const WARNING_WINDOW_START = 166;
+// Level step-down warning (2026-09-13): 30 days before the 180-day step-down.
+// Communication only — the rule itself is unchanged.
+const STEPDOWN_WARNING_DAY = 150;
 const WARNING_REPEAT_COOLDOWN_DAYS = 30;
 const GAP_DOWNGRADE_DAYS = 180;
 
@@ -72,6 +85,57 @@ async function sendEmail(
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] ${templateName} email block failed:`, e);
   }
+}
+
+type LevelEmailCustomer = {
+  id: string;
+  customer_code: string | null;
+  full_name: string | null;
+  email: string | null;
+  is_test?: boolean | null;
+};
+
+/**
+ * Level emails (warning / step-down) go out as Cha Jewels mail with Reply-To
+ * sales@ through sendStorefrontEmail, behind the same loyalty email gates.
+ * Never throws — a failed email must not stop the member loop.
+ */
+async function sendLevelEmail(
+  gate: (key: LoyaltyEmailKey) => Promise<boolean>,
+  gateKey: LoyaltyEmailKey,
+  label: string,
+  subject: string,
+  element: React.ReactElement,
+  customer: LevelEmailCustomer,
+  idempotencyKey: string,
+) {
+  try {
+    if (!(await gate(gateKey))) {
+      console.log(`[email-gate] ${label} skipped — toggle '${gateKey}' is OFF`);
+      return;
+    }
+    await sendStorefrontEmail({
+      to: { email: customer.email, is_test: customer.is_test ?? false },
+      subject,
+      element,
+      label,
+      reference: customer.customer_code ?? customer.id,
+      idempotencyKey,
+    });
+  } catch (e) {
+    console.warn(`[loyalty-inactivity-check] ${label} email block failed:`, e);
+  }
+}
+
+/** requalify_spend of the EARNED level minus spend since the baseline, floored at 0. */
+function regainJpy(
+  earnedTier: { requalify_spend_jpy?: number | null } | undefined,
+  cumulative: number,
+  baseline: number | null,
+): number {
+  const target = Number(earnedTier?.requalify_spend_jpy ?? 0);
+  const since = baseline == null ? 0 : Math.max(0, cumulative - Number(baseline));
+  return Math.max(0, target - since);
 }
 
 // TODO Substep 3 follow-up: emit status_changed when activity_status
@@ -135,6 +199,7 @@ Deno.serve(async (req) => {
   const summary = {
     processed: 0,
     warnings_sent: 0,
+    stepdown_warnings_sent: 0,
     expiries_processed: 0,
     downgrades_processed: 0,
     downgrades_skipped_settled: 0,
@@ -144,7 +209,7 @@ Deno.serve(async (req) => {
   // Tier catalogue — used for finding next-lower tier by display_order.
   const { data: tiersList, error: tiersErr } = await supabase
     .from("loyalty_tiers")
-    .select("id, name, display_order")
+    .select("id, name, display_order, requalify_spend_jpy")
     .order("display_order", { ascending: true });
   if (tiersErr || !tiersList) {
     console.error("[loyalty-inactivity-check] tiers fetch failed:", tiersErr);
@@ -156,7 +221,7 @@ Deno.serve(async (req) => {
   const { data: members, error: membersErr } = await supabase
     .from("loyalty_members")
     .select(
-      "id, customer_id, current_tier_id, earned_tier_id, remaining_points, total_points_expired, last_purchase_at, prev_purchase_at, pre_expiry_warned_at, is_downgraded, cumulative_spend_jpy",
+      "id, customer_id, current_tier_id, earned_tier_id, remaining_points, total_points_expired, last_purchase_at, prev_purchase_at, pre_expiry_warned_at, stepdown_warned_at, is_downgraded, cumulative_spend_jpy, downgrade_spend_baseline",
     )
     .not("last_purchase_at", "is", null)
     .gt("remaining_points", 0);
@@ -283,10 +348,13 @@ Deno.serve(async (req) => {
 
       const { data: customer } = await supabase
         .from("customers")
-        .select("id, customer_code, full_name, email")
+        .select("id, customer_code, full_name, email, is_test")
         .eq("id", member.customer_id)
         .maybeSingle();
       const customerName = customer?.full_name || "Valued Customer";
+      // The level the member EARNED — unchanged by any step-down. Falls back
+      // to the tier they hold now if the pointer is missing.
+      const earnedTier = tierById.get(member.earned_tier_id) ?? currentTier;
       const customerBlock = customer
         ? {
           customer_id: customer.id,
@@ -395,11 +463,37 @@ Deno.serve(async (req) => {
           link_target: "tab:points",
         });
         if (tierChanged) {
+          // Step-down notice (2026-09-13): the day it happens — new level,
+          // earned level, exact spend to regain it. Baseline was just set to
+          // the current lifetime spend, so the amount is the earned level's
+          // requalify_spend in full.
+          const regain = regainJpy(earnedTier, Number(member.cumulative_spend_jpy ?? 0), Number(member.cumulative_spend_jpy ?? 0));
+          if (customer?.email) {
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
+            await sendLevelEmail(
+              gate,
+              "loyalty_email_tier_downgrade",
+              "loyalty-level-stepdown",
+              levelStepdownSubject(),
+              React.createElement(LevelStepdownEmail, {
+                customerName,
+                oldLevel: currentTier.name,
+                newLevel: nextLower!.name,
+                earnedLevel: earnedTier.name,
+                regainJpy: regain,
+                portalUrl,
+              }),
+              customer,
+              `loyalty-level-stepdown-${member.id}-${now.toISOString().split("T")[0]}`,
+            );
+          }
           await emitNotification(supabase, member.id, {
             category: "tier",
             ...buildTierDowngradeNotification({
               oldTier: currentTier.name,
               newTier: nextLower!.name,
+              earnedTier: earnedTier.name,
+              regainJpy: regain,
             }),
             link_target: "tab:home",
           });
@@ -428,6 +522,58 @@ Deno.serve(async (req) => {
         }
 
         continue; // expiry replaces downgrade for this member
+      }
+
+      // ── LEVEL STEP-DOWN WARNING (2026-09-13) ──────────────────────
+      // 30 days before the 180-day step-down, once per inactivity period:
+      // stepdown_warned_at NULL or older than the latest purchase = not yet
+      // warned for this period. Only members with a level to lose.
+      const stepDownAt = addDays(effectiveLastPurchase, INACTIVITY_DAYS);
+      const inStepdownWindow = daysSinceLast >= STEPDOWN_WARNING_DAY &&
+        daysSinceLast < INACTIVITY_DAYS && currentTier.display_order > 1;
+      if (inStepdownWindow) {
+        const warnedAt = member.stepdown_warned_at ? new Date(member.stepdown_warned_at) : null;
+        const needsStepdownWarn = !warnedAt || warnedAt.getTime() < effectiveLastPurchase.getTime();
+        const nextLowerForWarn = tierByOrder.get(currentTier.display_order - 1);
+        if (needsStepdownWarn && nextLowerForWarn) {
+          const daysLeft = INACTIVITY_DAYS - daysSinceLast;
+          if (customer?.email) {
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
+            await sendLevelEmail(
+              gate,
+              "loyalty_email_stepdown_warning",
+              "loyalty-level-warning",
+              levelWarningSubject(),
+              React.createElement(LevelWarningEmail, {
+                customerName,
+                currentLevel: currentTier.name,
+                nextLowerLevel: nextLowerForWarn.name,
+                stepDownAt,
+                daysLeft,
+                points: Number(member.remaining_points ?? 0),
+                portalUrl,
+              }),
+              customer,
+              `loyalty-level-warning-${member.id}-${stepDownAt.toISOString().split("T")[0]}`,
+            );
+          }
+          const { error: sdWarnErr } = await supabase
+            .from("loyalty_members")
+            .update({ stepdown_warned_at: now.toISOString() })
+            .eq("id", member.id);
+          if (sdWarnErr) throw sdWarnErr;
+          await emitNotification(supabase, member.id, {
+            category: "tier",
+            ...buildStepdownWarningNotification({
+              currentTier: currentTier.name,
+              nextLowerTier: nextLowerForWarn.name,
+              daysLeft,
+              stepDownDate: formatLevelDate(stepDownAt, "en"),
+            }),
+            link_target: "tab:home",
+          });
+          summary.stepdown_warnings_sent += 1;
+        }
       }
 
       // ── PRE-EXPIRY WARNING ────────────────────────────────────────
@@ -543,24 +689,28 @@ Deno.serve(async (req) => {
 
           summary.downgrades_processed += 1;
 
+          // Step-down notice (2026-09-13) — replaces the English-only
+          // loyalty-tier-downgrade template. Baseline was just set to the
+          // current lifetime spend, so the regain amount is the earned
+          // level's requalify_spend in full.
+          const gapRegain = regainJpy(earnedTier, Number(member.cumulative_spend_jpy ?? 0), Number(member.cumulative_spend_jpy ?? 0));
           if (customer?.email) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
-            await sendEmail(
+            await sendLevelEmail(
               gate,
               "loyalty_email_tier_downgrade",
-              "loyalty-tier-downgrade",
-              customer.email,
-              `loyalty-tier-downgrade-${member.id}-${
-                lastPurchase.toISOString().split("T")[0]
-              }`,
-              {
+              "loyalty-level-stepdown",
+              levelStepdownSubject(),
+              React.createElement(LevelStepdownEmail, {
                 customerName,
-                oldTier: currentTier.name,
-                newTier: nextLower.name,
-                daysSinceLastPurchase: gapBetweenLastTwo,
-                remainingPoints: Number(member.remaining_points),
+                oldLevel: currentTier.name,
+                newLevel: nextLower.name,
+                earnedLevel: earnedTier.name,
+                regainJpy: gapRegain,
                 portalUrl,
-              },
+              }),
+              customer,
+              `loyalty-level-stepdown-${member.id}-${lastPurchase.toISOString().split("T")[0]}`,
             );
           }
           if (customerBlock) {
@@ -588,6 +738,8 @@ Deno.serve(async (req) => {
             ...buildTierDowngradeNotification({
               oldTier: currentTier.name,
               newTier: nextLower.name,
+              earnedTier: earnedTier.name,
+              regainJpy: gapRegain,
             }),
             link_target: "tab:home",
           });

@@ -227,3 +227,43 @@ is the new spend, since the baseline, needed to regain the earned tier. The
 storefront's earlier "past 12 months" wording was wrong and was corrected
 (cha-jewels-web #19). Note: `loyalty_point_lots` does NOT carry `tier_at_time` /
 `multiplier_at_time`; that lives on `loyalty_transactions.tier_at_time`.
+
+### Step-down notifications — added 2026-09-13 (rule unchanged)
+
+Owner decision: no grace period after a step-down and no retroactive tier
+changes (CJ-2026-00608 stays Glimmer until ¥500,000 since its baseline). Only
+the communication changed. Three emails, all JA first then EN, Cha Jewels
+brand, Reply-To sales@chajewelsjp.com, rendered from
+`_shared/email-templates/loyalty-level.tsx` and sent through
+`sendStorefrontEmail` (so the `is_test` gate applies):
+
+| When | Email (label) | Gate | Sender | Dedup |
+|---|---|---|---|---|
+| 150 days without a purchase, level above Glimmer, points > 0 | `loyalty-level-warning` — current level, the step-down date (last purchase + 180 days, Japan date), "a purchase before then keeps it" | `loyalty_email_stepdown_warning` | `loyalty-inactivity-check` | `loyalty_members.stepdown_warned_at`: send when NULL or older than the latest purchase, then stamp now(). A new purchase re-arms it with no other write. |
+| The day the level steps down (expiry path when the tier changes, and the gap path) | `loyalty-level-stepdown` — new level, the level earned, exact spend to regain it | `loyalty_email_tier_downgrade` | `loyalty-inactivity-check` | idempotency key per member + day |
+| The member requalifies (`tierUpgraded && member.is_downgraded`) | `loyalty-level-restored` — level back, multiplier, points | `loyalty_email_tier_restored` | `award-loyalty-points` (replaces the tier-upgrade email in that case only) | idempotency key per member + order |
+
+Regain amount everywhere = `loyalty_tiers.requalify_spend_jpy` of the EARNED
+tier (`earned_tier_id`, untouched by a step-down) minus
+`max(0, cumulative_spend_jpy − downgrade_spend_baseline)`, floored at 0. On
+the step-down day the baseline equals the cumulative spend, so the amount is
+the full requalify_spend.
+
+In-portal: the same three events emit `loyalty_notifications` (category
+`tier`, bilingual). The loyalty portal shows the reduced state on MemberCard
+and on the Tiers screen ("レベル一時変更中 / Level temporarily reduced", earned
+level, spend to regain), and the Tiers screen states the rule with each
+level's regain amount. `customer-portal` returns `downgrade_spend_baseline`,
+`earned_tier.requalify_spend_jpy` and `loyalty_tiers.requalify_spend_jpy` for
+this. The storefront `/account` shows the same block from `website` GET /me
+(`reduced`, `earned_tier`, `regain_jpy`); `/loyalty` and the FAQ already state
+the rule and the per-level regain amounts (cha-jewels-web #19).
+
+Member set: the warning and the expiry-path notice cover the members the
+existing check already processes (`last_purchase_at` set, `remaining_points >
+0`). As of 2026-09-13 no member sits outside that set with a level to lose
+(0 members at Radiant+ with 0 points and 180+ days of inactivity), so the
+notices cover every step-down the code actually performs.
+
+The English-only `loyalty-tier-downgrade` template is no longer sent by any
+function (kept in the registry for the Settings preview).

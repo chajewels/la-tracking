@@ -65,9 +65,19 @@ const EMAIL_TOGGLES: Array<{
     description: 'Sent on tier promotion',
   },
   {
+    key: 'loyalty_email_stepdown_warning',
+    label: 'Level Step-Down Warning',
+    description: 'Sent at 150 days without a purchase: the level steps down in 30 days (JA + EN)',
+  },
+  {
     key: 'loyalty_email_tier_downgrade',
-    label: 'Tier Downgrade',
-    description: 'Sent on tier demotion (after inactivity)',
+    label: 'Level Step-Down Notice',
+    description: 'Sent the day the level steps down after 180 days of inactivity: new level, earned level, spend to regain it (JA + EN)',
+  },
+  {
+    key: 'loyalty_email_tier_restored',
+    label: 'Level Restored',
+    description: 'Sent when a stepped-down member requalifies and the earned level is back (JA + EN)',
   },
   {
     key: 'loyalty_email_pre_expire',

@@ -78,19 +78,34 @@ async function customerForAuthUser(supabase: any, authUserId: string): Promise<A
 async function loyaltySnapshot(supabase: any, customerId: string) {
   const { data, error } = await supabase
     .from("loyalty_members")
-    .select("remaining_points, cumulative_spend_jpy, current_tier_id, loyalty_tiers:current_tier_id(name, points_multiplier)")
+    .select("remaining_points, cumulative_spend_jpy, current_tier_id, is_downgraded, downgrade_spend_baseline, loyalty_tiers:current_tier_id(name, points_multiplier), earned:earned_tier_id(name, requalify_spend_jpy)")
     .eq("customer_id", customerId)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null };
-  const tier = (data as AnyRec).loyalty_tiers as AnyRec | null;
+  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null, reduced: false, earned_tier: null, regain_jpy: null };
+  const row = data as AnyRec;
+  const tier = row.loyalty_tiers as AnyRec | null;
+  const earned = row.earned as AnyRec | null;
+  // Step-down state (2026-09-13): the level is temporarily reduced after 180
+  // days of inactivity; regain_jpy = the earned level's requalify_spend minus
+  // spend since the step-down, floored at 0. Only meaningful when reduced.
+  const reduced = row.is_downgraded === true;
+  let regain: number | null = null;
+  if (reduced && earned?.requalify_spend_jpy != null) {
+    const baseline = row.downgrade_spend_baseline == null ? null : Number(row.downgrade_spend_baseline);
+    const since = baseline == null ? 0 : Math.max(0, Number(row.cumulative_spend_jpy ?? 0) - baseline);
+    regain = Math.max(0, Number(earned.requalify_spend_jpy) - since);
+  }
   return {
     enrolled: true,
-    points: Number((data as AnyRec).remaining_points ?? 0),
+    points: Number(row.remaining_points ?? 0),
     tier: tier?.name ?? null,
     multiplier: tier?.points_multiplier === undefined || tier?.points_multiplier === null
       ? null
       : Number(tier.points_multiplier),
+    reduced,
+    earned_tier: reduced ? (earned?.name ?? null) : null,
+    regain_jpy: regain,
   };
 }
 

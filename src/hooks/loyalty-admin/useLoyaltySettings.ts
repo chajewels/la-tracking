@@ -22,6 +22,8 @@ export interface LoyaltySettings {
   loyalty_email_bonus: boolean;
   loyalty_email_tier_upgrade: boolean;
   loyalty_email_tier_downgrade: boolean;
+  loyalty_email_stepdown_warning: boolean;
+  loyalty_email_tier_restored: boolean;
   loyalty_email_pre_expire: boolean;
   loyalty_email_expire_deduct: boolean;
   loyalty_email_redeem: boolean;
@@ -40,6 +42,8 @@ const BOOLEAN_KEYS: ReadonlySet<LoyaltySettingKey> = new Set([
   'loyalty_email_bonus',
   'loyalty_email_tier_upgrade',
   'loyalty_email_tier_downgrade',
+  'loyalty_email_stepdown_warning',
+  'loyalty_email_tier_restored',
   'loyalty_email_pre_expire',
   'loyalty_email_expire_deduct',
   'loyalty_email_redeem',
@@ -80,6 +84,8 @@ const DEFAULTS: LoyaltySettings = {
   loyalty_email_bonus: true,
   loyalty_email_tier_upgrade: true,
   loyalty_email_tier_downgrade: true,
+  loyalty_email_stepdown_warning: true,
+  loyalty_email_tier_restored: true,
   loyalty_email_pre_expire: true,
   loyalty_email_expire_deduct: true,
   loyalty_email_redeem: true,

@@ -15,6 +15,10 @@ import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0
  * chajewelsjapan@gmail.com), so a test order still produces the real email for
  * the owner and nothing for a throwaway address.
  *
+ * Also used (2026-09-13) for the loyalty LEVEL emails in
+ * _shared/email-templates/loyalty-level.tsx — same brand, same Reply-To,
+ * same test gate; `reference` is then the customer code.
+ *
  * ONE LOG LINE PER SEND, always: label, order reference, recipient, outcome.
  * Sending is fire-and-forget for the caller — a failed email never fails the
  * order, the confirmation or the expiry that triggered it.
