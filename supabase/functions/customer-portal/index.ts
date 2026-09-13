@@ -508,13 +508,13 @@ Deno.serve(async (req) => {
       supabase
         .from("loyalty_members")
         .select(
-          "id, customer_id, cumulative_spend_jpy, earned_tier_id, current_tier_id, is_downgraded, last_purchase_at, prev_purchase_at, total_points_earned, total_points_redeemed, total_points_expired, remaining_points, enrolled_at, earned_tier:earned_tier_id(name, points_multiplier, color_hex), current_tier:current_tier_id(name, points_multiplier, color_hex)",
+          "id, customer_id, cumulative_spend_jpy, earned_tier_id, current_tier_id, is_downgraded, downgrade_spend_baseline, last_purchase_at, prev_purchase_at, total_points_earned, total_points_redeemed, total_points_expired, remaining_points, enrolled_at, earned_tier:earned_tier_id(name, points_multiplier, color_hex, requalify_spend_jpy), current_tier:current_tier_id(name, points_multiplier, color_hex)",
         )
         .eq("customer_id", customerId)
         .maybeSingle(),
       supabase
         .from("loyalty_tiers")
-        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift, benefits, birthday_bonus_points")
+        .select("id, name, min_spend_jpy, requalify_spend_jpy, display_order, points_multiplier, color_hex, free_shipping_min_items, mystery_gift, benefits, birthday_bonus_points")
         .order("min_spend_jpy", { ascending: true }),
       // Beta whitelist read runs server-side here because the table's RLS
       // denies anon SELECT — useLoyaltyAccess on the browser would fail

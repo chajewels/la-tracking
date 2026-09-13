@@ -75,12 +75,51 @@ export function buildTierUpgradeNotification(args: {
 export function buildTierDowngradeNotification(args: {
   oldTier: string;
   newTier: string;
+  /** The level the member earned (unchanged by the step-down). */
+  earnedTier?: string | null;
+  /** Spend still needed to regain the earned level, in JPY. */
+  regainJpy?: number | null;
+}): NotificationTemplate {
+  const { oldTier, newTier, earnedTier, regainJpy } = args;
+  const regain = earnedTier && regainJpy != null
+    ? ` The level you earned is ${earnedTier}: spend ¥${fmt(regainJpy)} more and it comes back.`
+    : ` Make a qualifying purchase to climb back to ${oldTier}.`;
+  return {
+    title: truncate(`レベル一時変更中 / Level temporarily reduced — now ${newTier}`, 100),
+    body: truncate(
+      `180日間お買い上げがなかったため、レベルが ${oldTier} から ${newTier} に1段階下がりました。 / 180 days passed without a purchase, so your level stepped down from ${oldTier} to ${newTier}.${regain}`,
+      500,
+    ),
+  };
+}
+
+export function buildStepdownWarningNotification(args: {
+  currentTier: string;
+  nextLowerTier: string;
+  daysLeft: number;
+  stepDownDate: string;
+}): NotificationTemplate {
+  const { currentTier, nextLowerTier, daysLeft, stepDownDate } = args;
+  const days = Math.max(0, Math.trunc(daysLeft));
+  return {
+    title: truncate(`あと${fmt(days)}日でレベルが1段階下がります / Your level steps down in ${fmt(days)} days`, 100),
+    body: truncate(
+      `${stepDownDate} までにお買い上げがない場合、レベルは ${currentTier} から ${nextLowerTier} に下がります。それまでのお買い上げで維持されます。 / Without a purchase by ${stepDownDate}, your level steps down from ${currentTier} to ${nextLowerTier}. Any purchase before then keeps it.`,
+      500,
+    ),
+  };
+}
+
+export function buildLevelRestoredNotification(args: {
+  oldTier: string;
+  newTier: string;
 }): NotificationTemplate {
   const { oldTier, newTier } = args;
+  const mult = multiplierFor(newTier);
   return {
-    title: truncate(`Tier change — now ${newTier}`, 100),
+    title: truncate(`レベルが元に戻りました / Your level is back — ${newTier}`, 100),
     body: truncate(
-      `Your tier has changed from ${oldTier} to ${newTier} due to recent inactivity. Make a qualifying purchase to climb back to ${oldTier} and restore your higher earnings.`,
+      `ご購入ありがとうございます。レベルが ${oldTier} から ${newTier} に戻り、ポイント倍率 ${mult}倍が再び適用されます。 / Thank you for your purchase. Your level is back from ${oldTier} to ${newTier}, and your ${mult}x points rate applies again.`,
       500,
     ),
   };

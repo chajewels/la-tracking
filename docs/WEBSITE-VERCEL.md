@@ -48,7 +48,7 @@ them to `PRODUCT_FIELDS`.
 | `POST /loyalty/join` | Signup capture | Body `{ name, contact, region, lang }`. `region` JP\|PH\|OTHER, `lang` ja\|en. Writes `loyalty_signups`. |
 | `GET /loyalty/tiers` | Tier ladder | Reads `loyalty_tiers` ordered by `display_order`. Returns `{ slug, name, threshold_jpy, requalify_spend, multiplier, hold_minutes, benefits_ja, benefits_en }`. |
 | `POST /auth/customer` | **Customer JWT + API key** | Links or creates the `customers` row for the signed-in user. 409 `email_already_linked` when another auth user owns that email. Does NOT auto-enrol in loyalty. |
-| `GET /me` | **Customer JWT + API key** | Profile, addresses, loyalty snapshot, `saved_card` (always false until step 3). 404 `not_linked` before `/auth/customer` has run. |
+| `GET /me` | **Customer JWT + API key** | Profile, addresses, loyalty snapshot, `saved_card` (always false until step 3). 404 `not_linked` before `/auth/customer` has run. The loyalty snapshot carries `{ enrolled, points, tier, multiplier, reduced, earned_tier, regain_jpy }` — `reduced` is the 180-day step-down state, `earned_tier` the level the member earned, `regain_jpy` = that level's `requalify_spend_jpy` minus spend since `downgrade_spend_baseline`, floored at 0 (2026-09-13). |
 | `PUT /me/addresses` | **Customer JWT + API key** | Replaces the whole address list via the `replace_customer_addresses` RPC — atomic, so a bad payload leaves the existing list intact. |
 | `POST /checkout/quote` | **Customer JWT + API key** | Prices a basket. Body `{items:[{variant_id,qty}], mode:'full', order_type, ship_to_address_id, recipient_name?, recipient_phone?, gift_note?}`. `mode:'layaway'` → 501 `not_yet` (step 4). Does **not** reserve stock. |
 | `POST /checkout/pay` | **Customer JWT + API key** | Body `{quote_id, method:'transfer'}`. `method:'square'` → 501 `not_yet` (step 3). Calls `create_web_order_atomic`. |
@@ -528,6 +528,27 @@ order goes through `expire_web_order_atomic`, which flips the status AND puts
 the held stock back on sale in one transaction. Before this a web order never
 expired and never released its piece. Manual cancellation from the Hub detail
 page does NOT yet release web stock — tracked in docs/PENDING.md.
+
+## 4c. Order lifecycle: one exit for a web order (2026-09-13)
+
+A web order ends in exactly one of two ways, both through
+`terminate_web_order_atomic(p_order_id, p_outcome, …)`:
+
+| Outcome | Who | Guard | What happens in the one transaction |
+|---|---|---|---|
+| `expired` | `auto-expire-cash-orders`, hourly at :40 UTC (via `expire_web_order_atomic`) | status `pending` and nothing paid | points reversal (no-op), status → expired + reason, stock back on sale, note, audit; the function then rejects pending submissions and sends the order-expired email |
+| `cancelled` | staff, CashOrderDetail → `cancel-cash-order` | reason required; refund decision required when money was received | points reversal (ledger row), store credit ONLY for `store_credit_issued` (never automatic), status → cancelled + reason + refund fields, stock back on sale, note, audit; the function sends the order-cancelled email (reason + decision) |
+
+The status flip is the once-only guard: a second call returns
+`{ok:false, reason:'already_terminal'}` and restores nothing twice. Web orders
+are never hard-deleted (`trg_prevent_web_order_delete`, `delete_cash_order_atomic`,
+and the Delete button is hidden). The SQL cron `expire_transfer_orders()` that used
+to race the function was dropped.
+
+**Customer view.** `GET /orders` and `/orders/:id` now carry
+`cancellation_reason`, `refund_status`, `refund_note`, `expired_at`. The
+storefront shows キャンセル済み / Cancelled with the reason and 返金済み / 返金手続き中 /
+ストアクレジット発行 / 返金なし; nothing leaves the customer's history.
 
 ## 5. CI coverage
 

@@ -5,11 +5,15 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import {
+  buildLevelRestoredNotification,
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
   buildWelcomeNotification,
 } from "../_shared/loyalty-notification-templates.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import * as React from "npm:react@18.3.1";
+import { sendStorefrontEmail } from "../_shared/storefront-email.ts";
+import { LevelRestoredEmail, levelRestoredSubject } from "../_shared/email-templates/loyalty-level.tsx";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -329,6 +333,31 @@ Deno.serve(async (req) => {
       : 0;
     const bonusTxPoints = deltaFromMultiplier + flatBonus;
 
+    // 7b. Idempotent award keyed on the order (Bug #269). The claim is an
+    //     INSERT into loyalty_award_claims (primary key = source), so two
+    //     concurrent invocations for the same order cannot both pass — the
+    //     read-then-check guards above (4b, 4c) can. Released on any failure
+    //     below the claim so a retry can run; confirmed with the earned row id.
+    const claimKind = sourceKind === "layaway" ? "layaway" : "cash";
+    const claimId = sourceKind === "layaway" ? account_id! : cash_order_id!;
+    {
+      const { data: claimed, error: claimErr } = await supabase.rpc("claim_loyalty_award", {
+        p_source_kind: claimKind,
+        p_source_id: claimId,
+      });
+      if (claimErr) {
+        console.error("[award-loyalty-points] claim_loyalty_award failed:", claimErr);
+        return json({ error: "award_claim_failed", detail: claimErr.message }, 500);
+      }
+      if (claimed !== true) {
+        return json({ skipped: true, reason: "already_awarded" });
+      }
+    }
+    const releaseClaim = async () => {
+      const { error } = await supabase.rpc("release_loyalty_award_claim", { p_source_kind: claimKind, p_source_id: claimId });
+      if (error) console.error("[award-loyalty-points] release_loyalty_award_claim failed:", error);
+    };
+
     // 8. Insert earned transaction
     const earnedTxRow: Record<string, unknown> = {
       member_id: member.id,
@@ -349,9 +378,16 @@ Deno.serve(async (req) => {
       .single();
     if (earnedErr) {
       console.error("[award-loyalty-points] earned tx insert failed:", earnedErr);
+      await releaseClaim();
       return json({ error: "earned_tx_insert_failed", detail: earnedErr.message }, 500);
     }
     const earnedTxId: string | null = (earnedTxData as { id?: string } | null)?.id ?? null;
+    if (earnedTxId) {
+      const { error: confirmErr } = await supabase.rpc("confirm_loyalty_award_claim", {
+        p_source_kind: claimKind, p_source_id: claimId, p_transaction_id: earnedTxId,
+      });
+      if (confirmErr) console.warn("[award-loyalty-points] confirm_loyalty_award_claim failed (non-blocking):", confirmErr);
+    }
 
     // 9. Insert bonus transaction if any bonus applies
     //    Skip when both delta_from_multiplier = 0 AND flat_bonus = 0
@@ -514,12 +550,16 @@ Deno.serve(async (req) => {
     //     email try/catch so notifications can reuse it without a
     //     second round-trip.
     let customer:
-      | { id: string; customer_code: string | null; full_name: string | null; email: string | null }
+      | { id: string; customer_code: string | null; full_name: string | null; email: string | null; is_test?: boolean | null }
       | null = null;
+    // A tier move on a member who was stepped down for inactivity is a
+    // RESTORATION (they requalified), not a promotion — different email and
+    // notification (2026-09-13). Read before the member row is rewritten.
+    const isRestoration = tierUpgraded && member.is_downgraded === true;
     try {
       const { data } = await supabase
         .from("customers")
-        .select("id, customer_code, full_name, email")
+        .select("id, customer_code, full_name, email, is_test")
         .eq("id", customerId!)
         .single();
       customer = data ?? null;
@@ -595,7 +635,33 @@ Deno.serve(async (req) => {
           }
         }
 
-        if (tierUpgraded) {
+        if (isRestoration) {
+          if (await gate("loyalty_email_tier_restored")) {
+            try {
+              await sendStorefrontEmail({
+                to: { email: recipientEmail, is_test: customer?.is_test ?? false },
+                subject: levelRestoredSubject(),
+                element: React.createElement(LevelRestoredEmail, {
+                  customerName,
+                  oldLevel: oldTierName,
+                  newLevel: newTierName,
+                  multiplier: Number(newTierRow!.points_multiplier ?? 1),
+                  points: newRemaining,
+                  portalUrl,
+                }),
+                label: "loyalty-level-restored",
+                reference: customer?.customer_code ?? customerId!,
+                idempotencyKey: `loyalty-level-restored-${member.id}-${sourceKind}-${account_id ?? cash_order_id}`,
+              });
+            } catch (e) {
+              console.warn("[award-loyalty-points] loyalty-level-restored email failed:", e);
+            }
+          } else {
+            console.log(
+              "[email-gate] loyalty-level-restored skipped — toggle 'loyalty_email_tier_restored' is OFF",
+            );
+          }
+        } else if (tierUpgraded) {
           if (await gate("loyalty_email_tier_upgrade")) {
             try {
               const result = await sendTemplateEmail(
@@ -663,7 +729,16 @@ Deno.serve(async (req) => {
       link_target: "tab:points",
     });
 
-    if (tierUpgraded) {
+    if (isRestoration) {
+      await emitNotification(supabase, member.id, {
+        category: "tier",
+        ...buildLevelRestoredNotification({
+          oldTier: oldTierName,
+          newTier: newTierName,
+        }),
+        link_target: "tab:home",
+      });
+    } else if (tierUpgraded) {
       await emitNotification(supabase, member.id, {
         category: "tier",
         ...buildTierUpgradeNotification({

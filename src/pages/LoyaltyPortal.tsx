@@ -38,6 +38,7 @@ interface TierLite {
   name: string;
   points_multiplier: number;
   color_hex: string | null;
+  requalify_spend_jpy?: number | null;
 }
 
 interface LoyaltyMember {
@@ -47,6 +48,7 @@ interface LoyaltyMember {
   earned_tier_id: string;
   current_tier_id: string;
   is_downgraded: boolean;
+  downgrade_spend_baseline?: number | null;
   last_purchase_at: string | null;
   prev_purchase_at: string | null;
   total_points_earned: number;
@@ -61,6 +63,7 @@ interface LoyaltyMember {
 interface PortalLoyaltyTier {
   name: string;
   min_spend_jpy: number;
+  requalify_spend_jpy?: number | null;
   points_multiplier: number;
   color_hex: string | null;
   benefits?: string[] | null;
@@ -244,6 +247,7 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
         name: t.name as TierName,
         spendRequired: t.min_spend_jpy,
         multiplier: t.points_multiplier,
+        requalifyJpy: t.requalify_spend_jpy ?? null,
         ...TIER_STATIC[t.name as TierName],
         benefits:
           Array.isArray(t.benefits) && t.benefits.length > 0
@@ -259,6 +263,22 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
   const nextTier = currentTierIndex >= 0 ? tiers[currentTierIndex + 1] : undefined;
   const cumulative = loyaltyMember?.cumulative_spend_jpy ?? 0;
 
+  // Step-down state (2026-09-13): the earned level and the spend still needed
+  // to regain it — requalify_spend of the earned tier minus spend since the
+  // step-down baseline, floored at 0. Null unless the member is stepped down.
+  const isSteppedDown = !!loyaltyMember?.is_downgraded;
+  const earnedTierName = isSteppedDown
+    ? ((loyaltyMember?.earned_tier?.name ?? null) as TierName | null)
+    : null;
+  const regainAmount = (() => {
+    if (!isSteppedDown) return null;
+    const target = loyaltyMember?.earned_tier?.requalify_spend_jpy;
+    if (target == null) return null;
+    const baseline = loyaltyMember?.downgrade_spend_baseline;
+    const since = baseline == null ? 0 : Math.max(0, cumulative - Number(baseline));
+    return Math.max(0, Number(target) - since);
+  })();
+
   const memberData = useMemo<LoyaltyMemberData>(
     () => ({
       // Internal IDs — non-null guaranteed by parent gating
@@ -271,7 +291,9 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
       customer_name: data.customer_name || 'Valued Customer',
       member_id: data.customer_code ?? '',
       current_tier: currentTierName,
-      is_downgraded: !!loyaltyMember?.is_downgraded,
+      is_downgraded: isSteppedDown,
+      earned_tier: earnedTierName,
+      regain_amount_jpy: regainAmount,
       available_points: loyaltyMember?.remaining_points ?? 0,
       lifetime_points_earned: loyaltyMember?.total_points_earned ?? 0,
       redeemed_points: loyaltyMember?.total_points_redeemed ?? 0,
@@ -300,7 +322,9 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
       data.customer_code,
       data.profile?.email,
       currentTierName,
-      loyaltyMember?.is_downgraded,
+      isSteppedDown,
+      earnedTierName,
+      regainAmount,
       loyaltyMember?.remaining_points,
       loyaltyMember?.total_points_earned,
       loyaltyMember?.total_points_redeemed,

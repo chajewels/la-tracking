@@ -48,6 +48,8 @@ export const LOYALTY_EMAIL_KEYS = [
   "loyalty_email_broadcast",
   "loyalty_email_tier_revoked",
   "loyalty_email_tier_restored",
+  // 2026-09-13: level step-down warning at 150 days of inactivity
+  "loyalty_email_stepdown_warning",
 ] as const;
 
 export type LoyaltyEmailKey = typeof LOYALTY_EMAIL_KEYS[number];
