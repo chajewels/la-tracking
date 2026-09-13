@@ -269,6 +269,7 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          customer_lang: string | null
           discount_amount: number
           discount_type: string | null
           discount_value: number | null
@@ -320,6 +321,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          customer_lang?: string | null
           discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
@@ -371,6 +373,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          customer_lang?: string | null
           discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
@@ -5723,7 +5726,12 @@ export type Database = {
         Returns: Json
       }
       create_web_order_atomic: {
-        Args: { p_customer_id: string; p_method: string; p_quote_id: string }
+        Args: {
+          p_customer_id: string
+          p_lang?: string
+          p_method: string
+          p_quote_id: string
+        }
         Returns: Json
       }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
@@ -5763,6 +5771,7 @@ export type Database = {
         Returns: number
       }
       expire_transfer_orders: { Args: never; Returns: Json }
+      expire_web_order_atomic: { Args: { p_order_id: string }; Returns: Json }
       fc_at_risk_accounts: {
         Args: never
         Returns: {
