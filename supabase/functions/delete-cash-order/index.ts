@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
 
     const { data: order } = await supabase
       .from("cash_orders")
-      .select("id, invoice_number, customer_id, status, source_channel, web_reference")
+      .select("id, invoice_number, customer_id, status, source_channel, web_reference, total_paid, currency, customers(is_test)")
       .eq("id", cash_order_id)
       .maybeSingle();
 
@@ -72,6 +72,19 @@ Deno.serve(async (req) => {
       }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Completed or paid orders are NEVER deleted (owner decision 2026-09-13,
+    // after 19144 and 19278 vanished from the books). Cancel with a reason, or
+    // void the payment — a reversal that stays on the books. The DB refuses too
+    // (trg_prevent_paid_cash_order_delete + delete_cash_order_atomic); this is
+    // the readable answer. Test customers' orders are exempt.
+    const isTest = (order as any).customers?.is_test === true;
+    if (!isTest && (order.status === "completed" || Number(order.total_paid ?? 0) > 0)) {
+      return new Response(JSON.stringify({
+        error: "paid_order_delete_forbidden",
+        message: `INV ${order.invoice_number} is ${order.status} with ${order.currency} ${Number(order.total_paid ?? 0).toLocaleString()} received. Completed or paid orders are never deleted — cancel it with a reason, or void the payment.`,
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Loyalty points are revoked INSIDE delete_cash_order_atomic, in the same
     // transaction as the delete. The old fire-and-forget HTTP call to
     // revoke-loyalty-points could lose the race (2026-08-25 ledger note).
@@ -89,8 +102,8 @@ Deno.serve(async (req) => {
 
     if (data?.error) {
       const status = data.error === 'Cash order not found' ? 404
-        : data.error === 'web_order_delete_forbidden' ? 409 : 500;
-      return new Response(JSON.stringify({ error: data.error }), {
+        : (data.error === 'web_order_delete_forbidden' || data.error === 'paid_order_delete_forbidden') ? 409 : 500;
+      return new Response(JSON.stringify({ error: data.error, message: data.message ?? undefined }), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

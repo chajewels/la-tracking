@@ -1642,6 +1642,37 @@ KPIs are the canonical examples — see TRADE PROGRAM section above
 (both tables carry `is_trade`) and the staff_notifications trigger
 inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
 
+## ORDER DELETION — NON-NEGOTIABLE (added 2026-09-13)
+
+  A COMPLETED order, or ANY order that has received money (total_paid > 0 or a
+  non-voided payment row), is NEVER deleted — by anyone, through any path. This
+  covers layaway_accounts AND cash_orders (ACCOUNT-SCOPE rule). It is the
+  web-order rule (trg_prevent_web_order_delete) applied to every order.
+
+  Why: cash order 19144 (¥463,980, completed) was deleted 2026-08-26 and
+  layaway 19278 (₱523,712, completed) on 2026-08-25, both through the Hub's
+  Delete button under the shared sales@ login; their payment rows went with
+  them and the money vanished from every report and receipt roster.
+
+  The only exits for such an order are reversals that stay on the books:
+    - cancel (cash) / cancel or forfeit (layaway) WITH a reason
+    - void the payment (void-payment / void-cash-payment), then cancel
+    - edit-account / restructure for a genuine correction
+  A wrong customer or wrong amount is fixed by cancel + re-create, never by
+  delete + re-create.
+
+  Enforced in three layers (migration 20260913110000_prevent_paid_order_delete):
+    1. BEFORE DELETE triggers trg_prevent_paid_layaway_delete /
+       trg_prevent_paid_cash_order_delete (prevent_paid_order_delete()) — no
+       bypass GUC, so SQL Editor deletes are refused too.
+    2. delete_account_atomic / delete_cash_order_atomic return
+       {error:'paid_order_delete_forbidden'} BEFORE touching child rows.
+    3. delete-account / delete-cash-order edge functions answer 409; the Hub
+       hides the Delete button on such orders and shows the rule instead.
+  Exempt: orders of customers flagged is_test = true (scaffolding, not money).
+  Unpaid, never-completed orders (typos, duplicates with ₱0/¥0 received) can
+  still be deleted by admin as before.
+
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 
 ### Item types

@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     // Fetch account details for loyalty revoke (Bug #99 — Decision 9 path-a)
     const { data: account } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, customer_id, status")
+      .select("id, invoice_number, customer_id, status, total_paid, currency, customers(is_test)")
       .eq("id", account_id)
       .maybeSingle();
 
@@ -61,6 +61,20 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Account not found" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Completed or paid accounts are NEVER deleted (owner decision 2026-09-13,
+    // after layaway 19278 — ₱523,712 fully paid — was deleted with its payments).
+    // Cancel/forfeit with a reason, or void the payment. Checked here BEFORE the
+    // loyalty revoke so nothing is revoked on the way to a refusal; the DB
+    // refuses too (trg_prevent_paid_layaway_delete + delete_account_atomic).
+    // Test customers' accounts are exempt.
+    const isTest = (account as any).customers?.is_test === true;
+    if (!isTest && (account.status === "completed" || Number(account.total_paid ?? 0) > 0)) {
+      return new Response(JSON.stringify({
+        error: "paid_order_delete_forbidden",
+        message: `INV ${account.invoice_number} is ${account.status} with ${account.currency} ${Number(account.total_paid ?? 0).toLocaleString()} received. Completed or paid accounts are never deleted — cancel it with a reason, or void the payment.`,
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Bug #99 — fire-and-forget loyalty revoke BEFORE deletion (Decision 9 path-a)
@@ -103,8 +117,9 @@ Deno.serve(async (req) => {
     }
 
     if (data?.error) {
-      const status = data.error === 'Account not found' ? 404 : 500;
-      return new Response(JSON.stringify({ error: data.error }), {
+      const status = data.error === 'Account not found' ? 404
+        : data.error === 'paid_order_delete_forbidden' ? 409 : 500;
+      return new Response(JSON.stringify({ error: data.error, message: data.message ?? undefined }), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
