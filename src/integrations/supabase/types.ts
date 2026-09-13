@@ -192,6 +192,7 @@ export type Database = {
           title: string
           unit_price_jpy: number
           variant_id: string | null
+          website_product_id: string | null
         }
         Insert: {
           cash_order_id: string
@@ -206,6 +207,7 @@ export type Database = {
           title: string
           unit_price_jpy: number
           variant_id?: string | null
+          website_product_id?: string | null
         }
         Update: {
           cash_order_id?: string
@@ -220,6 +222,7 @@ export type Database = {
           title?: string
           unit_price_jpy?: number
           variant_id?: string | null
+          website_product_id?: string | null
         }
         Relationships: [
           {
@@ -241,6 +244,13 @@ export type Database = {
             columns: ["variant_id"]
             isOneToOne: false
             referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_order_items_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
             referencedColumns: ["id"]
           },
         ]
