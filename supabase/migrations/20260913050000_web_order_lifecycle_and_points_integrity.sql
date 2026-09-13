@@ -529,19 +529,21 @@ BEGIN
 END;
 $function$;
 
--- E4. One-time ledger reconciliation (owner-approved 2026-09-13). Verified on
---     all 31 drifted members: counter = live lots on every row, so the counter
---     is the balance. For the 30 real members the gap is exactly the sheet-era
---     redemption history imported on 2026-05-15 as totals with no rows; for the
---     test member (CJ-2026-05088) it is three test-era artefacts (a 20,000 lot
---     restored against a 10,000 row, revokes that wrote -original on partly
---     redeemed lots, two lot-less 100-point rows). synced_to_sheet_at is
+-- E4. One-time ledger reconciliation (owner-approved 2026-09-13, decision A).
+--     Verified on all 31 drifted members: counter = live lots on every row, so
+--     the counter is the balance. For the 30 REAL members the gap is exactly
+--     the sheet-era redemption history imported on 2026-05-15 as totals with
+--     no rows; one 'adjusted' row per member closes it. synced_to_sheet_at is
 --     preset: the Google Sheet already holds this history and must not get it
 --     twice.
+--     Decision B: the TEST member (CJ-2026-05088, customers.is_test) is
+--     EXCLUDED — its gap is test-era restore/revoke artefacts, not imported
+--     history, and its points will be zeroed deliberately after this release
+--     with an explanatory note. Until then it is the one row
+--     loyalty_integrity_report() is expected to show ("counter ≠ ledger net").
 INSERT INTO public.loyalty_transactions (member_id, transaction_type, points_amount, spend_amount_jpy, tier_at_time, notes, synced_to_sheet_at)
 SELECT m.id, 'adjusted'::loyalty_transaction_type, m.remaining_points - COALESCE(d.net, 0), NULL::numeric, t.name,
-       CASE WHEN c.is_test THEN 'Ledger reconciliation 2026-09-13 (test member): aligns the ledger to live lots after test-era restore/revoke artefacts (Bug #269)'
-            ELSE 'Ledger reconciliation 2026-09-13: redemption history imported from the loyalty sheet before the Hub ledger began (pre-2026-05-15); aligns the ledger to live lots (Bug #269)' END,
+       'Imported redemption history from the loyalty sheet before the Hub ledger (pre-2026-05-15)',
        now()
   FROM public.loyalty_members m
   JOIN public.customers c ON c.id = m.customer_id
@@ -550,6 +552,8 @@ SELECT m.id, 'adjusted'::loyalty_transaction_type, m.remaining_points - COALESCE
   LEFT JOIN (SELECT member_id, SUM(remaining_amount) AS live FROM public.loyalty_point_lots
               WHERE revoked_at IS NULL AND expired_at IS NULL AND consumed_at IS NULL GROUP BY member_id) l ON l.member_id = m.id
  WHERE m.remaining_points <> COALESCE(d.net, 0)
+   -- Real customers only (decision B): test members are never backfilled.
+   AND NOT COALESCE(c.is_test, false)
    -- Safety: only members whose counter agrees with their live lots get a row;
    -- anyone else stays visible in loyalty_integrity_report() for manual review.
    AND m.remaining_points = COALESCE(l.live, 0);
