@@ -361,6 +361,9 @@ export default function CashOrderDetail() {
   }, [authLoading, isCustomerOnly, navigate]);
 
   const { data: order, isLoading: orderLoading } = useCashOrderDetail(id);
+  // Owner rule 2026-09-13: a completed order, or one that has received money,
+  // can only be cancelled — never deleted (the DB and edge function refuse too).
+  const isPaidOrCompleted = !!order && (order.status === 'completed' || Number(order.total_paid ?? 0) > 0);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const [statementOpen, setStatementOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
@@ -686,6 +689,9 @@ export default function CashOrderDetail() {
   useEffect(() => {
     if (!cancelOpen || !order) return;
     let cancelled = false;
+    // Fresh dialog every time: the reason must be typed for THIS cancellation,
+    // never inherited from an earlier attempt or a browser autofill.
+    setCancelReason('');
     setCancelPreview(null);
     setCancelPreviewError(null);
     setCancelPreviewLoading(true);
@@ -1314,7 +1320,7 @@ export default function CashOrderDetail() {
               Cancel Order
             </Button>
           )}
-          {isAdmin && !isWebOrder(order) && (
+          {isAdmin && !isWebOrder(order) && !isPaidOrCompleted && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -1323,6 +1329,11 @@ export default function CashOrderDetail() {
               <Trash2 className="h-4 w-4 mr-1.5" />
               Delete Order
             </Button>
+          )}
+          {isAdmin && !isWebOrder(order) && isPaidOrCompleted && (
+            <p className="order-last basis-full text-xs text-muted-foreground">
+              Completed or paid orders are never deleted. Cancel with a reason, or void the payment — the correction stays on the books.
+            </p>
           )}
           {isAdmin && isWebOrder(order) && (
             <p className="order-last basis-full text-xs text-muted-foreground">
@@ -2002,6 +2013,8 @@ export default function CashOrderDetail() {
             <Label htmlFor="cancel-reason">Reason *</Label>
             <Input
               id="cancel-reason"
+              name="cancel-reason"
+              autoComplete="off"
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
               placeholder="Why is this order being cancelled?"

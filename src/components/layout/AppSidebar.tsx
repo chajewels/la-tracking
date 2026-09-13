@@ -31,6 +31,7 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { cn } from '@/lib/utils';
+import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
 import {
   Sidebar,
   SidebarContent,
@@ -440,6 +441,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
             v {__APP_VERSION__}
           </p>
         )}
+        <EmailHealthPill />
       </SidebarFooter>
     </Sidebar>
   );

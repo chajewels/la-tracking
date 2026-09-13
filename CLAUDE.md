@@ -1642,6 +1642,37 @@ KPIs are the canonical examples — see TRADE PROGRAM section above
 (both tables carry `is_trade`) and the staff_notifications trigger
 inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
 
+## ORDER DELETION — NON-NEGOTIABLE (added 2026-09-13)
+
+  A COMPLETED order, or ANY order that has received money (total_paid > 0 or a
+  non-voided payment row), is NEVER deleted — by anyone, through any path. This
+  covers layaway_accounts AND cash_orders (ACCOUNT-SCOPE rule). It is the
+  web-order rule (trg_prevent_web_order_delete) applied to every order.
+
+  Why: cash order 19144 (¥463,980, completed) was deleted 2026-08-26 and
+  layaway 19278 (₱523,712, completed) on 2026-08-25, both through the Hub's
+  Delete button under the shared sales@ login; their payment rows went with
+  them and the money vanished from every report and receipt roster.
+
+  The only exits for such an order are reversals that stay on the books:
+    - cancel (cash) / cancel or forfeit (layaway) WITH a reason
+    - void the payment (void-payment / void-cash-payment), then cancel
+    - edit-account / restructure for a genuine correction
+  A wrong customer or wrong amount is fixed by cancel + re-create, never by
+  delete + re-create.
+
+  Enforced in three layers (migration 20260913110000_prevent_paid_order_delete):
+    1. BEFORE DELETE triggers trg_prevent_paid_layaway_delete /
+       trg_prevent_paid_cash_order_delete (prevent_paid_order_delete()) — no
+       bypass GUC, so SQL Editor deletes are refused too.
+    2. delete_account_atomic / delete_cash_order_atomic return
+       {error:'paid_order_delete_forbidden'} BEFORE touching child rows.
+    3. delete-account / delete-cash-order edge functions answer 409; the Hub
+       hides the Delete button on such orders and shows the rule instead.
+  Exempt: orders of customers flagged is_test = true (scaffolding, not money).
+  Unpaid, never-completed orders (typos, duplicates with ₱0/¥0 received) can
+  still be deleted by admin as before.
+
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 
 ### Item types
@@ -2147,6 +2178,52 @@ Customer / Amount), non-blocking relative to the tracking output.
 2026-09-11: append-payment-tracking is now a per-invoice REWRITE (not additive). It locates the invoice across every sheet in system_settings.payment_tracking_sheets ([{id, cohort:"YYYY-MM"}], newest first) and rewrites G..(TOTAL-1) from get_tracking_for_invoices. Body: { invoice_number }. fill-payment-tracking prepends each generated sheet to that array; the scalar payment_tracking_sheet_id is kept for compatibility only. Callers must await the call (isolate shutdown killed unawaited appends).
 
 2026-09-11 (follow-up): every payment-mutation edge function (review-payment-submission, void-payment, edit-payment-amount, restore-payment, void-cash-payment, restore-cash-payment) calls `refreshPaymentTracking(invoice, caller)` from `_shared/payment-tracking.ts` before returning. Any new function that inserts, voids, edits, or restores a payment MUST add the same call. Only exception: shopify-webhook (Shopify orders are not in tracking rosters).
+
+## EMAIL DELIVERY MONITORING — NON-NEGOTIABLE (added 2026-09-13)
+
+  Why: from 2026-09-04 02:03 UTC to 2026-09-13 every runtime send was refused
+  by the Lovable email API (400 missing_unsubscribe) and nobody noticed for
+  nine days — the direct send helper wrote nothing to email_send_log and the
+  storefront helper logged only to the function log. 773 customer emails lost.
+
+  EVERY email attempt is logged. `_shared/email-log.ts` recordEmailAttempt()
+  is called by BOTH senders on every outcome (sent | failed | suppressed):
+    - _shared/transactional-email-templates/send-email.ts   channel 'hub'
+    - _shared/storefront-email.ts                            channel 'storefront'
+  process-email-queue already wrote email_send_log (channel NULL/'queue').
+  A new sender that bypasses these helpers MUST call recordEmailAttempt()
+  itself; otherwise the report's 'silent' verdict is the only thing that
+  will catch it. email_send_log columns added: channel, request_id (the
+  Lovable request_id from the refusal body, for support tickets).
+  Sent rows never carry idempotency_key (partial unique index) — the key is
+  kept in metadata instead.
+
+  FIRST REFUSAL ALERTS AT ONCE: recordEmailAttempt() on a 'failed' outcome
+  inserts staff_notifications type 'email_send_refused' at most once per 24h.
+
+  DAILY VERDICT: RPC email_delivery_report(p_hours DEFAULT 24) compares the
+  customer emails the Hub should have sent in the window (reminder_logs,
+  payments, cash_payments, portal payment_submissions, rejections,
+  penalty_fees, approved waivers, forfeitures, loyalty_transactions,
+  pre-expiry warnings, web orders placed/closed; test customers excluded)
+  against email_send_log accepted / refused. Verdict:
+    refused  = attempts refused and NONE accepted
+    silent   = events happened but no attempt logged (a sender bypasses the log)
+    degraded = some refused, some accepted
+    ok       = otherwise
+  Cron 'email-health-check' at 00:50 UTC (after the morning chain, Vault
+  pattern) → edge function email-health-check (service role or
+  system_health permission) → upserts system_settings.email_health_status
+  and inserts staff_notifications type 'email_delivery_outage' (once per
+  20h) whenever the verdict is not ok.
+
+  VISIBLE IN THE HUB (src/components/system/EmailHealthIndicator.tsx):
+    sidebar footer pill (always), Dashboard banner (only when not ok),
+    Settings → General → "Email delivery" card with "Run check now".
+  All three read the same RPC via src/hooks/useEmailHealth.ts.
+
+  The report is REPORT-ONLY. Nothing re-sends automatically; a replay job
+  was explicitly declined by the owner (2026-09-13).
 
 ## SERVICES RULE (added 2026-04-12)
 

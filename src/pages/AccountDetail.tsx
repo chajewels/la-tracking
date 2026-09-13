@@ -1331,7 +1331,7 @@ export default function AccountDetail() {
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
             )}
-            {can('delete_account') && (
+            {can('delete_account') && !(account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -1339,6 +1339,11 @@ export default function AccountDetail() {
             >
               <Trash2 className="h-4 w-4 mr-2" /> Delete Account
             </Button>
+            )}
+            {can('delete_account') && (account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
+              <p className="basis-full text-xs text-muted-foreground" title="Owner rule 2026-09-13: completed or paid accounts are never deleted">
+                Completed or paid accounts are never deleted. Cancel or forfeit with a reason, or void the payment.
+              </p>
             )}
             {(isAdmin || isFinance) && (
             <Button

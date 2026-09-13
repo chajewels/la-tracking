@@ -15,6 +15,7 @@ import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
 import PaymentMethodsTab from '@/components/settings/PaymentMethodsTab';
+import { EmailHealthCard } from '@/components/system/EmailHealthIndicator';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -337,6 +338,9 @@ export default function SettingsPage() {
         <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as SettingsTabKey)} className="w-full">
           {/* ── GENERAL TAB ── */}
           <TabsContent value="general" className="space-y-6 mt-4">
+            {/* Email delivery (expected vs accepted, last 24h) */}
+            <EmailHealthCard />
+
             {/* Currency */}
             <div className="rounded-xl border border-border bg-card p-6">
               <div className="flex items-center gap-2 mb-4">
