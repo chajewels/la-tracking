@@ -144,25 +144,65 @@ const STOREFRONT_HOSTS = [
   /^cha-jewels-web-([a-z0-9-]+-)?cha-jewels\.vercel\.app$/i,
 ]
 
-function linkTarget(data: { callback_url?: string; url?: string }): string | null {
-  if (data.callback_url) return data.callback_url
+type HookLinkData = { action_type?: string; callback_url?: string; url?: string }
+
+const REDIRECT_PARAMS = ['redirect_to', 'redirectTo', 'redirect_uri', 'redirect_url']
+
+function redirectParamOf(u: string): string | null {
   try {
-    return new URL(data.url ?? '').searchParams.get('redirect_to')
+    const q = new URL(u).searchParams
+    for (const k of REDIRECT_PARAMS) {
+      const v = q.get(k)
+      if (v) return v
+    }
+    return null
   } catch {
     return null
   }
 }
 
-function isStorefrontLink(data: { callback_url?: string; url?: string }): boolean {
-  const target = linkTarget(data)
-  if (!target) return false
+/**
+ * Every URL the payload could be pointing the customer at, in the order they
+ * were found. Earlier versions returned ONLY callback_url when it was present,
+ * so a callback_url that was not the storefront (a relay or the project's
+ * own callback) hid the real redirect_to inside `url` and the storefront
+ * branding never fired. Now every candidate is checked, including a
+ * redirect_to nested inside a redirect_to (a relay that itself redirects).
+ */
+function linkTargets(data: HookLinkData): string[] {
+  const out: string[] = []
+  const push = (v: string | null | undefined) => { if (v && !out.includes(v)) out.push(v) }
+  push(data.callback_url)
+  push(redirectParamOf(data.callback_url ?? ''))
+  push(data.url)
+  const rt = redirectParamOf(data.url ?? '')
+  push(rt)
+  push(redirectParamOf(rt ?? ''))
+  return out
+}
+
+function hostOf(u: string): string | null {
   try {
-    const host = new URL(target).hostname
-    return STOREFRONT_HOSTS.some((re) => re.test(host))
+    return new URL(u).hostname
   } catch {
-    return false
+    return null
   }
 }
+
+function isStorefrontHost(host: string | null): boolean {
+  return !!host && STOREFRONT_HOSTS.some((re) => re.test(host))
+}
+
+function isStorefrontLink(data: HookLinkData): boolean {
+  return linkTargets(data).some((t) => isStorefrontHost(hostOf(t)))
+}
+
+// Email types a storefront customer can trigger from /login. signInWithOtp
+// sends `magiclink` to a known address and `signup` to a first-time one
+// (GoTrue creates the user and asks them to confirm) — to the customer both
+// are "the sign-in link I asked for", so both get the storefront email when
+// the link lands on a storefront host. Everything else stays staff-branded.
+const STOREFRONT_ACTION_TYPES = new Set(['magiclink', 'signup'])
 
 // The SDK handler owns verification, dispatch, and retry semantics; this file
 // owns only the email decisions: subjects, templates, and per-type props.
@@ -242,6 +282,13 @@ const storefrontHandler = createAuthEmailHandler({
       render: (data) =>
         React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: data.url }),
     },
+    // First-time customer: GoTrue calls it a signup confirmation, the customer
+    // calls it the sign-in link they just asked for. Same email.
+    signup: {
+      subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
+      render: (data) =>
+        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: data.url }),
+    },
   },
 })
 
@@ -261,7 +308,16 @@ Deno.serve(async (req) => {
   // Peek at the payload only to choose a sender; the chosen handler verifies
   // the signature on the untouched request before anything is sent, so a
   // forged body can pick a template but never an email.
-  const peek = await req.clone().json().catch(() => null) as { data?: { action_type?: string; callback_url?: string; url?: string } } | null
-  const storefront = peek?.data?.action_type === 'magiclink' && isStorefrontLink(peek.data)
+  const peek = await req.clone().json().catch(() => null) as { data?: HookLinkData } | null
+  const data = peek?.data
+  const actionType = data?.action_type ?? ''
+  const storefront = !!data && STOREFRONT_ACTION_TYPES.has(actionType) && isStorefrontLink(data)
+  // Audience decision, hosts only — never the token, the path, or the address.
+  // This line is what answers "which template went out, and why" in the logs.
+  console.log(JSON.stringify({
+    audience: storefront ? 'storefront' : 'staff',
+    action_type: actionType,
+    hosts: data ? linkTargets(data).map(hostOf) : [],
+  }))
   return (storefront ? storefrontHandler : staffHandler)(req)
 })
