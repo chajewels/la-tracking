@@ -1059,6 +1059,7 @@ export type Database = {
       }
       email_send_log: {
         Row: {
+          channel: string | null
           created_at: string
           error_message: string | null
           id: string
@@ -1066,10 +1067,12 @@ export type Database = {
           message_id: string | null
           metadata: Json | null
           recipient_email: string
+          request_id: string | null
           status: string
           template_name: string
         }
         Insert: {
+          channel?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
@@ -1077,10 +1080,12 @@ export type Database = {
           message_id?: string | null
           metadata?: Json | null
           recipient_email: string
+          request_id?: string | null
           status: string
           template_name: string
         }
         Update: {
+          channel?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
@@ -1088,6 +1093,7 @@ export type Database = {
           message_id?: string | null
           metadata?: Json | null
           recipient_email?: string
+          request_id?: string | null
           status?: string
           template_name?: string
         }
@@ -5813,6 +5819,7 @@ export type Database = {
         Args: { p_account_id: string }
         Returns: number
       }
+      email_delivery_report: { Args: { p_hours?: number }; Returns: Json }
       email_queue_dispatch: { Args: never; Returns: undefined }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
@@ -6149,6 +6156,15 @@ export type Database = {
           p_submitted_amount: number
         }
         Returns: Json
+      }
+      is_paid_or_completed_order: {
+        Args: {
+          p_customer_id: string
+          p_has_live_payment: boolean
+          p_status: string
+          p_total_paid: number
+        }
+        Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       issue_store_credit_atomic: {
