@@ -291,6 +291,10 @@ export type Database = {
           quote_id: string | null
           recipient_name: string | null
           recipient_phone: string | null
+          refund_decided_at: string | null
+          refund_decided_by_user_id: string | null
+          refund_note: string | null
+          refund_status: string | null
           remaining_balance: number
           ship_to_address_id: string | null
           shipped_at: string | null
@@ -343,6 +347,10 @@ export type Database = {
           quote_id?: string | null
           recipient_name?: string | null
           recipient_phone?: string | null
+          refund_decided_at?: string | null
+          refund_decided_by_user_id?: string | null
+          refund_note?: string | null
+          refund_status?: string | null
           remaining_balance: number
           ship_to_address_id?: string | null
           shipped_at?: string | null
@@ -395,6 +403,10 @@ export type Database = {
           quote_id?: string | null
           recipient_name?: string | null
           recipient_phone?: string | null
+          refund_decided_at?: string | null
+          refund_decided_by_user_id?: string | null
+          refund_note?: string | null
+          refund_status?: string | null
           remaining_balance?: number
           ship_to_address_id?: string | null
           shipped_at?: string | null
@@ -1855,6 +1867,27 @@ export type Database = {
           total_points_expired?: number | null
           total_points_redeemed?: number | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      loyalty_award_claims: {
+        Row: {
+          claimed_at: string
+          source_id: string
+          source_kind: string
+          transaction_id: string | null
+        }
+        Insert: {
+          claimed_at?: string
+          source_id: string
+          source_kind: string
+          transaction_id?: string | null
+        }
+        Update: {
+          claimed_at?: string
+          source_id?: string
+          source_kind?: string
+          transaction_id?: string | null
         }
         Relationships: []
       }
@@ -5710,6 +5743,18 @@ export type Database = {
         Args: { p_account_id: string; p_amount: number; p_date?: string }
         Returns: Json
       }
+      claim_loyalty_award: {
+        Args: { p_source_id: string; p_source_kind: string }
+        Returns: boolean
+      }
+      confirm_loyalty_award_claim: {
+        Args: {
+          p_source_id: string
+          p_source_kind: string
+          p_transaction_id: string
+        }
+        Returns: undefined
+      }
       consume_lots_fifo: {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
         Returns: number
@@ -5770,7 +5815,6 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
-      expire_transfer_orders: { Args: never; Returns: Json }
       expire_web_order_atomic: { Args: { p_order_id: string }; Returns: Json }
       fc_at_risk_accounts: {
         Args: never
@@ -6124,6 +6168,21 @@ export type Database = {
         Args: { p_currency: string; p_price: number; p_term_months: number }
         Returns: Json
       }
+      loyalty_integrity_report: {
+        Args: never
+        Returns: {
+          counter_points: number
+          customer_code: string
+          full_name: string
+          is_downgraded: boolean
+          ledger_net: number
+          lots_live: number
+          member_id: string
+          problem: string
+          tier_from_spend: string
+          tier_now: string
+        }[]
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -6170,6 +6229,10 @@ export type Database = {
           p_user_id?: string
         }
         Returns: Json
+      }
+      release_loyalty_award_claim: {
+        Args: { p_source_id: string; p_source_kind: string }
+        Returns: undefined
       }
       rename_invoice_number_atomic: {
         Args: {
@@ -6234,6 +6297,20 @@ export type Database = {
           p_type: string
         }
         Returns: undefined
+      }
+      terminate_web_order_atomic: {
+        Args: {
+          p_order_id: string
+          p_outcome: string
+          p_preview?: boolean
+          p_reason?: string
+          p_refund_note?: string
+          p_refund_status?: string
+          p_source?: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
       }
       timesheet_can_view_all: { Args: { uid: string }; Returns: boolean }
       unwaive_penalty_atomic: {
