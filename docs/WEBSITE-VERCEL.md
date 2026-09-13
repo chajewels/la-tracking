@@ -537,7 +537,7 @@ A web order ends in exactly one of two ways, both through
 | Outcome | Who | Guard | What happens in the one transaction |
 |---|---|---|---|
 | `expired` | `auto-expire-cash-orders`, hourly at :40 UTC (via `expire_web_order_atomic`) | status `pending` and nothing paid | points reversal (no-op), status → expired + reason, stock back on sale, note, audit; the function then rejects pending submissions and sends the order-expired email |
-| `cancelled` | staff, CashOrderDetail → `cancel-cash-order` | reason required; refund decision required when money was received | points reversal (ledger row), store credit ONLY for `no_refund`, status → cancelled + reason + refund fields, stock back on sale, note, audit; the function sends the order-cancelled email (reason + decision) |
+| `cancelled` | staff, CashOrderDetail → `cancel-cash-order` | reason required; refund decision required when money was received | points reversal (ledger row), store credit ONLY for `store_credit_issued` (never automatic), status → cancelled + reason + refund fields, stock back on sale, note, audit; the function sends the order-cancelled email (reason + decision) |
 
 The status flip is the once-only guard: a second call returns
 `{ok:false, reason:'already_terminal'}` and restores nothing twice. Web orders
@@ -548,7 +548,7 @@ to race the function was dropped.
 **Customer view.** `GET /orders` and `/orders/:id` now carry
 `cancellation_reason`, `refund_status`, `refund_note`, `expired_at`. The
 storefront shows キャンセル済み / Cancelled with the reason and 返金済み / 返金手続き中 /
-返金なし（ストアクレジット発行）; nothing leaves the customer's history.
+ストアクレジット発行 / 返金なし; nothing leaves the customer's history.
 
 ## 5. CI coverage
 

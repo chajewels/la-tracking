@@ -7,7 +7,7 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderCancelledEmail, orderCancelledSubject, type RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
 
-const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "no_refund"]);
+const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
 
 async function resolveCustomerName(
   supabase: any,
@@ -198,8 +198,8 @@ Deno.serve(async (req) => {
         const custId = c.store_credit?.customer_id ?? orderRow.customer_id ?? null;
         const name = await resolveCustomerName(supabase, custId);
 
-        // (a) Store credit auto-issued from money actually received (only when
-        //     the refund decision kept the money as credit).
+        // (a) Store credit minted from money actually received (web: only when
+        //     staff chose "store credit issued"; Hub cash orders: always).
         if (c.store_credit) {
           try {
             const money = Number(c.store_credit.amount ?? c.money_received ?? 0).toLocaleString("en-US");
@@ -218,7 +218,8 @@ Deno.serve(async (req) => {
           try {
             await supabase.from("staff_notifications").insert({
               type: "web_order_refund",
-              title: c.refund_status === "refund_pending" ? "Refund pending on cancelled web order" : "Web order cancelled with refund",
+              title: c.refund_status === "refund_pending" ? "Refund pending on cancelled web order"
+                : c.refund_status === "no_refund" ? "Web order cancelled, no refund (forfeited)" : "Web order cancelled with refund",
               body: `${name ? name + " — " : ""}${ref} cancelled, ${symbol}${Number(c.money_received ?? 0).toLocaleString("en-US")} received, decision: ${String(c.refund_status ?? "").replace("_", " ")}`,
               customer_id: custId,
               invoice_number: c.invoice_number,

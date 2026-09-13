@@ -130,8 +130,9 @@ Reference docs (read the relevant one when a task touches that area):
     It REPORTS ONLY and must never auto-repair.
   - WEB ORDERS (source_channel='web', 2026-09-13): cancelling a PAID web order
     records a REFUND DECISION (cash_orders.refund_status: refund_issued /
-    refund_pending / no_refund + refund_note). Store credit is minted ONLY for
-    no_refund; money going back to the customer is never also credit. The one
+    refund_pending / store_credit_issued / no_refund + refund_note). Store
+    credit is minted ONLY for store_credit_issued — never automatically; a
+    refund is never also credit and no_refund is a forfeiture. The one
     terminal RPC is terminate_web_order_atomic (expired | cancelled): points
     reversal, credit decision, status, stock back on sale, note, audit — one
     transaction, once. Web orders are NEVER hard-deleted (trigger

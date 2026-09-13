@@ -10,7 +10,7 @@ import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, heade
  * things the customer sees on /account/orders. A lapse (72 hours, no
  * transfer) uses order-expired.tsx instead.
  */
-export type RefundStatus = 'refund_issued' | 'refund_pending' | 'no_refund'
+export type RefundStatus = 'refund_issued' | 'refund_pending' | 'store_credit_issued' | 'no_refund'
 
 export interface OrderCancelledProps {
   lang: Lang
@@ -35,7 +35,8 @@ const COPY = {
     refund: {
       refund_issued: 'お支払いいただいた代金は返金済みです。',
       refund_pending: 'お支払いいただいた代金は返金手続き中です。数日以内にご確認ください。',
-      no_refund: 'お支払いいただいた代金は、1年間有効なストアクレジットとしてお客様のアカウントに追加されました。次回のご注文時にスタッフが適用いたします。',
+      store_credit_issued: 'お支払いいただいた代金は、1年間有効なストアクレジットとしてお客様のアカウントに追加されました。次回のご注文時にスタッフが適用いたします。',
+      no_refund: 'お支払いいただいた代金の返金はございません。ご不明な点はこのメールにご返信ください。',
     },
     note: 'スタッフからのご案内',
     view: 'ご注文を見る',
@@ -47,7 +48,8 @@ const COPY = {
     refund: {
       refund_issued: 'The amount you paid has been refunded.',
       refund_pending: 'A refund of the amount you paid is being processed. Please allow a few days.',
-      no_refund: 'The amount you paid has been added to your account as store credit, valid for one year. Our staff will apply it to your next order.',
+      store_credit_issued: 'The amount you paid has been added to your account as store credit, valid for one year. Our staff will apply it to your next order.',
+      no_refund: 'The amount you paid is not being refunded. If you have a question about this, reply to this email.',
     },
     note: 'A note from our staff',
     view: 'View order',

@@ -28,10 +28,10 @@ ALTER TABLE public.cash_orders
 ALTER TABLE public.cash_orders DROP CONSTRAINT IF EXISTS cash_orders_refund_status_check;
 ALTER TABLE public.cash_orders
   ADD CONSTRAINT cash_orders_refund_status_check
-  CHECK (refund_status IS NULL OR refund_status IN ('refund_issued','refund_pending','no_refund'));
+  CHECK (refund_status IS NULL OR refund_status IN ('refund_issued','refund_pending','store_credit_issued','no_refund'));
 
 COMMENT ON COLUMN public.cash_orders.refund_status IS
-  'Decision recorded when a PAID order is cancelled: refund_issued / refund_pending (money goes back, no store credit) / no_refund (money received becomes store credit). Shown to the customer.';
+  'Decision recorded when a PAID order is cancelled: refund_issued / refund_pending (money goes back) / store_credit_issued (money received minted as store credit) / no_refund (forfeited, nothing minted). Shown to the customer.';
 
 -- ---------------------------------------------------------------- B. web orders are never deleted
 CREATE OR REPLACE FUNCTION public.prevent_web_order_delete()
@@ -192,17 +192,17 @@ BEGIN
     IF NOT p_preview AND v_reason IS NULL THEN
       RAISE EXCEPTION 'cancellation_reason_required' USING ERRCODE='P0001';
     END IF;
-    IF p_refund_status IS NOT NULL AND p_refund_status NOT IN ('refund_issued','refund_pending','no_refund') THEN
+    IF p_refund_status IS NOT NULL AND p_refund_status NOT IN ('refund_issued','refund_pending','store_credit_issued','no_refund') THEN
       RAISE EXCEPTION 'bad_refund_status: %', p_refund_status USING ERRCODE='P0001';
     END IF;
     IF NOT p_preview AND v_money_received > 0 AND p_refund_status IS NULL THEN
       RAISE EXCEPTION 'refund_decision_required' USING ERRCODE='P0001';
     END IF;
-    -- Store credit follows the decision: money going back to the customer is
-    -- never ALSO minted as credit. Only "no refund" keeps the locked cash-order
-    -- policy (money received becomes store credit, minus credit already minted
-    -- by Shopify partial refunds).
-    IF COALESCE(p_refund_status, 'no_refund') = 'no_refund' THEN
+    -- Store credit is minted ONLY when staff choose "store credit issued"
+    -- (money received, minus credit already minted by Shopify partial refunds).
+    -- A refund never doubles as credit; "no refund" is a forfeiture and mints
+    -- nothing. Never automatic (owner decision 2026-09-13).
+    IF p_refund_status = 'store_credit_issued' THEN
       v_issue_amount := GREATEST(0, v_money_received - v_partial_credit);
     END IF;
   END IF;
@@ -230,7 +230,7 @@ BEGIN
       p_created_by_user_id => p_user_id, p_trigger_event => 'cancel');
   END IF;
 
-  -- 2. Store credit (cancelled + no_refund only).
+  -- 2. Store credit (cancelled + store_credit_issued only).
   IF v_issue_amount > 0 THEN
     v_credit := public.issue_store_credit_atomic(
       p_customer_id => v_customer_id, p_currency => v_currency, p_amount => v_issue_amount,
@@ -277,6 +277,7 @@ BEGIN
     || CASE
          WHEN v_issue_amount > 0 THEN ' — store credit issued: ' || (CASE WHEN v_currency='PHP' THEN '₱' ELSE '¥' END) || v_issue_amount
          WHEN v_money_received > 0 AND p_refund_status IN ('refund_issued','refund_pending') THEN ' — ' || replace(p_refund_status, '_', ' ') || ', no store credit'
+         WHEN v_money_received > 0 AND p_refund_status = 'no_refund' THEN ' — no refund (forfeited), no store credit'
          WHEN v_money_received > 0 THEN ' — no additional store credit (already issued via partial refunds)'
          ELSE ' — no payments received'
        END
@@ -528,16 +529,30 @@ BEGIN
 END;
 $function$;
 
--- E4. One-time ledger reconciliation: after this, ledger net = live lots =
---     remaining_points for every member (31 members drifted on 2026-09-13 from
---     historical restores and manual backfills that wrote lots without rows).
-INSERT INTO public.loyalty_transactions (member_id, transaction_type, points_amount, spend_amount_jpy, tier_at_time, notes)
+-- E4. One-time ledger reconciliation (owner-approved 2026-09-13). Verified on
+--     all 31 drifted members: counter = live lots on every row, so the counter
+--     is the balance. For the 30 real members the gap is exactly the sheet-era
+--     redemption history imported on 2026-05-15 as totals with no rows; for the
+--     test member (CJ-2026-05088) it is three test-era artefacts (a 20,000 lot
+--     restored against a 10,000 row, revokes that wrote -original on partly
+--     redeemed lots, two lot-less 100-point rows). synced_to_sheet_at is
+--     preset: the Google Sheet already holds this history and must not get it
+--     twice.
+INSERT INTO public.loyalty_transactions (member_id, transaction_type, points_amount, spend_amount_jpy, tier_at_time, notes, synced_to_sheet_at)
 SELECT m.id, 'adjusted'::loyalty_transaction_type, m.remaining_points - COALESCE(d.net, 0), NULL::numeric, t.name,
-       'Ledger reconciliation 2026-09-13: aligns the ledger to live lots (historical restores/backfills, Bug #269)'
+       CASE WHEN c.is_test THEN 'Ledger reconciliation 2026-09-13 (test member): aligns the ledger to live lots after test-era restore/revoke artefacts (Bug #269)'
+            ELSE 'Ledger reconciliation 2026-09-13: redemption history imported from the loyalty sheet before the Hub ledger began (pre-2026-05-15); aligns the ledger to live lots (Bug #269)' END,
+       now()
   FROM public.loyalty_members m
+  JOIN public.customers c ON c.id = m.customer_id
   LEFT JOIN public.loyalty_tiers t ON t.id = m.current_tier_id
   LEFT JOIN (SELECT member_id, SUM(points_amount) AS net FROM public.loyalty_transactions GROUP BY member_id) d ON d.member_id = m.id
- WHERE m.remaining_points <> COALESCE(d.net, 0);
+  LEFT JOIN (SELECT member_id, SUM(remaining_amount) AS live FROM public.loyalty_point_lots
+              WHERE revoked_at IS NULL AND expired_at IS NULL AND consumed_at IS NULL GROUP BY member_id) l ON l.member_id = m.id
+ WHERE m.remaining_points <> COALESCE(d.net, 0)
+   -- Safety: only members whose counter agrees with their live lots get a row;
+   -- anyone else stays visible in loyalty_integrity_report() for manual review.
+   AND m.remaining_points = COALESCE(l.live, 0);
 
 -- E5. Reconciliation you can run any time: SELECT * FROM loyalty_integrity_report();
 --     Empty result = ledger, lots, counters and tier all agree for every member.

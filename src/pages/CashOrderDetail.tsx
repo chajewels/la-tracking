@@ -60,13 +60,15 @@ interface CancelPreview {
   refund_decision_required?: boolean;
 }
 
-// Refund decision for a web order that has money received. Only `no_refund`
-// mints store credit; the other two record that cash goes (or went) back.
-type RefundStatus = 'refund_issued' | 'refund_pending' | 'no_refund';
+// Refund decision for a web order that has money received. Only
+// `store_credit_issued` mints store credit; the other three record where the
+// money went (or did not go). Nothing is ever automatic.
+type RefundStatus = 'refund_issued' | 'refund_pending' | 'store_credit_issued' | 'no_refund';
 const REFUND_OPTIONS: { value: RefundStatus; label: string; helper: string }[] = [
   { value: 'refund_issued', label: 'Refund issued', helper: 'The money has been returned to the customer. No store credit.' },
   { value: 'refund_pending', label: 'Refund pending', helper: 'A refund will be sent. No store credit.' },
-  { value: 'no_refund', label: 'No refund — store credit instead', helper: 'The amount received becomes store credit, valid one year.' },
+  { value: 'store_credit_issued', label: 'Store credit issued', helper: 'The amount received becomes store credit, valid one year.' },
+  { value: 'no_refund', label: 'No refund (forfeited)', helper: 'Nothing is returned and no store credit is issued.' },
 ];
 const REFUND_NOTE_MAX = 300;
 
@@ -952,9 +954,9 @@ export default function CashOrderDetail() {
     cancelIsWeb && (cancelPreview?.refund_decision_required === true || cancelMoneyReceived > 0);
   const refundDecisionMissing = refundDecisionRequired && !refundStatus;
   // Store credit shown in the preview: Hub orders follow the server figure; web
-  // orders mint credit ONLY when "no refund" is chosen.
+  // orders mint credit ONLY when "store credit issued" is chosen.
   const cancelStoreCreditShown = cancelIsWeb
-    ? (refundStatus === 'no_refund'
+    ? (refundStatus === 'store_credit_issued'
         ? (Number(cancelPreview?.store_credit_to_issue ?? 0) > 0
             ? Number(cancelPreview?.store_credit_to_issue)
             : cancelMoneyReceived)
@@ -1917,9 +1919,11 @@ export default function CashOrderDetail() {
                 <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-primary">
                   <span>Store credit to issue</span>
                   <span className="tabular-nums">
-                    {refundStatus === 'no_refund'
+                    {refundStatus === 'store_credit_issued'
                       ? `${formatCurrency(cancelStoreCreditShown, currency)} (valid 1 year)`
-                      : `${formatCurrency(0, currency)} (refund)`}
+                      : refundStatus === 'no_refund'
+                        ? `${formatCurrency(0, currency)} (forfeited)`
+                        : `${formatCurrency(0, currency)} (refund)`}
                   </span>
                 </div>
               ) : cancelStoreCreditShown > 0 ? (
