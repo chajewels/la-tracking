@@ -197,6 +197,48 @@ function isStorefrontLink(data: HookLinkData): boolean {
   return linkTargets(data).some((t) => isStorefrontHost(hostOf(t)))
 }
 
+/**
+ * The link a STOREFRONT email carries.
+ *
+ * GoTrue's verify URL consumes the one-time token on its first GET, and
+ * Gmail's link scanner GETs every link in a message within seconds of
+ * delivery — so the customer's own click found the token already spent
+ * (otp_expired; 2026-09-13 02:40:43 send, code issued 02:40:58, nobody had
+ * clicked). The storefront email therefore does NOT point at /auth/v1/verify.
+ * It points at the storefront's /auth/confirm page with token_hash + type, and
+ * nothing is exchanged until the customer presses "Sign in" there — a POST a
+ * scanner never makes. The token and type are the ones GoTrue put in its own
+ * verify URL; the storefront origin and `next` come from that URL's
+ * redirect_to. If anything is missing, or the target is not a storefront host,
+ * the original URL is used unchanged.
+ */
+function storefrontConfirmUrl(data: HookLinkData): string {
+  const original = data.url ?? ''
+  try {
+    // The verify URL may be data.url itself or sit behind a relay's redirect_to.
+    const candidates = [original, redirectParamOf(original) ?? '', redirectParamOf(redirectParamOf(original) ?? '') ?? '']
+    for (const c of candidates) {
+      if (!c) continue
+      const verify = new URL(c)
+      const tokenHash = verify.searchParams.get('token')
+      const type = verify.searchParams.get('type')
+      const rt = redirectParamOf(c)
+      if (!tokenHash || !type || !rt) continue
+      const target = new URL(rt)
+      if (!isStorefrontHost(target.hostname)) return original
+      const next = target.searchParams.get('next') || '/account'
+      const out = new URL('/auth/confirm', target.origin)
+      out.searchParams.set('token_hash', tokenHash)
+      out.searchParams.set('type', type)
+      out.searchParams.set('next', next.startsWith('/') && !next.startsWith('//') ? next : '/account')
+      return out.toString()
+    }
+    return original
+  } catch {
+    return original
+  }
+}
+
 // Email types a storefront customer can trigger from /login. signInWithOtp
 // sends `magiclink` to a known address and `signup` to a first-time one
 // (GoTrue creates the user and asks them to confirm) — to the customer both
@@ -280,14 +322,14 @@ const storefrontHandler = createAuthEmailHandler({
     magiclink: {
       subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
       render: (data) =>
-        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: data.url }),
+        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) }),
     },
     // First-time customer: GoTrue calls it a signup confirmation, the customer
     // calls it the sign-in link they just asked for. Same email.
     signup: {
       subject: 'Cha Jewels サインインリンク / Your Cha Jewels sign-in link',
       render: (data) =>
-        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: data.url }),
+        React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) }),
     },
   },
 })
