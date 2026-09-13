@@ -6157,6 +6157,15 @@ export type Database = {
         }
         Returns: Json
       }
+      is_paid_or_completed_order: {
+        Args: {
+          p_customer_id: string
+          p_has_live_payment: boolean
+          p_status: string
+          p_total_paid: number
+        }
+        Returns: boolean
+      }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       issue_store_credit_atomic: {
         Args: {
