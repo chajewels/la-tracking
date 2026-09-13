@@ -2117,6 +2117,7 @@ export type Database = {
           pre_expiry_warned_at: string | null
           prev_purchase_at: string | null
           remaining_points: number
+          stepdown_warned_at: string | null
           total_points_earned: number
           total_points_expired: number
           total_points_redeemed: number
@@ -2135,6 +2136,7 @@ export type Database = {
           pre_expiry_warned_at?: string | null
           prev_purchase_at?: string | null
           remaining_points?: number
+          stepdown_warned_at?: string | null
           total_points_earned?: number
           total_points_expired?: number
           total_points_redeemed?: number
@@ -2153,6 +2155,7 @@ export type Database = {
           pre_expiry_warned_at?: string | null
           prev_purchase_at?: string | null
           remaining_points?: number
+          stepdown_warned_at?: string | null
           total_points_earned?: number
           total_points_expired?: number
           total_points_redeemed?: number
