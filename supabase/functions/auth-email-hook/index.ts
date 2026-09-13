@@ -129,10 +129,19 @@ async function handlePreview(req: Request): Promise<Response> {
 // A storefront link gets Cha Jewels branding and no mention of the Hub; every
 // other email is exactly as before.
 const STOREFRONT_HOSTS = [
+  // Custom domain, with or without www.
   /(^|\.)chajewelsjapan\.com$/i,
-  // Vercel: production alias plus every git-branch / PR preview of this project.
+  // Every host Vercel gives the cha-jewels-web project, and nothing else:
+  //   cha-jewels-web.vercel.app                        production alias
+  //   cha-jewels-web-cha-jewels.vercel.app             team alias
+  //   cha-jewels-web-git-<branch>-cha-jewels.vercel.app git-branch / PR preview
+  //   cha-jewels-web-<hash>-cha-jewels.vercel.app       per-deployment URL
+  // The "-cha-jewels" team suffix is what keeps this project-scoped: a
+  // stranger's "cha-jewels-web-anything.vercel.app" does not match.
+  // (2026-09-13: the team alias was missing — its pattern demanded a segment
+  // between the two dashes — so a sign-in from that host got the Hub email.)
   /^cha-jewels-web\.vercel\.app$/i,
-  /^cha-jewels-web-[a-z0-9-]+-cha-jewels\.vercel\.app$/i,
+  /^cha-jewels-web-([a-z0-9-]+-)?cha-jewels\.vercel\.app$/i,
 ]
 
 function linkTarget(data: { callback_url?: string; url?: string }): string | null {
