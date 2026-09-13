@@ -1,5 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { OrderConfirmationEmail, orderConfirmationSubject } from "../_shared/email-templates/order-confirmation.tsx";
+import * as React from "npm:react@18.3.1";
 
 /**
  * Public website API (server-to-server).
@@ -33,7 +36,7 @@ type AnyRec = Record<string, unknown>;
  * than linked by phone: see the phone-OTP note in migration
  * 20260910140000_phase2_step1_customer_auth_addresses.sql.
  */
-const CUSTOMER_FIELDS = "id, customer_code, full_name, email, mobile_number, auth_user_id";
+const CUSTOMER_FIELDS = "id, customer_code, full_name, email, mobile_number, auth_user_id, is_test";
 
 interface CustomerUser { id: string; email: string }
 
@@ -866,6 +869,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (method !== "transfer") return jsonResponse({ error: "bad_method" }, 400);
       const quoteId = String(body.quote_id ?? "").trim();
       if (!quoteId) return jsonResponse({ error: "quote_id_required" }, 400);
+      // The language the storefront was in. Stored on the order so every
+      // later email about it (payment received, expired) reads the same.
+      const lang = pickLang(body.lang);
 
       // Everything that matters — re-price, stock decrement, order, items,
       // quote consumption — happens inside this one transaction.
@@ -890,6 +896,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         p_customer_id: customer.id,
         p_quote_id: quoteId,
         p_method: "transfer",
+        p_lang: lang,
       });
       if (error) throw error;
       const result = (data ?? {}) as AnyRec;
@@ -909,13 +916,53 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ((placed as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
       );
 
+      const region = regionForCountry(country);
+      const methods = await transferMethods(supabase, country);
+
+      // Order confirmation email — the same items, total, transfer methods,
+      // notice and deadline the payment screen showed. Fire-and-forget: the
+      // order exists whether or not the mail goes out; the helper logs one line.
+      try {
+        const { data: lines } = await supabase
+          .from("cash_order_items")
+          .select("id, website_product_id, title, quantity, line_total_jpy")
+          .eq("cash_order_id", String(result.order_id))
+          .order("created_at");
+        const withJa = await withJapaneseTitles(
+          supabase,
+          ((lines ?? []) as AnyRec[]).map((l) => ({ ...l, product_id: l.website_product_id ?? null })),
+        );
+        const { data: placedOrder } = await supabase
+          .from("cash_orders").select("shipping_fee").eq("id", String(result.order_id)).maybeSingle();
+        await sendStorefrontEmail({
+          to: { email: customer.email, is_test: customer.is_test === true },
+          subject: orderConfirmationSubject(String(result.web_reference)),
+          label: "order-confirmation",
+          reference: String(result.web_reference),
+          idempotencyKey: `order-confirmation-${result.order_id}`,
+          element: React.createElement(OrderConfirmationEmail, {
+            lang,
+            reference: String(result.web_reference),
+            items: withJa.map((l) => ({ title: String(l.title ?? ""), title_ja: l.title_ja ?? null, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) })),
+            shippingJpy: placedOrder ? Number((placedOrder as AnyRec).shipping_fee ?? 0) : null,
+            totalJpy: Number(result.total_jpy ?? 0),
+            methods,
+            transferDueAt: String(result.transfer_due_at),
+            region,
+            orderUrl: storefrontOrderUrl(String(result.order_id)),
+          }),
+        });
+      } catch (mailErr) {
+        console.error("website order-confirmation email failed", requestId, (mailErr as Error)?.message ?? mailErr);
+      }
+
       return jsonResponse(scrub({
         order_id: result.order_id,
         web_reference: result.web_reference,
         total_jpy: result.total_jpy,
         transfer_due_at: result.transfer_due_at,
-        transfer_region: regionForCountry(country),
-        transfer_methods: await transferMethods(supabase, country),
+        transfer_region: region,
+        transfer_methods: methods,
       }));
     }
 

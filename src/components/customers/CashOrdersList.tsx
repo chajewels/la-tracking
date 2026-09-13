@@ -19,13 +19,14 @@ import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
 import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
   { key: 'balance', label: 'Balance' },
   { key: 'total', label: 'Total amount' },
   { key: 'customer', label: 'Customer' },
-  { key: 'invoice', label: 'Invoice #' },
+  { key: 'invoice', label: 'Reference' },
   { key: 'order_date', label: 'Order date' },
 ];
 
@@ -122,7 +123,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     balance: (o: CashOrderRow) => Number(o.remaining_balance),
     total: (o: CashOrderRow) => Number(o.total_amount),
     customer: (o: CashOrderRow) => o.customers?.full_name ?? '',
-    invoice: (o: CashOrderRow) => o.invoice_number ?? '',
+    invoice: (o: CashOrderRow) => cashOrderRef(o),
     order_date: (o: CashOrderRow) => o.order_date ?? o.created_at ?? '',
   }), []);
 
@@ -137,7 +138,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     const matchesCurrency = filterCurrency === 'all' || o.currency === filterCurrency;
     const isWeb = o.source_channel === 'web';
     const matchesChannel = filterChannel === 'all' || (filterChannel === 'web' ? isWeb : !isWeb);
-    const isTest = (o.invoice_number || '').startsWith('TEST-');
+    const isTest = isTestCashOrder(o);
     const matchesTest = !hideTest || !isTest;
     return matchesSearch && matchesStatus && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,7 +148,10 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   // so a parent (Sales workspace toolbar) can trigger the download button.
   const handleExport = useCallback(() => {
     const rows = filtered.map(o => ({
+      // The reference the customer knows (CJ-W-… for web orders), then the internal invoice.
+      'Reference': cashOrderRef(o),
       'Invoice #': o.invoice_number ?? '',
+      'Channel': o.source_channel === 'web' ? 'Web' : 'Hub',
       'Customer': o.customers?.full_name ?? '',
       'Status': o.status ?? '',
       'Currency': o.currency ?? '',
@@ -223,7 +227,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
               <Input
                 defaultValue=""
                 onChange={(e) => handleSearch(e.target.value)}
-                placeholder="Search invoice # or customer…"
+                placeholder="Search reference, invoice # or customer…"
                 className="pl-9 bg-card border-border"
               />
             </div>
@@ -316,7 +320,8 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                 const totalPaid = Number(order.total_paid);
                 const remaining = Number(order.remaining_balance);
                 const progress = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
-                const isTest = (order.invoice_number || '').startsWith('TEST-');
+                const isTest = isTestCashOrder(order);
+                const ref = cashOrderRef(order);
 
                 return (
                   <motion.div
@@ -329,7 +334,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                     data-nav-card
                     role="button"
                     tabIndex={0}
-                    aria-label={`Cash order ${order.invoice_number}, ${order.customers?.full_name || 'Unknown'}`}
+                    aria-label={`Cash order ${ref}, ${order.customers?.full_name || 'Unknown'}`}
                     className={`rounded-xl border border-border bg-card card-hover cursor-pointer group ${compact ? 'p-3' : 'p-4 sm:p-5'}`}
                     onClick={() => navigate(`/cash-orders/${order.id}`)}
                     onKeyDown={(e) => {
@@ -343,7 +348,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                     <div className={`flex items-start justify-between ${compact ? 'mb-2' : 'mb-3'}`}>
                       <div>
                         <p className="text-sm font-bold text-card-foreground font-display">
-                          #<HighlightText text={order.invoice_number} query={searchQuery} />
+                          {order.source_channel === 'web' ? '' : '#'}<HighlightText text={ref} query={searchQuery} />
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
                           <HighlightText text={order.customers?.full_name || 'Unknown'} query={searchQuery} />
