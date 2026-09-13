@@ -128,6 +128,15 @@ Reference docs (read the relevant one when a task touches that area):
     charges the full total and ignores the credit). Use "Capture payment".
   - Drift detection: reconcile-store-credit runs nightly; Settings → Store Credit.
     It REPORTS ONLY and must never auto-repair.
+  - WEB ORDERS (source_channel='web', 2026-09-13): cancelling a PAID web order
+    records a REFUND DECISION (cash_orders.refund_status: refund_issued /
+    refund_pending / store_credit_issued / no_refund + refund_note). Store
+    credit is minted ONLY for store_credit_issued — never automatically; a
+    refund is never also credit and no_refund is a forfeiture. The one
+    terminal RPC is terminate_web_order_atomic (expired | cancelled): points
+    reversal, credit decision, status, stock back on sale, note, audit — one
+    transaction, once. Web orders are NEVER hard-deleted (trigger
+    trg_prevent_web_order_delete); cancel is the only exit.
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 
@@ -1076,7 +1085,7 @@ When completing a partially_paid month:
     daily-auto-forfeit:            00:10 UTC = 08:10 PHT ✅
     daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
-    auto-expire-cash-orders:       00:30 UTC = 08:30 PHT ✅
+    auto-expire-cash-orders:       40 * * * * (hourly at :40) ✅  — the ONLY web/cash order expiry path since 2026-09-13; the SQL cron expire_transfer_orders() is gone
     daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
     deactivate-expired-promotions: every hour            ✅
     loyalty-notification-queue:    every hour            ✅
@@ -1876,6 +1885,23 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   10. Partial Shopify refunds auto-adjust earned points proportionally
      (revoke_loyalty_points_partial, revoke-and-replace, expiry preserved,
      redeemed never returned). promo_bonus lots are NOT touched on partials.
+
+  11. TIER RULE (decided 2026-09-13): the tier is LIFETIME cumulative spend
+     (loyalty_members.cumulative_spend_jpy vs loyalty_tiers.min_spend_jpy),
+     never a 12-month window. The only time-based rule is the 180-day
+     inactivity step-down (one tier down, downgrade_spend_baseline stamped),
+     after which loyalty_tiers.requalify_spend_jpy is the NEW spend needed to
+     regain the earned tier. Customer-facing copy (storefront /loyalty, FAQ,
+     loyalty portal) must say "lifetime purchases" and explain the step-down.
+
+  12. POINTS INTEGRITY (2026-09-13, Bug #269): loyalty_transactions is the
+     ledger and is append-only (trigger allows only synced_to_sheet_at to
+     change). Awards are idempotent per order through loyalty_award_claims
+     (claim_loyalty_award / confirm / release RPCs) — the read-then-check in
+     award-loyalty-points is no longer the guard. Every reversal is a ledger
+     row (revoked = -remaining actually taken back), never a delete. Run
+     SELECT * FROM loyalty_integrity_report(); at any time — empty = ledger,
+     lots, counter and tier agree for every member.
 
   - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
      cancelled/forfeited/completed/final_settlement; cash open = pending.

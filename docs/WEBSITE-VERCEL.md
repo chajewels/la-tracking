@@ -529,6 +529,27 @@ the held stock back on sale in one transaction. Before this a web order never
 expired and never released its piece. Manual cancellation from the Hub detail
 page does NOT yet release web stock — tracked in docs/PENDING.md.
 
+## 4c. Order lifecycle: one exit for a web order (2026-09-13)
+
+A web order ends in exactly one of two ways, both through
+`terminate_web_order_atomic(p_order_id, p_outcome, …)`:
+
+| Outcome | Who | Guard | What happens in the one transaction |
+|---|---|---|---|
+| `expired` | `auto-expire-cash-orders`, hourly at :40 UTC (via `expire_web_order_atomic`) | status `pending` and nothing paid | points reversal (no-op), status → expired + reason, stock back on sale, note, audit; the function then rejects pending submissions and sends the order-expired email |
+| `cancelled` | staff, CashOrderDetail → `cancel-cash-order` | reason required; refund decision required when money was received | points reversal (ledger row), store credit ONLY for `store_credit_issued` (never automatic), status → cancelled + reason + refund fields, stock back on sale, note, audit; the function sends the order-cancelled email (reason + decision) |
+
+The status flip is the once-only guard: a second call returns
+`{ok:false, reason:'already_terminal'}` and restores nothing twice. Web orders
+are never hard-deleted (`trg_prevent_web_order_delete`, `delete_cash_order_atomic`,
+and the Delete button is hidden). The SQL cron `expire_transfer_orders()` that used
+to race the function was dropped.
+
+**Customer view.** `GET /orders` and `/orders/:id` now carry
+`cancellation_reason`, `refund_status`, `refund_note`, `expired_at`. The
+storefront shows キャンセル済み / Cancelled with the reason and 返金済み / 返金手続き中 /
+ストアクレジット発行 / 返金なし; nothing leaves the customer's history.
+
 ## 5. CI coverage
 
 `supabase/functions` is under a blocking Deno gate as of `823e6e9` (job
