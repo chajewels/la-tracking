@@ -59,19 +59,13 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang }: { items: Orde
   <Section style={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
-      <div key={idx} style={row}>
-        <span style={rowKey}>{itemTitle(i, lang)}{i.qty > 1 ? ` × ${i.qty}` : ''}</span>
-        <span style={rowVal}>{formatJpy(i.line_total_jpy)}</span>
-      </div>
+      <Row key={idx} k={`${itemTitle(i, lang)}${i.qty > 1 ? ` × ${i.qty}` : ''}`} v={formatJpy(i.line_total_jpy)} />
     ))}
-    <div style={row}>
-      <span style={rowKey}>{WORDS.shipping[lang]}</span>
-      <span style={rowVal}>{shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : formatJpy(shippingJpy)}</span>
-    </div>
-    <div style={{ ...row, borderBottom: 'none', borderTop: '2px solid #C9A227', paddingTop: '10px', marginTop: '4px' }}>
-      <span style={{ ...rowKey, color: '#1a1a2e', fontWeight: 'bold' }}>{WORDS.total[lang]}</span>
-      <span style={{ ...rowVal, fontSize: '18px', fontWeight: 'bold', color: '#1a1a2e' }}>{formatJpy(totalJpy)}</span>
-    </div>
+    <Row
+      k={WORDS.shipping[lang]}
+      v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : formatJpy(shippingJpy)}
+    />
+    <Row k={WORDS.total[lang]} v={formatJpy(totalJpy)} emphasis />
   </Section>
 )
 
@@ -110,11 +104,37 @@ export const MethodCards = ({ methods, lang }: { methods: OrderEmailMethod[]; la
   </>
 )
 
-export const Row = ({ k, v, mono }: { k: string; v: string; mono?: boolean }) => (
-  <div style={row}>
-    <span style={rowKey}>{k}</span>
-    <span style={{ ...rowVal, fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }}>{v}</span>
-  </div>
+/**
+ * ONE LABEL/VALUE LINE, AS A TABLE — NEVER FLEX.
+ *
+ * Gmail strips `display:flex` from a <div>. The two spans then run together
+ * with no gap and no alignment: the CJ-W-900011 test on 2026-09-14 arrived
+ * reading "ShippingFree", "Total¥628,980", "Account number7555832" and
+ * "Branch第四営業支店 (254)", while the browser preview looked correct — which is
+ * exactly why a preview cannot be the check.
+ *
+ * A two-cell table survives, but only if the geometry is carried as HTML
+ * ATTRIBUTES on the <td> (width, align) rather than as CSS Gmail may drop.
+ * Keep it that way: a class or a flex rule here reintroduces the bug silently.
+ */
+export const Row = ({ k, v, mono, emphasis }: { k: string; v: string; mono?: boolean; emphasis?: boolean }) => (
+  <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} style={emphasis ? rowTableTotal : rowTable}>
+    <tbody>
+      <tr>
+        <td align="left" width="52%" style={emphasis ? rowKeyCellTotal : rowKeyCell}>{k}</td>
+        <td
+          align="right"
+          width="48%"
+          style={{
+            ...(emphasis ? rowValCellTotal : rowValCell),
+            ...(mono ? { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } : {}),
+          }}
+        >
+          {v}
+        </td>
+      </tr>
+    </tbody>
+  </table>
 )
 
 export const main = { backgroundColor: '#f6f4ef', fontFamily: '"Hiragino Sans", "Noto Sans JP", Arial, sans-serif' }
@@ -129,9 +149,22 @@ export const block = { margin: '8px 24px 16px', padding: '12px 16px', border: '1
 export const card = { margin: '8px 24px 12px', padding: '14px 16px', border: '1px solid #C9A227', borderRadius: '6px' }
 export const cardTitle = { fontSize: '16px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0 0 8px' }
 export const label = { fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase' as const, color: '#6b6b6b', margin: '0 0 8px' }
-export const row = { display: 'flex', justifyContent: 'space-between', gap: '16px', padding: '6px 0', borderBottom: '1px solid #eee7d8', fontSize: '14px' }
+/**
+ * RETIRED — do not use in a new template. `display:flex` does not survive
+ * Gmail; see the note on Row. Kept only so an older import still compiles.
+ */
+export const row = { padding: '6px 0', borderBottom: '1px solid #eee7d8', fontSize: '14px' }
 export const rowKey = { color: '#6b6b6b' }
 export const rowVal = { color: '#1a1a2e', textAlign: 'right' as const }
+
+export const rowTable = { borderCollapse: 'collapse' as const, width: '100%' }
+export const rowTableTotal = { borderCollapse: 'collapse' as const, width: '100%', marginTop: '4px' }
+const cellBase = { padding: '6px 0', borderBottom: '1px solid #eee7d8', fontSize: '14px', verticalAlign: 'top' as const }
+export const rowKeyCell = { ...cellBase, color: '#6b6b6b', paddingRight: '12px' }
+export const rowValCell = { ...cellBase, color: '#1a1a2e' }
+const totalCellBase = { padding: '10px 0 6px', borderBottom: 'none', borderTop: '2px solid #C9A227', verticalAlign: 'top' as const }
+export const rowKeyCellTotal = { ...totalCellBase, color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '14px', paddingRight: '12px' }
+export const rowValCellTotal = { ...totalCellBase, color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '18px' }
 export const notice = { margin: '4px 24px 16px', padding: '12px 16px', backgroundColor: '#f6f4ef', borderRadius: '6px', fontSize: '14px', color: '#3a3a3a' }
 export const buttonWrap = { textAlign: 'center' as const, margin: '20px 24px' }
 export const button = { backgroundColor: '#C9A227', color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '15px', padding: '12px 28px', borderRadius: '4px', textDecoration: 'none' }

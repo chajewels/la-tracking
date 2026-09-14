@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { customerReference } from "../_shared/order-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -580,7 +581,7 @@ Deno.serve(async (req) => {
 
         const { data: acctForEmail } = await supabase
           .from("layaway_accounts")
-          .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+          .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
           .eq("id", p.account_id)
           .single();
         const customerEmail = (acctForEmail as any)?.customers?.email;
@@ -603,7 +604,7 @@ Deno.serve(async (req) => {
           templateName === "penalty-applied"
             ? {
                 customerName,
-                invoiceNumber: (acctForEmail as any)?.invoice_number,
+                invoiceNumber: customerReference(acctForEmail as any),
                 penaltyAmount: Number(p.penalty_amount).toLocaleString("en-US"),
                 currency: (acctForEmail as any)?.currency,
                 dueDate,
@@ -614,7 +615,7 @@ Deno.serve(async (req) => {
               }
             : {
                 customerName,
-                invoiceNumber: (acctForEmail as any)?.invoice_number,
+                invoiceNumber: customerReference(acctForEmail as any),
                 stage,
                 dueDate,
                 amountDue: Number(schedItem.total_due_amount ?? 0).toLocaleString("en-US"),
@@ -646,7 +647,7 @@ Deno.serve(async (req) => {
       for (const r of reinstatedPenalties) {
         const { data: acct } = await supabase
           .from("layaway_accounts")
-          .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+          .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
           .eq("id", r.accountId).single();
         const email = (acct as any)?.customers?.email;
         if (!email) continue;
@@ -656,7 +657,7 @@ Deno.serve(async (req) => {
           {
             templateData: {
               customerName: (acct as any)?.customers?.full_name,
-              invoiceNumber: (acct as any)?.invoice_number,
+              invoiceNumber: customerReference(acct as any),
               penaltyAmount: Number(r.penaltyAmount).toLocaleString("en-US"),
               currency: r.currency,
               remainingBalance: Number((acct as any)?.remaining_balance ?? 0).toLocaleString("en-US"),

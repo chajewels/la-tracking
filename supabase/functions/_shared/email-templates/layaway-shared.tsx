@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatMoney, type Lang } from '../storefront-email.ts'
-import { block, label, row, rowKey, rowVal, text } from './order-shared.tsx'
+import { Row, block, label, text } from './order-shared.tsx'
 
 /**
  * Pieces shared by the three web-layaway emails. Separate from order-shared
@@ -51,12 +51,13 @@ export const PlanSummary = ({
   <Section style={block}>
     <Text style={label}>{LAYAWAY_WORDS.reference[lang]}</Text>
     <Text style={{ ...text, margin: '0 0 8px', fontWeight: 'bold' }}>{reference}</Text>
-    <div style={row}><span style={rowKey}>{LAYAWAY_WORDS.total[lang]}</span><span style={rowVal}>{formatMoney(totalAmount, currency)}</span></div>
-    <div style={row}><span style={rowKey}>{LAYAWAY_WORDS.deposit[lang]}</span><span style={rowVal}>{formatMoney(deposit, currency)}</span></div>
-    <div style={{ ...row, borderBottom: 'none' }}>
-      <span style={rowKey}>{LAYAWAY_WORDS.term[lang]}</span>
-      <span style={rowVal}>{termMonths}{lang === 'ja' ? LAYAWAY_WORDS.months.ja : ` ${LAYAWAY_WORDS.months.en}`}</span>
-    </div>
+    {/* Row is a table, not flex — Gmail drops display:flex. See order-shared. */}
+    <Row k={LAYAWAY_WORDS.total[lang]} v={formatMoney(totalAmount, currency)} />
+    <Row k={LAYAWAY_WORDS.deposit[lang]} v={formatMoney(deposit, currency)} />
+    <Row
+      k={LAYAWAY_WORDS.term[lang]}
+      v={`${termMonths}${lang === 'ja' ? LAYAWAY_WORDS.months.ja : ` ${LAYAWAY_WORDS.months.en}`}`}
+    />
   </Section>
 )
 
@@ -65,18 +66,14 @@ export const ScheduleTable = ({
 }: { rows: LayawayScheduleRow[]; currency: 'JPY' | 'PHP'; lang: Lang }) => (
   <Section style={block}>
     <Text style={label}>{LAYAWAY_WORDS.schedule[lang]}</Text>
-    {rows.map((r, i) => (
-      <div key={r.installment_number} style={i === rows.length - 1 ? { ...row, borderBottom: 'none' } : row}>
-        <span style={rowKey}>
-          {lang === 'ja'
-            ? `${r.installment_number}${LAYAWAY_WORDS.installment.ja} · ${formatDueDate(r.due_date, lang)}`
-            : `${r.installment_number} · ${formatDueDate(r.due_date, lang)}`}
-        </span>
-        <span style={rowVal}>
-          {formatMoney(r.amount, currency)}
-          {r.paid ? ` · ${LAYAWAY_WORDS.paid[lang]}` : ''}
-        </span>
-      </div>
+    {rows.map((r) => (
+      <Row
+        key={r.installment_number}
+        k={lang === 'ja'
+          ? `${r.installment_number}${LAYAWAY_WORDS.installment.ja} · ${formatDueDate(r.due_date, lang)}`
+          : `${r.installment_number} · ${formatDueDate(r.due_date, lang)}`}
+        v={`${formatMoney(r.amount, currency)}${r.paid ? ` · ${LAYAWAY_WORDS.paid[lang]}` : ''}`}
+      />
     ))}
   </Section>
 )

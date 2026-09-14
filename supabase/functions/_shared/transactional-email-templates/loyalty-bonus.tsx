@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels Hub'
+import { CUSTOMER_SITE_NAME as SITE_NAME, CUSTOMER_FOOTER as FOOTER_LINE } from './brand.ts'
 
 interface Props {
   customerName?: string
@@ -70,7 +70,7 @@ const LoyaltyBonusEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
+          <Text style={footerBrand}>{FOOTER_LINE}</Text>
         </Container>
       </Body>
     </Html>
@@ -78,6 +78,8 @@ const LoyaltyBonusEmail = ({
 }
 
 export const template = {
+  /** Who reads this. Decides the From name and footer — see brand.ts. */
+  audience: 'customer' as const,
   component: LoyaltyBonusEmail,
   subject: (data: Record<string, any>) =>
     `🎁 Bonus points from ${data.promoName || 'our promotion'}!`,

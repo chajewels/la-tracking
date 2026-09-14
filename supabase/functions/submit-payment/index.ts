@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { customerReference } from "../_shared/order-reference.ts";
+import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -295,7 +297,7 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, currency, customers(full_name, email)")
+        .select("invoice_number, web_reference, source_channel, currency, customers(full_name, email)")
         .eq("id", primaryAccountId)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
@@ -306,10 +308,10 @@ Deno.serve(async (req) => {
           {
             templateData: {
               customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",
-              invoiceNumber: acctForEmail?.invoice_number || "",
+              invoiceNumber: customerReference(acctForEmail as any),
               amountPaid: Number(submitted_amount).toLocaleString("en-US"),
               paymentDate: payment_date,
-              paymentMethod: payment_method || "cash",
+              paymentMethod: paymentMethodLabel(payment_method || "cash") ?? undefined,
               currency: acctForEmail?.currency || "PHP",
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${acctForEmail?.invoice_number || ""}`,
             },

@@ -179,6 +179,8 @@ interface CashOrderItemRow {
   unit_price_jpy: number;
   line_total_jpy: number;
   image_url: string | null;
+  /** Web order lines carry the variant; the photo is resolved from it. */
+  variant_id?: string | null;
 }
 
 function useCashOrderDetail(id: string | undefined) {
@@ -277,11 +279,38 @@ function useCashOrderItems(orderId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_order_items')
-        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url')
+        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url, variant_id')
         .eq('cash_order_id', orderId!)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return ((data || []) as unknown as CashOrderItemRow[]);
+      const rows = ((data || []) as unknown as CashOrderItemRow[]);
+
+      // WEB ORDER THUMBNAILS. cash_order_items.image_url exists but
+      // create_web_order_atomic never writes it, so every web line stored NULL
+      // and the Hub showed an empty square for a piece the storefront pictures
+      // fine (R3341 on CJ-W-900011, 2026-09-14). The photo is not missing —
+      // it lives in website_product_media, keyed by the variant the line
+      // already carries. Resolving it at read time also fixes the orders
+      // already on the books, which backfilling the column would not.
+      const needing = rows.filter(r => !r.image_url && (r as { variant_id?: string | null }).variant_id);
+      if (needing.length > 0) {
+        const variantIds = [...new Set(needing.map(r => (r as { variant_id?: string | null }).variant_id as string))];
+        const { data: media } = await supabase
+          .from('website_product_media' as never)
+          .select('variant_id, url, sort')
+          .in('variant_id', variantIds)
+          .order('sort', { ascending: true });
+        // First by sort order is the storefront's primary image.
+        const firstByVariant = new Map<string, string>();
+        for (const m of ((media || []) as unknown as { variant_id: string; url: string }[])) {
+          if (!firstByVariant.has(m.variant_id)) firstByVariant.set(m.variant_id, m.url);
+        }
+        for (const r of rows) {
+          const vid = (r as { variant_id?: string | null }).variant_id;
+          if (!r.image_url && vid) r.image_url = firstByVariant.get(vid) ?? null;
+        }
+      }
+      return rows;
     },
   });
 }

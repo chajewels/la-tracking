@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels Hub'
+import { CUSTOMER_SITE_NAME as SITE_NAME, CUSTOMER_FOOTER as FOOTER_LINE } from './brand.ts'
 
 interface Props {
   customerName?: string
@@ -23,7 +23,7 @@ const CashPaymentSubmittedEmail = ({
   invoiceNumber = '00000',
   amountPaid = '0',
   paymentDate = 'N/A',
-  paymentMethod = 'N/A',
+  paymentMethod,
   referenceNumber,
   currency = 'JPY',
   portalUrl,
@@ -58,7 +58,7 @@ const CashPaymentSubmittedEmail = ({
             {referenceNumber && (
               <Text style={detailRow}><strong>Reference #:</strong> {referenceNumber}</Text>
             )}
-            <Text style={detailRow}><strong>Payment Method:</strong> {paymentMethod}</Text>
+            {paymentMethod && <Text style={detailRow}><strong>Payment Method:</strong> {paymentMethod}</Text>}
           </Section>
           {portalUrl && (
             <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
@@ -71,7 +71,7 @@ const CashPaymentSubmittedEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
+          <Text style={footerBrand}>{FOOTER_LINE}</Text>
         </Container>
       </Body>
     </Html>
@@ -79,6 +79,8 @@ const CashPaymentSubmittedEmail = ({
 }
 
 export const template = {
+  /** Who reads this. Decides the From name and footer — see brand.ts. */
+  audience: 'customer' as const,
   component: CashPaymentSubmittedEmail,
   subject: (data: Record<string, any>) =>
     `⏳ Payment Submitted — INV #${data.invoiceNumber || ''}`,

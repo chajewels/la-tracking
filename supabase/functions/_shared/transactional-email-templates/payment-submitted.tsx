@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels Hub'
+import { CUSTOMER_SITE_NAME as SITE_NAME, CUSTOMER_FOOTER as FOOTER_LINE } from './brand.ts'
 
 interface Props {
   customerName?: string
@@ -22,7 +22,7 @@ const PaymentSubmittedEmail = ({
   invoiceNumber = '00000',
   amountPaid = '0',
   paymentDate = 'N/A',
-  paymentMethod = 'N/A',
+  paymentMethod,
   currency = 'PHP',
   portalUrl,
 }: Props) => {
@@ -46,7 +46,7 @@ const PaymentSubmittedEmail = ({
           <Section style={detailsBox}>
             <Text style={detailRow}><strong>Amount:</strong> {symbol} {amountPaid}</Text>
             <Text style={detailRow}><strong>Payment Date:</strong> {paymentDate}</Text>
-            <Text style={detailRow}><strong>Payment Method:</strong> {paymentMethod}</Text>
+            {paymentMethod && <Text style={detailRow}><strong>Payment Method:</strong> {paymentMethod}</Text>}
           </Section>
           <Text style={text}>
             Your payment is currently under review. We will notify you once it
@@ -63,7 +63,7 @@ const PaymentSubmittedEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
+          <Text style={footerBrand}>{FOOTER_LINE}</Text>
         </Container>
       </Body>
     </Html>
@@ -71,6 +71,8 @@ const PaymentSubmittedEmail = ({
 }
 
 export const template = {
+  /** Who reads this. Decides the From name and footer — see brand.ts. */
+  audience: 'customer' as const,
   component: PaymentSubmittedEmail,
   subject: (data: Record<string, any>) =>
     `✅ Payment Submitted — INV #${data.invoiceNumber || ''}`,
