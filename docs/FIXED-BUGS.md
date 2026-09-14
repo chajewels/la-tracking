@@ -3735,6 +3735,84 @@ Follow-up 2026-09-13 (second) — with the allow-list fixed, a sign-in from the 
 
 Follow-up 2026-09-13 (third) — links now fail as otp_expired when clicked promptly. auth.flow_state row 9d86d6c5: created 02:40:43 by signInWithOtp, auth_code_issued_at 02:40:58 — 15 seconds later, before any human click — and never exchanged. GoTrue's verify URL spends the one-time token on its first GET, and Gmail's link scanner GETs every link in a message within seconds of delivery; the customer's own click then finds the token used. Fix: the storefront email no longer links to /auth/v1/verify. auth-email-hook (`storefrontConfirmUrl`) rewrites the link to the storefront's `/auth/confirm?token_hash=…&type=…&next=…` (token and type taken from GoTrue's own verify URL, origin and next from its redirect_to, only when that target is a storefront host); the page renders one "Sign in" button whose form POSTs to a server action that calls `verifyOtp({ token_hash, type })` and links the customer. Nothing is exchanged on GET, so a scanner changes nothing. GoTrue's POST /verify with token_hash matches the stored hash including its `pkce_` prefix (verify.go `verifyTokenHash` → `FindUserByOneTimeToken`), so the storefront's existing PKCE-flow signInWithOtp needs no change; /auth/callback stays for older links.
 
+### Bug #270 — `missing_unsubscribe` was TWO faults wearing one error message; the queued-email pipeline is still refused (2026-09-14)
+
+**The trap.** The Lovable email API answers `400 missing_unsubscribe` for two
+OPPOSITE mistakes, with identical status and type. Only the body separates them:
+
+| Meaning | When |
+|---|---|
+| "You sent no unsubscribe mechanism — supply one." | the old behaviour |
+| "Unsubscribe is managed for you — **do not set `unsubscribe_token` manually**." | since ~2026-09-01/03 |
+
+Ours was the second, verbatim from `email_send_log`:
+
+```
+Email API error: 400 {"status":400,"type":"missing_unsubscribe",
+ "title":"This project is migrating to Lovable-managed email sending. Publish the
+  project to complete the migration, then retry; do not set unsubscribe_token manually.",
+ "request_id":"01a06edd7e9c7b699ff419f1d109753d"}
+```
+
+Read carelessly, that single message says "add a token". Adding one is what
+keeps the failure alive. It also carries TWO separate instructions — publish the
+project, and stop setting a token — and each of them bit a different pipeline.
+
+**Two pipelines, two faults, one message.**
+
+| Pipeline | Sets a token? | What refused it | State |
+|---|---|---|---|
+| Direct: `_shared/transactional-email-templates/send-email.ts` (channel `hub`), `_shared/storefront-email.ts` (channel `storefront`) | no | the *publish* clause | fixed by the publish — see Bug #267 |
+| Queued: `send-transactional-email` → pgmq `transactional_emails` → `process-email-queue` (channel NULL) | **yes** | the *token* clause | still refused — fixed here |
+
+**Evidence, from `email_send_log`, 14 days to 2026-09-14.** One error class, 164
+rows, all on the queued pipeline, `2026-09-04 02:03:38` → `2026-09-09 14:08:13`.
+Templates: payment-confirmed 101, payment-reminder 36, loyalty-earned 13,
+cash-payment-confirmed 5, payment-submitted 4, and one each of loyalty-welcome,
+loyalty-tier-upgrade, payment-rejected, loyalty-pre-expire,
+loyalty-expire-deduct. Against that, since the 09-13 deploy the direct pipeline
+has 76 `hub` rows and 1 `storefront` row, all `sent`, zero failed — including
+the full 52-email reminder run at 00:00 UTC on 09-14. **No send has ever
+succeeded while carrying a token; none has ever failed without one.**
+
+**Why the failures stopped on 09-09 without a fix.** They did not stop because
+anything was repaired. `process-email-queue` has no cron (CLAUDE.md's "every 5
+seconds" is stale — `cron.job` has no such entry); it is kicked by
+`send-transactional-email`. Nothing has called that path since, so the pipeline
+went quiet, not healthy. `pgmq.metrics_all()` shows `transactional_emails`
+length 0, so nothing is stranded; the 464 rows in `transactional_emails_dlq` are
+100-171 days old and predate all of this.
+
+**Why the fleet survived.** The Lovable agent created `send-email.ts` at
+`2026-09-04 01:47:42` — sixteen minutes BEFORE the first logged refusal — and
+moved `send-reminders` onto it at 02:10. Twenty-one functions now use that
+token-free direct helper. Seven still route through the queued pipeline:
+`_shared/emit-notification.ts`, `bulk-send-setup-invites`,
+`process-loyalty-notification-queue`, `request-extension`,
+`restore-loyalty-points`, `revoke-loyalty-points`, `send-loyalty-notification`.
+Those seven would have 400'd on their next send.
+
+**Fix.** Stop setting the field.
+- `process-email-queue/index.ts` — `unsubscribe_token` removed from the
+  `sendLovableEmail` payload. A queued payload that still carries the field from
+  before this change is ignored.
+- `send-transactional-email/index.ts` — the whole mint-or-look-up block against
+  `email_unsubscribe_tokens` is gone, along with the payload field it fed and
+  the now-unused `generateToken`. The `suppressed_emails` check above it is
+  untouched, so opt-outs still gate sending.
+- Both sites carry a comment giving BOTH meanings of `missing_unsubscribe`, so
+  the next reader does not "fix" this by putting the token back.
+
+**Deliberately NOT done.** `email_unsubscribe_tokens` rows and table stay;
+`handle-email-unsubscribe` stays. Unsubscribe links in already-delivered emails
+must keep working. No migration. **No client bump** —
+`@lovable.dev/email-js` 0.1.0 and 0.3.0 were diffed and neither touches
+unsubscribe client-side, so upgrading is not the fix and was not done.
+
+**Unproven until deployed.** The queued pipeline is idle, so there is no failing
+signal to watch clear. It is proven only when a send through
+`send-transactional-email` reaches `status='sent'` in `email_send_log`.
+
 ### Bug #268 — two web-order expiry paths, no cancellation email, manual cancel kept the stock (2026-09-13)
 
 **Symptom.** A lapsed web order was ended by pg_cron `expire_transfer_orders()` (hourly at :17, status `cancelled`, stock restored, no email, no audit row) before the daily `auto-expire-cash-orders` (08:30 PHT) could reach it, so the order-expired email was never sent. A staff cancel from the Hub left `website_product_variants.stock_qty` decremented (docs/PENDING.md note) and sent no email at all. Web orders could be hard-deleted, destroying the item rows that record which variant held the stock.
@@ -3762,6 +3840,22 @@ hosting of the Hub; Firebase production is untouched). Recorded in
 docs/WEBSITE-VERCEL.md §4b. Code change shipped alongside: Reply-To
 `sales@chajewelsjp.com` on every storefront email (`_shared/storefront-email.ts`
 `STOREFRONT_REPLY_TO`; `auth-email-hook` inline storefront handler).
+
+**Confirmed 2026-09-14, and this entry is only half the story.** The publish
+diagnosis holds for THIS send and for every other direct send:
+`storefront-email.ts` and `send-email.ts` set no `unsubscribe_token` at all, so
+the token clause of that error could never have applied to them, and since the
+publish they send cleanly — 76 `hub` rows and 1 `storefront` row in
+`email_send_log`, all `sent`, zero failed, including the full 52-email reminder
+run at 00:00 UTC on 09-14.
+
+What this entry missed is that the SAME message carried a second instruction
+that bit a DIFFERENT pipeline. `send-transactional-email` →
+pgmq `transactional_emails` → `process-email-queue` does set a token, and it was
+refused 164 times between 2026-09-04 02:03 and 09-09 14:08 — the token clause,
+not the publish. Publishing did not fix that path and could not have; it merely
+stopped being called. See **Bug #270**, which removes the token. Do not read
+"one publish fixed it" as covering the queued pipeline: it did not.
 
 ### Bug #266 — every web checkout failed: cash_order_items.product_id is the Shopify FK (2026-09-13)
 
