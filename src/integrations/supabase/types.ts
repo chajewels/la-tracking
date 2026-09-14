@@ -517,6 +517,8 @@ export type Database = {
           customer_id: string
           deposit_jpy: number | null
           expires_at: string
+          fx_rate: number | null
+          fx_rate_date: string | null
           gift_note: string | null
           id: string
           items: Json
@@ -525,6 +527,7 @@ export type Database = {
           recipient_name: string | null
           recipient_phone: string | null
           schedule: Json | null
+          settlement_currency: string
           ship_to_address_id: string | null
           shipping_jpy: number | null
           subtotal_jpy: number
@@ -537,6 +540,8 @@ export type Database = {
           customer_id: string
           deposit_jpy?: number | null
           expires_at?: string
+          fx_rate?: number | null
+          fx_rate_date?: string | null
           gift_note?: string | null
           id?: string
           items: Json
@@ -545,6 +550,7 @@ export type Database = {
           recipient_name?: string | null
           recipient_phone?: string | null
           schedule?: Json | null
+          settlement_currency?: string
           ship_to_address_id?: string | null
           shipping_jpy?: number | null
           subtotal_jpy: number
@@ -557,6 +563,8 @@ export type Database = {
           customer_id?: string
           deposit_jpy?: number | null
           expires_at?: string
+          fx_rate?: number | null
+          fx_rate_date?: string | null
           gift_note?: string | null
           id?: string
           items?: Json
@@ -565,6 +573,7 @@ export type Database = {
           recipient_name?: string | null
           recipient_phone?: string | null
           schedule?: Json | null
+          settlement_currency?: string
           ship_to_address_id?: string | null
           shipping_jpy?: number | null
           subtotal_jpy?: number
@@ -1606,13 +1615,17 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          customer_lang: string | null
           discount_amount: number
           discount_type: string | null
           discount_value: number | null
           downpayment_amount: number
           end_date: string | null
+          expired_at: string | null
           extension_end_date: string | null
           forfeited_at: string | null
+          fx_rate_date: string | null
+          fx_rate_used: number | null
           id: string
           invoice_number: string
           is_reactivated: boolean
@@ -1624,19 +1637,24 @@ export type Database = {
           pancake_order_id: string | null
           payment_plan_months: number
           penalty_count_at_reactivation: number | null
+          quote_id: string | null
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
+          settlement_due_at: string | null
           shipped_at: string | null
           shipping_fee: number
           shipping_method_id: string | null
+          source_channel: string
           status: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid: number
           tracking_number: string | null
           tracking_set_by: string | null
           tracking_updated_at: string | null
+          transfer_due_at: string | null
           updated_at: string
+          web_reference: string | null
         }
         Insert: {
           accepted_by_user_id?: string | null
@@ -1648,13 +1666,17 @@ export type Database = {
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          customer_lang?: string | null
           discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           downpayment_amount?: number
           end_date?: string | null
+          expired_at?: string | null
           extension_end_date?: string | null
           forfeited_at?: string | null
+          fx_rate_date?: string | null
+          fx_rate_used?: number | null
           id?: string
           invoice_number: string
           is_reactivated?: boolean
@@ -1666,19 +1688,24 @@ export type Database = {
           pancake_order_id?: string | null
           payment_plan_months: number
           penalty_count_at_reactivation?: number | null
+          quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
+          settlement_due_at?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
+          source_channel?: string
           status?: Database["public"]["Enums"]["account_status"]
           total_amount: number
           total_paid?: number
           tracking_number?: string | null
           tracking_set_by?: string | null
           tracking_updated_at?: string | null
+          transfer_due_at?: string | null
           updated_at?: string
+          web_reference?: string | null
         }
         Update: {
           accepted_by_user_id?: string | null
@@ -1690,13 +1717,17 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          customer_lang?: string | null
           discount_amount?: number
           discount_type?: string | null
           discount_value?: number | null
           downpayment_amount?: number
           end_date?: string | null
+          expired_at?: string | null
           extension_end_date?: string | null
           forfeited_at?: string | null
+          fx_rate_date?: string | null
+          fx_rate_used?: number | null
           id?: string
           invoice_number?: string
           is_reactivated?: boolean
@@ -1708,19 +1739,24 @@ export type Database = {
           pancake_order_id?: string | null
           payment_plan_months?: number
           penalty_count_at_reactivation?: number | null
+          quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
+          settlement_due_at?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
+          source_channel?: string
           status?: Database["public"]["Enums"]["account_status"]
           total_amount?: number
           total_paid?: number
           tracking_number?: string | null
           tracking_set_by?: string | null
           tracking_updated_at?: string | null
+          transfer_due_at?: string | null
           updated_at?: string
+          web_reference?: string | null
         }
         Relationships: [
           {
@@ -1728,6 +1764,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_accounts_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "checkout_quotes"
             referencedColumns: ["id"]
           },
           {
