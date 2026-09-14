@@ -898,11 +898,19 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         });
         if (lqErr) throw lqErr;
         layaway = (lq ?? {}) as AnyRec;
-        if (!layaway.eligible) {
+        // Two refusals, one answer. Either nothing is sellable at this amount,
+        // or the term asked for is not reachable and the SQL fell back to a
+        // shorter one. A shorter term means bigger monthly payments, so the
+        // customer is never quoted a plan they did not choose — the site shows
+        // allowed_terms and asks them to pick again. create_web_layaway_atomic
+        // makes the same check at pay time, so the two can never disagree.
+        if (!layaway.eligible || layaway.term_downgraded) {
           return jsonResponse({
             error: "below_plan_minimum",
             total: totalSettle,
             currency: settlement,
+            requested_term_months: termMonths,
+            max_term_months: layaway.max_term_months ?? null,
             allowed_terms: layaway.allowed_terms ?? [],
           }, 409);
         }

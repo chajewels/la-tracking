@@ -126,15 +126,15 @@ ALTER TABLE public.layaway_account_items ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS admin_all_layaway_account_items ON public.layaway_account_items;
 CREATE POLICY admin_all_layaway_account_items ON public.layaway_account_items
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
 
 DROP POLICY IF EXISTS staff_read_layaway_account_items ON public.layaway_account_items;
 CREATE POLICY staff_read_layaway_account_items ON public.layaway_account_items
   FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'staff')
-      OR public.has_role(auth.uid(), 'finance')
-      OR public.has_role(auth.uid(), 'csr'));
+  USING (public.has_role(auth.uid(), 'staff'::public.app_role)
+      OR public.has_role(auth.uid(), 'finance'::public.app_role)
+      OR public.has_role(auth.uid(), 'csr'::public.app_role));
 
 -- Same shape as the cash-order policy: a customer sees the lines of their own
 -- accounts and no others.

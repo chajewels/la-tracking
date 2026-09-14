@@ -25,6 +25,7 @@ import StatusBadge from '@/components/customers/StatusBadge';
 import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
+import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
@@ -948,6 +949,14 @@ export default function CashOrderDetail() {
   }
 
   const currency = order.currency as Currency;
+
+  /** Columns added for web orders. types.ts is Supabase-generated and lags a
+   *  schema change by a Lovable push, so read them through a narrow shape
+   *  rather than widening the order to any. */
+  const orderWebFields = order as unknown as {
+    web_reference?: string | null;
+    transfer_due_at?: string | null;
+  };
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
   // Cancel dialog — web-order refund decision. Web-ness comes from the order row
@@ -1340,13 +1349,16 @@ export default function CashOrderDetail() {
               Web orders are cancelled, never deleted: the customer's order history, the stock hold and the points reversal depend on this row.
             </p>
           )}
-          {(isAdmin || isStaff) && (
+          {/* A live order's deadline is moved on the Deadlines card below — one
+              field, one control. This button survives only for the revive path
+              (Bug #217): an expired order given a future date comes back. */}
+          {(isAdmin || isStaff) && order.status === 'expired' && (
             <Button
               variant="outline"
               onClick={openEditExpiry}
             >
               <Pencil className="h-4 w-4 mr-1.5" />
-              Edit Expiry
+              Revive Order
             </Button>
           )}
           {can('edit_invoice') && (
@@ -1359,6 +1371,18 @@ export default function CashOrderDetail() {
             </Button>
           )}
         </div>
+
+        {/* The transfer deadline. A field staff set and move while the order is
+            live, never a computed rule — and it moves expires_at with it, so
+            the date the customer sees is the date the hourly job acts on. */}
+        <DeadlinesCard
+          entityType="cash_order"
+          entityId={order.id}
+          status={order.status}
+          transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
+          reference={orderWebFields.web_reference ?? null}
+          canEdit={can('edit_account')}
+        />
 
         {/* Apply existing store credit to this new, unpaid order */}
         <ApplyStoreCreditCard
@@ -2047,12 +2071,13 @@ export default function CashOrderDetail() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarClock className="h-5 w-5 text-primary" />
-              Edit Expiration Date
+              Revive Order
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Cash order #{order.invoice_number}. Updating this date changes when
-            the order will be auto-expired.
+            Cash order #{order.invoice_number} has expired. A future date here
+            brings it back to pending and the hourly job will expire it again
+            on the new date.
           </p>
           <div className="space-y-2">
             <Label htmlFor="edit-expiry">New expiration date *</Label>

@@ -550,6 +550,54 @@ to race the function was dropped.
 storefront shows キャンセル済み / Cancelled with the reason and 返金済み / 返金手続き中 /
 ストアクレジット発行 / 返金なし; nothing leaves the customer's history.
 
+## 4d. Web layaway (2026-09-14, Phase 2 step 4)
+
+A reservation the customer makes on the storefront and pays off in
+installments. It is a `layaway_accounts` row with `source_channel='web'` — the
+same table and the same rules as a Hub-created plan. `web_reference`
+(`CJ-W-XXXXXX`) is what the customer and every email say; the numeric invoice
+stays the Hub's key.
+
+**Quote.** `POST /checkout/quote` with `mode:'layaway'`, a `term_months` and a
+`settlement_currency` returns the plan the customer is agreeing to: deposit,
+per-month amounts, due dates, and `allowed_terms` with each term's minimum and
+whether this basket reaches it. The figures come from the `layaway_quote` SQL
+function, so the storefront never computes a schedule of its own. Full payment
+stays JPY-only (`currency_not_supported_for_full`).
+
+| Base | What it is | Why it matters |
+|---|---|---|
+| Deposit | 30% of product + shipping + services | What the customer must send to hold the piece |
+| Loyalty | Product only, less points redeemed | `loyalty_jpy_amount`, always in YEN even on a peso plan |
+
+**Create.** `POST /checkout/pay` on a layaway quote calls
+`create_web_layaway_atomic`, which recomputes the plan rather than trusting the
+quote, refuses `below_plan_minimum`, writes the account, the schedule and
+`layaway_account_items`, decrements stock, and consumes the quote. The
+plan-created email follows.
+
+**Deadlines.** `transfer_due_at` (deposit due, default 72 hours) and
+`settlement_due_at` are fields, not a computed rule. Staff move them from the
+Deadlines card on AccountDetail or CashOrderDetail through
+`set-account-deadlines` while the order is live; an extension is simply a later
+date. On a cash order the same call moves `expires_at` too, so the customer's
+date and the cron's date never diverge.
+
+**Expiry.** The hourly `auto-expire-cash-orders` sweep now has a second pass:
+a web layaway past `transfer_due_at` with nothing paid is released by
+`expire_web_layaway_atomic` — status `cancelled`, `expired_at` stamped,
+schedule rows cancelled, stock back on sale, audit row, and an email saying
+nothing was paid and nothing is owed. It refuses when a payment exists or a
+submission is still unreviewed (INVARIANT 12). There is no cancel-after-deposit:
+once a deposit is confirmed the plan is a normal layaway.
+
+**Customer view.** `GET /layaway` lists the customer's plans; `GET /layaway/:id`
+returns the plan, the schedule from `schedule_with_actuals`, the items, the
+payments, any pending submission, and the transfer methods for their country.
+`POST /layaway/:id/pay` records a submission with proof — never a payment. The
+Hub confirms it in the Submissions tab like any other; `total_paid` stays 0
+until then.
+
 ## 5. CI coverage
 
 `supabase/functions` is under a blocking Deno gate as of `823e6e9` (job

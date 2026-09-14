@@ -102,8 +102,20 @@ BEGIN
   v_quote_out := public.layaway_quote(
     v_subtotal, v_quote.term_months, v_cur, v_order_date, v_shipping, 0
   );
-  IF NOT coalesce((v_quote_out->>'eligible')::boolean, false) THEN
-    RETURN jsonb_build_object('error', 'below_plan_minimum', 'total', v_total, 'currency', v_cur);
+  -- Two ways this basket can fail the plan rules, and both are the same
+  -- refusal: nothing is sellable at this amount, or the term the customer
+  -- agreed to is not reachable and layaway_quote fell back to a shorter one.
+  -- A shorter term means bigger monthly payments than the customer accepted,
+  -- so it is never written silently.
+  IF NOT coalesce((v_quote_out->>'eligible')::boolean, false)
+     OR coalesce((v_quote_out->>'term_downgraded')::boolean, false) THEN
+    RETURN jsonb_build_object(
+      'error', 'below_plan_minimum',
+      'total', v_total,
+      'currency', v_cur,
+      'requested_term_months', v_quote.term_months,
+      'max_term_months', v_quote_out->'max_term_months'
+    );
   END IF;
   v_term    := (v_quote_out->>'term_months')::integer;
   v_deposit := (v_quote_out->>'deposit')::integer;

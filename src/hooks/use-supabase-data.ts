@@ -545,6 +545,9 @@ export function useCreateAccount() {
       currency: 'PHP' | 'JPY';
       total_amount: number;
       order_date: string;
+      /** Deadlines are fields, not a computed rule — null means none set. */
+      transfer_due_at?: string | null;
+      settlement_due_at?: string | null;
       payment_plan_months: number;
       notes?: string;
       downpayment_amount?: number;
@@ -577,6 +580,46 @@ export function useCreateAccount() {
           ? `Invoice number "${payload.invoice_number}" already exists. Please use a different invoice number.`
           : (typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
         throw new Error(msg);
+      }
+      return data;
+    },
+    onSuccess: () => invalidateAll(qc),
+  });
+}
+
+/**
+ * Move a deposit deadline or a settlement date. One control for both tables —
+ * a layaway account and a cash order carry the same field and the same rule:
+ * editable while the order is live, never a way to revive an expired one.
+ */
+export function useSetAccountDeadlines() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      entity_type: 'layaway' | 'cash_order';
+      entity_id: string;
+      transfer_due_at: string | null;
+      settlement_due_at?: string | null;
+      reason?: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke('set-account-deadlines', { body: payload });
+      if (error) {
+        let detailedMsg = error.message || 'Failed to update the deadline';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.message) detailedMsg = body.message;
+            else if (body?.error) detailedMsg = body.error;
+          }
+        } catch { /* fall back to the generic message */ }
+        throw new Error(detailedMsg);
+      }
+      if (data?.error) {
+        throw new Error(
+          data.error === 'not_live'
+            ? `This order is ${data.status} — a deadline can only be changed while it is live.`
+            : String(data.error),
+        );
       }
       return data;
     },

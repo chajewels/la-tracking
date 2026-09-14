@@ -118,6 +118,7 @@ BEGIN
       'currency', v_currency, 'price', v_price, 'shipping', v_shipping, 'services', v_services,
       'total', v_total, 'deposit', 0, 'down_payment', 0, 'term_months', NULL, 'monthly', 0,
       'max_term_months', v_max, 'allowed_terms', v_terms, 'schedule', '[]'::jsonb,
+      'requested_term_months', p_term_months, 'term_downgraded', true,
       'order_date', p_order_date, 'eligible', false
     );
   END IF;
@@ -151,6 +152,12 @@ BEGIN
     'down_payment',    v_deposit,   -- legacy key: the live calculator reads this
     'term_months',     v_term,
     'term_label',      v_label,
+    -- What the caller ASKED for, and whether this quote is that term. A
+    -- browsing calculator may happily show the shorter plan the basket can
+    -- actually have; a WRITE path must refuse rather than create a plan the
+    -- customer never agreed to. create_web_layaway_atomic checks this.
+    'requested_term_months', p_term_months,
+    'term_downgraded',       (v_term IS DISTINCT FROM p_term_months),
     'monthly',         v_base,      -- legacy key: base instalment, not the last row
     'last_month',      v_base + v_rem,
     'max_term_months', v_max,
@@ -162,7 +169,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.layaway_quote(integer, integer, text, date, integer, integer) IS
-  'Layaway terms, deposit and dated schedule. Terms and minimums come from plan_configurations per currency; deposit = dp_percentage of (price + shipping + services); instalments use the Hub floor-and-remainder rule and due dates order_date + n months. The 3-arg call is preserved by defaults.';
+  'Layaway terms, deposit and dated schedule. Terms and minimums come from plan_configurations per currency; deposit = dp_percentage of (price + shipping + services); instalments use the Hub floor-and-remainder rule and due dates order_date + n months. A term the order cannot reach is downgraded to the longest it can, flagged by term_downgraded — display paths may use it, write paths must refuse it. The 3-arg call is preserved by defaults.';
 
 -- Grants restored exactly as they were before the DROP.
 GRANT EXECUTE ON FUNCTION public.layaway_quote(integer, integer, text, date, integer, integer) TO PUBLIC;

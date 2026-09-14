@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
+import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
@@ -716,6 +717,16 @@ export default function AccountDetail() {
   const isFinalForfeit = account?.status === 'final_forfeited';
   const isExtension = account?.status === 'extension_active';
 
+  /** Columns added for web layaway. types.ts is Supabase-generated and lags a
+   *  schema change by a Lovable push, so read them through a narrow shape
+   *  rather than widening the account to any. */
+  const webFields = account as unknown as {
+    source_channel?: string | null;
+    web_reference?: string | null;
+    transfer_due_at?: string | null;
+    settlement_due_at?: string | null;
+  } | undefined ?? {};
+
   const message = useMemo(() => {
   if (!account) return '';
 
@@ -1114,6 +1125,13 @@ export default function AccountDetail() {
                   🔄 Trade
                 </Badge>
               )}
+              {/* Reserved by the customer on the storefront. Staff read the plan
+                  by its CJ-W reference; the numeric invoice stays the Hub key. */}
+              {webFields.source_channel === 'web' && (
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
+                  🌐 Web{webFields.web_reference ? ` · ${webFields.web_reference}` : ''}
+                </Badge>
+              )}
               {(account as any).is_reactivated && (
                 <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
                   🔄 Reactivated
@@ -1357,6 +1375,18 @@ export default function AccountDetail() {
           </div>
           )}
         </div>
+
+        {/* The deposit deadline and the settlement date. Fields staff set and
+            move while the plan is live, never a computed rule. */}
+        <DeadlinesCard
+          entityType="layaway"
+          entityId={account.id}
+          status={account.status}
+          transferDueAt={webFields.transfer_due_at ?? null}
+          settlementDueAt={webFields.settlement_due_at ?? null}
+          reference={webFields.web_reference ?? null}
+          canEdit={canPerm('edit_account')}
+        />
 
         {/* Apply existing store credit to this new, unpaid order */}
         <ApplyStoreCreditCard
