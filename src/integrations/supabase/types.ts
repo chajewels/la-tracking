@@ -5822,6 +5822,17 @@ export type Database = {
         }
         Returns: Json
       }
+      create_web_layaway_atomic: {
+        Args: {
+          p_customer_id: string
+          p_lang?: string
+          p_order_date?: string
+          p_quote_id: string
+          p_settlement_due_at?: string
+          p_transfer_due_at?: string
+        }
+        Returns: Json
+      }
       create_web_order_atomic: {
         Args: {
           p_customer_id: string
@@ -5867,6 +5878,10 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      expire_web_layaway_atomic: {
+        Args: { p_account_id: string; p_source?: string }
+        Returns: Json
       }
       expire_web_order_atomic: { Args: { p_order_id: string }; Returns: Json }
       fc_at_risk_accounts: {
@@ -6351,6 +6366,17 @@ export type Database = {
           p_refund_id?: string
           p_refund_spend_jpy: number
           p_source_reference: string
+        }
+        Returns: Json
+      }
+      set_account_deadlines: {
+        Args: {
+          p_entity_id: string
+          p_entity_type: string
+          p_reason?: string
+          p_settlement_due_at?: string
+          p_transfer_due_at: string
+          p_user_id?: string
         }
         Returns: Json
       }
