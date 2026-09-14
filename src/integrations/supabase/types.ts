@@ -2166,6 +2166,7 @@ export type Database = {
           pre_expiry_warned_at: string | null
           prev_purchase_at: string | null
           remaining_points: number
+          spend_baseline_jpy: number
           stepdown_warned_at: string | null
           total_points_earned: number
           total_points_expired: number
@@ -2185,6 +2186,7 @@ export type Database = {
           pre_expiry_warned_at?: string | null
           prev_purchase_at?: string | null
           remaining_points?: number
+          spend_baseline_jpy?: number
           stepdown_warned_at?: string | null
           total_points_earned?: number
           total_points_expired?: number
@@ -2204,6 +2206,7 @@ export type Database = {
           pre_expiry_warned_at?: string | null
           prev_purchase_at?: string | null
           remaining_points?: number
+          spend_baseline_jpy?: number
           stepdown_warned_at?: string | null
           total_points_earned?: number
           total_points_expired?: number
@@ -6263,9 +6266,16 @@ export type Database = {
           lots_live: number
           member_id: string
           problem: string
+          spend_expected: number
+          spend_stored: number
+          terminal_order_spend: number
           tier_from_spend: string
           tier_now: string
         }[]
+      }
+      loyalty_order_spend_basis: {
+        Args: { p_member_id: string; p_reference: string }
+        Returns: number
       }
       monthly_inflow_by_plan_6m: {
         Args: never
