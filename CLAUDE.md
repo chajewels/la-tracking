@@ -1105,8 +1105,16 @@ When completing a partially_paid month:
     deactivate-expired-promotions: every hour            ✅
     loyalty-notification-queue:    every hour            ✅
     fc-alert-evaluation:           every 30 minutes      ✅
-    process-email-queue:           every 5 seconds       ✅
+    process-email-queue:           NO CRON — see below      ⚠️
     cleanup-loyalty-images:        Sun 03:00 UTC = Sun 11:00 PHT ✅
+
+  process-email-queue HAS NO CRON (verified against cron.job 2026-09-14 — the
+  former "every 5 seconds" entry is gone and this line was stale). It is kicked
+  over HTTP by send-transactional-email after that function enqueues onto pgmq
+  `transactional_emails`. Consequence when diagnosing: silence from this
+  pipeline means nothing is calling it, NOT that it is healthy. Its last
+  activity of any kind was 2026-09-09 14:08 (164 consecutive refusals — see
+  docs/FIXED-BUGS.md Bug #270).
 
   ORDERING RULE — never violate this sequence:
     1. Reminders fire first (before penalties)
