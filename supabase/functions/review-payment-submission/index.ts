@@ -7,6 +7,7 @@ import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl
 import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shared/email-templates/order-payment-received.tsx";
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_shared/email-templates/layaway-payment-received.tsx";
 import * as React from "npm:react@18.3.1";
+import { customerReference } from "../_shared/order-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -638,7 +639,7 @@ Deno.serve(async (req) => {
             {
               templateData: {
                 customerName: customer?.full_name || "Valued Customer",
-                invoiceNumber: cashOrder.invoice_number,
+                invoiceNumber: customerReference(cashOrder as any),
                 amountPaid: Number(submittedAmount).toLocaleString("en-US"),
                 currency: cashOrder.currency,
                 remainingBalance: Number(newRemaining).toLocaleString("en-US"),
@@ -1292,7 +1293,7 @@ Deno.serve(async (req) => {
         let templateName = "";
         const baseData: Record<string, unknown> = {
           customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",
-          invoiceNumber: acctForEmail?.invoice_number || "",
+          invoiceNumber: customerReference(acctForEmail as any),
           amountPaid: Number(submission.submitted_amount).toLocaleString("en-US"),
           currency: acctForEmail?.currency || "PHP",
           portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${acctForEmail?.invoice_number || ""}`,

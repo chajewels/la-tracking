@@ -2,6 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { customerReference } from "../_shared/order-reference.ts";
+import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,7 +127,7 @@ Deno.serve(async (req) => {
     // 3. Fetch cash order — must exist and be pending
     const { data: cashOrder, error: cashErr } = await supabase
       .from("cash_orders")
-      .select("id, customer_id, status, remaining_balance, currency, invoice_number")
+      .select("id, customer_id, status, remaining_balance, currency, invoice_number, web_reference, source_channel")
       .eq("id", cash_order_id)
       .maybeSingle();
     if (cashErr || !cashOrder) {
@@ -258,10 +260,14 @@ Deno.serve(async (req) => {
           {
             templateData: {
               customerName: customer?.full_name || "Valued Customer",
-              invoiceNumber: cashOrder.invoice_number,
+              // The number the customer knows: CJ-W-… on a web order, the
+              // invoice number everywhere else.
+              invoiceNumber: customerReference(cashOrder as any),
               amountPaid: Number(submittedNum).toLocaleString("en-US"),
               paymentDate: payment_date,
-              paymentMethod: payment_method,
+              // Display name, never the stored key — an unresolved method
+              // prints nothing rather than "rakuten".
+              paymentMethod: paymentMethodLabel(payment_method) ?? undefined,
               referenceNumber: reference_number || undefined,
               currency: cashOrder.currency,
               portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,

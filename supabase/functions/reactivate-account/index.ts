@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { customerReference } from "../_shared/order-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -215,7 +216,7 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+        .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
         .eq("id", account_id)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
@@ -228,7 +229,7 @@ Deno.serve(async (req) => {
           {
             templateData: {
               customerName,
-              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              invoiceNumber: customerReference(acctForEmail as any),
               extensionEndDate,
               remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
               currency: (acctForEmail as any)?.currency,
