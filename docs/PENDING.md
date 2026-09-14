@@ -261,6 +261,61 @@
     full price.
   - PAGE365 integration — requirements document sent; awaiting their response.
 
+### QUEUED EMAIL PIPELINE — DEFERRED (owner decision 2026-09-14)
+
+Not a priority until the storefront is built and ready to publish. Customers are
+reached on Messenger meanwhile. The only email work in scope right now is the web
+order confirmation and the CSR payment confirmation — both tracked separately and
+both still active.
+
+**Trigger to pick this up: before the storefront production release.**
+
+**The path.** `send-transactional-email` → pgmq `transactional_emails` →
+`process-email-queue`. This is the ONLY path that set `unsubscribe_token`.
+
+**The failure.** 164 refusals, `400 missing_unsubscribe`, from 2026-09-04
+02:03:38 to 2026-09-09 14:08:13. The message in full:
+
+> This project is migrating to Lovable-managed email sending. Publish the project
+> to complete the migration, then retry; do not set unsubscribe_token manually.
+
+Two instructions in one message. The second one is what bit this pipeline.
+
+**It stopped failing on 09-09 because the pipeline went IDLE, not because it was
+fixed.** `process-email-queue` has no cron entry — CLAUDE.md's "every 5 seconds"
+line was stale and is now corrected. It is kicked over HTTP by
+`send-transactional-email`, and nothing has called it since.
+
+**Nothing is stranded.** The queue is empty. The 464 rows in
+`transactional_emails_dlq` are 100–171 days old and unrelated to this.
+
+**The fix is written and merged to develop (#52) but NOT DEPLOYED.**
+`unsubscribe_token` removed from the `sendLovableEmail` payload in
+`process-email-queue`; the mint/look-up block removed from
+`send-transactional-email`. `email_unsubscribe_tokens` and
+`handle-email-unsubscribe` are untouched, so unsubscribe links in already-
+delivered emails stay valid.
+
+**Deploy set when this is picked up: exactly two functions**,
+`send-transactional-email` and `process-email-queue`. Neither is a shared module,
+so the six HTTP callers below need no redeploy.
+
+**Six callers are still on this path and are therefore silently non-functional
+until it is deployed:**
+
+| Function | Note |
+|---|---|
+| `bulk-send-setup-invites` | |
+| `process-loyalty-notification-queue` | |
+| `request-extension` | **customer-facing** |
+| `restore-loyalty-points` | |
+| `revoke-loyalty-points` | |
+| `send-loyalty-notification` | |
+
+**Unproven until a send through `send-transactional-email` reaches
+`status='sent'` in `email_send_log`.** An idle queue and a working queue look
+identical.
+
 ### Edge-function Deno CI gate (added 2026-09-09 — BOTH STEPS BLOCKING)
 
 CI runs a two-step Deno gate on `supabase/functions` (job `edge-functions` in
