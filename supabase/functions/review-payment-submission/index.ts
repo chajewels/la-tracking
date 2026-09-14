@@ -3,8 +3,9 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
-import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shared/email-templates/order-payment-received.tsx";
+import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_shared/email-templates/layaway-payment-received.tsx";
 import * as React from "npm:react@18.3.1";
 
 const corsHeaders = {
@@ -1229,11 +1230,65 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+        .select("id, invoice_number, currency, remaining_balance, total_paid, source_channel, web_reference, customer_lang, customers(full_name, email, is_test)")
         .eq("id", submission.account_id)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
-      if (customerEmail) {
+
+      // A web layaway gets the Cha Jewels storefront email in the customer's own
+      // language, not the Hub template: the customer knows this plan by its
+      // CJ-W reference and reads it on the storefront, not the portal. The
+      // deposit confirm is the moment the reservation becomes firm, so it says
+      // so; every instalment after it reads as a receipt.
+      const isWebLayaway = (acctForEmail as any)?.source_channel === "web";
+      if (isWebLayaway && action === "confirmed") {
+        try {
+          const { data: rows } = await supabase
+            .from("schedule_with_actuals")
+            .select("installment_number, due_date, base_installment_amount, actual_remaining, computed_status")
+            .eq("account_id", submission.account_id)
+            .order("installment_number");
+          const schedule = ((rows ?? []) as any[]).map((r) => ({
+            installment_number: Number(r.installment_number),
+            due_date: String(r.due_date),
+            amount: Number(r.base_installment_amount ?? 0),
+            paid: String(r.computed_status) === "paid",
+          }));
+          const next = ((rows ?? []) as any[]).find((r) => Number(r.actual_remaining ?? 0) > 0);
+          // Recomputed here rather than reused: the same heuristic the payments
+          // table uses, kept local so this block does not depend on where the
+          // handler happens to have declared it.
+          const isDeposit =
+            submission.submission_type === "downpayment" ||
+            String(submission.reference_number || "").toUpperCase().startsWith("DP-") ||
+            /\bdown(payment)?\b|\bdp\b/i.test(String(submission.notes || ""));
+          const reference = String((acctForEmail as any).web_reference ?? acctForEmail?.invoice_number);
+          await sendStorefrontEmail({
+            to: {
+              email: customerEmail ?? null,
+              is_test: (acctForEmail as any)?.customers?.is_test === true,
+            },
+            subject: layawayPaymentReceivedSubject(reference, isDeposit),
+            label: "layaway-payment-received",
+            reference,
+            idempotencyKey: `layaway-payment-received-${submission_id}`,
+            element: React.createElement(LayawayPaymentReceivedEmail, {
+              lang: pickLang((acctForEmail as any).customer_lang),
+              reference,
+              currency: String(acctForEmail?.currency ?? "JPY") as "JPY" | "PHP",
+              isDeposit,
+              amountReceived: Number(submission.submitted_amount ?? 0),
+              remaining: Number(acctForEmail?.remaining_balance ?? 0),
+              schedule,
+              nextDueDate: next ? String(next.due_date) : null,
+              nextDueAmount: next ? Number(next.actual_remaining ?? 0) : null,
+              planUrl: storefrontLayawayUrl(String((acctForEmail as any).id)),
+            }),
+          });
+        } catch (mailErr) {
+          console.warn("[review-payment-submission] layaway-payment-received email failed (non-blocking):", mailErr);
+        }
+      } else if (customerEmail) {
         let templateName = "";
         const baseData: Record<string, unknown> = {
           customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",

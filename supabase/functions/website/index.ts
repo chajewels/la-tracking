@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
-import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderConfirmationEmail, orderConfirmationSubject } from "../_shared/email-templates/order-confirmation.tsx";
+import { LayawayPlanCreatedEmail, layawayPlanCreatedSubject } from "../_shared/email-templates/layaway-plan-created.tsx";
 import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.tsx";
 import * as React from "npm:react@18.3.1";
 
@@ -246,7 +247,28 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   unsupported_method: 400,
   empty_quote: 400,
   transfer_unavailable: 409,
+  // Layaway (step 4)
+  not_a_layaway_quote: 400,
+  full_not_layaway: 400,
+  below_plan_minimum: 409,
+  fx_rate_missing: 503,
 };
+
+/** What a customer may see of their own layaway plan. */
+const LAYAWAY_FIELDS =
+  "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
+  "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
+  "order_date, end_date, transfer_due_at, settlement_due_at, expired_at, " +
+  "created_at, completed_at, tracking_number, shipped_at";
+
+/**
+ * Today in PHT (CLAUDE.md TIMEZONE STANDARD). The schedule is anchored to it at
+ * quote time and the SAME date is handed to the create RPC, so a checkout that
+ * straddles UTC midnight cannot quote one set of due dates and write another.
+ */
+function phtToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
 
 /**
  * Shipping fee for a country at a given subtotal: the active rate row with the
@@ -750,12 +772,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const body = (await req.json().catch(() => ({}))) as AnyRec;
       const mode = String(body.mode ?? "full");
-      if (mode === "layaway") {
-        // Layaway checkout is step 4. Answered explicitly so the storefront can
-        // show "coming soon" rather than a generic failure.
-        return jsonResponse({ error: "not_yet" }, 501);
+      if (mode !== "full" && mode !== "layaway") return jsonResponse({ error: "bad_mode" }, 400);
+
+      // Settlement currency (owner decision 2026-09-13): the customer chooses
+      // yen or pesos and the Hub account follows. Full-payment orders stay in
+      // yen for now — create_web_order_atomic writes 'JPY' — so the choice is
+      // offered on layaway only.
+      const settlement = String(body.settlement_currency ?? "JPY").toUpperCase();
+      if (!["JPY", "PHP"].includes(settlement)) return jsonResponse({ error: "bad_currency" }, 400);
+      if (mode === "full" && settlement !== "JPY") return jsonResponse({ error: "currency_not_supported_for_full" }, 400);
+
+      const termMonths = Math.floor(Number(body.term_months ?? 0));
+      if (mode === "layaway" && (!Number.isFinite(termMonths) || termMonths < 1)) {
+        return jsonResponse({ error: "term_required" }, 400);
       }
-      if (mode !== "full") return jsonResponse({ error: "bad_mode" }, 400);
 
       const rawItems = Array.isArray(body.items) ? (body.items as AnyRec[]) : [];
       if (rawItems.length === 0) return jsonResponse({ error: "empty_cart" }, 400);
@@ -832,12 +862,73 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shipping = await shippingFor(supabase, String(address.country ?? ""), subtotal);
       const total = subtotal + (shipping ?? 0);
 
+      // The rate the customer is shown is the rate they are charged: it is
+      // captured on the quote, and the quote's 30-minute life is the only window
+      // it can drift in.
+      let fxRate: number | null = null;
+      let fxDate: string | null = null;
+      if (settlement === "PHP") {
+        const fx = await latestFx(supabase);
+        if (!fx) return jsonResponse({ error: "fx_unavailable" }, 503);
+        fxRate = fx.jpy_php;
+        fxDate = fx.as_of;
+      }
+      // Shipping is converted and the subtotal is the remainder, so the parts
+      // always sum to the total exactly — converting each and adding can differ
+      // by one peso.
+      const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
+      const totalSettle = toSettle(total);
+      const shippingSettle = shipping === null ? null : toSettle(shipping);
+      const subtotalSettle = totalSettle - (shippingSettle ?? 0);
+
+      // Layaway terms, deposit and dated schedule come from the Hub's own
+      // function, per settlement currency — so the site can only ever offer a
+      // term plan_configurations allows and this order's amount clears.
+      const orderDate = phtToday();
+      let layaway: AnyRec | null = null;
+      if (mode === "layaway") {
+        if (shipping === null) return jsonResponse({ error: "shipping_quote_required" }, 400);
+        const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
+          p_price: subtotalSettle,
+          p_term_months: termMonths,
+          p_currency: settlement,
+          p_order_date: orderDate,
+          p_shipping: shippingSettle ?? 0,
+          p_services: 0,
+        });
+        if (lqErr) throw lqErr;
+        layaway = (lq ?? {}) as AnyRec;
+        if (!layaway.eligible) {
+          return jsonResponse({
+            error: "below_plan_minimum",
+            total: totalSettle,
+            currency: settlement,
+            allowed_terms: layaway.allowed_terms ?? [],
+          }, 409);
+        }
+      }
+
       const { data: quote, error: quoteErr } = await supabase
         .from("checkout_quotes")
         .insert({
           customer_id: customer.id,
           items,
-          mode: "full",
+          mode,
+          term_months: mode === "layaway" ? Number(layaway?.term_months ?? termMonths) : null,
+          // Yen figures stay yen: they are the catalog truth and the loyalty
+          // basis. The settlement currency and its rate travel beside them.
+          // JPY = PHP / rate (CLAUDE.md CURRENCY CONVERSION STANDARD — divide to
+          // go peso to yen). For a yen plan the deposit is already yen.
+          deposit_jpy: mode !== "layaway"
+            ? null
+            : fxRate === null
+              ? Number(layaway?.deposit ?? 0)
+              : Math.round(Number(layaway?.deposit ?? 0) / fxRate),
+          // The schedule as the customer saw it, in the settlement currency.
+          schedule: mode === "layaway" ? (layaway?.schedule ?? null) : null,
+          settlement_currency: settlement,
+          fx_rate: fxRate,
+          fx_rate_date: fxDate,
           order_type: orderType,
           ship_to_address_id: address.id,
           // Recipient details only mean something for a gift or proxy order.
@@ -860,6 +951,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         subtotal_jpy: subtotal,
         shipping_jpy: shipping,
         total_jpy: total,
+        // What the customer pays in, and what the plan looks like in it.
+        mode,
+        settlement_currency: settlement,
+        fx_rate: fxRate,
+        fx_rate_date: fxDate,
+        subtotal_settlement: subtotalSettle,
+        shipping_settlement: shippingSettle,
+        total_settlement: totalSettle,
+        layaway: layaway
+          ? {
+              term_months: layaway.term_months,
+              deposit: layaway.deposit,
+              monthly: layaway.monthly,
+              last_month: layaway.last_month,
+              schedule: layaway.schedule,
+              allowed_terms: layaway.allowed_terms,
+            }
+          : null,
         // null shipping means we do not ship there at a published rate — the
         // storefront must stop and ask, never assume free.
         requires_manual_quote: shipping === null,
@@ -899,7 +1008,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // created with nowhere to send the money is worse than no order.
       const { data: quoteRow } = await supabase
         .from("checkout_quotes")
-        .select("ship_to_address:customer_addresses(country)")
+        .select("mode, ship_to_address:customer_addresses(country)")
         .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
       const quoteCountry = String(
         ((quoteRow as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
@@ -909,6 +1018,73 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           error: "transfer_unavailable",
           region: regionForCountry(quoteCountry),
         }, 409);
+      }
+
+      // ── Layaway: a reservation, not a purchase ────────────────────────────
+      // The piece is held and the deposit has a deadline. Everything that
+      // matters — re-pricing, the schedule, the stock hold, consuming the quote
+      // — happens inside create_web_layaway_atomic.
+      if (String((quoteRow as AnyRec | null)?.mode ?? "full") === "layaway") {
+        const { data: lay, error: layErr } = await supabase.rpc("create_web_layaway_atomic", {
+          p_customer_id: customer.id,
+          p_quote_id: quoteId,
+          p_lang: lang,
+          p_transfer_due_at: null,     // default 72 hours; staff may move it later
+          p_settlement_due_at: null,
+          p_order_date: phtToday(),
+        });
+        if (layErr) throw layErr;
+        const plan = (lay ?? {}) as AnyRec;
+        if (plan.error) {
+          const status = CHECKOUT_ERROR_STATUS[String(plan.error)] ?? 400;
+          console.warn("website layaway refused", requestId, String(plan.error));
+          return jsonResponse({ ...plan, request_id: requestId }, status);
+        }
+
+        const region = regionForCountry(quoteCountry);
+        const methods = await transferMethods(supabase, quoteCountry);
+        const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
+
+        // Plan-created email: the deposit, where to send it, the deadline and
+        // the whole schedule. Fire-and-forget — the plan exists either way.
+        try {
+          await sendStorefrontEmail({
+            to: { email: String(customer.email ?? ""), is_test: customer.is_test === true },
+            subject: layawayPlanCreatedSubject(String(plan.web_reference)),
+            label: "layaway-plan-created",
+            reference: String(plan.web_reference),
+            idempotencyKey: `layaway-plan-created-${plan.account_id}`,
+            element: React.createElement(LayawayPlanCreatedEmail, {
+              lang,
+              reference: String(plan.web_reference),
+              currency,
+              totalAmount: Number(plan.total ?? 0),
+              deposit: Number(plan.deposit ?? 0),
+              termMonths: Number(plan.term_months ?? 0),
+              schedule: (plan.schedule ?? []) as AnyRec[] as never,
+              methods: methods as unknown as OrderEmailMethod[],
+              transferDueAt: String(plan.transfer_due_at),
+              region,
+              planUrl: storefrontLayawayUrl(String(plan.account_id)),
+            }),
+          });
+        } catch (mailErr) {
+          console.error("website layaway-plan-created email failed", requestId, (mailErr as Error)?.message ?? mailErr);
+        }
+
+        return jsonResponse(scrub({
+          mode: "layaway",
+          account_id: plan.account_id,
+          web_reference: plan.web_reference,
+          currency,
+          total: plan.total,
+          deposit: plan.deposit,
+          term_months: plan.term_months,
+          schedule: plan.schedule,
+          transfer_due_at: plan.transfer_due_at,
+          transfer_region: region,
+          transfer_methods: methods,
+        }));
       }
 
       const { data, error } = await supabase.rpc("create_web_order_atomic", {
@@ -1048,6 +1224,162 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           ? await transferMethods(supabase, country)
           : [],
       }));
+    }
+
+    // GET /layaway — this customer's plans, newest first.
+    if (req.method === "GET" && segments[0] === "layaway" && !segments[1]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const { data, error } = await supabase
+        .from("layaway_accounts")
+        .select(LAYAWAY_FIELDS)
+        .eq("customer_id", customer.id)
+        .eq("source_channel", "web")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
+    }
+
+    // GET /layaway/:id — one plan, with its schedule, lines and payments.
+    if (req.method === "GET" && segments[0] === "layaway" && segments[1] && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      // Scoped by customer_id as well as id: a plan id alone must never be
+      // enough to read someone else's plan.
+      const { data: plan, error } = await supabase
+        .from("layaway_accounts")
+        .select(`${LAYAWAY_FIELDS}, quote:checkout_quotes(ship_to_address:customer_addresses(country))`)
+        .eq("id", segments[1])
+        .eq("customer_id", customer.id)
+        .eq("source_channel", "web")
+        .maybeSingle();
+      if (error) throw error;
+      if (!plan) return notFound();
+
+      // DISPLAY RULES: per-row remaining and status come from
+      // schedule_with_actuals, never from the write-only caches.
+      const [{ data: rows }, { data: items }, { data: paid }, { data: pending }] = await Promise.all([
+        supabase.from("schedule_with_actuals")
+          .select("id, installment_number, due_date, base_installment_amount, penalty_amount, carried_amount, total_due_amount, allocated, actual_remaining, computed_status")
+          .eq("account_id", plan.id).order("installment_number"),
+        supabase.from("layaway_account_items")
+          .select("id, website_product_id, variant_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+          .eq("account_id", plan.id).order("created_at"),
+        supabase.from("payments")
+          .select("id, amount_paid, currency, date_paid, payment_method, reference_number, created_at")
+          .eq("account_id", plan.id).is("voided_at", null).order("date_paid", { ascending: false }),
+        supabase.from("payment_submissions")
+          .select("id, submitted_amount, payment_date, payment_method, status, created_at")
+          .eq("account_id", plan.id).in("status", ["submitted", "under_review"]).order("created_at", { ascending: false }),
+      ]);
+
+      const lines = await withJapaneseTitles(
+        supabase,
+        ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: website_product_id ?? null })),
+      );
+
+      const country = String(
+        (((plan as AnyRec).quote as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
+      );
+      const depositPaid = Number(plan.total_paid ?? 0) > 0;
+
+      return jsonResponse(scrub({
+        plan: { ...(plan as AnyRec), quote: undefined },
+        schedule: rows ?? [],
+        items: lines,
+        payments: paid ?? [],
+        pending_submissions: pending ?? [],
+        deposit_paid: depositPaid,
+        transfer_region: regionForCountry(country),
+        // Methods stay actionable for the life of the plan: every instalment is
+        // paid the same way the deposit was.
+        transfer_methods: await transferMethods(supabase, country),
+      }));
+    }
+
+    // POST /layaway/:id/pay — the customer reports a transfer for the deposit
+    // or an instalment. It creates a SUBMISSION, never a payment: the money is
+    // not on the books until a CSR confirms it in the Hub, exactly as the portal
+    // and every staff path work (CLAUDE.md PAYMENT SUBMISSION FLOW).
+    if (req.method === "POST" && segments[0] === "layaway" && segments[1] && segments[2] === "pay") {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+
+      // Proof is required on EVERY submit path, with no exception for the web.
+      const proofUrl = String(body.proof_url ?? "").trim();
+      if (!proofUrl) return jsonResponse({ error: "proof_required" }, 400);
+
+      const amount = Math.round(Number(body.amount ?? 0));
+      if (!Number.isFinite(amount) || amount <= 0) return jsonResponse({ error: "bad_amount" }, 400);
+      const paymentDate = String(body.payment_date ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) return jsonResponse({ error: "bad_payment_date" }, 400);
+      const method = String(body.payment_method ?? "").trim();
+      if (!method) return jsonResponse({ error: "payment_method_required" }, 400);
+
+      const { data: plan } = await supabase
+        .from("layaway_accounts")
+        .select("id, status, invoice_number, web_reference, total_paid, remaining_balance")
+        .eq("id", segments[1]).eq("customer_id", customer.id)
+        .eq("source_channel", "web").maybeSingle();
+      if (!plan) return notFound();
+      if (!["active", "overdue", "extension_active", "reactivated"].includes(String(plan.status))) {
+        return jsonResponse({ error: "plan_not_live", status: plan.status }, 409);
+      }
+      // INVARIANT 4: never accept more than the account still owes.
+      if (amount > Number(plan.remaining_balance ?? 0)) {
+        return jsonResponse({ error: "exceeds_balance", remaining: plan.remaining_balance }, 400);
+      }
+
+      // Same rolling cap the portal uses: 3 per account per 24 hours,
+      // rejections excluded.
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("payment_submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", plan.id)
+        .neq("status", "rejected")
+        .gte("created_at", since);
+      if ((count ?? 0) >= 3) {
+        return jsonResponse({ error: "too_many_submissions" }, 429);
+      }
+
+      // The first payment on a plan is its deposit. review-payment-submission
+      // keys the loyalty award off submission_type = 'downpayment'.
+      const isDeposit = Number(plan.total_paid ?? 0) <= 0;
+
+      const { data: created, error: subErr } = await supabase
+        .from("payment_submissions")
+        .insert({
+          customer_id: customer.id,
+          account_id: plan.id,
+          submitted_amount: amount,
+          payment_date: paymentDate,
+          payment_method: method,
+          reference_number: String(body.reference_number ?? "").trim() || null,
+          sender_name: customer.full_name ?? null,
+          notes: isDeposit
+            ? `Downpayment submitted from the website (${plan.web_reference ?? plan.invoice_number})`
+            : `Payment submitted from the website (${plan.web_reference ?? plan.invoice_number})`,
+          proof_url: proofUrl,
+          status: "submitted",
+          submission_type: isDeposit ? "downpayment" : "single",
+        })
+        .select("id, status, submitted_amount, payment_date")
+        .maybeSingle();
+      if (subErr) throw subErr;
+
+      return jsonResponse(scrub({ ok: true, submission: created, is_deposit: isDeposit }));
     }
 
     return notFound();

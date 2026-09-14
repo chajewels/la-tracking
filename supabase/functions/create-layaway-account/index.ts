@@ -59,6 +59,12 @@ Deno.serve(async (req) => {
       lump_sum_total, // number — optional, total lump sum from customer
       custom_installments, // number[] — optional, exact amounts per month
       is_trade, // boolean — optional, trade program flag (locked after creation)
+      // Deadlines are FIELDS, not a computed rule (owner decision 2026-09-13):
+      // offered at creation and editable while the account is live through
+      // set-account-deadlines. Both optional — an account without them behaves
+      // exactly as every account did before.
+      transfer_due_at,
+      settlement_due_at,
     } = body;
 
     // Validation
@@ -155,6 +161,8 @@ Deno.serve(async (req) => {
         remaining_balance: totalAmountNum,
         notes,
         is_trade: is_trade ?? false,
+        transfer_due_at: transfer_due_at || null,
+        settlement_due_at: settlement_due_at || null,
         created_by_user_id: user.id,
       })
       .select()
