@@ -213,11 +213,30 @@ Deno.serve(async (req) => {
       .in("account_id", accountIds);
     const existingSettlementSet = new Set((existingSettlements || []).map((s: any) => s.account_id));
 
+    // INVARIANT 12 — an account with an unconfirmed payment submission does not
+    // move. The customer may have paid and be waiting on review; forfeiting out
+    // from under that submission takes the piece and keeps the money. The
+    // penalty engine has honoured this for a long time; this path did not.
+    const frozenAccountIds = new Set<string>();
+    for (let i = 0; i < accountIds.length; i += 200) {
+      const chunk = accountIds.slice(i, i + 200);
+      const { data: frozenRows } = await supabase
+        .from("payment_submissions")
+        .select("account_id")
+        .in("account_id", chunk)
+        .in("status", ["submitted", "under_review"]);
+      if (frozenRows) frozenRows.forEach((r: any) => frozenAccountIds.add(r.account_id));
+    }
+    if (frozenAccountIds.size > 0) {
+      console.log(`[auto-forfeit] ${frozenAccountIds.size} account(s) frozen by a pending submission — skipped`);
+    }
+
     const settlementResults: any[] = [];
     const forfeitResults: any[] = [];
     const finalForfeitResults: any[] = [];
 
     for (const account of accounts) {
+      if (frozenAccountIds.has(account.id)) continue;
       // ── RULE: FINAL FORFEITURE for extension_active past end date ──
       if (account.status === "extension_active") {
         const extEnd = account.extension_end_date;

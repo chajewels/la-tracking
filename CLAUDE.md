@@ -546,7 +546,7 @@ To add a new screenshot for any Help section:
 
 ## Account Creation Rules
 
-- Installment 1 due date = order month + 1 month, never the order month itself. Same day-of-month as order_date; if that day does not exist in the target month, fall back to the last day of that month. Enforced in three places that must always agree: create-layaway-account (index.ts, `getMonth() + i + 1`), restructure-account (index.ts, `getMonth() + i + 1`), and the frontend preview generateScheduleDates() in src/lib/calculations.ts. Any change to one must be mirrored in the other two.
+- Installment 1 due date = order month + 1 month, never the order month itself. Same day-of-month as order_date; if that day does not exist in the target month, fall back to the last day of that month. Enforced in FOUR places that must always agree: create-layaway-account (index.ts, `getMonth() + i + 1`), restructure-account (index.ts, `getMonth() + i + 1`), the frontend preview generateScheduleDates() in src/lib/calculations.ts, and the `layaway_quote` SQL function (`p_order_date + make_interval(months => n)`), which is what the storefront quotes a customer before the account exists. Any change to one must be mirrored in the other three — a storefront quote that disagrees with the account the Hub then creates is a promise broken at creation time.
 - Downpayment is NEVER marked paid at creation
 - `dp_paid` always starts at 0; `total_paid = 0` on new accounts
 - DP is only marked paid after payment submission is validated by staff
@@ -1055,6 +1055,21 @@ When completing a partially_paid month:
     (the excess now lives in schedule rows and is already counted).
     See Bug #160 (edit-payment-amount guard) and Bug #250 in
     docs/FIXED-BUGS.md.
+
+  INVARIANT 12 — an unconfirmed submission freezes automated status
+  (added 2026-09-14, owner decision):
+    An account or order carrying a payment_submissions row in status
+    'submitted' or 'under_review' must NOT have its status moved by any
+    automated path. The money may already be in the bank; only the
+    reviewer knows. Applies to web-layaway expiry
+    (expire_web_layaway_atomic refuses with 'submission_pending'),
+    auto-forfeit-settlement (skips such accounts before the path checks),
+    and the penalty engine (its pre-existing freeze guard is the same
+    rule and predates this invariant). Cash-order expiry inherits it
+    through the same pending-submission test.
+    Every new automated status writer MUST carry the same NOT EXISTS
+    guard. A staff member acting deliberately is never blocked by this —
+    the freeze is on automation, not on people.
 
 ## TIMEZONE STANDARD — NON-NEGOTIABLE (updated 2026-04-25)
 
@@ -1672,6 +1687,70 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   Exempt: orders of customers flagged is_test = true (scaffolding, not money).
   Unpaid, never-completed orders (typos, duplicates with ₱0/¥0 received) can
   still be deleted by admin as before.
+
+## WEB LAYAWAY — NON-NEGOTIABLE (added 2026-09-14, Phase 2 step 4)
+
+  A web layaway is a `layaway_accounts` row with `source_channel = 'web'` —
+  the same table, the same schedule, the same payments, the same invariants as
+  any Hub-created plan. There is no second account model. The web-only columns
+  are `web_reference` (CJ-W-XXXXXX, what the customer and the emails say),
+  `quote_id`, `customer_lang`, `fx_rate_used` / `fx_rate_date`, `expired_at`,
+  and the two deadline fields below. Item lines live in
+  `layaway_account_items`, the layaway sibling of `cash_order_items` — the
+  same parallel-child-table pattern as `payments` / `cash_payments`.
+
+  ONE WRITER: `create_web_layaway_atomic`. It consumes the checkout quote,
+  recomputes the plan from `layaway_quote` rather than trusting the quote's
+  stored figures, refuses `below_plan_minimum`, inserts the account, the
+  schedule and the item lines, and decrements stock — one transaction. The
+  `website` edge function never writes a layaway row itself.
+
+  DEADLINES ARE FIELDS, NOT A COMPUTED RULE (owner decision 2026-09-13).
+  `transfer_due_at` is when the deposit must arrive; `settlement_due_at` is
+  when the plan is expected to be fully settled. Both are offered at creation
+  (Hub and web alike) and moved afterwards through ONE control:
+  `set_account_deadlines` behind the `set-account-deadlines` edge function,
+  gated on `edit_account`, audited with old value, new value and reason. On a
+  cash order it writes `transfer_due_at` AND `expires_at` together, because
+  the hourly cron reads `expires_at` and a customer must never be shown a
+  deadline the cron does not act on. Web layaway default: 72 hours.
+  There is no 24h/72h violation predicate, no forfeiture lookup and no
+  automatic violator classification — those were replaced by this field.
+
+  EXTENSION IS A LATER DEADLINE, AND ONLY WHILE THE ORDER IS LIVE. Live means
+  active / overdue / extension_active / reactivated for a layaway, pending for
+  a cash order. An expired or cancelled order is NEVER revived: if the
+  customer comes back the order is created fresh, so there is no stock
+  re-hold path to get wrong. (The pre-existing cash-order revive button,
+  Bug #217, survives for expired cash orders only and is the one exception,
+  predating this rule.)
+
+  EXPIRY: `expire_web_layaway_atomic`, swept hourly by
+  auto-expire-cash-orders, releases a web layaway whose deposit never arrived
+  — `source_channel='web'`, `total_paid = 0`, `expired_at IS NULL`,
+  `transfer_due_at` past. It sets status `'cancelled'` and stamps
+  `expired_at` (no new enum value), cancels pending schedule rows, returns the
+  stock ONCE, writes an audit row, and emails the customer that nothing was
+  paid and nothing is owed. It refuses on `already_paid`, `payment_exists`
+  and `submission_pending` (INVARIANT 12). There is NO cancel-after-deposit:
+  once a deposit is confirmed the plan is a normal layaway and follows the
+  normal overdue / penalty / forfeiture path.
+
+  TWO BASES, NEVER CONFLATED:
+    deposit  = 30% of the TOTAL (product + shipping + services)
+    loyalty  = the PRODUCT amount only, less any points redeemed
+  `loyalty_jpy_amount` is therefore set from the quote's yen subtotal and is
+  ALWAYS IN YEN, even on a peso plan — a peso total converted into the column
+  would inflate the customer's tier progress. The settlement rate and its
+  date are stored on the account for audit.
+
+  CURRENCY is the customer's choice at checkout. Yen plans store yen. Peso
+  plans convert at the stored `fx_rate`: shipping is converted and the
+  subtotal is the remainder, so the parts always sum to the settlement total
+  exactly. Web orders paid in full remain JPY-only.
+
+  Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
+  the same rule cash web orders already carry.
 
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 

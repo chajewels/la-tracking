@@ -49,6 +49,22 @@ export function storefrontOrderUrl(orderId: string): string | null {
   return base ? `${base}/account/orders/${encodeURIComponent(orderId)}` : null
 }
 
+/** The storefront layaway page for this plan, built from WEBSITE_URL. */
+export function storefrontLayawayUrl(accountId: string): string | null {
+  const base = (Deno.env.get('WEBSITE_URL') ?? '').replace(/\/$/, '')
+  return base ? `${base}/account/layaway/${encodeURIComponent(accountId)}` : null
+}
+
+/**
+ * Money in the account's own settlement currency. A web layaway can be settled
+ * in yen or in pesos (owner decision 2026-09-13), so an email about one cannot
+ * assume the yen symbol the way an order email can.
+ */
+export function formatMoney(n: number | string | null | undefined, currency: 'JPY' | 'PHP' = 'JPY'): string {
+  const v = Math.round(Number(n ?? 0))
+  return `${currency === 'PHP' ? '\u20b1' : '\u00a5'}${v.toLocaleString('en-US')}`
+}
+
 /** Owner-readable address? The only exception to the test gate. */
 export function ownerReadable(email: string): boolean {
   const e = email.trim().toLowerCase()
