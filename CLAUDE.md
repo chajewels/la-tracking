@@ -2274,7 +2274,15 @@ Customer / Amount), non-blocking relative to the tracking output.
   storefront helper logged only to the function log. 773 customer emails lost.
 
   EVERY email attempt is logged. `_shared/email-log.ts` recordEmailAttempt()
-  is called by BOTH senders on every outcome (sent | failed | suppressed):
+  is called by BOTH senders on every outcome (sent | failed | suppressed |
+  skipped). 'skipped' is the storefront helper declining to send — no address,
+  a test customer at an address the owner does not read, or no API key — and it
+  MUST leave a row: without one, "the customer got no email" cannot be told
+  apart from "the send was never reached", and the function log that would
+  settle it retains only minutes. A row absent from email_send_log therefore
+  means exactly one thing: the send was never reached. 'skipped' counts as
+  neither accepted nor refused in email_delivery_report, so it never moves the
+  verdict. The Hub helper has no silent skip — it throws instead.
     - _shared/transactional-email-templates/send-email.ts   channel 'hub'
     - _shared/storefront-email.ts                            channel 'storefront'
   process-email-queue already wrote email_send_log (channel NULL/'queue').
