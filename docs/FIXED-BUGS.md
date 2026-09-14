@@ -3778,6 +3778,47 @@ Points and spend are different quantities. Points can be spent; the spend that e
 
 **Not fixed here:** Test Customer's ¥4,430,940 / Elite standing — ¥701,960 of unreversed cancellations plus ¥3,080,000 of May test-era churn. That is a data decision, proposed in the PR, not run.
 
+
+**Follow-up, same migration (2026-09-14).** Revalidation against `develop` found two
+things the first pass did not cover. Both landed in
+`20260914130000_loyalty_spend_reversal_from_order_basis.sql` before it was ever applied,
+so there is no second migration.
+
+*The nine-argument twin.* The baseline created `revoke_loyalty_points` with **nine**
+parameters. `20260913050000` created a **ten**-parameter version by adding a defaulted
+`p_trigger_event` — which in Postgres is a new overload, not a replacement — and no
+migration ever dropped the old one. Both survived in the live database, and the 9-arg one
+still carried the pre-#271 lot-derived body. It was latent, never active: every call site
+passes ten arguments, and `revoke-loyalty-points/index.ts` returns 400 when
+`trigger_event` is missing, so PostgREST always sent ten. But a nine-argument call
+resolved to *neither* — `ERROR: function ... is not unique`, inside transactions like
+`delete_account_atomic` — and the dead twin was a live copy of the bug. The migration now
+drops it, **before** the `CREATE OR REPLACE`, so that a mis-resolved DROP would be
+repaired by the create two lines below rather than leaving the system with no function at
+all.
+
+Proven in a harness that reproduced the live two-overload state: a nine-argument call went
+from `is not unique` to resolving cleanly against the single remaining function with
+`p_trigger_event` defaulting to NULL, and reversing the order basis correctly. It does
+**not** become "function does not exist" — with one overload left, the defaults simply
+cover the missing argument. All ten caller shapes still reverse the basis exactly.
+
+*The unsourced-reversal guard.* After the fix the code no longer guesses when it cannot
+determine a basis — but it was silent about it. Reaching the idempotency branch means two
+different things: an order that earned and was already reversed (ledger rows exist, they
+net to zero — a legitimate silent no-op), or an order with **no** `earned` and **no**
+`revoked` row at all whose spend was seeded outside the Hub (pre-Hub migration, a manual
+`adjusted` correction). The discriminator is the *count* of earned/revoked rows, not the
+net. In the second case, when the order still carries money received or a non-null
+`loyalty_jpy_amount`, `revoke_loyalty_points` now writes an `audit_logs` row and a
+`staff_notifications` row of type `loyalty_reversal_unsourced` naming the invoice — and
+**returns anyway**. It never refuses: blocking a legitimate forfeit or cancellation because
+the customer's loyalty history predates the Hub would be a worse failure than the gap it
+closes. The notification is written with `account_id` NULL on purpose — both delete paths
+run `DELETE FROM staff_notifications WHERE account_id = <order id>` *after* calling the
+function, so a notification carrying the order id would be erased by the same transaction
+that raised it; the ids live in `metadata` and `invoice_number` is the CSR's handle.
+
 ### Bug #270 — `missing_unsubscribe` was TWO faults wearing one error message; the queued-email pipeline is still refused (2026-09-14)
 
 **The trap.** The Lovable email API answers `400 missing_unsubscribe` for two
