@@ -1,7 +1,6 @@
-# Lovable message E — APPLY MIGRATIONS ONLY (DRAFT — NOT SENT)
+# Lovable message E — APPLY MIGRATIONS ONLY
 
-**Do not send until PR #58 is merged and `<MAIN_SHA>` is replaced with `main`'s
-post-merge SHA.** One sender: Claude Code, from this session, after Cynthia's OK.
+**SHA filled: `main` at `8ebe539a` (PR #58 merged).** One sender: Claude Code, from this session, after Cynthia's OK.
 Check the Lovable message queue before sending. A transport timeout is not a failure —
 never resend on a timeout.
 
@@ -15,11 +14,11 @@ Apply four migrations to the Supabase database for project
 ## 0. SOURCE ASSERTIONS — run these FIRST and STOP if any fails
 
 Your repo mirror can lag GitHub. Confirm you are looking at `main` at
-`<MAIN_SHA>` before you apply anything. If any count below differs, **stop and report
+`8ebe539a` before you apply anything. If any count below differs, **stop and report
 what you actually see** — do not apply, do not "fix" the file, do not proceed.
 
 ```bash
-git rev-parse HEAD          # expect <MAIN_SHA>
+git rev-parse HEAD          # expect 8ebe539a
 
 wc -l supabase/migrations/20260914100000_layaway_quote_v2.sql                        # expect 176
 grep -c "make_interval(months => n)" supabase/migrations/20260914100000_layaway_quote_v2.sql   # expect 1
