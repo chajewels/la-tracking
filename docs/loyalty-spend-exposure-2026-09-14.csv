@@ -1,0 +1,34 @@
+customer_name,customer_code,invoice_number,status,plan_months,currency,total_amount,total_paid,loyalty_basis_jpy,would_reverse_now_jpy,spend_wrongly_left_jpy,cumulative_spend_now_jpy,tier_now,tier_if_correct,tier_if_current_code,tier_moves,points_went_where
+Marikarr Heartie Merca,CJ-2026-00248,19127,active,8,PHP,574997.00,325000.00,1369040,773810,595230,7660330,Elite,Elite,Elite,no,redeemed by customer
+Leslie KOTOWSKI,CJ-2026-00672,19492,active,8,PHP,356992.00,107098.50,849980,254996,594984,2864462,Radiant,Radiant,Radiant,no,redeemed by customer
+Leslie KOTOWSKI,CJ-2026-00672,19291,active,6,PHP,107857.00,44940.00,256802,107000,149802,2864462,Radiant,Radiant,Radiant,no,redeemed by customer
+Villa Eden A. Toyoda,CJ-2026-00680,19428,active,6,JPY,166960.00,69566.00,166960,69566,97394,2254953,Radiant,Radiant,Radiant,no,redeemed by customer
+Leslie KOTOWSKI,CJ-2026-00672,19028,active,6,PHP,113383.00,73699.00,269960,175474,94486,2864462,Radiant,Radiant,Radiant,no,redeemed by customer
+Villa Eden A. Toyoda,CJ-2026-00680,19319,active,6,JPY,180784.00,96417.00,180784,96417,84367,2254953,Radiant,Radiant,Radiant,no,redeemed by customer
+Bea Sartorio,CJ-2026-02432,19101,active,6,PHP,89027.00,57866.00,209980,137776,72204,2384740,Radiant,Radiant,Radiant,no,no lot ever created (backfill row)
+Jessica Presbitero,CJ-2026-01480,19193,active,6,PHP,65512.00,35186.72,155980,83778,72202,537140,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Suzette Tupaz,CJ-2026-05552,19058,active,6,JPY,233980.00,166990.00,233980,166990,66990,379940,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Ofelia Olayvar Torres,CJ-2026-00352,19222,active,6,PHP,80204.00,52600.00,190960,125238,65722,1604702,Radiant,Radiant,Radiant,no,redeemed by customer
+Leslie KOTOWSKI,CJ-2026-00672,19054,active,6,PHP,75592.00,49135.00,179980,116988,62992,2864462,Radiant,Radiant,Radiant,no,redeemed by customer
+Marikarr Heartie Merca,CJ-2026-00248,19094,active,6,JPY,170500.00,111200.00,170500,111200,59300,7660330,Elite,Elite,Elite,no,redeemed by customer
+Maricar May Alonzo,CJ-2026-02464,19372,active,6,PHP,39472.00,16447.00,93980,39160,54820,471964,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Villa Eden A. Toyoda,CJ-2026-00680,19238,active,6,JPY,113960.00,60778.00,113960,60778,53182,2254953,Radiant,Radiant,Radiant,no,redeemed by customer
+Ofelia Olayvar Torres,CJ-2026-00352,19619,active,6,PHP,23512.00,2500.00,55980,5952,50028,1604702,Radiant,Radiant,Radiant,no,redeemed by customer
+Marikarr Heartie Merca,CJ-2026-00248,19257,active,6,JPY,99941.00,54000.00,99941,54000,45941,7660330,Elite,Elite,Elite,no,redeemed by customer
+Jessica Presbitero,CJ-2026-01480,19456,active,6,PHP,32752.00,13647.00,77980,32493,45487,537140,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Lani Ordoñez,CJ-2026-00488,19240,active,6,PHP,43832.00,23900.40,99310,56906,42404,632858,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Suzette Tupaz,CJ-2026-05552,19108,active,6,JPY,103980.00,67587.00,103980,67587,36393,379940,Glimmer,Glimmer,Glimmer,no,no lot ever created (backfill row)
+Marlene Corpuz,CJ-2026-00120,19032,active,6,PHP,63069.00,48353.00,150164,115126,35038,1285964,Radiant,Radiant,Radiant,no,redeemed by customer
+Marikarr Heartie Merca,CJ-2026-00248,19287,active,6,JPY,69245.00,37000.00,69245,37000,32245,7660330,Elite,Elite,Elite,no,redeemed by customer
+Marlene Corpuz,CJ-2026-00120,19333,active,6,PHP,28552.00,15228.00,67980,36257,31723,1285964,Radiant,Radiant,Radiant,no,redeemed by customer
+Anj Pelijates,CJ-2026-01608,19027,active,6,PHP,46142.00,30991.00,103980,73788,30192,478900,Glimmer,Glimmer,Glimmer,no,no lot ever created (backfill row)
+Cristina Mutuc,CJ-2026-00648,19016,active,6,JPY,103980.00,79718.00,103980,79718,24262,1434386,Radiant,Radiant,Radiant,no,redeemed by customer
+SeeToi Bongabong,CJ-2026-00376,19212,active,6,JPY,47820.00,25504.00,47820,25504,22316,2177700,Radiant,Radiant,Radiant,no,redeemed by customer
+Aileen Gabiola,CJ-2026-03608,19084,active,6,JPY,64980.00,42237.00,63660,42237,21423,991112,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Lani Ordoñez,CJ-2026-00488,19536,active,6,PHP,16958.00,7065.00,37980,16821,21159,632858,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Ofelia Olayvar Torres,CJ-2026-00352,19555,active,6,PHP,12592.00,3838.00,29980,9138,20842,1604702,Radiant,Radiant,Radiant,no,redeemed by customer
+Marikarr Heartie Merca,CJ-2026-00248,19035,active,6,JPY,63440.00,42961.00,63440,42961,20479,7660330,Elite,Elite,Elite,no,no lot ever created (backfill row)
+Aileen Gabiola,CJ-2026-03608,19236,active,6,JPY,42980.00,22922.00,42980,22922,20058,991112,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Shiely Sy Demalata,CJ-2026-02472,19194,active,6,PHP,10912.00,5820.00,25977,13857,12120,336967,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Shiely Sy Demalata,CJ-2026-02472,19254,active,3,PHP,11752.00,9010.00,27980,21452,6528,336967,Glimmer,Glimmer,Glimmer,no,redeemed by customer
+Shiely Sy Demalata,CJ-2026-02472,19210,active,3,PHP,10072.00,7722.00,23980,18386,5594,336967,Glimmer,Glimmer,Glimmer,no,redeemed by customer
