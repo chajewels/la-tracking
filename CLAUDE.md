@@ -2031,6 +2031,21 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      SELECT * FROM loyalty_integrity_report(); at any time — empty = ledger,
      lots, counter and tier agree for every member.
 
+  13. POINTS AND SPEND ARE REVERSED FROM DIFFERENT SOURCES (2026-09-14, Bug #271).
+     POINTS come from the surviving loyalty_point_lots — you can only take back
+     points that still exist, and redeemed points are never clawed back (rule 9).
+     SPEND comes from the ORDER'S OWN LEDGER BASIS
+     (loyalty_order_spend_basis = SUM(earned) − SUM(revoked) over that order's
+     loyalty_transactions rows), independent of lots: spend happened, and
+     redeeming or expiring the points later does not un-happen it. Deriving both
+     from the lots is what let cancelled orders keep counting towards the tier.
+     NEVER use cash_orders/layaway_accounts.loyalty_jpy_amount as the reversal
+     basis — the net-spend rule mutates it after the award — and NEVER honour
+     revoke_loyalty_points' p_spend_jpy: every caller passes total_paid in JPY,
+     which is money received, not the loyalty basis. The parameter survives for
+     signature compatibility only and is ignored. Idempotency is the basis
+     reaching 0, not a GREATEST(0, …) floor.
+
   - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
      cancelled/forfeited/completed/final_settlement; cash open = pending.
      Enforced in RedemptionForm, process-loyalty-redemption create, and

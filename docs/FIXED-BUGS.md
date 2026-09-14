@@ -3735,6 +3735,49 @@ Follow-up 2026-09-13 (second) — with the allow-list fixed, a sign-in from the 
 
 Follow-up 2026-09-13 (third) — links now fail as otp_expired when clicked promptly. auth.flow_state row 9d86d6c5: created 02:40:43 by signInWithOtp, auth_code_issued_at 02:40:58 — 15 seconds later, before any human click — and never exchanged. GoTrue's verify URL spends the one-time token on its first GET, and Gmail's link scanner GETs every link in a message within seconds of delivery; the customer's own click then finds the token used. Fix: the storefront email no longer links to /auth/v1/verify. auth-email-hook (`storefrontConfirmUrl`) rewrites the link to the storefront's `/auth/confirm?token_hash=…&type=…&next=…` (token and type taken from GoTrue's own verify URL, origin and next from its redirect_to, only when that target is a storefront host); the page renders one "Sign in" button whose form POSTs to a server action that calls `verifyOtp({ token_hash, type })` and links the customer. Nothing is exchanged on GET, so a scanner changes nothing. GoTrue's POST /verify with token_hash matches the stored hash including its `pkce_` prefix (verify.go `verifyTokenHash` → `FindUserByOneTimeToken`), so the storefront's existing PKCE-flow signInWithOtp needs no change; /auth/callback stays for older links.
 
+### Bug #271 — cancelled orders kept counting towards lifetime spend and the tier; points and spend were reversed from the same source (2026-09-14)
+
+**Found by** the points-earned email for CJ-W-900011, which printed "Lifetime spend: ¥4,430,940 / Elite / ×2" for Test Customer. Elite starts at ¥4,000,000; the figure only reached it because cancelled orders were still in it.
+
+**Root cause.** `revoke_loyalty_points` derived BOTH the points reversal and the spend reversal from the surviving `loyalty_point_lots`:
+
+```sql
+SELECT ... COALESCE(SUM(spend_basis_jpy),0) INTO ... v_total_spend_basis
+  FROM loyalty_point_lots
+ WHERE member_id = ... AND source_reference = ...
+   AND revoked_at IS NULL AND consumed_at IS NULL AND expired_at IS NULL;
+IF v_lot_count = 0 THEN
+  IF p_trigger_event IN ('manual_forfeit','auto_forfeit','final_forfeit')
+     AND COALESCE(p_spend_jpy,0) > 0 THEN v_total_spend_basis := p_spend_jpy;
+  ELSE RETURN NULL;  -- no row, no deduction, no tier re-check
+  END IF;
+END IF;
+```
+
+Points and spend are different quantities. Points can be spent; the spend that earned them cannot be un-spent. Three failures followed:
+
+- **A — no live lots.** Points redeemed or expired → `v_lot_count = 0` → with `p_trigger_event = 'cancel'` the function returned before writing anything. Measured on a faithful reproduction: spend stayed ¥4,200,000, tier stayed Elite, no ledger row at all.
+- **B — the spend-bearing lot gone, another lot alive.** A promo order writes two lots under one `source_reference`; only `order_earn` carries `spend_basis_jpy`. Redeem that one and the bonus lot keeps `v_lot_count > 0`, so a revoked row WAS written and the points taken — but `SUM(spend_basis_jpy)` over the survivors was 0, so no spend came back. Measured pre-fix: ¥1,200,000 stayed, tier stayed Radiant. (A *partially* drained lot is still live and carries its full basis, so partial redemption alone never under-reversed — the brief's framing of case B was corrected by measurement.)
+- **C — the fallback reversed the wrong number when it did fire.** Every caller passes `total_paid` converted to JPY as `p_spend_jpy` — money received, not the loyalty basis. Measured: forfeiting a ¥1,138,540-basis account whose points were spent reversed ¥164,440 and left ¥974,100 standing. This one reaches real customers through `manual-forfeit` and `auto-forfeit-settlement`, not just web cancellation.
+
+`terminate_web_order_atomic` and `delete_cash_order_atomic` called it with `p_spend_jpy => 0` and `'cancel'` / `'delete_account'` — both halves of the fallback off. `delete_account_atomic` had no revoke at all; the `delete-account` edge function fired one over HTTP beforehand, so a delete that then failed still revoked the points. The preview branch returned `earned_points_will_be_revoked: true` unconditionally, promising staff a reversal that could not happen.
+
+**Corroborated in the wild nine weeks earlier:** CJ-2026-01504 carries three manual correction rows dated 2026-08-26 — *"Pre-loyalty forfeiture — no point lot existed, so revoke_loyalty_points could not deduct automatically. Amount from Google Sheets loyalty tracker."* Someone had already hit this and patched it by hand.
+
+**Fix** (migration `20260914130000_loyalty_spend_reversal_from_order_basis.sql`):
+
+- New `loyalty_order_spend_basis(member, reference)` — `SUM(earned) − SUM(revoked)` over that order's ledger rows, floored at 0. The ledger is authoritative because it is append-only (`trg_loyalty_transactions_immutable`) and records exactly what was added to the counter, whereas `loyalty_jpy_amount` is mutated after the award by `approve_redemption_atomic` / `void_redemption_atomic` (net-spend rule, 2026-05-26) and is unreadable once a delete path removes the order row. Verified against live data: for every surviving order with an earned row, ledger net == the order's current `loyalty_jpy_amount`.
+- `revoke_loyalty_points` — points still lot-derived, spend from the basis, tier re-derived unconditionally (previously unreachable when no lots survived). `p_spend_jpy` is ignored.
+- Idempotency is the basis reaching 0, not a floor: a successful revoke writes `spend_amount_jpy = basis` (so the next basis is 0) and stamps `revoked_at` (so the next lot sum is 0). When both are 0 it writes nothing and returns the earlier revoke row. Cancel-twice and delete-after-cancel both verified: one row, one deduction.
+- `terminate_web_order_atomic` preview now reports `earned_points_to_revoke` and `lifetime_spend_to_reverse_jpy` and only claims `earned_points_will_be_revoked` when points actually survive.
+- `delete_account_atomic` revokes inside the delete transaction; the `delete-account` edge function's HTTP call was removed (idempotency makes a lagging build harmless).
+- `loyalty_integrity_report()` gained TWO predicates. Predicate 4 (counter vs `spend_baseline_jpy` + ledger spend) is necessary but NOT sufficient — when case A struck, the counter kept the spend AND the ledger kept the earned row, so the two agree and a counter-vs-ledger check passes. Predicate 5 is the one that catches this class: a cancelled / expired / forfeited order whose `loyalty_order_spend_basis` is still positive. Verified: predicates 1–4 report "(NOT DETECTED)" on a faithful reproduction; predicate 5 names it with the exact figure.
+- `loyalty_members.spend_baseline_jpy` freezes the pre-Hub migration seed for the seven real members who carry it (Marikarr Heartie Merca 5,014,748; Rinda Kagawa 830,480; Sunrise villa 561,940; Jerelyn Catadman 363,960; Dorothy Ignacio Surio 259,900; Ar Yan 137,628; melanie mejia 16,780) so predicate 4 does not flag them forever. A baseline, not an exclusion — new drift on those same members still surfaces. Scoped to members enrolled before 2026-04-01 and not test customers, which deliberately leaves Test Customer (enrolled 2026-04-26) visible rather than laundering her ¥3,080,000 of test-era churn.
+
+**Blast radius when found:** no real customer had lost or gained a tier. Angelyn Mijares (19443) is the one real Hub-era forfeit and reversed correctly, because live lots happened to win the branch. Latent exposure was larger than the web-cancel path: 33 active real layaway accounts holding ¥5,739,183 of ledger spend had no live lots, so any forfeit of one would have reversed the payment figure instead of the basis (failure C).
+
+**Not fixed here:** Test Customer's ¥4,430,940 / Elite standing — ¥701,960 of unreversed cancellations plus ¥3,080,000 of May test-era churn. That is a data decision, proposed in the PR, not run.
+
 ### Bug #270 — `missing_unsubscribe` was TWO faults wearing one error message; the queued-email pipeline is still refused (2026-09-14)
 
 **The trap.** The Lovable email API answers `400 missing_unsubscribe` for two
