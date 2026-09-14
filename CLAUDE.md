@@ -2045,6 +2045,19 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      which is money received, not the loyalty basis. The parameter survives for
      signature compatibility only and is ignored. Idempotency is the basis
      reaching 0, not a GREATEST(0, …) floor.
+     There is exactly ONE revoke_loyalty_points — the 10-argument one. The
+     baseline's 9-argument twin (still carrying the old lot-derived body) is
+     DROPPED by the same migration; never re-create a second overload by adding
+     a defaulted parameter without dropping the old signature, or every call
+     that omits it fails with "is not unique".
+     A REVERSAL THAT CANNOT BE SOURCED IS NEVER SILENT. When the basis is 0, no
+     lots survive, the order has NO earned and NO revoked ledger row, and it
+     still carries money received or a non-null loyalty_jpy_amount, the function
+     writes audit_logs + staff_notifications type 'loyalty_reversal_unsourced'
+     naming the invoice, then RETURNS — it does not refuse. Blocking a terminal
+     action because the loyalty history predates the Hub is worse than the gap.
+     An order that earned and was already reversed HAS ledger rows that net to
+     zero; that stays silent. The discriminator is the row COUNT, not the net.
 
   - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
      cancelled/forfeited/completed/final_settlement; cash open = pending.

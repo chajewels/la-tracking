@@ -79,6 +79,31 @@ COMMENT ON FUNCTION public.loyalty_order_spend_basis(uuid, text) IS
 -- ---------------------------------------------------------------------------
 -- 2. revoke_loyalty_points -- points from lots, spend from the order basis.
 -- ---------------------------------------------------------------------------
+-- THE 9-ARGUMENT TWIN. The baseline (20260705230000) created
+-- revoke_loyalty_points with NINE parameters. 20260913050000 created a TEN-
+-- parameter version by adding a defaulted p_trigger_event -- which in Postgres
+-- is a NEW OVERLOAD, not a replacement, and nothing has ever dropped the old
+-- one. Both survive in the live database and the 9-arg one still carries the
+-- pre-Bug-#271 body: points and spend both derived from the lots.
+--
+-- Latent, not active: every call site today passes all ten arguments, and
+-- revoke-loyalty-points/index.ts returns 400 when trigger_event is missing, so
+-- PostgREST always sends ten. But a nine-argument call -- positional or named --
+-- resolves to NEITHER; it fails with "is not unique", inside transactions like
+-- delete_account_atomic. And the dead twin is a live copy of the bug: anything
+-- that ever reached it would silently under-reverse again.
+--
+-- PLACED BEFORE THE CREATE, DELIBERATELY. A DROP names an exact argument-type
+-- list, so this can only match the 9-arg function. But the instruction was not
+-- to assume that, and the two orderings fail very differently if it is wrong:
+-- dropping FIRST means a mis-resolved DROP is repaired by the CREATE OR REPLACE
+-- two lines below, and the transaction still ends with a working function;
+-- dropping AFTER would delete the only remaining definition and leave the
+-- system with no revoke_loyalty_points at all. The safe order is the one whose
+-- worst case self-heals.
+DROP FUNCTION IF EXISTS public.revoke_loyalty_points(
+  uuid, text, numeric, uuid, uuid, uuid, text, text, uuid);
+
 CREATE OR REPLACE FUNCTION public.revoke_loyalty_points(
   p_member_id uuid,
   p_source_reference text,
@@ -104,6 +129,10 @@ DECLARE
   v_lot_count INTEGER := 0;
   v_ledger_ref TEXT;
   v_member RECORD;
+  v_ledger_rows INTEGER := 0;
+  v_order_paid NUMERIC;
+  v_order_basis NUMERIC;
+  v_order_customer UUID;
   v_current_tier_name TEXT;
   v_new_cumulative NUMERIC;
   v_new_tier_id UUID;
@@ -145,6 +174,87 @@ BEGIN
             OR (p_cash_order_id IS NOT NULL AND cash_order_id = p_cash_order_id)
             OR (p_payment_id IS NOT NULL AND payment_id = p_payment_id))
      ORDER BY created_at DESC LIMIT 1;
+
+    -- UNSOURCED REVERSAL (2026-09-14). Reaching here means two different
+    -- things and they must not be confused:
+    --
+    --   Already reversed  -- the order earned, and a 'revoked' row took it
+    --     back. Ledger rows EXIST and net to zero. Nothing left to do; this is
+    --     the idempotency path working as designed and it stays silent.
+    --
+    --   Never sourced     -- the order has NO 'earned' and NO 'revoked' row at
+    --     all, yet it carries money received or a loyalty basis. Its spend was
+    --     seeded outside the Hub (pre-Hub migration, a manual 'adjusted'
+    --     correction) so the ledger cannot say what this order contributed.
+    --     Before Bug #271 the code guessed here and guessed wrong. It no longer
+    --     guesses -- but staying silent hides a real reversal that did not
+    --     happen, so a person is told instead.
+    --
+    -- The discriminator is the COUNT of earned/revoked rows, not the net: a
+    -- reversed order nets to zero WITH rows, an unsourced one has none.
+    --
+    -- It NOTIFIES, IT DOES NOT REFUSE. Blocking a forfeit or a cancellation
+    -- because the customer's loyalty history predates the Hub would be a worse
+    -- failure than the gap it closes -- a legitimate terminal action must
+    -- always complete. A CSR reconciles the spend by hand afterwards.
+    SELECT COUNT(*) INTO v_ledger_rows FROM loyalty_transactions
+     WHERE member_id = p_member_id AND invoice_number = v_ledger_ref
+       AND transaction_type IN ('earned', 'revoked');
+
+    IF v_ledger_rows = 0 THEN
+      IF p_account_id IS NOT NULL THEN
+        SELECT total_paid, loyalty_jpy_amount, customer_id
+          INTO v_order_paid, v_order_basis, v_order_customer
+          FROM layaway_accounts WHERE id = p_account_id;
+      ELSIF p_cash_order_id IS NOT NULL THEN
+        SELECT total_paid, loyalty_jpy_amount, customer_id
+          INTO v_order_paid, v_order_basis, v_order_customer
+          FROM cash_orders WHERE id = p_cash_order_id;
+      END IF;
+
+      IF COALESCE(v_order_paid, 0) > 0 OR v_order_basis IS NOT NULL THEN
+        INSERT INTO public.audit_logs (
+          entity_type, entity_id, action, old_value_json, performed_by_user_id
+        ) VALUES (
+          CASE WHEN p_cash_order_id IS NOT NULL THEN 'cash_order' ELSE 'layaway_account' END,
+          COALESCE(p_account_id, p_cash_order_id, p_member_id),
+          'loyalty_reversal_unsourced',
+          jsonb_build_object(
+            'member_id', p_member_id, 'invoice_number', v_ledger_ref,
+            'trigger_event', p_trigger_event,
+            'total_paid', v_order_paid, 'loyalty_jpy_amount', v_order_basis,
+            'cumulative_spend_jpy', v_member.cumulative_spend_jpy,
+            'reason', 'no earned or revoked ledger row for this order; spend basis could not be determined'),
+          p_created_by_user_id
+        );
+
+        -- account_id is left NULL ON PURPOSE. delete_account_atomic and
+        -- delete_cash_order_atomic both run
+        -- DELETE FROM staff_notifications WHERE account_id = <order id>
+        -- AFTER calling this function, so a notification carrying the order id
+        -- would be erased by the same transaction that raised it. The ids live
+        -- in metadata; invoice_number is the handle the CSR actually uses.
+        INSERT INTO public.staff_notifications (
+          type, title, body, account_id, customer_id, invoice_number, metadata
+        ) VALUES (
+          'loyalty_reversal_unsourced',
+          'Loyalty spend could not be reversed — INV ' || COALESCE(v_ledger_ref, '(no invoice)'),
+          'INV ' || COALESCE(v_ledger_ref, '(no invoice)') || ' was '
+            || COALESCE(p_trigger_event, 'reversed')
+            || ', but it has no loyalty ledger row, so there is no basis to reverse. '
+            || 'The order''s lifetime spend was seeded outside the Hub and is still counting '
+            || 'towards this member''s tier. Review the member''s lifetime spend by hand.',
+          NULL, v_order_customer, v_ledger_ref,
+          jsonb_build_object(
+            'member_id', p_member_id,
+            'account_id', p_account_id, 'cash_order_id', p_cash_order_id,
+            'trigger_event', p_trigger_event,
+            'total_paid', v_order_paid, 'loyalty_jpy_amount', v_order_basis,
+            'cumulative_spend_jpy', v_member.cumulative_spend_jpy)
+        );
+      END IF;
+    END IF;
+
     RETURN v_existing_tx;
   END IF;
 
@@ -199,7 +309,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.revoke_loyalty_points(uuid, text, numeric, uuid, uuid, uuid, text, text, uuid, text) IS
-  'Reverses one order''s loyalty effect. POINTS come from the surviving lots (you can only take back points that still exist). SPEND comes from loyalty_order_spend_basis -- the ledger -- independent of lots. p_spend_jpy is accepted for signature compatibility and IGNORED: every caller passes total_paid in JPY, which is money received, not the loyalty basis. Idempotent: a second call finds basis 0 and no live lots, writes nothing, and returns the earlier revoke row.';
+  'Reverses one order''s loyalty effect. POINTS come from the surviving lots (you can only take back points that still exist). SPEND comes from loyalty_order_spend_basis -- the ledger -- independent of lots. p_spend_jpy is accepted for signature compatibility and IGNORED: every caller passes total_paid in JPY, which is money received, not the loyalty basis. Idempotent: a second call finds basis 0 and no live lots, writes nothing, and returns the earlier revoke row. When that state is reached with NO earned or revoked ledger row at all and the order still carries money received or a loyalty basis, the reversal cannot be sourced: it raises audit_logs ''loyalty_reversal_unsourced'' plus a staff_notifications row of the same type and returns anyway -- it never refuses a terminal action.';
 
 -- ---------------------------------------------------------------------------
 -- 3. delete_account_atomic -- revoke inside the delete transaction.
