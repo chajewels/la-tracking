@@ -1,9 +1,18 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 
+import type { Audience } from './brand.ts'
+
 export interface TemplateEntry {
   component: React.ComponentType<any>
   subject: string | ((data: Record<string, any>) => string)
+  /**
+   * REQUIRED, and deliberately has no default. A customer-facing email is sent
+   * as "Cha Jewels"; an internal one keeps the Hub identity. Guessing wrong in
+   * the internal direction puts staff mail in a customer's inbox, so a new
+   * template must not compile until someone has decided. See brand.ts.
+   */
+  audience: Audience
   to?: string
   displayName?: string
   previewData?: Record<string, any>
@@ -71,6 +80,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'loyalty-redemption-voided': loyaltyRedemptionVoided,
   'loyalty-broadcast': loyaltyBroadcast,
   'portal-setup-invite': {
+    audience: 'customer',
     component: PortalSetupInviteEmail,
     subject: 'Set up your Cha Jewels portal access',
   },

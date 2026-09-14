@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels Hub'
+import { CUSTOMER_SITE_NAME as SITE_NAME, CUSTOMER_FOOTER as FOOTER_LINE } from './brand.ts'
 
 type Stage = 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8'
 
@@ -125,7 +125,7 @@ const PenaltyEscalationEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
+          <Text style={footerBrand}>{FOOTER_LINE}</Text>
         </Container>
       </Body>
     </Html>
@@ -133,6 +133,8 @@ const PenaltyEscalationEmail = ({
 }
 
 export const template = {
+  /** Who reads this. Decides the From name and footer — see brand.ts. */
+  audience: 'customer' as const,
   component: PenaltyEscalationEmail,
   subject: (data: Record<string, any>) => {
     const stage = (data.stage || 'P3') as Stage

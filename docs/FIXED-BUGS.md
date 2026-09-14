@@ -3735,6 +3735,168 @@ Follow-up 2026-09-13 (second) — with the allow-list fixed, a sign-in from the 
 
 Follow-up 2026-09-13 (third) — links now fail as otp_expired when clicked promptly. auth.flow_state row 9d86d6c5: created 02:40:43 by signInWithOtp, auth_code_issued_at 02:40:58 — 15 seconds later, before any human click — and never exchanged. GoTrue's verify URL spends the one-time token on its first GET, and Gmail's link scanner GETs every link in a message within seconds of delivery; the customer's own click then finds the token used. Fix: the storefront email no longer links to /auth/v1/verify. auth-email-hook (`storefrontConfirmUrl`) rewrites the link to the storefront's `/auth/confirm?token_hash=…&type=…&next=…` (token and type taken from GoTrue's own verify URL, origin and next from its redirect_to, only when that target is a storefront host); the page renders one "Sign in" button whose form POSTs to a server action that calls `verifyOtp({ token_hash, type })` and links the customer. Nothing is exchanged on GET, so a scanner changes nothing. GoTrue's POST /verify with token_hash matches the stored hash including its `pkce_` prefix (verify.go `verifyTokenHash` → `FindUserByOneTimeToken`), so the storefront's existing PKCE-flow signInWithOtp needs no change; /auth/callback stays for older links.
 
+### Bug #271 — cancelled orders kept counting towards lifetime spend and the tier; points and spend were reversed from the same source (2026-09-14)
+
+**Found by** the points-earned email for CJ-W-900011, which printed "Lifetime spend: ¥4,430,940 / Elite / ×2" for Test Customer. Elite starts at ¥4,000,000; the figure only reached it because cancelled orders were still in it.
+
+**Root cause.** `revoke_loyalty_points` derived BOTH the points reversal and the spend reversal from the surviving `loyalty_point_lots`:
+
+```sql
+SELECT ... COALESCE(SUM(spend_basis_jpy),0) INTO ... v_total_spend_basis
+  FROM loyalty_point_lots
+ WHERE member_id = ... AND source_reference = ...
+   AND revoked_at IS NULL AND consumed_at IS NULL AND expired_at IS NULL;
+IF v_lot_count = 0 THEN
+  IF p_trigger_event IN ('manual_forfeit','auto_forfeit','final_forfeit')
+     AND COALESCE(p_spend_jpy,0) > 0 THEN v_total_spend_basis := p_spend_jpy;
+  ELSE RETURN NULL;  -- no row, no deduction, no tier re-check
+  END IF;
+END IF;
+```
+
+Points and spend are different quantities. Points can be spent; the spend that earned them cannot be un-spent. Three failures followed:
+
+- **A — no live lots.** Points redeemed or expired → `v_lot_count = 0` → with `p_trigger_event = 'cancel'` the function returned before writing anything. Measured on a faithful reproduction: spend stayed ¥4,200,000, tier stayed Elite, no ledger row at all.
+- **B — the spend-bearing lot gone, another lot alive.** A promo order writes two lots under one `source_reference`; only `order_earn` carries `spend_basis_jpy`. Redeem that one and the bonus lot keeps `v_lot_count > 0`, so a revoked row WAS written and the points taken — but `SUM(spend_basis_jpy)` over the survivors was 0, so no spend came back. Measured pre-fix: ¥1,200,000 stayed, tier stayed Radiant. (A *partially* drained lot is still live and carries its full basis, so partial redemption alone never under-reversed — the brief's framing of case B was corrected by measurement.)
+- **C — the fallback reversed the wrong number when it did fire.** Every caller passes `total_paid` converted to JPY as `p_spend_jpy` — money received, not the loyalty basis. Measured: forfeiting a ¥1,138,540-basis account whose points were spent reversed ¥164,440 and left ¥974,100 standing. This one reaches real customers through `manual-forfeit` and `auto-forfeit-settlement`, not just web cancellation.
+
+`terminate_web_order_atomic` and `delete_cash_order_atomic` called it with `p_spend_jpy => 0` and `'cancel'` / `'delete_account'` — both halves of the fallback off. `delete_account_atomic` had no revoke at all; the `delete-account` edge function fired one over HTTP beforehand, so a delete that then failed still revoked the points. The preview branch returned `earned_points_will_be_revoked: true` unconditionally, promising staff a reversal that could not happen.
+
+**Corroborated in the wild nine weeks earlier:** CJ-2026-01504 carries three manual correction rows dated 2026-08-26 — *"Pre-loyalty forfeiture — no point lot existed, so revoke_loyalty_points could not deduct automatically. Amount from Google Sheets loyalty tracker."* Someone had already hit this and patched it by hand.
+
+**Fix** (migration `20260914130000_loyalty_spend_reversal_from_order_basis.sql`):
+
+- New `loyalty_order_spend_basis(member, reference)` — `SUM(earned) − SUM(revoked)` over that order's ledger rows, floored at 0. The ledger is authoritative because it is append-only (`trg_loyalty_transactions_immutable`) and records exactly what was added to the counter, whereas `loyalty_jpy_amount` is mutated after the award by `approve_redemption_atomic` / `void_redemption_atomic` (net-spend rule, 2026-05-26) and is unreadable once a delete path removes the order row. Verified against live data: for every surviving order with an earned row, ledger net == the order's current `loyalty_jpy_amount`.
+- `revoke_loyalty_points` — points still lot-derived, spend from the basis, tier re-derived unconditionally (previously unreachable when no lots survived). `p_spend_jpy` is ignored.
+- Idempotency is the basis reaching 0, not a floor: a successful revoke writes `spend_amount_jpy = basis` (so the next basis is 0) and stamps `revoked_at` (so the next lot sum is 0). When both are 0 it writes nothing and returns the earlier revoke row. Cancel-twice and delete-after-cancel both verified: one row, one deduction.
+- `terminate_web_order_atomic` preview now reports `earned_points_to_revoke` and `lifetime_spend_to_reverse_jpy` and only claims `earned_points_will_be_revoked` when points actually survive.
+- `delete_account_atomic` revokes inside the delete transaction; the `delete-account` edge function's HTTP call was removed (idempotency makes a lagging build harmless).
+- `loyalty_integrity_report()` gained TWO predicates. Predicate 4 (counter vs `spend_baseline_jpy` + ledger spend) is necessary but NOT sufficient — when case A struck, the counter kept the spend AND the ledger kept the earned row, so the two agree and a counter-vs-ledger check passes. Predicate 5 is the one that catches this class: a cancelled / expired / forfeited order whose `loyalty_order_spend_basis` is still positive. Verified: predicates 1–4 report "(NOT DETECTED)" on a faithful reproduction; predicate 5 names it with the exact figure.
+- `loyalty_members.spend_baseline_jpy` freezes the pre-Hub migration seed for the seven real members who carry it (Marikarr Heartie Merca 5,014,748; Rinda Kagawa 830,480; Sunrise villa 561,940; Jerelyn Catadman 363,960; Dorothy Ignacio Surio 259,900; Ar Yan 137,628; melanie mejia 16,780) so predicate 4 does not flag them forever. A baseline, not an exclusion — new drift on those same members still surfaces. Scoped to members enrolled before 2026-04-01 and not test customers, which deliberately leaves Test Customer (enrolled 2026-04-26) visible rather than laundering her ¥3,080,000 of test-era churn.
+
+**Blast radius when found:** no real customer had lost or gained a tier. Angelyn Mijares (19443) is the one real Hub-era forfeit and reversed correctly, because live lots happened to win the branch. Latent exposure was larger than the web-cancel path: 33 active real layaway accounts holding ¥5,739,183 of ledger spend had no live lots, so any forfeit of one would have reversed the payment figure instead of the basis (failure C).
+
+**Not fixed here:** Test Customer's ¥4,430,940 / Elite standing — ¥701,960 of unreversed cancellations plus ¥3,080,000 of May test-era churn. That is a data decision, proposed in the PR, not run.
+
+
+**Follow-up, same migration (2026-09-14).** Revalidation against `develop` found two
+things the first pass did not cover. Both landed in
+`20260914130000_loyalty_spend_reversal_from_order_basis.sql` before it was ever applied,
+so there is no second migration.
+
+*The nine-argument twin.* The baseline created `revoke_loyalty_points` with **nine**
+parameters. `20260913050000` created a **ten**-parameter version by adding a defaulted
+`p_trigger_event` — which in Postgres is a new overload, not a replacement — and no
+migration ever dropped the old one. Both survived in the live database, and the 9-arg one
+still carried the pre-#271 lot-derived body. It was latent, never active: every call site
+passes ten arguments, and `revoke-loyalty-points/index.ts` returns 400 when
+`trigger_event` is missing, so PostgREST always sent ten. But a nine-argument call
+resolved to *neither* — `ERROR: function ... is not unique`, inside transactions like
+`delete_account_atomic` — and the dead twin was a live copy of the bug. The migration now
+drops it, **before** the `CREATE OR REPLACE`, so that a mis-resolved DROP would be
+repaired by the create two lines below rather than leaving the system with no function at
+all.
+
+Proven in a harness that reproduced the live two-overload state: a nine-argument call went
+from `is not unique` to resolving cleanly against the single remaining function with
+`p_trigger_event` defaulting to NULL, and reversing the order basis correctly. It does
+**not** become "function does not exist" — with one overload left, the defaults simply
+cover the missing argument. All ten caller shapes still reverse the basis exactly.
+
+*The unsourced-reversal guard.* After the fix the code no longer guesses when it cannot
+determine a basis — but it was silent about it. Reaching the idempotency branch means two
+different things: an order that earned and was already reversed (ledger rows exist, they
+net to zero — a legitimate silent no-op), or an order with **no** `earned` and **no**
+`revoked` row at all whose spend was seeded outside the Hub (pre-Hub migration, a manual
+`adjusted` correction). The discriminator is the *count* of earned/revoked rows, not the
+net. In the second case, when the order still carries money received or a non-null
+`loyalty_jpy_amount`, `revoke_loyalty_points` now writes an `audit_logs` row and a
+`staff_notifications` row of type `loyalty_reversal_unsourced` naming the invoice — and
+**returns anyway**. It never refuses: blocking a legitimate forfeit or cancellation because
+the customer's loyalty history predates the Hub would be a worse failure than the gap it
+closes. The notification is written with `account_id` NULL on purpose — both delete paths
+run `DELETE FROM staff_notifications WHERE account_id = <order id>` *after* calling the
+function, so a notification carrying the order id would be erased by the same transaction
+that raised it; the ids live in `metadata` and `invoice_number` is the CSR's handle.
+
+### Bug #270 — `missing_unsubscribe` was TWO faults wearing one error message; the queued-email pipeline is still refused (2026-09-14)
+
+**The trap.** The Lovable email API answers `400 missing_unsubscribe` for two
+OPPOSITE mistakes, with identical status and type. Only the body separates them:
+
+| Meaning | When |
+|---|---|
+| "You sent no unsubscribe mechanism — supply one." | the old behaviour |
+| "Unsubscribe is managed for you — **do not set `unsubscribe_token` manually**." | since ~2026-09-01/03 |
+
+Ours was the second, verbatim from `email_send_log`:
+
+```
+Email API error: 400 {"status":400,"type":"missing_unsubscribe",
+ "title":"This project is migrating to Lovable-managed email sending. Publish the
+  project to complete the migration, then retry; do not set unsubscribe_token manually.",
+ "request_id":"01a06edd7e9c7b699ff419f1d109753d"}
+```
+
+Read carelessly, that single message says "add a token". Adding one is what
+keeps the failure alive. It also carries TWO separate instructions — publish the
+project, and stop setting a token — and each of them bit a different pipeline.
+
+**Two pipelines, two faults, one message.**
+
+| Pipeline | Sets a token? | What refused it | State |
+|---|---|---|---|
+| Direct: `_shared/transactional-email-templates/send-email.ts` (channel `hub`), `_shared/storefront-email.ts` (channel `storefront`) | no | the *publish* clause | fixed by the publish — see Bug #267 |
+| Queued: `send-transactional-email` → pgmq `transactional_emails` → `process-email-queue` (channel NULL) | **yes** | the *token* clause | still refused — fixed here |
+
+**Evidence, from `email_send_log`, 14 days to 2026-09-14.** One error class, 164
+rows, all on the queued pipeline, `2026-09-04 02:03:38` → `2026-09-09 14:08:13`.
+Templates: payment-confirmed 101, payment-reminder 36, loyalty-earned 13,
+cash-payment-confirmed 5, payment-submitted 4, and one each of loyalty-welcome,
+loyalty-tier-upgrade, payment-rejected, loyalty-pre-expire,
+loyalty-expire-deduct. Against that, since the 09-13 deploy the direct pipeline
+has 76 `hub` rows and 1 `storefront` row, all `sent`, zero failed — including
+the full 52-email reminder run at 00:00 UTC on 09-14. **No send has ever
+succeeded while carrying a token; none has ever failed without one.**
+
+**Why the failures stopped on 09-09 without a fix.** They did not stop because
+anything was repaired. `process-email-queue` has no cron (CLAUDE.md's "every 5
+seconds" is stale — `cron.job` has no such entry); it is kicked by
+`send-transactional-email`. Nothing has called that path since, so the pipeline
+went quiet, not healthy. `pgmq.metrics_all()` shows `transactional_emails`
+length 0, so nothing is stranded; the 464 rows in `transactional_emails_dlq` are
+100-171 days old and predate all of this.
+
+**Why the fleet survived.** The Lovable agent created `send-email.ts` at
+`2026-09-04 01:47:42` — sixteen minutes BEFORE the first logged refusal — and
+moved `send-reminders` onto it at 02:10. Twenty-one functions now use that
+token-free direct helper. Seven still route through the queued pipeline:
+`_shared/emit-notification.ts`, `bulk-send-setup-invites`,
+`process-loyalty-notification-queue`, `request-extension`,
+`restore-loyalty-points`, `revoke-loyalty-points`, `send-loyalty-notification`.
+Those seven would have 400'd on their next send.
+
+**Fix.** Stop setting the field.
+- `process-email-queue/index.ts` — `unsubscribe_token` removed from the
+  `sendLovableEmail` payload. A queued payload that still carries the field from
+  before this change is ignored.
+- `send-transactional-email/index.ts` — the whole mint-or-look-up block against
+  `email_unsubscribe_tokens` is gone, along with the payload field it fed and
+  the now-unused `generateToken`. The `suppressed_emails` check above it is
+  untouched, so opt-outs still gate sending.
+- Both sites carry a comment giving BOTH meanings of `missing_unsubscribe`, so
+  the next reader does not "fix" this by putting the token back.
+
+**Deliberately NOT done.** `email_unsubscribe_tokens` rows and table stay;
+`handle-email-unsubscribe` stays. Unsubscribe links in already-delivered emails
+must keep working. No migration. **No client bump** —
+`@lovable.dev/email-js` 0.1.0 and 0.3.0 were diffed and neither touches
+unsubscribe client-side, so upgrading is not the fix and was not done.
+
+**Unproven until deployed.** The queued pipeline is idle, so there is no failing
+signal to watch clear. It is proven only when a send through
+`send-transactional-email` reaches `status='sent'` in `email_send_log`.
+
 ### Bug #268 — two web-order expiry paths, no cancellation email, manual cancel kept the stock (2026-09-13)
 
 **Symptom.** A lapsed web order was ended by pg_cron `expire_transfer_orders()` (hourly at :17, status `cancelled`, stock restored, no email, no audit row) before the daily `auto-expire-cash-orders` (08:30 PHT) could reach it, so the order-expired email was never sent. A staff cancel from the Hub left `website_product_variants.stock_qty` decremented (docs/PENDING.md note) and sent no email at all. Web orders could be hard-deleted, destroying the item rows that record which variant held the stock.
@@ -3762,6 +3924,22 @@ hosting of the Hub; Firebase production is untouched). Recorded in
 docs/WEBSITE-VERCEL.md §4b. Code change shipped alongside: Reply-To
 `sales@chajewelsjp.com` on every storefront email (`_shared/storefront-email.ts`
 `STOREFRONT_REPLY_TO`; `auth-email-hook` inline storefront handler).
+
+**Confirmed 2026-09-14, and this entry is only half the story.** The publish
+diagnosis holds for THIS send and for every other direct send:
+`storefront-email.ts` and `send-email.ts` set no `unsubscribe_token` at all, so
+the token clause of that error could never have applied to them, and since the
+publish they send cleanly — 76 `hub` rows and 1 `storefront` row in
+`email_send_log`, all `sent`, zero failed, including the full 52-email reminder
+run at 00:00 UTC on 09-14.
+
+What this entry missed is that the SAME message carried a second instruction
+that bit a DIFFERENT pipeline. `send-transactional-email` →
+pgmq `transactional_emails` → `process-email-queue` does set a token, and it was
+refused 164 times between 2026-09-04 02:03 and 09-09 14:08 — the token clause,
+not the publish. Publishing did not fix that path and could not have; it merely
+stopped being called. See **Bug #270**, which removes the token. Do not read
+"one publish fixed it" as covering the queued pipeline: it did not.
 
 ### Bug #266 — every web checkout failed: cash_order_items.product_id is the Shopify FK (2026-09-13)
 

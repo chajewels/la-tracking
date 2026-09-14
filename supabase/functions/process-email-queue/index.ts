@@ -241,7 +241,15 @@ Deno.serve(async (req) => {
             purpose: payload.purpose,
             label: payload.label,
             idempotency_key: payload.idempotency_key,
-            unsubscribe_token: payload.unsubscribe_token,
+            // NO unsubscribe_token. READ THIS BEFORE ADDING ONE BACK: the API
+            // error `missing_unsubscribe` means TWO OPPOSITE THINGS and the
+            // code is identical either way — only the message body separates
+            // them. OLD: "you sent no unsubscribe mechanism, supply one."
+            // NEW (since 2026-09-01/03): "unsubscribe is managed for you — do
+            // not set unsubscribe_token manually." Ours was the new one, and
+            // it refused all 164 sends through this queue between 2026-09-04
+            // 02:03 and 09-09 14:08. A payload that still carries the field
+            // from before this change is simply ignored here.
             message_id: payload.message_id,
           },
           // sendUrl is optional — when LOVABLE_SEND_URL is not set, the library

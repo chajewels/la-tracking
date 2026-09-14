@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { customerReference } from "../_shared/order-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -118,7 +119,7 @@ Deno.serve(async (req) => {
     // Only get the EARLIEST unpaid installment per account to avoid flooding
     const { data: rawItems, error: queryErr } = await supabase
       .from("layaway_schedule")
-      .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link))")
+      .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, web_reference, source_channel, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link))")
       .in("status", ["pending", "overdue", "partially_paid"])
       .in("layaway_accounts.status", ["active", "overdue"])
       .filter("layaway_accounts.is_test", "eq", false)
@@ -161,7 +162,8 @@ Deno.serve(async (req) => {
       alerts.push({
         stage,
         customer: cust?.full_name || "Unknown",
-        invoice: acc.invoice_number,
+        // The number the customer knows — CJ-W-… on a web order.
+        invoice: customerReference(acc as any),
         dueDate: s.due_date,
         amount: Number(s.total_due_amount) - Number(s.paid_amount),
         currency: acc.currency,

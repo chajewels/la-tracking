@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels Hub'
+import { INTERNAL_SITE_NAME as SITE_NAME, INTERNAL_FOOTER as FOOTER_LINE } from './brand.ts'
 
 interface Props {
   customerName?: string
@@ -46,7 +46,7 @@ const ExtensionRequestedEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
+          <Text style={footerBrand}>{FOOTER_LINE}</Text>
         </Container>
       </Body>
     </Html>
@@ -54,6 +54,8 @@ const ExtensionRequestedEmail = ({
 }
 
 export const template = {
+  /** Who reads this. Decides the From name and footer — see brand.ts. */
+  audience: 'internal' as const,
   component: ExtensionRequestedEmail,
   subject: (data: Record<string, any>) =>
     `📋 Extension Request Received — INV #${data.invoiceNumber || ''}`,

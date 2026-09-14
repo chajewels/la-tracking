@@ -24,13 +24,15 @@ type TriggerEvent =
   | "auto_forfeit"
   | "final_forfeit"
   | "edit_amount"
-  | "delete_account";
+  | "delete_account"
+  | "cancel";
 
 type RevokeReason =
   | "payment_voided"
   | "account_forfeited"
   | "payment_edited"
-  | "account_deleted";
+  | "account_deleted"
+  | "order_cancelled";
 
 const TRIGGER_TO_REASON: Record<TriggerEvent, RevokeReason> = {
   void_layaway: "payment_voided",
@@ -40,6 +42,7 @@ const TRIGGER_TO_REASON: Record<TriggerEvent, RevokeReason> = {
   final_forfeit: "account_forfeited",
   edit_amount: "payment_edited",
   delete_account: "account_deleted",
+  cancel: "order_cancelled",
 };
 
 const REASON_BODY: Record<RevokeReason, string> = {
@@ -51,6 +54,8 @@ const REASON_BODY: Record<RevokeReason, string> = {
     "A payment amount was adjusted, affecting your cumulative progress.",
   account_deleted:
     "Loyalty status adjustment following account closure.",
+  order_cancelled:
+    "An order was cancelled, so the points and lifetime spend it earned have been reversed.",
 };
 
 Deno.serve(async (req) => {
@@ -106,6 +111,10 @@ Deno.serve(async (req) => {
     if (!source_reference || typeof source_reference !== "string") {
       return json({ error: "source_reference is required" }, 400);
     }
+    // spend_jpy is still required by the contract but NO LONGER decides the
+    // reversal: revoke_loyalty_points derives the spend basis from the ledger
+    // (Bug #271). Callers pass total_paid in JPY, which is money received —
+    // not the order's loyalty basis — so honouring it reversed the wrong number.
     if (typeof spend_jpy !== "number" || !Number.isFinite(spend_jpy)) {
       return json({ error: "spend_jpy is required and must be a finite number" }, 400);
     }
@@ -113,7 +122,7 @@ Deno.serve(async (req) => {
       return json(
         {
           error:
-            "trigger_event is required and must be one of: void_layaway, void_cash, manual_forfeit, auto_forfeit, final_forfeit, edit_amount, delete_account",
+            "trigger_event is required and must be one of: void_layaway, void_cash, manual_forfeit, auto_forfeit, final_forfeit, edit_amount, delete_account, cancel",
         },
         400,
       );

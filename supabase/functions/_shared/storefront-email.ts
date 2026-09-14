@@ -49,6 +49,22 @@ export function storefrontOrderUrl(orderId: string): string | null {
   return base ? `${base}/account/orders/${encodeURIComponent(orderId)}` : null
 }
 
+/** The storefront layaway page for this plan, built from WEBSITE_URL. */
+export function storefrontLayawayUrl(accountId: string): string | null {
+  const base = (Deno.env.get('WEBSITE_URL') ?? '').replace(/\/$/, '')
+  return base ? `${base}/account/layaway/${encodeURIComponent(accountId)}` : null
+}
+
+/**
+ * Money in the account's own settlement currency. A web layaway can be settled
+ * in yen or in pesos (owner decision 2026-09-13), so an email about one cannot
+ * assume the yen symbol the way an order email can.
+ */
+export function formatMoney(n: number | string | null | undefined, currency: 'JPY' | 'PHP' = 'JPY'): string {
+  const v = Math.round(Number(n ?? 0))
+  return `${currency === 'PHP' ? '\u20b1' : '\u00a5'}${v.toLocaleString('en-US')}`
+}
+
 /** Owner-readable address? The only exception to the test gate. */
 export function ownerReadable(email: string): boolean {
   const e = email.trim().toLowerCase()
@@ -82,13 +98,36 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
   const log = (outcome: string, extra: Record<string, unknown> = {}) =>
     console.log(JSON.stringify({ storefront_email: label, reference, to: email || null, outcome, ...extra }))
 
-  if (!email) { log('skipped_no_address'); return { sent: false, reason: 'no_address' } }
-  if (args.to.is_test === true && !ownerReadable(email)) {
-    log('skipped_test_customer')
-    return { sent: false, reason: 'test_customer' }
+  // A SKIP IS AN OUTCOME AND IT LEAVES A ROW.
+  //
+  // These three paths used to return silently, writing nothing to
+  // email_send_log. That made "the customer never got the email"
+  // indistinguishable from "the send was never reached" — you could only tell
+  // them apart from the function log, which retains minutes. It is the same
+  // blind spot that hid the 2026-09-04 outage for nine days, and it is why the
+  // web-order confirmation could not be diagnosed from the log alone.
+  //
+  // recordEmailAttempt never throws, so logging a skip cannot turn a skipped
+  // send into a failed order.
+  const skip = async (reason: 'no_address' | 'test_customer' | 'not_configured') => {
+    log(`skipped_${reason}`)
+    await recordEmailAttempt({
+      channel: 'storefront',
+      template: label,
+      // recipient_email is NOT NULL; an absent address is recorded as such
+      // rather than silently dropping the row.
+      recipient: email || '(no address)',
+      status: 'skipped',
+      idempotencyKey: args.idempotencyKey,
+      metadata: { reference, skip_reason: reason },
+    })
+    return { sent: false as const, reason }
   }
+
+  if (!email) return await skip('no_address')
+  if (args.to.is_test === true && !ownerReadable(email)) return await skip('test_customer')
   const apiKey = Deno.env.get('LOVABLE_API_KEY')
-  if (!apiKey) { log('skipped_not_configured'); return { sent: false, reason: 'not_configured' } }
+  if (!apiKey) return await skip('not_configured')
 
   try {
     const html = await renderAsync(args.element)

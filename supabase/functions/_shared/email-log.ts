@@ -14,7 +14,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  * Never throws: logging must not change the outcome of the send.
  */
 
-export type EmailAttemptStatus = "sent" | "failed" | "suppressed";
+/**
+ * "skipped" means the Hub decided not to send: no address on the customer, a
+ * test customer at an address the owner does not read, or no API key. It is a
+ * real outcome and it MUST leave a row — without one, "the customer got no
+ * email" is indistinguishable from "the send was never reached", which is the
+ * exact ambiguity that made the 2026-09-04 outage take nine days to see.
+ */
+export type EmailAttemptStatus = "sent" | "failed" | "suppressed" | "skipped";
 
 export interface EmailAttempt {
   channel: "hub" | "storefront";
