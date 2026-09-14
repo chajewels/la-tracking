@@ -6184,7 +6184,14 @@ export type Database = {
         Returns: Json
       }
       layaway_quote: {
-        Args: { p_currency: string; p_price: number; p_term_months: number }
+        Args: {
+          p_currency: string
+          p_order_date?: string
+          p_price: number
+          p_services?: number
+          p_shipping?: number
+          p_term_months: number
+        }
         Returns: Json
       }
       loyalty_integrity_report: {
