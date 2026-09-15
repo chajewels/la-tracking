@@ -32,6 +32,7 @@ import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { cn } from '@/lib/utils';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
+import { PortalTokenPill } from '@/components/system/PortalTokenIndicator';
 import {
   Sidebar,
   SidebarContent,
@@ -149,6 +150,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Smart Reminders', tab: 'reminders' },
       { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
       { label: 'Notifications', tab: 'notifications' },
+      { label: 'Portal links', tab: 'portal-links' },
       { label: 'Audit', tab: 'audit' },
       { label: 'Inquiries', tab: 'inquiries', path: ROUTES.INQUIRIES, permFilter: (can) => can('view_inquiries') },
       { label: 'Commissions', tab: 'commissions', path: ROUTES.COMMISSIONS },
@@ -442,6 +444,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
           </p>
         )}
         <EmailHealthPill />
+        <PortalTokenPill />
       </SidebarFooter>
     </Sidebar>
   );

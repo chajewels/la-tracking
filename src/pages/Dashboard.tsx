@@ -30,6 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import RebuildCashReceiptsCard from '@/components/admin/RebuildCashReceiptsCard';
 import { EmailHealthBanner } from '@/components/system/EmailHealthIndicator';
+import { PortalTokenBanner } from '@/components/system/PortalTokenIndicator';
 
 // customers.created_at is usable for month bucketing ONLY from 2026-04
 // onward. Owner-run SQL (2026-07-07, is_test=false, by month of created_at):
@@ -230,6 +231,7 @@ export default function Dashboard() {
 
         {/* Email delivery — renders only when customer emails are being refused or not attempted */}
         <EmailHealthBanner />
+        <PortalTokenBanner />
 
         {/* Section 1b — KPI Strip (Phase 3): headline figures with trends */}
         <div>

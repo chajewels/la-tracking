@@ -413,3 +413,185 @@ Cancelling a web order from CashOrderDetail sets the status but leaves
 `website_product_variants.stock_qty` decremented. Only the 72-hour expiry
 (`expire_web_order_atomic`) puts stock back. Needed: route the Hub cancel of a
 `source_channel = web` order through an RPC that restores stock the same way.
+
+---
+
+### CUSTOMER PORTAL ACCESS — PARKED 2026-09-15 (owner decision)
+
+Findings from the portal→storefront investigation of 2026-09-15. Recorded as
+facts, in the order they were found. The portal remains the PRIMARY customer
+surface; nothing is retired and nothing is migrated.
+
+#### A. TOKEN CLIFF — TIME-CRITICAL. FIRST LAPSE **2026-09-18**.
+
+632 active portal tokens. **447 expire within 30 days, 438 within 13, earliest
+2026-09-18.** 145 of those customers hold live layaway plans. The mass arrives
+on Sunday **2026-09-20** (195 tokens in one day); by Tuesday 2026-09-22, 408 of
+the 632 are dead.
+
+The cause is the column default: `customer_portal_tokens.expires_at DEFAULT
+now() + '180 days'`, and the Hub's mint (`CustomerPortalShareMenu.tsx:130`)
+never sets the column. Every token's death is its mint date plus 180 days, and
+the mint dates are the March bulk run (195 on 2026-03-24, 138 on 03-25, …).
+Not one has been renewed in the six months since — there is no renewal path.
+
+Expiry is enforced (`portal-auth.ts:164`, `throw new Error('Token expired')`).
+Nothing re-mints. The only mint is a CSR pressing Regenerate, one customer at
+a time.
+
+The fix is a dated `UPDATE` on `expires_at` — reversible, no code, no deploy,
+no schema change (the table has no triggers and no CHECK constraints).
+
+**If it passes unactioned:** saved links and every link in past emails stop
+working. The customer lands on an error screen reading "Token expired" with no
+sign-in offer and no recovery on it. Recoverable only by a CSR regenerating
+each link by hand.
+
+#### B. NO WARNING SYSTEM
+No notification, no dashboard indicator, no report, no cron watching
+`expires_at`. `buildPortalLinkForCustomerId` treats an expired token as NO
+token and falls back to a bare `/portal` URL, so `send-reminders` keeps sending
+— 5,067 reminders in 90 days — the email looks normal, the customer lands on a
+page that cannot identify them, and success is reported. Same failure shape as
+the September email outage: the system reports success while the thing it is
+for has stopped working. Staff find out when a customer complains.
+
+*Status 2026-09-15: ADDRESSED — daily `portal-token-check`, the
+`portal_token_expiry_report` verdict, the sidebar pill, the dashboard banner and
+the CSR Monitoring → Portal links worklist. Last-seen recording landed with it
+(see K).*
+
+#### C. NO BULK REGENERATION
+One CSR click per customer, against 447.
+
+*Still open, and it caps what the warning in B is worth: a warning 60 days out
+converts a weekend outage into scheduled work and lets staff take the customers
+with live plans first, but the fix is still one click each. Near-certain
+follow-up rather than a maybe.*
+
+#### D. 50 CUSTOMERS WITH NO EMAIL, HOLDING LIVE PLANS
+(144 across all real customers.) No email-based sign-in can ever reach them, on
+either surface. Reachable only by the expiring token. Needs an email-collection
+campaign or a CSR-mediated route — an owner decision, not code.
+
+#### E. FIVE `source_channel = 'web'` FILTERS
+`website/index.ts` lines 1205, 1226, 1266, 1287 (reads) and 1358 (pay). Every
+live plan is `hub_manual` — 491 live, 1,448 in total, against 1 web — so all
+290 plan-holders see an empty account on the storefront.
+
+Owner decision 2026-09-15: the portal stays PRIMARY; the storefront becomes a
+READ-ONLY second view; payment submission stays in the portal.
+
+*Status: built, PR open, NOT merged* — la-tracking #67 (four read filters
+relaxed, pay filter kept) and cha-jewels-web #26.
+
+#### F. COPY PASS FOR REAL PLAN STATES — belongs with E, not after it
+`overdue`, `extension_active`, `forfeited`, `final_settlement` and `completed`
+all render with copy written for a healthy new plan. Worst case: all 53
+forfeited plans carry a positive `remaining_balance` (up to ₱478,556), shown in
+gold under "Still to pay" on a plan that cannot accept a payment.
+*Status: included in cha-jewels-web #26, NOT merged.*
+
+#### G. PENALTIES INVISIBLE ON THE STOREFRONT
+`penalty_amount` exists in `lib/types.ts:236` and is rendered nowhere; the
+portal has ~12 render sites. A customer sees a balance silently including
+penalties they cannot see itemised. Should land before anyone is invited to
+view a balance there.
+
+#### H. CASH-ORDER PAYMENT ABSENT FROM THE STOREFRONT
+Not gated — missing. `GET /orders/:id` shows transfer instructions and stops;
+the `website` function has no pay endpoint for orders. A web cash customer can
+only report a transfer via the portal.
+
+#### I. PIN AS A SECOND LOCKOUT
+Every portal arrival needs a 4-digit PIN, the last four of the mobile number on
+file (`verify-portal-pin`, hashes in `customer_pins`). A customer whose number
+changed has no examined recovery path.
+
+#### J. HOUSEKEEPING
+- `customer_portal_sessions` is dead: 20 rows, last used 2026-05-06, zero in 30
+  days. Everything runs on the raw token.
+- 29 of the 30 transactional email templates hardcode
+  `portal.chajewelsjp.com`, so any change to how customers reach their account
+  means editing all 29.
+
+#### Two facts that should govern any future migration decision
+
+- **The 2026 setup-invite campaign converted 71 of 597 attempts — about 12%.**
+  That is the measured rate at which this base will set a password when asked.
+- **The eight duplicate email addresses across sixteen customer rows are
+  deliberately LEFT AS-IS** (owner decision 2026-09-15). Six of them would sign
+  in and reach the linked twin that holds no plan — a blank account, silently,
+  with no error. Only the failure is made visible (a `portal_blank_account`
+  staff notification plus customer-facing wording, in la-tracking #67); the
+  data is not touched.
+
+
+---
+
+### PORTAL LINKS — ITEMS ADDED 2026-09-15 (second pass)
+
+#### K. LAST-SEEN IS NOW RECORDED; THE LIFECYCLE DECISION IS DEFERRED, NOT TAKEN
+
+`customer_portal_tokens.last_used_at` / `use_count` and
+`customers.portal_last_seen_at` are written by `record_portal_seen`, called
+fire-and-forget from `_shared/portal-auth.ts` on all three auth paths, throttled
+to one write an hour.
+
+**The decision this exists to inform.** Should token expiry run from the mint or
+from last use? Measured on 2026-09-15, use-based would take March 2027 from 70%
+of tokens to 55%, and the peak day from 195 to 149 — a lower wall, still a wall.
+But the measurement was built from customers taking an ACTION that left a row; a
+read-only visit wrote nothing, so **153 was a floor, not a count**, and the
+"would lapse on scattered dates" group was empty only because the portal was 175
+days old against a 180-day window. Revisit once `last_used_at` has ~6 months of
+real data — the extension runs to 2027-03-17, so there is room.
+
+Two facts to carry into that revisit: **76 of the 632 token-holders also hold a
+password**, so their token lapsing costs them nothing; and `use_count` counts
+SESSIONS, not page loads, because it shares the one-hour throttle.
+
+#### L. `send-reminders` SENDS A LINK THAT IDENTIFIES NOBODY
+
+Found 2026-09-15 while investigating the "silent fallback". **The premise was
+wrong in a way worth recording**: `send-reminders` does NOT call
+`buildPortalLinkForCustomerId`. It hardcodes, at index.ts:254 and :291:
+
+    portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`
+
+and `CustomerPortal.tsx:316` reads `params.get('token')` and nothing else.
+**`?invoice=` has never authenticated anybody** — not since it was written, and
+independently of token expiry. So the ~5,067 reminders per 90 days were never a
+token-expiry casualty.
+
+It is not a dead end: with no token the page hits the `authMode === null` branch,
+which offers Sign in and First-time setup. But the parameter is inert and the
+link is less useful than it looks. **The honest fix is to stop pretending it does
+something** — either drop the parameter, or make the portal read it and
+pre-select that invoice after sign-in. Deliberately NOT bundled with the
+token-expiry work, where it would have been buried.
+
+The real blast radius of the expired-token fallback is the loyalty functions
+(`award-loyalty-points`, `loyalty-inactivity-check`, `process-loyalty-redemption`,
+`restore-`/`revoke-loyalty-points`, `join-loyalty-program`,
+`send-loyalty-notification`, `process-loyalty-notification-queue`) plus
+`request-extension` — roughly **758 emails over five months**, not 5,067.
+
+#### M. THE 180 DAYS WAS NEVER CHOSEN
+
+`expires_at timestamptz DEFAULT (now() + interval '180 days')` comes from
+`supabase/migrations-archive/20260322063951_c9829517-…sql`, a UUID-named
+Lovable-generated migration dated the same day as the bulk mint. No comment, no
+policy. `docs/` and `CLAUDE.md` record no rationale for portal-token expiry at
+all, and the Hub's mint never sets the column, so no human has ever chosen a
+value for a single token.
+
+What expiry would protect against is already covered: the token is
+`gen_random_bytes(32)` (256 bits, not enumerable); a leaked URL alone opens
+nothing because the PIN gate demands the last four of the mobile; and `is_active`
+is an immediate, independent revocation control. What expiry adds beyond those is
+a bound on an *undetected* leak.
+
+(Related, and also unexamined: `docs/PORTAL-PIN-AUTH.md` is stale — it describes
+SHA-256 hashes on `customers`, which moved to PBKDF2 in `customer_pins` on
+2026-06-07.)

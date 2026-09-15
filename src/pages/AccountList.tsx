@@ -13,6 +13,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
+// Same three fields on a layaway row as on a cash order, so the predicate is
+// reused rather than duplicated.
+import { isWebOrder, cashOrderRef } from '@/lib/order-reference';
 import { Skeleton } from '@/components/ui/skeleton';
 import AccountSearchBar from '@/components/search/AccountSearchBar';
 import { getPHTToday } from '@/lib/date-utils';
@@ -74,6 +77,37 @@ const statusDot: Record<string, string> = {
 // check is the canonical client-side filter (same as CashOrdersList).
 const isTestInvoice = (inv: string | null | undefined) => (inv || '').startsWith('TEST-');
 
+/**
+ * Where the plan came from. Same three options and the same labels as the cash
+ * order list, so "Web" means the same thing in both places.
+ *
+ * A CSR gets a bell notification naming CJ-W-000123 and has to find that plan
+ * among hundreds. Before this the layaway list knew nothing about the channel:
+ * no filter, and the CJ-W reference was not even searchable — only the invoice
+ * number was, which is not the string the customer or the notification quotes.
+ */
+type ChannelFilter = 'all' | 'web' | 'hub';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
+
+type AccountRefFields = {
+  invoice_number: string;
+  web_reference?: string | null;
+  source_channel?: string | null;
+  customers?: { full_name?: string | null } | null;
+};
+
+const matchesAccountChannel = (a: AccountRefFields, f: ChannelFilter) =>
+  f === 'all' || (f === 'web' ? isWebOrder(a) : !isWebOrder(a));
+
+/** Invoice number, customer name, OR the CJ-W reference the customer quotes. */
+const matchesAccountSearch = (a: AccountRefFields, q: string) => {
+  const needle = q.toLowerCase();
+  return a.invoice_number.includes(q)
+    || (a.customers?.full_name || '').toLowerCase().includes(needle)
+    || (a.web_reference || '').toLowerCase().includes(needle);
+};
+
 const FOLDER_CARD_CAP = 24;
 // Revealed folders larger than this render through VirtualCardGrid
 // (render-layer only — data fetching is unchanged).
@@ -115,6 +149,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   }, [searchValue]);
 
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
+  const [filterChannel, setFilterChannel] = useState<ChannelFilter>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
   const [filterPeriod, setFilterPeriod] = useState<string>(searchParams.get('period') || '');
   const [hideTest, setHideTest] = useState(true);
@@ -124,7 +159,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const [shownAll, setShownAll] = useState<Record<string, boolean>>({});
   // List-kit state: folder sort, card density, bulk selection, quick-view.
   const [sort, setSort] = useState<SortState | null>(null);
-  const [density, setDensity] = useDensity('cj-account-list-density');
+  // One density preference across both Sales lists (the cash order list uses the
+  // same key), so a CSR who picks Compact on one screen keeps it on the other.
+  const [density, setDensity] = useDensity('cj-sales-list-density');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [quickView, setQuickView] = useState<QuickViewAccount | null>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -141,7 +178,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   // Reapply default folder open state (and reset reveals + bulk selection)
   // on any filter change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setOpenState({}); setShownAll({}); setSelectedIds(new Set()); }, [filterTick, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  useEffect(() => { setOpenState({}); setShownAll({}); setSelectedIds(new Set()); }, [filterTick, filterCurrency, filterChannel, filterStatus, filterPeriod, hideTest]);
 
   const selectTab = (s: string) => {
     setFilterStatus(s);
@@ -153,18 +190,18 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   // Accounts after search + currency + test filtering ONLY (no status/period).
   // Basis for tab counts, grouped by status.
   const preStatusFiltered = useMemo(() => (accounts || []).filter(a => {
-    const matchesSearch = !searchRef.current || a.invoice_number.includes(searchRef.current) ||
-      (a.customers?.full_name || '').toLowerCase().includes(searchRef.current.toLowerCase());
+    const matchesSearch = !searchRef.current || matchesAccountSearch(a, searchRef.current);
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
+    const matchesChannel = matchesAccountChannel(a, filterChannel);
     const matchesTest = !hideTest || !isTestInvoice(a.invoice_number);
-    return matchesSearch && matchesCurrency && matchesTest;
+    return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [accounts, filterTick, filterCurrency, hideTest]);
+  }), [accounts, filterTick, filterCurrency, filterChannel, hideTest]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
-    const matchesSearch = !searchRef.current || a.invoice_number.includes(searchRef.current) ||
-      (a.customers?.full_name || '').toLowerCase().includes(searchRef.current.toLowerCase());
+    const matchesSearch = !searchRef.current || matchesAccountSearch(a, searchRef.current);
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
+    const matchesChannel = matchesAccountChannel(a, filterChannel);
     const todayStr = getPHTToday();
     const matchesStatus = filterStatus === 'all'
       ? true
@@ -173,9 +210,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
           (a.updated_at || '').startsWith(todayStr)
         : a.status === filterStatus;
     const matchesTest = !hideTest || !isTestInvoice(a.invoice_number);
-    return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
+    return matchesSearch && matchesCurrency && matchesChannel && matchesStatus && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [accounts, filterTick, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  }), [accounts, filterTick, filterCurrency, filterChannel, filterStatus, filterPeriod, hideTest]);
 
   // Tab counts (status grouping of preStatusFiltered) + ordered tab list.
   const { tabs, tabCounts } = useMemo(() => {
@@ -219,6 +256,10 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const downloadCsv = useCallback((list: typeof filtered) => {
     const rows = list.map(a => ({
       'Invoice #': a.invoice_number ?? '',
+      // Reference and Channel mirror the cash order export, so the two CSVs can
+      // be read side by side.
+      'Reference': cashOrderRef(a),
+      'Channel': isWebOrder(a) ? 'Web' : 'Hub',
       'Customer': a.customers?.full_name ?? '',
       'Status': a.status ?? '',
       'Currency': a.currency ?? '',
@@ -331,7 +372,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             </span>
             <div className="min-w-0">
               <p className="text-sm font-bold text-card-foreground font-display truncate">
-                #<HighlightText text={account.invoice_number} query={searchQuery} />
+                {isWebOrder(account) ? '' : '#'}
+                <HighlightText text={cashOrderRef(account)} query={searchQuery} />
               </p>
               <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
                 <HighlightText text={account.customers?.full_name || 'Unknown'} query={searchQuery} />
@@ -459,6 +501,21 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
                 }`}
               >
                 {c === 'all' ? 'All' : c}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
+            {channelOptions.map((c) => (
+              <button
+                key={c}
+                onClick={() => setFilterChannel(c)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                  filterChannel === c
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {channelLabels[c]}
               </button>
             ))}
           </div>

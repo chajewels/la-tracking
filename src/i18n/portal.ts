@@ -295,8 +295,14 @@ export const portalEn = {
     firstTimeSetup: 'First time? Set up your account',
     linkExpiredTitle: 'Portal Link Expired',
     linkInvalidTitle: 'Invalid Portal Link',
-    linkExpiredBody: 'This portal link has expired. Please request a new link from Cha Jewels.',
-    linkInvalidBody: 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.',
+    // "Please request a new link" with no way to request one is a wall, not a
+    // message — and this is the screen a customer whose only route into their
+    // account has just died actually lands on. Both bodies now point at the
+    // two doors that already exist twenty lines up, in the no-auth branch.
+    linkExpiredBody: 'This portal link has expired. If you have set up an email and password you can sign in below; otherwise message us and we will send you a new link.',
+    linkInvalidBody: 'This link is invalid or no longer active. If you have set up an email and password you can sign in below; otherwise message us and we will send you a new link.',
+    linkHelp: 'Need a new link?',
+    linkContact: 'Message us on Facebook',
     pinPrompt: 'Enter your 4-digit portal PIN',
     pinVerifying: 'Verifying...',
     pinAccess: 'Access My Account',
