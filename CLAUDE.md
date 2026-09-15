@@ -1751,6 +1751,36 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   There is no 24h/72h violation predicate, no forfeiture lookup and no
   automatic violator classification — those were replaced by this field.
 
+  A DEADLINE IS MOVED, NEVER REMOVED (harness finding 3, 2026-09-15).
+  `set_account_deadlines` and `set-account-deadlines` both refuse a null
+  `transfer_due_at` with `deadline_required`. There is no "clear the deadline"
+  act and none is to be built: the hourly sweep selects on `transfer_due_at IS
+  NOT NULL`, so a cleared deadline is a web plan holding its stock forever with
+  no expiry path and no error anywhere. A BACKDATED deadline stays legal — it is
+  how staff release a hold deliberately — but the RPC returns
+  `deadline_in_past: true` and the Hub warns, so a mistyped year is visible when
+  it is made.
+
+  WHAT HAPPENS AT A DEADLINE DEPENDS ON THE CHANNEL (harness finding 2,
+  2026-09-15). auto-expire-cash-orders sweeps layaways with `source_channel =
+  'web'` ONLY, yet Hub-created plans carry `transfer_due_at` too. On a Hub
+  layaway the deadline is a staff reminder and nothing automatic happens; on a
+  cash order the job cancels every pending order past `expires_at` but returns
+  stock for web ones only. Any surface that states a consequence must state the
+  one that applies to THAT order.
+  THE DEADLINE IS SPENT ONCE THE DEPOSIT IS CONFIRMED (harness finding 1,
+  2026-09-15). A layaway whose deposit has landed is still `active`, so a
+  status-only gate let the date be moved: `ok`, a written column, and an audit
+  row for a decision nothing would act on (the sweep never looks at a plan with
+  `total_paid > 0` again). `set_account_deadlines` now refuses with
+  `already_paid`, or `payment_exists` when the cache says zero and the ledger
+  disagrees — the same two tests `expire_web_layaway_atomic` makes, in the same
+  order, because INVARIANT 1 makes payments authoritative. The Hub withdraws the
+  control and SAYS WHY rather than hiding it. LAYAWAY ONLY: a cash order's
+  deadline is `expires_at` and the hourly job cancels a pending order with a
+  balance whatever has been paid, so a partially-paid cash order's deadline is
+  still live and still moveable.
+
   THERE IS ONE DEADLINE, NOT TWO (owner decision 2026-09-15). A second column,
   `settlement_due_at`, was added on 2026-09-14 and REMOVED on 2026-09-15: it
   was built to an answer nobody had asked the purpose of, nothing ever read it,
@@ -1780,6 +1810,15 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   and `submission_pending` (INVARIANT 12). There is NO cancel-after-deposit:
   once a deposit is confirmed the plan is a normal layaway and follows the
   normal overdue / penalty / forfeiture path.
+
+  THE WRITER'S REFUSAL RESTS ON `term_downgraded`, NOT ON `eligible` (harness
+  observation C, 2026-09-15). `create_web_layaway_atomic` refuses on `NOT
+  eligible OR term_downgraded`. While the 3M plan has no minimum, every basket
+  clears some term, so `layaway_quote` always returns `eligible: true` and the
+  first half never fires — a ¥500 basket asking for 12M comes back `eligible:
+  true, term_months: 3, term_downgraded: true`. Never drop `term_downgraded` as
+  redundant: without it every below-minimum basket silently writes itself a 3M
+  plan. The `eligible` half is the backstop for the day 3M gets a minimum.
 
   TWO BASES, NEVER CONFLATED:
     deposit  = 30% of the TOTAL (product + shipping + services)

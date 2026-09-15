@@ -35,6 +35,7 @@ import ProgressRing from '@/components/shared/ProgressRing';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
@@ -283,34 +284,10 @@ function useCashOrderItems(orderId: string | undefined) {
         .eq('cash_order_id', orderId!)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      const rows = ((data || []) as unknown as CashOrderItemRow[]);
-
-      // WEB ORDER THUMBNAILS. cash_order_items.image_url exists but
-      // create_web_order_atomic never writes it, so every web line stored NULL
-      // and the Hub showed an empty square for a piece the storefront pictures
-      // fine (R3341 on CJ-W-900011, 2026-09-14). The photo is not missing —
-      // it lives in website_product_media, keyed by the variant the line
-      // already carries. Resolving it at read time also fixes the orders
-      // already on the books, which backfilling the column would not.
-      const needing = rows.filter(r => !r.image_url && (r as { variant_id?: string | null }).variant_id);
-      if (needing.length > 0) {
-        const variantIds = [...new Set(needing.map(r => (r as { variant_id?: string | null }).variant_id as string))];
-        const { data: media } = await supabase
-          .from('website_product_media' as never)
-          .select('variant_id, url, sort')
-          .in('variant_id', variantIds)
-          .order('sort', { ascending: true });
-        // First by sort order is the storefront's primary image.
-        const firstByVariant = new Map<string, string>();
-        for (const m of ((media || []) as unknown as { variant_id: string; url: string }[])) {
-          if (!firstByVariant.has(m.variant_id)) firstByVariant.set(m.variant_id, m.url);
-        }
-        for (const r of rows) {
-          const vid = (r as { variant_id?: string | null }).variant_id;
-          if (!r.image_url && vid) r.image_url = firstByVariant.get(vid) ?? null;
-        }
-      }
-      return rows;
+      // WEB ORDER THUMBNAILS — resolved at read time from website_product_media,
+      // keyed by the variant the line carries. See resolveItemImages; the
+      // layaway side uses the same helper so the two cannot drift apart.
+      return await resolveItemImages((data || []) as unknown as CashOrderItemRow[]);
     },
   });
 }
@@ -992,6 +969,7 @@ export default function CashOrderDetail() {
   const orderWebFields = order as unknown as {
     web_reference?: string | null;
     transfer_due_at?: string | null;
+    source_channel?: string | null;
   };
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
@@ -1417,6 +1395,7 @@ export default function CashOrderDetail() {
           status={order.status}
           transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
           reference={orderWebFields.web_reference ?? null}
+          sourceChannel={orderWebFields.source_channel ?? null}
           canEdit={can('edit_account')}
         />
 
