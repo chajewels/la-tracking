@@ -297,6 +297,7 @@ export type Database = {
           refund_status: string | null
           remaining_balance: number
           ship_to_address_id: string | null
+          ship_to_snapshot: Json | null
           shipped_at: string | null
           shipping_fee: number
           shipping_method_id: string | null
@@ -353,6 +354,7 @@ export type Database = {
           refund_status?: string | null
           remaining_balance: number
           ship_to_address_id?: string | null
+          ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -409,6 +411,7 @@ export type Database = {
           refund_status?: string | null
           remaining_balance?: number
           ship_to_address_id?: string | null
+          ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -1670,6 +1673,7 @@ export type Database = {
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
+          ship_to_snapshot: Json | null
           shipped_at: string | null
           shipping_fee: number
           shipping_method_id: string | null
@@ -1720,6 +1724,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
+          ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -1770,6 +1775,7 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
+          ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -5738,6 +5744,7 @@ export type Database = {
     }
     Functions: {
       _award_birthday_reward: { Args: { p_customer_id: string }; Returns: Json }
+      address_snapshot: { Args: { p_address_id: string }; Returns: Json }
       admin_correct_birthday: {
         Args: { p_birthday: string; p_customer_id: string }
         Returns: Json
@@ -6475,6 +6482,10 @@ export type Database = {
       timesheet_can_view_all: { Args: { uid: string }; Returns: boolean }
       unwaive_penalty_atomic: {
         Args: { p_user_email: string; p_user_id: string; p_waiver_id: string }
+        Returns: Json
+      }
+      upsert_customer_addresses: {
+        Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
       }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
