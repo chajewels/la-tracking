@@ -22,6 +22,73 @@ the rest of the release (loyalty, email) is independent and can stand.
 
 ---
 
+## 0. PRE-FLIGHT — read before you start (measured 2026-09-15)
+
+These are the real values in the database now. Two of them constrain how acceptance can
+be run at all, and one of them corrects an expectation this script shipped with.
+
+**STOCK IS THE BINDING CONSTRAINT.** Only two variants have any stock, one unit each:
+
+| SKU | product | price JPY | stock |
+|---|---|---|---|
+| R7828 | Ring 750 YG/WG Diamond 2.70ct | 679,980 | **1** |
+| N4020 | Necklace Tiffany & Co. Open Teardrop | 72,980 | **1** |
+| R3341 | Ring K18WG Diamond 3.82ct | 628,980 | **0 — cannot be reserved** |
+
+Sections A, B, E and F need **four** plans holding stock, and only two units exist. Either
+raise `stock_qty` on N4020 to 4 in the Hub's Website Catalog before starting, or run the
+sections strictly in order and reuse the unit that section E's expiry returns. Raising
+stock first is far less error-prone.
+
+**THE INTEGRITY REPORT ALREADY RETURNS ONE ROW, LEGITIMATELY.** Test Customer
+(`CJ-2026-05088`) carries the deferred Bug #271 spend residue: stored 4,430,940 against an
+expected 1,350,940, with 701,960 of that attributable to cancelled/forfeited orders still
+counting. Its correction was explicitly deferred. Points are clean — counter, live lots and
+ledger net all agree at 12,400. **Baseline this row before starting and compare against it
+at the end; do not expect zero.**
+
+**TEST CUSTOMER IS STEPPED DOWN, AND THAT IS NOT A BUG.** `earned_tier` Elite,
+`current_tier` Radiant, `is_downgraded` true, `downgrade_spend_baseline` 4,430,940. Its last
+purchase was 2026-09-14, so this is not fresh inactivity — it is a prior step-down that a new
+purchase does not undo, because requalification is by spend (Elite needs 2,000,000 more since
+baseline), never by recency. Expect a **Radiant ×2** multiplier on any points awarded during
+acceptance, not Elite.
+
+**OTHER MEASURED VALUES**
+
+| what | value |
+|---|---|
+| web layaway accounts | 0 (nothing to confuse with a test plan) |
+| `layaway_account_items` rows | 0 |
+| existing web cash orders | 4 |
+| `php_jpy_rate` | 0.42 |
+| `loyalty_enabled` | true — awards WILL fire |
+| Test Customer `is_test` | true — invoices auto-prefix `TEST-` |
+| plan minimums | 3M none · 6M ¥25,000/₱10,500 · 8M ¥300,000/₱126,000 · 10M ¥600,000/₱252,000 · 12M ¥1,000,000/₱420,000 |
+
+**THE SECTION D FIXTURE, PRECOMPUTED.** R7828 at ¥679,980 clears the 10M minimum
+(¥600,000) but falls short of the 12M minimum (¥1,000,000). So ask for **12M on R7828**:
+it must be refused with `below_plan_minimum`, carrying `max_term_months` and `allowed_terms`,
+and must NOT silently become a shorter term. N4020 at ¥72,980 is the opposite fixture — it
+clears 3M and 6M only, so 8M on N4020 is a second refusal case if you want one.
+
+**THE SECTION B NUMBER, PRECOMPUTED — this is the one that fails without erroring.** If you
+reserve **R7828 in pesos**, the peso settlement total is about **₱285,592** (679,980 × 0.42
+on the product alone, before shipping). `loyalty_jpy_amount` on that account must read
+
+>   **679,980**
+
+the yen product subtotal. If it reads **285,592**, or anything in the ₱200–300k range, that
+is the silent failure: a peso figure written into a yen column, which inflates or deflates
+tier progress and never raises an error.
+
+**EMAIL ROWS ARE AMBIGUOUS AGAIN (2026-09-15).** #53's skip logging is deployed but inert —
+the `email_send_log` status check constraint rejects `'skipped'` and `email-log.ts` swallows
+the rejection (Bug #272, fix in PR #61, not yet applied). So during acceptance a MISSING
+`email_send_log` row does not distinguish "no email was attempted" from "a skip that could
+not record itself". If an expected email does not appear, read the edge function logs
+directly; do not infer from the absent row.
+
 ## A. Yen plan — the baseline
 
 | # | Step | Expected result |
@@ -166,7 +233,7 @@ SELECT invoice_number, transfer_due_at, expires_at FROM cash_orders WHERE id = '
 | # | Step | Expected result |
 |---|---|---|
 | H1 | Every account created here carries a `TEST-` invoice | `invoice_number !~ '^[0-9]+$'` — none of it reaches a dashboard |
-| H2 | `SELECT * FROM loyalty_integrity_report();` | **zero rows** |
+| H2 | `SELECT * FROM loyalty_integrity_report();` | **exactly ONE row, and it must be unchanged** — Test Customer `CJ-2026-05088`, `spend_stored` 4430940 vs `spend_expected` 1350940, `terminal_order_spend` 701960. This is the deferred Bug #271 correction, not an acceptance failure. A SECOND row, or any change to this row's numbers, is a failure. |
 | H3 | Stock levels back where they started for every expired plan | matches the pre-test reading |
 | H4 | Finance Overview and the Dashboard KPIs | unchanged by this test |
 
