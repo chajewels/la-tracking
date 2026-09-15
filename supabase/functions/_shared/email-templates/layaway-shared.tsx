@@ -1,8 +1,8 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
-import { Section, Text } from 'npm:@react-email/components@0.0.22'
+import { Text } from 'npm:@react-email/components@0.0.22'
 import { formatMoney, type Lang } from '../storefront-email.ts'
-import { Row, block, label, text } from './order-shared.tsx'
+import { Panel, Row, block, blockGutter, label, text } from './order-shared.tsx'
 
 /**
  * Pieces shared by the three web-layaway emails. Separate from order-shared
@@ -48,7 +48,7 @@ export const PlanSummary = ({
   reference: string; totalAmount: number; deposit: number; termMonths: number
   currency: 'JPY' | 'PHP'; lang: Lang
 }) => (
-  <Section style={block}>
+  <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{LAYAWAY_WORDS.reference[lang]}</Text>
     <Text style={{ ...text, margin: '0 0 8px', fontWeight: 'bold' }}>{reference}</Text>
     {/* Row is a table, not flex — Gmail drops display:flex. See order-shared. */}
@@ -58,13 +58,13 @@ export const PlanSummary = ({
       k={LAYAWAY_WORDS.term[lang]}
       v={`${termMonths}${lang === 'ja' ? LAYAWAY_WORDS.months.ja : ` ${LAYAWAY_WORDS.months.en}`}`}
     />
-  </Section>
+  </Panel>
 )
 
 export const ScheduleTable = ({
   rows, currency, lang,
 }: { rows: LayawayScheduleRow[]; currency: 'JPY' | 'PHP'; lang: Lang }) => (
-  <Section style={block}>
+  <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{LAYAWAY_WORDS.schedule[lang]}</Text>
     {rows.map((r) => (
       <Row
@@ -75,5 +75,5 @@ export const ScheduleTable = ({
         v={`${formatMoney(r.amount, currency)}${r.paid ? ` · ${LAYAWAY_WORDS.paid[lang]}` : ''}`}
       />
     ))}
-  </Section>
+  </Panel>
 )

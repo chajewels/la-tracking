@@ -1,6 +1,6 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
-import { Section, Text } from 'npm:@react-email/components@0.0.22'
+import { Text } from 'npm:@react-email/components@0.0.22'
 import { formatJpy, type Lang } from '../storefront-email.ts'
 
 /**
@@ -55,8 +55,44 @@ export const WORDS = {
 
 export const itemTitle = (i: OrderEmailItem, lang: Lang) => (lang === 'ja' && i.title_ja ? i.title_ja : i.title)
 
+/**
+ * A PANEL — the bordered box behind the items, the plan summary, the schedule
+ * and each transfer method.
+ *
+ * NOT a `<Section style={{ margin: '8px 24px' }}>`, and this is the whole point
+ * of the component. @react-email renders `Section` as `<table width="100%">`,
+ * and a table with an explicit 100% width CANNOT be inset with horizontal
+ * margin: the margin shifts it right while the width keeps it a full 100% wide,
+ * so it ends exactly margin-left past the panel. `container` carries
+ * `overflow: hidden`, so those pixels are CLIPPED rather than merely spilling —
+ * which is why CJ-W-900013's Total, Deposit, Term, account number and account
+ * holder all arrived cut mid-value in Gmail.
+ *
+ * Measured at +21px past a 560px panel, at every viewport, in all seven
+ * storefront templates. `box-sizing: border-box` does NOT fix it — a table
+ * already resolves its width attribute that way, and the measurement is
+ * unchanged. See docs/FIXED-BUGS.md Bug #274.
+ *
+ * So the gutter lives as PADDING ON A `<td>`, which can only ever shrink the
+ * content area, never grow the box past its container, and the visible border
+ * sits on an auto-width `<div>` inside it. Keep it that way: moving the inset
+ * back onto the table as margin reintroduces the clipping silently, because a
+ * browser preview shows the panel growing instead of cutting.
+ */
+export const Panel = ({ gutter, box, children }: { gutter: React.CSSProperties; box: React.CSSProperties; children: React.ReactNode }) => (
+  <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} style={panelTable}>
+    <tbody>
+      <tr>
+        <td style={gutter}>
+          <div style={box}>{children}</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+)
+
 export const ItemsTable = ({ items, shippingJpy, totalJpy, lang }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang }) => (
-  <Section style={block}>
+  <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
       <Row key={idx} k={`${itemTitle(i, lang)}${i.qty > 1 ? ` × ${i.qty}` : ''}`} v={formatJpy(i.line_total_jpy)} />
@@ -66,7 +102,7 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang }: { items: Orde
       v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : formatJpy(shippingJpy)}
     />
     <Row k={WORDS.total[lang]} v={formatJpy(totalJpy)} emphasis />
-  </Section>
+  </Panel>
 )
 
 /** Every transfer method shown at checkout, as its own labelled card, in the Hub's order. */
@@ -79,7 +115,7 @@ export const MethodCards = ({ methods, lang }: { methods: OrderEmailMethod[]; la
       const nameLabel = isGcash ? WORDS.gcashName[lang] : isMaya ? WORDS.mayaName[lang] : WORDS.walletName[lang]
       const note = lang === 'ja' ? m.note_ja : m.note_en
       return (
-        <Section key={m.id} style={card}>
+        <Panel key={m.id} gutter={cardGutter} box={card}>
           <Text style={cardTitle}>{lang === 'ja' ? m.label_ja : m.label_en}</Text>
           {m.wallet && (
             <>
@@ -96,8 +132,8 @@ export const MethodCards = ({ methods, lang }: { methods: OrderEmailMethod[]; la
               {m.bank.account_holder && <Row k={WORDS.accountHolder[lang]} v={m.bank.account_holder} />}
             </>
           )}
-          {note && <Text style={{ ...muted, whiteSpace: 'pre-line' as const, marginTop: '10px' }}>{note}</Text>}
-        </Section>
+          {note && <Text style={{ ...muted, margin: '10px 0 0', whiteSpace: 'pre-line' as const }}>{note}</Text>}
+        </Panel>
       )
     })}
     <Text style={notice}>{WORDS.nameNotice[lang]}</Text>
@@ -145,8 +181,17 @@ export const h1 = { fontSize: '22px', fontWeight: 'bold' as const, color: '#1a1a
 export const h2 = { fontSize: '18px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '16px 24px 8px' }
 export const text = { fontSize: '15px', lineHeight: '1.7', color: '#3a3a3a', margin: '0 24px 12px' }
 export const muted = { fontSize: '13px', lineHeight: '1.6', color: '#6b6b6b', margin: '0 24px 12px' }
-export const block = { margin: '8px 24px 16px', padding: '12px 16px', border: '1px solid #e6dfd0', borderRadius: '6px' }
-export const card = { margin: '8px 24px 12px', padding: '14px 16px', border: '1px solid #C9A227', borderRadius: '6px' }
+/**
+ * `block` and `card` are now the INNER BOX of a `Panel` — border and padding
+ * only, on an auto-width `<div>`. The horizontal inset they used to carry as
+ * `margin` lives in the matching `*Gutter` below, as padding on a `<td>`. See
+ * the note on Panel: margin on a 100%-width table clips, it does not inset.
+ */
+export const blockGutter = { padding: '8px 24px 16px' }
+export const block = { padding: '12px 16px', border: '1px solid #e6dfd0', borderRadius: '6px' }
+export const cardGutter = { padding: '8px 24px 12px' }
+export const card = { padding: '14px 16px', border: '1px solid #C9A227', borderRadius: '6px' }
+export const panelTable = { borderCollapse: 'collapse' as const, width: '100%' }
 export const cardTitle = { fontSize: '16px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0 0 8px' }
 export const label = { fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase' as const, color: '#6b6b6b', margin: '0 0 8px' }
 /**
@@ -159,14 +204,35 @@ export const rowVal = { color: '#1a1a2e', textAlign: 'right' as const }
 
 export const rowTable = { borderCollapse: 'collapse' as const, width: '100%' }
 export const rowTableTotal = { borderCollapse: 'collapse' as const, width: '100%', marginTop: '4px' }
-const cellBase = { padding: '6px 0', borderBottom: '1px solid #eee7d8', fontSize: '14px', verticalAlign: 'top' as const }
+/**
+ * `wordBreak`/`overflowWrap` are load-bearing, not tidying. A value with no
+ * space in it — a long account holder written as one token, an IBAN — cannot be
+ * wrapped by the table, so auto layout widens the cell until it fits and the
+ * 560px `max-width` on `container` cannot hold it: measured at 778px, i.e. the
+ * whole email wider than the window, at every viewport. Breaking the word keeps
+ * the panel at 560px (and at 400px on a phone). Bug #274.
+ */
+const cellBase = {
+  padding: '6px 0', borderBottom: '1px solid #eee7d8', fontSize: '14px',
+  verticalAlign: 'top' as const,
+  wordBreak: 'break-word' as const, overflowWrap: 'anywhere' as const,
+}
 export const rowKeyCell = { ...cellBase, color: '#6b6b6b', paddingRight: '12px' }
 export const rowValCell = { ...cellBase, color: '#1a1a2e' }
-const totalCellBase = { padding: '10px 0 6px', borderBottom: 'none', borderTop: '2px solid #C9A227', verticalAlign: 'top' as const }
+const totalCellBase = {
+  padding: '10px 0 6px', borderBottom: 'none', borderTop: '2px solid #C9A227',
+  verticalAlign: 'top' as const,
+  wordBreak: 'break-word' as const, overflowWrap: 'anywhere' as const,
+}
 export const rowKeyCellTotal = { ...totalCellBase, color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '14px', paddingRight: '12px' }
 export const rowValCellTotal = { ...totalCellBase, color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '18px' }
 export const notice = { margin: '4px 24px 16px', padding: '12px 16px', backgroundColor: '#f6f4ef', borderRadius: '6px', fontSize: '14px', color: '#3a3a3a' }
-export const buttonWrap = { textAlign: 'center' as const, margin: '20px 24px' }
+/**
+ * No horizontal margin, for the Panel reason: this is a `Section`, so it is a
+ * 100%-width table and a 24px margin would push it 24px past the panel. The
+ * button is centred inside the full width, which looks identical.
+ */
+export const buttonWrap = { textAlign: 'center' as const, margin: '20px 0' }
 export const button = { backgroundColor: '#C9A227', color: '#1a1a2e', fontWeight: 'bold' as const, fontSize: '15px', padding: '12px 28px', borderRadius: '4px', textDecoration: 'none' }
 export const rule = { borderColor: '#e6dfd0', margin: '20px 24px' }
 export const footer = { fontSize: '12px', color: '#8a8a8a', margin: '16px 24px 24px', textAlign: 'center' as const }
