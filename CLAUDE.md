@@ -1846,6 +1846,43 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.
 
+## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
+
+  A CHECKOUT NEVER DELETES A ROW THE CUSTOMER DID NOT ASK TO REMOVE.
+  `customer_addresses` ids are load-bearing: `cash_orders.ship_to_address_id`
+  and `checkout_quotes.ship_to_address_id` are both ON DELETE SET NULL, so
+  deleting a row blanks the shipping address on every order and quote pointing
+  at it — silently, with no error and nothing in any log. The original
+  `replace_customer_addresses` did exactly that on EVERY checkout that sent an
+  address (DELETE-then-INSERT with fresh uuids), and the storefront calls it on
+  every one.
+  The writer is `upsert_customer_addresses`: an entry carrying an id belonging
+  to that customer UPDATES in place, an entry without one INSERTs, and a row
+  the payload does not mention is LEFT ALONE. `replace_customer_addresses`
+  survives as a forwarding alias ONLY, so a stale caller cannot reach the old
+  body. Never re-introduce a delete-all write path here; a real delete route
+  belongs behind its own endpoint, per address.
+
+  AN ORDER KEEPS ITS OWN ADDRESS. `cash_orders.ship_to_snapshot` and
+  `layaway_accounts.ship_to_snapshot` hold the address AS IT WAS at creation
+  and are AUTHORITATIVE for display; the FK is a convenience link to the live
+  address book and may legitimately go NULL. Every snapshot — both writers and
+  any backfill — comes from `public.address_snapshot(uuid)` and from nowhere
+  else, so a backfilled order and a newly-written one cannot disagree. Any new
+  surface showing where an order went reads the snapshot first and the FK only
+  as a fallback (`shipToAddress()` in `website/index.ts` is the reference).
+  `layaway_accounts` has NO `ship_to_address_id` at all: the snapshot is the
+  only address a plan carries.
+
+  THE TWO STORES HAVE NOT DIVERGED, and that is worth keeping true. The Hub
+  reads the flat columns on `customers`; the storefront reads
+  `customer_addresses`. As of 2026-09-15 the drift is zero — the flat columns
+  hold a COUNTRY in `location` and nothing else (879 rows), the table holds 1
+  real row, and the 2026-09-10 backfill that manufactured 871 junk "addresses"
+  from `location` was reverted the same day (20260910160000). Convergence is
+  filed in docs/PENDING.md, not done. Never seed `customer_addresses` from the
+  flat columns again.
+
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 
 ### Item types

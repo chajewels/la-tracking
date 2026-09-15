@@ -1,7 +1,7 @@
 -- Fidelity check. Run it after build.sh, against the harness database.
 --
 -- The harness is only worth anything if the functions it exercises are the ones
--- production runs. These four md5s were taken from the LIVE database on
+-- production runs. These md5s were taken from the LIVE database on
 -- 2026-09-15 (`SELECT md5(prosrc) FROM pg_proc …`). If a row below prints
 -- DRIFT, the harness is testing something else and its results mean nothing
 -- until you find out why: re-read the live body, update the expected hash here
@@ -11,12 +11,19 @@
 --   SELECT p.proname, md5(p.prosrc), length(p.prosrc)
 --     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --    WHERE n.nspname = 'public'
---      AND p.proname IN ('create_web_layaway_atomic','expire_web_layaway_atomic',
---                        'set_account_deadlines','layaway_quote')
+--      AND p.proname IN ('create_web_layaway_atomic','create_web_order_atomic',
+--                        'expire_web_layaway_atomic','set_account_deadlines',
+--                        'layaway_quote','replace_customer_addresses')
 --    ORDER BY 1;
 \pset pager off
 WITH live(proname, md5, measured, note) AS (VALUES
   ('create_web_layaway_atomic', '678e6811b2e205a65f6b119bdf1b983e', '2026-09-15', ''),
+  ('create_web_order_atomic',   'fbd3766066f014271d7cf3b8dd7b1d14', '2026-09-15',
+   'pre-fix baseline; replaced by 20260915160000'),
+  -- The DESTRUCTIVE body, kept as the baseline on purpose: T_ADDR.sql shows what
+  -- it does before the fix is loaded on top.
+  ('replace_customer_addresses','8a5345b7b07f0c9a6d671a1af6e65775', '2026-09-15',
+   'pre-fix baseline; replaced by 20260915160000'),
   ('expire_web_layaway_atomic', 'e64328138d08626a12cbf54950ad43ec', '2026-09-15', ''),
   ('layaway_quote',             'ad4606c0da7511e7070138520d8d7907', '2026-09-15', ''),
   -- set_account_deadlines is REPLACED by the fixes in migrations 20260915140000

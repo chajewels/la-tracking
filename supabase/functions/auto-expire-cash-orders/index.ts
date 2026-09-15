@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     // 1. Fetch pending cash orders past expires_at with outstanding balance
     const { data: orders, error: fetchErr } = await supabase
       .from("cash_orders")
-      .select("id, invoice_number, customer_id, currency, total_amount, total_paid, remaining_balance, expires_at, source_channel, web_reference, customer_lang, shipping_fee, transfer_due_at, ship_to_address:customer_addresses(country), customers(full_name, email, is_test)")
+      .select("id, invoice_number, customer_id, currency, total_amount, total_paid, remaining_balance, expires_at, source_channel, web_reference, customer_lang, shipping_fee, transfer_due_at, ship_to_snapshot, ship_to_address:customer_addresses(country), customers(full_name, email, is_test)")
       .eq("status", "pending")
       .not("expires_at", "is", null)
       .lt("expires_at", nowIso)
@@ -215,7 +215,13 @@ Deno.serve(async (req) => {
               return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
             });
             const reference = String((order as any).web_reference ?? order.invoice_number);
-            const country = String((order as any).ship_to_address?.country ?? "JP").toUpperCase();
+            // The snapshot first: it is the country this order was actually going
+      // to, and it survives the customer editing or deleting the address.
+      // The FK embed reads NULL once the row is gone (ON DELETE SET NULL),
+      // which would silently send a Japanese notice to an overseas customer.
+      const country = String(
+        ((order as any).ship_to_snapshot?.country ?? (order as any).ship_to_address?.country) ?? "JP",
+      ).toUpperCase();
             const shopUrl = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
             await sendStorefrontEmail({
               to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
@@ -292,7 +298,7 @@ Deno.serve(async (req) => {
     try {
       const { data: plans, error: planErr } = await supabase
         .from("layaway_accounts")
-        .select("id, invoice_number, web_reference, currency, total_amount, downpayment_amount, transfer_due_at, customer_lang, quote:checkout_quotes(ship_to_address:customer_addresses(country)), customers(full_name, email, is_test)")
+        .select("id, invoice_number, web_reference, currency, total_amount, downpayment_amount, transfer_due_at, customer_lang, ship_to_snapshot, quote:checkout_quotes(ship_to_address:customer_addresses(country)), customers(full_name, email, is_test)")
         .eq("source_channel", "web")
         .eq("status", "active")
         .eq("total_paid", 0)
@@ -316,7 +322,10 @@ Deno.serve(async (req) => {
           }
 
           const reference = String((plan as any).web_reference ?? (plan as any).invoice_number);
-          const country = String((plan as any).quote?.ship_to_address?.country ?? "JP").toUpperCase();
+          // Same rule as the cash branch: the plan's own snapshot first.
+          const country = String(
+            ((plan as any).ship_to_snapshot?.country ?? (plan as any).quote?.ship_to_address?.country) ?? "JP",
+          ).toUpperCase();
           const shopUrl = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
           try {
             await sendStorefrontEmail({

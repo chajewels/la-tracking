@@ -16,7 +16,8 @@ H=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export PGHOST PGPORT PGUSER
 psql -d postgres -q -c "DROP DATABASE IF EXISTS chaharness;" -c "CREATE DATABASE chaharness;"
 for f in 01_schema 02_trigger_functions 03_triggers 04_cash_order_triggers \
-         05a_layaway_quote 05b_expire 05c_create 05d_deadlines 06_fixtures 07_helpers; do
+         05a_layaway_quote 05b_expire 05c_create 05d_deadlines 06_fixtures 07_helpers \
+         08_addresses; do
   psql -d chaharness -v ON_ERROR_STOP=1 -q -f "$H/$f.sql"
 done
 echo "harness rebuilt"
