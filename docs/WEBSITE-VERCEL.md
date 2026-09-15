@@ -576,12 +576,14 @@ quote, refuses `below_plan_minimum`, writes the account, the schedule and
 `layaway_account_items`, decrements stock, and consumes the quote. The
 plan-created email follows.
 
-**Deadlines.** `transfer_due_at` (deposit due, default 72 hours) and
-`settlement_due_at` are fields, not a computed rule. Staff move them from the
-Deadlines card on AccountDetail or CashOrderDetail through
-`set-account-deadlines` while the order is live; an extension is simply a later
-date. On a cash order the same call moves `expires_at` too, so the customer's
-date and the cron's date never diverge.
+**Deadline.** `transfer_due_at` (deposit due, default 72 hours) is a field,
+not a computed rule. Staff move it from the Deadline card on AccountDetail or
+CashOrderDetail through `set-account-deadlines` while the order is live; an
+extension is simply a later date. On a cash order the same call moves
+`expires_at` too, so the customer's date and the cron's date never diverge.
+There is only the one deadline: a `settlement_due_at` column shipped on
+2026-09-14 and was dropped on 2026-09-15 (owner decision) — nothing read it and
+no account ever carried a value.
 
 **Expiry.** The hourly `auto-expire-cash-orders` sweep now has a second pass:
 a web layaway past `transfer_due_at` with nothing paid is released by

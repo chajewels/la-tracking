@@ -1734,10 +1734,9 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   schedule and the item lines, and decrements stock — one transaction. The
   `website` edge function never writes a layaway row itself.
 
-  DEADLINES ARE FIELDS, NOT A COMPUTED RULE (owner decision 2026-09-13).
-  `transfer_due_at` is when the deposit must arrive; `settlement_due_at` is
-  when the plan is expected to be fully settled. Both are offered at creation
-  (Hub and web alike) and moved afterwards through ONE control:
+  THE DEPOSIT DEADLINE IS A FIELD, NOT A COMPUTED RULE (owner decision
+  2026-09-13). `transfer_due_at` is when the deposit must arrive. It is offered
+  at creation (Hub and web alike) and moved afterwards through ONE control:
   `set_account_deadlines` behind the `set-account-deadlines` edge function,
   gated on `edit_account`, audited with old value, new value and reason. On a
   cash order it writes `transfer_due_at` AND `expires_at` together, because
@@ -1745,6 +1744,17 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   deadline the cron does not act on. Web layaway default: 72 hours.
   There is no 24h/72h violation predicate, no forfeiture lookup and no
   automatic violator classification — those were replaced by this field.
+
+  THERE IS ONE DEADLINE, NOT TWO (owner decision 2026-09-15). A second column,
+  `settlement_due_at`, was added on 2026-09-14 and REMOVED on 2026-09-15: it
+  was built to an answer nobody had asked the purpose of, nothing ever read it,
+  and no account ever carried a value (0 of 1,449 at the drop). Do not
+  re-add a settlement date to `layaway_accounts`, to `set_account_deadlines`,
+  or to either creation form. The plan's own last schedule row is when the plan
+  ends; `end_date` already records it. The related rule Cynthia described — an
+  unpaid deposit NOT releasing the piece while a settlement date is still
+  ahead — is NOT built; it is filed in docs/PENDING.md and needs a decision
+  before any column comes back.
 
   EXTENSION IS A LATER DEADLINE, AND ONLY WHILE THE ORDER IS LIVE. Live means
   active / overdue / extension_active / reactivated for a layaway, pending for

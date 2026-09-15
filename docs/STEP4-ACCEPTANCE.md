@@ -113,7 +113,7 @@ directly; do not infer from the absent row.
 SELECT invoice_number, web_reference, source_channel, customer_lang,
        currency, total_amount, downpayment_amount, total_paid,
        round(downpayment_amount / NULLIF(total_amount,0) * 100, 2) AS deposit_pct,
-       transfer_due_at, settlement_due_at, expired_at,
+       transfer_due_at, expired_at,
        fx_rate_used, fx_rate_date, loyalty_jpy_amount
   FROM layaway_accounts WHERE web_reference = 'CJ-W-XXXXXX';
 
@@ -242,7 +242,7 @@ A plan expiring out from under a pending submission strands a real payment.
 
 | # | Step | Expected result |
 |---|---|---|
-| G1 | Hub → a **web layaway** → Deadlines card. Set `transfer_due_at` and `settlement_due_at` with a reason | both saved; `audit_logs` action `deadlines_updated` with old value, new value and the reason |
+| G1 | Hub → a **web layaway** → Deadline card. Set `transfer_due_at` with a reason | saved; `audit_logs` action `deadlines_updated` with old value, new value and the reason. There is ONE field here: `settlement_due_at` was dropped 2026-09-15 (owner decision) and the card no longer offers it |
 | G2 | Extend the same layaway to a later date | accepted while the plan is **live** (`active` / `overdue` / `extension_active` / `reactivated`) |
 | G3 | Try it on a **cancelled or expired** plan | `not_live` — an expired order is never revived; a returning customer gets a fresh order |
 | G4 | Hub → a **cash order** → set the deadline | `transfer_due_at` **and** `expires_at` both written to the same value. The hourly cron reads `expires_at`; a customer must never see a deadline the cron does not act on |

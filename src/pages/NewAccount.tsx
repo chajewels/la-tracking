@@ -114,11 +114,11 @@ export default function NewAccount() {
   const [totalAmount, setTotalAmount] = useState(urlAmount ?? '');
   const [invoiceTouched, setInvoiceTouched] = useState(false);
   const [orderDate, setOrderDate] = useState('');
-  // Deadlines are FIELDS, not a computed rule (owner decision 2026-09-13):
-  // when the deposit must arrive, and when the plan must be settled. Entered
-  // in PHT whatever the browser's clock says; blank means no deadline.
+  // The deposit deadline is a FIELD, not a computed rule (owner decision
+  // 2026-09-13): when the deposit must arrive. Entered in PHT whatever the
+  // browser's clock says; blank means no deadline. A settlement date used to
+  // sit beside it and was removed on 2026-09-15 — nothing read it.
   const [transferDueAt, setTransferDueAt] = useState('');
-  const [settlementDueAt, setSettlementDueAt] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(initialPlanMonths);
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
@@ -588,7 +588,6 @@ export default function NewAccount() {
         total_amount: amount,
         order_date: orderDate,
         transfer_due_at: phtToIso(transferDueAt),
-        settlement_due_at: phtToIso(settlementDueAt),
         payment_plan_months: paymentPlan,
         downpayment_amount: downpaymentAmount,
         downpayment_paid: 0,
@@ -1233,32 +1232,18 @@ export default function NewAccount() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Deposit Due (PHT)</Label>
-                <Input
-                  type="datetime-local"
-                  value={transferDueAt}
-                  onChange={(e) => { setTransferDueAt(e.target.value); markDirty(); }}
-                  className="bg-background border-border"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Optional. When the downpayment must arrive. Can be moved later
-                  while the plan is live.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Settlement Due (PHT)</Label>
-                <Input
-                  type="datetime-local"
-                  value={settlementDueAt}
-                  onChange={(e) => { setSettlementDueAt(e.target.value); markDirty(); }}
-                  className="bg-background border-border"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Optional. When the plan is expected to be fully settled.
-                </p>
-              </div>
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Deposit Due (PHT)</Label>
+              <Input
+                type="datetime-local"
+                value={transferDueAt}
+                onChange={(e) => { setTransferDueAt(e.target.value); markDirty(); }}
+                className="bg-background border-border"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Optional. When the downpayment must arrive. Can be moved later
+                while the plan is live.
+              </p>
             </div>
 
             {/* Installment Mode Toggle */}

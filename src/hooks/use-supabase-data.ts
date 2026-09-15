@@ -545,9 +545,8 @@ export function useCreateAccount() {
       currency: 'PHP' | 'JPY';
       total_amount: number;
       order_date: string;
-      /** Deadlines are fields, not a computed rule — null means none set. */
+      /** The deposit deadline is a field, not a computed rule — null means none set. */
       transfer_due_at?: string | null;
-      settlement_due_at?: string | null;
       payment_plan_months: number;
       notes?: string;
       downpayment_amount?: number;
@@ -588,9 +587,10 @@ export function useCreateAccount() {
 }
 
 /**
- * Move a deposit deadline or a settlement date. One control for both tables —
- * a layaway account and a cash order carry the same field and the same rule:
- * editable while the order is live, never a way to revive an expired one.
+ * Move a deposit deadline. One control for both tables — a layaway account and
+ * a cash order carry the same field and the same rule: editable while the order
+ * is live, never a way to revive an expired one. (On a cash order the RPC moves
+ * expires_at with it, because that is what the hourly cron reads.)
  */
 export function useSetAccountDeadlines() {
   const qc = useQueryClient();
@@ -599,7 +599,6 @@ export function useSetAccountDeadlines() {
       entity_type: 'layaway' | 'cash_order';
       entity_id: string;
       transfer_due_at: string | null;
-      settlement_due_at?: string | null;
       reason?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke('set-account-deadlines', { body: payload });
