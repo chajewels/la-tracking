@@ -259,7 +259,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
 const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
   "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
-  "order_date, end_date, transfer_due_at, settlement_due_at, expired_at, " +
+  "order_date, end_date, transfer_due_at, expired_at, " +
   "created_at, completed_at, tracking_number, shipped_at, source_channel";
 
 /**
@@ -1135,7 +1135,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           p_quote_id: quoteId,
           p_lang: lang,
           p_transfer_due_at: null,     // default 72 hours; staff may move it later
-          p_settlement_due_at: null,
           p_order_date: phtToday(),
         });
         if (layErr) throw layErr;

@@ -731,7 +731,6 @@ export default function AccountDetail() {
     source_channel?: string | null;
     web_reference?: string | null;
     transfer_due_at?: string | null;
-    settlement_due_at?: string | null;
   } | undefined ?? {};
 
   const message = useMemo(() => {
@@ -1383,14 +1382,13 @@ export default function AccountDetail() {
           )}
         </div>
 
-        {/* The deposit deadline and the settlement date. Fields staff set and
-            move while the plan is live, never a computed rule. */}
+        {/* The deposit deadline. A field staff set and move while the plan is
+            live, never a computed rule. */}
         <DeadlinesCard
           entityType="layaway"
           entityId={account.id}
           status={account.status}
           transferDueAt={webFields.transfer_due_at ?? null}
-          settlementDueAt={webFields.settlement_due_at ?? null}
           reference={webFields.web_reference ?? null}
           canEdit={canPerm('edit_account')}
         />

@@ -1937,6 +1937,12 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### Bug #273 — a deadline move was accepted with no reason, writing an audit row that recorded only that it happened (2026-09-15)
+Root cause: `set-account-deadlines/index.ts` passed `p_reason: String(body?.reason ?? "").trim() || null`. The `|| null` turned an empty or absent reason into a legitimate NULL, so the call proceeded and `set_account_deadlines` wrote its `deadlines_updated` audit row with `reason` null. The RPC only ever refused `not_found` (404) and `not_live` (409) — there was no refusal for a missing reason at any layer, and the Save button in DeadlinesCard did not require one either. Step 4 acceptance row G5 expected a refusal and had to be carried as a known-wrong row.
+Why it mattered: moving this deadline decides when a customer's piece is released. An audit row with a null reason records that it happened and nothing about why, which satisfies CLAUDE.md's "audited with old value, new value and reason" in form and defeats it in purpose. Every other terminal action in the Hub requires a reason.
+Fix (owner decision 2026-09-15, after three days open): the edge function refuses before calling the RPC — 400 `{error:'reason_required', message:'A reason is required to change a deadline.'}` — and DeadlinesCard marks the field required, explains that it is the only record of why the date moved, and keeps Save disabled until it is filled, so staff are told before the round trip rather than after. `useSetAccountDeadlines`'s payload type makes `reason` non-optional, so a caller omitting it is now a compile error. The RPC itself is unchanged: the guard belongs at the edge where the 400 can carry a message, and the parameter stays nullable for the creation path, which sets a first deadline rather than changing one and needs no reason.
+Acceptance row G5 is now true and is no longer a known-wrong row.
+
 ### Bug #272 — every 'skipped' email row was rejected on insert; #53's blind spot was never actually closed (2026-09-15)
 
 **Symptom.** `email_send_log.status` carries

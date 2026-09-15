@@ -9,14 +9,21 @@ import { formatPHTDisplay } from '@/lib/date-utils';
 import { useSetAccountDeadlines } from '@/hooks/use-supabase-data';
 
 /**
- * The deposit deadline and the settlement date, on a layaway account or a cash
- * order alike.
+ * The deposit deadline, on a layaway account or a cash order alike.
  *
- * These are FIELDS, not a computed rule (owner decision 2026-09-13). Staff set
- * them at creation and move them while the order is live; an extension is
- * simply a later deadline. An expired or cancelled order is never revived
- * here — if the customer comes back the order is created fresh — so the card
- * shows the dates read-only once the order is no longer live.
+ * It is a FIELD, not a computed rule (owner decision 2026-09-13). Staff set it
+ * at creation and move it while the order is live; an extension is simply a
+ * later deadline. An expired or cancelled order is never revived here — if the
+ * customer comes back the order is created fresh — so the card shows the date
+ * read-only once the order is no longer live.
+ *
+ * A second field, settlement_due_at, was removed on 2026-09-15 (owner
+ * decision): nothing read it and no account ever carried a value. The deposit
+ * deadline is the control that matters.
+ *
+ * A REASON IS REQUIRED to change it (owner decision 2026-09-15) — refused
+ * server-side by set-account-deadlines, and the Save button stays disabled
+ * without one so staff are told before the round trip rather than after.
  *
  * Times are entered and displayed in PHT, the Hub's canonical zone, whatever
  * the browser's own clock says.
@@ -48,8 +55,6 @@ export interface DeadlinesCardProps {
   entityId: string;
   status: string;
   transferDueAt: string | null;
-  /** Layaway only — a cash order settles on its transfer deadline. */
-  settlementDueAt?: string | null;
   reference?: string | null;
   canEdit: boolean;
 }
@@ -60,11 +65,10 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, settlementDueAt, reference, canEdit,
+  entityType, entityId, status, transferDueAt, reference, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
-  const [settlement, setSettlement] = useState('');
   const [reason, setReason] = useState('');
   const setDeadlines = useSetAccountDeadlines();
 
@@ -72,11 +76,10 @@ export default function DeadlinesCard({
   const overdue = !!transferDueAt && new Date(transferDueAt) < new Date();
 
   // Nothing set and nothing settable: no card rather than an empty one.
-  if (!transferDueAt && !settlementDueAt && !(canEdit && isLive)) return null;
+  if (!transferDueAt && !(canEdit && isLive)) return null;
 
   function openDialog() {
     setTransfer(toPhtInputValue(transferDueAt));
-    setSettlement(toPhtInputValue(settlementDueAt));
     setReason('');
     setOpen(true);
   }
@@ -87,8 +90,7 @@ export default function DeadlinesCard({
         entity_type: entityType,
         entity_id: entityId,
         transfer_due_at: fromPhtInputValue(transfer),
-        settlement_due_at: entityType === 'layaway' ? fromPhtInputValue(settlement) : undefined,
-        reason: reason.trim() || undefined,
+        reason: reason.trim(),
       });
       toast.success('Deadline updated');
       setOpen(false);
@@ -104,18 +106,13 @@ export default function DeadlinesCard({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-primary" />
-              <p className="text-sm font-medium text-card-foreground">Deadlines</p>
+              <p className="text-sm font-medium text-card-foreground">Deadline</p>
               {reference && <span className="font-mono text-xs text-muted-foreground">{reference}</span>}
             </div>
             <p className="text-xs text-muted-foreground">
               {entityType === 'layaway' ? 'Deposit due' : 'Transfer due'}:{' '}
               {transferDueAt ? formatPHTDisplay(transferDueAt) : 'not set'}
             </p>
-            {entityType === 'layaway' && (
-              <p className="text-xs text-muted-foreground">
-                Settlement due: {settlementDueAt ? formatPHTDisplay(settlementDueAt) : 'not set'}
-              </p>
-            )}
             {overdue && isLive && (
               <p className="text-xs text-destructive">
                 Past the deadline. {entityType === 'layaway'
@@ -125,7 +122,7 @@ export default function DeadlinesCard({
             )}
             {!isLive && (
               <p className="text-xs text-muted-foreground">
-                This order is {status} — deadlines are history and cannot be changed.
+                This order is {status} — the deadline is history and cannot be changed.
               </p>
             )}
           </div>
@@ -161,36 +158,30 @@ export default function DeadlinesCard({
                   : 'Only applies while the deposit is unpaid. Once a deposit is confirmed the reservation is confirmed.'}
               </p>
             </div>
-            {entityType === 'layaway' && (
-              <div className="space-y-2">
-                <Label htmlFor="settlement-due">Settlement due (PHT)</Label>
-                <Input
-                  id="settlement-due"
-                  type="datetime-local"
-                  value={settlement}
-                  onChange={e => setSettlement(e.target.value)}
-                  className="bg-background border-border"
-                />
-              </div>
-            )}
             <div className="space-y-2">
-              <Label htmlFor="deadline-reason">Reason</Label>
+              <Label htmlFor="deadline-reason">
+                Reason <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="deadline-reason"
                 name="deadline-reason"
                 autoComplete="off"
+                required
                 value={reason}
                 onChange={e => setReason(e.target.value)}
                 placeholder="Why is the deadline moving?"
                 className="bg-background border-border"
               />
+              <p className="text-[11px] text-muted-foreground">
+                Required. This is the only record of why the date moved.
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={setDeadlines.isPending}>
               Cancel
             </Button>
-            <Button onClick={save} disabled={setDeadlines.isPending || !transfer}>
+            <Button onClick={save} disabled={setDeadlines.isPending || !transfer || !reason.trim()}>
               {setDeadlines.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>

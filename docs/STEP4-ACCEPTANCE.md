@@ -27,13 +27,16 @@ the rest of the release (loyalty, email) is independent and can stand.
 These are the real values in the database now. Two of them constrain how acceptance can
 be run at all, and one of them corrects an expectation this script shipped with.
 
-**STOCK IS THE BINDING CONSTRAINT.** Only two variants have any stock, one unit each:
+**STOCK, RE-MEASURED 2026-09-15 17:49 PHT — N4020 HAS MOVED:**
 
 | SKU | product | price JPY | stock |
 |---|---|---|---|
 | R7828 | Ring 750 YG/WG Diamond 2.70ct | 679,980 | **1** |
-| N4020 | Necklace Tiffany & Co. Open Teardrop | 72,980 | **1** |
+| N4020 | Necklace Tiffany & Co. Open Teardrop | 72,980 | **3** (was 1; raised, and CJ-W-900012 already holds one) |
 | R3341 | Ring K18WG Diamond 3.82ct | 628,980 | **0 — cannot be reserved** |
+
+Three N4020 units plus one R7828 is enough for the remaining sections without raising stock
+again. R7828 is the only ten-month fixture, and there is exactly one of it.
 
 Sections A, B, E and F need **four** plans holding stock, and only two units exist. Either
 raise `stock_qty` on N4020 to 4 in the Hub's Website Catalog before starting, or run the
@@ -110,7 +113,7 @@ directly; do not infer from the absent row.
 SELECT invoice_number, web_reference, source_channel, customer_lang,
        currency, total_amount, downpayment_amount, total_paid,
        round(downpayment_amount / NULLIF(total_amount,0) * 100, 2) AS deposit_pct,
-       transfer_due_at, settlement_due_at, expired_at,
+       transfer_due_at, expired_at,
        fx_rate_used, fx_rate_date, loyalty_jpy_amount
   FROM layaway_accounts WHERE web_reference = 'CJ-W-XXXXXX';
 
@@ -165,14 +168,40 @@ SELECT t.transaction_type, t.points_amount, t.spend_amount_jpy, t.invoice_number
  ORDER BY t.created_at DESC LIMIT 10;
 ```
 
-## D. A term the basket cannot reach is REFUSED
+## D. A term the basket cannot reach
+
+**REWRITTEN 2026-09-15 — the expectation below was wrong, not the code.** The quote does
+not refuse; it DOWNGRADES and says so. Run against the live database:
+
+```
+layaway_quote(679980, 12, 'JPY', …)   R7828 at ¥679,980, asking for 12 months
+  eligible               true
+  requested_term_months  12
+  term_months            10          <- downgraded
+  term_downgraded        true        <- and flagged, not silent
+  max_term_months        10
+  allowed_terms          3 ✓  6 ✓  8 ✓  10 ✓  12 ✗ (min ¥1,000,000)
+```
+
+There is no `below_plan_minimum` anywhere in `layaway_quote`. The refusal lives in
+`create_web_layaway_atomic`, which is the writer — confirmed present in its body. So the
+two functions do different jobs on purpose: the quote offers the best term it can and
+labels the downgrade, the writer refuses what must not be written.
+
+The storefront already surfaces it: `layaway-calculator.tsx` renders the 12M option
+`disabled` with its minimum in the label, caps the selector at `max_term_months`, and shows
+the "term unavailable" note whenever `term_downgraded` is true. A customer therefore cannot
+request 12M at all.
 
 | # | Step | Expected result |
 |---|---|---|
-| D1 | Basket below the 12M minimum (¥1,000,000 / ₱420,000). `POST /checkout/quote` with `term_months: 12` | **409 `below_plan_minimum`**, carrying `max_term_months` and `allowed_terms` |
-| D2 | **Not silently downgraded** | no `checkout_quotes` row is created, and no plan appears at a shorter term |
-| D3 | Storefront UI | shows the allowed terms and asks the customer to pick again — it does not choose for them |
-| D4 | Force it at pay time (a stale quote whose basket has shrunk) | `create_web_layaway_atomic` returns `below_plan_minimum` — the same answer as the quote endpoint |
+| D1 | Product page for R7828 (¥679,980), open the term selector | 12M is present but **greyed out** and labelled with its ¥1,000,000 minimum; 10M is the highest selectable |
+| D2 | Pick the highest term you can, then read the note under the figures | if a downgrade happened, the note says the term is unavailable — it never silently shows a different term as though you had asked for it |
+| D3 | Reserve at the term the calculator allows | the plan is created at that term; `payment_plan_months` matches what the calculator showed |
+| D4 | (Backstop, not reachable through the UI) `create_web_layaway_atomic` on a quote below the minimum | returns `below_plan_minimum` |
+
+**N4020 is the second fixture**: at ¥72,980 it clears 3M and 6M only, so 8M shows
+`term_downgraded: true` with `term_months: 6` and `max_term_months: 6`.
 
 ## E. The expiry sweep
 
@@ -213,11 +242,11 @@ A plan expiring out from under a pending submission strands a real payment.
 
 | # | Step | Expected result |
 |---|---|---|
-| G1 | Hub → a **web layaway** → Deadlines card. Set `transfer_due_at` and `settlement_due_at` with a reason | both saved; `audit_logs` action `deadlines_updated` with old value, new value and the reason |
+| G1 | Hub → a **web layaway** → Deadline card. Set `transfer_due_at` with a reason | saved; `audit_logs` action `deadlines_updated` with old value, new value and the reason. There is ONE field here: `settlement_due_at` was dropped 2026-09-15 (owner decision) and the card no longer offers it |
 | G2 | Extend the same layaway to a later date | accepted while the plan is **live** (`active` / `overdue` / `extension_active` / `reactivated`) |
 | G3 | Try it on a **cancelled or expired** plan | `not_live` — an expired order is never revived; a returning customer gets a fresh order |
 | G4 | Hub → a **cash order** → set the deadline | `transfer_due_at` **and** `expires_at` both written to the same value. The hourly cron reads `expires_at`; a customer must never see a deadline the cron does not act on |
-| G5 | No reason given | refused — every deadline move is audited with a reason |
+| G5 | No reason given | refused: 400 `reason_required`, "A reason is required to change a deadline." In the Hub the Save button stays disabled, so the refusal is reached only by calling the function directly. No `audit_logs` row is written. (Was a known-wrong row until 2026-09-15 — the refusal did not exist; see Bug #273.) |
 | G6 | A non-`edit_account` role tries it | 403 from `set-account-deadlines` |
 
 ```sql
