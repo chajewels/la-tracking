@@ -5,6 +5,11 @@ merged by Cynthia and `main` was merged back into `develop`. One sender, and tha
 sender is Claude Code (CLAUDE.md). Queue checked before sending: the last message
 to this project was message K at 14:47:10Z, so this is not a resend.
 
+The `send_message` call TIMED OUT at 60s (transport only). Per CLAUDE.md it was
+NOT resent; the queue was re-read instead, and the message is present exactly
+once at 15:56:26Z — one user message containing `a3fa761`. Same transport
+behaviour as message K.
+
 **Pinned to:** `main@a3fa761` — "Release: a checkout can no longer destroy the
 address book (#82)". All ten assertions below were re-run against `a3fa761`
 ITSELF immediately before sending, not against a working branch — a lagging
