@@ -1067,11 +1067,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           return jsonResponse({ ...plan, request_id: requestId }, status);
         }
 
+        const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
         // The plan's own currency, as the RPC just wrote it — the authority on
         // what the customer will be paying, and so on which account to print.
         const region = regionForCurrency(currency);
         const methods = await transferMethods(supabase, currency);
-        const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
 
         // Plan-created email: the deposit, where to send it, the deadline and
         // the whole schedule. Fire-and-forget — the plan exists either way.
