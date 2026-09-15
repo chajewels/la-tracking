@@ -7,6 +7,39 @@ The `send_message` call returned a 60s transport timeout. Per CLAUDE.md "ONE SEN
 PER LOVABLE MESSAGE", that is NOT a failure and was NOT resent — the queue was
 polled instead and confirmed **exactly one** copy.
 
+## OUTCOME — applied and verified 2026-09-15 12:52 UTC
+
+Lovable ran all 14 step-1 assertions against `95e7616c` (its HEAD was exactly that
+commit), deployed the three functions, then applied the migration — the order the
+message fixed. Its report and an INDEPENDENT set of queries run from this session
+agree on every figure:
+
+| Check | Lovable reported | Verified independently from this session |
+|---|---|---|
+| 4a `settlement_due_at` columns in `public` | 0 | **0** (queried directly) |
+| 4b `set_account_deadlines` signatures | 1 | **1**, args exactly as specified, no `p_settlement_due_at` |
+| 4b `create_web_layaway_atomic` signatures | 1 | **1**, args exactly as specified, no `p_settlement_due_at` |
+| Grants after the DROP | not asked | **`service_role=X`, no PUBLIC** — byte-identical to the pre-drop ACL |
+| 4c unauthenticated `GET /layaway` | **401** `{"error":"unauthorized"}` | **cannot verify from here** — the sandbox's egress proxy answers `000` for `supabase.co`, so this one rests on Lovable's report alone |
+| 4d deployed-body grep | **not claimed** — nothing in that environment reads back a deployed body | n/a |
+
+The 401 is the check that mattered: it proves the handler was reached and its query
+compiled against the post-drop schema. A 400, or a 500 naming the column, would have
+meant the migration had landed ahead of the deployed code.
+
+**No twin was left behind.** That was the specific risk of drop-and-recreate, and the
+message's stop-and-report-both instruction was never triggered.
+
+Lovable's two follow-up commits to `main` are the expected ones and were merged back
+into `develop`: `types.ts` regenerated (the dropped column removed, −5 lines) and its
+own UUID-named record of the applied migration
+(`20260915125119_2e2eaa35-…sql`), which is **byte-identical to
+`20260915120000_drop_settlement_due_at.sql` apart from a trailing newline**. Per the
+Lovable exception in CLAUDE.md, neither is cleaned up.
+
+Also reported, and pre-existing: the security linter's 94 issues are unchanged by this
+migration.
+
 ## Assertion provenance
 
 Every step-1 count was measured against `main@95e7616c` (not against develop, and
