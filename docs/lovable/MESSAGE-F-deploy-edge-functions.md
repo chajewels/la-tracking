@@ -1,7 +1,6 @@
-# Lovable message F — DEPLOY EDGE FUNCTIONS ONLY (DRAFT — NOT SENT)
+# Lovable message F — DEPLOY EDGE FUNCTIONS ONLY
 
-**Do not send until message E has been sent, its verification output read, and
-`<MAIN_SHA>` replaced with `main`'s post-merge SHA.** One sender: Claude Code, from this
+**SHA filled: `main` at `8ebe539a`. Send only after message E's verification is clean.** One sender: Claude Code, from this
 session, after Cynthia's OK. Check the Lovable message queue before sending. A transport
 timeout is not a failure — never resend on a timeout.
 
@@ -10,7 +9,7 @@ timeout is not a failure — never resend on a timeout.
 ---
 
 Deploy 29 edge functions for project `5be237e2-d98a-4ee7-97f0-cf83faeed2ba` from `main`
-at `<MAIN_SHA>`.
+at `8ebe539a`.
 
 ## 0. SOURCE ASSERTIONS — run these FIRST and STOP if any fails
 
@@ -19,7 +18,7 @@ ships the old code silently. That is exactly how the September email outage stay
 for nine days. If any count differs, **stop and report what you actually see.**
 
 ```bash
-git rev-parse HEAD          # expect <MAIN_SHA>
+git rev-parse HEAD          # expect 8ebe539a
 ```
 
 ### 0a. The shared files — assert on EVERY one of these
@@ -36,7 +35,7 @@ grep -c "recordEmailAttempt" supabase/functions/_shared/storefront-email.ts     
 
 # the Hub sender + registry + brand
 grep -c "recordEmailAttempt" supabase/functions/_shared/transactional-email-templates/send-email.ts   # expect >= 1
-grep -c "unsubscribe_token"  supabase/functions/_shared/transactional-email-templates/send-email.ts   # expect 0
+grep -c "unsubscribe_token:" supabase/functions/_shared/transactional-email-templates/send-email.ts   # expect 0 (setter form — the bare word appears in comments)
 ls supabase/functions/_shared/transactional-email-templates/brand.ts
 ls supabase/functions/_shared/transactional-email-templates/registry.ts
 
@@ -65,10 +64,10 @@ grep -c "below_plan_minimum"         supabase/functions/website/index.ts        
 ls    supabase/functions/set-account-deadlines/index.ts                                # NEW function
 grep -c "set_account_deadlines"      supabase/functions/set-account-deadlines/index.ts # expect >= 1
 grep -c "expire_web_layaway_atomic"  supabase/functions/auto-expire-cash-orders/index.ts # expect >= 1
-grep -c "unsubscribe_token"          supabase/functions/send-transactional-email/index.ts # expect 0
-grep -c "unsubscribe_token"          supabase/functions/process-email-queue/index.ts    # expect 0
+grep -c "unsubscribe_token:"         supabase/functions/send-transactional-email/index.ts # expect 0  (setter form; the bare word appears 3x in comments explaining why not to set it)
+grep -c "unsubscribe_token:"         supabase/functions/process-email-queue/index.ts    # expect 0  (setter form; bare word appears 2x in comments)
 grep -c "order_cancelled"            supabase/functions/revoke-loyalty-points/index.ts  # expect >= 1
-grep -c "submission_pending"         supabase/functions/auto-forfeit-settlement/index.ts # expect >= 1
+grep -c "under_review"               supabase/functions/auto-forfeit-settlement/index.ts # expect 1  (INVARIANT 12 here is a payment_submissions status query, not the RPC's refusal code)
 
 # delete-account no longer calls the revoke edge function — the RPC owns it now
 grep -c "revoke-loyalty-points"      supabase/functions/delete-account/index.ts        # expect 0
