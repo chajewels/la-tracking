@@ -6317,6 +6317,11 @@ export type Database = {
         }
         Returns: number
       }
+      notify_deadline_label: { Args: { p_at: string }; Returns: string }
+      notify_money_label: {
+        Args: { p_amount: number; p_currency: string }
+        Returns: string
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
