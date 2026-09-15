@@ -33,9 +33,18 @@ import { formatPHTDisplay } from '@/lib/date-utils';
  *
  * Three rules shape the screen:
  *
- * 1. TWO REGIONS, NEVER MIXED. Japan covers orders shipping inside Japan;
- *    Overseas covers every other destination. A customer is shown one region's
- *    methods and never learns the other exists.
+ * 1. CURRENCY DECIDES WHAT THE CUSTOMER SEES; REGION ONLY GROUPS IT HERE.
+ *    The website function selects methods by the settlement currency the
+ *    customer chose at checkout, because the account has to be able to RECEIVE
+ *    what they pay in — Rakuten takes yen, Metrobank takes pesos. A customer is
+ *    shown one currency's methods and never learns the other exists.
+ *
+ *    Until 2026-09-15 selection went by the SHIPPING COUNTRY, and a peso-settled
+ *    plan on a Japanese address was offered the yen-only Rakuten account, which
+ *    it could not be paid into. The two sections below still split by region
+ *    because that is how staff think about these accounts, but the Currency
+ *    control on each card is the one that decides. Set it deliberately: it is
+ *    not derived from the section.
  *
  * 2. NO PLACEHOLDERS, EVER. Empty means empty. The website function drops any
  *    method that is not COMPLETE for its type, and a region with nothing
@@ -48,11 +57,14 @@ import { formatPHTDisplay } from '@/lib/date-utils';
  */
 
 type Region = 'JP' | 'OVERSEAS';
+/** What the account can RECEIVE. This, not region, is what checkout selects on. */
+type Currency = 'JPY' | 'PHP';
 type MethodType = 'bank' | 'gcash' | 'maya' | 'other';
 
 interface MethodRow {
   id: string;
   region: Region;
+  currency: Currency;
   method_type: MethodType;
   label_ja: string | null;
   label_en: string | null;
@@ -91,9 +103,20 @@ const EMPTY_DRAFT: Draft = {
   wallet_number: null, wallet_name: null, note_ja: null, note_en: null,
 };
 
-const REGIONS: { code: Region; title: string; blurb: string }[] = [
-  { code: 'JP', title: 'Japan — 日本', blurb: 'Shown when the order ships to a Japanese address.' },
-  { code: 'OVERSEAS', title: 'Overseas — 海外', blurb: 'Shown for every other destination, the Philippines included.' },
+const REGIONS: { code: Region; title: string; blurb: string; currency: Currency }[] = [
+  {
+    code: 'JP', title: 'Japan — 日本', currency: 'JPY',
+    blurb: 'Accounts held in Japan. New methods here default to yen — change the currency on the card if the account receives pesos.',
+  },
+  {
+    code: 'OVERSEAS', title: 'Overseas — 海外', currency: 'PHP',
+    blurb: 'Accounts held outside Japan, the Philippines included. New methods here default to pesos.',
+  },
+];
+
+const CURRENCIES: { code: Currency; label: string; hint: string }[] = [
+  { code: 'JPY', label: '¥ JPY', hint: 'Shown to customers paying in yen' },
+  { code: 'PHP', label: '₱ PHP', hint: 'Shown to customers paying in pesos' },
 ];
 
 const METHOD_TYPES: {
@@ -264,10 +287,11 @@ export default function PaymentMethodsTab() {
         </p>
       </div>
 
-      {REGIONS.map(({ code, title, blurb }) => (
+      {REGIONS.map(({ code, title, blurb, currency }) => (
         <RegionSection
           key={code}
           region={code}
+          defaultCurrency={currency}
           title={title}
           blurb={blurb}
           methods={byRegion[code]}
@@ -285,9 +309,11 @@ type Toast = (o: { title: string; description?: string; variant?: 'destructive' 
 type Audit = (action: string, methodId: string, payload: Json) => Promise<void>;
 
 function RegionSection({
-  region, title, blurb, methods, userId, audit, onChanged, toast,
+  region, defaultCurrency, title, blurb, methods, userId, audit, onChanged, toast,
 }: {
   region: Region;
+  /** Starting point for a new method here, not a constraint — see addMethod. */
+  defaultCurrency: Currency;
   title: string;
   blurb: string;
   methods: MethodRow[];
@@ -309,6 +335,12 @@ function RegionSection({
         .from('transfer_payment_methods' as never)
         .insert({
           region,
+          // Sent explicitly on every insert. The column is NOT NULL with no
+          // default by design: a silent default would let a peso account be
+          // created as yen and offered to the wrong customers, which is the bug
+          // this whole change exists to remove. The section's currency is the
+          // starting point; staff change it on the card.
+          currency: defaultCurrency,
           method_type: type,
           label_ja: spec.defaults.ja || null,
           label_en: spec.defaults.en || null,
@@ -326,7 +358,7 @@ function RegionSection({
       // select came back empty — never silently, the toast below still fires.
       if (newId) {
         await audit('payment_method_added', newId, {
-          region, method_type: type, sort_order: nextOrder,
+          region, currency: defaultCurrency, method_type: type, sort_order: nextOrder,
         });
       }
       setAdding(type);
@@ -405,8 +437,9 @@ function RegionSection({
 
       {methods.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          No methods yet. Until one is added and filled in, bank transfer is not offered for
-          this region at checkout.
+          No methods yet. A customer paying in a currency with no complete, active method is
+          not offered bank transfer at all — checkout asks them to choose the other currency
+          rather than showing an account the money cannot reach.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -477,6 +510,7 @@ function MethodCard({
 
       await audit('payment_method_updated', method.id, {
         region: method.region,
+        currency: method.currency,
         method_type: method.method_type,
         changed_fields: EDITABLE.filter((f) => clean(draft[f]) !== clean(saved[f])),
         account_number_changed: clean(draft.account_number) !== clean(saved.account_number),
@@ -495,6 +529,36 @@ function MethodCard({
     }
   };
 
+  /**
+   * Saves immediately, like the on/off switch rather than the text fields: this
+   * decides which customers are shown the account, so it should not sit unsaved
+   * in a draft where it can be forgotten.
+   */
+  const setCurrency = async (next: Currency) => {
+    if (next === method.currency) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('transfer_payment_methods' as never)
+        .update({ currency: next, updated_by: userId } as never)
+        .eq('id', method.id);
+      if (error) throw error;
+      await audit('payment_method_currency_changed', method.id, {
+        region: method.region, method_type: method.method_type,
+        from: method.currency, to: next,
+      });
+      toast({
+        title: `Now shown to ${next === 'JPY' ? 'yen' : 'peso'} customers`,
+        description: `${heading} receives ${next}.`,
+      });
+      onChanged();
+    } catch (e) {
+      toast({ title: 'Could not change currency', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleActive = async (next: boolean) => {
     setSaving(true);
     try {
@@ -504,7 +568,7 @@ function MethodCard({
         .eq('id', method.id);
       if (error) throw error;
       await audit(next ? 'payment_method_activated' : 'payment_method_deactivated', method.id, {
-        region: method.region, method_type: method.method_type,
+        region: method.region, currency: method.currency, method_type: method.method_type,
       });
       onChanged();
     } catch (e) {
@@ -522,6 +586,7 @@ function MethodCard({
       // silently. Field values are not copied into it — only what it was.
       await audit('payment_method_deleted', method.id, {
         region: method.region,
+        currency: method.currency,
         method_type: method.method_type,
         label_en: clean(saved.label_en),
         label_ja: clean(saved.label_ja),
@@ -581,6 +646,33 @@ function MethodCard({
         >
           {!method.is_active ? 'Off' : complete ? 'Live' : `Needs ${missing.join(', ')}`}
         </span>
+
+        {/* Which customers see this account. Not derived from the section it
+            sits in — an account held in Japan that receives pesos is a real
+            thing, and getting this wrong is the defect of 2026-09-15. */}
+        <div
+          role="group"
+          aria-label={`Currency ${heading} receives`}
+          className="flex overflow-hidden rounded-md border border-border"
+        >
+          {CURRENCIES.map(({ code, label, hint }) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => void setCurrency(code)}
+              disabled={saving || busy}
+              aria-pressed={method.currency === code}
+              title={hint}
+              className={`px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                method.currency === code
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:text-card-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <div className="flex items-center gap-1.5">
           <Switch
