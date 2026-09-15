@@ -1670,7 +1670,6 @@ export type Database = {
           reactivated_at: string | null
           reactivated_by_user_id: string | null
           remaining_balance: number
-          settlement_due_at: string | null
           shipped_at: string | null
           shipping_fee: number
           shipping_method_id: string | null
@@ -1721,7 +1720,6 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance: number
-          settlement_due_at?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -1772,7 +1770,6 @@ export type Database = {
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
           remaining_balance?: number
-          settlement_due_at?: string | null
           shipped_at?: string | null
           shipping_fee?: number
           shipping_method_id?: string | null
@@ -5863,7 +5860,6 @@ export type Database = {
           p_lang?: string
           p_order_date?: string
           p_quote_id: string
-          p_settlement_due_at?: string
           p_transfer_due_at?: string
         }
         Returns: Json
@@ -6444,7 +6440,6 @@ export type Database = {
           p_entity_id: string
           p_entity_type: string
           p_reason?: string
-          p_settlement_due_at?: string
           p_transfer_due_at: string
           p_user_id?: string
         }
