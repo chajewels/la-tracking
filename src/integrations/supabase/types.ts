@@ -946,7 +946,9 @@ export type Database = {
           expires_at: string | null
           id: string
           is_active: boolean
+          last_used_at: string | null
           token: string
+          use_count: number
         }
         Insert: {
           created_at?: string
@@ -955,7 +957,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          last_used_at?: string | null
           token?: string
+          use_count?: number
         }
         Update: {
           created_at?: string
@@ -964,7 +968,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          last_used_at?: string | null
           token?: string
+          use_count?: number
         }
         Relationships: [
           {
@@ -999,6 +1005,7 @@ export type Database = {
           needs_review: boolean
           notes: string | null
           pancake_fb_id: string | null
+          portal_last_seen_at: string | null
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
@@ -1028,6 +1035,7 @@ export type Database = {
           needs_review?: boolean
           notes?: string | null
           pancake_fb_id?: string | null
+          portal_last_seen_at?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -1057,6 +1065,7 @@ export type Database = {
           needs_review?: boolean
           notes?: string | null
           pancake_fb_id?: string | null
+          portal_last_seen_at?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -6322,6 +6331,25 @@ export type Database = {
         Args: { p_amount: number; p_currency: string }
         Returns: string
       }
+      portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
+      portal_tokens_expiring_list: {
+        Args: { p_days?: number }
+        Returns: {
+          customer_code: string
+          customer_id: string
+          days_left: number
+          email: string
+          expires_at: string
+          full_name: string
+          has_live_plan: boolean
+          has_password: boolean
+          last_used_at: string
+          live_plan_count: number
+          mobile_number: string
+          token_id: string
+          use_count: number
+        }[]
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
@@ -6339,6 +6367,10 @@ export type Database = {
           old_remaining: number
           old_total_paid: number
         }[]
+      }
+      record_portal_seen: {
+        Args: { p_customer_id: string; p_token_id?: string }
+        Returns: undefined
       }
       redeem_store_credit_atomic: {
         Args: {
