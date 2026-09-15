@@ -1,5 +1,21 @@
 ## PENDING ITEMS (as of 2026-05-25)
 
+### process-loyalty-redemption validates the body before it checks auth (found 2026-09-15)
+
+An unauthenticated `POST` with `{}` returns **400** `action must be 'create',
+'approve', 'cancel', or 'void'` — not 401. Confirmed in source: `action` is
+validated at `index.ts:101-105`, while the auth paths (service-role JWT claims,
+then `resolvePortalAuth`) only begin at :112 and the 401s are at :145/:149.
+
+**Not a hole.** Nothing is read, written or leaked beyond the four action names,
+and every real branch is still gated (401 at :145/:149, then the role checks at
+:206, :491, :688, :806). It surfaced only because a deploy verification probed
+the function unauthenticated and got 400 where the other eight gave 401.
+
+Worth reordering on principle — authenticate, then validate shape — but not as a
+drive-by: this is the redemption path, and moving its gate is its own change with
+its own reasoning. Filed rather than fixed.
+
 ### CI — Firebase preview channels are at the per-site cap (found 2026-09-15)
 
 `build-and-deploy` fails on every NEW pull request at the
