@@ -17,6 +17,11 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+    # `closed` is here only for the cleanup job at the bottom, which releases
+    # the PR's preview channel. The default type list (opened, synchronize,
+    # reopened) does not include it, and naming any type replaces the default —
+    # so all four are listed. Both other jobs skip a closed event explicitly.
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
 
 # One deploy per branch or PR at a time. A second push supersedes the first
@@ -27,6 +32,8 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    # A closed PR has nothing to build and no channel to deploy to.
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -98,11 +105,27 @@ jobs:
 
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
           # No --debug here: it writes to stdout and would corrupt --json.
+          #
+          # CAPTURE THE EXIT STATUS RATHER THAN LETTING `set -e` TAKE IT. In
+          # --json mode the CLI writes its error OBJECT to stdout, which this
+          # command redirects into channel.json — so on failure the only
+          # explanation that exists is in that file. Under plain `set -e` the
+          # shell aborted here and the file was never printed, which is how
+          # every failing PR since 2026-09-11 reported a bare "exit code 1"
+          # with no cause. Printing it is the whole point of this block.
+          set +e
           firebase hosting:channel:deploy "$CHANNEL" \
             --only main \
             --project cha-jewels-la-tracking \
             --expires 30d \
             --non-interactive --json > channel.json
+          deploy_rc=$?
+          set -e
+          if [ "$deploy_rc" -ne 0 ]; then
+            echo "::error title=Channel deploy failed::firebase exited $deploy_rc — CLI output below"
+            cat channel.json || echo "(channel.json was never written)"
+            exit "$deploy_rc"
+          fi
 
           URL=$(jq -r '.result | to_entries[0].value.url // empty' channel.json)
           EXPIRES=$(jq -r '.result | to_entries[0].value.expireTime // empty' channel.json)
@@ -147,6 +170,8 @@ jobs:
 
   edge-functions:
     name: Edge functions
+    # Nothing to check when a PR closes.
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -173,3 +198,57 @@ jobs:
           mapfile -t targets < <(ls supabase/functions/*/index.ts | grep -v '^supabase/functions/mcp/index\.ts$')
           echo "Type-checking ${#targets[@]} edge functions (mcp bundle excluded)."
           deno check --config development/deno.ci.json "${targets[@]}"
+
+  # --------------------------------------------------------------- housekeeping
+  # Firebase Hosting allows a limited number of preview channels per site (50
+  # at the time of writing). Per-PR channels were added on 2026-09-11 and
+  # nothing ever released them, so the site filled up and EVERY pull request
+  # since has failed at the deploy step for a reason that had nothing to do
+  # with its code — which is exactly how people learn to ignore a red check.
+  #
+  # Releasing the channel when its PR closes keeps the site under the cap from
+  # here on. It does NOT retro-free the channels already stranded by closed
+  # PRs: those predate this job and need one manual prune (see below).
+  cleanup-preview-channel:
+    name: Release the PR's preview channel
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@15.22.4
+
+      - name: Write Firebase credentials
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/gcp-key.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      # `--site`, not `--only`: hosting:channel:delete takes a SITE ID and has
+      # no target indirection, unlike hosting:channel:deploy above. The site
+      # behind target `main` in .firebaserc is chajewelslayaway.
+      #
+      # Never fails the run. A channel can legitimately be absent — the PR's
+      # own deploy may have failed (every PR since the cap was reached), or a
+      # 30d expiry may have already collected it. Closing a PR must not report
+      # red for tidying that was already done.
+      - name: Delete the channel
+        env:
+          CHANNEL: pr-${{ github.event.pull_request.number }}
+        run: |
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
+          if firebase hosting:channel:delete "$CHANNEL" \
+               --site chajewelslayaway \
+               --project cha-jewels-la-tracking \
+               --force; then
+            echo "::notice title=Preview channel released::$CHANNEL deleted"
+          else
+            echo "::notice title=Nothing to release::$CHANNEL was already absent"
+          fi

@@ -54,13 +54,23 @@ identical tree deployed to the `develop` channel three minutes earlier. **A push
 to `main` is unaffected** — production takes the `firebase deploy --only hosting`
 branch, which creates no channel — so this never blocks a release.
 
-**Cause (hypothesis, arithmetic fits exactly).** Per-PR channels landed in
-`12a58907` on 2026-09-11. Every PR #22–#71 was opened on or after that date, so
-49 live `pr-N` channels plus the long-lived `develop` channel = 50, which is
-Firebase Hosting's documented per-site preview-channel limit. `pr-70` took the
-50th slot at 07:55; `pr-71` asked for the 51st at 08:15. Unconfirmed only
-because nothing in the Claude Code sandbox can reach Firebase to enumerate the
-channels, and `rerun-failed-jobs` returns 403 there.
+**Cause — CONFIRMED 2026-09-15 by CI itself**, once fix 1 below made the step
+print what the CLI had been saying all along. PR #75's run reported:
+
+    HTTP Error: 429, Couldn't create channel on
+    `projects/1030604802483/sites/chajewelslayaway`: channel quota reached.
+
+So it is the per-site preview-channel quota, exactly as the arithmetic
+suggested: per-PR channels landed in `12a58907` on 2026-09-11, every PR #22–#71
+was opened on or after that date, and 49 live `pr-N` channels plus the
+long-lived `develop` channel = 50, Firebase Hosting's documented limit. `pr-70`
+took the 50th slot at 07:55; `pr-71` asked for the 51st at 08:15 and every PR
+since has been refused with 429.
+
+This is worth keeping as a method note: the hypothesis was right, but it stayed
+a hypothesis for hours because the evidence was being thrown away by the step's
+own redirect. Making a failure state its own cause was cheaper than reasoning
+about it.
 
 **Why the log cannot say so.** The step runs
 `firebase … --json > channel.json` under `set -euo pipefail`. In `--json` mode
@@ -70,19 +80,33 @@ print it. The only branch written to surface an error runs when firebase
 *succeeds* but omits a URL, so every genuine CLI failure is silent by
 construction.
 
-**Two fixes, neither applied** (both proposed in full on PR #71, deliberately
-not pushed there — widening a `develop` -> `main` release PR with an unrelated
-CI change is worse than a red preview check):
-  1. Capture firebase's exit status instead of letting `set -e` swallow it, and
-     `cat channel.json` on failure.
-  2. Delete the `pr-N` channel when its PR closes (`pull_request: [closed]` +
-     `firebase hosting:channel:delete … --force || true`), so the cap stops
-     being reached at all.
+**Both fixes are now in `.github/workflows/firebase-deploy.yml`** (owner
+decision 2026-09-15, its own PR — a release PR was never the place for a CI
+change):
+  1. The deploy step captures firebase's exit status instead of letting `set -e`
+     take it, and prints `channel.json` on failure. The log stops being silent
+     by construction, so the NEXT failure states its own cause.
+  2. A `cleanup-preview-channel` job runs on `pull_request: closed` and deletes
+     that PR's channel, never failing the run when the channel is already
+     absent. `pull_request.types` had to be spelled out in full, because naming
+     any type replaces the default list; `build-and-deploy` and
+     `edge-functions` skip a closed event explicitly.
 
-**To unblock previews now:** prune the `pr-N` channels of merged/closed PRs in
-the Firebase console (Hosting -> `chajewelslayaway` -> Channels), or
-`firebase hosting:channel:list --only main --project cha-jewels-la-tracking`
-then `…:delete pr-<n> … --force`.
+**STILL NEEDS ONE MANUAL PRUNE — the fix is not retroactive.** Job 2 only
+releases channels of PRs that close from now on. The ~49 channels already
+stranded by PRs closed BEFORE it existed are still holding the cap, and PRs
+#71, #72 and #73 never got a channel at all, so closing them frees nothing.
+Until someone prunes, every new PR still fails this step.
+  - Firebase console: Hosting -> `chajewelslayaway` -> Channels, delete the
+    `pr-N` rows of closed PRs; or
+  - `firebase hosting:channel:list --site chajewelslayaway --project cha-jewels-la-tracking`
+    then `firebase hosting:channel:delete pr-<n> --site chajewelslayaway --project cha-jewels-la-tracking --force`
+
+    Note `--site`, NOT `--only`: `hosting:channel:list` and
+    `hosting:channel:delete` take a site ID and have no target indirection,
+    unlike `hosting:channel:deploy`, which takes `--only main`. An earlier
+    version of this entry gave `--only main` for the list command; that is
+    wrong and would not have run.
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 ✅ COMPLETE — Phases 1–8 shipped. Verified against main 2026-05-25 by repo audit.
