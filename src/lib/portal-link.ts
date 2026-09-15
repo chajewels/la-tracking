@@ -1,10 +1,19 @@
 /**
  * Frontend portal link builder for Phase B email/password auth.
  *
- * Returns the appropriate portal URL for a customer based on
- * whether they have set up email/password authentication:
- *   - auth_user_id IS NULL  → token-bearing URL (legacy auth)
- *   - auth_user_id NOT NULL → bare URL (email/password auth)
+ * A USABLE TOKEN WINS, whatever the customer's auth state (changed
+ * 2026-09-15):
+ *   1. a valid, unexpired token → token-bearing URL
+ *   2. otherwise auth_user_id   → bare URL (they can sign in)
+ *   3. otherwise                → /portal home
+ *
+ * It used to branch on auth_user_id first. `/auth/customer` sets
+ * auth_user_id on any storefront sign-in, and the storefront signs
+ * customers in with a magic link — so a legacy token customer who
+ * signed in there became "linked" without ever choosing a password,
+ * and every Hub link to them switched to a bare URL asking for one.
+ * A token URL works either way, so preferring it costs a
+ * password-holder nothing.
  *
  * The backend has a parallel implementation at
  * supabase/functions/_shared/portal-link.ts. Both files must be
@@ -32,6 +41,19 @@ export type PortalIntent = 'portal' | 'loyalty';
 export interface CustomerForLink {
   auth_user_id: string | null;
   portal_token?: string | null;
+  /**
+   * The token's expiry, when the caller knows it. `undefined` means
+   * "not supplied" and the token is trusted, so existing callers are
+   * unaffected; supplying it moves the check out of the call sites.
+   */
+  token_expires_at?: string | null;
+}
+
+/** A token is unusable once its expiry has passed. No expiry = never expires. */
+function tokenExpired(expiresAt?: string | null): boolean {
+  if (!expiresAt) return false;
+  const t = Date.parse(expiresAt);
+  return !Number.isNaN(t) && t < Date.now();
 }
 
 /**
@@ -58,20 +80,19 @@ export function getPortalLinkForCustomer(
 ): string {
   const path = intent === 'loyalty' ? '/loyalty' : '/portal';
 
-  // Migrated customer → bare URL (email/password auth)
+  // 1. A usable token wins, linked or not — it works either way.
+  if (customer.portal_token && !tokenExpired(customer.token_expires_at)) {
+    return `${PORTAL_BASE}${path}?token=${encodeURIComponent(customer.portal_token)}`;
+  }
+
+  // 2. No usable token, but they can sign in. Honours the intent.
   if (customer.auth_user_id) {
     return `${PORTAL_BASE}${path}`;
   }
 
-  // Non-migrated customer with token → token URL (legacy auth)
-  if (customer.portal_token) {
-    return `${PORTAL_BASE}${path}?token=${encodeURIComponent(customer.portal_token)}`;
-  }
-
-  // Non-migrated customer without token → /portal home regardless
-  // of intent. The loyalty page requires auth to render, so we
-  // route token-less unauthenticated visitors to the portal home
-  // (Messenger token recovery flow). Matches backend
-  // buildPortalLinkForCustomerId fallback behavior.
+  // 3. Nothing to authenticate with → /portal home regardless of intent. The
+  // loyalty page requires auth to render, so token-less unauthenticated
+  // visitors land at the portal home (Messenger token recovery flow). Matches
+  // backend buildPortalLinkForCustomerId.
   return `${PORTAL_BASE}/portal`;
 }

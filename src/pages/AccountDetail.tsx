@@ -196,13 +196,20 @@ export default function AccountDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from('customer_portal_tokens')
-        .select('token')
+        .select('token, expires_at')
         .eq('customer_id', customerId!)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      return data?.token || null;
+      // An expired token is no token. This used not to matter, because a
+      // linked customer took the bare URL regardless; now that a usable token
+      // is preferred, an expired one must not reach the link builder — or the
+      // PIN line beside it.
+      if (!data?.token) return null;
+      const exp = data.expires_at ? Date.parse(data.expires_at) : NaN;
+      if (!Number.isNaN(exp) && exp < Date.now()) return null;
+      return data.token;
     },
   });
   const { data: authUserId } = useQuery({
