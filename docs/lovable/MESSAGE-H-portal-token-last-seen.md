@@ -1,10 +1,19 @@
 # Lovable message H — apply both migrations, then deploy eleven functions
 
-Status: **DRAFTED, NOT SENT.** Goes out only after PR #69 (`develop` → `main`)
-is merged, because Lovable applies migrations from its mirror of `main` and a
-migration sitting on `develop` is invisible to it. One sender: Claude Code,
-from this session, after Cynthia's OK. The queue is checked before sending; a
-transport timeout is not a failure and is never answered with a resend.
+Status: **SENT 2026-09-15, once, by Claude Code.** PR #69 merged as `e6a5002c`;
+all 22 pattern assertions plus 5 line counts were RE-DERIVED against
+`main@e6a5002c` before sending (the draft was written pre-merge, when the tip
+was `e847768f`) and every one held. One sender: Claude Code, from the session
+that drafted this. The queue was checked before sending; a transport timeout is
+not a failure and is never answered with a resend.
+
+**OUTCOME.** Both migrations applied and verified at `e6a5002c`; all 26 source
+assertions matched. The eleven deploys did NOT run in that turn: Lovable
+correctly honoured a stop condition in check 2e whose expected value was wrong
+(see the RETRACTED note under Step 2). A follow-up message released the pause.
+Two expectations in the message as sent were defective and are marked CORRECTED
+below — 1a's "true/true", and 2e's peak_day. Both were caught by Lovable, not
+by me.
 
 All 22 source assertions below passed the comment-strip test: each count is
 identical after every comment line is removed from the file, and each differs
@@ -39,7 +48,9 @@ mint-versus-use expiry decision is being deferred rather than guessed.
 
 ### STEP 0 — assert the source BEFORE doing anything
 
-Work from `main` at the commit that PR #69 merged. Run every assertion. **If any
+Work from `main` at commit `e6a5002c` (the PR #69 squash). If `HEAD` is not
+that commit, check whether `e6a5002c` is an ancestor and say what the delta is
+before continuing. Run every assertion. **If any
 count differs, STOP and report it — do not apply, do not deploy, and do not
 "fix" the source.** A mismatch means your mirror is not serving the merged
 commit, which is exactly the lag that shipped a stale build once before.
@@ -111,7 +122,11 @@ notification is swallowed and the order INSERT still commits.
 #### Report, with the actual output
 
 ```sql
--- 1a. both notifiers carry their web branch. Expect true/true on both rows.
+-- 1a. both notifiers carry their web branch. CORRECTED 2026-09-15: the
+--     message as SENT said "expect true/true on both rows", which was WRONG —
+--     each phrase exists only in its own notifier, so the correct result is
+--     notify_account_created  true/false and
+--     notify_cash_order_created false/true. Lovable flagged it.
 SELECT proname,
        pg_get_functiondef(oid) LIKE '%Website layaway placed%' AS has_layaway_web,
        pg_get_functiondef(oid) LIKE '%paid in full%'           AS has_cash_web
@@ -174,8 +189,14 @@ SELECT grantee, privilege_type
 SELECT jobid, jobname, schedule, active
   FROM cron.job WHERE jobname = 'portal-token-check';
 
--- 2e. THE REPORT RUNS. Expect status "ok", peak_day "2027-03-19",
---     peak_day_count 195, active_tokens 632, and
+-- 2e. THE REPORT RUNS. CORRECTED 2026-09-15: the message as SENT expected
+--     peak_day "2027-03-19" / peak_day_count 195 from this SIXTY-day call.
+--     That was WRONG and it is what stopped the deploys. peak_day is scoped
+--     to the p_days window; those two figures are ~550 days out, so a 60-day
+--     window correctly returns peak_day null and peak_day_count 0. Verified
+--     against live: report(60) -> null/0/expiring 0/status ok;
+--     report(400) -> 2027-03-19/195/live 61/expiring 632/status ok.
+--     Expect status "ok", active_tokens 632, and
 --     tokens_with_any_last_seen 0 — zero is CORRECT right now, because
 --     nothing has authenticated since the columns came into existence.
 SELECT jsonb_pretty(public.portal_token_expiry_report(60));
@@ -189,9 +210,14 @@ SELECT indexname, indexdef FROM pg_indexes
    AND indexname = 'idx_customer_portal_tokens_last_used';
 ```
 
-**If 2e returns a `peak_day` other than 2027-03-19, or a count other than 195,
-stop and paste what it returned** — the tokens were extended on 2026-09-15 and
-those two figures are what the extension produced.
+**RETRACTED (2026-09-15).** The message as sent said: *"If 2e returns a
+`peak_day` other than 2027-03-19, or a count other than 195, stop and paste
+what it returned"* — and Lovable did exactly that, which is why the eleven
+deploys did not run in the same turn. The figures are real (the tokens were
+extended on 2026-09-15 and 2027-03-19/195 is what the extension produced) but
+they belong to the whole population, not to a 60-day window, so the condition
+could never be met. A follow-up message released the pause, corrected both
+expectations, and re-sent the same eleven unchanged.
 
 ---
 

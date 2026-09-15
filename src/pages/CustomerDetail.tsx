@@ -69,14 +69,20 @@ export default function CustomerDetail() {
     (async () => {
       const { data: tokenRow } = await supabase
         .from('customer_portal_tokens')
-        .select('token')
+        .select('token, expires_at')
         .eq('customer_id', customerId)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       const authUserId = data.customer.auth_user_id ?? null;
-      const tokenValue = tokenRow?.token ?? null;
+      // An expired token is no token — see the note in AccountDetail's
+      // portal-token query. Nulling it here keeps the PIN line consistent
+      // with the link.
+      const tokenExp = tokenRow?.expires_at ? Date.parse(tokenRow.expires_at) : NaN;
+      const tokenValue = (tokenRow?.token && !(!Number.isNaN(tokenExp) && tokenExp < Date.now()))
+        ? tokenRow.token
+        : null;
       const _digits = (data.customer.mobile_number ?? '').replace(/\D/g, '');
       const _last4 = _digits.length >= 4 ? _digits.slice(-4) : null;
       setCustomerPin((!authUserId && tokenValue && _last4) ? _last4 : null);
