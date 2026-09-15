@@ -50,3 +50,9 @@ SELECT total_paid, transfer_due_at = expires_at AS still_in_step FROM cash_order
 SELECT set_account_deadlines('layaway', :'unpaid', NULL, 'clear it', NULL) AS null_still_refused;
 SELECT set_account_deadlines('layaway', :'unpaid', now()-interval '1 day', 'backdating', NULL)->>'deadline_in_past' AS past_flag_still_there;
 SELECT set_account_deadlines('layaway', gen_random_uuid(), now()+interval '1 day', 'x', NULL) AS not_found_still_there;
+
+\echo ''
+\echo '=== ORDER MATTERS: re-running 20260915140000 after this file drops the already_paid'
+\echo '    guard. Proven, so the header says so. Replay in filename order, never by hand.'
+SELECT prosrc LIKE '%already_paid%' AS already_paid_guard_present
+  FROM pg_proc WHERE proname = 'set_account_deadlines';

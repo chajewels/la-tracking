@@ -42,10 +42,26 @@ Deno.serve(async (req) => {
     }
     if (!entityId) return jsonResponse({ error: "entity_id is required" }, 400);
 
-    // A deadline is a point in time, so an empty string is a mistake rather than
-    // "no deadline" — say so instead of silently clearing it.
+    // A DEADLINE IS MOVED, NEVER REMOVED (harness finding 3, 2026-09-15). This
+    // guard used to read `transferDueAt !== null && ...`, which caught "" but
+    // let an absent field and an explicit null straight through to the RPC,
+    // which wrote NULL into the column. The hourly sweep selects on
+    // `transfer_due_at IS NOT NULL`, so a cleared deadline meant a web plan held
+    // its stock forever with no expiry path and no error anywhere. The comment
+    // here claimed it refused to clear silently; it did not. Now it does, and
+    // set_account_deadlines refuses null too, because this HTTP layer is not the
+    // only way in.
     const transferDueAt = body?.transfer_due_at ?? null;
-    if (transferDueAt !== null && Number.isNaN(Date.parse(String(transferDueAt)))) {
+    if (transferDueAt === null) {
+      return jsonResponse(
+        {
+          error: "deadline_required",
+          message: "A deposit deadline can be moved but not removed. Send the new date.",
+        },
+        400,
+      );
+    }
+    if (Number.isNaN(Date.parse(String(transferDueAt)))) {
       return jsonResponse({ error: "transfer_due_at is not a valid timestamp" }, 400);
     }
 

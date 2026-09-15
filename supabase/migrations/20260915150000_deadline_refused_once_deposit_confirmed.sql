@@ -24,10 +24,20 @@
 -- deadline is still live and still moveable. Applying `already_paid` there
 -- would take away a control staff genuinely need.
 --
--- Also carries the two guards from 20260915140000 (a deadline is moved, never
--- removed; and `deadline_in_past` in the payload), because this is a whole-body
--- replacement. The later filename means it applies last and the combined body
--- wins, whichever PR merges first.
+-- SUPERSEDES 20260915140000, AND ORDER MATTERS. This is a whole-body
+-- CREATE OR REPLACE, so it also carries that migration's two guards (a deadline
+-- is moved, never removed; and `deadline_in_past` in the payload) — the
+-- combined body is the union of both. Applied in filename order, which is what
+-- Supabase does, 140000 then 150000 leaves every guard in place.
+--
+-- But the reverse is NOT harmless, and an earlier draft of this header said it
+-- was: running 140000 AFTER this file replaces the body with one that has no
+-- `already_paid` check, and finding 1 comes back silently. Measured in the
+-- harness — reverse order leaves `prosrc LIKE '%already_paid%'` false.
+-- So: never re-run 140000 by hand once this has been applied. If both are ever
+-- replayed, replay them in filename order. This file is the current definition
+-- of set_account_deadlines; any future change edits a NEW migration, never one
+-- of these two.
 
 CREATE OR REPLACE FUNCTION public.set_account_deadlines(
   p_entity_type     text,
