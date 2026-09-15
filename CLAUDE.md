@@ -1122,6 +1122,7 @@ When completing a partially_paid month:
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
     auto-expire-cash-orders:       40 * * * * (hourly at :40) ✅  — the ONLY web/cash order expiry path since 2026-09-13; the SQL cron expire_transfer_orders() is gone
     daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
+    portal-token-check:            00:55 UTC = 08:55 PHT ✅  — portal links approaching expiry; Vault-backed, independent of the chain
     deactivate-expired-promotions: every hour            ✅
     loyalty-notification-queue:    every hour            ✅
     fc-alert-evaluation:           every 30 minutes      ✅
