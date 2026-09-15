@@ -1560,6 +1560,8 @@ export type Database = {
           sku: string | null
           title: string
           unit_price_jpy: number
+          variant_id: string | null
+          website_product_id: string | null
         }
         Insert: {
           account_id: string
@@ -1573,6 +1575,8 @@ export type Database = {
           sku?: string | null
           title: string
           unit_price_jpy: number
+          variant_id?: string | null
+          website_product_id?: string | null
         }
         Update: {
           account_id?: string
@@ -1586,6 +1590,8 @@ export type Database = {
           sku?: string | null
           title?: string
           unit_price_jpy?: number
+          variant_id?: string | null
+          website_product_id?: string | null
         }
         Relationships: [
           {
@@ -1600,6 +1606,20 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_account_items_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_account_items_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
             referencedColumns: ["id"]
           },
         ]
