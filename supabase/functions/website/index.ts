@@ -303,14 +303,20 @@ const txt = (v: unknown): string | null => {
 };
 
 /**
- * Two transfer setups exist, not one per country: the yen accounts used when an
- * order ships inside Japan, and the accounts/wallets used for everywhere else.
- * Anything that is not Japan is OVERSEAS — a customer in a country nobody
- * thought to add still gets the overseas methods rather than an empty page.
+ * Which set of accounts a currency is paid into. This is what `transfer_region`
+ * on the wire has always meant — "which accounts is this paid into" — so it is
+ * derived from the currency, exactly like the methods sent beside it. Deriving
+ * it from the shipping address instead is what let a response carry a yen-only
+ * Rakuten account under a peso plan (fixed 2026-09-15).
+ *
+ * There is deliberately no regionForCountry() companion any more. Every call
+ * site the old one had was either the bank lookup or this label that describes
+ * it; shipping goes through shippingFor(), which reads shipping_rates by
+ * country directly and never consulted a region. Keeping a country->region
+ * helper alive would only invite the two questions to be confused again.
  */
-function regionForCountry(country: string): "JP" | "OVERSEAS" {
-  const code = (country || "").trim().toUpperCase();
-  return code === "JP" || code === "JPN" || code === "JAPAN" ? "JP" : "OVERSEAS";
+function regionForCurrency(currency: string): "JP" | "OVERSEAS" {
+  return String(currency ?? "").trim().toUpperCase() === "PHP" ? "OVERSEAS" : "JP";
 }
 
 /**
@@ -349,21 +355,28 @@ const DEFAULT_LABELS: Record<string, { ja: string; en: string }> = {
 };
 
 /**
- * Active, complete transfer methods for a region, in the admin's order, read at
- * request time — a correction made in the Hub is live on the next page load
- * with no deploy.
+ * Active, complete transfer methods for a SETTLEMENT CURRENCY, in the admin's
+ * order, read at request time — a correction made in the Hub is live on the
+ * next page load with no deploy.
  *
- * Returns [] when the region has nothing usable. That empty array is what makes
- * checkout hide transfer entirely: the old free-text design could not tell a
- * real account from a placeholder paragraph, so it had no way to know.
+ * Keyed on currency, not on the shipping country (changed 2026-09-15). The
+ * account a customer pays into has to be able to RECEIVE what they chose to pay
+ * in: Rakuten takes yen, Metrobank takes pesos, and a Japan-resident customer
+ * settling a plan in pesos must be shown the peso account. Selecting by
+ * destination showed them Rakuten and left the plan unpayable.
+ *
+ * Returns [] when no active, complete method accepts that currency. That empty
+ * array is what makes checkout refuse the currency rather than print an account
+ * the money cannot reach: the old free-text design could not tell a real
+ * account from a placeholder paragraph, so it had no way to know.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function transferMethods(supabase: any, country: string): Promise<AnyRec[]> {
-  const region = regionForCountry(country);
+async function transferMethods(supabase: any, currency: string): Promise<AnyRec[]> {
+  const cur = String(currency ?? "").trim().toUpperCase() === "PHP" ? "PHP" : "JPY";
   const { data, error } = await supabase
     .from("transfer_payment_methods")
     .select(METHOD_FIELDS)
-    .eq("region", region)
+    .eq("currency", cur)
     .eq("is_active", true)
     // created_at breaks sort_order ties so the order never shuffles between reads.
     .order("sort_order", { ascending: true })
@@ -400,8 +413,8 @@ async function transferMethods(supabase: any, country: string): Promise<AnyRec[]
 
 /** Cheap yes/no for the checkout gate — same completeness rule, no details returned. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function transferAvailable(supabase: any, country: string): Promise<boolean> {
-  return (await transferMethods(supabase, country)).length > 0;
+async function transferAvailable(supabase: any, currency: string): Promise<boolean> {
+  return (await transferMethods(supabase, currency)).length > 0;
 }
 
 function notFound() {
@@ -951,7 +964,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .maybeSingle();
       if (quoteErr) throw quoteErr;
 
-      const quoteMethods = await transferMethods(supabase, String(address.country ?? ""));
+      // Keyed on the settlement currency the customer chose, not on where the
+      // parcel goes: the account has to be able to receive what they pay in.
+      const quoteMethods = await transferMethods(supabase, settlement);
 
       return jsonResponse(scrub({
         quote_id: quote?.id,
@@ -984,7 +999,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // entirely rather than offering one that /checkout/pay would refuse.
         // Methods are region-scoped here, not filtered in the browser: the
         // other region's account details never reach the page at all.
-        transfer_region: regionForCountry(String(address.country ?? "")),
+        transfer_region: regionForCurrency(settlement),
         transfer_methods: quoteMethods,
         transfer_available: quoteMethods.length > 0,
         order_type: orderType,
@@ -1011,20 +1026,23 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       // Everything that matters — re-price, stock decrement, order, items,
       // quote consumption — happens inside this one transaction.
-      // Refuse BEFORE the order exists when the destination has no usable
-      // transfer details. Server-side, not just a disabled button: an order
-      // created with nowhere to send the money is worse than no order.
+      // Refuse BEFORE the order exists when nothing can take the money.
+      // Server-side, not just a disabled button: an order created with nowhere
+      // to send the money is worse than no order.
       const { data: quoteRow } = await supabase
         .from("checkout_quotes")
-        .select("mode, ship_to_address:customer_addresses(country)")
+        .select("mode, settlement_currency")
         .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
-      const quoteCountry = String(
-        ((quoteRow as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
-      );
-      if (!(await transferAvailable(supabase, quoteCountry))) {
+      // Refuse BEFORE the order exists when nothing can receive the currency the
+      // quote was taken in. Currency-scoped on purpose: the other currency stays
+      // available, so the customer's escape is the toggle they already have
+      // rather than a dead checkout.
+      const quoteSettlement = String((quoteRow as AnyRec | null)?.settlement_currency ?? "JPY");
+      if (!(await transferAvailable(supabase, quoteSettlement))) {
         return jsonResponse({
           error: "transfer_unavailable",
-          region: regionForCountry(quoteCountry),
+          currency: quoteSettlement,
+          region: regionForCurrency(quoteSettlement),
         }, 409);
       }
 
@@ -1049,8 +1067,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           return jsonResponse({ ...plan, request_id: requestId }, status);
         }
 
-        const region = regionForCountry(quoteCountry);
-        const methods = await transferMethods(supabase, quoteCountry);
+        // The plan's own currency, as the RPC just wrote it — the authority on
+        // what the customer will be paying, and so on which account to print.
+        const region = regionForCurrency(currency);
+        const methods = await transferMethods(supabase, currency);
         const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
 
         // Plan-created email: the deposit, where to send it, the deadline and
@@ -1109,18 +1129,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         return jsonResponse({ ...result, request_id: requestId }, status);
       }
 
-      // Country comes from the order that was just written, not from the
-      // request body — the instructions shown must match where it ships.
+      // Currency comes from the order that was just written, not from the
+      // request body — the account shown must be one that can take the money
+      // actually owed on it.
       const { data: placed } = await supabase
         .from("cash_orders")
-        .select("ship_to_address:customer_addresses(country)")
+        .select("currency")
         .eq("id", String(result.order_id)).maybeSingle();
-      const country = String(
-        ((placed as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
-      );
+      const orderCurrency = String((placed as AnyRec | null)?.currency ?? "JPY");
 
-      const region = regionForCountry(country);
-      const methods = await transferMethods(supabase, country);
+      // Read from the order rather than assumed: cash web orders are yen-only
+      // today (create_web_order_atomic hard-codes JPY), and this stays correct
+      // if that ever changes.
+      const region = regionForCurrency(orderCurrency);
+      const methods = await transferMethods(supabase, orderCurrency);
 
       // Order confirmation email — the same items, total, transfer methods,
       // notice and deadline the payment screen showed. Fire-and-forget: the
@@ -1219,17 +1241,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: l.product_id ?? website_product_id ?? null })),
       );
 
-      const country = String((order as AnyRec).ship_to_address
-        ? ((order as AnyRec).ship_to_address as AnyRec).country ?? "JP"
-        : "JP");
-
       return jsonResponse(scrub({
         order,
         items: lines,
-        transfer_region: regionForCountry(country),
+        transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
         // Methods are only actionable while the transfer is outstanding.
         transfer_methods: (order as AnyRec).payment_status === "pending_transfer"
-          ? await transferMethods(supabase, country)
+          ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
     }
@@ -1293,9 +1311,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: website_product_id ?? null })),
       );
 
-      const country = String(
-        (((plan as AnyRec).quote as AnyRec | null)?.ship_to_address as AnyRec | undefined)?.country ?? "JP",
-      );
       const depositPaid = Number(plan.total_paid ?? 0) > 0;
 
       return jsonResponse(scrub({
@@ -1305,10 +1320,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         payments: paid ?? [],
         pending_submissions: pending ?? [],
         deposit_paid: depositPaid,
-        transfer_region: regionForCountry(country),
+        transfer_region: regionForCurrency(String((plan as AnyRec).currency ?? "JPY")),
         // Methods stay actionable for the life of the plan: every instalment is
-        // paid the same way the deposit was.
-        transfer_methods: await transferMethods(supabase, country),
+        // paid the same way the deposit was — and in the plan's currency, which
+        // is fixed at creation and never changes.
+        transfer_methods: await transferMethods(supabase, String((plan as AnyRec).currency ?? "JPY")),
       }));
     }
 
