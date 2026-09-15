@@ -54,13 +54,23 @@ identical tree deployed to the `develop` channel three minutes earlier. **A push
 to `main` is unaffected** — production takes the `firebase deploy --only hosting`
 branch, which creates no channel — so this never blocks a release.
 
-**Cause (hypothesis, arithmetic fits exactly).** Per-PR channels landed in
-`12a58907` on 2026-09-11. Every PR #22–#71 was opened on or after that date, so
-49 live `pr-N` channels plus the long-lived `develop` channel = 50, which is
-Firebase Hosting's documented per-site preview-channel limit. `pr-70` took the
-50th slot at 07:55; `pr-71` asked for the 51st at 08:15. Unconfirmed only
-because nothing in the Claude Code sandbox can reach Firebase to enumerate the
-channels, and `rerun-failed-jobs` returns 403 there.
+**Cause — CONFIRMED 2026-09-15 by CI itself**, once fix 1 below made the step
+print what the CLI had been saying all along. PR #75's run reported:
+
+    HTTP Error: 429, Couldn't create channel on
+    `projects/1030604802483/sites/chajewelslayaway`: channel quota reached.
+
+So it is the per-site preview-channel quota, exactly as the arithmetic
+suggested: per-PR channels landed in `12a58907` on 2026-09-11, every PR #22–#71
+was opened on or after that date, and 49 live `pr-N` channels plus the
+long-lived `develop` channel = 50, Firebase Hosting's documented limit. `pr-70`
+took the 50th slot at 07:55; `pr-71` asked for the 51st at 08:15 and every PR
+since has been refused with 429.
+
+This is worth keeping as a method note: the hypothesis was right, but it stayed
+a hypothesis for hours because the evidence was being thrown away by the step's
+own redirect. Making a failure state its own cause was cheaper than reasoning
+about it.
 
 **Why the log cannot say so.** The step runs
 `firebase … --json > channel.json` under `set -euo pipefail`. In `--json` mode
