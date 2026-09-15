@@ -1,10 +1,11 @@
 # Lovable message H — apply both migrations, then deploy eleven functions
 
-Status: **DRAFTED, NOT SENT.** Goes out only after PR #69 (`develop` → `main`)
-is merged, because Lovable applies migrations from its mirror of `main` and a
-migration sitting on `develop` is invisible to it. One sender: Claude Code,
-from this session, after Cynthia's OK. The queue is checked before sending; a
-transport timeout is not a failure and is never answered with a resend.
+Status: **SENT 2026-09-15, once, by Claude Code.** PR #69 merged as `e6a5002c`;
+all 22 pattern assertions plus 5 line counts were RE-DERIVED against
+`main@e6a5002c` before sending (the draft was written pre-merge, when the tip
+was `e847768f`) and every one held. One sender: Claude Code, from the session
+that drafted this. The queue was checked before sending; a transport timeout is
+not a failure and is never answered with a resend.
 
 All 22 source assertions below passed the comment-strip test: each count is
 identical after every comment line is removed from the file, and each differs
@@ -39,7 +40,9 @@ mint-versus-use expiry decision is being deferred rather than guessed.
 
 ### STEP 0 — assert the source BEFORE doing anything
 
-Work from `main` at the commit that PR #69 merged. Run every assertion. **If any
+Work from `main` at commit `e6a5002c` (the PR #69 squash). If `HEAD` is not
+that commit, check whether `e6a5002c` is an ancestor and say what the delta is
+before continuing. Run every assertion. **If any
 count differs, STOP and report it — do not apply, do not deploy, and do not
 "fix" the source.** A mismatch means your mirror is not serving the merged
 commit, which is exactly the lag that shipped a stale build once before.
