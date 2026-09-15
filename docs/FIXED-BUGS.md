@@ -1936,6 +1936,60 @@ Lovable IDE. (Bug #156, 2026-05-25)
   toggle, so the breakdown always matches the selected mode. No data impact — payments saved
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
+
+### Bug #272 — every 'skipped' email row was rejected on insert; #53's blind spot was never actually closed (2026-09-15)
+
+**Symptom.** `email_send_log.status` carries
+`CHECK (status = ANY (ARRAY['pending','sent','suppressed','failed','bounced','complained','dlq']))`.
+`'skipped'` is not in it. #53 ("a skipped storefront send leaves a row") shipped on
+the explicit claim that the column had no check constraint. That claim was wrong —
+verified from `pg_constraint` on 2026-09-15, the live definition matches the
+baseline exactly. Every skip row is rejected.
+
+**Why it was invisible.** `recordEmailAttempt()` logs the insert error and returns,
+by design, so that a logging failure can never turn a skipped email into a failed
+customer order. So the row vanishes, nothing raises, and the code reads as though
+it handles the case. That is worse than the gap #53 set out to close: an untrue
+record of having a record.
+
+**Second instance, same class.** `process-email-queue` writes `status:'rate_limited'`
+in its `isRateLimited` branch — also absent from the constraint, and its insert does
+not even destructure `error`. Found by auditing every writer rather than assuming
+#53's was the only wrong claim. Both values are added in the same migration.
+
+**Exposure: zero rows lost to the 'skipped' half.** The skip-logging code had never
+been deployed. `main@9fb6f8ae`, the tip deployed 2026-09-13, has `recordEmailAttempt`
+x4 and no `'skipped'` at all; #53 (`818b0a06`, 2026-09-14 12:34 JST) is not an
+ancestor of it. The skip path first reaches production with the 29-function deploy.
+`'rate_limited'` has been reachable longer, but `process-email-queue` has no cron and
+its last activity of any kind was 2026-09-09.
+
+**Fix.** `20260915020000_email_send_log_skipped_status.sql` drops and recreates the
+constraint with nine values. `'suppressed'` is NOT reused: it means the PROVIDER
+declined (bounce, complaint, unsubscribe), while `'skipped'` means the HUB declined
+(no address, test customer, no API key). Collapsing them destroys the distinction the
+column exists to record.
+
+**Neither partial unique index is touched, and neither new value is added to them.**
+`idx_email_send_log_idempotency_active` filters `status IN ('pending','sent')`;
+`idx_email_send_log_message_sent_unique` filters `status='sent'`. Note a skip row DOES
+carry `idempotency_key` — `recordEmailAttempt` stores the key on every non-`'sent'`
+row — so it is the index's status filter, not a null key, that keeps it out. That is
+correct: two skips sharing a key must both land, since a retry after a skip is a real
+second event, and adding `'skipped'` to that index would make the retry fail.
+
+**No verdict changes.** `email_delivery_report` derives its verdict from
+`v_sent = count(status='sent')` and `v_failed = count(status IN ('failed','dlq'))`
+only. Neither new value appears in either filter, so no verdict, count or timestamp
+moves. Deliberate: a skipped send is a decision, not a delivery failure. One wording
+nuance left alone — a window whose sends were all skipped reads as `silent`
+("no send attempt was logged"), which is arithmetically right but reads oddly now
+that an attempt IS logged. Banner copy, not correctness.
+
+**Hub UI unaffected.** `EmailHealthIndicator` renders the RPC's verdict
+(ok/refused/silent/degraded/unknown), never raw `email_send_log.status`. No component
+enumerates row statuses, so nothing shows `'skipped'` as blank or unknown.
+
 ### Bug #160 — edit-payment-amount missing DP guard caused #19105 misallocation (2026-06-04)
 
 **Symptom**: Two DP payments on layaway account #19105 (Kaila Daniela Catilo) had `payment_allocations` rows created against schedule rows M1 and M2. Payment 68819874 (₱40,000) split 33,670 → M1 + 6,330 → M2. Payment 7c37314f (₱15,000) split 5,333 → M1 + 9,667 → M2. Account audit failed on remaining-balance drift; M1 was wrongly marked 'paid', M2 wrongly 'partially_paid'.
