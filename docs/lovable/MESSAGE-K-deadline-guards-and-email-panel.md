@@ -1,11 +1,16 @@
 # Message K — apply both deadline migrations, then deploy the eight functions
 
-**Status:** DRAFT, not sent. Send only after PR #79 and PR #80 are both merged and
-`main` carries them. One sender, and that sender is Claude Code (CLAUDE.md).
+**Status:** SENT 2026-09-15 by Claude Code, after PR #79 and PR #80 were both
+merged. One sender, and that sender is Claude Code (CLAUDE.md).
 
-**Pinned to:** `main` after the #80 squash. Fill the SHA in before sending and
-re-run every assertion against that SHA — a lagging Lovable mirror is why these
-exist.
+**Pinned to:** `main@52a61f4` — "Release: emails that aren't clipped, plans that
+show their photo, and a deadline that can't be quietly lost (#80)".
+
+All eleven assertions below were re-run against `52a61f4` itself immediately
+before sending, not against a working branch — a lagging Lovable mirror is why
+they exist. Every one passed all three tests: count unchanged with comment lines
+stripped, count differing from pre-release `main@a4b32e0` (or the file absent
+there), and the symbol present in the file being asserted against.
 
 ---
 
