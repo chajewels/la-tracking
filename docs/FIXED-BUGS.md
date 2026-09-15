@@ -1937,6 +1937,18 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### Bug #276 — #275's own helper broke the Deno gate, and develop shipped red through three merges (2026-09-15)
+Root cause: `_shared/item-images.ts` declared `ImageableLine` as an `interface`, and a TypeScript interface gets no implicit index signature. Both real callers pass loose DB rows typed `Record<string, unknown>`, so `website/index.ts` failed in BOTH directions at once — 4 × TS2345:
+  - OUT (lines 1346, 1419): `ImageableLine[]` is not assignable to `AnyRec[]`, so the result could not be handed on to `withJapaneseTitles()`.
+  - IN (lines 1348, 1421): the call site's `.map(({ website_product_id, ...l }) => …)` literal infers as `{ product_id: {} | null }` — the rest-spread drops the index signature — which "has no properties in common with" the interface.
+Fix: `ImageableLine` becomes a TYPE alias carrying `[key: string]: any`, which satisfies both directions. Type-only; no runtime change. `customer-portal/index.ts:8` had already written `ImageableLine & Record<string, any>` by hand to get past the same gap, so that intersection is now redundant — evidence the shape was wrong, not the callers.
+WHAT THIS ONE IS REALLY ABOUT IS THE GATE, NOT THE TYPE. #276 was introduced by #275/#274's own PR (#76), whose PR run failed `Edge functions → Type check (blocking)` and was **merged red anyway**. `develop` then stayed red across three consecutive merges (#76, #77, #78) — the break was still at its tip when the release was being prepared, one merge away from production.
+Two things made it easy to miss, and both are worth knowing:
+  1. The green run on #76's branch after the failing one was the `closed` event, where the job is skipped by `if: github.event.action != 'closed'`. A skipped job shows as a green run. **A green check on a merge-close is not evidence the code passes.** Read the run that matched the head commit, not the last one in the list.
+  2. The gate type-checks all 101 edge functions on every run, so every PR cut from a broken `develop` inherits the failure and looks like it broke something itself. Two PRs (#77, #78) carried this failure without touching the file.
+Found by the step-4 harness work rather than by CI review: the failure arrived as a PR event and the diff obviously did not touch `website/index.ts`, which is what prompted checking the base branch.
+Verified: 4 errors reproduced in isolation against the real helper and the real call-site shapes with `deno check --config development/deno.ci.json`; 0 after the change; `deno lint` clean; both `customer-portal` usages (with and without its intersection workaround) still check.
+
 ### Bug #275 — a web plan's product photo never rendered; four surfaces read a column nothing writes (2026-09-15)
 Root cause: `layaway_account_items.image_url` exists and `create_web_layaway_atomic` never writes it, so every web plan line stores NULL. Observed on CJ-W-900012 and CJ-W-900013 as an empty grey square in the Hub's Items card for a piece the storefront pictures fine. Confirmed against the live rows: `image_url` NULL on both, `website_product_id` AND `variant_id` both populated, and `website_product_media` holding 3 rows for that variant.
 This is the SECOND table with the defect. The cash-order side was fixed on 2026-09-14 (R3341 on CJ-W-900011) by resolving the photo at READ time from `website_product_media`, keyed by the variant the line already carries — which also repaired the orders already on the books, as a column backfill would not. The fix was never applied to the layaway twin.
