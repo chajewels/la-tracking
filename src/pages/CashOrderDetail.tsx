@@ -969,6 +969,7 @@ export default function CashOrderDetail() {
   const orderWebFields = order as unknown as {
     web_reference?: string | null;
     transfer_due_at?: string | null;
+    source_channel?: string | null;
   };
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
@@ -1394,6 +1395,7 @@ export default function CashOrderDetail() {
           status={order.status}
           transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
           reference={orderWebFields.web_reference ?? null}
+          sourceChannel={orderWebFields.source_channel ?? null}
           canEdit={can('edit_account')}
         />
 

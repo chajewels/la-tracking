@@ -25,6 +25,19 @@ import { useSetAccountDeadlines } from '@/hooks/use-supabase-data';
  * server-side by set-account-deadlines, and the Save button stays disabled
  * without one so staff are told before the round trip rather than after.
  *
+ * WHAT HAPPENS AT THE DEADLINE DEPENDS ON WHERE THE ORDER CAME FROM (harness
+ * finding 2, 2026-09-15). The card used to promise, on every layaway, that
+ * "the hourly job releases the hold" — but auto-expire-cash-orders sweeps
+ * layaways with `source_channel = 'web'` only, and Hub-created plans carry a
+ * transfer_due_at too (NewAccount.tsx sends it, create-layaway-account stores
+ * it). So a Hub plan sat past its deadline while the card said something was
+ * about to happen, and nothing was. THE CARD ITSELF STAYS on every order — the
+ * date is real and staff set and move it deliberately on Hub plans as well —
+ * but the CONSEQUENCE line now tells the truth per channel. On a Hub layaway
+ * the deadline is a staff reminder and says so. Cash orders differ again: the
+ * hourly job cancels every pending cash order past expires_at, web or not, but
+ * only returns stock for a web one, so only that clause is gated.
+ *
  * Times are entered and displayed in PHT, the Hub's canonical zone, whatever
  * the browser's own clock says.
  */
@@ -56,6 +69,8 @@ export interface DeadlinesCardProps {
   status: string;
   transferDueAt: string | null;
   reference?: string | null;
+  /** Which automation, if any, acts on this deadline. See the header. */
+  sourceChannel?: string | null;
   canEdit: boolean;
 }
 
@@ -65,7 +80,7 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, reference, canEdit,
+  entityType, entityId, status, transferDueAt, reference, sourceChannel, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
@@ -74,6 +89,16 @@ export default function DeadlinesCard({
 
   const isLive = LIVE_STATUSES[entityType].includes(status);
   const overdue = !!transferDueAt && new Date(transferDueAt) < new Date();
+  const isWeb = sourceChannel === 'web';
+
+  // What the hourly job will actually do to THIS order once the date passes.
+  const consequence = entityType === 'layaway'
+    ? isWeb
+      ? 'The hourly job releases the hold unless a deposit is confirmed first.'
+      : 'Nothing happens automatically on a Hub-created plan — the hourly job only releases web reservations. This date is a staff reminder.'
+    : isWeb
+      ? 'The hourly job cancels the order and returns the stock unless the transfer is confirmed.'
+      : 'The hourly job cancels the order unless the transfer is confirmed. It holds no website stock, so nothing goes back on sale.';
 
   // Nothing set and nothing settable: no card rather than an empty one.
   if (!transferDueAt && !(canEdit && isLive)) return null;
@@ -85,14 +110,32 @@ export default function DeadlinesCard({
   }
 
   async function save() {
+    // A deadline is moved, never removed (finding 3) — the server refuses null,
+    // and Save is disabled without a date, so this is belt and braces.
+    const iso = fromPhtInputValue(transfer);
+    if (!iso) {
+      toast.error('Pick a date. A deadline can be moved but not removed.');
+      return;
+    }
     try {
-      await setDeadlines.mutateAsync({
+      const result = await setDeadlines.mutateAsync({
         entity_type: entityType,
         entity_id: entityId,
-        transfer_due_at: fromPhtInputValue(transfer),
+        transfer_due_at: iso,
         reason: reason.trim(),
       });
-      toast.success('Deadline updated');
+      // Observation A: a backdated deadline is legitimate — it is how staff
+      // release a hold deliberately — but it arms the hourly job within the
+      // hour, so say so rather than letting a mistyped year pass as routine.
+      if (result?.deadline_in_past) {
+        toast.warning('Deadline updated — the date you set is in the past.', {
+          description: isWeb && entityType === 'layaway'
+            ? 'The next hourly run will release this reservation unless a deposit is confirmed first.'
+            : consequence,
+        });
+      } else {
+        toast.success('Deadline updated');
+      }
       setOpen(false);
     } catch (err) {
       toast.error((err as Error).message || 'Could not update the deadline');
@@ -114,10 +157,8 @@ export default function DeadlinesCard({
               {transferDueAt ? formatPHTDisplay(transferDueAt) : 'not set'}
             </p>
             {overdue && isLive && (
-              <p className="text-xs text-destructive">
-                Past the deadline. {entityType === 'layaway'
-                  ? 'The hourly job releases the hold unless a deposit is confirmed first.'
-                  : 'The hourly job cancels the order and returns the stock unless the transfer is confirmed.'}
+              <p className={`text-xs ${isWeb ? 'text-destructive' : 'text-muted-foreground'}`}>
+                Past the deadline. {consequence}
               </p>
             )}
             {!isLive && (
@@ -157,6 +198,7 @@ export default function DeadlinesCard({
                   ? 'Moves the date the customer sees and the date the hourly job acts on, together.'
                   : 'Only applies while the deposit is unpaid. Once a deposit is confirmed the reservation is confirmed.'}
               </p>
+              <p className="text-[11px] text-muted-foreground">{consequence}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="deadline-reason">

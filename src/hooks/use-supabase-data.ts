@@ -598,7 +598,8 @@ export function useSetAccountDeadlines() {
     mutationFn: async (payload: {
       entity_type: 'layaway' | 'cash_order';
       entity_id: string;
-      transfer_due_at: string | null;
+      /** Required and non-null — a deadline is moved, never removed (finding 3). */
+      transfer_due_at: string;
       /** Required — set-account-deadlines refuses an empty reason (400). */
       reason: string;
     }) => {
@@ -618,10 +619,12 @@ export function useSetAccountDeadlines() {
         throw new Error(
           data.error === 'not_live'
             ? `This order is ${data.status} — a deadline can only be changed while it is live.`
-            : String(data.error),
+            : data.error === 'deadline_required'
+              ? 'A deposit deadline can be moved but not removed. Pick a new date.'
+              : String(data.error),
         );
       }
-      return data;
+      return data as { ok?: boolean; deadline_in_past?: boolean } | null;
     },
     onSuccess: () => invalidateAll(qc),
   });

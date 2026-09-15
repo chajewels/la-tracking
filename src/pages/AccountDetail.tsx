@@ -1397,6 +1397,7 @@ export default function AccountDetail() {
           status={account.status}
           transferDueAt={webFields.transfer_due_at ?? null}
           reference={webFields.web_reference ?? null}
+          sourceChannel={webFields.source_channel ?? null}
           canEdit={canPerm('edit_account')}
         />
 
