@@ -25,6 +25,20 @@ import { useSetAccountDeadlines } from '@/hooks/use-supabase-data';
  * server-side by set-account-deadlines, and the Save button stays disabled
  * without one so staff are told before the round trip rather than after.
  *
+ * ONCE THE DEPOSIT IS CONFIRMED THE DEADLINE IS SPENT (harness finding 1,
+ * 2026-09-15). A layaway whose deposit has landed is still 'active', so the
+ * server's status gate let the change through and this card offered the button
+ * — while the dialog said, in the same breath, "Only applies while the deposit
+ * is unpaid." Staff got a success toast and an audit row for a decision nothing
+ * would ever act on. set_account_deadlines now refuses with `already_paid`, and
+ * the control is withdrawn here too. WITHDRAWN, NOT HIDDEN: the card still
+ * shows the date and says why it can no longer be changed, because a control
+ * that simply vanishes teaches nobody anything.
+ *
+ * Layaway only. A cash order's deadline is expires_at, and the hourly job
+ * cancels a pending order with a balance whatever has been paid against it, so
+ * a partially-paid cash order's deadline is still live and still moveable.
+ *
  * Times are entered and displayed in PHT, the Hub's canonical zone, whatever
  * the browser's own clock says.
  */
@@ -56,6 +70,11 @@ export interface DeadlinesCardProps {
   status: string;
   transferDueAt: string | null;
   reference?: string | null;
+  /**
+   * Layaway only: has any money been received? Once it has, the deposit
+   * deadline is spent and the server refuses to move it (`already_paid`).
+   */
+  depositPaid?: boolean;
   canEdit: boolean;
 }
 
@@ -65,7 +84,7 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, reference, canEdit,
+  entityType, entityId, status, transferDueAt, reference, depositPaid, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
@@ -74,9 +93,12 @@ export default function DeadlinesCard({
 
   const isLive = LIVE_STATUSES[entityType].includes(status);
   const overdue = !!transferDueAt && new Date(transferDueAt) < new Date();
+  // The deadline is spent once the deposit is in — see the header.
+  const depositLocked = entityType === 'layaway' && depositPaid === true;
+  const canChange = canEdit && isLive && !depositLocked;
 
   // Nothing set and nothing settable: no card rather than an empty one.
-  if (!transferDueAt && !(canEdit && isLive)) return null;
+  if (!transferDueAt && !canChange) return null;
 
   function openDialog() {
     setTransfer(toPhtInputValue(transferDueAt));
@@ -113,11 +135,17 @@ export default function DeadlinesCard({
               {entityType === 'layaway' ? 'Deposit due' : 'Transfer due'}:{' '}
               {transferDueAt ? formatPHTDisplay(transferDueAt) : 'not set'}
             </p>
-            {overdue && isLive && (
+            {overdue && isLive && !depositLocked && (
               <p className="text-xs text-destructive">
                 Past the deadline. {entityType === 'layaway'
                   ? 'The hourly job releases the hold unless a deposit is confirmed first.'
                   : 'The hourly job cancels the order and returns the stock unless the transfer is confirmed.'}
+              </p>
+            )}
+            {depositLocked && isLive && (
+              <p className="text-xs text-muted-foreground">
+                The deposit is confirmed, so this deadline no longer applies and cannot be
+                changed. The reservation is confirmed; the plan now follows its own schedule.
               </p>
             )}
             {!isLive && (
@@ -126,7 +154,7 @@ export default function DeadlinesCard({
               </p>
             )}
           </div>
-          {canEdit && isLive && (
+          {canChange && (
             <Button size="sm" variant="outline" onClick={openDialog}>
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               Change
