@@ -1,10 +1,14 @@
 # Message L — apply the address migration, THEN deploy the two functions
 
-**Status:** DRAFT. Not sent. Sends only after PR #82 (`develop` → `main`) is merged
-by Cynthia, pinned to that merge's SHA, with every assertion re-run against that
-SHA itself. One sender, and that sender is Claude Code (CLAUDE.md).
+**Status:** SENT 2026-09-15 by Claude Code, after PR #82 (`develop` → `main`) was
+merged by Cynthia and `main` was merged back into `develop`. One sender, and that
+sender is Claude Code (CLAUDE.md). Queue checked before sending: the last message
+to this project was message K at 14:47:10Z, so this is not a resend.
 
-**Pinned to:** `main@<FILL AFTER MERGE>`
+**Pinned to:** `main@a3fa761` — "Release: a checkout can no longer destroy the
+address book (#82)". All ten assertions below were re-run against `a3fa761`
+ITSELF immediately before sending, not against a working branch — a lagging
+Lovable mirror is why they exist. Every one passed all three tests.
 
 **Pre-release main for the "must differ" test:** `23d740a`.
 
