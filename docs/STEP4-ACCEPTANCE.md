@@ -188,6 +188,15 @@ There is no `below_plan_minimum` anywhere in `layaway_quote`. The refusal lives 
 two functions do different jobs on purpose: the quote offers the best term it can and
 labels the downgrade, the writer refuses what must not be written.
 
+**DO NOT "SIMPLIFY" THAT REFUSAL TO THE `eligible` CHECK ALONE** (harness observation C,
+2026-09-15). The writer refuses on `NOT eligible OR term_downgraded`, and while the 3M plan
+has `min_amount_jpy = 0` the first half is unreachable: every basket clears 3M, so
+`layaway_quote` always finds a term and always returns `eligible: true`. Proven in the
+harness — a ¥500 basket asking for 12M comes back `eligible: true, term_months: 3,
+term_downgraded: true`. **`term_downgraded` is the whole of the guard in practice.** Drop it
+as redundant and every below-minimum basket writes itself a 3M plan in silence. The
+`eligible` half stays as the backstop for the day a minimum is put on 3M.
+
 The storefront already surfaces it: `layaway-calculator.tsx` renders the 12M option
 `disabled` with its minimum in the label, caps the selector at `max_term_months`, and shows
 the "term unavailable" note whenever `term_downgraded` is true. A customer therefore cannot
@@ -213,7 +222,7 @@ request 12M at all.
 | E4 | **Plan cancelled** | `status = 'cancelled'`, `expired_at` stamped |
 | E5 | **Schedule cancelled** | every `pending` / `overdue` row → `cancelled` |
 | E6 | **Stock returned, once** | `stock_qty` back to its E1 value — not more. Run the sweep a second time and confirm it does **not** rise again |
-| E7 | **Audit row** | `audit_logs` action `web_layaway_expired`, carrying `stock_lines_restored` and `schedule_rows_cancelled` |
+| E7 | **Audit row** | `audit_logs` action `web_layaway_expired`, carrying `stock_lines_restored` and `schedule_rows_cancelled`. **`stock_lines_restored` counts VARIANT LINES, not units** — a two-unit order of one variant reports `1` while two pieces go back on sale. Check units against `website_product_variants.stock_qty`, never against this number. (Same counter, same meaning, in `expire_web_order_atomic`.) |
 | E8 | **Customer email** | says nothing was paid and nothing is owed |
 | E9 | A plan that **has** a deposit is refused | `already_paid` or `payment_exists` — never expired |
 
@@ -248,6 +257,9 @@ A plan expiring out from under a pending submission strands a real payment.
 | G4 | Hub → a **cash order** → set the deadline | `transfer_due_at` **and** `expires_at` both written to the same value. The hourly cron reads `expires_at`; a customer must never see a deadline the cron does not act on |
 | G5 | No reason given | refused: 400 `reason_required`, "A reason is required to change a deadline." In the Hub the Save button stays disabled, so the refusal is reached only by calling the function directly. No `audit_logs` row is written. (Was a known-wrong row until 2026-09-15 — the refusal did not exist; see Bug #273.) |
 | G6 | A non-`edit_account` role tries it | 403 from `set-account-deadlines` |
+| G7 | Call `set-account-deadlines` with no `transfer_due_at` at all (or an explicit `null`) | **400 `deadline_required`**, "A deposit deadline can be moved but not removed." Nothing is written and no `audit_logs` row appears. The RPC refuses the same way, so a direct caller gets it too. Before the fix this cleared the column, and a web plan with a NULL deadline is invisible to the sweep forever — the stock never comes back (harness finding 3) |
+| G8 | Set a deadline **in the past**, with a reason | Accepted — this is how a hold is released deliberately (§E2). The payload carries `deadline_in_past: true` and the Hub toast warns instead of saying a plain "Deadline updated". A mistyped year is now visible at the moment it is made (harness observation A) |
+| G9 | A **Hub-created** layaway (`source_channel = 'hub_manual'`) sitting past its deadline | The card says "Nothing happens automatically on a Hub-created plan… This date is a staff reminder", in muted text, not the red "the hourly job releases the hold". The sweep touches web plans only; before the fix the card promised an automation that never ran (harness finding 2) |
 
 ```sql
 SELECT entity_type, action, old_value_json, new_value_json, performed_by_user_id, created_at
