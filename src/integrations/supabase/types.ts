@@ -5213,6 +5213,7 @@ export type Database = {
           bank_branch: string | null
           bank_name: string | null
           created_at: string
+          currency: string
           id: string
           is_active: boolean
           label_en: string | null
@@ -5234,6 +5235,7 @@ export type Database = {
           bank_branch?: string | null
           bank_name?: string | null
           created_at?: string
+          currency: string
           id?: string
           is_active?: boolean
           label_en?: string | null
@@ -5255,6 +5257,7 @@ export type Database = {
           bank_branch?: string | null
           bank_name?: string | null
           created_at?: string
+          currency?: string
           id?: string
           is_active?: boolean
           label_en?: string | null
