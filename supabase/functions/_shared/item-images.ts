@@ -19,10 +19,30 @@
 // deno-lint-ignore no-explicit-any
 type AnySupabase = any;
 
-export interface ImageableLine {
+/**
+ * A line this helper can fill in. It is a TYPE with an index signature, not an
+ * interface, and that is load-bearing (Bug #276, 2026-09-15).
+ *
+ * Both callers pass loose DB rows typed `Record<string, unknown>`, and an
+ * `interface` gets no implicit index signature. That broke the Deno gate in two
+ * directions at once on `website/index.ts`:
+ *
+ *   out — `ImageableLine[]` is not assignable to `AnyRec[]`, so the result
+ *         could not be handed on to withJapaneseTitles();
+ *   in  — the call site's `.map(({ website_product_id, ...l }) => …)` literal
+ *         infers as `{ product_id: {} | null }`, which "has no properties in
+ *         common with" the interface.
+ *
+ * A type alias with an index signature satisfies both. customer-portal already
+ * wrote `ImageableLine & Record<string, any>` by hand to get past the same gap;
+ * that intersection is now redundant.
+ */
+export type ImageableLine = {
   image_url?: string | null;
   variant_id?: string | null;
-}
+  // deno-lint-ignore no-explicit-any
+  [key: string]: any;
+};
 
 export async function resolveItemImages<T extends ImageableLine>(
   supabase: AnySupabase,
