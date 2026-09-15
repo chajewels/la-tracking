@@ -1738,7 +1738,13 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   2026-09-13). `transfer_due_at` is when the deposit must arrive. It is offered
   at creation (Hub and web alike) and moved afterwards through ONE control:
   `set_account_deadlines` behind the `set-account-deadlines` edge function,
-  gated on `edit_account`, audited with old value, new value and reason. On a
+  gated on `edit_account`, audited with old value, new value and reason. A
+  REASON IS REQUIRED to change it (owner decision 2026-09-15): the edge
+  function refuses an empty or absent one with 400 `reason_required` BEFORE
+  calling the RPC, and the Hub keeps Save disabled until it is filled. Moving
+  this deadline decides when a customer's piece is released, so an audit row
+  with a null reason records that it happened and nothing about why. Creation
+  is exempt — it sets a first deadline rather than changing one. On a
   cash order it writes `transfer_due_at` AND `expires_at` together, because
   the hourly cron reads `expires_at` and a customer must never be shown a
   deadline the cron does not act on. Web layaway default: 72 hours.

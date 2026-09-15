@@ -599,7 +599,8 @@ export function useSetAccountDeadlines() {
       entity_type: 'layaway' | 'cash_order';
       entity_id: string;
       transfer_due_at: string | null;
-      reason?: string;
+      /** Required — set-account-deadlines refuses an empty reason (400). */
+      reason: string;
     }) => {
       const { data, error } = await supabase.functions.invoke('set-account-deadlines', { body: payload });
       if (error) {

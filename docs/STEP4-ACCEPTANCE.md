@@ -246,7 +246,7 @@ A plan expiring out from under a pending submission strands a real payment.
 | G2 | Extend the same layaway to a later date | accepted while the plan is **live** (`active` / `overdue` / `extension_active` / `reactivated`) |
 | G3 | Try it on a **cancelled or expired** plan | `not_live` — an expired order is never revived; a returning customer gets a fresh order |
 | G4 | Hub → a **cash order** → set the deadline | `transfer_due_at` **and** `expires_at` both written to the same value. The hourly cron reads `expires_at`; a customer must never see a deadline the cron does not act on |
-| G5 | No reason given | refused — every deadline move is audited with a reason |
+| G5 | No reason given | refused: 400 `reason_required`, "A reason is required to change a deadline." In the Hub the Save button stays disabled, so the refusal is reached only by calling the function directly. No `audit_logs` row is written. (Was a known-wrong row until 2026-09-15 — the refusal did not exist; see Bug #273.) |
 | G6 | A non-`edit_account` role tries it | 403 from `set-account-deadlines` |
 
 ```sql

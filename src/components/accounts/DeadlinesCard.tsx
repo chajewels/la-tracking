@@ -21,6 +21,10 @@ import { useSetAccountDeadlines } from '@/hooks/use-supabase-data';
  * decision): nothing read it and no account ever carried a value. The deposit
  * deadline is the control that matters.
  *
+ * A REASON IS REQUIRED to change it (owner decision 2026-09-15) — refused
+ * server-side by set-account-deadlines, and the Save button stays disabled
+ * without one so staff are told before the round trip rather than after.
+ *
  * Times are entered and displayed in PHT, the Hub's canonical zone, whatever
  * the browser's own clock says.
  */
@@ -86,7 +90,7 @@ export default function DeadlinesCard({
         entity_type: entityType,
         entity_id: entityId,
         transfer_due_at: fromPhtInputValue(transfer),
-        reason: reason.trim() || undefined,
+        reason: reason.trim(),
       });
       toast.success('Deadline updated');
       setOpen(false);
@@ -155,23 +159,29 @@ export default function DeadlinesCard({
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="deadline-reason">Reason</Label>
+              <Label htmlFor="deadline-reason">
+                Reason <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="deadline-reason"
                 name="deadline-reason"
                 autoComplete="off"
+                required
                 value={reason}
                 onChange={e => setReason(e.target.value)}
                 placeholder="Why is the deadline moving?"
                 className="bg-background border-border"
               />
+              <p className="text-[11px] text-muted-foreground">
+                Required. This is the only record of why the date moved.
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={setDeadlines.isPending}>
               Cancel
             </Button>
-            <Button onClick={save} disabled={setDeadlines.isPending || !transfer}>
+            <Button onClick={save} disabled={setDeadlines.isPending || !transfer || !reason.trim()}>
               {setDeadlines.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>

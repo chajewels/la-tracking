@@ -48,11 +48,26 @@ Deno.serve(async (req) => {
     if (transferDueAt !== null && Number.isNaN(Date.parse(String(transferDueAt)))) {
       return jsonResponse({ error: "transfer_due_at is not a valid timestamp" }, 400);
     }
+
+    // A REASON IS REQUIRED (owner decision 2026-09-15). Moving this deadline
+    // decides when a customer's piece is released, and an audit row with a null
+    // reason records that it happened and nothing about why. Every other
+    // terminal action in the Hub asks for one; this one used to accept the
+    // absence silently, because `.trim() || null` turned "" into a legitimate
+    // NULL. Refuse before the RPC rather than write an unexplained audit row.
+    const reason = String(body?.reason ?? "").trim();
+    if (!reason) {
+      return jsonResponse(
+        { error: "reason_required", message: "A reason is required to change a deadline." },
+        400,
+      );
+    }
+
     const { data, error } = await supabase.rpc("set_account_deadlines", {
       p_entity_type: entityType,
       p_entity_id: entityId,
       p_transfer_due_at: transferDueAt,
-      p_reason: String(body?.reason ?? "").trim() || null,
+      p_reason: reason,
       p_user_id: user?.id ?? null,
     });
     if (error) throw error;
