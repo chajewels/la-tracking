@@ -1,5 +1,32 @@
 ## PENDING ITEMS (as of 2026-05-25)
 
+### An unpaid deposit should not release the piece while a settlement date is still ahead — NOT BUILT (filed 2026-09-15)
+
+Cynthia described a rule that the system does not have: a customer who has not sent the
+deposit should not automatically lose the piece if the date they are still working towards
+has not arrived yet. Today the hourly sweep is unconditional — `expire_web_layaway_atomic`
+releases any web layaway whose `transfer_due_at` has passed with `total_paid = 0`, and the
+only thing that stops it is a payment, a payment row, or an unreviewed submission
+(INVARIANT 12).
+
+Filed here because the column that would have carried the second date,
+`layaway_accounts.settlement_due_at`, was dropped on 2026-09-15 (owner decision) and the
+rule must not be lost with it. The column was never the rule: it stored a date and nothing
+read it, so it would not have changed the sweep's behaviour by a single row.
+
+Open questions before anything is built:
+
+- **Whose date is it.** A date staff enter per plan, or the plan's own last schedule row
+  (`end_date`, which already exists and needs no new column)?
+- **What "not released" means.** The stock stays held indefinitely, or the deposit deadline
+  is simply moved — which `set-account-deadlines` already does today, with a reason and an
+  audit row, and is the cheapest answer if it is enough.
+- **What ends it.** A held piece with no deposit and no deadline is stock that never comes
+  back on sale. Something has to close it.
+
+If the answer is "move the deadline", nothing needs building. If it is a real second date,
+it comes back as a decision first and a column second — that order, this time.
+
 ### set-account-deadlines accepts a deadline move with NO reason (found 2026-09-15)
 
 Step 4 acceptance expects a deadline change without a reason to be refused. It is not.
