@@ -44,6 +44,7 @@ import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -72,6 +73,8 @@ interface AccountItemRow {
   unit_price_jpy: number;
   line_total_jpy: number;
   image_url: string | null;
+  /** Web plan lines carry the variant; the photo is resolved from it. */
+  variant_id?: string | null;
 }
 
 export default function AccountDetail() {
@@ -112,11 +115,15 @@ export default function AccountDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_account_items')
-        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url')
+        .select('id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url, variant_id')
         .eq('account_id', id!)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return (data || []) as unknown as AccountItemRow[];
+      // WEB PLAN THUMBNAILS — create_web_layaway_atomic never writes
+      // image_url, so a web plan's lines all store NULL and this card showed
+      // an empty grey square (N4020 on CJ-W-900012 and CJ-W-900013). Same
+      // helper, same source, same keying as the cash-order side.
+      return await resolveItemImages((data || []) as unknown as AccountItemRow[]);
     },
   });
   const [zoomImage, setZoomImage] = useState<string | null>(null);

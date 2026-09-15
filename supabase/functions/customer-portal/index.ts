@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { resolveItemImages, type ImageableLine } from "../_shared/item-images.ts";
+
+/** A line row as this function selects it — enough for resolveItemImages. */
+// deno-lint-ignore no-explicit-any
+type AnyItem = ImageableLine & Record<string, any>;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -332,7 +337,7 @@ Deno.serve(async (req) => {
     // same accountIds — nested per account below (mirrors cash_order_items).
     const layawayItemsPromise = accountIds.length > 0
       ? supabase.from("layaway_account_items")
-          .select("id, account_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+          .select("id, account_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url, variant_id")
           .in("account_id", accountIds)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] as any[] });
@@ -464,7 +469,11 @@ Deno.serve(async (req) => {
     }
 
     // Group layaway line items by account_id (mirror cash itemsByOrder).
-    const layawayItemsRaw = layawayItemsRes.data || [];
+    // A web line stores no image_url — resolve it from website_product_media
+    // by variant before nesting, or the portal shows an empty square for a
+    // piece the storefront pictures fine. Same helper as the cash lines below
+    // and as the Hub. Bug #275.
+    const layawayItemsRaw = await resolveItemImages(supabase, (layawayItemsRes.data || []) as AnyItem[]);
     const itemsByAccount = new Map<string, any[]>();
     for (const it of (layawayItemsRaw as any[])) {
       const list = itemsByAccount.get(it.account_id) || [];
@@ -490,7 +499,7 @@ Deno.serve(async (req) => {
     const cashOrderItemsPromise = cashOrderIds.length > 0
       ? supabase
           .from("cash_order_items")
-          .select("id, cash_order_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url")
+          .select("id, cash_order_id, title, sku, quantity, unit_price_jpy, line_total_jpy, image_url, variant_id")
           .in("cash_order_id", cashOrderIds)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] as any[] });
@@ -958,8 +967,11 @@ Deno.serve(async (req) => {
       .sort((a: any, b: any) => a.next_due_date.localeCompare(b.next_due_date));
 
     // Group line items by cash_order_id, mirroring the cash_payments handling.
+    // Resolve web thumbnails first — CashOrdersSection renders this image and
+    // a web line stores none. Bug #275.
+    const cashItemsResolved = await resolveItemImages(supabase, ((cashOrderItemsRaw as any[]) || []) as AnyItem[]);
     const itemsByOrder = new Map<string, any[]>();
-    for (const it of ((cashOrderItemsRaw as any[]) || [])) {
+    for (const it of (cashItemsResolved as any[])) {
       const list = itemsByOrder.get(it.cash_order_id) || [];
       list.push(it);
       itemsByOrder.set(it.cash_order_id, list);

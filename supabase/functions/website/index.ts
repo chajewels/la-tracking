@@ -6,6 +6,7 @@ import { OrderConfirmationEmail, orderConfirmationSubject } from "../_shared/ema
 import { LayawayPlanCreatedEmail, layawayPlanCreatedSubject } from "../_shared/email-templates/layaway-plan-created.tsx";
 import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.tsx";
 import * as React from "npm:react@18.3.1";
+import { resolveItemImages } from "../_shared/item-images.ts";
 
 /**
  * Public website API (server-to-server).
@@ -1336,9 +1337,16 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (itemErr) throw itemErr;
       // A website line stores its catalog reference in website_product_id
       // (product_id is the Shopify FK). The storefront sees one field.
+      // image_url is NULL on every web line — create_web_order_atomic never
+      // writes it — so resolve the photo from website_product_media by variant
+      // before answering, or the storefront is handed null for an image it
+      // already has. Bug #275.
       const lines = await withJapaneseTitles(
         supabase,
-        ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: l.product_id ?? website_product_id ?? null })),
+        await resolveItemImages(
+          supabase,
+          ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: l.product_id ?? website_product_id ?? null })),
+        ),
       );
 
       return jsonResponse(scrub({
@@ -1404,9 +1412,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           .eq("account_id", plan.id).in("status", ["submitted", "under_review"]).order("created_at", { ascending: false }),
       ]);
 
+      // Same as the order branch: a web plan line stores no image_url, so the
+      // photo is resolved from website_product_media by variant. Bug #275.
       const lines = await withJapaneseTitles(
         supabase,
-        ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: website_product_id ?? null })),
+        await resolveItemImages(
+          supabase,
+          ((items ?? []) as AnyRec[]).map(({ website_product_id, ...l }) => ({ ...l, product_id: website_product_id ?? null })),
+        ),
       );
 
       const depositPaid = Number(plan.total_paid ?? 0) > 0;
