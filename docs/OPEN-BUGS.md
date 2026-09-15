@@ -4,6 +4,49 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### `anon` holds full table-level grants project-wide; only RLS stands between it and the data (found 2026-09-14)
+
+  **Symptom.** `layaway_account_items` grants `anon`
+  SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER at the table
+  level. Noticed while investigating the skipped CREATE TABLE in
+  20260914110000.
+
+  **Scope — it is not one table.** Checked 17 tables on 2026-09-14:
+  `layaway_account_items`, `cash_order_items`, `layaway_accounts`,
+  `cash_orders`, `payments`, `cash_payments`, `customers`,
+  `loyalty_members`, `loyalty_transactions`, `loyalty_point_lots`,
+  `payment_submissions`, `checkout_quotes`, `website_products`,
+  `website_product_variants`, `layaway_schedule`, `audit_logs`,
+  `staff_notifications`. **Every one carries the identical anon grant
+  set.** This is Supabase's default posture — it grants `anon` and
+  `authenticated` broadly at the table level and relies on RLS alone for
+  access control. So this is the platform's design, not a mistake someone
+  made on one table, and "tighten this table" is the wrong shape of fix.
+
+  **Why it still matters.** RLS is enabled on all 17 and no policy admits
+  `anon`, so nothing is exploitable today — verified, not assumed. But a
+  grant held back only by RLS is one policy mistake from being live: any
+  future `CREATE POLICY ... FOR SELECT USING (true)`, or an accidental
+  `TO public` on a policy meant for staff, turns a table-level grant that
+  was already there into real anon access to customer and payment data.
+  The blast radius is the whole schema.
+
+  **Fix pattern (not yet done, needs a decision first).** Two options:
+  (a) `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;` then grant
+  back only what the genuinely anon-reachable surfaces need — today that
+  is the storefront catalog read path and nothing else; or (b) leave the
+  grants and add a guard that fails CI or alerts when any policy admits
+  `anon` or `public` without a `has_role` / `auth.uid()` predicate.
+  (a) is the stronger posture; (b) is cheaper and does not risk breaking
+  a path nobody remembered. Either way: audit which surfaces actually
+  need anon first — `verify-portal-pin` is public by design, and
+  `checkout_quotes` currently has RLS on with ZERO policies (deny-all for
+  anything but service_role), which is the safe shape to copy.
+
+  **Do not fold this into a release migration.** It is a schema-wide
+  permission change and deserves its own PR, its own testing, and its own
+  Lovable message.
+
 ### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06) — RESOLVED 2026-07-06
 
   **Symptom.** Customer reaches the portal via a fresh `?token=…` URL
