@@ -1768,6 +1768,18 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   cash order the job cancels every pending order past `expires_at` but returns
   stock for web ones only. Any surface that states a consequence must state the
   one that applies to THAT order.
+  THE DEADLINE IS SPENT ONCE THE DEPOSIT IS CONFIRMED (harness finding 1,
+  2026-09-15). A layaway whose deposit has landed is still `active`, so a
+  status-only gate let the date be moved: `ok`, a written column, and an audit
+  row for a decision nothing would act on (the sweep never looks at a plan with
+  `total_paid > 0` again). `set_account_deadlines` now refuses with
+  `already_paid`, or `payment_exists` when the cache says zero and the ledger
+  disagrees — the same two tests `expire_web_layaway_atomic` makes, in the same
+  order, because INVARIANT 1 makes payments authoritative. The Hub withdraws the
+  control and SAYS WHY rather than hiding it. LAYAWAY ONLY: a cash order's
+  deadline is `expires_at` and the hourly job cancels a pending order with a
+  balance whatever has been paid, so a partially-paid cash order's deadline is
+  still live and still moveable.
 
   THERE IS ONE DEADLINE, NOT TWO (owner decision 2026-09-15). A second column,
   `settlement_due_at`, was added on 2026-09-14 and REMOVED on 2026-09-15: it

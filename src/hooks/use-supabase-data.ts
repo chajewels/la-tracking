@@ -621,7 +621,11 @@ export function useSetAccountDeadlines() {
             ? `This order is ${data.status} — a deadline can only be changed while it is live.`
             : data.error === 'deadline_required'
               ? 'A deposit deadline can be moved but not removed. Pick a new date.'
-              : String(data.error),
+              : data.error === 'already_paid' || data.error === 'payment_exists'
+                // Finding 1: the deadline is spent once money is in. Say what
+                // happened rather than echoing a code at staff.
+                ? 'The deposit is already confirmed, so this deadline no longer applies and cannot be changed.'
+                : String(data.error),
         );
       }
       return data as { ok?: boolean; deadline_in_past?: boolean } | null;
