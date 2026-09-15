@@ -1,5 +1,46 @@
 ## PENDING ITEMS (as of 2026-05-25)
 
+### CI — Firebase preview channels are at the per-site cap (found 2026-09-15)
+
+`build-and-deploy` fails on every NEW pull request at the
+`firebase hosting:channel:deploy` step, in ~2.8s with no output. First seen on
+PR #71.
+
+**Not a code failure.** Typecheck, build and the Deno gates all pass, and the
+identical tree deployed to the `develop` channel three minutes earlier. **A push
+to `main` is unaffected** — production takes the `firebase deploy --only hosting`
+branch, which creates no channel — so this never blocks a release.
+
+**Cause (hypothesis, arithmetic fits exactly).** Per-PR channels landed in
+`12a58907` on 2026-09-11. Every PR #22–#71 was opened on or after that date, so
+49 live `pr-N` channels plus the long-lived `develop` channel = 50, which is
+Firebase Hosting's documented per-site preview-channel limit. `pr-70` took the
+50th slot at 07:55; `pr-71` asked for the 51st at 08:15. Unconfirmed only
+because nothing in the Claude Code sandbox can reach Firebase to enumerate the
+channels, and `rerun-failed-jobs` returns 403 there.
+
+**Why the log cannot say so.** The step runs
+`firebase … --json > channel.json` under `set -euo pipefail`. In `--json` mode
+the CLI writes errors to stdout, so the error object lands in `channel.json`,
+and a non-zero exit aborts the step before the `cat channel.json` that would
+print it. The only branch written to surface an error runs when firebase
+*succeeds* but omits a URL, so every genuine CLI failure is silent by
+construction.
+
+**Two fixes, neither applied** (both proposed in full on PR #71, deliberately
+not pushed there — widening a `develop` -> `main` release PR with an unrelated
+CI change is worse than a red preview check):
+  1. Capture firebase's exit status instead of letting `set -e` swallow it, and
+     `cat channel.json` on failure.
+  2. Delete the `pr-N` channel when its PR closes (`pull_request: [closed]` +
+     `firebase hosting:channel:delete … --force || true`), so the cap stops
+     being reached at all.
+
+**To unblock previews now:** prune the `pr-N` channels of merged/closed PRs in
+the Firebase console (Hosting -> `chajewelslayaway` -> Channels), or
+`firebase hosting:channel:list --only main --project cha-jewels-la-tracking`
+then `…:delete pr-<n> … --force`.
+
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 ✅ COMPLETE — Phases 1–8 shipped. Verified against main 2026-05-25 by repo audit.
 
