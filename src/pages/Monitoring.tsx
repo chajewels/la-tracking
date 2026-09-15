@@ -4,6 +4,7 @@ import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle,
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
+import PortalLinksTab from '@/components/monitoring/PortalLinksTab';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
 import { PenaltyAuditTab, OverdueDebugTab, WaiverAuditTab } from '@/pages/AdminAudit';
 import NotificationsPanel from '@/components/notifications/NotificationsPanel';
@@ -67,9 +68,10 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'notifications' | 'audit';
+  type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'notifications' | 'audit' | 'portal-links';
   const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
-    v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'notifications' || v === 'audit';
+    v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'notifications' || v === 'audit'
+    || v === 'portal-links';
   const [monitoringTab, setMonitoringTabState] = useState<MonitoringTabKey>(() => {
     const urlTab = searchParams.get('tab');
     return isMonitoringTab(urlTab) ? urlTab : 'alerts';
@@ -761,6 +763,11 @@ export default function Monitoring() {
 
           <TabsContent value="extensions" className="mt-5 space-y-6" tabIndex={-1}>
             <ExtensionRequestsPanel />
+          </TabsContent>
+
+          {/* Who is about to lose their portal link. The indicator points here. */}
+          <TabsContent value="portal-links" className="mt-5 space-y-6" tabIndex={-1}>
+            <PortalLinksTab />
           </TabsContent>
 
           <TabsContent value="notifications" className="mt-5 space-y-6" tabIndex={-1}>

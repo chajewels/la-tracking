@@ -630,6 +630,46 @@ export default function CustomerPortal() {
           <p className="text-muted-foreground" style={{ fontSize: '13px', lineHeight: '1.6' }}>
             {isExpired ? pt('states.linkExpiredBody') : pt('states.linkInvalidBody')}
           </p>
+
+          {/*
+            A WAY FORWARD, added 2026-09-15. This branch used to end at the
+            sentence above — an alert triangle and "please request a new link"
+            with nothing to press — and it is the screen a customer whose only
+            route into their account has just died actually lands on. The
+            no-auth branch twenty lines up already had these two buttons; there
+            was never a reason this branch did not.
+
+            Sign in works for anyone who has set an email and password. The
+            Messenger link is the fallback for everyone else, because a customer
+            whose token has lapsed and who has no password genuinely cannot
+            self-serve — only a CSR regenerating their link can help, and they
+            need a way to ask.
+          */}
+          <button
+            onClick={() => navigate('/portal/login')}
+            className="w-full rounded-lg bg-primary text-primary-foreground font-bold mt-6 mb-3"
+            style={{ padding: 12, fontSize: 14 }}
+          >
+            {pt('states.signIn')}
+          </button>
+          <button
+            onClick={() => navigate('/portal/setup')}
+            className="w-full rounded-lg border border-primary text-primary font-semibold mb-4"
+            style={{ padding: 12, fontSize: 13 }}
+          >
+            {pt('states.firstTimeSetup')}
+          </button>
+          <p className="text-muted-foreground" style={{ fontSize: 12 }}>
+            {pt('states.linkHelp')}{' '}
+            <a
+              href="https://m.me/chajewelsjp"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-2 font-medium"
+            >
+              {pt('states.linkContact')}
+            </a>
+          </p>
         </div>
       </div>
     );
