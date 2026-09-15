@@ -15,7 +15,7 @@ import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
 // Same three fields on a layaway row as on a cash order, so the predicate is
 // reused rather than duplicated.
-import { isWebOrder } from '@/lib/order-reference';
+import { isWebOrder, cashOrderRef } from '@/lib/order-reference';
 import { Skeleton } from '@/components/ui/skeleton';
 import AccountSearchBar from '@/components/search/AccountSearchBar';
 import { getPHTToday } from '@/lib/date-utils';
@@ -159,7 +159,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const [shownAll, setShownAll] = useState<Record<string, boolean>>({});
   // List-kit state: folder sort, card density, bulk selection, quick-view.
   const [sort, setSort] = useState<SortState | null>(null);
-  const [density, setDensity] = useDensity('cj-account-list-density');
+  // One density preference across both Sales lists (the cash order list uses the
+  // same key), so a CSR who picks Compact on one screen keeps it on the other.
+  const [density, setDensity] = useDensity('cj-sales-list-density');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [quickView, setQuickView] = useState<QuickViewAccount | null>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -254,6 +256,10 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const downloadCsv = useCallback((list: typeof filtered) => {
     const rows = list.map(a => ({
       'Invoice #': a.invoice_number ?? '',
+      // Reference and Channel mirror the cash order export, so the two CSVs can
+      // be read side by side.
+      'Reference': cashOrderRef(a),
+      'Channel': isWebOrder(a) ? 'Web' : 'Hub',
       'Customer': a.customers?.full_name ?? '',
       'Status': a.status ?? '',
       'Currency': a.currency ?? '',
@@ -366,7 +372,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             </span>
             <div className="min-w-0">
               <p className="text-sm font-bold text-card-foreground font-display truncate">
-                #<HighlightText text={account.invoice_number} query={searchQuery} />
+                {isWebOrder(account) ? '' : '#'}
+                <HighlightText text={cashOrderRef(account)} query={searchQuery} />
               </p>
               <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
                 <HighlightText text={account.customers?.full_name || 'Unknown'} query={searchQuery} />

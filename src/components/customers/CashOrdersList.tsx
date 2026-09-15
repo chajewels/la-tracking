@@ -32,7 +32,10 @@ const SORT_OPTIONS = [
 
 const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 
-type CashOrderStatus = 'all' | 'pending' | 'completed' | 'cancelled';
+// 'all' plus any cash_order_status the data actually contains. Deliberately
+// not a closed union: the tab list is derived from the rows, and a closed union
+// is what left 'expired' unrepresented (StatusBadge already types it open).
+type CashOrderStatus = string;
 
 interface CashOrderRow {
   id: string;
@@ -52,7 +55,18 @@ interface CashOrderRow {
   transfer_due_at: string | null;
 }
 
-const statusOptions: CashOrderStatus[] = ['all', 'pending', 'completed', 'cancelled'];
+// Display order for the status tabs. Only statuses PRESENT in the data get a
+// tab (see tabs/tabCounts below), so this is an ordering preference, not a
+// whitelist — the same rule the layaway list uses.
+//
+// It replaced a hardcoded pill list ['all','pending','completed','cancelled'],
+// which was wrong in both directions on 2026-09-15: it showed a Pending filter
+// matching 0 orders and had no tab at all for the 1 'expired' order, so that
+// order was unreachable from this screen. Deriving from the data cannot drift.
+const STATUS_ORDER = ['pending', 'completed', 'expired', 'cancelled'];
+const statusLabel: Record<string, string> = {
+  pending: 'Pending', completed: 'Completed', expired: 'Expired', cancelled: 'Cancelled',
+};
 
 // Where the order came from. 'web' is storefront checkout (Phase 2 step 2);
 // everything else is staff-entered or a marketplace sync.
@@ -113,7 +127,10 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   const [page, setPage] = useState(0);
   // List-kit state: sort, card density, keyboard navigation.
   const [sort, setSort] = useState<SortState | null>(null);
-  const [density, setDensity] = useDensity('cj-cash-orders-density');
+  // One density preference across both Sales lists (layaway uses the same key),
+// so a CSR who picks Compact on one screen keeps it on the other. DataTable
+// keeps its own key.
+  const [density, setDensity] = useDensity('cj-sales-list-density');
   const gridRef = useRef<HTMLDivElement>(null);
   useListKeyboardNav(gridRef);
 
@@ -127,22 +144,38 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     order_date: (o: CashOrderRow) => o.order_date ?? o.created_at ?? '',
   }), []);
 
-  const filtered = useMemo(() => (orders || []).filter(o => {
+  // Everything EXCEPT status — the basis for the tab counts, so each tab shows
+  // how many orders it holds under the filters currently applied.
+  const preStatusFiltered = useMemo(() => (orders || []).filter(o => {
     const search = searchRef.current.toLowerCase();
     const matchesSearch = !search ||
       (o.invoice_number || '').toLowerCase().includes(search) ||
       (o.customers?.full_name || '').toLowerCase().includes(search) ||
       // Customers quote CJ-W-000123, not the invoice number, when they write in.
       (o.web_reference || '').toLowerCase().includes(search);
-    const matchesStatus = filterStatus === 'all' || o.status === filterStatus;
     const matchesCurrency = filterCurrency === 'all' || o.currency === filterCurrency;
     const isWeb = o.source_channel === 'web';
     const matchesChannel = filterChannel === 'all' || (filterChannel === 'web' ? isWeb : !isWeb);
-    const isTest = isTestCashOrder(o);
-    const matchesTest = !hideTest || !isTest;
-    return matchesSearch && matchesStatus && matchesCurrency && matchesChannel && matchesTest;
+    const matchesTest = !hideTest || !isTestCashOrder(o);
+    return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [orders, filterTick, filterStatus, filterCurrency, filterChannel, hideTest]);
+  }), [orders, filterTick, filterCurrency, filterChannel, hideTest]);
+
+  const filtered = useMemo(
+    () => preStatusFiltered.filter(o => filterStatus === 'all' || o.status === filterStatus),
+    [preStatusFiltered, filterStatus],
+  );
+
+  // Tabs are the statuses actually present, in STATUS_ORDER, with counts.
+  const { tabs, tabCounts } = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const o of preStatusFiltered) counts.set(o.status, (counts.get(o.status) ?? 0) + 1);
+    const ordered = [
+      ...STATUS_ORDER.filter(s => (counts.get(s) ?? 0) > 0),
+      ...[...counts.keys()].filter(s => !STATUS_ORDER.includes(s)),
+    ];
+    return { tabs: ['all', ...ordered], tabCounts: counts };
+  }, [preStatusFiltered]);
 
   // CSV export of the currently-filtered cash orders. Exposed via exportRef
   // so a parent (Sales workspace toolbar) can trigger the download button.
@@ -232,21 +265,6 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
               />
             </div>
           )}
-          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card overflow-x-auto">
-            {statusOptions.map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilterStatus(s)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors whitespace-nowrap ${
-                  filterStatus === s
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {s === 'all' ? 'All' : s}
-              </button>
-            ))}
-          </div>
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
             {(['all', 'PHP', 'JPY'] as const).map((c) => (
               <button
@@ -291,6 +309,31 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
           )}
           <SortMenu options={SORT_OPTIONS} value={sort} onChange={setSort} />
           <DensityToggle value={density} onChange={setDensity} />
+        </div>
+
+        {/* Status tab strip — same wording, shape and placement as the layaway
+            list, so moving between the two screens teaches nothing new. */}
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
+          {tabs.map((s) => {
+            const isActive = filterStatus === s;
+            const count = s === 'all' ? preStatusFiltered.length : (tabCounts.get(s) ?? 0);
+            return (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                  isActive
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {s === 'all' ? 'All' : (statusLabel[s] || s)}
+                <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Content */}
