@@ -150,6 +150,26 @@ Reference docs (read the relevant one when a task touches that area):
     assert on SOURCE CONTENT (e.g. `grep -c "<a string unique to the new code>"
     <file>` plus the file's line count) BEFORE deploying, and STOP if it fails. A
     lagging mirror silently shipped a stale build this session.
+  - AN ASSERTION MUST TEST CODE, NOT PROSE. Every grep in a Lovable message is
+    re-run against the file with all comment lines stripped; if the count moves,
+    the pattern is matching an explanatory comment and must be rewritten to a
+    form that discriminates (anchor it, e.g. `^function foo`, or include
+    punctuation only code has). Three of eleven candidates failed this test on
+    2026-09-15 and four did on 2026-09-14. Also require each count to DIFFER from
+    the pre-release main: an assertion that passes identically before and after
+    proves nothing about the deploy.
+  - AN ASSERTION NOBODY CAN SATISFY IS WORSE THAN NO ASSERTION (added 2026-09-15,
+    second occurrence). A check that cannot be run gets substituted, waved
+    through, or reported as a pass on different evidence — and that is worse than
+    asking for something weaker and true. Twice now a message has asked Lovable
+    for proof it had no way to produce: a preview render needing LOVABLE_API_KEY
+    (2026-09-14, answered 401), and an end-to-end customer flow needing a
+    signed-in session, a cart and an address (2026-09-15). Before writing a
+    verification step, ask what the agent can actually observe with the access it
+    has, and ask for THAT — the deployed function body plus its version and
+    timestamp, not a synthesised user journey. Where the real proof needs a human
+    in a browser, say so in the message and assign it to the owner's own
+    acceptance run instead of dressing it up as an automated check.
 
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 

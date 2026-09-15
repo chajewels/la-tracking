@@ -1,9 +1,10 @@
 # Lovable message G — apply the currency column AND deploy `website`
 
-Status: **DRAFTED, NOT SENT.** Send only after PR #65 (`develop` → `main`) is merged
-and the `<SHA>` below is filled with main's tip. One sender: Claude Code, from the
-session that drafted this. Check the Lovable message queue before sending; never
-resend after a transport timeout without confirming how many copies landed.
+Status: **SENT 2026-09-15, once, by Claude Code.** PR #65 merged as `aa5ceaa2`;
+all 23 assertions re-derived against `main@aa5ceaa2` before sending and every one
+was unchanged from the `ee847452` draft. One sender: Claude Code, from the session
+that drafted this. The queue was checked before sending; a transport timeout is
+not a failure and is never answered with a resend.
 
 ---
 
@@ -35,8 +36,8 @@ and shipping is untouched.
 
 ### STEP 0 — assert the source BEFORE doing anything
 
-Work from `main` at commit `<SHA>`. If `HEAD` is not that commit, check whether
-`<SHA>` is an ancestor and say what the delta is before continuing.
+Work from `main` at commit `aa5ceaa2`. If `HEAD` is not that commit, check whether
+`aa5ceaa2` is an ancestor and say what the delta is before continuing.
 
 Run every assertion below. **If any count differs, STOP and report it — do not
 apply, do not deploy, and do not "fix" the source.** A mismatch means your mirror
@@ -148,7 +149,7 @@ If 1f *succeeds*, the CHECK did not take — say so and stop before deploying.
 
 ### STEP 2 — deploy the `website` function
 
-Deploy `supabase/functions/website` from `main` at `<SHA>`.
+Deploy `supabase/functions/website` from `main` at `aa5ceaa2`.
 
 This is the half that actually changes what a customer sees. Six places now pick
 the account by the settled currency rather than the destination: the checkout
