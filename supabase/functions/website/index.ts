@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderConfirmationEmail, orderConfirmationSubject } from "../_shared/email-templates/order-confirmation.tsx";
 import { LayawayPlanCreatedEmail, layawayPlanCreatedSubject } from "../_shared/email-templates/layaway-plan-created.tsx";
@@ -229,7 +230,7 @@ const ORDER_FIELDS =
   "tracking_number, shipped_at, " +
   // Cancelled orders stay in the customer's history with the reason and the
   // refund decision; a lapse carries expired_at.
-  "cancellation_reason, refund_status, refund_note, expired_at";
+  "cancellation_reason, refund_status, refund_note, expired_at, source_channel";
 
 /**
  * create_web_order_atomic reports failures in its payload rather than throwing,
@@ -259,7 +260,7 @@ const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
   "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
   "order_date, end_date, transfer_due_at, settlement_due_at, expired_at, " +
-  "created_at, completed_at, tracking_number, shipped_at";
+  "created_at, completed_at, tracking_number, shipped_at, source_channel";
 
 /**
  * Today in PHT (CLAUDE.md TIMEZONE STANDARD). The schedule is anchored to it at
@@ -689,8 +690,16 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Match an existing customer by verified email, same as
       // setup-customer-account. ilike is safe here: an email cannot contain
       // the _ or % wildcards.
+      // ORDERED, deliberately (2026-09-15). Eight addresses in live data are
+      // shared by sixteen customer rows, so this lookup can return more than
+      // one and `.find()` below would otherwise pick whatever Postgres happened
+      // to return first — a different row on different days for the same
+      // person. created_at ASC then id makes the choice total and repeatable:
+      // the OLDEST matching row wins, which is the one the customer's history
+      // was built against.
       const { data: byEmail, error: lookupErr } = await supabase
-        .from("customers").select(CUSTOMER_FIELDS).ilike("email", who.email);
+        .from("customers").select(CUSTOMER_FIELDS).ilike("email", who.email)
+        .order("created_at", { ascending: true }).order("id", { ascending: true });
       if (lookupErr) throw lookupErr;
 
       const candidates = (byEmail ?? []) as AnyRec[];
@@ -732,19 +741,89 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const customer = await customerForAuthUser(supabase, who.id);
       if (!customer) return jsonResponse({ error: "not_linked" }, 404);
 
-      const [{ data: addresses, error: addrErr }, loyalty] = await Promise.all([
+      const [
+        { data: addresses, error: addrErr },
+        loyalty,
+        { count: layawayCount },
+        { count: orderCount },
+        { count: sameEmailRows },
+        portalUrl,
+      ] = await Promise.all([
         supabase.from("customer_addresses")
           .select("id, label, recipient_name, line1, line2, city, region, postal_code, country, phone, is_default")
           .eq("customer_id", customer.id)
           .order("is_default", { ascending: false }).order("created_at", { ascending: true }),
         loyaltySnapshot(supabase, String(customer.id)),
+        // Counts, not rows: the account page needs to tell "you have nothing
+        // with us" apart from "this sign-in reached the wrong record", and it
+        // must be able to do that without fetching two more lists.
+        supabase.from("layaway_accounts")
+          .select("id", { count: "exact", head: true }).eq("customer_id", customer.id),
+        supabase.from("cash_orders")
+          .select("id", { count: "exact", head: true }).eq("customer_id", customer.id),
+        // Does another customer row carry this same email? See the blank-record
+        // branch below for why that question is worth asking.
+        customer.email
+          ? supabase.from("customers")
+              .select("id", { count: "exact", head: true })
+              .ilike("email", String(customer.email)).neq("id", customer.id)
+          : Promise.resolve({ count: 0 }),
+        // The Hub's own builder — bare URL for a linked customer, their token
+        // for a legacy one, and the bare URL when no valid token remains. It is
+        // the single source of portal links; this route does not build its own.
+        buildPortalLinkForCustomerId(supabase, String(customer.id), "portal"),
       ]);
       if (addrErr) throw addrErr;
+
+      const records = { layaway: layawayCount ?? 0, orders: orderCount ?? 0 };
+      const sharesEmail = (sameEmailRows ?? 0) > 0;
+
+      // A SIGN-IN THAT REACHES A RECORD WITH NOTHING ON IT IS REPORTED, NOT
+      // RENDERED BLANK (2026-09-15). Six known customers have a duplicate row
+      // whose twin holds their plan; the auth user is linked to the empty one,
+      // so `/auth/customer` returns it with no error and the account page used
+      // to render as if they had never bought anything. Staff can fix the data;
+      // the customer cannot, so the bell is where this goes. The customer is
+      // told something truthful and non-technical instead (storefront copy).
+      // Deduped to one bell per customer per day, the same way
+      // recordEmailAttempt throttles its refusal alert.
+      if (records.layaway === 0 && records.orders === 0 && sharesEmail) {
+        try {
+          const { count: recent } = await supabase
+            .from("staff_notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("type", "portal_blank_account")
+            .eq("customer_id", customer.id)
+            .gte("created_at", new Date(Date.now() - 86_400_000).toISOString());
+          if (!recent) {
+            await supabase.rpc("staff_notify", {
+              p_type: "portal_blank_account",
+              p_title: "Website sign-in reached an empty customer record",
+              p_body: `${customer.full_name ?? "A customer"} (${customer.customer_code ?? "no code"}) `
+                + `signed in at ${customer.email} and has no orders and no plans on this record, `
+                + "while another customer row carries the same email. Their history is most likely on the other row.",
+              p_account_id: null,
+              p_customer_id: customer.id,
+              p_invoice: null,
+              p_meta: { source: "website_me", email: customer.email, same_email_rows: sameEmailRows ?? 0 },
+            });
+          }
+        } catch { /* never fail a profile read over a notification */ }
+      }
 
       return jsonResponse(scrub({
         customer,
         addresses: addresses ?? [],
         loyalty,
+        // How much history this record actually holds. The storefront reads it
+        // to choose between "nothing yet" and "we cannot see your records".
+        records,
+        // True when another customer row shares this email. Surfaced to the
+        // storefront so it can soften its wording, NOT shown to the customer as
+        // a fact about another record.
+        shares_email: sharesEmail,
+        // Where every action still lives.
+        portal_url: portalUrl,
         // customer_cards arrives in step 3 (Square). Reported as false rather
         // than omitted so the storefront can render the account shell now.
         saved_card: false,
@@ -1191,6 +1270,30 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }));
     }
 
+    /**
+     * ============================================== reading a customer's own history
+     * THE FOUR READS BELOW ARE NOT CHANNEL-FILTERED (changed 2026-09-15).
+     *
+     * They used to carry `.eq("source_channel","web")`, which meant the
+     * storefront could only ever show orders and plans the storefront itself
+     * had created. Every live layaway plan is `hub_manual` — 1,448 of them
+     * against 0 web — so all 290 plan-holders signed in and saw an empty
+     * account. The portal stays the primary customer surface and keeps every
+     * action; this is a second window onto the same records, viewing only.
+     *
+     * WHAT ENFORCES ISOLATION is `.eq("customer_id", customer.id)`, present on
+     * all four, where `customer` comes from `customerForAuthUser` — a lookup by
+     * the JWT's own `auth_user_id`, never by anything the caller supplies. The
+     * channel filter never contributed to isolation; it only narrowed which of
+     * the customer's OWN rows they could see.
+     *
+     * The pay handler (POST /layaway/:id/pay) KEEPS its filter deliberately.
+     * Payment submission stays in the portal for now, so a Hub-created plan
+     * must not accept one here; the storefront reads `source_channel` off the
+     * plan and points the customer at the portal instead of rendering a form
+     * that would 404.
+     */
+
     // GET /orders — this customer's orders, newest first.
     if (req.method === "GET" && segments[0] === "orders" && !segments[1]) {
       const who = await requireCustomerUser(req, supabase);
@@ -1202,7 +1305,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .from("cash_orders")
         .select(ORDER_FIELDS)
         .eq("customer_id", customer.id)
-        .eq("source_channel", "web")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -1223,7 +1325,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select(`${ORDER_FIELDS}, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
         .eq("id", segments[1])
         .eq("customer_id", customer.id)
-        .eq("source_channel", "web")
         .maybeSingle();
       if (error) throw error;
       if (!order) return notFound();
@@ -1263,7 +1364,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .from("layaway_accounts")
         .select(LAYAWAY_FIELDS)
         .eq("customer_id", customer.id)
-        .eq("source_channel", "web")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -1284,7 +1384,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select(`${LAYAWAY_FIELDS}, quote:checkout_quotes(ship_to_address:customer_addresses(country))`)
         .eq("id", segments[1])
         .eq("customer_id", customer.id)
-        .eq("source_channel", "web")
         .maybeSingle();
       if (error) throw error;
       if (!plan) return notFound();
@@ -1315,6 +1414,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       return jsonResponse(scrub({
         plan: { ...(plan as AnyRec), quote: undefined },
+        // Where this plan is paid. Carried on the plan itself so the page can
+        // name the portal without a second round trip, and built by the Hub's
+        // own builder so a legacy customer still gets their token link.
+        portal_url: await buildPortalLinkForCustomerId(supabase, String(customer.id), "portal"),
         schedule: rows ?? [],
         items: lines,
         payments: paid ?? [],
