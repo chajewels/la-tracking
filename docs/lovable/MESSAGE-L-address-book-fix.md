@@ -218,3 +218,58 @@ acceptance run and is not being asked of you here. Report (a)–(d) and stop.
   written from one shared expression, `address_snapshot(uuid)`, so a backfilled
   order and a new one cannot disagree.
 - The six existing web orders are repaired in the same migration.
+
+---
+
+## Outcome — reported 2026-09-15 16:00 UTC, independently verified 16:08
+
+**Step 0:** all ten assertions matched at `a3fa761`. Every count as written.
+
+**Migration:** applied, committed — so its closing `DO` block did not raise and the
+backfill left nothing unfilled. Security linter unchanged at the pre-existing 94
+issues; none added.
+
+**Deploys:** `website` and `auto-expire-cash-orders`. Nothing else applied,
+deployed, edited or published.
+
+### Verification, as reported and then re-checked here by read-only SQL
+
+| check | Lovable reported | independently confirmed |
+|---|---|---|
+| (a) one signature each, alias has no body of its own | three rows, no name with two signatures; `replace_customer_addresses` is the single forwarding SELECT with no `DELETE` | ✅ three rows; `body_has_delete = false` on **all three**; the alias body is 72 characters — `SELECT public.upsert_customer_addresses(p_customer_id, p_addresses);` and nothing else |
+| (b) `ship_to_snapshot` on both tables | `cash_orders` jsonb, `layaway_accounts` jsonb | ✅ `snapshot_cols = 2`, both jsonb |
+| (c) the six orders show their addresses | six rows, line1 `7-23-11`, postcode `1240012`, JP, no null | ✅ identical six rows; `cash_filled 4`, `layaway_filled 2`, **both missing 0**; every snapshot's `address_id` points at the live address row |
+| (d) re-sending an address changes no ids | `id_before` = `id_after` = `3bf27f2b-…`; `result` carried `updated: 1`, `inserted: 0`; `web_orders_still_resolving` = 4 | ✅ the live `customer_addresses` row is still `3bf27f2b-0d23-4b17-a9d3-69235a658b2e`, `address_rows = 1`, `orders_resolving = 4`, and the probe's audit row is **gone** (`probe_rows_left = 0`) — the transaction rolled back clean |
+
+The `updated` / `inserted` keys in (d)'s result are the part that matters: they
+exist only in the new body, so the OLD name did reach it. That is the property the
+whole deploy ordering rests on.
+
+### Lovable changed (d)'s mechanics, and said so
+
+Its shell database connection is refused permission to call the function, so
+rather than printing each SELECT it captured the before-ids, the result and the
+after-ids into one row **inside the same transaction**, read that back, and rolled
+back. Same statements, same single transaction, same rollback — and it reported
+the substitution instead of quietly running something else. It then proved the
+rollback left no trace. That is the right way to handle a check whose mechanics
+do not fit the environment: adapt the mechanism, keep the semantics, say what
+changed.
+
+### The one thing not verified here
+
+**That the two functions were actually deployed is not observable from SQL**, so
+nothing above confirms it independently — only Lovable's report does. Worth
+stating plainly rather than implying otherwise. The exposure is bounded by
+design: the alias means both deploy orders are safe, so a deploy that silently
+did not happen leaves the old function calling the old name, which now forwards
+to the new non-destructive body. The customer-visible confirmation is the
+storefront checkout, which is the owner's acceptance run.
+
+### Correctly declined
+
+The real storefront checkout needs a signed-in session, a cart and an address.
+Lovable said so and did not synthesise it. The message had already assigned that
+to the acceptance run rather than dressing it up as an automated check — the rule
+in CLAUDE.md working as intended, on the message side this time rather than after
+the fact.
