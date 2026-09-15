@@ -159,17 +159,27 @@ Reference docs (read the relevant one when a task touches that area):
     the pre-release main: an assertion that passes identically before and after
     proves nothing about the deploy.
   - AN ASSERTION NOBODY CAN SATISFY IS WORSE THAN NO ASSERTION (added 2026-09-15,
-    second occurrence). A check that cannot be run gets substituted, waved
+    THIRD occurrence). A check that cannot be run gets substituted, waved
     through, or reported as a pass on different evidence — and that is worse than
-    asking for something weaker and true. Twice now a message has asked Lovable
-    for proof it had no way to produce: a preview render needing LOVABLE_API_KEY
-    (2026-09-14, answered 401), and an end-to-end customer flow needing a
-    signed-in session, a cart and an address (2026-09-15). Before writing a
-    verification step, ask what the agent can actually observe with the access it
-    has, and ask for THAT — the deployed function body plus its version and
-    timestamp, not a synthesised user journey. Where the real proof needs a human
-    in a browser, say so in the message and assign it to the owner's own
-    acceptance run instead of dressing it up as an automated check.
+    asking for something weaker and true. Three times now a message has asked
+    Lovable for proof it had no way to produce: a preview render needing
+    LOVABLE_API_KEY (2026-09-14, answered 401); an end-to-end customer flow
+    needing a signed-in session, a cart and an address (2026-09-15); and message
+    K's step 3(d), "GET /website/layaway and the portal must answer 200 not 400"
+    (2026-09-15), which needs the website API key and a real customer session.
+    Before writing a verification step, ask what the agent can actually observe
+    with the access it has, and ask for THAT — the deployed function body plus
+    its version and timestamp, not a synthesised user journey. Where the real
+    proof needs a human in a browser, say so in the message and assign it to the
+    owner's own acceptance run instead of dressing it up as an automated check.
+    THE THIRD OCCURRENCE IS ALSO THE MODEL ANSWER: Lovable refused to fake it —
+    "I could not run either of these two, and I'm not going to report a pass on
+    other evidence" — then reported what it COULD observe (both endpoints reach
+    their auth gate and return 401, not 404; both plans' lines carry a variant
+    with photos and a null stored image, the exact case the resolver fills at
+    read time) and handed the 200-with-photo confirmation to the acceptance run.
+    That is the behaviour the rule wants. The defect was in the ASK, not the
+    answer.
 
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 
@@ -1835,6 +1845,43 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
 
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.
+
+## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
+
+  A CHECKOUT NEVER DELETES A ROW THE CUSTOMER DID NOT ASK TO REMOVE.
+  `customer_addresses` ids are load-bearing: `cash_orders.ship_to_address_id`
+  and `checkout_quotes.ship_to_address_id` are both ON DELETE SET NULL, so
+  deleting a row blanks the shipping address on every order and quote pointing
+  at it — silently, with no error and nothing in any log. The original
+  `replace_customer_addresses` did exactly that on EVERY checkout that sent an
+  address (DELETE-then-INSERT with fresh uuids), and the storefront calls it on
+  every one.
+  The writer is `upsert_customer_addresses`: an entry carrying an id belonging
+  to that customer UPDATES in place, an entry without one INSERTs, and a row
+  the payload does not mention is LEFT ALONE. `replace_customer_addresses`
+  survives as a forwarding alias ONLY, so a stale caller cannot reach the old
+  body. Never re-introduce a delete-all write path here; a real delete route
+  belongs behind its own endpoint, per address.
+
+  AN ORDER KEEPS ITS OWN ADDRESS. `cash_orders.ship_to_snapshot` and
+  `layaway_accounts.ship_to_snapshot` hold the address AS IT WAS at creation
+  and are AUTHORITATIVE for display; the FK is a convenience link to the live
+  address book and may legitimately go NULL. Every snapshot — both writers and
+  any backfill — comes from `public.address_snapshot(uuid)` and from nowhere
+  else, so a backfilled order and a newly-written one cannot disagree. Any new
+  surface showing where an order went reads the snapshot first and the FK only
+  as a fallback (`shipToAddress()` in `website/index.ts` is the reference).
+  `layaway_accounts` has NO `ship_to_address_id` at all: the snapshot is the
+  only address a plan carries.
+
+  THE TWO STORES HAVE NOT DIVERGED, and that is worth keeping true. The Hub
+  reads the flat columns on `customers`; the storefront reads
+  `customer_addresses`. As of 2026-09-15 the drift is zero — the flat columns
+  hold a COUNTRY in `location` and nothing else (879 rows), the table holds 1
+  real row, and the 2026-09-10 backfill that manufactured 871 junk "addresses"
+  from `location` was reverted the same day (20260910160000). Convergence is
+  filed in docs/PENDING.md, not done. Never seed `customer_addresses` from the
+  flat columns again.
 
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 

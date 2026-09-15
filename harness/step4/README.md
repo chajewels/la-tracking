@@ -21,9 +21,17 @@ something production does not run, and its results mean nothing until you find o
 | function | md5 | measured |
 |---|---|---|
 | `create_web_layaway_atomic` | `678e6811b2e205a65f6b119bdf1b983e` | 2026-09-15 |
+| `create_web_order_atomic` | `fbd3766066f014271d7cf3b8dd7b1d14` | 2026-09-15 (pre-fix) |
 | `expire_web_layaway_atomic` | `e64328138d08626a12cbf54950ad43ec` | 2026-09-15 |
 | `layaway_quote` | `ad4606c0da7511e7070138520d8d7907` | 2026-09-15 |
+| `replace_customer_addresses` | `8a5345b7b07f0c9a6d671a1af6e65775` | 2026-09-15 (pre-fix) |
 | `set_account_deadlines` | `cd65923b9852b72aee362645e12b7006` | 2026-09-15 (pre-fix) |
+
+The three marked **pre-fix** are the bodies as production ran them when the
+defect was found. That is deliberate: `build.sh` loads the baseline, so a
+scenario run straight after a rebuild REPRODUCES the bug, and the same scenario
+run with the fix migration loaded on top shows it gone. Do not "update" them to
+a fixed hash — update them when LIVE changes, in the commit that explains why.
 
 Everything else is drawn from the same place:
 
@@ -56,6 +64,11 @@ Read this before quoting a result as evidence.
   `07_helpers.sql`. They are faithful to the code as written on 2026-09-15 — and they will go
   stale silently if that code changes, because nothing checks them the way the md5s check the
   functions. **If you change either edge function, change the mirror in the same commit.**
+- **`replace_customer_addresses` is the only address route modelled.** The
+  `website` function's PUT `/me/addresses` handler, its auth, and the storefront
+  that calls it are all outside the harness — `T_ADDR.sql` calls the RPC
+  directly, which is exactly the hole the fix closes at the RPC layer, and
+  nothing here proves the HTTP layer was redeployed.
 - **No loyalty, no payments allocation, no penalties.** `allocate_payment_atomic`,
   `award-loyalty-points` and the penalty engine are not loaded. A "deposit confirmed" in these
   scripts is an INSERT into `payments` plus a `total_paid` update — the shape the RPCs read,
@@ -86,6 +99,14 @@ build — `build.sh` deliberately does not, so the baseline stays reproducible:
     psql -d chaharness -f ../../supabase/migrations/20260915140000_deadline_never_silently_cleared.sql
     psql -d chaharness -f T_PRA.sql
 
+`T_ADDR.sql` is written to be run BOTH ways and compared — all three properties
+FAIL on the baseline and PASS with `20260915160000` loaded:
+
+    ./build.sh && psql -d chaharness -f T_ADDR.sql
+    ./build.sh \
+      && psql -d chaharness -f ../../supabase/migrations/20260915160000_checkout_never_destroys_the_address_book.sql \
+      && psql -d chaharness -f T_ADDR.sql
+
 ## The scripts
 
 | file | what it exercises |
@@ -103,6 +124,9 @@ build — `build.sh` deliberately does not, so the baseline stays reproducible:
 | `T14` | a Hub-created plan past its deadline — nothing sweeps it (finding 2) |
 | `T_ALL` | all of the above in one deterministic run, as a verdict table |
 | `T_PRA` | the finding-3 and observation-A fixes, after loading `20260915140000` |
+| `T_PRB` | finding 1 — a deadline is spent once the deposit is confirmed |
+| `T_ADDR` | the address book: the three properties the checkout fix must hold |
+| `T_BACKFILL` / `T_BACKFILL_CHECK` | the `ship_to_snapshot` backfill, before and after |
 
 ## Adding a scenario
 

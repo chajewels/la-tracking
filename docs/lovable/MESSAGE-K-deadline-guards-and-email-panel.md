@@ -1,11 +1,16 @@
 # Message K — apply both deadline migrations, then deploy the eight functions
 
-**Status:** DRAFT, not sent. Send only after PR #79 and PR #80 are both merged and
-`main` carries them. One sender, and that sender is Claude Code (CLAUDE.md).
+**Status:** SENT AND COMPLETED 2026-09-15 by Claude Code, after PR #79 and PR #80 were both
+merged. One sender, and that sender is Claude Code (CLAUDE.md).
 
-**Pinned to:** `main` after the #80 squash. Fill the SHA in before sending and
-re-run every assertion against that SHA — a lagging Lovable mirror is why these
-exist.
+**Pinned to:** `main@52a61f4` — "Release: emails that aren't clipped, plans that
+show their photo, and a deadline that can't be quietly lost (#80)".
+
+All eleven assertions below were re-run against `52a61f4` itself immediately
+before sending, not against a working branch — a lagging Lovable mirror is why
+they exist. Every one passed all three tests: count unchanged with comment lines
+stripped, count differing from pre-release `main@a4b32e0` (or the file absent
+there), and the symbol present in the file being asserted against.
 
 ---
 
@@ -167,3 +172,42 @@ either is a deploy failure, not a data problem — say so and stop.
 - **Bug #276** — `ImageableLine` was an `interface`, which broke the Deno gate
   and left `develop` red across three merges.
 - **Findings 1–3** — the deadline guards this message's migrations install.
+
+
+---
+
+## Outcome — reported 2026-09-15 14:51 UTC, independently verified 14:58
+
+**Step 0:** all 19 checks matched at `52a61f4a`. Every count as written.
+
+**Migrations:** both applied, in filename order. Security linter unchanged at 94
+pre-existing issues — none added.
+
+**Deploys:** all eight functions.
+
+**Verification, as reported and then re-checked here by read-only SQL:**
+
+| check | Lovable reported | independently confirmed |
+|---|---|---|
+| (a) one signature | one row, `set_account_deadlines(text,uuid,timestamptz,text,uuid)`, no twin | ✅ `signatures = 1`; body carries `deadline_required`, `already_paid`, `payment_exists` and `deadline_in_past` |
+| (b) null refused | CJ-W-900012 → `{"error":"deadline_required"}`, deadline unchanged, no new audit row | ✅ `transfer_due_at` still 2026-09-16 04:26; newest `deadlines_updated` row 11:41, three hours before the 14:50 run |
+| (c) confirmed deposit refused | CJ-W-900013 → `{"error":"already_paid","total_paid":8926}`, deadline unchanged, zero audit rows | ✅ zero `deadlines_updated` rows; `transfer_due_at` still 2026-09-18 13:22 |
+| (d) read paths answer 200 | **could not run** — needs the website API key and a real customer session; refused to substitute evidence | correct refusal, see below |
+
+`total_paid` on CJ-W-900013 reads 12,397 now rather than the 8,926 Lovable saw:
+a ₱3,471 instalment was confirmed at 14:56, six minutes after its run. Both
+figures are right for their moment; nothing drifted.
+
+### Step 3(d) was a badly written ask, and that is on the message
+
+It asked for something the agent had no way to produce — the third time this has
+happened (see CLAUDE.md, GENERATED FILES & DEPLOY VERIFICATION). Lovable handled
+it exactly as the rule wants: it declined to report a pass on other evidence,
+said so plainly, reported what it COULD observe (both endpoints reach their auth
+gate and return 401 rather than 404; both plans' lines carry a variant with three
+photos and a null stored `image_url`, which is precisely the case the read-time
+resolver fills), and handed the 200-with-photo confirmation to the owner's
+acceptance run — where it always belonged.
+
+Next time this check is written, ask for the deployed function version and
+timestamp, not a synthesised customer journey.
