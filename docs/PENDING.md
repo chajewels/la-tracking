@@ -1,5 +1,27 @@
 ## PENDING ITEMS (as of 2026-05-25)
 
+### set-account-deadlines accepts a deadline move with NO reason (found 2026-09-15)
+
+Step 4 acceptance expects a deadline change without a reason to be refused. It is not.
+`supabase/functions/set-account-deadlines/index.ts:56` does:
+
+    p_reason: String(body?.reason ?? "").trim() || null,
+
+An empty or absent reason becomes `null` and the call proceeds — there is no 400 and no
+refusal code for it. The RPC only refuses `not_found` (404) and `not_live` (409), both
+confirmed against the live function body.
+
+The audit row is still written, with `reason` null. CLAUDE.md's WEB LAYAWAY section says a
+deadline move is "audited with old value, new value and reason", which a null reason
+satisfies in form and defeats in purpose: a moved deposit deadline is exactly the change
+someone will later need explained.
+
+Not fixed here — found while running acceptance, and reported rather than bundled into an
+unrelated PR. The fix is a few lines in the edge function (reject an empty reason with 400
+before calling the RPC) plus one line in the acceptance script. It is an owner decision
+whether the reason should be mandatory or whether the script's expectation should be
+dropped.
+
 ### process-loyalty-redemption validates the body before it checks auth (found 2026-09-15)
 
 An unauthenticated `POST` with `{}` returns **400** `action must be 'create',
