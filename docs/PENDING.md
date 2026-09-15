@@ -703,3 +703,38 @@ a bound on an *undetected* leak.
 (Related, and also unexamined: `docs/PORTAL-PIN-AUTH.md` is stale — it describes
 SHA-256 hashes on `customers`, which moved to PBKDF2 in `customer_pins` on
 2026-06-07.)
+
+---
+
+## ADDRESS BOOK — WHAT 20260915160000 DELIBERATELY DID NOT BUILD (2026-09-15)
+
+The emergency fix made the checkout's address write non-destructive and gave
+every web order its own `ship_to_snapshot`. Three things were left out on
+purpose, and are now unblocked rather than done:
+
+**A. The storefront's address CRUD UI** — add / edit / set-default / delete, on
+the account page. Cynthia asked for it; it was held back because a safe write
+endpoint is its precondition and that endpoint was the emergency. It is now
+safe to build: `upsert_customer_addresses` updates in place, so editing an
+address no longer rewrites its id, and `ship_to_snapshot` means a delete can no
+longer change where a past order went.
+
+**B. Per-address routes.** `PUT /me/addresses` still sends the WHOLE list —
+upsert-by-id makes that safe, but `POST /me/addresses`, `PATCH
+/me/addresses/:id`, `DELETE /me/addresses/:id` and a `set_default` action are
+the shape this should have. Do it with the CRUD UI, not before: a delete route
+with no UI is a hole with no user.
+
+**C. Convergence — the Hub on the flat columns, the storefront on
+`customer_addresses`.** Still filed, still not started. The drift is currently
+ZERO (879 customers carrying a country in `location` and nothing else; 1 real
+row in `customer_addresses`; the 2026-09-10 backfill reverted the same day), so
+nothing about this fix makes convergence harder. Whenever it happens, the
+snapshot is what protects order history from it.
+
+**Not covered by the snapshot, and not at risk:** a web layaway's
+`recipient_name`, `recipient_phone` and `gift_note` live on `checkout_quotes`
+only — `layaway_accounts` has no such columns. Those are plain text on the
+quote, unaffected by anything that happens to the address book, and the quote
+row is never deleted. If layaway plans ever need them on the account itself,
+that is a separate, non-urgent copy.

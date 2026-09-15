@@ -257,6 +257,37 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
 };
 
 /** What a customer may see of their own layaway plan. */
+/**
+ * The delivery address an order page should show.
+ *
+ * `ship_to_snapshot` is AUTHORITATIVE. It is the address as it stood when the
+ * order was written, so nothing the customer later does to their address book
+ * can move where a past order went. The embedded FK row is only a fallback,
+ * for an order written before 20260915160000 whose snapshot the backfill could
+ * not reach — and it legitimately reads NULL, because
+ * cash_orders.ship_to_address_id is ON DELETE SET NULL.
+ *
+ * Both are normalised to one shape so the storefront sees no difference.
+ */
+function shipToAddress(snapshot: unknown, embedded: unknown): AnyRec | null {
+  const s = snapshot as AnyRec | null;
+  if (s && typeof s === "object") {
+    return {
+      id: s.address_id ?? null,
+      label: s.label ?? null,
+      recipient_name: s.recipient_name ?? null,
+      line1: s.line1 ?? null,
+      line2: s.line2 ?? null,
+      city: s.city ?? null,
+      region: s.region ?? null,
+      postal_code: s.postal_code ?? null,
+      country: s.country ?? null,
+      phone: s.phone ?? null,
+    };
+  }
+  return (embedded as AnyRec | null) ?? null;
+}
+
 const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
   "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
@@ -831,7 +862,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }));
     }
 
-    // PUT /me/addresses — replace the whole list, atomically.
+    // PUT /me/addresses — save the customer's list, atomically and WITHOUT
+    // deleting. Entries carrying an id update that row in place; entries
+    // without one are new; a row the payload does not mention is left alone.
+    // It used to replace the list by DELETE-then-INSERT, which minted fresh
+    // uuids and, through two ON DELETE SET NULL foreign keys, blanked the
+    // shipping address on every past order and quote — on every checkout that
+    // sent an address. See 20260915160000.
     if (req.method === "PUT" && segments[0] === "me" && segments[1] === "addresses" && !segments[2]) {
       const who = await requireCustomerUser(req, supabase);
       if (who instanceof Response) return who;
@@ -842,7 +879,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const list = (body as AnyRec)?.addresses;
       if (!Array.isArray(list)) return jsonResponse({ error: "addresses_must_be_array" }, 400);
 
-      const { data, error } = await supabase.rpc("replace_customer_addresses", {
+      const { data, error } = await supabase.rpc("upsert_customer_addresses", {
         p_customer_id: customer.id,
         p_addresses: list,
       });
@@ -1322,7 +1359,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // enough to read someone else's order.
       const { data: order, error } = await supabase
         .from("cash_orders")
-        .select(`${ORDER_FIELDS}, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
+        // ship_to_snapshot first, the FK embed only as the fallback — see
+        // shipToAddress().
+        .select(`${ORDER_FIELDS}, ship_to_snapshot, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
         .eq("id", segments[1])
         .eq("customer_id", customer.id)
         .maybeSingle();
@@ -1350,7 +1389,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       );
 
       return jsonResponse(scrub({
-        order,
+        order: {
+          ...(order as AnyRec),
+          ship_to_snapshot: undefined,
+          ship_to_address: shipToAddress(
+            (order as AnyRec).ship_to_snapshot,
+            (order as AnyRec).ship_to_address,
+          ),
+        },
         items: lines,
         transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
         // Methods are only actionable while the transfer is outstanding.
@@ -1388,7 +1434,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // enough to read someone else's plan.
       const { data: plan, error } = await supabase
         .from("layaway_accounts")
-        .select(`${LAYAWAY_FIELDS}, quote:checkout_quotes(ship_to_address:customer_addresses(country))`)
+        // A web plan carries its address ONLY as ship_to_snapshot:
+        // layaway_accounts has no ship_to_address_id. The quote embed is the
+        // fallback for plans written before 20260915160000.
+        .select(`${LAYAWAY_FIELDS}, ship_to_snapshot, quote:checkout_quotes(ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone))`)
         .eq("id", segments[1])
         .eq("customer_id", customer.id)
         .maybeSingle();
@@ -1425,7 +1474,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const depositPaid = Number(plan.total_paid ?? 0) > 0;
 
       return jsonResponse(scrub({
-        plan: { ...(plan as AnyRec), quote: undefined },
+        plan: {
+          ...(plan as AnyRec),
+          quote: undefined,
+          ship_to_snapshot: undefined,
+          ship_to_address: shipToAddress(
+            (plan as AnyRec).ship_to_snapshot,
+            ((plan as AnyRec).quote as AnyRec | null)?.ship_to_address,
+          ),
+        },
         // Where this plan is paid. Carried on the plan itself so the page can
         // name the portal without a second round trip, and built by the Hub's
         // own builder so a legacy customer still gets their token link.
