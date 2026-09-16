@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { isServiceRole } from "../_shared/jwt-claims.ts";
+import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
 
 /**
  * LOYALTY AWARD SWEEP — the self-healing checker, as its own function.
@@ -161,6 +162,14 @@ Deno.serve(async (req) => {
     let processed = 0;
     let recovered = 0;
     let failed = 0;
+    // A candidate the sweep could not even ASK about. Counted apart from
+    // `failed` because the two mean opposite things: `failed` is
+    // award-loyalty-points deciding an award could not be made, `unreachable`
+    // is this function never getting an answer. Conflating them is what made
+    // the first run read as 257 failed awards when 257 awards were never
+    // evaluated at all.
+    let unreachable = 0;
+    const unreachableDetail: Array<Record<string, unknown>> = [];
     let pointsRecovered = 0;
     const recoveredDetail: Array<Record<string, unknown>> = [];
     let budgetExhausted = false;
@@ -178,23 +187,43 @@ Deno.serve(async (req) => {
       }
 
       processed++;
-      let result: Record<string, unknown>;
+      let result: Record<string, unknown> | null = null;
+      let transportError: unknown = null;
       try {
         const body = cand.kind === "cash"
           ? { cash_order_id: cand.cash_order_id, customer_id: cand.customer_id }
           : { account_id: cand.account_id };
-        const res = await fetch(lpUrl, { method: "POST", headers: lpHeaders, body: JSON.stringify(body) });
+        // RETRYING FETCH, NOT A BARE ONE. The Deno isolate's rate limiter
+        // REJECTS rather than returning 429, so a bare fetch turns a 22-second
+        // wait into an instant, permanent-looking failure — and on the first
+        // real run it did that 257 times inside one second.
+        const res = await fetchWithRetryOnRateLimit(lpUrl, {
+          method: "POST", headers: lpHeaders, body: JSON.stringify(body),
+        });
         if (!res.ok) {
           const t = await res.clone().text().catch(() => "<no body>");
           console.error(`[loyalty-sweep:${runId}] award-loyalty-points ${res.status}: ${t}`);
         }
         result = (await res.json().catch(() => null)) ?? { error: "no_response" };
       } catch (e) {
-        console.warn(`[loyalty-sweep:${runId}] award call failed:`, e);
-        result = { error: String(e) };
+        // Retries are exhausted or this was never a rate limit. Either way the
+        // candidate was NOT evaluated, so it does not become a failed award.
+        transportError = e;
       }
 
-      const a: any = result;
+      if (transportError !== null) {
+        unreachable++;
+        const ids = cand.kind === "cash"
+          ? { cash_order_id: cand.cash_order_id, invoice_number: cand.invoice_number }
+          : { account_id: cand.account_id };
+        unreachableDetail.push({ ...ids, error: String(transportError) });
+        console.warn(`[loyalty-sweep:${runId}] unreachable after retries:`, transportError);
+        // NO per-candidate notification. One outage is one thing to tell
+        // somebody, not 257 — the aggregate is raised after the loop.
+        continue;
+      }
+
+      const a: any = result as Record<string, unknown>;
       const sourceIds = cand.kind === "cash"
         ? { cash_order_id: cand.cash_order_id, customer_id: cand.customer_id, invoice_number: cand.invoice_number }
         : { account_id: cand.account_id };
@@ -242,6 +271,30 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ONE notification for an outage, raised after the loop.
+    //
+    // This still RAISES — exhausted retries are a real failure and somebody
+    // has to know the sweep could not do its job. What changed is the
+    // cardinality: 257 rows for one rate-limit event told nobody anything they
+    // could act on, and each row asserted a failed award that had never been
+    // evaluated. The type stays `loyalty_award_failed` so the Hub bell renders
+    // it with its existing failure treatment.
+    if (unreachable > 0) {
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "loyalty_award_failed",
+          title: "Loyalty sweep could not reach award-loyalty-points",
+          body:
+            `${unreachable} of ${candidates.length} candidates were NOT evaluated — ` +
+            `the award service was unreachable after retries. These are unknown, not ` +
+            `resolved: the next run re-asks them. Run ${runId}.`,
+          metadata: { run_id: runId, unreachable, candidates: candidates.length, detail: unreachableDetail.slice(0, 50) },
+        });
+      } catch (nErr) {
+        console.warn(`[loyalty-sweep:${runId}] outage notification failed (non-blocking):`, nErr);
+      }
+    }
+
     // The completion stamp is what System Health Check 17's sibling reads. It
     // is written on EVERY run that reaches here, including a budget-exhausted
     // one — a short run is progress, not an outage, and the two must be
@@ -255,9 +308,15 @@ Deno.serve(async (req) => {
           run_id: runId,
           candidates: candidates.length,
           processed,
+          // `processed` counts candidates the loop REACHED; `evaluated` counts
+          // the ones award-loyalty-points actually answered. They differ by
+          // `unreachable`, and only `evaluated` licenses any claim about what
+          // was or was not owed.
+          evaluated: processed - unreachable,
           remaining,
           recovered,
           failed,
+          unreachable,
           points_recovered: pointsRecovered,
           budget_exhausted: budgetExhausted,
         },
@@ -271,12 +330,15 @@ Deno.serve(async (req) => {
       elapsed_ms: Date.now() - startedAt,
       candidates: candidates.length,
       processed,
+      evaluated: processed - unreachable,
       remaining,
       recovered,
       failed,
+      unreachable,
       points_recovered: pointsRecovered,
       budget_exhausted: budgetExhausted,
       recovered_detail: recoveredDetail,
+      unreachable_detail: unreachableDetail,
     };
     console.log(`[loyalty-sweep:${runId}] done —`, JSON.stringify({ ...summary, recovered_detail: undefined }));
     return jsonResponse(summary);
