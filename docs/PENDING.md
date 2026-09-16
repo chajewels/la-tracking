@@ -738,3 +738,50 @@ only — `layaway_accounts` has no such columns. Those are plain text on the
 quote, unaffected by anything that happens to the address book, and the quote
 row is never deleted. If layaway plans ever need them on the account itself,
 that is a separate, non-urgent copy.
+
+---
+
+## RECONCILIATION — WHAT THE 2026-09-16 PR LEFT (and what it deliberately did not touch)
+
+The nightly reconciliation was found dead on 2026-09-16: measured on live, 493
+accounts in scope, ~120 reconciled per night at 1.56 s each, the run dying
+against a hard ~185 s ceiling every night within 1.2 s of the same duration,
+and `last_daily_reconciliation` reading 2026-05-19 — four months stale.
+
+**Done** (loyalty sweep split out + cron; Check 17 and 17b built; the hardcoded
+`penalty_cron` pass deleted).
+
+**Still open, in the order they should be taken:**
+
+**A. The run is starved by its ordering, not only by the ceiling.** It selects
+`ORDER BY layaway_accounts.updated_at ASC`, but `reconcile-account` has been
+report-only since Bug #34 and writes nothing to that table — so the job cannot
+advance its own cursor. Measured: 220 distinct accounts touched across 8
+nights, **301 of 493 never reconciled once in that window**. Raising the
+timeout would not fix this; the tail would still never be reached. Fix: order
+by least-recently-reconciled from `reconciliation_log`, which needs no schema
+change.
+
+**B. Time-box the account loop.** Stop on elapsed rather than on a row count,
+write the stamp with `accounts_remaining`, and let a more frequent schedule
+drain the set — so a partial run is a recorded partial run rather than a silent
+truncation. (The loyalty sweep already works this way; copy it.)
+
+**C. The real cost driver: 493 sequential inter-function HTTP calls to compute
+a REPORT.** `reconcile-account` writes nothing; it computes drift and logs a
+row. That is a single SQL RPC's worth of work being done as ~500 round trips.
+Replacing it is the architecturally right answer and a much larger change —
+explicitly out of scope of the outage fix, and not to be smuggled into A or B.
+
+**D. `daily-penalty-engine` records no completion stamp,** which is why the
+health check for it could only ever have been the hardcoded pass that was just
+deleted. Give it the same `system_settings` stamp the reconciliation and sweep
+jobs write, then add its staleness check alongside 17. Do NOT substitute a
+proxy such as "were penalties created recently" — a night on which nobody is
+overdue legitimately produces zero penalties, so that check would report
+failure on healthy days and train people to ignore the panel.
+
+**E. Health checks 15 and 16 are documented in CLAUDE.md's history but were
+never built** (15: installment payments exceeding `schedule.paid_amount`;
+16: non-DP payments in the last 24h with no allocations). CLAUDE.md now says so
+plainly. Build them or stop describing them.

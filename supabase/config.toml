@@ -63,6 +63,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.daily-reconciliation]
     verify_jwt = true
+  [functions.loyalty-award-sweep]
+    verify_jwt = true
   [functions.auto-expire-cash-orders]
     verify_jwt = true
   [functions.loyalty-inactivity-check]
