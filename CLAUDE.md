@@ -606,10 +606,22 @@ To add a new screenshot for any Help section:
        each successful payment (real-time sync).
     2. daily-reconciliation edge function runs once per day for all accounts.
        Completion timestamp stored in system_settings.key = 'last_daily_reconciliation'.
-    3. System Health Check 15 (CRITICAL) detects accounts where installment
-       payments exceed schedule.paid_amount — flags stale schedule rows.
-    4. System Health Check 16 detects non-DP payments in last 24h without allocations.
-    5. System Health Check 17 verifies daily-reconciliation ran within 25 hours.
+    3. Check 17 — `reconciliation_staleness` in system-health-check — fails when
+       system_settings.last_daily_reconciliation is older than 25 hours, and
+       pushes an issue so `overall` reads ISSUES_FOUND. It is registered in
+       OPS_META so the Hub panel actually renders it.
+    4. Check 17b — `loyalty_sweep_staleness` — the same test for
+       last_loyalty_award_sweep. Its stamp carries `remaining`, so a run that
+       stopped on its time budget reads as progress, not as an outage.
+
+    CHECKS 15 AND 16 ARE NOT BUILT. They were documented here as though they
+    were, for months. Check 17 was documented the same way and was not built
+    either, which is exactly why daily-reconciliation could stop completing on
+    2026-05-20 and sit at a 2026-05-19 stamp for four months with nothing
+    anywhere reporting it. 17 and 17b now exist; 15 and 16 are filed in
+    docs/PENDING.md. Do not describe a check here before it exists — this
+    section is read as an inventory, and an inventory that lists checks nobody
+    built is worse than a short one.
 
   reconcile-account edge function:
     Body: { account_id } or { invoice_number }
@@ -1130,6 +1142,7 @@ When completing a partially_paid month:
     daily-auto-forfeit:            00:10 UTC = 08:10 PHT ✅
     daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
+    loyalty-award-sweep:           00:35 UTC = 08:35 PHT ✅  — recovers missed loyalty awards; split out of daily-reconciliation 2026-09-16 (see below)
     auto-expire-cash-orders:       40 * * * * (hourly at :40) ✅  — the ONLY web/cash order expiry path since 2026-09-13; the SQL cron expire_transfer_orders() is gone
     daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
     portal-token-check:            00:55 UTC = 08:55 PHT ✅  — portal links approaching expiry; Vault-backed, independent of the chain
@@ -1154,6 +1167,15 @@ When completing a partially_paid month:
     4. Reconciliation runs after forfeitures
     5. Loyalty inactivity check runs last
        (needs fully reconciled account data)
+    6. The loyalty award sweep (00:35) runs after that, and is DELIBERATELY
+       ITS OWN JOB rather than a tail block of daily-reconciliation. It used to
+       be the last block of that function, after a loop over every active
+       account — a loop which cannot finish at current volume (measured
+       2026-09-16: 493 accounts at 1.56s each against a hard ~185s ceiling, so
+       ~120 get reconciled and the run dies). Everything sequenced after that
+       loop was unreachable, not merely skipped: the sweep produced ONE staff
+       notification in ninety days. A job whose independence matters must not
+       be a continuation of another job's request. Never move it back inline.
     6. daily-reconciliation must never be scheduled
        before 00:15 UTC
 
