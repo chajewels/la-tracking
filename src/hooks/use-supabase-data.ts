@@ -592,6 +592,58 @@ export function useCreateAccount() {
  * is live, never a way to revive an expired one. (On a cash order the RPC moves
  * expires_at with it, because that is what the hourly cron reads.)
  */
+/**
+ * Reactivate an EXPIRED web layaway (owner decision 2026-09-15).
+ *
+ * The deliberate exception to "an expired order is never revived". It re-takes
+ * the stock expiry put back on sale, so the refusals matter as much as the
+ * success: `out_of_stock` means somebody bought the piece in the meantime and
+ * the plan stays expired.
+ */
+export function useReactivateWebLayaway() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      account_id: string;
+      /** Required — the server refuses a missing or past deadline. */
+      transfer_due_at: string;
+      /** Required — reactivate-web-layaway refuses an empty reason (400). */
+      reason: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke('reactivate-web-layaway', { body: payload });
+      if (error) {
+        let detailedMsg = error.message || 'Could not reactivate the plan';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error === 'out_of_stock') {
+              const lines = Array.isArray(body.lines) ? body.lines : [];
+              const names = lines.map((l: any) => l?.sku || l?.title).filter(Boolean).join(', ');
+              detailedMsg = names
+                ? `Cannot reactivate — no longer in stock: ${names}.`
+                : 'Cannot reactivate — one of the pieces is no longer in stock.';
+            } else if (body?.error === 'not_expired') {
+              detailedMsg = `This plan is ${body.status} — only an expired plan can be reactivated.`;
+            } else if (body?.error === 'already_paid' || body?.error === 'payment_exists') {
+              detailedMsg = 'This plan has money on it, so it is not an expired reservation. Use the normal layaway path.';
+            } else if (body?.message) detailedMsg = body.message;
+            else if (body?.error) detailedMsg = body.error;
+          }
+        } catch { /* fall back to the generic message */ }
+        throw new Error(detailedMsg);
+      }
+      if (data?.error) throw new Error(String(data.error));
+      return data as { ok: true; web_reference: string | null; schedule_rows_restored: number; stock_lines_taken: number };
+    },
+    onSuccess: () => {
+      // The plan, its schedule and the website stock all moved.
+      CORE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      qc.invalidateQueries({ queryKey: ['account'] });
+      qc.invalidateQueries({ queryKey: ['website-products'] });
+    },
+  });
+}
+
 export function useSetAccountDeadlines() {
   const qc = useQueryClient();
   return useMutation({
