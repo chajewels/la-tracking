@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/jwt-claims.ts";
+import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,36 +8,6 @@ const corsHeaders = {
 };
 
 const MAX_ACCOUNTS_PER_RUN = 800;
-
-// Helper: retry fetch on Deno runtime rate limit (RateLimitError).
-// Ported verbatim from send-reminders/index.ts (Bug #114 / Phase 7 fix,
-// commit 8ea5b2a). Duplicate-in-file per the Phase 7 pattern; future
-// cleanup can DRY both into a shared helper.
-async function fetchWithRetryOnRateLimit(
-  url: string,
-  init: RequestInit,
-  maxRetries = 3
-): Promise<Response> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fetch(url, init);
-    } catch (e) {
-      const isRateLimit =
-        e && typeof e === 'object' && 'name' in e &&
-        (e as { name: string }).name === 'RateLimitError';
-      if (!isRateLimit || attempt >= maxRetries) {
-        throw e;
-      }
-      const maybeRetry = (e as unknown as { retryAfterMs?: number }).retryAfterMs;
-      const retryAfterMs = typeof maybeRetry === 'number' ? maybeRetry : 200;
-      console.warn(
-        `Rate limited at fetch, retry after ${retryAfterMs + 50}ms (attempt ${attempt + 1}/${maxRetries})`
-      );
-      await new Promise((r) => setTimeout(r, retryAfterMs + 50));
-    }
-  }
-  throw new Error('fetchWithRetryOnRateLimit: exhausted retries unexpectedly');
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
