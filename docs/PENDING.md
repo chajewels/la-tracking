@@ -785,3 +785,122 @@ failure on healthy days and train people to ignore the panel.
 never built** (15: installment payments exceeding `schedule.paid_amount`;
 16: non-DP payments in the last 24h with no allocations). CLAUDE.md now says so
 plainly. Build them or stop describing them.
+
+## THE CLAIM HOLD DOES NOT EXIST (filed 2026-09-16 — record, not a plan)
+
+`/faq` now promises a claimed piece is held **24 hours for a new customer and
+72 for a returning one** (owner-confirmed 2026-09-16). **Nothing enforces it.**
+Nothing enforced the 60 minutes it replaced either. Whoever builds this should
+start from the findings below rather than rediscovering them.
+
+What is already in place, and what it is worth:
+
+| | |
+|---|---|
+| `website_live_claims` | table exists: `code` UNIQUE, `product_variant_id`, `customer_id`, `csr_id`, `price_locked`, `status`, **`expires_at timestamptz NOT NULL`** |
+| `idx_website_live_claims_status` | index on `(status, expires_at)` — the exact shape an expiry sweep needs |
+| `website_claim_status` enum | `held / paid / layaway / expired / released` |
+| **rows ever written** | **none.** No RPC, no edge function, no trigger inserts a claim |
+| **the only reader** | `GET /claims/:code` in `supabase/functions/website/index.ts` — read-only |
+| `POST /claims/:code/checkout` | returns **`501 not_implemented`** |
+| **`'expired'` / `'released'`** | appear ONLY in their `CREATE TYPE`. Never written anywhere |
+| **a cron that expires claims** | **none.** All 13 jobs checked; `auto-expire-cash-orders` sweeps `cash_orders` and web layaways, never claims |
+| `loyalty_tiers.hold_minutes` | `DEFAULT 60`, read in exactly ONE place — `website/index.ts` GET /loyalty/tiers, which **serves** it to the storefront and never compares it to a clock |
+
+So the number was published for months and acted on never. Consequence today:
+**no claim is released automatically, ever.** A claimed piece is held until a
+human releases it in Messenger. Customers are not losing pieces to a 60-minute
+timer — the timer does not exist.
+
+What a build needs, in order:
+
+1. **A writer.** Nothing creates a claim row. Until something does, every
+   expiry mechanism has nothing to sweep. This is the whole of the work — the
+   table and the index are already right.
+2. **A deadline from the customer's HISTORY, not their tier.** 24h vs 72h turns
+   on whether the customer has bought before. `hold_minutes` on `loyalty_tiers`
+   models the old per-tier rule and is the wrong shape; it should be dropped
+   from the tier ladder rather than repurposed. The storefront already stopped
+   rendering it (`HUB_HOLD_MINUTES` in `cha-jewels-web/lib/loyalty.ts` mirrors
+   it under a name that says it is not authoritative).
+3. **An hourly sweep** setting `status = 'expired'` where `status = 'held' AND
+   expires_at < now()`, returning stock, following the shape of
+   `auto-expire-cash-orders`. The index already supports the predicate.
+4. **`POST /claims/:code/checkout`**, which today refuses with 501 — without it
+   a claim cannot convert and the hold means nothing either way.
+
+Until 1–4 exist, `/faq` states a term the system cannot keep. That is a
+statement about the copy, not a defect in it: the hold is a real business rule
+that staff apply by hand, and the FAQ describes what staff do.
+
+## FREE SHIPPING: THE FAQ SAYS ¥8,000, THE RATE CARD SAYS ¥50,000 (filed 2026-09-16)
+
+Not a missing feature — a **numerical contradiction**, and the one a customer
+actually hits.
+
+Shipping is computed in exactly one place: `shippingFor()` in
+`supabase/functions/website/index.ts`, which takes the PRODUCT SUBTOTAL in JPY
+and the destination country and returns the active `shipping_rates` row with the
+HIGHEST `min_subtotal_jpy` the subtotal clears. The storefront never computes
+shipping — `checkout-flow.tsx` renders `quote.shipping_jpy` and nothing else.
+
+The card seeded by `20260911120000_phase2_step2_checkout.sql`:
+
+```
+('JP', 0, 800), ('JP', 50000, 0), ('PH', 0, 3500), ('PH', 100000, 0)
+```
+
+So Japan free shipping EXISTS, at **¥50,000**. `/faq` says **¥8,000**. A ¥8,000
+Japanese order reads "free" on the FAQ and is charged ¥800 at checkout.
+
+**The Japan half needs no code.** The threshold is already a data dimension;
+only the number is wrong. It belongs in the Hub, because the rate card is Hub
+data and the storefront has no shipping logic to put it in. Read before writing
+— the live table may have been edited since the seed:
+
+```sql
+-- READ FIRST
+SELECT country, min_subtotal_jpy, fee_jpy, is_active
+FROM public.shipping_rates ORDER BY country, min_subtotal_jpy;
+
+-- THEN, if JP still reads (0, 800) and (50000, 0):
+UPDATE public.shipping_rates
+   SET min_subtotal_jpy = 8000
+ WHERE country = 'JP' AND min_subtotal_jpy = 50000 AND fee_jpy = 0;
+```
+Do NOT simply insert `('JP', 8000, 0)` and leave the 50,000 row: two free rows
+are harmless but the card then says two different things, and the next person
+reading it cannot tell which is intended.
+
+**The international five-item grouping CANNOT be expressed and needs a build
+plus decisions.** `shipping_rates` keys on `(country, min_subtotal_jpy)` only.
+It has no item count, no per-item price floor, no customer tier — and `/faq`'s
+rule needs all three: "five eligible items, each priced at ¥8,000 or more", and
+"a qualifying group may include purchases from five friends". Five friends'
+purchases are five separate carts belonging to five customers; the checkout has
+no representation for that at all. Before any code:
+
+- Is the group assembled by staff (an invoice-level decision) or by the
+  customer at checkout? If staff, this is a Hub-side manual adjustment and
+  `shipping_rates` is the wrong home entirely.
+- Does "each priced ¥8,000 or more" mean unit price or line total?
+- How does a five-friend group become one shipment against five orders?
+
+## THE FIVE-ITEM GROUPING IS A TIER LADDER THAT NEITHER PAGE STATES (filed 2026-09-16)
+
+`cha-jewels-web/lib/loyalty.ts` tier perks:
+
+| level | free shipping every | per-item minimum |
+|---|---|---|
+| Glimmer, Radiant | *(not offered)* | — |
+| **Elite** | **4 items** | ¥8,000 |
+| **Crown VIP** | **3 items** | ¥8,000 |
+| `/faq` base rule | **5 items** | ¥8,000 |
+
+Consistent as a ladder — 5 base, 4 at Elite, 3 at Crown VIP — but **neither
+page says so.** `/faq` does not mention that tiers reduce the count; the loyalty
+page does not mention the base of five. A Crown VIP reading the FAQ concludes
+they need five items when they need three.
+
+Copy fix on both pages, and it should wait for the grouping decision above:
+there is no point publishing a ladder whose base rule has no mechanism.
