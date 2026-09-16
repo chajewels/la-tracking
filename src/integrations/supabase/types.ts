@@ -6507,6 +6507,10 @@ export type Database = {
         }
         Returns: Json
       }
+      web_deposit_deadline_hours: {
+        Args: { p_customer_id: string }
+        Returns: number
+      }
     }
     Enums: {
       account_currency: "PHP" | "JPY"
