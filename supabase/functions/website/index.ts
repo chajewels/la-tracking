@@ -1085,6 +1085,19 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // parcel goes: the account has to be able to receive what they pay in.
       const quoteMethods = await transferMethods(supabase, settlement);
 
+      // The same function the creation RPCs default from. null when it cannot
+      // be read — the storefront then omits the number instead of guessing.
+      let depositDeadlineHours: number | null = null;
+      {
+        const { data: hrs, error: hrsErr } = await supabase
+          .rpc("web_deposit_deadline_hours", { p_customer_id: customer.id });
+        if (hrsErr) {
+          console.warn("[website] web_deposit_deadline_hours failed:", hrsErr.message);
+        } else if (typeof hrs === "number" && Number.isFinite(hrs)) {
+          depositDeadlineHours = hrs;
+        }
+      }
+
       return jsonResponse(scrub({
         quote_id: quote?.id,
         items,
@@ -1121,6 +1134,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         transfer_available: quoteMethods.length > 0,
         order_type: orderType,
         expires_at: quote?.expires_at,
+        // HOW LONG THEY WILL HAVE TO SEND THE DEPOSIT — 24 hours on a first
+        // order, 72 when they have ordered before. The checkout copy has to
+        // state the number BEFORE the order exists, and the number the
+        // creation RPC will actually store is decided by the same SQL
+        // function, so the two cannot disagree. Read here rather than
+        // recomputed: one rule, in one place.
+        //
+        // Deliberately not defaulted on failure. A storefront that receives
+        // nothing says the deadline without a number rather than inventing
+        // one, which is the whole defect this replaces.
+        deposit_deadline_hours: depositDeadlineHours,
       }));
     }
 
