@@ -150,3 +150,46 @@ BEGIN
     RAISE EXCEPTION 'deposit_deadline: self-check failed (% / %)', v_new, v_ret;
   END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- WHAT THE DATABASE NOW HOLDS — the RESULT, not just the patch.
+--
+-- This migration rewrites three lines in place rather than replacing three
+-- function bodies, which keeps the change minimal and safe but leaves the repo
+-- describing an EDIT instead of a STATE. That is the divergence the search_path
+-- incident was made of: the repo and the database both looked authoritative and
+-- only one of them was. So the resulting lines are recorded here verbatim. If
+-- you ever need to know what these functions say without a database in front of
+-- you, this is the answer, and `pg_get_functiondef` is how you check it has not
+-- drifted.
+--
+-- public.create_web_order_atomic — DECLARE block:
+--
+--   v_due          timestamptz := now() + make_interval(hours => public.web_deposit_deadline_hours(p_customer_id));
+--
+-- public.create_web_layaway_atomic — body, first statement after the quote lock:
+--
+--   v_due := coalesce(p_transfer_due_at, now() + make_interval(hours => public.web_deposit_deadline_hours(p_customer_id)));
+--
+-- public.terminate_web_order_atomic — default cancellation reason:
+--
+--   v_reason := COALESCE(NULLIF(btrim(p_reason), ''), 'Bank transfer not received by the deadline (auto-expired)');
+--
+-- Everything else in all three functions is byte-identical to what was there
+-- before. To confirm that at any time — this must return no rows:
+--
+--   SELECT p.proname, t.l
+--     FROM pg_proc p
+--     JOIN pg_namespace n ON n.oid = p.pronamespace
+--     CROSS JOIN LATERAL regexp_split_to_table(pg_get_functiondef(p.oid), E'\n') AS t(l)
+--    WHERE n.nspname = 'public' AND t.l LIKE '%72 hours%';
+--
+-- and this must return three rows, one per function above:
+--
+--   SELECT p.proname, t.l
+--     FROM pg_proc p
+--     JOIN pg_namespace n ON n.oid = p.pronamespace
+--     CROSS JOIN LATERAL regexp_split_to_table(pg_get_functiondef(p.oid), E'\n') AS t(l)
+--    WHERE n.nspname = 'public' AND t.l LIKE '%web_deposit_deadline_hours%'
+--      AND p.proname <> 'web_deposit_deadline_hours';
+-- ---------------------------------------------------------------------------
