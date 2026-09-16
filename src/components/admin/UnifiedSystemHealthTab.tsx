@@ -36,7 +36,7 @@ interface OpsAccount {
   installment_number?: number; due_date?: string; current_status?: string;
   paid_amount?: number; base_installment_amount?: number; schedule_id?: string;
 }
-interface OpsCheck { status: 'pass' | 'fail' | 'error'; detail: string; affected_accounts?: OpsAccount[]; }
+interface OpsCheck { status: 'pass' | 'fail' | 'skip' | 'error'; detail: string; affected_accounts?: OpsAccount[]; }
 interface OpsData { overall: string; checks: Record<string, OpsCheck>; issues: string[]; timestamp: string; }
 
 // ── Ops check metadata ─────────────────────────────────────────────────────
@@ -52,6 +52,23 @@ const OPS_META: Record<string, { label: string; description: string; section: 'd
     description: 'Accounts marked OVERDUE when all past-due installments are actually paid',
     section: 'system',
     fixAction: 'fix_status',
+  },
+  // Without an entry here a check is computed by the edge function and then
+  // silently dropped by the filter below — which is how a check nobody can see
+  // gets written. These two are the alarm for a four-month reconciliation gap
+  // that nothing reported, so they are registered in the same change that
+  // creates them.
+  reconciliation_staleness: {
+    label: 'Reconciliation Freshness',
+    description: 'Whether daily-reconciliation has COMPLETED a run in the last 25 hours. A run that times out part-way never stamps, so a stale value means accounts are not being reconciled.',
+    section: 'system',
+    fixAction: '',
+  },
+  loyalty_sweep_staleness: {
+    label: 'Loyalty Award Sweep',
+    description: 'Whether the sweep that recovers missed loyalty awards has run in the last 25 hours. A short run that stopped on its time budget still counts as healthy and reports what is queued.',
+    section: 'system',
+    fixAction: '',
   },
   schedule_mismatch: {
     label: 'Schedule Status Mismatches',
