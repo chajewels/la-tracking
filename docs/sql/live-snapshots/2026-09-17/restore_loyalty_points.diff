@@ -1,0 +1,60 @@
+# live-vs-repo diff — public.restore_loyalty_points
+# repo side : 20260705230000_baseline_live_schema.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see restore_loyalty_points.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 98 / live lines 128
+
+--- REPO  20260705230000_baseline_live_schema.sql
++++ LIVE  restore_loyalty_points (pg_get_functiondef 2026-09-17)
+@@ -23,6 +23,21 @@
+ LIMIT 1;
+ IF FOUND THEN
+ RAISE NOTICE 'restore: already done as transaction %', v_new_tx_id;
++IF v_new_tier_id IS DISTINCT FROM v_member.current_tier_id THEN
++INSERT INTO public.loyalty_transactions (
++member_id, transaction_type, points_amount, spend_amount_jpy,
++tier_at_time, account_id, cash_order_id, invoice_number, notes, created_by_user_id
++) VALUES (
++v_revoke.member_id, 'tier_changed', 0, NULL,
++(SELECT name FROM public.loyalty_tiers WHERE id = v_new_tier_id),
++v_revoke.account_id, v_revoke.cash_order_id, v_revoke.invoice_number,
++'Tier restored: '
++|| (SELECT name FROM public.loyalty_tiers WHERE id = v_member.current_tier_id)
++|| ' → ' || (SELECT name FROM public.loyalty_tiers WHERE id = v_new_tier_id)
++|| ' — points restored',
++p_created_by_user_id
++);
++END IF;
+ RETURN v_new_tx_id;
+ END IF;
+ -- Load member + current tier
+@@ -89,10 +104,25 @@
+ IF v_new_tier_id IS DISTINCT FROM v_member.current_tier_id THEN
+ UPDATE loyalty_members
+ SET current_tier_id = v_new_tier_id,
+-is_downgraded = (v_new_tier_id IS DISTINCT FROM v_member.earned_tier_id),
++is_downgraded = false, downgrade_spend_baseline = NULL,
+ updated_at = NOW()
+ WHERE id = v_revoke.member_id;
+ RAISE NOTICE 'restore: tier change for member %, new tier %', v_revoke.member_id, v_new_tier_id;
+ END IF;
++IF v_new_tier_id IS DISTINCT FROM v_member.current_tier_id THEN
++INSERT INTO public.loyalty_transactions (
++member_id, transaction_type, points_amount, spend_amount_jpy,
++tier_at_time, account_id, cash_order_id, invoice_number, notes, created_by_user_id
++) VALUES (
++v_revoke.member_id, 'tier_changed', 0, NULL,
++(SELECT name FROM public.loyalty_tiers WHERE id = v_new_tier_id),
++v_revoke.account_id, v_revoke.cash_order_id, v_revoke.invoice_number,
++'Tier restored: '
++|| (SELECT name FROM public.loyalty_tiers WHERE id = v_member.current_tier_id)
++|| ' → ' || (SELECT name FROM public.loyalty_tiers WHERE id = v_new_tier_id)
++|| ' — points restored',
++p_created_by_user_id
++);
++END IF;
+ RETURN v_new_tx_id;
+ END;

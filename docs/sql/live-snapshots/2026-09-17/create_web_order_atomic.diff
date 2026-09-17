@@ -1,0 +1,49 @@
+# live-vs-repo diff — public.create_web_order_atomic
+# repo side : 20260915160000_checkout_never_destroys_the_address_book.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see create_web_order_atomic.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 122 / live lines 114
+
+--- REPO  20260915160000_checkout_never_destroys_the_address_book.sql
++++ LIVE  create_web_order_atomic (pg_get_functiondef 2026-09-17)
+@@ -9,7 +9,7 @@
+ v_reference text;
+ v_order_id uuid;
+ v_currency text := 'JPY';
+-v_due timestamptz := now() + interval '72 hours';
++v_due timestamptz := now() + make_interval(hours => public.web_deposit_deadline_hours(p_customer_id));
+ v_title text;
+ v_lang text := CASE WHEN p_lang IN ('ja','en') THEN p_lang ELSE NULL END;
+ BEGIN
+@@ -23,8 +23,6 @@
+ RETURN jsonb_build_object('error', 'quote_not_found');
+ END IF;
+ IF v_quote.customer_id <> p_customer_id THEN
+--- Same answer as a missing quote: do not confirm that someone else's
+--- quote id exists.
+ RETURN jsonb_build_object('error', 'quote_not_found');
+ END IF;
+ IF v_quote.consumed_at IS NOT NULL THEN
+@@ -64,10 +62,6 @@
+ -- Loyalty basis is the PRODUCT amount only: shipping never earns points.
+ v_quote.subtotal_jpy, 'Website order ' || v_reference, CURRENT_DATE, v_lang
+ ) RETURNING id INTO v_order_id;
+--- Items + stock, one variant at a time. The WHERE stock_qty >= qty guard is
+--- what makes the decrement safe: if another buyer took the last piece
+--- between the quote and now, zero rows update and the whole transaction
+--- rolls back with out_of_stock.
+ FOR v_item IN SELECT * FROM jsonb_array_elements(v_quote.items) LOOP
+ v_qty := GREATEST(COALESCE((v_item->>'qty')::int, 1), 1);
+ SELECT * INTO v_variant FROM public.website_product_variants
+@@ -111,8 +105,6 @@
+ );
+ EXCEPTION
+ WHEN raise_exception THEN
+--- Turn the sentinel RAISEs above into a payload the edge function can map
+--- to a 409, instead of a 500 that says nothing useful to the shopper.
+ IF SQLERRM LIKE 'out_of_stock:%' THEN
+ RETURN jsonb_build_object('error', 'out_of_stock', 'variant_id', split_part(SQLERRM, ':', 2));
+ ELSIF SQLERRM LIKE 'variant_missing:%' THEN

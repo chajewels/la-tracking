@@ -1,0 +1,20 @@
+# live-vs-repo diff — public.get_recent_qualifying_order
+# repo side : 20260705230000_baseline_live_schema.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see get_recent_qualifying_order.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 28 / live lines 28
+
+--- REPO  20260705230000_baseline_live_schema.sql
++++ LIVE  get_recent_qualifying_order (pg_get_functiondef 2026-09-17)
+@@ -19,7 +19,7 @@
+ co.currency::text, co.completed_at
+ FROM cash_orders co
+ WHERE co.customer_id = p_customer_id
+-AND co.loyalty_jpy_amount >= 10000
++AND (co.loyalty_jpy_amount >= 10000 OR co.loyalty_jpy_amount IS NULL)
+ AND co.status::text = 'completed'
+ AND co.completed_at IS NOT NULL
+ AND co.completed_at >= now() - make_interval(days => p_lookback_days)

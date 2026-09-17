@@ -1,0 +1,20 @@
+# live-vs-repo diff — public.terminate_web_order_atomic
+# repo side : 20260914130802_4643ccda-cff2-474e-b92b-c3a4a987535d.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see terminate_web_order_atomic.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 188 / live lines 188
+
+--- REPO  20260914130802_4643ccda-cff2-474e-b92b-c3a4a987535d.sql
++++ LIVE  terminate_web_order_atomic (pg_get_functiondef 2026-09-17)
+@@ -45,7 +45,7 @@
+ RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'not_pending_or_paid',
+ 'status', v_status, 'money_received', v_money_received);
+ END IF;
+-v_reason := COALESCE(NULLIF(btrim(p_reason), ''), 'Bank transfer not received within 72 hours (auto-expired)');
++v_reason := COALESCE(NULLIF(btrim(p_reason), ''), 'Bank transfer not received by the deadline (auto-expired)');
+ ELSE
+ IF NOT p_preview AND NOT v_is_system AND p_user_id IS NULL THEN
+ RAISE EXCEPTION 'user_identity_required' USING ERRCODE='P0001';

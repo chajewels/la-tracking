@@ -2,6 +2,12 @@
 
 **2026-09-17, read-only.** Nothing was changed. No DB writes, no deploys.
 
+> **CORRECTED by `DIFF-FINDINGS.md` (same day, same directory).** The section below
+> reads the negative-Δ functions as "the repo is ahead of live … a shipped migration
+> may not be running". That is wrong. The line-level diffs show the negative Δ is
+> **comments**, every migration involved IS applied, and wherever logic differs at all
+> **live is ahead of the repo, never behind**. Read DIFF-FINDINGS.md for the hunks.
+
 Prompted by Bug #280: `approve_redemption_atomic` was wired to
 `consume_lots_fifo` live in the SQL Editor on 2026-07-05, never committed, and
 silently reverted on 2026-09-12 by a migration that rebuilt it "verbatim from
@@ -214,7 +220,8 @@ that is a bigger job than this pass. What the numbers say:
   `get_recent_qualifying_order` +35) — live has grown past the baseline through
   uncommitted SQL Editor work. Same shape as the loyalty four. `audit_account`
   and `allocate_payment_atomic` are load-bearing enough to be worth doing next.
-- **Δ negative with a post-baseline migration** (`create_web_layaway_atomic`
+- **Δ negative with a post-baseline migration** — *(this bullet is the one DIFF-FINDINGS.md corrects; it is comments, not an unapplied migration)*
+- ORIGINAL TEXT: (`create_web_layaway_atomic`
   −1902, `reactivate_web_layaway_atomic` −1950, `create_web_order_atomic` −437,
   `notify_website_revalidate` −73) — the repo is *ahead of* live. Either the
   migration was never applied, or it was applied and live has since been edited

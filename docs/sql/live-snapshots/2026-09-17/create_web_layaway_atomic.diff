@@ -1,0 +1,126 @@
+# live-vs-repo diff — public.create_web_layaway_atomic
+# repo side : 20260915160000_checkout_never_destroys_the_address_book.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see create_web_layaway_atomic.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 201 / live lines 174
+
+--- REPO  20260915160000_checkout_never_destroys_the_address_book.sql
++++ LIVE  create_web_layaway_atomic (pg_get_functiondef 2026-09-17)
+@@ -11,9 +11,9 @@
+ v_lang text := CASE WHEN p_lang IN ('ja','en') THEN p_lang ELSE NULL END;
+ v_cur text;
+ v_rate numeric;
+-v_total integer; -- in the settlement currency
+-v_shipping integer; -- in the settlement currency
+-v_subtotal integer; -- in the settlement currency
++v_total integer;
++v_shipping integer;
++v_subtotal integer;
+ v_quote_out jsonb;
+ v_term integer;
+ v_deposit integer;
+@@ -23,13 +23,11 @@
+ v_row jsonb;
+ v_order_date date := COALESCE(p_order_date, CURRENT_DATE);
+ BEGIN
+--- Lock the quote so a double-submit cannot produce two plans from it.
+ SELECT * INTO v_quote FROM public.checkout_quotes WHERE id = p_quote_id FOR UPDATE;
+ IF NOT FOUND THEN
+ RETURN jsonb_build_object('error', 'quote_not_found');
+ END IF;
+ IF v_quote.customer_id <> p_customer_id THEN
+--- Same answer as a missing quote: never confirm that someone else's exists.
+ RETURN jsonb_build_object('error', 'quote_not_found');
+ END IF;
+ IF v_quote.consumed_at IS NOT NULL THEN
+@@ -47,10 +45,6 @@
+ IF coalesce(v_quote.total_jpy, 0) <= 0 THEN
+ RETURN jsonb_build_object('error', 'empty_quote');
+ END IF;
+--- Settlement currency. The catalog is yen; a peso plan converts at the rate
+--- captured on the quote — the rate the customer was shown. Shipping is
+--- converted and the subtotal is the remainder, so the two always sum to the
+--- total exactly (converting each and adding can differ by one unit).
+ v_cur := coalesce(v_quote.settlement_currency, 'JPY');
+ IF v_cur = 'PHP' THEN
+ v_rate := v_quote.fx_rate;
+@@ -66,17 +60,9 @@
+ v_shipping := coalesce(v_quote.shipping_jpy, 0);
+ v_subtotal := v_total - v_shipping;
+ END IF;
+--- The terms, deposit and schedule are RECOMPUTED from the same function the
+--- storefront quoted with. The quote's stored jsonb is display history; it is
+--- never the source of what gets written.
+ v_quote_out := public.layaway_quote(
+ v_subtotal, v_quote.term_months, v_cur, v_order_date, v_shipping, 0
+ );
+--- Two ways this basket can fail the plan rules, and both are the same
+--- refusal: nothing is sellable at this amount, or the term the customer
+--- agreed to is not reachable and layaway_quote fell back to a shorter one.
+--- A shorter term means bigger monthly payments than the customer accepted,
+--- so it is never written silently.
+ IF NOT coalesce((v_quote_out->>'eligible')::boolean, false)
+ OR coalesce((v_quote_out->>'term_downgraded')::boolean, false) THEN
+ RETURN jsonb_build_object(
+@@ -89,8 +75,7 @@
+ END IF;
+ v_term := (v_quote_out->>'term_months')::integer;
+ v_deposit := (v_quote_out->>'deposit')::integer;
+--- Deposit deadline: what staff asked for, else 72 hours (owner decision 1).
+-v_due := coalesce(p_transfer_due_at, now() + interval '72 hours');
++v_due := coalesce(p_transfer_due_at, now() + make_interval(hours => public.web_deposit_deadline_hours(p_customer_id)));
+ SELECT max((s->>'due_date')::date) INTO v_end_date
+ FROM jsonb_array_elements(v_quote_out->'schedule') s;
+ v_seq := nextval('public.web_order_number_seq');
+@@ -106,11 +91,7 @@
+ v_invoice, p_customer_id, v_cur::account_currency, v_total, v_term,
+ v_order_date, v_end_date, 'active', 0, v_total,
+ v_deposit,
+--- LOYALTY BASE: the PRODUCT amount, in YEN, always — never the settlement
+--- total and never shipping. Tiers are yen thresholds on lifetime spend, so
+--- a peso plan must not accrue peso-sized progress. The net-spend rule
+--- (process-loyalty-redemption) then adjusts this figure as it does for
+--- every other account.
++-- LOYALTY BASE: the PRODUCT amount, in YEN, always.
+ v_quote.subtotal_jpy,
+ v_shipping,
+ 'web', v_reference, v_quote.id, v_due,
+@@ -120,8 +101,6 @@
+ v_lang, v_rate, v_quote.fx_rate_date,
+ 'Website layaway ' || v_reference
+ ) RETURNING id INTO v_account_id;
+--- Schedule rows, ascending: validate_schedule_chronology compares each row
+--- with the one before it, so the order of insertion matters.
+ FOR v_row IN SELECT * FROM jsonb_array_elements(v_quote_out->'schedule') LOOP
+ INSERT INTO public.layaway_schedule (
+ account_id, installment_number, due_date, base_installment_amount,
+@@ -138,9 +117,6 @@
+ 'pending'
+ );
+ END LOOP;
+--- Items and the stock hold. The `stock_qty >= qty` guard is what makes the
+--- decrement safe: if someone took the last piece between the quote and now,
+--- zero rows update and the whole transaction rolls back.
+ FOR v_item IN SELECT * FROM jsonb_array_elements(v_quote.items) LOOP
+ v_qty := GREATEST(COALESCE((v_item->>'qty')::int, 1), 1);
+ SELECT * INTO v_variant FROM public.website_product_variants
+@@ -169,7 +145,6 @@
+ COALESCE(v_title, 'Item'),
+ (SELECT p.sku FROM public.website_products p WHERE p.id = v_variant.product_id),
+ v_qty,
+--- Item money stays in YEN: it is the catalog price, not the settlement.
+ v_variant.price_jpy, v_variant.price_jpy * v_qty
+ );
+ END LOOP;
+@@ -190,8 +165,6 @@
+ );
+ EXCEPTION
+ WHEN raise_exception THEN
+--- Turn the sentinel RAISEs into a payload the edge function maps to a 409,
+--- instead of a 500 that tells the shopper nothing.
+ IF SQLERRM LIKE 'out_of_stock:%' THEN
+ RETURN jsonb_build_object('error', 'out_of_stock', 'variant_id', split_part(SQLERRM, ':', 2));
+ ELSIF SQLERRM LIKE 'variant_missing:%' THEN
