@@ -1,0 +1,137 @@
+# live-vs-repo diff — public.allocate_payment_atomic
+# repo side : 20260705230000_baseline_live_schema.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see allocate_payment_atomic.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 236 / live lines 240
+
+--- REPO  20260705230000_baseline_live_schema.sql
++++ LIVE  allocate_payment_atomic (pg_get_functiondef 2026-09-17)
+@@ -1,7 +1,11 @@
+ -- Verbatim translation of review-payment-submission allocatePaymentToAccount
+ -- (the SINGLE live payment-write path per CLAUDE.md §1299 / Bug #219).
+--- Row-scoped waterfall (STEP A–D), carry-over guard, Keep-credit ceiling,
+--- INVARIANTS 1–4, 8, 11. All writes in ONE transaction (LOCKED RULE §1729).
++-- Row-scoped waterfall (STEP A-D), carry-over guard, Keep-credit ceiling.
++-- INVARIANT 11 (2026-07-06, Bug #250): DP up to downpayment_amount does NOT
++-- allocate; DP paid in EXCESS of downpayment_amount waterfalls into installments
++-- (Month 1 onward) exactly like an installment payment. Only the excess portion
++-- of a DP payment is fed into the waterfall; the required portion is recorded as
++-- a payment (INVARIANT 1) but creates no schedule allocation.
+ DECLARE
+ v_remaining numeric := round(p_amount_paid, 2);
+ v_allocations jsonb := '[]'::jsonb;
+@@ -31,32 +35,39 @@
+ v_has_overdue boolean;
+ elem jsonb;
+ merged record;
+-v_dp_prior numeric;
+ v_dp_required numeric;
++v_dp_paid_before numeric;
++v_dp_excess numeric;
+ BEGIN
+ IF p_account_id IS NULL OR p_amount_paid IS NULL OR p_amount_paid <= 0 THEN
+ RAISE EXCEPTION 'invalid_input: account_id and positive amount required';
+ END IF;
+--- ── DP excess split (Bug #250, 2026-07-06) ──
+--- A DP payment allocates ONLY the amount paid in EXCESS of downpayment_amount
+--- (after prior non-voided DP payments); the required DP portion records as a
+--- payment with no allocation (INVARIANT 1). The excess then flows through the
+--- SAME waterfall as an installment payment. A non-DP payment allocates its
+--- full amount (v_remaining already = round(p_amount_paid,2)).
++-- ── DP excess split (INVARIANT 11, 2026-07-06) ──
++-- For a DP payment, only the portion beyond the required downpayment_amount
++-- enters the waterfall. Prior non-voided DP payments count toward the required
++-- amount (canonical DP heuristic: reference_number 'DP-%' OR remarks ILIKE
++-- '%down%'). For a non-DP payment, the full amount waterfalls as before.
+ IF p_is_downpayment THEN
+-SELECT COALESCE(SUM(amount_paid), 0) INTO v_dp_prior
++SELECT coalesce(downpayment_amount, 0) INTO v_dp_required
++FROM layaway_accounts WHERE id = p_account_id;
++SELECT coalesce(sum(amount_paid), 0) INTO v_dp_paid_before
+ FROM payments
+-WHERE account_id = p_account_id AND voided_at IS NULL
++WHERE account_id = p_account_id
++AND voided_at IS NULL
+ AND (reference_number LIKE 'DP-%' OR remarks ILIKE '%down%');
+-SELECT downpayment_amount INTO v_dp_required
+-FROM layaway_accounts WHERE id = p_account_id;
+--- excess = this payment minus whatever of the required DP is still unmet
+-v_remaining := round(GREATEST(0,
+-p_amount_paid - GREATEST(0, COALESCE(v_dp_required, 0) - COALESCE(v_dp_prior, 0))
+-), 2);
+-END IF;
+--- ── Waterfall (row-scoped; for a DP payment only the excess flows here) ──
+-IF v_remaining > 0 THEN
++-- excess carried by THIS payment = how much (prior DP + this) exceeds required,
++-- capped at this payment's amount
++v_dp_excess := least(
++round(p_amount_paid, 2),
++greatest(0, round((v_dp_paid_before + p_amount_paid) - v_dp_required, 2))
++);
++v_remaining := v_dp_excess;
++END IF;
++-- ── Waterfall ──
++-- Runs for all installment payments, and for the DP EXCESS portion (v_remaining
++-- set above). Pure within-DP payments have v_remaining = 0 → loop is a no-op,
++-- preserving INVARIANT 11 for the required downpayment.
++IF (NOT p_is_downpayment) OR v_remaining > 0 THEN
+ FOR rec IN
+ SELECT * FROM layaway_schedule
+ WHERE account_id = p_account_id
+@@ -95,8 +106,6 @@
+ END LOOP;
+ EXIT WHEN v_remaining <= 0;
+ -- STEP B — this row's base installment.
+--- alreadyAllocated = ALL non-voided allocations against this row
+--- (both types — matches review implementation verbatim; INVARIANT 2).
+ SELECT coalesce(sum(pa.allocated_amount), 0) INTO v_already
+ FROM payment_allocations pa
+ JOIN payments p ON p.id = pa.payment_id
+@@ -104,7 +113,6 @@
+ v_natural := rec.base_installment_amount
+ + coalesce(rec.penalty_amount, 0)
+ + coalesce(rec.carried_amount, 0);
+--- Keep-credit ceiling: JS falsy check `item.total_due_amount ?`
+ v_ceiling := CASE WHEN rec.total_due_amount IS NOT NULL AND rec.total_due_amount <> 0
+ THEN least(v_natural, rec.total_due_amount)
+ ELSE v_natural END;
+@@ -113,10 +121,8 @@
+ v_apply := round(least(v_remaining, v_due), 2);
+ v_new_paid := v_already + v_apply;
+ v_fully := (v_new_paid + v_row_pen >= v_ceiling - 0.005);
+--- STEP C — INVARIANT 7/8 respected: never touches paid rows, never
+--- writes base_installment_amount, never inflates total_due_amount.
+ IF v_fully AND rec.status = 'partially_paid' THEN
+-v_paid_amt := v_ceiling; v_row_status := 'paid'; -- top-up capped at ceiling
++v_paid_amt := v_ceiling; v_row_status := 'paid';
+ ELSIF v_fully THEN
+ v_paid_amt := v_new_paid; v_row_status := 'paid';
+ ELSE
+@@ -128,7 +134,7 @@
+ v_sched_updates := v_sched_updates || jsonb_build_object(
+ 'id', rec.id, 'paid_amount', v_paid_amt, 'status', v_row_status);
+ v_remaining := v_remaining - v_apply;
+-EXIT WHEN v_remaining <= 0; -- STEP D
++EXIT WHEN v_remaining <= 0;
+ END LOOP;
+ END IF;
+ -- ── Merge penalty allocations per schedule_id (unique-constraint safety) ──
+@@ -159,7 +165,6 @@
+ IF p_preview THEN
+ v_total_paid := v_total_paid + round(p_amount_paid, 2);
+ v_new_remaining := greatest(0, round(v_total_amount + v_pen_active - v_total_paid, 2));
+--- Verbatim record-payment preview semantics: completed-or-current-status.
+ v_new_status := CASE WHEN v_new_remaining <= 0 THEN 'completed' ELSE v_cur_status END;
+ RETURN jsonb_build_object(
+ 'preview', true, 'payment_id', NULL,
+@@ -197,7 +202,6 @@
+ status = (elem->>'status')::schedule_status
+ WHERE id = (elem->>'id')::uuid;
+ END LOOP;
+--- Account totals — recompute post-write (new payment row is visible in-txn)
+ SELECT coalesce(sum(amount_paid), 0) INTO v_total_paid
+ FROM payments WHERE account_id = p_account_id AND voided_at IS NULL;
+ SELECT coalesce(sum(penalty_amount), 0) INTO v_pen_active

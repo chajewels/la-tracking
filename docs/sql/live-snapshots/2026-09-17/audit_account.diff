@@ -1,0 +1,42 @@
+# live-vs-repo diff — public.audit_account
+# repo side : 20260705230000_baseline_live_schema.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see audit_account.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 113 / live lines 117
+
+--- REPO  20260705230000_baseline_live_schema.sql
++++ LIVE  audit_account (pg_get_functiondef 2026-09-17)
+@@ -7,11 +7,13 @@
+ v_sum_bases numeric;
+ v_sum_pending numeric;
+ v_dp_paid numeric;
++v_dp_allocated numeric;
+ v_unpaid_dp numeric;
+ v_sum_schedule_paid numeric;
+ v_paid_penalties numeric;
+ v_waterfall_absorbed numeric;
+ v_effective_unpaid_dp numeric;
++v_dp_overpaid numeric;
+ v_checks jsonb := '[]'::jsonb;
+ BEGIN
+ SELECT * INTO v_account FROM layaway_accounts WHERE invoice_number = p_invoice_number;
+@@ -104,10 +106,12 @@
+ v_waterfall_absorbed := GREATEST(0, v_total_paid - v_dp_paid - v_sum_schedule_paid - v_paid_penalties);
+ v_effective_unpaid_dp := GREATEST(0, v_unpaid_dp - v_waterfall_absorbed);
+ v_sum_pending := v_sum_pending + v_effective_unpaid_dp;
+--- DP overage subtraction removed (Bug #250, 2026-07-06): DP excess now
+--- waterfalls into schedule rows (allocate_payment_atomic), so it is already
+--- counted in v_sum_pending via the row it lands on — subtracting it here
+--- would double-count.
++-- DP overage (2026-07-06, Bug #250): excess DP now WATERFALLS into schedule rows via allocate_payment_atomic, so it is already counted in v_sum_pending above. The prior subtraction here would double-count it. Removed.
++v_dp_allocated := COALESCE((SELECT SUM(pa.allocated_amount)
++FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
++WHERE p.account_id = v_account.id AND p.voided_at IS NULL
++AND (p.reference_number LIKE 'DP-%' OR p.remarks ILIKE '%down%')), 0);
++v_sum_pending := v_sum_pending - GREATEST(0, GREATEST(0, v_dp_paid - v_account.downpayment_amount) - v_dp_allocated);
+ v_checks := v_checks || jsonb_build_object('label', 'sum of pending months matches remaining balance', 'expected', v_canonical_remaining, 'stored', v_sum_pending, 'pass', ABS(v_sum_pending - v_canonical_remaining) < 2);
+ RETURN jsonb_build_object('invoice_number', p_invoice_number, 'status', v_account.status, 'all_pass', NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_checks) c WHERE (c->>'pass')::boolean = false), 'audit_skipped', false, 'checks', v_checks);
+ END;

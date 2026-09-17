@@ -858,6 +858,11 @@ two mirrors of the truth; one sender means one.
   - No step executed without explicit go signal from Cynthia.
   - SQL changes are applied in the SQL Editor by Cynthia and are NOT
     committed to repo as migrations unless explicitly told to.
+    EXCEPTION, and it is not optional: a SQL Editor change that alters a
+    FUNCTION BODY is committed as a migration in the same session. Data fixes
+    and one-off queries stay uncommitted as before; function bodies do not,
+    because the next rebuild from the baseline silently reverts them — see
+    "A SQL EDITOR CHANGE THAT IS NEVER COMMITTED…" under Migrations baseline.
 
   CLAUDE.md is the single source of truth — both Lovable and
   Claude Code must read it before any changes.
@@ -2729,6 +2734,40 @@ The 100 pre-baseline migration files are archived in
 `supabase/migrations-archive/` (filenames preserved). They are kept for
 historical reference only and are NOT applied by any tooling — Supabase CLI
 reads `supabase/migrations/` exclusively.
+
+### A SQL EDITOR CHANGE THAT IS NEVER COMMITTED IS INVISIBLE TO EVERY LATER REBUILD — NON-NEGOTIABLE (added 2026-09-17, Bug #280)
+
+**Before replacing any function body, diff it against LIVE — `pg_get_functiondef`
+— never against the baseline.** "No later migration redefines this function" is
+a statement about the repo. It is not evidence about what live runs, because
+the SQL Editor is a sanctioned write path (TOOL OWNERSHIP RULES) whose changes
+leave no trace in `supabase/migrations/`.
+
+This cost a real customer's points ledger. `approve_redemption_atomic` was
+wired to `consume_lots_fifo` in the SQL Editor on 2026-07-05 and never
+committed; the baseline generated the same day does not contain it. On
+2026-09-12 a migration rebuilt that function "verbatim from the live baseline …
+no later migration redefines this function" — true, and wrong — silently
+reverting live to a body with no lot consumption and leaving
+`consume_lots_fifo` with zero callers. Every redemption after it debited the
+counter and left the lots behind. The tell was available the whole time: the
+same baseline is also missing `restore_lots_for_redemption` from
+`void_redemption_atomic`, yet live void still calls it — because nothing ever
+rebuilt void. See docs/FIXED-BUGS.md #280.
+
+The check is one query, and it is cheap:
+
+    SELECT md5(pg_get_functiondef(p.oid)), length(pg_get_functiondef(p.oid))
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = '<fn>';
+
+Reconstruct the body you are about to ship with your own edits reversed, md5 it,
+and require the two to match before you write the migration. Any difference is
+live carrying something the repo has never seen — stop and find out what it is.
+The corollary: **when a SQL Editor change alters a function body, commit it as a
+migration in the same session**, even though the general rule is that SQL is not
+committed unless asked. A function body is not data; it is code that the next
+rebuild will overwrite.
 
 The LIVE DB remains authoritative. The baseline reflects live state at the
 moment of generation but is NOT a replacement for it — NEVER push the

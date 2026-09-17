@@ -1,0 +1,52 @@
+# live-vs-repo diff — public.notify_website_revalidate
+# repo side : 20260908120000_website_catalog_metals_fx_collections.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see notify_website_revalidate.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 39 / live lines 1
+
+--- REPO  20260908120000_website_catalog_metals_fx_collections.sql
++++ LIVE  notify_website_revalidate (pg_get_functiondef 2026-09-17)
+@@ -1,39 +1 @@
+-DECLARE
+-v_product_id uuid;
+-v_collection_id uuid;
+-v_product_slug text;
+-v_collection_slug text;
+-v_key text;
+-BEGIN
+-IF TG_TABLE_NAME = 'website_products' THEN
+-v_product_id := COALESCE(NEW.id, OLD.id);
+--- On DELETE the row is already gone, so take the slug from the tuple.
+-v_product_slug := COALESCE(NEW.slug, OLD.slug);
+-ELSIF TG_TABLE_NAME = 'website_collections' THEN
+-v_collection_id := COALESCE(NEW.id, OLD.id);
+-v_collection_slug := COALESCE(NEW.slug, OLD.slug);
+-ELSIF TG_TABLE_NAME = 'website_product_variants' THEN
+-v_product_id := COALESCE(NEW.product_id, OLD.product_id);
+-ELSIF TG_TABLE_NAME = 'website_product_media' THEN
+-SELECT product_id INTO v_product_id FROM website_product_variants
+-WHERE id = COALESCE(NEW.variant_id, OLD.variant_id);
+-ELSIF TG_TABLE_NAME = 'website_collection_products' THEN
+-v_product_id := COALESCE(NEW.product_id, OLD.product_id);
+-v_collection_id := COALESCE(NEW.collection_id, OLD.collection_id);
+-END IF;
+-IF v_product_id IS NOT NULL AND v_product_slug IS NULL THEN
+-SELECT slug INTO v_product_slug FROM website_products WHERE id = v_product_id;
+-END IF;
+-IF v_collection_id IS NOT NULL AND v_collection_slug IS NULL THEN
+-SELECT slug INTO v_collection_slug FROM website_collections WHERE id = v_collection_id;
+-END IF;
+-SELECT decrypted_secret INTO v_key FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key';
+-IF v_key IS NOT NULL AND (v_product_slug IS NOT NULL OR v_collection_slug IS NOT NULL) THEN
+-PERFORM net.http_post(
+-url := 'https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/notify_website',
+-headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_key),
+-body := jsonb_strip_nulls(jsonb_build_object('productSlug', v_product_slug, 'collectionSlug', v_collection_slug))
+-);
+-END IF;
+-RETURN COALESCE(NEW, OLD);
+-END
++DECLARE v_product_id uuid; v_collection_id uuid; v_product_slug text; v_collection_slug text; v_key text; BEGIN IF TG_TABLE_NAME = 'website_products' THEN v_product_id := COALESCE(NEW.id, OLD.id); v_product_slug := COALESCE(NEW.slug, OLD.slug); ELSIF TG_TABLE_NAME = 'website_collections' THEN v_collection_id := COALESCE(NEW.id, OLD.id); v_collection_slug := COALESCE(NEW.slug, OLD.slug); ELSIF TG_TABLE_NAME = 'website_product_variants' THEN v_product_id := COALESCE(NEW.product_id, OLD.product_id); ELSIF TG_TABLE_NAME = 'website_product_media' THEN SELECT product_id INTO v_product_id FROM website_product_variants WHERE id = COALESCE(NEW.variant_id, OLD.variant_id); ELSIF TG_TABLE_NAME = 'website_collection_products' THEN v_product_id := COALESCE(NEW.product_id, OLD.product_id); v_collection_id := COALESCE(NEW.collection_id, OLD.collection_id); END IF; IF v_product_id IS NOT NULL AND v_product_slug IS NULL THEN SELECT slug INTO v_product_slug FROM website_products WHERE id = v_product_id; END IF; IF v_collection_id IS NOT NULL AND v_collection_slug IS NULL THEN SELECT slug INTO v_collection_slug FROM website_collections WHERE id = v_collection_id; END IF; SELECT decrypted_secret INTO v_key FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key'; IF v_key IS NOT NULL AND (v_product_slug IS NOT NULL OR v_collection_slug IS NOT NULL) THEN PERFORM net.http_post(url := 'https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/notify_website', headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_key), body := jsonb_strip_nulls(jsonb_build_object('productSlug', v_product_slug, 'collectionSlug', v_collection_slug))); END IF; RETURN COALESCE(NEW, OLD); END

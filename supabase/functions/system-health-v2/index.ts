@@ -21,19 +21,41 @@ interface CheckResult {
   affectedAccounts: Array<{ account_id: string; invoice_number: string; customer_name: string; detail: string }>;
 }
 
-async function fetchAll(supabase: any, table: string, select: string, filter?: (q: any) => any): Promise<any[]> {
-  let all: any[] = [];
+/**
+ * A read that fails must say so. It must NEVER return [].
+ *
+ * This function used to destructure only `data`, so a PostgREST error left
+ * `data` undefined, the loop broke, and it returned an empty array that was
+ * indistinguishable from an empty table. Every check downstream then computed
+ * a confident, wrong answer from nothing — 493 accounts reported as broken by
+ * three separate checks on 2026-09-17, against a payments table that could not
+ * be read at all (Bug #281).
+ *
+ * A partial read is discarded too. If page 2 fails after page 1 succeeded,
+ * returning page 1 alone would be the same lie in a smaller size.
+ */
+async function fetchAll(
+  supabase: any,
+  table: string,
+  select: string,
+  filter?: (q: any) => any,
+): Promise<{ rows: any[]; error: string | null }> {
+  const all: any[] = [];
   let from = 0;
   while (true) {
     let q = supabase.from(table).select(select).range(from, from + PAGE - 1);
     if (filter) q = filter(q);
-    const { data } = await q;
+    const { data, error } = await q;
+    if (error) {
+      const code = (error as any).code ? `${(error as any).code} ` : "";
+      return { rows: [], error: `${code}${(error as any).message ?? String(error)}`.trim() };
+    }
     if (!data || data.length === 0) break;
-    all = all.concat(data);
+    all.push(...data);
     if (data.length < PAGE) break;
     from += PAGE;
   }
-  return all;
+  return { rows: all, error: null };
 }
 
 function index<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
@@ -47,13 +69,18 @@ function isEffectivelyPaid(s: any): boolean {
     (s.status === "partially_paid" && Number(s.paid_amount) >= Number(s.total_due_amount));
 }
 
+/**
+ * CLAUDE.md INVARIANT 11, verbatim: "DP detection: reference_number starts with
+ * 'DP-' OR remarks ILIKE '%down%' (non-voided)."
+ *
+ * The previous version also tested `payment_type` and `is_downpayment`. NEITHER
+ * COLUMN EXISTS on `payments` — asking PostgREST for them is what made the whole
+ * payments read fail with 42703 (Bug #281). It also matched any remark merely
+ * containing "dp", which is not the rule.
+ */
 function isDPPayment(p: any): boolean {
-  return p.payment_type === "downpayment" ||
-    p.payment_type === "dp" ||
-    p.is_downpayment === true ||
-    (p.reference_number && String(p.reference_number).startsWith("DP-")) ||
-    (p.remarks && String(p.remarks).toLowerCase().includes("down")) ||
-    (p.remarks && String(p.remarks).toLowerCase().includes("dp"));
+  return (!!p.reference_number && String(p.reference_number).startsWith("DP-")) ||
+    (!!p.remarks && String(p.remarks).toLowerCase().includes("down"));
 }
 
 Deno.serve(async (req) => {
@@ -105,21 +132,44 @@ Deno.serve(async (req) => {
     const startTime = Date.now();
 
     // ── Fetch all data in parallel ──
-    const [accounts, schedules, penalties, payments, services, allSchedRows] = await Promise.all([
+    const [accountsR, schedulesR, penaltiesR, paymentsR, servicesR, allSchedRowsR] = await Promise.all([
       fetchAll(supabase, "layaway_accounts",
         "id, invoice_number, status, currency, total_amount, total_paid, remaining_balance, downpayment_amount, payment_plan_months, customers!inner(full_name)"),
+      // penalty_amount was missing from this list until 2026-09-17 while five
+      // checks read sched.penalty_amount. It resolved to undefined, so every
+      // ceiling was computed WITHOUT the penalty and check 5's skip test
+      // (Number(undefined) === 0 → NaN === 0 → false) never skipped anything.
+      // That is the second half of Bug #281 and the source of the four
+      // failures that looked real. The column exists; it was simply not asked for.
       fetchAll(supabase, "layaway_schedule",
-        "id, account_id, installment_number, due_date, base_installment_amount, total_due_amount, paid_amount, status, carried_amount",
+        "id, account_id, installment_number, due_date, base_installment_amount, penalty_amount, total_due_amount, paid_amount, status, carried_amount",
         q => q.neq("status", "cancelled")),
       fetchAll(supabase, "penalty_fees",
         "id, account_id, schedule_id, penalty_amount, status"),
+      // payment_type and is_downpayment were requested here until 2026-09-17 and
+      // DO NOT EXIST on payments. PostgREST answered 42703, fetchAll swallowed it,
+      // and every payments-derived check read SUM = 0. See Bug #281.
       fetchAll(supabase, "payments",
-        "id, account_id, amount_paid, payment_type, is_downpayment, reference_number, remarks, voided_at"),
+        "id, account_id, amount_paid, reference_number, remarks, voided_at"),
       fetchAll(supabase, "account_services",
         "id, account_id, amount"),
       // All schedule rows including cancelled — used by check 12 to detect accounts with zero rows
       fetchAll(supabase, "layaway_schedule", "account_id"),
     ]);
+
+    // A dataset that could not be read is recorded by NAME, so the checks that
+    // depend on it can be withdrawn rather than answered from nothing.
+    const loadErrors: Record<string, string> = {};
+    const take = (dataset: string, r: { rows: any[]; error: string | null }) => {
+      if (r.error) loadErrors[dataset] = r.error;
+      return r.rows;
+    };
+    const accounts     = take("layaway_accounts", accountsR);
+    const schedules    = take("layaway_schedule", schedulesR);
+    const penalties    = take("penalty_fees", penaltiesR);
+    const payments     = take("payments", paymentsR);
+    const services     = take("account_services", servicesR);
+    const allSchedRows = take("layaway_schedule_all", allSchedRowsR);
 
     // ── Index by account_id ──
     const schedByAcct = index(schedules, s => s.account_id);
@@ -503,8 +553,10 @@ Deno.serve(async (req) => {
     {
       const affected: CheckResult["affectedAccounts"] = [];
       // Fetch all payment_allocations
-      const allAllocs = await fetchAll(supabase, "payment_allocations",
+      const allAllocsR = await fetchAll(supabase, "payment_allocations",
         "schedule_id, allocated_amount");
+      if (allAllocsR.error) loadErrors["payment_allocations"] = allAllocsR.error;
+      const allAllocs = allAllocsR.rows;
       const allocBySchedule: Record<string, number> = {};
       for (const alloc of allAllocs) {
         allocBySchedule[alloc.schedule_id] = (allocBySchedule[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
@@ -532,28 +584,43 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check 17: Inflated schedule rows
-    // pending/overdue rows should have total_due_amount = base + penalty (no carry inflation)
+    // Check 17: Stale schedule rows
+    //
+    // CORRECTED 2026-09-17 (Bug #281). This check asserted
+    //   total_due_amount = base + penalty   ("no carry inflation")
+    // and therefore reported every legitimately carried row as inflated.
+    //
+    // CLAUDE.md, CARRIED_AMOUNT PRESERVATION, is explicit and the opposite:
+    // "total_due_amount = base_installment_amount + penalty_amount +
+    // carried_amount on EVERY recompute. carried_amount is part of the row's
+    // full obligation." The CACHE-STALENESS TEST in the same section says a row
+    // is genuinely stale ONLY when total_due_amount differs from that sum — and
+    // a carry is a backing entry, not inflation.
+    //
+    // So the test is now equality against the canonical GROSS, in both
+    // directions: a row short of it is as stale as a row over it.
     {
       const affected: CheckResult["affectedAccounts"] = [];
       for (const sched of schedules) {
         if (!["pending", "overdue"].includes(sched.status)) continue;
-        const expected = Number(sched.base_installment_amount) + Number(sched.penalty_amount || 0);
+        const expected = Number(sched.base_installment_amount)
+          + Number(sched.penalty_amount || 0)
+          + Number((sched as any).carried_amount || 0);
         const actual = Number(sched.total_due_amount);
-        if (actual > expected + 0.01) {
+        if (Math.abs(actual - expected) > 0.01) {
           const acct = acctById[sched.account_id];
           if (!acct) continue;
           affected.push({
             account_id: sched.account_id, invoice_number: acct.invoice_number,
             customer_name: acct.customers?.full_name || "Unknown",
-            detail: `Month ${sched.installment_number}: total_due=${actual} > base+penalty=${Math.round(expected * 100) / 100}`,
+            detail: `Month ${sched.installment_number}: total_due=${actual} ≠ base+penalty+carried=${Math.round(expected * 100) / 100}`,
           });
         }
       }
       checks.push({
-        id: 17, section: "data", label: "Schedule Integrity — no inflated total_due_amount",
-        description: "pending/overdue rows: total_due_amount = base + penalty (no carry inflation)",
-        status: affected.length === 0 ? "pass" : "fail", expected: "0 inflated rows",
+        id: 17, section: "data", label: "Schedule Integrity — total_due_amount matches its parts",
+        description: "pending/overdue rows: total_due_amount = base + penalty + carried (CLAUDE.md cache-staleness test)",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 stale rows",
         affectedCount: affected.length, affectedAccounts: affected,
       });
     }
@@ -562,8 +629,10 @@ Deno.serve(async (req) => {
     // Any row where allocations >= ceiling should have db_status = 'paid'
     {
       const affected: CheckResult["affectedAccounts"] = [];
-      const allAllocs18 = await fetchAll(supabase, "payment_allocations",
+      const allAllocs18R = await fetchAll(supabase, "payment_allocations",
         "schedule_id, allocated_amount");
+      if (allAllocs18R.error) loadErrors["payment_allocations"] = allAllocs18R.error;
+      const allAllocs18 = allAllocs18R.rows;
       const allocBySchedule18: Record<string, number> = {};
       for (const alloc of allAllocs18) {
         allocBySchedule18[alloc.schedule_id] = (allocBySchedule18[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
@@ -617,8 +686,10 @@ Deno.serve(async (req) => {
     // A paid row with carried_amount > 0 AND allocated < ceiling = bug
     {
       const affected: CheckResult["affectedAccounts"] = [];
-      const allAllocs20 = await fetchAll(supabase, "payment_allocations",
+      const allAllocs20R = await fetchAll(supabase, "payment_allocations",
         "schedule_id, allocated_amount");
+      if (allAllocs20R.error) loadErrors["payment_allocations"] = allAllocs20R.error;
+      const allAllocs20 = allAllocs20R.rows;
       const allocBySchedule20: Record<string, number> = {};
       for (const alloc of allAllocs20) {
         allocBySchedule20[alloc.schedule_id] = (allocBySchedule20[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
@@ -678,13 +749,69 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Withdraw any check whose source data could not be read ─────────────
+    //
+    // Derived from the checks' own bodies, not guessed. Every check also reads
+    // layaway_accounts, so a failure there withdraws all of them.
+    //
+    // This runs AFTER the checks so their bodies are untouched: a blocked check
+    // still computes a meaningless verdict over an empty array, and that verdict
+    // is then thrown away and replaced. Overwriting the answer is a far smaller
+    // change than threading a guard through twenty blocks, and it cannot alter
+    // the logic of a check that is not blocked.
+    const CHECK_SOURCES: Record<number, string[]> = {
+      1:  ["payments", "penalty_fees", "account_services"],
+      2:  ["layaway_schedule"],
+      3:  ["payments"],
+      4:  ["payments"],
+      5:  ["penalty_fees", "layaway_schedule"],
+      6:  ["payments", "layaway_schedule", "penalty_fees", "account_services"],
+      7:  ["payments", "layaway_schedule", "penalty_fees", "account_services"],
+      8:  ["payments", "layaway_schedule", "penalty_fees", "account_services"],
+      10: ["layaway_schedule"],
+      11: ["layaway_schedule", "penalty_fees"],
+      12: ["layaway_schedule_all"],
+      13: ["payments", "layaway_schedule"],
+      14: ["layaway_schedule", "penalty_fees"],
+      15: ["payments"],
+      16: ["layaway_schedule", "payment_allocations"],
+      17: ["layaway_schedule"],
+      18: ["layaway_schedule", "payment_allocations"],
+      19: [],
+      20: ["layaway_schedule", "payment_allocations"],
+      21: ["layaway_schedule"],
+    };
+
+    for (const c of checks) {
+      const sources = ["layaway_accounts", ...(CHECK_SOURCES[c.id] ?? [])];
+      const broken = sources
+        .filter(d => loadErrors[d])
+        .map(d => `${d} (${loadErrors[d]})`);
+      if (broken.length === 0) continue;
+      c.status = "skip";
+      c.expected = "a readable source table";
+      c.description =
+        `COULD NOT RUN — failed to read ${broken.join("; ")}. ` +
+        `This check has no verdict. A "0 affected" result here would be a lie, ` +
+        `and a "493 affected" one would be a louder lie.`;
+      c.affectedCount = 0;
+      c.affectedAccounts = [];
+    }
+
     const passed  = checks.filter(c => c.status === "pass").length;
     const skipped = checks.filter(c => c.status === "skip").length;
     const failed  = checks.filter(c => c.status === "fail").length;
 
     return new Response(JSON.stringify({
       checks,
-      summary: { total: checks.length, passed, failed, skipped, elapsed_ms: Date.now() - startTime },
+      // Present and empty on a healthy run. Non-empty means some checks were
+      // withdrawn above and the run is INCOMPLETE, not clean.
+      load_errors: loadErrors,
+      summary: {
+        total: checks.length, passed, failed, skipped,
+        unreadable_sources: Object.keys(loadErrors).length,
+        elapsed_ms: Date.now() - startTime,
+      },
       timestamp: new Date().toISOString(),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

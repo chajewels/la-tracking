@@ -1937,6 +1937,135 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #281 — system-health-v2 failed open: 10 red criticals, 9 of them phantom (2026-09-17)
+
+Monitoring → Audit → System Health showed 10 of 24 checks failing, three of them
+reporting **exactly 493 affected** with the detail `SUM(payments) = 0 |
+total_paid = 28547` for every account — while `audit_account` passed all 493.
+
+**Three independent faults, all of the same kind: a wrong answer where there
+should have been no answer.**
+
+**(a) `fetchAll` swallowed every read error.** It destructured `const { data }`
+and never looked at `error`. A failed query left `data` undefined, the loop
+broke, and it returned `[]` — indistinguishable from an empty table.
+
+**(b) The `payments` select asked for two columns that do not exist.**
+`payment_type` and `is_downpayment` are not on `payments`; PostgREST answered
+`42703 column payments.payment_type does not exist` instantly. Not RLS, not the
+8 s `authenticated` timeout — a 400 on the first page. Combined with (a) the
+whole table read as zero rows, so eight checks computed from nothing:
+
+- **false FAIL** — #1 Balance Integrity, #3 Payment Integrity, #15 total_paid
+  drift, and benchmarks #6/#7/#8 (TEST-001/003/004)
+- **false PASS** — #4 Downpayment Integrity (`totalPaid < dp` → `continue`) and
+  #13 Unallocated Bulk Import (`installmentPaid = 0` → `continue`)
+
+The count is the proof. 537 active accounts; 493 of them had `total_paid > 0` at
+the time of the observation. An account with `total_paid = 0` **passed**, because
+0 = 0. The 494th crossed over at 00:07 that morning when invoice 19720 took its
+first payment (the #280 loyalty redemption).
+
+**(c) `penalty_amount` was read by five checks and never selected.** It exists on
+`layaway_schedule`; the select simply omitted it, so `sched.penalty_amount` was
+`undefined`. Every ceiling was computed without the penalty, and check 5's skip
+test `Number(undefined) === 0` is `NaN === 0` — false — so it never skipped and
+flagged every waived penalty. This is what made the four remaining failures look
+real.
+
+**A fourth, separate defect found on the way:** check 17 asserted
+`total_due_amount = base + penalty` and called anything larger "inflation",
+reporting every legitimately carried row. CLAUDE.md CARRIED_AMOUNT PRESERVATION
+says the opposite — `base + penalty + carried` on every recompute — and its
+CACHE-STALENESS TEST is equality against that gross. Corrected to the canonical
+test, in both directions.
+
+**Result: 9 of the 10 failures were phantom.** Recomputed against live data with
+the reads fixed: Balance 493→0, Payment 493→0, total_paid 493→0, Penalty
+Integrity 23→0, Schedule Integrity 29→0, Zero Remaining 1→0, Downpayment and
+Unallocated both genuinely 0. **One real finding survives** — invoice 18081
+(Alvin Javiña) month 3, allocations of ₱3,792.38 against a ceiling of ₱3,791.64
+across three allocation rows: an over-allocation of **74 centavos**.
+
+**Fix.** `fetchAll` returns `{ rows, error }` and discards partial reads; a
+per-dataset `loadErrors` map is carried to the end of the run; any check whose
+source table could not be read is rewritten to `skip` with "COULD NOT RUN —
+failed to read X", and the response carries `load_errors` plus
+`summary.unreadable_sources`. The two selects are corrected and `isDPPayment`
+now matches CLAUDE.md INVARIANT 11 exactly (`DP-` prefix or remarks containing
+"down") instead of testing columns that never existed.
+
+Cynthia removed Monitoring from the sidebar long ago because it was "not
+accurate and contradicting always". This is why. A checker that fails open is
+worse than no checker: it spends the reader's trust on noise and buries the one
+finding that was real.
+
+### #280 — redemption stopped consuming point lots; the birthday bonus never created one (2026-09-17)
+
+Two faults, found together on the one member who hit both.
+
+**(a) `approve_redemption_atomic` lost its `consume_lots_fifo` call.** The
+lot-wiring was applied live in the SQL Editor on 2026-07-05 and never committed
+as a migration. The repo baseline `20260705230000` — generated the same day —
+does not contain it. On 2026-09-12, `20260912000000_redemption_closed_order_guard.sql`
+rebuilt the function, its header reasoning *"Body copied verbatim from the live
+baseline … no later migration redefines this function"*. True, and not evidence:
+a SQL Editor session had. The rebuild silently reverted the live function to a
+body with no lot consumption. `consume_lots_fifo` was left with **zero callers**.
+
+The window is exact. Every confirmed redemption from 2026-07-14 to 2026-09-11 —
+23 of them — consumed precisely its points from lots (1,770/1,770 … 16,740/16,740).
+The first redemption after the migration, 2026-09-17, consumed **0**.
+
+The symmetry proves the mechanism: the baseline is *also* missing
+`restore_lots_for_redemption` in `void_redemption_atomic`, yet live void still
+calls it — because no migration ever rebuilt void. The function rebuilt from the
+bad baseline lost its wiring; its twin, left alone, kept it.
+
+**(b) `_award_birthday_reward` creates no lot.** It increments
+`remaining_points` and `total_points_earned` and writes the ledger row, and
+never touches `loyalty_point_lots`. Hers is the only `birthday_bonus`
+transaction in the system's history, so the path had never run before.
+
+**Casualty: one member, caught on the first occurrence.** Aileen Gabiola
+(CJ-2026-03608). Birthday bonus +500 at 2026-09-16 23:08 → counter 4,700 vs
+lots 4,200. Redemption of 4,700 against invoice 19720 approved 2026-09-17
+00:07 → counter 0, lots still 4,200, no `loyalty_lot_consumption` rows. A
+fleet-wide census found no other member with `remaining_points <> SUM(live lots)`.
+
+**Customer-visible symptom, and it is the inverse of the obvious reading.** Both
+the portal and the storefront read the counter (`remaining_points`), which is
+correct at 0 — she genuinely spent every point. Only `MemberCard`'s expiry line
+reads the lots, so her card said *"0 points"* above *"Your 4,200 points expire
+on 2027-02-16"*.
+
+**Fix — the order is load-bearing.** Migration `20260917070000` does three
+things in one change: re-wires approve to `consume_lots_fifo`; lot-wires
+`_award_birthday_reward`; adds predicate 6 to `loyalty_integrity_report`
+(per-redemption `SUM(loyalty_lot_consumption.amount)` vs `points_redeemed`,
+for redemptions processed on or after the 2026-07-05 wiring). Re-wiring approve
+*alone* would be worse than the bug: `consume_lots_fifo` RAISES
+`insufficient lot balance` rather than under-consuming, and the approve gate
+checks the counter — which includes lot-less bonus points. The next member
+holding a birthday bonus would pass the gate and then hard-abort. Her own
+redemption would have been refused this morning.
+
+**Data repair:** `docs/sql/20260917_loyalty_lot_repair_CJ-2026-03608.sql` —
+guarded, one transaction, brings the LOTS to the ledger and not the counter to
+the lots. The counter already matches the ledger; recomputing it from lots would
+return 4,200 points she has spent. Records the full **4,700** of consumption,
+not 4,200, because `restore_lots_for_redemption` reads those rows and a short
+record re-drifts on any future void. Writes no ledger row and no counter change
+— the tell that it is a derived-data repair, and the structural difference from
+the #19751 correction, where the ledger itself was short.
+
+**Never void 19720 to fix this.** `void_redemption_atomic` restores from the
+consumption rows (none) while crediting the counter the full 4,700 — turning a
+−4,200 drift into +4,700.
+
+Two blind spots this leaves are filed, not fixed — see docs/OPEN-BUGS.md
+"loyalty lot drift the balance check cannot see".
+
 ### #279 — Manage Invoice total edits never updated the loyalty amount (2026-09-17)
 
 #19751's total was raised from ¥120,980 to ¥304,960 in Manage Invoice (audit

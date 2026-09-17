@@ -1,0 +1,63 @@
+# live-vs-repo diff — public.admin_update_schedule_base
+# repo side : 20260705230000_baseline_live_schema.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see admin_update_schedule_base.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 10 / live lines 52
+
+--- REPO  20260705230000_baseline_live_schema.sql
++++ LIVE  admin_update_schedule_base (pg_get_functiondef 2026-09-17)
+@@ -1,3 +1,8 @@
++DECLARE
++v_account_id uuid;
++v_allocated numeric;
++v_total_due numeric;
++v_status schedule_status;
+ BEGIN
+ PERFORM set_config('app.bypass_immutable_schedule_cols', 'on', true);
+ UPDATE layaway_schedule
+@@ -6,5 +11,42 @@
+ total_due_amount = p_new_total_due,
+ paid_amount = CASE WHEN p_is_paid THEN p_new_total_due
+ ELSE paid_amount END
++WHERE id = p_schedule_id
++RETURNING account_id, total_due_amount, status
++INTO v_account_id, v_total_due, v_status;
++IF v_account_id IS NULL THEN
++RETURN;
++END IF;
++-- Bug #253: changing the base changes the denominator, so a row whose
++-- existing allocations now fully cover total_due_amount must be re-marked
++-- 'paid'. UPWARD ONLY — never downgrades a 'paid' row (that case is left
++-- for audit_account CHECK 7 ARM A to surface for human review).
++SELECT COALESCE(SUM(pa.allocated_amount), 0)
++INTO v_allocated
++FROM payment_allocations pa
++JOIN payments p ON p.id = pa.payment_id
++WHERE pa.schedule_id = p_schedule_id
++AND p.voided_at IS NULL;
++IF v_status NOT IN ('paid', 'cancelled')
++AND v_total_due > 0
++AND v_allocated >= v_total_due - 0.01 THEN
++UPDATE layaway_schedule
++SET status = 'paid',
++paid_amount = v_allocated
+ WHERE id = p_schedule_id;
++-- Account may now be fully settled. Guarded: zero balance, fully paid,
++-- and no schedule row left open.
++UPDATE layaway_accounts la
++SET status = 'completed',
++completed_at = COALESCE(la.completed_at, now())
++WHERE la.id = v_account_id
++AND la.status IN ('active', 'overdue')
++AND la.remaining_balance <= 0.01
++AND la.total_paid >= la.total_amount - 0.01
++AND NOT EXISTS (
++SELECT 1 FROM layaway_schedule ls
++WHERE ls.account_id = la.id
++AND ls.status NOT IN ('paid', 'cancelled')
++);
++END IF;
+ END;

@@ -1,0 +1,84 @@
+# live-vs-repo diff — public.reactivate_web_layaway_atomic
+# repo side : 20260916180000_reactivate_expired_web_layaway.sql (last CREATE [OR REPLACE] FUNCTION in filename order)
+# live side : pg_get_functiondef, captured 2026-09-17, see reactivate_web_layaway_atomic.sql
+# normalise : per line, internal whitespace collapsed + trimmed, blank lines dropped.
+#             The drift audit's md5 collapsed the WHOLE body to one line, which
+#             makes diff -u useless; this is the line-preserving equivalent.
+# flat-normalised md5 equal? False  (false = a real difference, not whitespace)
+# repo lines 127 / live lines 100
+
+--- REPO  20260916180000_reactivate_expired_web_layaway.sql
++++ LIVE  reactivate_web_layaway_atomic (pg_get_functiondef 2026-09-17)
+@@ -17,11 +17,6 @@
+ IF p_transfer_due_at IS NULL THEN
+ RETURN jsonb_build_object('error', 'deadline_required');
+ END IF;
+--- A BACKDATED DEADLINE IS LEGAL ON A LIVE PLAN AND NONSENSE HERE. On a running
+--- order set_account_deadlines allows the past, because that is how staff
+--- release a hold deliberately. Reactivating to a past deadline would re-hold
+--- the piece and hand it straight back to the next hourly sweep — an action
+--- that undoes itself. Refuse instead of doing it.
+ IF p_transfer_due_at <= v_now THEN
+ RETURN jsonb_build_object('error', 'deadline_in_past', 'transfer_due_at', p_transfer_due_at);
+ END IF;
+@@ -33,18 +28,10 @@
+ IF NOT FOUND THEN
+ RETURN jsonb_build_object('error', 'not_web_layaway');
+ END IF;
+--- EXPIRED MEANS EXPIRED, NOT MERELY CANCELLED. expire_web_layaway_atomic is
+--- the only writer of expired_at, so status='cancelled' AND expired_at IS NOT
+--- NULL is the signature of a lapsed deposit. A plan cancelled by a human has
+--- expired_at NULL and is NOT reactivated here — that was somebody's decision,
+--- and undoing it is not this action's business.
+ IF v_status <> 'cancelled' OR v_expired IS NULL THEN
+ RETURN jsonb_build_object('error', 'not_expired', 'status', v_status,
+ 'expired_at', v_expired);
+ END IF;
+--- Money received, in both the places it can show, in the same order and with
+--- the same two names expiry and set_account_deadlines use. INVARIANT 1 makes
+--- the ledger authoritative, so the cache alone is not trusted.
+ IF coalesce(v_paid, 0) > 0 THEN
+ RETURN jsonb_build_object('error', 'already_paid');
+ END IF;
+@@ -52,8 +39,6 @@
+ WHERE account_id = p_account_id AND voided_at IS NULL) THEN
+ RETURN jsonb_build_object('error', 'payment_exists');
+ END IF;
+--- CAN THE PIECE STILL BE HELD? Asked for every line before ANY line is taken,
+--- so a two-line plan with one sold piece refuses whole rather than half.
+ SELECT jsonb_agg(jsonb_build_object(
+ 'variant_id', i.variant_id, 'title', i.title, 'sku', i.sku,
+ 'wanted', i.quantity, 'available', coalesce(v.stock_qty, 0)))
+@@ -65,10 +50,6 @@
+ IF v_short IS NOT NULL THEN
+ RETURN jsonb_build_object('error', 'out_of_stock', 'lines', v_short);
+ END IF;
+--- Take the stock back. The WHERE re-checks the quantity so a concurrent
+--- checkout between the look and the take cannot drive stock negative; if it
+--- does happen, fewer rows update than there are lines and the count check
+--- below raises, rolling the whole thing back.
+ WITH taken AS (
+ UPDATE public.website_product_variants v
+ SET stock_qty = v.stock_qty - i.quantity, updated_at = v_now
+@@ -83,9 +64,6 @@
+ IF v_taken <> v_restored THEN
+ RAISE EXCEPTION 'reactivate_web_layaway: took % of % lines — a piece sold during the reactivation; nothing applied', v_taken, v_restored;
+ END IF;
+--- The plan comes back live with the NEW deadline, and expired_at is cleared so
+--- the hourly sweep can act on it again. The note is appended, never replaced:
+--- the expiry line stays in the history above it.
+ UPDATE public.layaway_accounts
+ SET status = 'active',
+ expired_at = NULL,
+@@ -97,11 +75,6 @@
+ || to_char(p_transfer_due_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD HH24:MI')
+ || ' PHT — ' || v_reason
+ WHERE id = p_account_id;
+--- Only the rows expiry cancelled come back, and they come back 'pending'.
+--- There is no money on this plan (refused above), so no row can be paid or
+--- partially_paid, and 'pending' is the honest state for every one of them. A
+--- due date already in the past will be re-marked overdue by the penalty
+--- engine on its own next run — that is the engine's job, not this one's.
+ UPDATE public.layaway_schedule
+ SET status = 'pending', updated_at = v_now
+ WHERE account_id = p_account_id AND status = 'cancelled';
