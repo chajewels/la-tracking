@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""
+function-drift-audit — compare every public function's LIVE body against the newest
+copy in supabase/migrations/.  READ-ONLY: it never connects to the database and never
+writes anything.
+
+Why it exists
+-------------
+Bug #280.  A migration rebuilt approve_redemption_atomic "verbatim from the live
+baseline … no later migration redefines this function".  That was true about the repo
+and said nothing about live, because the SQL Editor is a sanctioned write path whose
+changes leave no trace in supabase/migrations/.  The rebuild silently reverted a
+2026-07-05 fix and a customer's points ledger drifted.
+
+How it works
+------------
+The repo side is computed here: for every `CREATE [OR REPLACE] FUNCTION public.<name>(`
+across supabase/migrations/ in filename order, the body between the dollar-quote
+delimiters is taken, whitespace-collapsed and md5'd; the LAST definition per name wins,
+and a later `DROP FUNCTION` removes the name again.
+
+The comparator is the BODY, not pg_get_functiondef.  pg_get_functiondef emits a
+canonical header, so comparing whole definitions reports every hand-written migration
+as drift and the signal is lost.  Postgres stores the body verbatim, so bodies compare
+cleanly.
+
+The live side is not fetched here — this machine has no database credentials, and the
+sanctioned read path is the Supabase SQL Editor.  So the script PRINTS a self-contained
+query with the repo hashes embedded.  Paste it into the SQL Editor and run it; it is a
+single SELECT and writes nothing.
+
+Usage
+-----
+    scripts/function-drift-audit            # print the query to paste
+    scripts/function-drift-audit --names    # just list what the repo defines
+    scripts/function-drift-audit --repo-dir supabase/migrations
+
+Reading the result
+------------------
+    a_differs     live body != the newest repo copy.  Someone changed live and did not
+                  commit it, OR someone committed a change that was never applied.
+                  Either way the repo is not evidence about live.
+    b_live_only   live has a function the repo has never had.  A fresh rebuild from
+                  supabase/migrations/ would not have it.
+    c_repo_only   the repo creates a function that is not live.  A fresh rebuild would
+                  create something production deliberately does not have.
+
+Zero rows is the goal.  Anything else is a function whose next rebuild is a coin toss.
+Run this BEFORE writing any migration that redefines a function — see CLAUDE.md,
+"FUNCTION CHANGES START FROM LIVE".
+"""
+import argparse, hashlib, os, re, sys
+
+CREATE = re.compile(
+    r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?([a-zA-Z0-9_]+)\s*\(', re.I)
+DROP = re.compile(
+    r'DROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-zA-Z0-9_]+)\s*\(', re.I)
+ASTAG = re.compile(r'\bAS\s+(\$[A-Za-z_]*\$)', re.I)
+
+
+def normalise(body: str) -> str:
+    """The comparator: collapse every run of whitespace to one space, then trim."""
+    return re.sub(r'\s+', ' ', body).strip()
+
+
+def scan(repo_dir: str):
+    """Last definition per name wins, in filename order; a later DROP removes it."""
+    found = {}
+    for fname in sorted(os.listdir(repo_dir)):
+        if not fname.endswith('.sql'):
+            continue
+        text = open(os.path.join(repo_dir, fname), encoding='utf-8').read()
+        events = []
+        for m in CREATE.finditer(text):
+            events.append((m.start(), 'create', m))
+        for m in DROP.finditer(text):
+            events.append((m.start(), 'drop', m))
+        for _, kind, m in sorted(events, key=lambda e: e[0]):
+            name = m.group(1)
+            if kind == 'drop':
+                found.pop(name, None)
+                continue
+            # balance the arg-list parens, then find the body's dollar-quote tag
+            i = m.end() - 1
+            depth = 0
+            close = None
+            for j in range(i, len(text)):
+                if text[j] == '(':
+                    depth += 1
+                elif text[j] == ')':
+                    depth -= 1
+                    if depth == 0:
+                        close = j
+                        break
+            if close is None:
+                continue
+            am = ASTAG.search(text, close)
+            if not am:
+                continue
+            tag = am.group(1)
+            end = text.find(tag, am.end())
+            if end == -1:
+                continue
+            body = normalise(text[am.end():end])
+            found[name] = {
+                'file': fname,
+                'md5': hashlib.md5(body.encode()).hexdigest(),
+                'len': len(body),
+            }
+    return found
+
+
+QUERY = """-- function-drift-audit — generated from {repo_dir} ({n} function names).
+-- READ-ONLY: one SELECT, writes nothing. Paste into the Supabase SQL Editor.
+-- Zero rows = live and the repo agree. See CLAUDE.md "FUNCTION CHANGES START FROM LIVE".
+WITH repo(name, md5) AS (VALUES
+{values}
+),
+live AS (
+  SELECT p.proname AS name,
+         substr(md5(btrim(regexp_replace(p.prosrc, '\\s+', ' ', 'g'))), 1, 12) AS md5
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.prokind IN ('f', 'p')
+     AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+)
+SELECT COALESCE(l.name, r.name) AS name,
+       CASE WHEN r.name IS NULL THEN 'b_live_only'
+            WHEN l.name IS NULL THEN 'c_repo_only'
+            ELSE 'a_differs' END AS bucket,
+       l.md5 AS live_body_md5,
+       r.md5 AS repo_body_md5
+  FROM live l
+  FULL OUTER JOIN repo r ON r.name = l.name
+ WHERE l.name IS NULL OR r.name IS NULL OR l.md5 <> r.md5
+ ORDER BY 2, 1;
+"""
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True, description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--repo-dir', default='supabase/migrations')
+    ap.add_argument('--names', action='store_true',
+                    help='list the repo-side names and their source file, then exit')
+    args = ap.parse_args()
+
+    if not os.path.isdir(args.repo_dir):
+        sys.exit(f'not a directory: {args.repo_dir} (run from the repo root)')
+
+    repo = scan(args.repo_dir)
+    if args.names:
+        for name in sorted(repo):
+            print(f"{name:44} {repo[name]['md5'][:12]}  {repo[name]['file']}")
+        print(f'\n{len(repo)} function names defined by {args.repo_dir}', file=sys.stderr)
+        return
+
+    values = ',\n'.join(
+        f"  ('{name}', '{repo[name]['md5'][:12]}')" for name in sorted(repo))
+    print(QUERY.format(repo_dir=args.repo_dir, n=len(repo), values=values))
+    print(f'{len(repo)} function names read from {args.repo_dir}', file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

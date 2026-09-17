@@ -2066,6 +2066,48 @@ consumption rows (none) while crediting the counter the full 4,700 — turning a
 Two blind spots this leaves are filed, not fixed — see docs/OPEN-BUGS.md
 "loyalty lot drift the balance check cannot see".
 
+**RESOLVED 2026-09-17.** Applied live by Cynthia in the SQL Editor, each patch
+md5-guarded against the snapshots in `docs/sql/live-snapshots/2026-09-17/` so a
+body that had moved would abort the patch rather than be overwritten:
+
+| | what | recorded in |
+|---|---|---|
+| A | `approve_redemption_atomic` — the `consume_lots_fifo` call restored | `20260917070000_relot_wire_redemption_and_birthday.sql` |
+| B | `_award_birthday_reward` — writes a lot via `insert_lot_and_extend` | same |
+| C | `insert_lot_and_extend` — rolling extension set widened to `('order_earn','admin_adjust','birthday_bonus')`, so a later purchase rolls a birthday lot's expiry forward | `20260917070000_record_live_loyalty_fixes.sql` |
+| D | `restore_loyalty_points` — the misplaced `tier_changed` block removed from the idempotency early exit, where `v_member` and `v_new_tier_id` were both unassigned and it could only raise | same |
+| E | data: CJ-2026-03608 given a 500 `birthday_bonus` lot (`BIRTHDAY-2026`) and `consume_lots_fifo` run for her confirmed 4,700 redemption; `audit_logs` action `loyalty_lot_repair` | `docs/sql/20260917_loyalty_lot_repair_CJ-2026-03608.sql` |
+
+`loyalty_integrity_report()` afterwards returns exactly one row, and it is not
+this: Test Customer (CJ-2026-05088), a pre-existing lifetime-spend baseline
+mismatch on a test account. Aileen's member row is clean — counter, ledger and
+lots all 13,800/0 in agreement.
+
+**A + B were patched by hand and then overwritten by their own migration, and
+the two are not identical.** `20260917070000_relot_wire_redemption_and_birthday.sql`
+(PR #102) was applied at ~06:10 on 2026-09-17, after the hand patches. It carries
+A and B, so the repo and live agree about them without a record-only file — but
+it changed one rule that the hand patch had set: **the birthday lot's expiry**.
+The hand patch used `last_purchase_at + 180 days`, falling back to
+`now() + 180 days`, tying the bonus to the member's purchase clock; the migration
+uses `awarded_at + 180 days`, which is later for anyone who has bought recently.
+Nothing retroactive — the one birthday lot in existence was inserted by hand with
+an explicit expiry and is untouched. If the purchase-clock rule was the intended
+one, it needs its own migration; nobody has decided.
+
+**The whole fleet was audited for the same failure mode, not just these two.**
+A `pg_proc.prosrc` census on 2026-09-17 found **17** functions whose live body
+differs from the repo's, **15** live functions the repo has no definition for at
+all, and **2** the repo still defines that live has dropped. Every live body is
+now recorded (`20260917070100`, `20260917070200`,
+`20260917070300_record_drop_validate_schedule_start_year.sql`) and all three
+buckets are 0 — 163 functions, digest `b6c6d5f1a172f9c3412d220661434861`.
+`scripts/function-drift-audit` re-runs the census on demand; CLAUDE.md
+*"FUNCTION CHANGES START FROM LIVE"* is the rule it enforces, and
+`docs/SCHEMA-FACTS.md` documents running it. That audit is the actual fix: A was
+one instance of a class with 32 members, and the next one would have been found
+the same way this one was — by a customer.
+
 ### #279 — Manage Invoice total edits never updated the loyalty amount (2026-09-17)
 
 #19751's total was raised from ¥120,980 to ¥304,960 in Manage Invoice (audit
