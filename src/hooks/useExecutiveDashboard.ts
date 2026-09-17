@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-const INTERVAL = 30_000;
+// ONE refresh cadence for this page, and staleTime matches it deliberately.
+// It was refetchInterval 30s against staleTime 120s: refetchInterval fires
+// regardless of staleness, so the 2-minute freshness policy was dead code and
+// the page polled 4x faster than it claimed to. The Executive Dashboard's
+// twelve fc_* RPCs cost ~30 hours of database time at 30s; the figures on it
+// are portfolio-level and do not move meaningfully inside five minutes.
+const REFRESH_MS = 300_000;
 
 interface ExecData {
   portfolioValue: number;
@@ -65,7 +71,7 @@ const EMPTY_EXEC_DATA: Omit<ExecData, 'loading'> = {
 // The Promise.all is verbatim; only the cache policy around it changed.
 export const executiveDashboardQueryOptions = {
   queryKey: ['executive-dashboard'] as const,
-  staleTime: 120_000,
+  staleTime: REFRESH_MS,
   placeholderData: keepPreviousData,
   queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
       const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci] = await Promise.all([
@@ -149,22 +155,32 @@ export const executiveDashboardQueryOptions = {
 export function useExecutiveDashboard(): ExecData {
   const { data, isLoading } = useQuery({
     ...executiveDashboardQueryOptions,
-    refetchInterval: INTERVAL,
+    refetchInterval: REFRESH_MS,
   });
 
   return { ...(data ?? EMPTY_EXEC_DATA), loading: isLoading && !data };
 }
 
-export function useMonthlyInflowByPlan() {
-  const [data, setData] = useState<any[]>([]);
+// Both of these were hand-rolled useState + useEffect + setInterval fetches
+// with no cache at all: every mount refetched, and each ran its own 30s timer
+// alongside the twelve RPCs above. React Query now caches them on the same
+// REFRESH_MS cadence as the rest of the page (a hand-rolled dashboard fetch is
+// a defect per CLAUDE.md's FRONTEND / DESIGN WORKFLOW). The query bodies are
+// the former fetchData bodies verbatim; only the cache policy around them
+// changed, and the exported hook signatures are unchanged.
 
-  const fetchData = useCallback(async () => {
+type InflowByPlanRow = { label: string } & Record<string, string | number>;
+
+export const monthlyInflowByPlanQueryOptions = {
+  queryKey: ['exec-monthly-inflow-by-plan'] as const,
+  staleTime: REFRESH_MS,
+  placeholderData: keepPreviousData,
+  queryFn: async (): Promise<InflowByPlanRow[]> => {
     const { data: rows, error } = await supabase.rpc('monthly_inflow_by_plan_6m');
-
-    if (error || !rows) { setData([]); return; }
+    if (error || !rows) return [];
 
     // Pivot pre-aggregated rows into chart shape: one row per month with plan_X columns.
-    const byMonth = new Map<string, Record<string, any>>();
+    const byMonth = new Map<string, InflowByPlanRow>();
     for (const r of rows as Array<{ month: string; payment_plan_months: number; jpy_total: number }>) {
       if (!byMonth.has(r.month)) {
         const d = new Date(r.month + '-01');
@@ -174,52 +190,43 @@ export function useMonthlyInflowByPlan() {
       byMonth.get(r.month)![`plan_${r.payment_plan_months}`] = Number(r.jpy_total);
     }
 
-    setData(
-      [...byMonth.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([_, row]) => row)
-    );
-  }, []);
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([_, row]) => row);
+  },
+};
 
-  useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchData]);
-
-  return data;
+export function useMonthlyInflowByPlan(): InflowByPlanRow[] {
+  const { data } = useQuery({ ...monthlyInflowByPlanQueryOptions, refetchInterval: REFRESH_MS });
+  return data ?? [];
 }
 
-export function useActiveByPlan() {
-  const [data, setData] = useState<{ plan: number; count: number; pct: number }[]>([]);
-
-  const fetchData = useCallback(async () => {
+export const activeByPlanQueryOptions = {
+  queryKey: ['exec-active-by-plan'] as const,
+  staleTime: REFRESH_MS,
+  placeholderData: keepPreviousData,
+  queryFn: async (): Promise<{ plan: number; count: number; pct: number }[]> => {
     const { data: rows } = await supabase
       .from('layaway_accounts')
       .select('payment_plan_months')
       .in('status', ['active', 'overdue'])
       .eq('is_test', false);
 
-    if (!rows) { setData([]); return; }
+    if (!rows) return [];
 
     const counts = new Map<number, number>();
     for (const r of rows) counts.set(r.payment_plan_months, (counts.get(r.payment_plan_months) || 0) + 1);
     const total = rows.length || 1;
 
-    setData(
-      [...counts.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([plan, count]) => ({ plan, count, pct: Math.round((count / total) * 100) }))
-    );
-  }, []);
+    return [...counts.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([plan, count]) => ({ plan, count, pct: Math.round((count / total) * 100) }));
+  },
+};
 
-  useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchData]);
-
-  return data;
+export function useActiveByPlan(): { plan: number; count: number; pct: number }[] {
+  const { data } = useQuery({ ...activeByPlanQueryOptions, refetchInterval: REFRESH_MS });
+  return data ?? [];
 }
 
 export function useFinancialAlerts() {
