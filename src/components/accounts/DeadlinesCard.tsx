@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { CalendarClock, Pencil } from 'lucide-react';
+import { CalendarClock, Pencil, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatPHTDisplay } from '@/lib/date-utils';
-import { useSetAccountDeadlines } from '@/hooks/use-supabase-data';
+import { useSetAccountDeadlines, useReactivateWebLayaway } from '@/hooks/use-supabase-data';
 
 /**
  * The deposit deadline, on a layaway account or a cash order alike.
@@ -90,6 +90,12 @@ export interface DeadlinesCardProps {
    * deadline is spent and the server refuses to move it (`already_paid`).
    */
   depositPaid?: boolean;
+  /**
+   * Web layaway only: when expiry released this plan. Set by
+   * expire_web_layaway_atomic and by nothing else, so it is what tells a lapsed
+   * deposit apart from a plan a human cancelled — only the first is reactivated.
+   */
+  expiredAt?: string | null;
   canEdit: boolean;
 }
 
@@ -99,12 +105,16 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, canEdit,
+  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, expiredAt, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
   const [reason, setReason] = useState('');
   const setDeadlines = useSetAccountDeadlines();
+  const reactivate = useReactivateWebLayaway();
+  const [reviveOpen, setReviveOpen] = useState(false);
+  const [reviveDue, setReviveDue] = useState('');
+  const [reviveReason, setReviveReason] = useState('');
 
   const isLive = LIVE_STATUSES[entityType].includes(status);
   const overdue = !!transferDueAt && new Date(transferDueAt) < new Date();
@@ -112,6 +122,14 @@ export default function DeadlinesCard({
   // The deadline is spent once the deposit is in — see the header.
   const depositLocked = entityType === 'layaway' && depositPaid === true;
   const canChange = canEdit && isLive && !depositLocked;
+
+  // REACTIVATION IS THE EXCEPTION, AND ONLY WHERE IT APPLIES (owner decision
+  // 2026-09-15). A web layaway that LAPSED — expiry wrote `cancelled` and
+  // stamped expiredAt — can come back with a new deadline and its stock re-held.
+  // A plan a human cancelled carries no expiredAt and is not offered this: that
+  // was somebody's decision. Cash orders keep their own Revive Order button.
+  const canRevive =
+    canEdit && entityType === 'layaway' && isWeb && status === 'cancelled' && !!expiredAt;
 
   // What the hourly job will actually do to THIS order once the date passes.
   const consequence = entityType === 'layaway'
@@ -123,7 +141,7 @@ export default function DeadlinesCard({
       : 'The hourly job cancels the order unless the transfer is confirmed. It holds no website stock, so nothing goes back on sale.';
 
   // Nothing set and nothing settable: no card rather than an empty one.
-  if (!transferDueAt && !canChange) return null;
+  if (!transferDueAt && !canChange && !canRevive) return null;
 
   function openDialog() {
     setTransfer(toPhtInputValue(transferDueAt));
@@ -164,6 +182,39 @@ export default function DeadlinesCard({
     }
   }
 
+  function openRevive() {
+    // A fresh deadline, not the one it already missed. 72 hours is the returning
+    // customer's window and the safe default to show; staff can change it.
+    const d = new Date(Date.now() + 72 * 3600 * 1000);
+    setReviveDue(toPhtInputValue(d.toISOString()));
+    setReviveReason('');
+    setReviveOpen(true);
+  }
+
+  async function doRevive() {
+    const iso = fromPhtInputValue(reviveDue);
+    if (!iso) {
+      toast.error('Pick the new deposit deadline.');
+      return;
+    }
+    try {
+      const result = await reactivate.mutateAsync({
+        account_id: entityId,
+        transfer_due_at: iso,
+        reason: reviveReason.trim(),
+      });
+      // Say what was actually held, not just that it worked: re-taking the stock
+      // is the part that can quietly not happen.
+      toast.success('Plan reactivated', {
+        description: `${result.stock_lines_taken} item line${result.stock_lines_taken === 1 ? '' : 's'} held again, ${result.schedule_rows_restored} instalment${result.schedule_rows_restored === 1 ? '' : 's'} restored.`,
+      });
+      setReviveOpen(false);
+    } catch (err) {
+      // out_of_stock lands here and names the piece — see useReactivateWebLayaway.
+      toast.error((err as Error).message || 'Could not reactivate the plan');
+    }
+  }
+
   return (
     <>
       <div className="rounded-xl border border-border bg-card p-4">
@@ -189,9 +240,16 @@ export default function DeadlinesCard({
                 changed. The reservation is confirmed; the plan now follows its own schedule.
               </p>
             )}
-            {!isLive && (
+            {!isLive && !canRevive && (
               <p className="text-xs text-muted-foreground">
                 This order is {status} — the deadline is history and cannot be changed.
+              </p>
+            )}
+            {canRevive && (
+              <p className="text-xs text-muted-foreground">
+                The deposit never arrived, so this reservation was released on{' '}
+                {formatPHTDisplay(expiredAt!)} and the piece went back on sale. Reactivating
+                takes it off sale again — only possible while it is still in stock.
               </p>
             )}
           </div>
@@ -199,6 +257,12 @@ export default function DeadlinesCard({
             <Button size="sm" variant="outline" onClick={openDialog}>
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               Change
+            </Button>
+          )}
+          {canRevive && (
+            <Button size="sm" variant="outline" onClick={openRevive}>
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Reactivate
             </Button>
           )}
         </div>
@@ -253,6 +317,61 @@ export default function DeadlinesCard({
             </Button>
             <Button onClick={save} disabled={setDeadlines.isPending || !transfer || !reason.trim()}>
               {setDeadlines.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reviveOpen} onOpenChange={setReviveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reactivate this plan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              This puts the plan back to active with a new deposit deadline and takes the
+              piece off sale again. If it has already sold, nothing changes and you will be
+              told which item is gone.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="revive-due">New deposit deadline (PHT)</Label>
+              <Input
+                id="revive-due"
+                type="datetime-local"
+                value={reviveDue}
+                onChange={e => setReviveDue(e.target.value)}
+                className="bg-background border-border"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Must be in the future — a past date would be released again by the next
+                hourly run.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="revive-reason">
+                Reason <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="revive-reason"
+                name="revive-reason"
+                autoComplete="off"
+                required
+                value={reviveReason}
+                onChange={e => setReviveReason(e.target.value)}
+                placeholder="Why is this plan coming back?"
+                className="bg-background border-border"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Required. This is the only record of why a released piece was held again.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReviveOpen(false)} disabled={reactivate.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={doRevive} disabled={reactivate.isPending || !reviveDue || !reviveReason.trim()}>
+              {reactivate.isPending ? 'Reactivating…' : 'Reactivate'}
             </Button>
           </DialogFooter>
         </DialogContent>

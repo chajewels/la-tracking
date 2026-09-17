@@ -738,6 +738,8 @@ export default function AccountDetail() {
     source_channel?: string | null;
     web_reference?: string | null;
     transfer_due_at?: string | null;
+    /** Only expire_web_layaway_atomic writes this — see DeadlinesCard. */
+    expired_at?: string | null;
   } | undefined ?? {};
 
   const message = useMemo(() => {
@@ -1399,6 +1401,7 @@ export default function AccountDetail() {
           reference={webFields.web_reference ?? null}
           sourceChannel={webFields.source_channel ?? null}
           depositPaid={Number(account.total_paid ?? 0) > 0}
+          expiredAt={webFields.expired_at ?? null}
           canEdit={canPerm('edit_account')}
         />
 
