@@ -627,6 +627,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .from("loyalty_signups")
         .insert({ name, contact, region, lang });
       if (error) throw error;
+      // A storefront enrollment FAILED — raise it in the staff bell so staff
+      // enroll the customer by hand. Never fail the request over this.
+      try {
+        let matchedCustomerId: string | null = null;
+        const { data: matches } = await supabase
+          .from("customers").select("id").ilike("email", contact).limit(2);
+        if (matches && matches.length === 1) matchedCustomerId = matches[0].id;
+        await supabase.rpc("staff_notify", {
+          p_type: "loyalty_join_failed",
+          p_title: "Storefront loyalty enrollment failed",
+          p_body: `${name} (${contact}) asked to join the loyalty program on the website, `
+            + "but the enrollment did not complete. Enroll this customer manually.",
+          p_account_id: null,
+          p_customer_id: matchedCustomerId,
+          p_invoice: null,
+          p_meta: { source: "website_loyalty_join", contact, region, lang },
+        });
+      } catch { /* never fail the signup record over a notification */ }
       return jsonResponse({ ok: true });
     }
 

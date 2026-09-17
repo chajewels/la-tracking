@@ -571,7 +571,7 @@ Deno.serve(async (req) => {
                 "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
                 "x-internal-secret": Deno.env.get("INTERNAL_FUNCTION_SECRET") ?? "",
               },
-              body: JSON.stringify({ internal: true, customer_id: customerId }),
+              body: JSON.stringify({ internal: true, customer_id: customerId, source: "shopify_checkout" }),
             },
           );
           if (enrollRes.ok) {

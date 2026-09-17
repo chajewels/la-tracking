@@ -2077,6 +2077,20 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      and stashed in localStorage (key 'portal-setup-profile') so
      they survive the email-verification page reload.
 
+     EVERY ENROLLMENT PATH (setup-customer-account, join-loyalty-program)
+     MUST: set loyalty_members.enrollment_source; write one 'enrolled'
+     loyalty_transactions row whose note names the source; send the
+     'enrolled' sheet event and, on success, set that row's
+     synced_to_sheet_at (otherwise loyalty-sheet-reconcile appends a
+     duplicate Members-tab row). Sources: portal_signup (setup-customer-
+     account), portal_join (LoyaltyJoinPrompt), shopify_checkout
+     (shopify-webhook, internal branch), storefront_checkout /
+     storefront_join (cha-jewels-web), legacy_import (pre-2026-05-16),
+     unknown (caller sent no valid hint — investigate). Customer-authed
+     callers may only send portal_join / storefront_checkout /
+     storefront_join. website POST /loyalty/join NEVER enrolls; it records a
+     FAILED storefront enrollment and raises staff bell 'loyalty_join_failed'.
+
   2. review-payment-submission is the SOLE award path.
      Layaway → award only on downpayment confirm. Cash → award
      only on full completion (isFullyPaid). NEVER on monthly

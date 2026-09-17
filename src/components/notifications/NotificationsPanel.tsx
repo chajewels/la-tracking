@@ -53,6 +53,7 @@ function iconForType(type: string) {
       return <Sparkles className="h-4 w-4 text-primary" />;
     case 'loyalty_award_failed':
     case 'loyalty_award_missing':
+    case 'loyalty_join_failed':
       return <ShieldAlert className="h-4 w-4 text-destructive" />;
     case 'penalty_applied':
       return <ShieldAlert className="h-4 w-4 text-destructive" />;
