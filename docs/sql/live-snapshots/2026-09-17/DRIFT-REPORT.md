@@ -220,13 +220,15 @@ that is a bigger job than this pass. What the numbers say:
   `get_recent_qualifying_order` +35) — live has grown past the baseline through
   uncommitted SQL Editor work. Same shape as the loyalty four. `audit_account`
   and `allocate_payment_atomic` are load-bearing enough to be worth doing next.
-- **Δ negative with a post-baseline migration** — *(this bullet is the one DIFF-FINDINGS.md corrects; it is comments, not an unapplied migration)*
-- ORIGINAL TEXT: (`create_web_layaway_atomic`
+- **Δ negative with a post-baseline migration** — ~~(`create_web_layaway_atomic`
   −1902, `reactivate_web_layaway_atomic` −1950, `create_web_order_atomic` −437,
   `notify_website_revalidate` −73) — the repo is *ahead of* live. Either the
   migration was never applied, or it was applied and live has since been edited
   down. This is the opposite risk and is arguably more urgent, because it means
-  a shipped migration may not be running.
+  a shipped migration may not be running.~~
+  **WRONG — corrected by DIFF-FINDINGS.md.** The negative Δ is comments. All four
+  migrations are applied and every sibling object is live. Where logic differs,
+  live is AHEAD of the repo.
 - `terminate_web_order_atomic` differs at **identical normalised length** — a
   substitution of equal size, which is the signature of a small edit rather than
   an added or removed block.
