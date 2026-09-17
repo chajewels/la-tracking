@@ -2192,6 +2192,7 @@ export type Database = {
           downgrade_spend_baseline: number | null
           earned_tier_id: string
           enrolled_at: string
+          enrollment_source: string
           id: string
           is_downgraded: boolean
           last_purchase_at: string | null
@@ -2212,6 +2213,7 @@ export type Database = {
           downgrade_spend_baseline?: number | null
           earned_tier_id: string
           enrolled_at?: string
+          enrollment_source?: string
           id?: string
           is_downgraded?: boolean
           last_purchase_at?: string | null
@@ -2232,6 +2234,7 @@ export type Database = {
           downgrade_spend_baseline?: number | null
           earned_tier_id?: string
           enrolled_at?: string
+          enrollment_source?: string
           id?: string
           is_downgraded?: boolean
           last_purchase_at?: string | null
@@ -6352,6 +6355,16 @@ export type Database = {
           token_id: string
           use_count: number
         }[]
+      }
+      reactivate_web_layaway_atomic: {
+        Args: {
+          p_account_id: string
+          p_reason: string
+          p_source?: string
+          p_transfer_due_at: string
+          p_user_id?: string
+        }
+        Returns: Json
       }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
