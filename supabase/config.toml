@@ -31,6 +31,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.set-account-deadlines]
     verify_jwt = true
+  [functions.reactivate-web-layaway]
+    verify_jwt = true
   [functions.parse-import-docs]
     verify_jwt = true
   [functions.penalty-engine]
