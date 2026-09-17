@@ -1285,7 +1285,7 @@ export default function CashOrderDetail() {
                 </p>
                 {order.transfer_due_at && new Date(order.transfer_due_at) < new Date() && (
                   <p className="text-xs text-destructive">
-                    Past the 72-hour deadline — the hourly job will cancel this order and
+                    Past the deadline above — the hourly job will cancel this order and
                     return the stock unless the transfer is confirmed.
                   </p>
                 )}
