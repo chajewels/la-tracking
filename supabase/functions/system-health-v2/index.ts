@@ -481,10 +481,32 @@ Deno.serve(async (req) => {
     // Check 14: Overdue Accounts Missing Penalties (7+ days overdue, no active penalty)
     // More sensitive than Check 11 (30+ days) — catches accounts the penalty engine missed early.
     // Excludes TEST accounts.
+    //
+    // FREEZE GUARD ADDED 2026-09-17. This check asked "is there an active
+    // penalty?" and never asked "was the engine ALLOWED to write one?".
+    // CLAUDE.md PENALTY STANDARD → Freeze guard, and INVARIANT 12: an account
+    // carrying a payment_submissions row in 'submitted' or 'under_review' is
+    // frozen — the money may already be in the bank and only the reviewer
+    // knows. The engine declining to penalise such an account is the rule
+    // working, not a miss, and reporting it as a miss is how a panel spends
+    // the reader's trust on noise (Bug #281, same species).
+    //
+    // Invoice 18654 was the live case: 7 days overdue, one pending submission,
+    // correctly unpenalised, reported as a failure.
     {
       const affected: CheckResult["affectedAccounts"] = [];
+
+      // Frozen accounts, by the same predicate the penalty engine uses.
+      const pendingSubsR = await fetchAll(supabase, "payment_submissions",
+        "account_id, status", q => q.in("status", ["submitted", "under_review"]));
+      if (pendingSubsR.error) loadErrors["payment_submissions"] = pendingSubsR.error;
+      const frozenAccts = new Set<string>(
+        pendingSubsR.rows.map((r: any) => r.account_id).filter(Boolean)
+      );
+
       for (const acct of activeAccounts) {
         if (acct.invoice_number && String(acct.invoice_number).startsWith("TEST-")) continue;
+        if (frozenAccts.has(acct.id)) continue; // penalty engine is frozen on this account
 
         const scheds = schedByAcct[acct.id] || [];
         const pens   = penByAcct[acct.id] || [];
@@ -514,7 +536,7 @@ Deno.serve(async (req) => {
       }
       checks.push({
         id: 14, section: "system", label: "Overdue Missing Penalties",
-        description: "Non-test accounts 7+ days overdue with no active penalty fees (penalty engine missed them)",
+        description: "Non-test accounts 7+ days overdue with no active penalty fees and NO pending payment submission (penalty engine missed them)",
         status: affected.length === 0 ? "pass" : "fail", expected: "0 overdue accounts missing penalty",
         affectedCount: affected.length, affectedAccounts: affected,
       });
@@ -772,7 +794,7 @@ Deno.serve(async (req) => {
       11: ["layaway_schedule", "penalty_fees"],
       12: ["layaway_schedule_all"],
       13: ["payments", "layaway_schedule"],
-      14: ["layaway_schedule", "penalty_fees"],
+      14: ["layaway_schedule", "penalty_fees", "payment_submissions"],
       15: ["payments"],
       16: ["layaway_schedule", "payment_allocations"],
       17: ["layaway_schedule"],
