@@ -2295,8 +2295,11 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   per-user override) → public.change_payment_plan_atomic. Manage Invoice
   (EditAccountDialog) is its only caller. Rules, all enforced in SQL:
   active/overdue accounts only; new plan 3, 6 or 8 months (10/12 not launched);
-  reason required; refused while a payment submission is submitted /
-  under_review / needs_clarification. FIXED rows (payment, partial/paid status,
+  reason required. Pending payment submissions (submitted / under_review /
+  needs_clarification) do NOT block — allocation runs at confirmation against
+  the schedule as it is then, so they land on the new plan; the preview
+  reports them as pending_submissions (owner rule 2026-09-17). FIXED rows
+  (payment, partial/paid status,
   penalty_amount, penalty_fees, waiver request, allocation, carry-over either
   way) must be installments 1..k and are never touched. Rows k+1..N get
   (total − downpayment − fixed base) split floor + remainder-on-last, due
