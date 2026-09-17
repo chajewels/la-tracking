@@ -859,7 +859,7 @@ all three buckets are 0.
 **Baseline, 2026-09-17:** 163 functions, digest
 `b6c6d5f1a172f9c3412d220661434861`, all buckets 0. The census that produced it
 found 17 `a_differs`, 15 `b_live_only` and 2 `c_repo_only`; the live bodies are
-recorded in `20260917070000_record_live_loyalty_fixes.sql`,
+recorded in `20260917070050_record_live_loyalty_fixes.sql`,
 `20260917070100_record_live_only_functions.sql`,
 `20260917070200_record_live_drifted_functions.sql` and
 `20260917070300_record_drop_validate_schedule_start_year.sql`.

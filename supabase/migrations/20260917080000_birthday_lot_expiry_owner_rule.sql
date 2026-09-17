@@ -1,0 +1,25 @@
+-- Record-only — Cynthia applies the guarded patch in
+-- docs/sql/20260917_birthday_lot_expiry_owner_rule.sql via SQL Editor; after she
+-- confirms, replace this file's body with the live pg_get_functiondef.
+--
+-- PLACEHOLDER. There is deliberately NO executable statement below this line yet.
+--
+-- WHAT IS PENDING: _award_birthday_reward's birthday-lot expiry must go back to
+-- the owner's rule — last_purchase_at + 180 days, falling back to now() + 180
+-- days when that is past or NULL, so a member's whole balance shares one expiry
+-- date. Live currently expires the lot at v_awarded_at + 180 days, which arrived
+-- with 20260917070000_relot_wire_redemption_and_birthday.sql and overwrote the
+-- hand patch that had set the owner's rule earlier the same day. See
+-- docs/FIXED-BUGS.md #280.
+--
+-- WHY THE BODY IS NOT HERE YET. Writing a CREATE OR REPLACE now would mean
+-- shipping a body derived from a repo copy before the change exists live — the
+-- exact move that caused Bug #280. Per CLAUDE.md "FUNCTION CHANGES START FROM
+-- LIVE", the patch is applied first, md5-guarded against the captured live body
+-- (45aea6c7217c2e730597fe9dee44a9c1, 2818 bytes), and only then is the resulting
+-- live definition recorded here verbatim.
+--
+-- UNTIL THAT HAPPENS, scripts/function-drift-audit will report
+-- _award_birthday_reward in bucket a_differs once the patch is applied. That row
+-- is the reminder that this file is still a placeholder; it clears when the body
+-- is recorded.

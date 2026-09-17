@@ -2074,7 +2074,7 @@ body that had moved would abort the patch rather than be overwritten:
 |---|---|---|
 | A | `approve_redemption_atomic` — the `consume_lots_fifo` call restored | `20260917070000_relot_wire_redemption_and_birthday.sql` |
 | B | `_award_birthday_reward` — writes a lot via `insert_lot_and_extend` | same |
-| C | `insert_lot_and_extend` — rolling extension set widened to `('order_earn','admin_adjust','birthday_bonus')`, so a later purchase rolls a birthday lot's expiry forward | `20260917070000_record_live_loyalty_fixes.sql` |
+| C | `insert_lot_and_extend` — rolling extension set widened to `('order_earn','admin_adjust','birthday_bonus')`, so a later purchase rolls a birthday lot's expiry forward | `20260917070050_record_live_loyalty_fixes.sql` |
 | D | `restore_loyalty_points` — the misplaced `tier_changed` block removed from the idempotency early exit, where `v_member` and `v_new_tier_id` were both unassigned and it could only raise | same |
 | E | data: CJ-2026-03608 given a 500 `birthday_bonus` lot (`BIRTHDAY-2026`) and `consume_lots_fifo` run for her confirmed 4,700 redemption; `audit_logs` action `loyalty_lot_repair` | `docs/sql/20260917_loyalty_lot_repair_CJ-2026-03608.sql` |
 
@@ -2094,6 +2094,39 @@ uses `awarded_at + 180 days`, which is later for anyone who has bought recently.
 Nothing retroactive — the one birthday lot in existence was inserted by hand with
 an explicit expiry and is untouched. If the purchase-clock rule was the intended
 one, it needs its own migration; nobody has decided.
+
+**TWO FIXES FOR THIS BUG RAN IN PARALLEL, AND THAT IS THE LESSON ON TOP OF THE
+LESSON.** Patches A–E went into the SQL Editor by hand; migration
+`20260917070000_relot_wire_redemption_and_birthday.sql` was written separately
+against the PRE-patch body and applied at ~06:10. Neither knew about the other.
+Nothing broke — both were fixing the same two functions in the same direction —
+but the migration is the later writer and it silently took A and B back to its
+own version of them. Bug #280 is about a rebuild reverting an uncommitted SQL
+Editor change; this is the same shape inside a single morning, with both authors
+acting correctly. The defence is the same one: capture live, md5-guard, record
+immediately.
+
+**One rule did diverge.** The hand patch expired a birthday lot at
+`last_purchase_at + 180 days` (falling back to `now() + 180 days`), so a member's
+whole balance shares one expiry date — the owner's rule. The migration expires it
+at `v_awarded_at + 180 days`, the award instant. The owner's rule stands and is
+being restored by an md5-guarded in-place patch,
+`docs/sql/20260917_birthday_lot_expiry_owner_rule.sql` (captured live md5
+`45aea6c7217c2e730597fe9dee44a9c1`, 2818 bytes; the expression
+`v_awarded_at + INTERVAL '180 days'` occurs exactly once). Its record-only
+migration `20260917080000_birthday_lot_expiry_owner_rule.sql` is deliberately a
+comment-only placeholder until the patch is applied — writing the body first
+would repeat the mistake this bug is about. Not retroactive: the one birthday lot
+in existence was inserted by hand with an explicit expiry.
+
+**The repair script ran exactly once and is now self-refusing.** `audit_logs`
+holds a single `loyalty_lot_repair` row (2026-09-17 05:58:26 UTC,
+`consumed 4700, counter 0, live_lots 0`), the `BIRTHDAY-2026` lot exists (1 row),
+and `loyalty_lot_consumption` holds 4 rows against redemption
+`be433cb3` totalling **4,700**. Those are precisely the objects
+`docs/sql/20260917_loyalty_lot_repair_CJ-2026-03608.sql` checks for before doing
+anything, so a second run refuses rather than double-crediting — which is what a
+guarded repair script is for.
 
 **The whole fleet was audited for the same failure mode, not just these two.**
 A `pg_proc.prosrc` census on 2026-09-17 found **17** functions whose live body
