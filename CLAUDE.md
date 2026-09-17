@@ -689,7 +689,7 @@ To add a new screenshot for any Help section:
 
   Current plans:
     3M  → no minimum, LOW risk
-    6M  → no minimum, LOW risk
+    6M  → min ¥25,000 / ₱10,500, LOW risk
     8M  → min ¥300,000 / ₱126,000, MODERATE risk
     10M → min ¥600,000 / ₱252,000, HIGH risk
     12M → min ¥1,000,000 / ₱420,000, CRITICAL risk
@@ -2289,6 +2289,27 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   use `payment_plan_months` to identify the final installment for the
   ₱3,000 / ¥6,000 final-month penalty cap and forfeiture logic. This is
   the intended design.
+
+### Changing the plan (the ONLY path)
+  change-payment-plan (edge fn, permission 'change_payment_plan' — admin +
+  per-user override) → public.change_payment_plan_atomic. Manage Invoice
+  (EditAccountDialog) is its only caller. Rules, all enforced in SQL:
+  active/overdue accounts only; new plan 3, 6 or 8 months (10/12 not launched);
+  reason required; refused while a payment submission is submitted /
+  under_review / needs_clarification. FIXED rows (payment, partial/paid status,
+  penalty_amount, penalty_fees, waiver request, allocation, carry-over either
+  way) must be installments 1..k and are never touched. Rows k+1..N get
+  (total − downpayment − fixed base) split floor + remainder-on-last, due
+  order_date + n months (same rule as the other four places). Open rows are
+  UPDATED IN PLACE (bypass app.bypass_immutable_schedule_cols), never
+  deleted and re-inserted, because deleting a layaway_schedule row CASCADES to
+  payment_allocations, penalty_fees, penalty_waiver_requests and
+  csr_notifications. Rows above N are deleted only when shortening (the
+  preview reports the CSR notifications that go with them). Writes
+  payment_plan_months + end_date, one audit_logs 'change_payment_plan' row
+  and schedule_audit_log rows per changed installment. apply=false = preview,
+  no writes. restructure-account is NOT a plan-change path (orphan; see
+  OPEN-BUGS).
 
 ### NEVER derive plan length from the schedule
   - `MAX(installment_number)` over non-cancelled rows is NOT the source.

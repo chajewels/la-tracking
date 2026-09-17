@@ -760,3 +760,9 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   `pending | approved | rejected | auto_unwaived`.
 - `penalty_waiver_requests.auto_unwaived_at` (timestamptz, nullable) — stamped
   when penalty-engine reinstates a penalty past its grace window.
+- Deleting a `layaway_schedule` row CASCADES to `payment_allocations`,
+  `penalty_fees`, `penalty_waiver_requests` and `csr_notifications`
+  (`reminder_logs.schedule_id` is SET NULL). UNIQUE
+  (account_id, installment_number) covers cancelled rows too. Any operation
+  that reshapes a schedule must update rows in place rather than
+  delete + re-insert.

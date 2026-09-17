@@ -1937,6 +1937,23 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #278 — Change payment plan from Manage Invoice (2026-09-17)
+
+Feature, not a bug fix. `payment_plan_months` had no post-creation change path:
+`add-installment`/`delete-installment` deliberately never touch it, and
+`restructure-account` is an orphan that would fail on its first call (see
+OPEN-BUGS). Staff had to re-create the account.
+
+`change-payment-plan` (edge fn, permission `change_payment_plan`) wraps
+`public.change_payment_plan_atomic`, which holds every rule: active/overdue
+only, 3/6/8 months, reason required, refused while a submission is pending.
+Installments carrying a payment or penalty must be 1..k and are never touched;
+k+1..N are rewritten in place — never deleted and re-inserted, because deleting
+a `layaway_schedule` row cascades to allocations, penalties, waiver requests and
+CSR notifications. `apply=false` previews without writing. Migration
+`supabase/migrations/20260917030000_change_payment_plan.sql` (record-only —
+applied live via the SQL Editor).
+
 ### Bug #277 — loyalty enrollment tracking gaps: portal signups invisible, sheet rows duplicated, storefront joins enrolled nobody (2026-09-17)
 Three separate gaps in how a member's enrollment was recorded, all found together.
 

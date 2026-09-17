@@ -5829,6 +5829,16 @@ export type Database = {
         }
         Returns: Json
       }
+      change_payment_plan_atomic: {
+        Args: {
+          p_account_id: string
+          p_apply?: boolean
+          p_new_months: number
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       check_customer_email_conflict: {
         Args: { p_customer_id: string }
         Returns: string
