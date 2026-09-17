@@ -2,6 +2,23 @@
 
 **2026-09-17, read-only.** Nothing was changed. No DB writes, no deploys.
 
+> **RESOLVED the same day.** Every drifted and live-only body found below is now
+> recorded in `supabase/migrations/` — `20260917070000_record_live_loyalty_fixes.sql`,
+> `20260917070100_record_live_only_functions.sql`,
+> `20260917070200_record_live_drifted_functions.sql`, and
+> `20260917070300_record_drop_validate_schedule_start_year.sql` for the one
+> repo-only leftover. (`expire_transfer_orders`, the other repo-only name, was
+> already dropped by `20260913050000`.) Re-running the census afterwards returns
+> **zero rows in all three buckets**: 163 functions, digest
+> `b6c6d5f1a172f9c3412d220661434861`. The census is now re-runnable —
+> `scripts/function-drift-audit`, documented in `docs/SCHEMA-FACTS.md` — and the
+> rule it enforces is CLAUDE.md *"FUNCTION CHANGES START FROM LIVE"*.
+> One caveat carried forward: `approve_redemption_atomic` and
+> `_award_birthday_reward` are defined by
+> `20260917070000_relot_wire_redemption_and_birthday.sql` (applied ~06:10), which
+> **changed the birthday-lot expiry rule** relative to the hand patch it landed on
+> top of — see docs/FIXED-BUGS.md #280.
+
 > **CORRECTED by `DIFF-FINDINGS.md` (same day, same directory).** The section below
 > reads the negative-Δ functions as "the repo is ahead of live … a shipped migration
 > may not be running". That is wrong. The line-level diffs show the negative Δ is

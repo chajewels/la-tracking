@@ -1098,8 +1098,16 @@ When completing a partially_paid month:
     row's paid_amount from remaining non-voided allocations — a voided
     excess-bearing DP therefore reverses its Month 1+ allocation
     automatically. No void-path change was needed.
-    audit_account no longer subtracts DP overage from v_sum_pending
-    (the excess now lives in schedule rows and is already counted).
+    audit_account still subtracts DP overage from v_sum_pending, but
+    only the UNALLOCATED portion — GREATEST(0, overage - v_dp_allocated),
+    where v_dp_allocated is summed from payment_allocations over the DP
+    payments. Post-#250 the excess lives in schedule rows and is already
+    counted, so that term normally evaluates to 0 and the outcome matches
+    "no longer subtracts"; the mechanism does not, and the difference
+    matters to anyone reading or rebuilding the function. (The
+    v_dp_allocated refinement is SQL-Editor-only work on top of Bug #233;
+    its live body is recorded in
+    supabase/migrations/20260917070200_record_live_drifted_functions.sql.)
     See Bug #160 (edit-payment-amount guard) and Bug #250 in
     docs/FIXED-BUGS.md.
 
@@ -2777,6 +2785,54 @@ irrelevant. Purpose: faithful fresh rebuilds (local dev, staging bootstrap)
 and an in-repo source of truth. Any future schema change to the live DB must
 be added as a NEW migration file in `supabase/migrations/` alongside the
 baseline (do not edit the baseline in place).
+
+### FUNCTION CHANGES START FROM LIVE — NON-NEGOTIABLE (added 2026-09-17, Bug #280)
+
+The repo is a RECORD of the database's functions. It is not the definition of
+them. Three rules follow, and none of them is optional.
+
+**1. Never rebuild a function body from the repo.** Not from the
+`20260705230000` baseline, not from an earlier migration, not from a snapshot in
+`docs/sql/`. Start from what live actually runs:
+
+    SELECT pg_get_functiondef(p.oid)
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = '<fn>';
+
+Where the change is small, prefer an **md5-guarded in-place patch** over a
+`CREATE OR REPLACE` of the whole body: assert the live md5 first and abort if it
+has moved, so a body that changed under you stops the patch instead of being
+silently overwritten. Where a full replace is unavoidable, reconstruct the
+intended body with your own edits reversed, md5 it, and require it to equal live
+before writing the migration. Any difference means live carries something the
+repo has never seen — stop and find out what.
+
+**2. A SQL Editor change to a function body gets a record-only migration in the
+same session.** This is the corollary above, restated because it is the step
+that keeps getting skipped. A record-only migration is a plain
+`CREATE OR REPLACE` of the body exactly as live has it, headed with the capture
+timestamp, the md5 and the reason; replaying it is a no-op. Reference files:
+`20260917070000_record_live_loyalty_fixes.sql`,
+`20260917070100_record_live_only_functions.sql`,
+`20260917070200_record_live_drifted_functions.sql`.
+
+**3. Run the drift audit before writing any migration that redefines a
+function.** `scripts/function-drift-audit` prints a read-only SQL query; paste it
+into the SQL Editor. Zero rows means live and the repo agree about every
+function. Its three buckets:
+
+    a_differs     same name, different body  — the repo will revert live
+    b_live_only   live has it, the repo does not — a rebuild loses it entirely
+    c_repo_only   the repo has it, live does not — a dropped function still recorded
+
+The comparator is `pg_proc.prosrc` with whitespace collapsed, NOT
+`pg_get_functiondef`: the latter canonicalises headers and reports drift on
+every hand-written migration. Comment-only differences are real rows and are
+worth clearing anyway — a body that differs at all is a body nobody can diff at
+a glance.
+
+The full census on 2026-09-17 found **17 (a) + 15 (b) + 2 (c)**. All 32 live
+bodies are now recorded and all three buckets are 0. Keep them there.
 
 
 Known pre-existing quirk (NOT from this work): fc_cohort_timeline.collection_rate

@@ -794,3 +794,72 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   must also return the stock — nothing decrements stock for a claim today
   (0 rows, and no `%claim%` function exists for this table), so there is
   nothing to give back yet.
+
+## Function drift audit — `scripts/function-drift-audit` (added 2026-09-17, Bug #280)
+
+Answers one question: **does every function live runs match what the repo says it
+is?** Run it before writing any migration that redefines a function, and after
+any SQL Editor session that touched one. See CLAUDE.md *"FUNCTION CHANGES START
+FROM LIVE"* for why this is not optional.
+
+```
+python3 scripts/function-drift-audit          # prints the query to stdout
+python3 scripts/function-drift-audit > /tmp/audit.sql
+```
+
+It reads `supabase/migrations/` in filename order, collects every
+`CREATE [OR REPLACE] FUNCTION public.<name>` and every `DROP FUNCTION`, keeps
+the **last** definition of each name (a later `DROP` removes it), normalises each
+body (`\s+` → one space, trimmed), md5s it, and emits a single **read-only**
+`SELECT` with those hashes embedded as `VALUES`. Nothing is written and no
+connection is made — paste the output into the Supabase SQL Editor.
+
+**Zero rows = live and the repo agree.** Otherwise each row carries a bucket:
+
+| bucket | meaning | what it costs |
+|---|---|---|
+| `a_differs` | same name, different body | the next rebuild from the repo REVERTS live |
+| `b_live_only` | live has the function, the repo does not | a rebuild loses it entirely |
+| `c_repo_only` | the repo has it, live does not | a dropped function still recorded (usually benign) |
+
+**The comparator is `pg_proc.prosrc`, whitespace-collapsed — not
+`pg_get_functiondef`.** `pg_get_functiondef` canonicalises the header (argument
+defaults, `SET search_path TO 'public'` quoting, `RETURNS` spelling), so it
+reports drift against every hand-written migration and the signal drowns. `prosrc`
+is the body as stored. Comment-only differences still show as rows; clear them
+anyway — a body that differs at all cannot be diffed at a glance.
+
+Two limits, both deliberate:
+
+- **Name-keyed, not signature-keyed.** Overloads collapse to one row. The fleet
+  has none as of 2026-09-17 (the `revoke_loyalty_points` 9-arg twin was dropped —
+  CLAUDE.md loyalty rule 13), and if one appears the bucket will read as a false
+  `a_differs`, which is the safe direction to fail.
+- **Extension functions are excluded** (`pg_depend … deptype = 'e'`), so pgmq,
+  pg_cron and friends never appear.
+
+Shortcut for a clean/not-clean answer in one row, when the full listing is not
+needed — compare digests of the whole map instead of 163 rows:
+
+```sql
+WITH live AS (
+  SELECT p.proname AS name,
+         substr(md5(btrim(regexp_replace(p.prosrc, '\s+', ' ', 'g'))), 1, 12) AS md5
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.prokind IN ('f','p')
+     AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+)
+SELECT count(*), md5(string_agg(name || ':' || md5, chr(10) ORDER BY name)) FROM live;
+```
+
+The repo-side digest is `md5` of the same `name:md5` lines, sorted, joined by
+newline — build it from the `VALUES` block the script prints. Equal digests mean
+all three buckets are 0.
+
+**Baseline, 2026-09-17:** 163 functions, digest
+`b6c6d5f1a172f9c3412d220661434861`, all buckets 0. The census that produced it
+found 17 `a_differs`, 15 `b_live_only` and 2 `c_repo_only`; the live bodies are
+recorded in `20260917070000_record_live_loyalty_fixes.sql`,
+`20260917070100_record_live_only_functions.sql`,
+`20260917070200_record_live_drifted_functions.sql` and
+`20260917070300_record_drop_validate_schedule_start_year.sql`.
