@@ -1937,6 +1937,72 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #280 — redemption stopped consuming point lots; the birthday bonus never created one (2026-09-17)
+
+Two faults, found together on the one member who hit both.
+
+**(a) `approve_redemption_atomic` lost its `consume_lots_fifo` call.** The
+lot-wiring was applied live in the SQL Editor on 2026-07-05 and never committed
+as a migration. The repo baseline `20260705230000` — generated the same day —
+does not contain it. On 2026-09-12, `20260912000000_redemption_closed_order_guard.sql`
+rebuilt the function, its header reasoning *"Body copied verbatim from the live
+baseline … no later migration redefines this function"*. True, and not evidence:
+a SQL Editor session had. The rebuild silently reverted the live function to a
+body with no lot consumption. `consume_lots_fifo` was left with **zero callers**.
+
+The window is exact. Every confirmed redemption from 2026-07-14 to 2026-09-11 —
+23 of them — consumed precisely its points from lots (1,770/1,770 … 16,740/16,740).
+The first redemption after the migration, 2026-09-17, consumed **0**.
+
+The symmetry proves the mechanism: the baseline is *also* missing
+`restore_lots_for_redemption` in `void_redemption_atomic`, yet live void still
+calls it — because no migration ever rebuilt void. The function rebuilt from the
+bad baseline lost its wiring; its twin, left alone, kept it.
+
+**(b) `_award_birthday_reward` creates no lot.** It increments
+`remaining_points` and `total_points_earned` and writes the ledger row, and
+never touches `loyalty_point_lots`. Hers is the only `birthday_bonus`
+transaction in the system's history, so the path had never run before.
+
+**Casualty: one member, caught on the first occurrence.** Aileen Gabiola
+(CJ-2026-03608). Birthday bonus +500 at 2026-09-16 23:08 → counter 4,700 vs
+lots 4,200. Redemption of 4,700 against invoice 19720 approved 2026-09-17
+00:07 → counter 0, lots still 4,200, no `loyalty_lot_consumption` rows. A
+fleet-wide census found no other member with `remaining_points <> SUM(live lots)`.
+
+**Customer-visible symptom, and it is the inverse of the obvious reading.** Both
+the portal and the storefront read the counter (`remaining_points`), which is
+correct at 0 — she genuinely spent every point. Only `MemberCard`'s expiry line
+reads the lots, so her card said *"0 points"* above *"Your 4,200 points expire
+on 2027-02-16"*.
+
+**Fix — the order is load-bearing.** Migration `20260917070000` does three
+things in one change: re-wires approve to `consume_lots_fifo`; lot-wires
+`_award_birthday_reward`; adds predicate 6 to `loyalty_integrity_report`
+(per-redemption `SUM(loyalty_lot_consumption.amount)` vs `points_redeemed`,
+for redemptions processed on or after the 2026-07-05 wiring). Re-wiring approve
+*alone* would be worse than the bug: `consume_lots_fifo` RAISES
+`insufficient lot balance` rather than under-consuming, and the approve gate
+checks the counter — which includes lot-less bonus points. The next member
+holding a birthday bonus would pass the gate and then hard-abort. Her own
+redemption would have been refused this morning.
+
+**Data repair:** `docs/sql/20260917_loyalty_lot_repair_CJ-2026-03608.sql` —
+guarded, one transaction, brings the LOTS to the ledger and not the counter to
+the lots. The counter already matches the ledger; recomputing it from lots would
+return 4,200 points she has spent. Records the full **4,700** of consumption,
+not 4,200, because `restore_lots_for_redemption` reads those rows and a short
+record re-drifts on any future void. Writes no ledger row and no counter change
+— the tell that it is a derived-data repair, and the structural difference from
+the #19751 correction, where the ledger itself was short.
+
+**Never void 19720 to fix this.** `void_redemption_atomic` restores from the
+consumption rows (none) while crediting the counter the full 4,700 — turning a
+−4,200 drift into +4,700.
+
+Two blind spots this leaves are filed, not fixed — see docs/OPEN-BUGS.md
+"loyalty lot drift the balance check cannot see".
+
 ### #279 — Manage Invoice total edits never updated the loyalty amount (2026-09-17)
 
 #19751's total was raised from ¥120,980 to ¥304,960 in Manage Invoice (audit
