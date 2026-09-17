@@ -2119,6 +2119,13 @@ comment-only placeholder until the patch is applied — writing the body first
 would repeat the mistake this bug is about. Not retroactive: the one birthday lot
 in existence was inserted by hand with an explicit expiry.
 
+**DONE 2026-09-17:** Cynthia applied the guarded patch; the birthday-lot expiry is
+back to the owner's rule (live md5 `96836e0399ccbb0c25cbdb691c1630ae`, 3104
+bytes) and the live body is recorded in
+`20260917080000_birthday_lot_expiry_owner_rule.sql`. The drift audit is clean
+again — 163 functions, digest `4ae6079382158e5d1bf5ff7379cc2d38`, all three
+buckets 0.
+
 **The repair script ran exactly once and is now self-refusing.** `audit_logs`
 holds a single `loyalty_lot_repair` row (2026-09-17 05:58:26 UTC,
 `consumed 4700, counter 0, live_lots 0`), the `BIRTHDAY-2026` lot exists (1 row),
