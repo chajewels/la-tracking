@@ -42,6 +42,8 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
+import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
@@ -504,8 +506,10 @@ export default function CashOrderDetail() {
   }, [order, editExpiryValue, qc, id]);
 
   // Manage Invoice dialog — admin-only total_amount correction (encode fixes).
-  // Mirrors the layaway EditAccountDialog Manage Invoice flow. Loyalty
-  // (loyalty_jpy_amount) is NEVER touched; total_paid is NEVER modified.
+  // Mirrors the layaway EditAccountDialog Manage Invoice flow. The loyalty
+  // amount is editable here with edit_loyalty_amount until the order earns
+  // points (trg_guard_loyalty_jpy_amount) — owner decision 2026-09-17. Loyalty
+  // points themselves are never recalculated here; total_paid is NEVER modified.
   const [manageOpen, setManageOpen] = useState(false);
   const [manageTotal, setManageTotal] = useState('');
   const [manageSaving, setManageSaving] = useState(false);
@@ -517,6 +521,10 @@ export default function CashOrderDetail() {
   const [manageDiscountMode, setManageDiscountMode] = useState<'amount' | 'percent'>(order?.discount_type === 'percent' ? 'percent' : 'amount');
   const [manageDiscountInput, setManageDiscountInput] = useState('');
   const [manageShippingInput, setManageShippingInput] = useState('');
+  const [manageLoyaltyInput, setManageLoyaltyInput] = useState('');
+  const canEditLoyalty = can('edit_loyalty_amount');
+  const { data: manageLoyaltyAward, isLoading: manageLoyaltyAwardLoading } =
+    useOrderLoyaltyAward('cash', order?.id, manageOpen);
 
   // Items subtotal (line items are stored in JPY) → order currency.
   const manageItemsSubtotalJpy = (orderItems ?? []).reduce((s, li) => s + (Number(li.line_total_jpy) || Number(li.unit_price_jpy) * Number(li.quantity)), 0);
@@ -535,6 +543,7 @@ export default function CashOrderDetail() {
     setManageDiscountMode(order.discount_type === 'percent' ? 'percent' : 'amount');
     setManageDiscountInput(order.discount_type ? String(order.discount_value ?? '') : '');
     setManageShippingInput(order.shipping_fee ? String(order.shipping_fee) : '');
+    setManageLoyaltyInput(order.loyalty_jpy_amount == null ? '' : String(Number(order.loyalty_jpy_amount)));
     setManageOpen(true);
   }, [order]);
 
@@ -564,7 +573,26 @@ export default function CashOrderDetail() {
         nextDiscountType !== (order.discount_type ?? null) ||
         nextDiscountValue !== (order.discount_value ?? null);
       const shippingChanged = manageShippingFee !== Number(order.shipping_fee || 0);
-      if (!totalChanged && !discountChanged && !shippingChanged && !dateChanged) {
+      // Loyalty Product Amount (JPY) — only with edit_loyalty_amount, only before points are earned.
+      const originalLoyalty = order.loyalty_jpy_amount == null ? null : Number(order.loyalty_jpy_amount);
+      let nextLoyalty: number | null = originalLoyalty;
+      let loyaltyChanged = false;
+      if (canEditLoyalty && !manageLoyaltyAward?.awarded) {
+        const loyaltyTrim = manageLoyaltyInput.trim();
+        nextLoyalty = loyaltyTrim === '' ? null : Math.round(Number(loyaltyTrim));
+        if (nextLoyalty !== null && (!Number.isFinite(nextLoyalty) || nextLoyalty < 0)) {
+          toast.error('Enter a valid loyalty amount');
+          setManageSaving(false);
+          return;
+        }
+        if (loyaltyTier && (nextLoyalty === null || nextLoyalty <= 0)) {
+          toast.error('Loyalty Product Amount (JPY) is required for loyalty members');
+          setManageSaving(false);
+          return;
+        }
+        loyaltyChanged = nextLoyalty !== originalLoyalty;
+      }
+      if (!totalChanged && !discountChanged && !shippingChanged && !dateChanged && !loyaltyChanged) {
         setManageOpen(false);
         setManageSaving(false);
         return;
@@ -587,6 +615,7 @@ export default function CashOrderDetail() {
         shipping_fee: manageShippingFee,
         order_date: nextOrderDate,
       };
+      if (loyaltyChanged) updatePayload.loyalty_jpy_amount = nextLoyalty;
       if (!isAdmin) {
         delete (updatePayload as any).total_amount;
         delete (updatePayload as any).remaining_balance;
@@ -614,8 +643,14 @@ export default function CashOrderDetail() {
             total_amount: Number(order.total_amount),
             remaining_balance: Number(order.remaining_balance),
             order_date: String(order.order_date).slice(0, 10),
+            loyalty_jpy_amount: originalLoyalty,
           },
-          new_value_json: { total_amount: newTotal, remaining_balance, order_date: nextOrderDate },
+          new_value_json: {
+            total_amount: newTotal,
+            remaining_balance,
+            order_date: nextOrderDate,
+            ...(loyaltyChanged ? { loyalty_jpy_amount: nextLoyalty } : {}),
+          },
           performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
         });
       } catch { /* non-blocking */ }
@@ -632,7 +667,7 @@ export default function CashOrderDetail() {
     } finally {
       setManageSaving(false);
     }
-  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, isAdmin, qc, id]);
+  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, manageLoyaltyInput, canEditLoyalty, manageLoyaltyAward, loyaltyTier, isAdmin, qc, id]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -2133,7 +2168,7 @@ export default function CashOrderDetail() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Correct the total for cash order #{order.invoice_number}. This does
-            not change the amount paid or loyalty.
+            not change the amount paid or any points already awarded.
           </p>
           <div className="space-y-2">
             <Label htmlFor="manage-order-date">Order Date</Label>
@@ -2171,6 +2206,24 @@ export default function CashOrderDetail() {
               <span>Paid</span>
               <span className="tabular-nums">{formatCurrency(Number(order.total_paid), currency)}</span>
             </div>
+          </div>
+
+          {/* Loyalty Product Amount (JPY) */}
+          <div className="border-t border-border pt-3">
+            <LoyaltyAmountField
+              value={manageLoyaltyInput}
+              onChange={setManageLoyaltyInput}
+              required={!!loyaltyTier}
+              canEdit={canEditLoyalty}
+              award={manageLoyaltyAward}
+              awardLoading={manageLoyaltyAwardLoading}
+              suggestedJpy={(() => {
+                const t = parseFloat(manageTotal);
+                const base = (Number.isFinite(t) ? t : Number(order.total_amount)) - manageShippingFee;
+                if (!(base > 0)) return null;
+                return currency === 'PHP' ? Math.round(base / getConversionRate()) : Math.round(base);
+              })()}
+            />
           </div>
 
           {/* Discount & Shipping (descriptive — Model 1: does not auto-change

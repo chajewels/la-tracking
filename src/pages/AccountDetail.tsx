@@ -1234,6 +1234,8 @@ export default function AccountDetail() {
                   discount_type: account.discount_type,
                   discount_value: account.discount_value,
                   shipping_fee: Number(account.shipping_fee || 0),
+                  loyalty_jpy_amount: account.loyalty_jpy_amount == null ? null : Number(account.loyalty_jpy_amount),
+                  customer_id: account.customer_id,
                 }}
                 items={accountItems ?? []}
                 schedule={scheduleItems.map(s => ({

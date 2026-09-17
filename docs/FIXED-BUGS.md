@@ -1937,6 +1937,23 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #279 — Manage Invoice total edits never updated the loyalty amount (2026-09-17)
+
+#19751's total was raised from ¥120,980 to ¥304,960 in Manage Invoice (audit
+`update_account_details`, 2026-09-17 03:27). `loyalty_jpy_amount` stayed
+¥120,980, so the DP confirmation awarded **1,200 points instead of 3,000** and
+**¥120,980 of spend instead of ¥304,960**. Manage Invoice had no loyalty field at
+all — the cash dialog's own comment said loyalty was NEVER touched.
+
+Fix: `LoyaltyAmountField` in both dialogs (permission `edit_loyalty_amount`;
+locked once earned; total − shipping nudge), `useOrderLoyaltyAward`, and the DB
+guard `trg_guard_loyalty_jpy_amount` (migration
+`20260917050000_edit_loyalty_amount.sql`, record-only — applied live).
+
+OPEN: #19751 is still short **1,800 points / ¥183,980 spend**. The guard now
+refuses the edit on that order precisely because it has already earned, so it
+needs the order-linked correction path (Phase 2), not this field.
+
 ### #278 — Change payment plan from Manage Invoice (2026-09-17)
 
 Feature, not a bug fix. `payment_plan_months` had no post-creation change path:
