@@ -59,6 +59,7 @@ export type ActionKey =
   | 'add_service'
   | 'edit_schedule'
   | 'change_payment_plan'
+  | 'edit_loyalty_amount'
   | 'edit_invoice'
   | 'record_payment'
   | 'create_account'
@@ -95,6 +96,7 @@ const ACTION_ROLES: Record<ActionKey, AppRole[]> = {
   edit_schedule:         ['admin'],
   edit_invoice:          ['admin'],
   change_payment_plan:   ['admin'],
+  edit_loyalty_amount:   ['admin'],
   record_payment:        ['admin', 'staff', 'finance'],
   create_account:        ['admin', 'staff'],
   edit_customer:         ['admin', 'staff', 'csr'],

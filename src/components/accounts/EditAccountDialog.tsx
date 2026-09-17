@@ -15,6 +15,9 @@ import { formatCurrency } from '@/lib/calculations';
 import { getConversionRate } from '@/lib/currency-converter';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
+import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
+import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import type { Currency } from '@/lib/types';
 
 interface ScheduleItem {
@@ -62,6 +65,8 @@ interface EditAccountDialogProps {
     discount_type: string | null;
     discount_value: number | null;
     shipping_fee: number;
+    loyalty_jpy_amount: number | null;
+    customer_id: string;
   };
   schedule: ScheduleItem[];
   items?: Array<{ unit_price_jpy: number; line_total_jpy: number; quantity: number }>;
@@ -75,6 +80,10 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
   const isAdmin = (roles as any[]).includes('admin');
   const { can } = usePermissions();
   const canEditSchedule = can('edit_schedule');
+  const canEditLoyalty = can('edit_loyalty_amount');
+  const { data: loyaltyTier } = useCustomerLoyaltyTier(account.customer_id);
+  const { data: loyaltyAward, isLoading: loyaltyAwardLoading } = useOrderLoyaltyAward('layaway', account.id, open);
+  const [loyaltyInput, setLoyaltyInput] = useState('');
   const currency = account.currency as Currency;
 
   // Account fields
@@ -125,6 +134,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
     setDiscountMode(account.discount_type === 'percent' ? 'percent' : 'amount');
     setDiscountInput(account.discount_type ? String(account.discount_value ?? '') : '');
     setShippingInput(account.shipping_fee ? String(account.shipping_fee) : '');
+    setLoyaltyInput(account.loyalty_jpy_amount == null ? '' : String(account.loyalty_jpy_amount));
     setScheduleEdits({});
     setNewInstallments([]);
     setPlanChoice(account.payment_plan_months);
@@ -290,6 +300,21 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
       }
       if (orderDate && orderDate !== account.order_date) accountUpdates.order_date = orderDate;
       if (notes !== (account.notes || '')) accountUpdates.notes = notes || null;
+      // Loyalty Product Amount (JPY) — editable only with edit_loyalty_amount and
+      // only before the order has earned points (DB trigger enforces both).
+      if (canEditLoyalty && !loyaltyAward?.awarded) {
+        const loyaltyTrim = loyaltyInput.trim();
+        const nextLoyalty = loyaltyTrim === '' ? null : Math.round(Number(loyaltyTrim));
+        if (nextLoyalty !== null && (!Number.isFinite(nextLoyalty) || nextLoyalty < 0)) {
+          throw new Error('Enter a valid loyalty amount');
+        }
+        if (loyaltyTier && (nextLoyalty === null || nextLoyalty <= 0)) {
+          throw new Error('Loyalty Product Amount (JPY) is required for loyalty members');
+        }
+        if (nextLoyalty !== (account.loyalty_jpy_amount ?? null)) {
+          accountUpdates.loyalty_jpy_amount = nextLoyalty;
+        }
+      }
       const newDp = parseFloat(downpayment);
       if (!isNaN(newDp) && newDp !== account.downpayment_amount) {
         accountUpdates.downpayment_amount = Math.round(newDp * 100) / 100;
@@ -319,6 +344,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             order_date: account.order_date,
             notes: account.notes,
             downpayment_amount: account.downpayment_amount,
+            loyalty_jpy_amount: account.loyalty_jpy_amount,
           },
           new_value_json: accountUpdates,
           performed_by_user_id: userId || null,
@@ -553,6 +579,25 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                 className="text-sm bg-background resize-none"
                 placeholder="Account notes..."
                 disabled={isDisabledStatus}
+              />
+            </div>
+
+            {/* Loyalty Product Amount (JPY) */}
+            <div className="border-t border-border pt-4">
+              <LoyaltyAmountField
+                value={loyaltyInput}
+                onChange={setLoyaltyInput}
+                required={!!loyaltyTier}
+                canEdit={canEditLoyalty}
+                award={loyaltyAward}
+                awardLoading={loyaltyAwardLoading}
+                suggestedJpy={(() => {
+                  const t = parseFloat(totalAmount);
+                  const base = (Number.isFinite(t) ? t : account.total_amount) - shippingFee;
+                  if (!(base > 0)) return null;
+                  return currency === 'PHP' ? Math.round(base / getConversionRate()) : Math.round(base);
+                })()}
+                disabled={isDisabledStatus || planChangePending}
               />
             </div>
 

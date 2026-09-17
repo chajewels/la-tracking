@@ -34,6 +34,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'delete_account', label: 'Delete Account' },
       { key: 'edit_schedule', label: 'Edit Schedule' },
       { key: 'change_payment_plan', label: 'Change Payment Plan' },
+      { key: 'edit_loyalty_amount', label: 'Edit Loyalty Amount' },
       { key: 'edit_invoice', label: 'Edit Invoice' },
       { key: 'forfeit_account', label: 'Forfeit Account' },
       { key: 'reactivate_account', label: 'Reactivate Account' },

@@ -766,3 +766,8 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   (account_id, installment_number) covers cancelled rows too. Any operation
   that reshapes a schedule must update rows in place rather than
   delete + re-insert.
+- `trg_guard_loyalty_jpy_amount` (BEFORE UPDATE OF `loyalty_jpy_amount` on
+  `layaway_accounts` and `cash_orders`): signed-in users need
+  `has_permission(uid,'edit_loyalty_amount')`; refused once the order has an
+  `'earned'` `loyalty_transactions` row (`account_id` / `cash_order_id`).
+  `auth.uid() IS NULL` (service role) passes.
