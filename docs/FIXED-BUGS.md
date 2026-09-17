@@ -2276,6 +2276,30 @@ Three separate gaps in how a member's enrollment was recorded, all found togethe
 Fix: `loyalty_members.enrollment_source` (migration 20260917000000, applied live via the SQL Editor). Both enrollment functions now set it, write the 'enrolled' ledger row with the source named in its note, and — on a successful sheet POST — mark that row `synced_to_sheet_at` so the reconciler cannot append it again. `setup-customer-account` additionally gains the welcome email it never sent, non-blocking. Source hints come from `LoyaltyJoinPrompt` (portal_join), `shopify-webhook` (shopify_checkout) and the storefront (storefront_checkout / storefront_join); a customer-authenticated caller may only claim the three customer-facing values, so a forged `source` cannot pass itself off as an internal one. The storefront now enrolls through `join-loyalty-program` directly, and `website` POST /loyalty/join is demoted to the FAILURE fallback: it records the attempt and raises staff bell `loyalty_join_failed` so a human finishes the job.
 Backfill of the 46 missing 'enrolled' rows, and of `enrollment_source` for existing members, is run by Cynthia in the SQL Editor after the deploy.
 
+
+**Sheet cleanup (2026-09-17).** The Members tab is now correct, done by hand
+because neither gap was reachable by the reconciler.
+
+The **6 oldest backfilled members** — CJ-2026-05560, 05600, 05608, 05656, 05672
+and 05904 — were sent through `sync-loyalty-to-sheet` at 15:34 PHT. Their
+`enrolled` rows predated `loyalty-sheet-reconcile`'s 90-day window cap, so the
+hourly recovery path could never have reached them however long it ran. Each
+send is recorded in `audit_logs` with action `loyalty_sheet_manual_send` and its
+pg_net request_id; all six returned 200 and are confirmed present in the sheet.
+
+**34 duplicate Members-tab rows were deleted** — the `:07 PHT … "Enrolled in Cha
+Jewels Circle"` reconciler rows for Join-path enrollments between 2026-06-16 and
+2026-09-17 09:07 PHT, each of which already had a `"New enrollment"` row from the
+direct send. The sheet showed **34, not the 33** an earlier query predicted:
+one more member enrolled between the query and the cleanup, before the fix
+deployed. The count in the sheet is the authority.
+
+**CJ-2026-01808 (Rica Jhoe, 2026-07-22 21:07 PHT) was KEPT.** Her direct send
+failed, so the reconciler row is her ONLY row — deleting it as a duplicate would
+have removed her from the sheet entirely. Worth remembering as the shape of this
+cleanup's one trap: a reconciler row is a duplicate only when the direct row it
+duplicates actually exists.
+
 ### Bug #276 — #275's own helper broke the Deno gate, and develop shipped red through three merges (2026-09-15)
 Root cause: `_shared/item-images.ts` declared `ImageableLine` as an `interface`, and a TypeScript interface gets no implicit index signature. Both real callers pass loose DB rows typed `Record<string, unknown>`, so `website/index.ts` failed in BOTH directions at once — 4 × TS2345:
   - OUT (lines 1346, 1419): `ImageableLine[]` is not assignable to `AnyRec[]`, so the result could not be handed on to `withJapaneseTitles()`.

@@ -246,11 +246,11 @@ GRANT EXECUTE ON FUNCTION public.replace_customer_addresses(uuid, jsonb) TO serv
 --   create_web_order_atomic    md5(prosrc) fbd3766066f014271d7cf3b8dd7b1d14
 --   create_web_layaway_atomic  md5(prosrc) 678e6811b2e205a65f6b119bdf1b983e
 -- both matching the repo copies in 20260913023450_… and
--- 20260915120000_drop_settlement_due_at.sql. The PR description carries the
+-- 20260915120001_drop_settlement_due_at.sql. The PR description carries the
 -- diff; nothing else in either function changed.
 --
 -- create_web_layaway_atomic is re-created here as CREATE OR REPLACE, not the
--- DROP + CREATE that 20260915120000 used: the signature is unchanged, and a
+-- DROP + CREATE that 20260915120001 used: the signature is unchanged, and a
 -- DROP would take the grants with it. One signature stays one signature —
 -- the Bug #271 twin-overload trap is only ever sprung by changing the
 -- argument list, which this does not do.

@@ -298,11 +298,17 @@
 ## loyalty_integrity_report() (added 2026-09-13, Bug #269)
 
 Staff-only (role check inside the function). Returns one row per member whose
-figures disagree; an empty result means the ledger (`loyalty_transactions`
+figures disagree. A clean result means the ledger (`loyalty_transactions`
 net), the live lots (`loyalty_point_lots` remaining, not revoked/expired/
 consumed), the served counter (`loyalty_members.remaining_points`) and the tier
 (vs the tier implied by lifetime `cumulative_spend_jpy`, downgraded members
 excluded) all agree.
+
+**Clean is ONE row, not zero.** The live test fixture Test Customer
+(CJ-2026-05088) is a deliberately-kept baseline and always appears. Any other
+row is a real finding; any change to hers means a test run moved them. Exact
+expected values: docs/TEST-ACCOUNTS.md, "loyalty_integrity_report baseline
+(2026-09-17)".
 
 ```sql
 SELECT * FROM public.loyalty_integrity_report();

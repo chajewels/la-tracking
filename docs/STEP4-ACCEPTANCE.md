@@ -275,7 +275,7 @@ SELECT invoice_number, transfer_due_at, expires_at FROM cash_orders WHERE id = '
 | # | Step | Expected result |
 |---|---|---|
 | H1 | Every account created here carries a `TEST-` invoice | `invoice_number !~ '^[0-9]+$'` — none of it reaches a dashboard |
-| H2 | `SELECT * FROM loyalty_integrity_report();` | **exactly ONE row, and it must be unchanged** — Test Customer `CJ-2026-05088`, `spend_stored` 4430940 vs `spend_expected` 1350940, `terminal_order_spend` 701960. This is the deferred Bug #271 correction, not an acceptance failure. A SECOND row, or any change to this row's numbers, is a failure. |
+| H2 | `SELECT * FROM loyalty_integrity_report();` | **exactly ONE row, and it must be unchanged** — Test Customer `CJ-2026-05088`, `spend_stored` 4503920 vs `spend_expected` 1423920, `terminal_order_spend` 701960 (baseline re-measured 2026-09-17; the earlier 4430940 / 1350940 figures were superseded by test activity). This is the deferred Bug #271 correction, not an acceptance failure. A SECOND row, or any change to this row's numbers, is a failure. Full baseline: docs/TEST-ACCOUNTS.md. |
 | H3 | Stock levels back where they started for every expired plan | matches the pre-test reading |
 | H4 | Finance Overview and the Dashboard KPIs | unchanged by this test |
 
@@ -285,7 +285,8 @@ SELECT invoice_number, source_channel, status, total_paid
  WHERE customer_id = '4201767c-54e6-48d0-8c9e-c1b3c07a931e'
  ORDER BY created_at DESC;
 
-SELECT * FROM loyalty_integrity_report();   -- expect zero rows
+SELECT * FROM loyalty_integrity_report();   -- expect exactly ONE row: the
+                                           -- CJ-2026-05088 baseline (H2 above)
 ```
 
 ---

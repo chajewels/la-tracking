@@ -2209,8 +2209,12 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      (claim_loyalty_award / confirm / release RPCs) — the read-then-check in
      award-loyalty-points is no longer the guard. Every reversal is a ledger
      row (revoked = -remaining actually taken back), never a delete. Run
-     SELECT * FROM loyalty_integrity_report(); at any time — empty = ledger,
-     lots, counter and tier agree for every member.
+     SELECT * FROM loyalty_integrity_report(); at any time. A HEALTHY REPORT IS
+     EXACTLY ONE ROW, not zero: the live test fixture Test Customer
+     (CJ-2026-05088) is a documented, deliberately-kept baseline — see
+     docs/TEST-ACCOUNTS.md "loyalty_integrity_report baseline (2026-09-17)" for
+     its exact values. Any OTHER row is a real finding, and any change to HER
+     values means a test run moved them.
 
   13. POINTS AND SPEND ARE REVERSED FROM DIFFERENT SOURCES (2026-09-14, Bug #271).
      POINTS come from the surviving loyalty_point_lots — you can only take back
@@ -2785,6 +2789,10 @@ irrelevant. Purpose: faithful fresh rebuilds (local dev, staging bootstrap)
 and an in-repo source of truth. Any future schema change to the live DB must
 be added as a NEW migration file in `supabase/migrations/` alongside the
 baseline (do not edit the baseline in place).
+
+Every migration version (the 14-digit prefix) must be unique. Before adding a
+migration, run: `ls supabase/migrations | cut -c1-14 | sort | uniq -d` — it must
+print nothing.
 
 ### FUNCTION CHANGES START FROM LIVE — NON-NEGOTIABLE (added 2026-09-17, Bug #280)
 
