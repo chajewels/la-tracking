@@ -1937,6 +1937,82 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #282 — two fully-paid accounts never left 'active': 1e-12 of floating-point residue (2026-09-17)
+
+Invoices **18081** and **18546** were paid in full on 2026-07-04 (final payments
+03:02:40 and 02:59:49 UTC) and stayed `status = 'active'` with
+`completed_at` NULL, while `remaining_balance` already read 0.00.
+
+**Root cause — a float comparison, not a missing code path.** Before commit
+`136118dc` ("refactor(payments): delegate allocation to allocate_payment_atomic
+RPC", 2026-07-05 06:37 UTC), `review-payment-submission` summed the account's
+payments in JavaScript and tested `verifiedRemaining <= 0` with no rounding. The
+sums landed just short of the totals:
+
+| invoice | JS payment sum | total_amount | remaining |
+|---|---|---|---|
+| 18081 | 32332.999999999996 | 32333.00 | ~4e-12 |
+| 18546 | 13124.999999999998 | 13125.00 | ~2e-12 |
+
+Positive, so the completion branch never ran. The accounts were a day short of
+the cutover: `136118dc` moved the write path to `allocate_payment_atomic`, which
+computes `greatest(0, round(total + penalties - paid, 2))` and compares THAT, so
+the residue cannot survive the rounding. **The code defect is already fixed** —
+nothing in this bug required a function change, and none was made.
+
+**Scope: exactly these two.** A sweep over every account in a live status with
+all schedule rows paid and `remaining_balance <= 0.01` returned 18081 and 18546
+and nothing else, with no test-account filter applied.
+
+**No customer impact.** Both orders had already shipped, both customers had paid
+in full, and `remaining_balance` was 0.00 throughout — nothing was over-collected
+and no receivable was overstated. The defect was confined to the status label and
+a NULL `completed_at`.
+
+**No check caught it, and that is worth noting.** system-health-v2's Schedule
+Integrity tests `allPaid && remaining > 1` and `remaining <= 0 && pendingMonths > 0`.
+This state — zero balance, every row paid, still `active` — is neither, so it sat
+unreported. It surfaced only because it was noticed by eye while investigating
+#281.
+
+**Repair (applied live via the SQL Editor, 2026-09-17 07:02:24 UTC; recorded in
+`supabase/migrations/20260917090000_account_completion_repair_18081_18546.sql`).**
+Guarded per account: status `active`, `remaining_balance` 0,
+`total_paid = total_amount =` the non-voided payment sum, no schedule rows outside
+paid/cancelled, no non-waived penalties, no account services. Then status →
+`completed`, and `completed_at` set to each account's **last non-voided payment
+`created_at`** — not `now()`, because stamping today would drop two July
+completions into September's reporting. That takes two statements:
+`trigger_set_completed_at` is a BEFORE trigger that forces `completed_at = now()`
+on the transition, so the true timestamp is written back afterwards, when the
+status is already `completed` and neither trigger branch fires.
+
+**Verification:**
+
+| | 18081 | 18546 |
+|---|---|---|
+| status | completed | completed |
+| completed_at | 2026-07-04 03:02:40.611028+00 | 2026-07-04 02:59:49.062725+00 |
+| total_paid / total_amount / payment sum | 32333.00 / 32333.00 / 32333.00 | 13125.00 / 13125.00 / 13125.00 |
+| remaining_balance | 0.00 | 0.00 |
+| `account_completion_repair` audit rows | 1 | 1 |
+
+`SELECT count(*) FROM layaway_accounts WHERE status IN ('active','overdue') AND remaining_balance <= 0`
+returns **0**.
+
+**Carried in the same migration: the ₱0.74 allocation overage on 18081.** A
+separate defect on the same invoice, recorded there because it had no migration
+of its own — a search across every branch for `allocation_overage_repair` and
+both allocation ids returned nothing, because the block was pasted into the SQL
+Editor and never committed. The March 2026 bulk import allocated the centavo
+tails of installments 1 and 2 (₱0.14 and ₱0.60) a second time onto installment 3,
+putting 3792.38 of allocation against a 3791.64 ceiling. No money was wrong —
+`total_paid` comes from the payments table (INVARIANT 1) and read 32333.00
+throughout — but it was the only true finding among System Health's ten red
+criticals, and a permanently-red check is how a panel stops being read. Applied
+live 2026-09-17 06:57:51 UTC; 18081's allocation total is now 22342.53 and
+matches the schedule paid total.
+
 ### #281 — system-health-v2 failed open: 10 red criticals, 9 of them phantom (2026-09-17)
 
 Monitoring → Audit → System Health showed 10 of 24 checks failing, three of them
