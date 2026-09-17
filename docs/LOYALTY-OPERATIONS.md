@@ -32,8 +32,9 @@ Inspect the response (~10 seconds later). pg_net stops waiting after
 function keeps running. Confirm the outcome from
 `loyalty_transactions.synced_to_sheet_at`, not from this row alone. If rows
 inside the 30-day window are still unsynced, let the hourly :07 cron pick
-them up rather than re-triggering (a manual run overlapping the cron can
-append the same rows twice):
+them up instead of re-triggering, and never run a manual trigger between
+:05 and :10 past the hour — a manual run that overlaps the cron can append
+the same rows to the sheet twice:
 
 ```sql
 SELECT id, created, status_code, timed_out, error_msg, content
