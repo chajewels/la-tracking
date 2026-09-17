@@ -4,6 +4,45 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
+
+  Filed, not fixed — deliberately. Both are narrower than the fault they came
+  from and neither has a known occurrence.
+
+  **1. Two faults that cancel go silent.** Predicate 1
+  (`counter ≠ live lots`) compares totals. A bonus of N credited with no lot
+  (counter +N, lots +0) followed by a redemption of exactly N through an
+  unwired approve path (counter −N, lots +0) nets to zero drift and reports
+  nothing, even though neither event was recorded in the lots. The 2026-09-17
+  case was caught only because 500 and 4,700 did not cancel.
+
+  Predicate 6, added in 20260917070000, closes the redemption half of this:
+  a redemption whose consumption record is short is now a finding on its own
+  terms, regardless of what the balance does. The bonus half is still open —
+  nothing checks that every positive ledger row has a lot behind it.
+
+  **Fix pattern when someone takes it on:** a per-ledger-row predicate, the
+  mirror of predicate 6. For each `earned` / `bonus` / `birthday_bonus`
+  transaction after the lot model went live, require a lot whose
+  `original_amount` and `earned_at` match. Scope it by date the way predicate 6
+  does (`>= 2026-07-05`), because the migrated and backfilled rows before that
+  legitimately have no matching lot.
+
+  **2. Wrong-lot consumption — Bug #244's shape.** Predicate 1 is a balance
+  check: it cannot see a redemption that consumed the RIGHT TOTAL from the
+  WRONG lots. Bug #244 was exactly this (FIFO selecting a revoked lot), and it
+  was found by a hand-run cycle test, not by any standing check. The cost is
+  not the balance — it is the expiry clock: a customer can lose points early
+  because the wrong lot was spent.
+
+  **Fix pattern:** check `loyalty_lot_consumption` against the lot set
+  `consume_lots_fifo` would have chosen — every consumed lot must have been
+  open at the moment of consumption (`revoked_at`/`expired_at` null or later
+  than `consumed_at`), and no open lot with a sooner `expires_at` may have been
+  skipped. That is a per-consumption-row check and is more expensive than
+  predicates 1-6; it probably belongs in a periodic job rather than in
+  `loyalty_integrity_report`, which the Hub calls interactively.
+
 ### `anon` holds full table-level grants project-wide; only RLS stands between it and the data (found 2026-09-14)
 
   **Symptom.** `layaway_account_items` grants `anon`
