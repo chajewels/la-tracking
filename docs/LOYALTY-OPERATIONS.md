@@ -29,8 +29,11 @@ SELECT net.http_post(
 
 Inspect the response (~10 seconds later). pg_net stops waiting after
 ~5 s, so `timed_out = true` only means the caller stopped listening — the
-function keeps running. Confirm the outcome from `synced_to_sheet_at`, not
-from this row alone:
+function keeps running. Confirm the outcome from
+`loyalty_transactions.synced_to_sheet_at`, not from this row alone. If rows
+inside the 30-day window are still unsynced, let the hourly :07 cron pick
+them up rather than re-triggering (a manual run overlapping the cron can
+append the same rows twice):
 
 ```sql
 SELECT id, created, status_code, timed_out, error_msg, content
