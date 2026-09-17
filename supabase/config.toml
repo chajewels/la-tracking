@@ -109,6 +109,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.add-installment]
     verify_jwt = false
+  [functions.change-payment-plan]
+    verify_jwt = false
   [functions.add-service]
     verify_jwt = false
   [functions.adjust-loyalty-points]

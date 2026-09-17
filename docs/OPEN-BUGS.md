@@ -614,3 +614,10 @@
     Design question, not fixed.
 
 
+  - restructure-account (orphan, no UI caller) cancels unpaid schedule rows
+    and then INSERTs new rows with `installment_number = paid + 1` …
+    (index.ts ~L221–240). UNIQUE (account_id, installment_number) includes
+    cancelled rows, so the INSERT would fail on the first call. Not fixed —
+    the function has no caller. Use change-payment-plan for plan changes.
+    (found 2026-09-17)
+

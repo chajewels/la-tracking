@@ -26,6 +26,26 @@ interface ScheduleItem {
   paid_amount: number;
 }
 
+interface PlanPreviewRow {
+  installment_number: number;
+  due_date: string;
+  amount: number;
+  action?: 'update' | 'add';
+}
+
+interface PlanPreview {
+  current_months: number;
+  new_months: number;
+  kept_installments: number;
+  amount_to_spread: number;
+  new_rows: PlanPreviewRow[];
+  removed_rows: PlanPreviewRow[];
+  csr_notifications_removed: number;
+  new_end_date: string;
+}
+
+const PLAN_CHOICES = [3, 6, 8];
+
 interface EditAccountDialogProps {
   account: {
     id: string;
@@ -83,6 +103,18 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
   const [scheduleEdits, setScheduleEdits] = useState<Record<string, { due_date?: string; base_amount?: string }>>({});
   const [newInstallments, setNewInstallments] = useState<Array<{ due_date: string; base_amount: string }>>([]);
 
+  // Payment plan change — change-payment-plan edge fn → change_payment_plan_atomic.
+  // A plan change is saved on its own; while one is pending, every other edit is locked.
+  const canChangePlan = can('change_payment_plan');
+  const planEligible = ['active', 'overdue'].includes(account.status);
+  const [planChoice, setPlanChoice] = useState<number>(account.payment_plan_months);
+  const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
+  const [planPreviewError, setPlanPreviewError] = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planReason, setPlanReason] = useState('');
+  const [planApplying, setPlanApplying] = useState(false);
+  const planChangePending = planChoice !== account.payment_plan_months;
+
   const resetForm = useCallback(() => {
     setTotalAmount(String(account.total_amount));
     setOrderDate(account.order_date);
@@ -94,6 +126,10 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
     setShippingInput(account.shipping_fee ? String(account.shipping_fee) : '');
     setScheduleEdits({});
     setNewInstallments([]);
+    setPlanChoice(account.payment_plan_months);
+    setPlanPreview(null);
+    setPlanPreviewError(null);
+    setPlanReason('');
   }, [account]);
 
   const handleOpen = (isOpen: boolean) => {
@@ -159,7 +195,57 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
     return (error as any)?.message || 'Request failed';
   };
 
+  const selectPlan = async (months: number) => {
+    setPlanChoice(months);
+    setPlanPreview(null);
+    setPlanPreviewError(null);
+    if (months === account.payment_plan_months) return;
+    // Discard any other pending edits — a plan change is saved on its own.
+    setTotalAmount(String(account.total_amount));
+    setDownpayment(String(account.downpayment_amount));
+    setScheduleEdits({});
+    setNewInstallments([]);
+    setPlanLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('change-payment-plan', {
+        body: { account_id: account.id, new_months: months, apply: false },
+      });
+      if (error || (data as any)?.error) throw new Error(await fnErrorMessage(error, data));
+      setPlanPreview(data as PlanPreview);
+    } catch (err: any) {
+      setPlanPreviewError(err.message || 'Could not preview this plan');
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const applyPlanChange = async () => {
+    if (!planPreview || !planReason.trim()) return;
+    const ok = window.confirm(
+      `Change invoice #${account.invoice_number} from ${account.payment_plan_months} to ${planChoice} months? The unpaid installments will be rewritten.`,
+    );
+    if (!ok) return;
+    setPlanApplying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('change-payment-plan', {
+        body: { account_id: account.id, new_months: planChoice, reason: planReason.trim(), apply: true },
+      });
+      if (error || (data as any)?.error) throw new Error(await fnErrorMessage(error, data));
+      queryClient.invalidateQueries({ queryKey: ['account', account.id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['schedule', account.id] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      toast.success(`Payment plan changed to ${planChoice} months`);
+      setOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to change the payment plan');
+    } finally {
+      setPlanApplying(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (planChangePending) return;
     setSaving(true);
     try {
       const user = (await supabase.auth.getUser()).data.user;
@@ -377,7 +463,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                   value={totalAmount}
                   onChange={(e) => { setTotalAmount(e.target.value); recalcInstallments(e.target.value, downpayment); }}
                   readOnly={!isAdmin}
-                  disabled={!isAdmin || isDisabledStatus}
+                  disabled={!isAdmin || isDisabledStatus || planChangePending}
                   className={`h-9 text-sm tabular-nums ${isAdmin ? 'bg-background' : 'bg-muted cursor-not-allowed'}`}
                   title={isAdmin ? undefined : 'Only admins can edit total_amount. Use Add/Delete Installment otherwise.'}
                 />
@@ -395,7 +481,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                   value={downpayment}
                   onChange={(e) => { setDownpayment(e.target.value); recalcInstallments(totalAmount, e.target.value); }}
                   className="h-9 text-sm bg-background tabular-nums"
-                  disabled={isDisabledStatus}
+                  disabled={isDisabledStatus || planChangePending}
                 />
               </div>
               <div>
@@ -410,11 +496,35 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Payment Plan</Label>
-                <Input
-                  value={`${account.payment_plan_months} months`}
-                  disabled
-                  className="h-9 text-sm bg-muted"
-                />
+                {canChangePlan && planEligible ? (
+                  <Select
+                    value={String(planChoice)}
+                    onValueChange={(v) => selectPlan(Number(v))}
+                    disabled={planLoading || planApplying}
+                  >
+                    <SelectTrigger className="h-9 text-sm bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!PLAN_CHOICES.includes(account.payment_plan_months) && (
+                        <SelectItem value={String(account.payment_plan_months)}>
+                          {account.payment_plan_months} months (current)
+                        </SelectItem>
+                      )}
+                      {PLAN_CHOICES.map((m) => (
+                        <SelectItem key={m} value={String(m)}>
+                          {m} months{m === account.payment_plan_months ? ' (current)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={`${account.payment_plan_months} months`}
+                    disabled
+                    className="h-9 text-sm bg-muted"
+                  />
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Currency</Label>
@@ -559,12 +669,94 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             </div>
           </div>
 
+          {/* Payment Plan Change (preview → reason → confirm) */}
+          {canChangePlan && planEligible && planChangePending && (
+            <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-card-foreground">
+                  Plan change: {account.payment_plan_months} → {planChoice} months
+                </h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => selectPlan(account.payment_plan_months)}
+                  disabled={planApplying}
+                >
+                  Cancel plan change
+                </Button>
+              </div>
+              {planLoading && <p className="text-xs text-muted-foreground">Loading preview…</p>}
+              {planPreviewError && <p className="text-xs text-destructive">{planPreviewError}</p>}
+              {planPreview && (
+                <>
+                  <p className="text-[11px] text-muted-foreground">
+                    {planPreview.kept_installments === 0
+                      ? 'No installment carries a payment or penalty, so every installment is re-planned.'
+                      : `Installments 1–${planPreview.kept_installments} carry payments or penalties and stay as they are.`}
+                    {' '}{formatCurrency(planPreview.amount_to_spread, currency)} is spread over the rest.
+                    {' '}New end date: {planPreview.new_end_date}.
+                  </p>
+                  <div className="space-y-1">
+                    {planPreview.new_rows.map((r) => (
+                      <div
+                        key={`plan-${r.installment_number}`}
+                        className="grid grid-cols-[2rem_1fr_7rem_4rem] gap-2 items-center text-xs px-2 py-1 rounded border border-border bg-background"
+                      >
+                        <span className="font-bold text-muted-foreground text-center">{r.installment_number}</span>
+                        <span>{r.due_date}</span>
+                        <span className="tabular-nums text-right">{formatCurrency(r.amount, currency)}</span>
+                        <span className="text-[10px] text-muted-foreground text-center">{r.action === 'add' ? 'new' : 'updated'}</span>
+                      </div>
+                    ))}
+                    {planPreview.removed_rows.map((r) => (
+                      <div
+                        key={`plan-rm-${r.installment_number}`}
+                        className="grid grid-cols-[2rem_1fr_7rem_4rem] gap-2 items-center text-xs px-2 py-1 rounded border border-destructive/30 bg-destructive/5 text-destructive"
+                      >
+                        <span className="font-bold text-center">{r.installment_number}</span>
+                        <span className="line-through">{r.due_date}</span>
+                        <span className="tabular-nums text-right line-through">{formatCurrency(r.amount, currency)}</span>
+                        <span className="text-[10px] text-center">removed</span>
+                      </div>
+                    ))}
+                  </div>
+                  {planPreview.csr_notifications_removed > 0 && (
+                    <p className="text-[11px] text-destructive">
+                      {planPreview.csr_notifications_removed} CSR notification(s) on the removed installments will be deleted with them.
+                    </p>
+                  )}
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Reason (required)</Label>
+                    <Textarea
+                      value={planReason}
+                      onChange={(e) => setPlanReason(e.target.value)}
+                      rows={2}
+                      className="text-sm bg-background resize-none"
+                      placeholder="Why is the payment plan changing?"
+                      disabled={planApplying}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={applyPlanChange}
+                      disabled={planApplying || !planReason.trim()}
+                      className="gold-gradient text-primary-foreground"
+                    >
+                      {planApplying ? 'Changing plan…' : `Change plan to ${planChoice} months`}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Schedule Management Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <h4 className="text-sm font-semibold text-card-foreground">Payment Schedule</h4>
               {!isDisabledStatus && (
-                <Button variant="outline" size="sm" onClick={addNewInstallment} disabled={!canEditSchedule} title={!canEditSchedule ? 'Requires Edit Schedule permission' : undefined} className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10">
+                <Button variant="outline" size="sm" onClick={addNewInstallment} disabled={!canEditSchedule || planChangePending} title={!canEditSchedule ? 'Requires Edit Schedule permission' : undefined} className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10">
                   <Plus className="h-3 w-3 mr-1" /> Add Installment
                 </Button>
               )}
@@ -578,7 +770,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
               {schedule.map((item) => {
                 const edits = scheduleEdits[item.id] || {};
                 const isPaid = item.status === 'paid';
-                const isEditable = !isPaid && !isDisabledStatus && item.status !== 'cancelled';
+                const isEditable = !isPaid && !isDisabledStatus && item.status !== 'cancelled' && !planChangePending;
 
                 return (
                   <div key={item.id} className={`grid grid-cols-[2rem_1fr_6rem_6rem] gap-2 items-center p-2 rounded-lg border ${
@@ -661,7 +853,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
           <Button
             onClick={handleSave}
-            disabled={saving || isDisabledStatus}
+            disabled={saving || isDisabledStatus || planChangePending}
             className="gold-gradient text-primary-foreground"
           >
             {saving ? <><Calendar className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-2" /> Save Changes</>}
