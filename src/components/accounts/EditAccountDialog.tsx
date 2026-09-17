@@ -42,6 +42,7 @@ interface PlanPreview {
   removed_rows: PlanPreviewRow[];
   csr_notifications_removed: number;
   new_end_date: string;
+  pending_submissions?: number;
 }
 
 const PLAN_CHOICES = [3, 6, 8];
@@ -698,6 +699,11 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
                     {' '}New end date: {planPreview.new_end_date}.
                   </p>
                   <div className="space-y-1">
+                    {(planPreview.pending_submissions ?? 0) > 0 && (
+                      <p className="text-[11px] text-amber-400">
+                        {planPreview.pending_submissions} payment submission(s) are waiting for review. They will be applied to the new schedule when confirmed.
+                      </p>
+                    )}
                     {planPreview.new_rows.map((r) => (
                       <div
                         key={`plan-${r.installment_number}`}

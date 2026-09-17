@@ -1946,13 +1946,16 @@ OPEN-BUGS). Staff had to re-create the account.
 
 `change-payment-plan` (edge fn, permission `change_payment_plan`) wraps
 `public.change_payment_plan_atomic`, which holds every rule: active/overdue
-only, 3/6/8 months, reason required, refused while a submission is pending.
+only, 3/6/8 months, reason required (see the follow-up below on pending
+submissions).
 Installments carrying a payment or penalty must be 1..k and are never touched;
 k+1..N are rewritten in place — never deleted and re-inserted, because deleting
 a `layaway_schedule` row cascades to allocations, penalties, waiver requests and
 CSR notifications. `apply=false` previews without writing. Migration
 `supabase/migrations/20260917030000_change_payment_plan.sql` (record-only —
 applied live via the SQL Editor).
+
+- Follow-up (migration 20260917040000): pending payment submissions no longer block a plan change (owner rule — change the plan first, then confirm; the payment is allocated against the new schedule). Preview shows a pending_submissions note.
 
 ### Bug #277 — loyalty enrollment tracking gaps: portal signups invisible, sheet rows duplicated, storefront joins enrolled nobody (2026-09-17)
 Three separate gaps in how a member's enrollment was recorded, all found together.
