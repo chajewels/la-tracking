@@ -1937,6 +1937,18 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### Bug #277 — loyalty enrollment tracking gaps: portal signups invisible, sheet rows duplicated, storefront joins enrolled nobody (2026-09-17)
+Three separate gaps in how a member's enrollment was recorded, all found together.
+
+(1) PORTAL SIGNUPS WERE INVISIBLE TO STAFF. `setup-customer-account` (portal signup, since 52c42959 on 2026-05-16) created the `loyalty_members` row and nothing else — no 'enrolled' `loyalty_transactions` row, no sheet event, no welcome email. f5f6d985 (2026-05-17) wired the 'enrolled' row into `join-loyalty-program` ONLY, so the newer of the two enrollment paths never got it. 46 members enrolled between 2026-05-21 and 2026-09-16 are missing from the LoyaltyAdmin Member-events feed. Verified live: all 46 had their customer row and their membership created within 60 s of each other, which is the portal-signup signature — e.g. CJ-2026-07200, gap 0 s, 0 enrolled rows.
+
+(2) THE SHEET GOT EVERY ENROLLMENT TWICE. `join-loyalty-program` POSTed the 'enrolled' event to `sync-loyalty-to-sheet` directly but never set `synced_to_sheet_at` on the row it had just inserted. `loyalty-sheet-reconcile` (pg_cron job 21, hourly at :07) sweeps rows where that column IS NULL and appends them — so every enrollment landed on the Members tab a second time within the hour. 33 members enrolled between 2026-06-16 and 2026-09-16 were likely duplicated; rows before 2026-06-05 are unaffected because they were bulk-marked when the column was added.
+
+(3) THE STOREFRONT JOIN FORM ENROLLED NOBODY. `/loyalty/join` on the storefront wrote a `loyalty_signups` row and told the customer "You are in". Nothing read that table — no Hub page queries it, its `converted_customer_id` column is never written, and it held 0 rows at the time of the fix. So a customer who joined from the website was neither enrolled nor visible to anyone.
+
+Fix: `loyalty_members.enrollment_source` (migration 20260917000000, applied live via the SQL Editor). Both enrollment functions now set it, write the 'enrolled' ledger row with the source named in its note, and — on a successful sheet POST — mark that row `synced_to_sheet_at` so the reconciler cannot append it again. `setup-customer-account` additionally gains the welcome email it never sent, non-blocking. Source hints come from `LoyaltyJoinPrompt` (portal_join), `shopify-webhook` (shopify_checkout) and the storefront (storefront_checkout / storefront_join); a customer-authenticated caller may only claim the three customer-facing values, so a forged `source` cannot pass itself off as an internal one. The storefront now enrolls through `join-loyalty-program` directly, and `website` POST /loyalty/join is demoted to the FAILURE fallback: it records the attempt and raises staff bell `loyalty_join_failed` so a human finishes the job.
+Backfill of the 46 missing 'enrolled' rows, and of `enrollment_source` for existing members, is run by Cynthia in the SQL Editor after the deploy.
+
 ### Bug #276 — #275's own helper broke the Deno gate, and develop shipped red through three merges (2026-09-15)
 Root cause: `_shared/item-images.ts` declared `ImageableLine` as an `interface`, and a TypeScript interface gets no implicit index signature. Both real callers pass loose DB rows typed `Record<string, unknown>`, so `website/index.ts` failed in BOTH directions at once — 4 × TS2345:
   - OUT (lines 1346, 1419): `ImageableLine[]` is not assignable to `AnyRec[]`, so the result could not be handed on to `withJapaneseTitles()`.

@@ -25,6 +25,9 @@
 // function is what sets it in the first place.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
+import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -188,8 +191,9 @@ Deno.serve(async (req) => {
           last_purchase_at: null,
           prev_purchase_at: null,
           enrolled_at: new Date().toISOString(),
+          enrollment_source: "portal_signup",
         })
-        .select("id")
+        .select("id, enrolled_at")
         .single();
 
       if (memberErr || !member) {
@@ -198,6 +202,115 @@ Deno.serve(async (req) => {
           memberErr,
         );
         return json({ error: "Failed to enroll in loyalty program" }, 500);
+      }
+
+      // Enrolled ledger row — mirrors join-loyalty-program step 5b so the
+      // LoyaltyAdmin Member-events feed shows portal signups.
+      let enrolledTxId: string | null = null;
+      try {
+        const { data: enrolledTx, error: enrolledTxErr } = await supabase
+          .from("loyalty_transactions")
+          .insert({
+            member_id: member.id,
+            transaction_type: "enrolled",
+            points_amount: 0,
+            account_id: null,
+            cash_order_id: null,
+            payment_id: null,
+            spend_amount_jpy: null,
+            rate_snapshot: null,
+            invoice_number: null,
+            tier_at_time: null,
+            notes: "Enrolled in Cha Jewels Circle (portal signup)",
+            created_by_user_id: null,
+          })
+          .select("id")
+          .single();
+        enrolledTxId = enrolledTx?.id ?? null;
+        if (enrolledTxErr) {
+          console.warn("[setup-customer-account] enrolled tx insert failed (non-blocking):", enrolledTxErr);
+        }
+      } catch (enrolledTxBlockErr) {
+        console.warn("[setup-customer-account] enrolled tx block failed (non-blocking):", enrolledTxBlockErr);
+      }
+
+      // Welcome email — mirrors join-loyalty-program step 6 (same template,
+      // same toggle, same idempotency key).
+      if (newCustomer.email) {
+        try {
+          const gate = createLoyaltyEmailGate(supabase);
+          if (await gate("loyalty_email_welcome")) {
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, newCustomer.id, "loyalty");
+            const result = await sendTemplateEmail(
+              "loyalty-welcome",
+              newCustomer.email,
+              {
+                templateData: {
+                  customerName: newCustomer.full_name || "Valued Customer",
+                  enrolledDate: member.enrolled_at,
+                  portalUrl,
+                },
+                idempotencyKey: `loyalty-welcome-${member.id}`,
+              },
+            );
+            if (!result.sent) {
+              console.log(`[setup-customer-account] "loyalty-welcome" suppressed for ${newCustomer.email}`);
+            }
+          } else {
+            console.log("[email-gate] loyalty-welcome skipped — toggle 'loyalty_email_welcome' is OFF");
+          }
+        } catch (emailErr) {
+          console.warn("[setup-customer-account] welcome email block failed:", emailErr);
+        }
+      }
+
+      // Sheet sync — mirrors join-loyalty-program step 7, then marks the
+      // enrolled row synced so the reconciler does not append it again.
+      try {
+        const _syRes = await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              event_type: "enrolled",
+              customer: {
+                customer_id: newCustomer.id,
+                full_name: newCustomer.full_name,
+                email: newCustomer.email,
+              },
+              payload: {
+                member_id: newCustomer.customer_code ?? null,
+                current_tier: "Glimmer",
+                lifetime_spend_jpy: 0,
+                available_points: 0,
+                activity_status: "Active",
+                last_purchase_date: null,
+                notes: "New enrollment — portal signup",
+              },
+            }),
+          },
+        ).catch((e) => {
+          console.warn("[setup-customer-account] sheet sync failed:", e);
+          return null;
+        });
+        if (_syRes && !_syRes.ok) {
+          const _t = await _syRes.text().catch(() => "<no body>");
+          console.error(`[setup-customer-account] sync-loyalty-to-sheet (enrolled) failed (${_syRes.status}): ${_t}`);
+        } else if (_syRes && _syRes.ok && enrolledTxId) {
+          const { error: markErr } = await supabase
+            .from("loyalty_transactions")
+            .update({ synced_to_sheet_at: new Date().toISOString() })
+            .eq("id", enrolledTxId);
+          if (markErr) {
+            console.warn("[setup-customer-account] failed to mark enrolled tx synced (non-blocking):", markErr);
+          }
+        }
+      } catch (sheetErr) {
+        console.warn("[setup-customer-account] sheet sync block failed:", sheetErr);
       }
 
       return json({

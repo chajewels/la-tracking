@@ -29,6 +29,21 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Where a member joined from. Stored on loyalty_members.enrollment_source and
+// written into the enrolled ledger row + sheet note.
+const SOURCE_LABELS: Record<string, string> = {
+  portal_signup: "portal signup",
+  portal_join: "portal Join button",
+  shopify_checkout: "Shopify checkout",
+  storefront_checkout: "storefront checkout",
+  storefront_join: "storefront join page",
+  unknown: "source unknown",
+};
+// Trusted server-side callers (internal-secret branch) may send these.
+const INTERNAL_SOURCES = new Set(["shopify_checkout", "storefront_checkout", "storefront_join", "portal_join"]);
+// Customer-authenticated callers (portal token / session / JWT) may only send these.
+const CUSTOMER_SOURCES = new Set(["portal_join", "storefront_checkout", "storefront_join"]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -65,12 +80,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { portal_token, session_id, customer_id, internal } = await req.json().catch(() => ({})) as {
+    const { portal_token, session_id, customer_id, internal, source: rawSource } = await req.json().catch(() => ({})) as {
       portal_token?: string;
       session_id?: string;
       customer_id?: string;
       internal?: boolean;
+      source?: string;
     };
+    let viaInternal = false;
 
     void internal; // caller-supplied flag; the header+secret is the real gate.
 
@@ -90,6 +107,7 @@ Deno.serve(async (req) => {
       if (timingSafeEqual(internalSecretEnv, internalSecretHeader)) {
         if (customer_id) {
           customerId = customer_id;
+          viaInternal = true;
           console.log(`[join-loyalty-program] internal enrollment for customer=${customerId}`);
         }
         // matched but no customer_id → fall through to portal auth below.
@@ -113,6 +131,13 @@ Deno.serve(async (req) => {
         return json({ error: err?.message || "Invalid or expired portal token" }, 401);
       }
     }
+
+    const requestedSource = typeof rawSource === "string" ? rawSource.trim() : "";
+    const enrollmentSource =
+      (viaInternal ? INTERNAL_SOURCES : CUSTOMER_SOURCES).has(requestedSource)
+        ? requestedSource
+        : "unknown";
+    const sourceLabel = SOURCE_LABELS[enrollmentSource] ?? "source unknown";
 
     // 2. Fetch customer
     const { data: customer, error: custErr } = await supabase
@@ -162,6 +187,7 @@ Deno.serve(async (req) => {
         last_purchase_at: null,
         prev_purchase_at: null,
         enrolled_at: enrolledAt,
+        enrollment_source: enrollmentSource,
       })
       .select("id, enrolled_at")
       .single();
@@ -174,8 +200,9 @@ Deno.serve(async (req) => {
     //     feed (LoyaltyAdmin Transactions tab) mirrors what the Google
     //     Sheet backup records. Non-blocking: a failure here must NOT roll
     //     back the enrollment (sheet sync below remains the parallel path).
+    let enrolledTxId: string | null = null;
     try {
-      const { error: enrolledTxErr } = await supabase
+      const { data: enrolledTx, error: enrolledTxErr } = await supabase
         .from("loyalty_transactions")
         .insert({
           member_id: member.id,
@@ -188,9 +215,12 @@ Deno.serve(async (req) => {
           rate_snapshot: null,
           invoice_number: null,
           tier_at_time: null,
-          notes: "Enrolled in Cha Jewels Circle",
+          notes: `Enrolled in Cha Jewels Circle (${sourceLabel})`,
           created_by_user_id: null,
-        });
+        })
+        .select("id")
+        .single();
+      enrolledTxId = enrolledTx?.id ?? null;
       if (enrolledTxErr) {
         console.warn(
           "[join-loyalty-program] enrolled tx insert failed (non-blocking):",
@@ -385,7 +415,7 @@ Deno.serve(async (req) => {
               available_points: 0,
               activity_status: "Active",
               last_purchase_date: null,
-              notes: "New enrollment",
+              notes: `New enrollment — ${sourceLabel}`,
             },
           }),
         },
@@ -396,6 +426,16 @@ Deno.serve(async (req) => {
       if (_syRes && !_syRes.ok) {
         const _t = await _syRes.text().catch(() => "<no body>");
         console.error(`[join-loyalty-program] sync-loyalty-to-sheet (enrolled) failed (${_syRes.status}): ${_t}`);
+      } else if (_syRes && _syRes.ok && enrolledTxId) {
+        // Mark synced so loyalty-sheet-reconcile does not append a second
+        // Members-tab row (same pattern as award-loyalty-points).
+        const { error: markErr } = await supabase
+          .from("loyalty_transactions")
+          .update({ synced_to_sheet_at: new Date().toISOString() })
+          .eq("id", enrolledTxId);
+        if (markErr) {
+          console.warn("[join-loyalty-program] failed to mark enrolled tx synced (non-blocking):", markErr);
+        }
       }
     } catch (sheetErr) {
       console.warn("[join-loyalty-program] sheet sync block failed:", sheetErr);

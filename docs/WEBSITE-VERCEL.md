@@ -45,7 +45,7 @@ them to `PRODUCT_FIELDS`.
 | `POST /layaway/quote` | Term pricing | Body `{ price, term_months?, currency? }`. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |
 | `POST /claims/:code/checkout` | — | **501 not_implemented.** Phase 2. |
-| `POST /loyalty/join` | Signup capture | Body `{ name, contact, region, lang }`. `region` JP\|PH\|OTHER, `lang` ja\|en. Writes `loyalty_signups`. |
+| `POST /loyalty/join` | Signup capture | Failure fallback only — records a storefront enrollment that did NOT complete in `loyalty_signups` and raises staff bell `loyalty_join_failed`. It never enrolls. Real storefront enrollment calls `join-loyalty-program` directly with the customer JWT and `source` = `storefront_checkout` \| `storefront_join`. |
 | `GET /loyalty/tiers` | Tier ladder | Reads `loyalty_tiers` ordered by `display_order`. Returns `{ slug, name, threshold_jpy, requalify_spend, multiplier, hold_minutes, benefits_ja, benefits_en }`. |
 | `POST /auth/customer` | **Customer JWT + API key** | Links or creates the `customers` row for the signed-in user. 409 `email_already_linked` when another auth user owns that email. Does NOT auto-enrol in loyalty. |
 | `GET /me` | **Customer JWT + API key** | Profile, addresses, loyalty snapshot, `saved_card` (always false until step 3). 404 `not_linked` before `/auth/customer` has run. The loyalty snapshot carries `{ enrolled, points, tier, multiplier, reduced, earned_tier, regain_jpy }` — `reduced` is the 180-day step-down state, `earned_tier` the level the member earned, `regain_jpy` = that level's `requalify_spend_jpy` minus spend since `downgrade_spend_baseline`, floored at 0 (2026-09-13). |

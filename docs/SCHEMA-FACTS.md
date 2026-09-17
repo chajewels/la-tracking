@@ -54,6 +54,15 @@
   via loyalty_tiers lookup keyed on tier_at_time — it is NOT stored on the
   transaction row.
 
+### loyalty_members.enrollment_source (added 2026-09-17)
+
+  loyalty_members.enrollment_source text NOT NULL DEFAULT 'unknown', CHECK in
+  (portal_signup, portal_join, shopify_checkout, storefront_checkout,
+  storefront_join, legacy_import, unknown). Added 2026-09-17.
+
+  'unknown' on a NEW row means a caller sent no valid source hint —
+  investigate, do not treat as normal.
+
 ### loyalty_transaction_type enum (2026-05-17 expansion)
 
   Original 7: earned, bonus, redeemed, expired, adjusted, refunded, revoked

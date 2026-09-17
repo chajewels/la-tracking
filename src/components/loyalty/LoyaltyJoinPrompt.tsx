@@ -26,7 +26,7 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
     setJoining(true);
     try {
       const { data, error } = await supabase.functions.invoke('join-loyalty-program', {
-        body: { portal_token: portalToken },
+        body: { portal_token: portalToken, source: 'portal_join' },
       });
       if (error) throw error;
 
