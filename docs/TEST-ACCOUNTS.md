@@ -102,6 +102,39 @@
              paid_amount=1,920. Treat as a known baseline — do
              not "correct" these values; they reflect the
              verified Phase B Patch 2 redemption application.
+  loyalty_integrity_report baseline (2026-09-17) — Test Customer
+             (CJ-2026-05088, member 0ab9c522-7dac-496e-9ff2-efbc34632c67).
+             Owner decision: KEEP this row visible as a documented baseline
+             rather than correcting it. Exact expected values:
+
+               counter_points        13800
+               lots_live             13800
+               ledger_net            13800   (all three agree)
+               spend_stored          4503920
+               spend_expected        1423920
+               difference            3080000  = the May-2026 test-era
+                                                revoke/restore drift
+               terminal_order_spend  701960
+               tier_now              Radiant
+               tier_from_spend       Elite    (NOT flagged — she is downgraded)
+               problem               "lifetime spend <> migration baseline +
+                                      ledger spend; cancelled/forfeited order
+                                      still counting 701960 JPY of lifetime
+                                      spend"
+
+             THE RULE, and it is the whole point of writing the numbers down:
+               - A HEALTHY REPORT IS EXACTLY THIS ONE ROW WITH THESE VALUES.
+                 Not zero rows — zero would mean the fixture went missing.
+               - ANY OTHER ROW IS A REAL FINDING. Investigate it; do not
+                 assume it is test noise because this row is expected.
+               - ANY CHANGE TO HER VALUES MEANS A TEST RUN MOVED THEM. Find
+                 the test and confirm the change is explained by it. If no
+                 test accounts for the movement, that is a real finding too.
+
+             Cross-references that must stay consistent with this block:
+             CLAUDE.md LOYALTY SYSTEM RULES 12, docs/AUDIT-RPCS.md
+             (loyalty_integrity_report), docs/STEP4-ACCEPTANCE.md H2.
+
   TEST-005 — Split payment testing (can record payments)
   TEST-007 — Cash order Bug #99 smoke test (¥1M, Test Customer Glimmer→Radiant)
   TEST-008_ELITE — Layaway DP restore lifecycle (Bug #66 + Bug #99 restore-loyalty test fixture)
