@@ -2245,6 +2245,17 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      single active order_earn lot with expiry preserved
      (uq_lots_active_order_earn_source allows only one) — see #279.
 
+  14. CUSTOMERS NEVER SEE LEDGER NOTES (2026-09-17, Bug #283).
+     loyalty_transactions.notes is internal text (UUIDs, enum names, bug
+     references) and the ledger is immutable, so a bad note can never be
+     edited away. Customer screens build every activity line through
+     toCustomerActivity (src/components/loyalty/loyaltyActivity.ts): fixed
+     per-type labels or "Invoice #N"; 'enrolled' and 'tier_changed' are
+     neutral milestones; any other 0-point row is hidden. customer-portal
+     does not select notes at all. Staff screens use toStaffActivity and
+     keep the note. A new transaction type needs a label key in
+     i18n/portal.ts (loyalty.activityType*) or it shows "Points update".
+
   - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
      cancelled/forfeited/completed/final_settlement; cash open = pending.
      Enforced in RedemptionForm, process-loyalty-redemption create, and

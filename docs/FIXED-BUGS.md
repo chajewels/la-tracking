@@ -1937,6 +1937,9 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #283 — customer loyalty history showed internal ledger notes and a red "0" for membership events (2026-09-17)
+LoyaltyPortal.tsx and CustomerLoyaltyTab.tsx mapped every loyalty_transactions row with points_amount <= 0 to type 'redeemed' and used the raw note as the description. With loyalty_enabled = true for all customers, every member's portal history showed their 'enrolled' row as a red "0", and any point row without an invoice showed its internal note — live DB functions write notes such as "Redemption: shipping_fee", "Refund of voided redemption #… — original tx: <uuid>" and "Restored from revoke <uuid>". The #277 backfill made it visible: 46 portal-signup members saw "Enrolled in Cha Jewels Circle (portal signup) — backfilled 2026-09-17, Bug #277". Live counts at fix time: 0-point rows = enrolled 559, tier_changed 14, adjusted 3; 51 rows carry a "Bug #" note. The ledger is immutable, so the fix is display-side: new loyaltyActivity.ts (toCustomerActivity / toStaffActivity), a neutral 'event' activity type in RecentActivity and PointsScreen, full type labels in MemberDetailDrawer, and customer-portal no longer selects notes and returns only point rows plus enrolled / tier_changed (separate edge-function change and deploy). CLAUDE.md loyalty rule 14.
+
 ### #282 — two fully-paid accounts never left 'active': 1e-12 of floating-point residue (2026-09-17)
 
 Invoices **18081** and **18546** were paid in full on 2026-07-04 (final payments

@@ -19,6 +19,7 @@ import TierCard from '@/components/customers/TierCard';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
 import VipProgressSection from '@/components/loyalty/VipProgressSection';
 import RecentActivity from '@/components/loyalty/RecentActivity';
+import { toStaffActivity } from '@/components/loyalty/loyaltyActivity';
 import { RedemptionApprovalModal } from '@/components/loyalty/RedemptionApprovalModal';
 import {
   setLoyaltyData,
@@ -283,23 +284,8 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
 
   const transactionsData = useMemo<LoyaltyTransactionData[]>(
     () =>
-      filteredTransactions.map((tx) => ({
-        id: tx.id,
-        date: new Date(tx.created_at).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-        type: (tx.points_amount ?? 0) > 0 ? ('earned' as const) : ('redeemed' as const),
-        points: tx.points_amount ?? 0,
-        description: tx.invoice_number
-          ? `Invoice #${tx.invoice_number}`
-          : tx.notes ?? tx.transaction_type,
-        source: tx.transaction_type,
-        invoice_number: tx.invoice_number ?? null,
-        spend_amount_jpy: tx.spend_amount_jpy ?? null,
-        tier_multiplier: null,
-      })),
+      // Staff keep the note; 0-point rows render as neutral events (Bug #283).
+      filteredTransactions.map(toStaffActivity),
     [filteredTransactions],
   );
 

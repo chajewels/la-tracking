@@ -27,6 +27,13 @@ const TX_TYPE_LABEL: Record<string, string> = {
   bonus: 'Bonus',
   expired: 'Expired',
   adjusted: 'Adjusted',
+  refunded: 'Refunded',
+  revoked: 'Revoked',
+  birthday_bonus: 'Birthday bonus',
+  enrolled: 'Enrolled',
+  tier_changed: 'Tier changed',
+  status_changed: 'Status changed',
+  admin_edited: 'Admin edited',
 };
 
 const TX_TONE: Record<string, string> = {
@@ -35,6 +42,11 @@ const TX_TONE: Record<string, string> = {
   redeemed: 'text-amber-600',
   expired: 'text-muted-foreground',
   adjusted: 'text-foreground',
+  refunded: 'text-emerald-600',
+  birthday_bonus: 'text-emerald-600',
+  revoked: 'text-amber-600',
+  enrolled: 'text-muted-foreground',
+  tier_changed: 'text-muted-foreground',
 };
 
 function fmtDate(iso: string | null) {
