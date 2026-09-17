@@ -1937,6 +1937,69 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #281 — system-health-v2 failed open: 10 red criticals, 9 of them phantom (2026-09-17)
+
+Monitoring → Audit → System Health showed 10 of 24 checks failing, three of them
+reporting **exactly 493 affected** with the detail `SUM(payments) = 0 |
+total_paid = 28547` for every account — while `audit_account` passed all 493.
+
+**Three independent faults, all of the same kind: a wrong answer where there
+should have been no answer.**
+
+**(a) `fetchAll` swallowed every read error.** It destructured `const { data }`
+and never looked at `error`. A failed query left `data` undefined, the loop
+broke, and it returned `[]` — indistinguishable from an empty table.
+
+**(b) The `payments` select asked for two columns that do not exist.**
+`payment_type` and `is_downpayment` are not on `payments`; PostgREST answered
+`42703 column payments.payment_type does not exist` instantly. Not RLS, not the
+8 s `authenticated` timeout — a 400 on the first page. Combined with (a) the
+whole table read as zero rows, so eight checks computed from nothing:
+
+- **false FAIL** — #1 Balance Integrity, #3 Payment Integrity, #15 total_paid
+  drift, and benchmarks #6/#7/#8 (TEST-001/003/004)
+- **false PASS** — #4 Downpayment Integrity (`totalPaid < dp` → `continue`) and
+  #13 Unallocated Bulk Import (`installmentPaid = 0` → `continue`)
+
+The count is the proof. 537 active accounts; 493 of them had `total_paid > 0` at
+the time of the observation. An account with `total_paid = 0` **passed**, because
+0 = 0. The 494th crossed over at 00:07 that morning when invoice 19720 took its
+first payment (the #280 loyalty redemption).
+
+**(c) `penalty_amount` was read by five checks and never selected.** It exists on
+`layaway_schedule`; the select simply omitted it, so `sched.penalty_amount` was
+`undefined`. Every ceiling was computed without the penalty, and check 5's skip
+test `Number(undefined) === 0` is `NaN === 0` — false — so it never skipped and
+flagged every waived penalty. This is what made the four remaining failures look
+real.
+
+**A fourth, separate defect found on the way:** check 17 asserted
+`total_due_amount = base + penalty` and called anything larger "inflation",
+reporting every legitimately carried row. CLAUDE.md CARRIED_AMOUNT PRESERVATION
+says the opposite — `base + penalty + carried` on every recompute — and its
+CACHE-STALENESS TEST is equality against that gross. Corrected to the canonical
+test, in both directions.
+
+**Result: 9 of the 10 failures were phantom.** Recomputed against live data with
+the reads fixed: Balance 493→0, Payment 493→0, total_paid 493→0, Penalty
+Integrity 23→0, Schedule Integrity 29→0, Zero Remaining 1→0, Downpayment and
+Unallocated both genuinely 0. **One real finding survives** — invoice 18081
+(Alvin Javiña) month 3, allocations of ₱3,792.38 against a ceiling of ₱3,791.64
+across three allocation rows: an over-allocation of **74 centavos**.
+
+**Fix.** `fetchAll` returns `{ rows, error }` and discards partial reads; a
+per-dataset `loadErrors` map is carried to the end of the run; any check whose
+source table could not be read is rewritten to `skip` with "COULD NOT RUN —
+failed to read X", and the response carries `load_errors` plus
+`summary.unreadable_sources`. The two selects are corrected and `isDPPayment`
+now matches CLAUDE.md INVARIANT 11 exactly (`DP-` prefix or remarks containing
+"down") instead of testing columns that never existed.
+
+Cynthia removed Monitoring from the sidebar long ago because it was "not
+accurate and contradicting always". This is why. A checker that fails open is
+worse than no checker: it spends the reader's trust on noise and buries the one
+finding that was real.
+
 ### #280 — redemption stopped consuming point lots; the birthday bonus never created one (2026-09-17)
 
 Two faults, found together on the one member who hit both.
