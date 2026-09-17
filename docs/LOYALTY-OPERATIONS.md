@@ -27,13 +27,18 @@ SELECT net.http_post(
 );
 ```
 
-Inspect the response (~5 seconds later — substitute the request_id
-returned by the POST above):
+Inspect the response (~10 seconds later). pg_net stops waiting after
+~5 s, so `timed_out = true` only means the caller stopped listening — the
+function keeps running. Confirm the outcome from `synced_to_sheet_at`, not
+from this row alone:
 
 ```sql
-SELECT created, id, response_body, status_code
+SELECT id, created, status_code, timed_out, error_msg, content
 FROM net._http_response
-WHERE id = <request_id>;
+WHERE created > now() - interval '10 minutes'
+  AND content LIKE '%"processed"%'
+ORDER BY created DESC
+LIMIT 3;
 ```
 
 Expected body shape:
