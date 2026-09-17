@@ -9,6 +9,16 @@ const corsHeaders = {
 
 const MAX_ACCOUNTS_PER_RUN = 800;
 
+// Stop and report rather than being killed mid-loop. reconcile-account costs
+// ~1.56s per account, so 493 accounts need ~13 minutes against a hard ~185s
+// ceiling: the run died every night having covered ~120, and everything after
+// the loop was unreachable. The cron comes back tomorrow and the cursor below
+// resumes where this run stopped. Same shape as loyalty-award-sweep.
+const BUDGET_MS = 150_000;
+
+// Page size for the reconciliation_log sweep that builds the cursor.
+const LOG_PAGE = 1000;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -30,16 +40,21 @@ Deno.serve(async (req) => {
 
   const runId = crypto.randomUUID().slice(0, 8);
   const runStart = new Date().toISOString();
+  const runStartMs = Date.now();
   console.log(`[daily-recon:${runId}] Starting run at ${runStart}, max=${MAX_ACCOUNTS_PER_RUN}`);
 
   try {
-    // Fetch up to MAX_ACCOUNTS_PER_RUN active/overdue accounts with at least one payment
-    // Prefer accounts not recently reconciled (order by updated_at asc)
+    // Candidates first, ordering second. The ordering key USED TO BE
+    // layaway_accounts.updated_at, and that was the bug: reconcile-account is
+    // report-only (Bug #34) — it writes one reconciliation_log row and never
+    // touches the account — so reconciling a row left updated_at untouched and
+    // every run got the same head of the same list, forever. 55% of accounts
+    // had not been reconciled once in eight days. The cursor below is
+    // reconciliation_log.checked_at, which reconciling DOES advance.
     const { data: accounts, error: acctErr } = await supabase
       .from("layaway_accounts")
       .select("id, invoice_number, status, total_paid, remaining_balance")
       .in("status", ["active", "overdue", "extension_active", "final_settlement"])
-      .order("updated_at", { ascending: true })
       .limit(MAX_ACCOUNTS_PER_RUN);
 
     if (acctErr) {
@@ -50,8 +65,48 @@ Deno.serve(async (req) => {
       });
     }
 
-    const accountList = accounts || [];
-    console.log(`[daily-recon:${runId}] Processing ${accountList.length} accounts`);
+    const candidates = accounts || [];
+
+    // One paginated pass over reconciliation_log, JS-aggregated to a
+    // Map<account_id, latest checked_at> — no N+1 and no .in(ids) URL-length
+    // risk (Bug #59 precedent). Rows come back newest-first, so the FIRST
+    // sighting of an account is its latest run; we stop as soon as every
+    // candidate is accounted for.
+    const lastChecked = new Map<string, string>();
+    for (let from = 0; lastChecked.size < candidates.length; from += LOG_PAGE) {
+      const { data: logRows, error: logErr } = await supabase
+        .from("reconciliation_log")
+        .select("account_id, checked_at")
+        .order("checked_at", { ascending: false })
+        .range(from, from + LOG_PAGE - 1);
+      if (logErr) {
+        console.error(`[daily-recon:${runId}] reconciliation_log page ${from} failed:`, logErr);
+        break; // fall back to whatever we have — never-checked accounts still sort first
+      }
+      if (!logRows || logRows.length === 0) break;
+      for (const r of logRows as Array<{ account_id: string; checked_at: string }>) {
+        if (r.account_id && !lastChecked.has(r.account_id)) lastChecked.set(r.account_id, r.checked_at);
+      }
+      if (logRows.length < LOG_PAGE) break;
+    }
+
+    // Never reconciled first, then oldest first. Stable on id so a tie cannot
+    // make two runs disagree about who is next.
+    const accountList = [...candidates].sort((a, b) => {
+      const ta = lastChecked.get(a.id);
+      const tb = lastChecked.get(b.id);
+      if (ta === undefined && tb === undefined) return a.id < b.id ? -1 : 1;
+      if (ta === undefined) return -1;
+      if (tb === undefined) return 1;
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      return a.id < b.id ? -1 : 1;
+    });
+
+    const neverChecked = accountList.filter((a) => !lastChecked.has(a.id)).length;
+    console.log(
+      `[daily-recon:${runId}] ${accountList.length} candidates, ` +
+      `${neverChecked} never reconciled, budget ${BUDGET_MS}ms`
+    );
 
     const results: Array<{
       account_id: string;
@@ -65,9 +120,22 @@ Deno.serve(async (req) => {
     }> = [];
 
     let haltRun = false;
+    let budgetExhausted = false;
 
     for (const acct of accountList) {
       if (haltRun) break;
+
+      // Checked BEFORE the work, never after, so the stamp and the summary
+      // below are always reached. A budget-exhausted run is progress, not an
+      // outage — `remaining` is how the two are told apart.
+      if (Date.now() - runStartMs > BUDGET_MS) {
+        budgetExhausted = true;
+        console.log(
+          `[daily-recon:${runId}] budget reached after ${results.length}/${accountList.length} — ` +
+          `the next run resumes from the cursor`
+        );
+        break;
+      }
 
       const beforeTotalPaid = Number(acct.total_paid);
       console.log(`[daily-recon:${runId}] ${acct.invoice_number}: before total_paid=${beforeTotalPaid}`);
@@ -148,8 +216,26 @@ Deno.serve(async (req) => {
     // — where reconciliation's failure cannot silence it. Do not move it back.
 
     // Record completion timestamp
+    // Written on EVERY run that reaches here, including a budget-exhausted one:
+    // a partial run is still a run, and Check 17 asking "did this job run today"
+    // must not read a partial pass as an outage. `remaining` distinguishes them.
+    // The shape changed from a bare ISO string to an object on 2026-09-17;
+    // Check 17 reads both, so deploy order does not matter.
+    const remaining = accountList.length - results.length;
     await supabase.from("system_settings").upsert(
-      { key: "last_daily_reconciliation", value: new Date().toISOString() },
+      {
+        key: "last_daily_reconciliation",
+        value: {
+          at: new Date().toISOString(),
+          run_id: runId,
+          evaluated: results.length,
+          candidates: accountList.length,
+          remaining,
+          never_checked_at_start: neverChecked,
+          budget_exhausted: budgetExhausted,
+          halted: haltRun,
+        },
+      },
       { onConflict: "key" }
     );
 
@@ -161,6 +247,11 @@ Deno.serve(async (req) => {
       run_start: runStart,
       run_end: new Date().toISOString(),
       accounts_processed: results.length,
+      candidates: accountList.length,
+      remaining,
+      never_checked_at_start: neverChecked,
+      budget_exhausted: budgetExhausted,
+      elapsed_ms: Date.now() - runStartMs,
       accounts_with_drift: accountsWithDrift,
       total_drift_items: totalDriftItems,
       accounts_guard_fired: results.filter(r => r.guard_fired).length,

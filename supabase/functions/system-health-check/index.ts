@@ -243,8 +243,15 @@ Deno.serve(async (req) => {
         .eq("key", "last_daily_reconciliation")
         .maybeSingle();
 
+      // Two shapes, both valid. daily-reconciliation stamped a bare ISO string
+      // until 2026-09-17 and an object { at, evaluated, remaining, ... } after,
+      // so this reads either — otherwise whichever function deployed second
+      // would leave Check 17 reporting "never recorded a completed run" against
+      // a job that ran fine. Same object shape as 17b's sweep stamp.
       const raw = (stampRow as { value?: unknown } | null)?.value ?? null;
-      const stampIso = typeof raw === "string" ? raw : null;
+      const stampIso = typeof raw === "string"
+        ? raw
+        : (raw && typeof raw === "object" ? ((raw as { at?: string }).at ?? null) : null);
       const stampMs = stampIso ? Date.parse(stampIso) : NaN;
 
       if (!stampIso || Number.isNaN(stampMs)) {
