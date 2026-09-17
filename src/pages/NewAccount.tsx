@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X, Lock } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import CurrencyInput from '@/components/forms/CurrencyInput';
 import FloatingField from '@/components/forms/FloatingField';
@@ -89,6 +89,11 @@ export default function NewAccount() {
   const urlCurrency = searchParams.get('currency');
   const urlPlanMonths = searchParams.get('plan_months');
   const urlNotes = searchParams.get('notes');
+  // Opened from a customer profile (Bug #284): the customer is fixed, like
+  // /cash-orders/new?customer_id=. A preset form never restores, saves or
+  // clears the single shared draft — it may belong to another customer.
+  const presetCustomerId = searchParams.get('customer_id');
+  const customerLocked = !!presetCustomerId;
 
   const initialCurrency: Currency =
     urlCurrency === 'JPY' || urlCurrency === 'PHP' ? urlCurrency : 'PHP';
@@ -101,7 +106,7 @@ export default function NewAccount() {
   })();
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(presetCustomerId || '');
 
   // ── Customer search combobox state ──
   const [customerSearch, setCustomerSearch] = useState(urlCustomerName ?? '');
@@ -184,7 +189,7 @@ export default function NewAccount() {
     if (draftRestoredRef.current) return;
     draftRestoredRef.current = true;
 
-    if (!initialDraft) return;
+    if (!initialDraft || presetCustomerId) return;
 
     setInvoiceNumber(initialDraft.invoiceNumber || '');
     setCustomerId(initialDraft.customerId || '');
@@ -199,10 +204,11 @@ export default function NewAccount() {
     setLumpSumInput(initialDraft.lumpSumInput || '');
     setFormDirty(true);
     markRestored();
-  }, [initialDraft, markRestored, urlAmount, urlCurrency, urlPlanMonths]);
+  }, [initialDraft, markRestored, urlAmount, urlCurrency, urlPlanMonths, presetCustomerId]);
 
   // Auto-save draft on changes
   useEffect(() => {
+    if (presetCustomerId) return; // never overwrite the shared draft (Bug #284)
     if (!formDirty && !invoiceNumber && !customerId && !totalAmount) return;
     
     const timer = setTimeout(() => {
@@ -226,7 +232,7 @@ export default function NewAccount() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [invoiceNumber, customerId, currency, totalAmount, orderDate, paymentPlan, downpaymentInput, installmentMode, customAmounts, enableSplitPayment, lumpSumInput, formDirty, persistDraft]);
+  }, [invoiceNumber, customerId, currency, totalAmount, orderDate, paymentPlan, downpaymentInput, installmentMode, customAmounts, enableSplitPayment, lumpSumInput, formDirty, persistDraft, presetCustomerId]);
 
   // Mark form as dirty on any change
   const markDirty = useCallback(() => {
@@ -349,6 +355,25 @@ export default function NewAccount() {
       }
     }
   }, [customerId, customers, selectedExistingCustomer]);
+
+  // Preset customer not in the cached list (brand-new customer, or a list cut
+  // off by the API row limit): load that one customer directly (Bug #284).
+  useEffect(() => {
+    if (!presetCustomerId || selectedExistingCustomer) return;
+    if (customers && customers.some(c => c.id === presetCustomerId)) return;
+    let cancelled = false;
+    supabase
+      .from('customers')
+      .select('*')
+      .eq('id', presetCustomerId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setSelectedExistingCustomer(data as DbCustomer);
+        setCustomerSearch((data as DbCustomer).full_name);
+      });
+    return () => { cancelled = true; };
+  }, [presetCustomerId, customers, selectedExistingCustomer]);
 
   // Browser beforeunload protection
   useEffect(() => {
@@ -600,7 +625,7 @@ export default function NewAccount() {
 
       // Mark as submitted to allow navigation
       submittedRef.current = true;
-      clearDraft();
+      if (!presetCustomerId) clearDraft();
       setFormDirty(false);
 
       // Insert initial note if provided
@@ -765,6 +790,11 @@ export default function NewAccount() {
               <div className="space-y-2">
                 <Label className="text-card-foreground flex items-center gap-2">
                   Customer *
+                  {customerLocked && (
+                    <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground border-border gap-1">
+                      <Lock className="h-2.5 w-2.5" /> Locked
+                    </Badge>
+                  )}
                   {selectedExistingCustomer && (
                     <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30">
                       ✓ Existing customer selected
@@ -775,7 +805,9 @@ export default function NewAccount() {
                   <div className="relative flex-1">
                     <Input
                       value={customerSearch}
+                      disabled={customerLocked}
                       onChange={(e) => {
+                        if (customerLocked) return;
                         const v = e.target.value;
                         setCustomerSearch(v);
                         // Clear the prior selection as soon as the user edits the name.
@@ -788,13 +820,13 @@ export default function NewAccount() {
                         setCustomerDropdownOpen(true);
                         markDirty();
                       }}
-                      onFocus={() => { if (customerSearch) setCustomerDropdownOpen(true); }}
+                      onFocus={() => { if (!customerLocked && customerSearch) setCustomerDropdownOpen(true); }}
                       onBlur={() => { setTimeout(() => setCustomerDropdownOpen(false), 150); }}
                       placeholder="Search customer by name…"
                       className="bg-background border-border pr-8"
                       autoComplete="off"
                     />
-                    {customerSearch && (
+                    {customerSearch && !customerLocked && (
                       <button
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
@@ -813,7 +845,7 @@ export default function NewAccount() {
                         <X className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {customerDropdownOpen && customerSearch.trim() && (
+                    {!customerLocked && customerDropdownOpen && customerSearch.trim() && (
                       <div
                         className="absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-background shadow-xl"
                         style={{ zIndex: 60 }}
@@ -870,19 +902,21 @@ export default function NewAccount() {
                       </div>
                     )}
                   </div>
-                  <NewCustomerDialog
-                    onCreated={(c) => {
-                      setCustomerId(c.id);
-                      setSelectedExistingCustomer(c as DbCustomer);
-                      setCustomerSearch(c.full_name || '');
-                      markDirty();
-                    }}
-                    trigger={
-                      <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
-                        <UserPlus className="h-4 w-4" />
-                      </Button>
-                    }
-                  />
+                  {!customerLocked && (
+                    <NewCustomerDialog
+                      onCreated={(c) => {
+                        setCustomerId(c.id);
+                        setSelectedExistingCustomer(c as DbCustomer);
+                        setCustomerSearch(c.full_name || '');
+                        markDirty();
+                      }}
+                      trigger={
+                        <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
+                          <UserPlus className="h-4 w-4" />
+                        </Button>
+                      }
+                    />
+                  )}
                 </div>
                 {selectedExistingCustomer && (
                   <div className="rounded-md border border-green-500/30 bg-green-500/5 p-3 text-xs space-y-1">

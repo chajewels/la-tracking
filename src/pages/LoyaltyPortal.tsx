@@ -28,6 +28,7 @@ import NotificationsScreen from '@/components/loyalty/screens/NotificationsScree
 import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
 import PageMeta from '@/components/seo/PageMeta';
+import { toCustomerActivity } from '@/components/loyalty/loyaltyActivity';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 import { pt } from '@/i18n/portal';
 
@@ -76,7 +77,8 @@ interface PortalLoyaltyTx {
   spend_amount_jpy: number | null;
   invoice_number: string | null;
   tier_at_time: string | null;
-  notes: string | null;
+  /** No longer sent by customer-portal (Bug #283) and never rendered. */
+  notes?: string | null;
   created_at: string;
 }
 
@@ -339,23 +341,11 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
 
   const transactions = useMemo<LoyaltyTransactionData[]>(
     () =>
-      loyaltyTxs.map((tx) => ({
-        id: tx.id,
-        date: new Date(tx.created_at).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-        type: (tx.points_amount ?? 0) > 0 ? ('earned' as const) : ('redeemed' as const),
-        points: tx.points_amount ?? 0,
-        description: tx.invoice_number
-          ? `Invoice #${tx.invoice_number}`
-          : tx.notes ?? tx.transaction_type,
-        source: tx.transaction_type,
-        invoice_number: tx.invoice_number ?? null,
-        spend_amount_jpy: tx.spend_amount_jpy ?? null,
-        tier_multiplier: null,
-      })),
+      // Bug #283: customers never see ledger notes; 0-point rows other than
+      // enrolled / tier_changed are hidden.
+      loyaltyTxs
+        .map(toCustomerActivity)
+        .filter((t): t is LoyaltyTransactionData => t !== null),
     [loyaltyTxs],
   );
 

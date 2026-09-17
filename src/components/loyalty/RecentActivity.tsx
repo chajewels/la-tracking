@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Star, Gem } from "lucide-react";
+import { Star, Gem, Sparkles } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 import { pt } from "@/i18n/portal";
 
@@ -47,10 +47,14 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
                 className={`w-9 h-9 rounded-full flex items-center justify-center ${
                   tx.type === "earned"
                     ? "bg-primary/10"
-                    : "bg-destructive/10"
+                    : tx.type === "event"
+                      ? "bg-muted"
+                      : "bg-destructive/10"
                 }`}
               >
-                {tx.type === "earned" ? (
+                {tx.type === "event" ? (
+                  <Sparkles size={14} className="text-muted-foreground" strokeWidth={1.8} />
+                ) : tx.type === "earned" ? (
                   <Star size={14} className="text-primary" strokeWidth={1.8} />
                 ) : (
                   <Gem
@@ -69,14 +73,16 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
                 </p>
               </div>
             </div>
-            <span
-              className={`text-sm font-body font-semibold ${
-                tx.points > 0 ? "text-primary" : "text-destructive"
-              }`}
-            >
-              {tx.points > 0 ? "+" : ""}
-              {tx.points}
-            </span>
+            {tx.type !== "event" && (
+              <span
+                className={`text-sm font-body font-semibold ${
+                  tx.points > 0 ? "text-primary" : "text-destructive"
+                }`}
+              >
+                {tx.points > 0 ? "+" : ""}
+                {tx.points}
+              </span>
+            )}
           </motion.div>
         ))}
       </div>

@@ -219,14 +219,16 @@ export default function PointsScreen() {
                       </p>
                     )}
                   </div>
-                  <span
-                    className={`font-display text-lg font-bold ${
-                      tx.points > 0 ? 'text-primary' : 'text-destructive/70'
-                    }`}
-                  >
-                    {tx.points > 0 ? '+' : ''}
-                    {tx.points}
-                  </span>
+                  {tx.type !== 'event' && (
+                    <span
+                      className={`font-display text-lg font-bold ${
+                        tx.points > 0 ? 'text-primary' : 'text-destructive/70'
+                      }`}
+                    >
+                      {tx.points > 0 ? '+' : ''}
+                      {tx.points}
+                    </span>
+                  )}
                 </div>
               </motion.div>
             );

@@ -28,7 +28,8 @@ import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-dat
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Plus, Gem } from 'lucide-react';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
@@ -105,6 +106,7 @@ export default function CustomerDetail() {
 
   // --- Set Portal PIN dialog state ---
   const { roles } = useAuth();
+  const { can } = usePermissions();
   const canManagePin = (roles as any[]).includes('admin') || (roles as any[]).includes('staff');
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -192,6 +194,9 @@ export default function CustomerDetail() {
   }
 
   const { accounts } = data;
+  // Same entry point as the Cash Orders tab (Bug #284).
+  const canCreateLayaway = can('create_account');
+  const newLayawayHref = `/accounts/new?customer_id=${encodeURIComponent(customerId ?? '')}`;
 
   // Filter accounts: only include active/open invoices for consolidated message
   const activeAccounts = accounts.filter(a =>
@@ -590,6 +595,40 @@ export default function CustomerDetail() {
 
           <TabsContent value="layaway" className="mt-5 space-y-6">
 
+        {/* Header — mirrors the Cash Orders tab (Bug #284) */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg gold-gradient">
+              <Gem className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-foreground font-display">Layaway Accounts</h3>
+              <p className="text-xs text-muted-foreground">{accounts.length} total</p>
+            </div>
+          </div>
+          {canCreateLayaway && (
+            <Link to={newLayawayHref}>
+              <Button className="gold-gradient text-primary-foreground font-medium shadow">
+                <Plus className="h-4 w-4 mr-1.5" /> New Layaway Order
+              </Button>
+            </Link>
+          )}
+        </div>
+
+        {accounts.length === 0 && (
+          <div className="rounded-xl border border-border bg-card p-10 text-center">
+            <Gem className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+            <p className="text-sm text-muted-foreground mb-4">No layaway accounts for this customer</p>
+            {canCreateLayaway && (
+              <Link to={newLayawayHref}>
+                <Button className="gold-gradient text-primary-foreground font-medium">
+                  <Plus className="h-4 w-4 mr-1.5" /> New Layaway Order
+                </Button>
+              </Link>
+            )}
+          </div>
+        )}
+
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
           const currency = account.currency as Currency;
@@ -849,7 +888,8 @@ export default function CustomerDetail() {
           );
         })}
 
-        {/* Consolidated Customer Message */}
+        {/* Consolidated Customer Message — only when the customer has layaway accounts (Bug #284) */}
+        {accounts.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
           <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
             <MessageCircle className="h-4 w-4 text-info" /> Consolidated Customer Message
@@ -873,6 +913,7 @@ export default function CustomerDetail() {
             )}
           </div>
         </div>
+        )}
 
           </TabsContent>
 

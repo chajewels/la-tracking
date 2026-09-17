@@ -590,9 +590,12 @@ Deno.serve(async (req) => {
         supabase
           .from("loyalty_transactions")
           .select(
-            "id, transaction_type, points_amount, spend_amount_jpy, invoice_number, tier_at_time, notes, created_at",
+            "id, transaction_type, points_amount, spend_amount_jpy, invoice_number, tier_at_time, created_at",
           )
           .eq("member_id", memberId)
+          // Bug #283 / CLAUDE.md loyalty rule 14: customers get point rows plus
+          // the two membership milestones only, and never the ledger note.
+          .or("points_amount.neq.0,transaction_type.in.(enrolled,tier_changed)")
           .order("created_at", { ascending: false })
           .limit(20),
         supabase

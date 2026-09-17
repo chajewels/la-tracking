@@ -102,7 +102,8 @@ export interface LoyaltyTierData extends TierStatic {
 export interface LoyaltyTransactionData {
   id: string;
   date: string;
-  type: 'earned' | 'redeemed';
+  /** 'event' = 0-point membership milestone (joined, tier change). Bug #283. */
+  type: 'earned' | 'redeemed' | 'event';
   points: number;
   description: string;
   source: string;
