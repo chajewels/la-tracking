@@ -1,0 +1,39 @@
+-- Record-only (2026-09-17): a one-off data correction applied live via the
+-- Supabase SQL Editor. Nothing here executes. It exists so the change is in the
+-- repo's history rather than only in a chat transcript.
+--
+-- WHAT WAS WRONG
+--   Invoice 19751 (layaway) earned its loyalty points on a STALE
+--   loyalty_jpy_amount: ¥120,980 instead of ¥304,960. A Manage Invoice total
+--   edit did not carry into the loyalty amount, and the award ran afterwards
+--   on the old figure — Bug #279 (docs/FIXED-BUGS.md).
+--
+-- WHAT THE CORRECTION DID
+--   1. Ledger — one 'earned' row on invoice 19751: +1,800 points,
+--      +¥183,980 spend, note containing "Bug #279". An 'earned' row, never
+--      'adjusted': loyalty_integrity_report counts 'adjusted' as a deduction,
+--      so an adjustment would have re-opened the discrepancy it was closing.
+--   2. Lots — revoke-and-replace, following the revoke_loyalty_points_partial
+--      convention (recorded in 20260917060000):
+--        revoked  lot 222756b3-813c-4780-b6d6-573b31d27a8f (1,200/1,200, basis ¥120,980)
+--        inserted lot 3,000/3,000, spend_basis_jpy ¥304,960, with the ORIGINAL
+--        earned_at and expires_at carried over — the customer's expiry clock
+--        does not restart because of our error.
+--      uq_lots_active_order_earn_source allows only one active order_earn lot
+--      per source_reference, which is why this is a replace and not a top-up.
+--   3. Member counters — +1,800 points, +¥183,980 cumulative spend.
+--      Tier unchanged (Glimmer). last_purchase_at untouched: the correction is
+--      not a purchase and must not move the 180-day inactivity clock.
+--   4. Order — loyalty_jpy_amount set to 304960.
+--   5. Customer — one portal notification. NO email: the customer is being
+--      told their balance went up, not asked to act.
+--   6. audit_logs — one row, action 'loyalty_award_correction'.
+--
+-- The executed DO block is guarded (refuses unless the exact verified state is
+-- present, and refuses a second run) — see chat record; it is NOT repeated here
+-- to avoid accidental re-application.
+--
+-- NOT A REUSABLE PATH (owner decision 2026-09-17). Phase 1 now prevents the
+-- case before points are awarded (trg_guard_loyalty_jpy_amount plus the
+-- "Use ¥Y" nudge in Manage Invoice). A future post-award case repeats this
+-- same shape by hand.

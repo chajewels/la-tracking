@@ -1950,9 +1950,12 @@ locked once earned; total − shipping nudge), `useOrderLoyaltyAward`, and the D
 guard `trg_guard_loyalty_jpy_amount` (migration
 `20260917050000_edit_loyalty_amount.sql`, record-only — applied live).
 
-OPEN: #19751 is still short **1,800 points / ¥183,980 spend**. The guard now
-refuses the edit on that order precisely because it has already earned, so it
-needs the order-linked correction path (Phase 2), not this field.
+RESOLVED 2026-09-17: #19751 corrected by a one-off guarded SQL block (migration
+record 20260917060100): +1,800 points / +¥183,980 spend on the invoice's ledger,
+revoke-and-replace of its order_earn lot (expiry preserved), portal notification
+only. loyalty_integrity_report clean for the member afterwards. No reusable
+correction path was built (owner decision): Phase 1 now prevents the case before
+points are awarded; a future post-award case repeats the same pattern by hand.
 
 ### #278 — Change payment plan from Manage Invoice (2026-09-17)
 
