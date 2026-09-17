@@ -118,7 +118,20 @@ movement only — point lots are not affected by these rules.
      `loyalty_members.is_downgraded` + `downgrade_spend_baseline` +
      `earned_tier_id`, then reads
      `loyalty_tiers.requalify_spend_jpy` for the earned tier
-     (Radiant 500000, Elite 2000000, Crown VIP 4000000, Glimmer NULL).
+     — live values, verified 2026-09-17; always read `loyalty_tiers`,
+     never this line:
+
+     | tier | `min_spend_jpy` | `requalify_spend_jpy` | `points_multiplier` |
+     |---|---|---|---|
+     | Glimmer | 0 | NULL | 1 |
+     | Radiant | 1000000 | 500000 | 2 |
+     | Elite | 4000000 | 2000000 | 2 |
+     | Crown VIP | 8000000 | 4000000 | 3 |
+
+     The two spend columns are easy to confuse — each tier's requalify
+     figure is exactly HALF its own threshold, so a requalify value read
+     as a threshold understates the tier by a factor of two. Step 5b
+     reads the requalify column.
      Re-qualified when
      `(newCumulative − downgrade_spend_baseline) >= requalify_spend_jpy`.
      - Once re-qualified, tier recomputes from `newCumulative` against
