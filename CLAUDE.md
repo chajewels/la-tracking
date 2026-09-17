@@ -2226,6 +2226,11 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      action because the loyalty history predates the Hub is worse than the gap.
      An order that earned and was already reversed HAS ledger rows that net to
      zero; that stays silent. The discriminator is the row COUNT, not the net.
+     A post-award CORRECTION that adds points follows the same shape in reverse:
+     an 'earned' ledger row tagged with the invoice (never 'adjusted', which the
+     integrity report counts as a deduction), and a revoke-and-replace of the
+     single active order_earn lot with expiry preserved
+     (uq_lots_active_order_earn_source allows only one) — see #279.
 
   - A CLOSED ORDER CAN NEVER BACK A REDEMPTION (2026-09-12). Layaway closed =
      cancelled/forfeited/completed/final_settlement; cash open = pending.
