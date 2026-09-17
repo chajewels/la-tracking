@@ -2812,7 +2812,7 @@ same session.** This is the corollary above, restated because it is the step
 that keeps getting skipped. A record-only migration is a plain
 `CREATE OR REPLACE` of the body exactly as live has it, headed with the capture
 timestamp, the md5 and the reason; replaying it is a no-op. Reference files:
-`20260917070000_record_live_loyalty_fixes.sql`,
+`20260917070050_record_live_loyalty_fixes.sql`,
 `20260917070100_record_live_only_functions.sql`,
 `20260917070200_record_live_drifted_functions.sql`.
 

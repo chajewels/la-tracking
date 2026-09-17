@@ -3,7 +3,7 @@
 **2026-09-17, read-only.** Nothing was changed. No DB writes, no deploys.
 
 > **RESOLVED the same day.** Every drifted and live-only body found below is now
-> recorded in `supabase/migrations/` — `20260917070000_record_live_loyalty_fixes.sql`,
+> recorded in `supabase/migrations/` — `20260917070050_record_live_loyalty_fixes.sql`,
 > `20260917070100_record_live_only_functions.sql`,
 > `20260917070200_record_live_drifted_functions.sql`, and
 > `20260917070300_record_drop_validate_schedule_start_year.sql` for the one
