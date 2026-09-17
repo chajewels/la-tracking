@@ -1,12 +1,14 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import AnimatedNumber from '@/components/shared/AnimatedNumber';
-import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw, Shield, ShieldCheck, Gavel } from 'lucide-react';
+import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw, Shield, ShieldCheck, Gavel, Activity } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
 import PortalLinksTab from '@/components/monitoring/PortalLinksTab';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
 import { PenaltyAuditTab, OverdueDebugTab, WaiverAuditTab } from '@/pages/AdminAudit';
+import UnifiedSystemHealthTab from '@/components/admin/UnifiedSystemHealthTab';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import NotificationsPanel from '@/components/notifications/NotificationsPanel';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -72,6 +74,13 @@ export default function Monitoring() {
   const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
     v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'notifications' || v === 'audit'
     || v === 'portal-links';
+  // Same gate as the Dashboard's System Health card (view_system_health,
+  // admin-only today). Deliberately NOT the broader 'system_health' key, which
+  // is true for staff/finance/csr too — this tab carries fix-account-status
+  // buttons, and the server enforces 'system_health' on those independently.
+  const { can } = usePermissions();
+  const canSeeSystemHealth = can('view_system_health');
+
   const [monitoringTab, setMonitoringTabState] = useState<MonitoringTabKey>(() => {
     const urlTab = searchParams.get('tab');
     return isMonitoringTab(urlTab) ? urlTab : 'alerts';
@@ -781,12 +790,24 @@ export default function Monitoring() {
                 <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
                 <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
                 <TabsTrigger value="waivers" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> Waiver History</TabsTrigger>
+                {/* Restored 2026-09-17. 93c0449c (2026-04-23) folded Audit into this
+                    page but dropped the System Health tab outright, leaving
+                    UnifiedSystemHealthTab an orphan with no route, tab or button for
+                    five months — so system-health-check could not be run from the Hub
+                    at all. It belongs beside the other audits rather than in a new
+                    place. Gated like the Dashboard's System Health card. */}
+                {canSeeSystemHealth && (
+                  <TabsTrigger value="system-health" className="gap-1.5"><Activity className="h-3.5 w-3.5" /> System Health</TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent value="penalty-cap"><PenaltyCapAuditPanel /></TabsContent>
               <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
               <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>
               <TabsContent value="waivers"><WaiverAuditTab /></TabsContent>
+              {canSeeSystemHealth && (
+                <TabsContent value="system-health"><UnifiedSystemHealthTab /></TabsContent>
+              )}
             </Tabs>
           </TabsContent>
         </Tabs>
