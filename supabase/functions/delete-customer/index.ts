@@ -115,12 +115,45 @@ Deno.serve(async (req) => {
       .eq("customer_id", customer_id);
     if (tiErr) throw tiErr;
 
-    // 5. Safe to delete — also clean up analytics
+    // 5. Loyalty signups (FK is NO ACTION on converted_customer_id — must be cleared).
+    // The LINK is cleared, the ROW IS KEPT. A signup is not a child of the
+    // customer: name, contact, region and lang are NOT NULL on the row itself,
+    // and converted_customer_id is a nullable link added later if the signup
+    // converts. The row records a storefront enrollment that actually happened
+    // — and per CLAUDE.md, website POST /loyalty/join writes one only when an
+    // enrollment FAILED, alongside the 'loyalty_join_failed' staff bell.
+    // Deleting it would erase the evidence of a bug we raised an alarm about.
+    const { error: lsErr } = await supabase
+      .from("loyalty_signups")
+      .update({ converted_customer_id: null })
+      .eq("converted_customer_id", customer_id);
+    if (lsErr) throw lsErr;
+
+    // 6. Website live claims (FK is NO ACTION — must be cleared).
+    // A claim HOLDS A VARIANT, so a live hold is released before the link goes,
+    // the same way an expiring plan gives its stock back rather than vanishing.
+    // 'released' is the enum's own terminal state for exactly this.
+    const { error: wcHeldErr } = await supabase
+      .from("website_live_claims")
+      .update({ status: "released", customer_id: null })
+      .eq("customer_id", customer_id)
+      .eq("status", "held");
+    if (wcHeldErr) throw wcHeldErr;
+
+    // Claims already resolved (paid / layaway / expired / released) keep their
+    // status — the stock question is settled — and only lose the link.
+    const { error: wcRestErr } = await supabase
+      .from("website_live_claims")
+      .update({ customer_id: null })
+      .eq("customer_id", customer_id);
+    if (wcRestErr) throw wcRestErr;
+
+    // 7. Safe to delete — also clean up analytics
     await supabase.from("customer_analytics").delete().eq("customer_id", customer_id);
     const { error: delErr } = await supabase.from("customers").delete().eq("id", customer_id);
     if (delErr) throw delErr;
 
-    // 4. Audit log — matches delete-account pattern from commit bf368a6
+    // 8. Audit log — matches delete-account pattern from commit bf368a6
     await supabase.from("audit_logs").insert({
       entity_type: "customer",
       entity_id: customer_id,

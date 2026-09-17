@@ -136,6 +136,13 @@
         -- delete-customer (supabase/functions/delete-customer/index.ts)
         ('delete-customer', 'customers',        'customer_analytics',             true,  false),
         ('delete-customer', 'customers',        'layaway_accounts',               false, true),
+        ('delete-customer', 'customers',        'cash_orders',                    false, true),
+        ('delete-customer', 'customers',        'extension_requests',             false, false),
+        ('delete-customer', 'customers',        'payment_submissions',            false, false),
+        ('delete-customer', 'customers',        'service_jobs',                   false, false),
+        ('delete-customer', 'customers',        'trade_ins',                      false, false),
+        ('delete-customer', 'customers',        'loyalty_signups',                false, false),
+        ('delete-customer', 'customers',        'website_live_claims',            false, false),
         -- cash_orders has no delete function (soft-cancel only). The
         -- payment_proofs.cash_order_id FK (added 2026-06-15) is a blocking
         -- FK to cash_orders; it is allowlisted (NOT given a DELETE step)
@@ -231,6 +238,17 @@
   REVOKE ALL ON FUNCTION public.audit_delete_cleanup_invariants() FROM PUBLIC;
   GRANT EXECUTE ON FUNCTION public.audit_delete_cleanup_invariants() TO authenticated;
   ```
+
+  DOC-VS-LIVE NOTE (2026-09-17): the allowlist printed above is the
+  repo's copy. The LIVE function in the SQL Editor is authoritative and
+  had already drifted ahead of this doc — it carried cash_orders,
+  extension_requests, payment_submissions, service_jobs, trade_ins and
+  generated_invoices, and marks several delete-account entries
+  defensive=true where the doc says false. The block above has been
+  reconciled to live plus the two 2026-09-17 additions. When they
+  disagree, read the live definition:
+    SELECT pg_get_functiondef(oid) FROM pg_proc
+     WHERE proname = 'audit_delete_cleanup_invariants';
 
   Maintenance rule:
     Whenever a new SQL-Editor table is created with a

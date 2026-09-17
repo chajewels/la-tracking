@@ -771,3 +771,24 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   `has_permission(uid,'edit_loyalty_amount')`; refused once the order has an
   `'earned'` `loyalty_transactions` row (`account_id` / `cash_order_id`).
   `auth.uid() IS NULL` (service role) passes.
+- Six FKs to `customers` are NO ACTION (blocking), not CASCADE:
+  `extension_requests`, `payment_submissions`, `service_jobs`, `trade_ins`,
+  `loyalty_signups.converted_customer_id`, `website_live_claims.customer_id`.
+  `layaway_accounts` and `cash_orders` are RESTRICT and are pre-check
+  protected (delete-customer refuses rather than cascading). Every other FK to
+  `customers` is CASCADE. `delete-customer` must clear all six explicitly;
+  `audit_delete_cleanup_invariants()` is what catches a new one.
+- `loyalty_signups` is NOT a child of `customers`. `name`, `contact`, `region`
+  and `lang` are NOT NULL on the row; `converted_customer_id` is a nullable
+  link added only if the signup converts. Deleting a customer CLEARS THE LINK
+  and KEEPS THE ROW — the signup records a storefront event that happened, and
+  per CLAUDE.md `website POST /loyalty/join` writes one only when an enrollment
+  FAILED (alongside the `loyalty_join_failed` bell).
+- `website_live_claims.customer_id` is nullable and `csr_id` exists, so a claim
+  can be held without a customer. Status enum: `held | paid | layaway |
+  expired | released`. A claim holds a variant, so deleting a customer moves a
+  `held` claim to `released` before clearing the link; already-resolved claims
+  keep their status. WHEN THE CLAIM HOLD IS ACTUALLY BUILT, the release path
+  must also return the stock — nothing decrements stock for a claim today
+  (0 rows, and no `%claim%` function exists for this table), so there is
+  nothing to give back yet.

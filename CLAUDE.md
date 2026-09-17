@@ -1170,12 +1170,21 @@ When completing a partially_paid month:
     6. The loyalty award sweep (00:35) runs after that, and is DELIBERATELY
        ITS OWN JOB rather than a tail block of daily-reconciliation. It used to
        be the last block of that function, after a loop over every active
-       account — a loop which cannot finish at current volume (measured
-       2026-09-16: 493 accounts at 1.56s each against a hard ~185s ceiling, so
-       ~120 get reconciled and the run dies). Everything sequenced after that
-       loop was unreachable, not merely skipped: the sweep produced ONE staff
-       notification in ninety days. A job whose independence matters must not
-       be a continuation of another job's request. Never move it back inline.
+       account — a loop which cannot finish in one run at current volume. The
+       loop's own predicate (status IN active / overdue / extension_active /
+       final_settlement, no test filter) selects 535 accounts at ~1.56s each
+       against a hard ~185s ceiling; before the 2026-09-17 time-box it simply
+       died after ~120, and everything sequenced after it was unreachable
+       rather than merely skipped — the sweep produced ONE staff notification
+       in ninety days. It is now time-boxed and resumes from a
+       reconciliation_log cursor, so the 535 drain over about SIX runs
+       (measured 2026-09-17: evaluated 91, remaining 444, budget_exhausted
+       true). Do NOT confuse 535 with the 493 the account audit reports: that
+       is the same status set filtered to total_paid > 0, because
+       audit_account only means anything once money has landed. 535 is the
+       sweep's population and the number `remaining` counts down from. A job
+       whose independence matters must not be a continuation of another job's
+       request. Never move it back inline.
     6. daily-reconciliation must never be scheduled
        before 00:15 UTC
 
