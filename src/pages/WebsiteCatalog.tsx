@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import PageMeta from "@/components/seo/PageMeta";
+import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -475,23 +476,23 @@ export default function WebsiteCatalog() {
     jpyPhp ? `₱ ${Math.round(n * jpyPhp).toLocaleString("en-US")}` : "—";
 
   return (
-    <div className="space-y-6">
+    <AppLayout>
+    <div className="p-6 space-y-6">
       <PageMeta
         title="Website Catalog | Cha Jewels Hub"
         description="Manage the products, jewelry types and imagery published on the Cha Jewels public website."
         path="/website-catalog"
       />
 
-
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
-            <Globe className="h-5 w-5 text-primary" />
-            Website Catalog
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Everything shown on chajewelsjp.com. Only <span className="text-foreground">Active</span> products are published.
-          </p>
+        <div className="flex items-center gap-3">
+          <Globe className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Website Catalog</h1>
+            <p className="text-sm text-muted-foreground">
+              Everything shown on chajewelsjp.com. Only <span className="text-foreground">Active</span> products are published.
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" asChild>
@@ -891,6 +892,7 @@ export default function WebsiteCatalog() {
         </DialogContent>
       </Dialog>
     </div>
+    </AppLayout>
   );
 }
 
