@@ -1095,7 +1095,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           shipping_jpy: shipping,
           total_jpy: total,
         })
-        .select("id, expires_at")
+        .select("id, expires_at, reserved_invoice_seq")
         .maybeSingle();
       if (quoteErr) throw quoteErr;
 
@@ -1118,6 +1118,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       return jsonResponse(scrub({
         quote_id: quote?.id,
+        // THE INVOICE NUMBER, ALREADY. A layaway quote draws its number from
+        // web_order_number_seq at insert (trigger trg_checkout_quotes_reserve_
+        // invoice), and create_web_layaway_atomic uses that same number, so the
+        // agreement can be signed against the plan's real invoice before the
+        // plan exists. Both null for a full-payment quote. The reference is
+        // built here exactly as the SQL builds it: 'CJ-W-' || lpad(seq, 6, '0').
+        invoice_number: quote?.reserved_invoice_seq == null ? null : String(quote.reserved_invoice_seq),
+        web_reference: quote?.reserved_invoice_seq == null ? null : "CJ-W-" + String(quote.reserved_invoice_seq).padStart(6, "0"),
         items,
         subtotal_jpy: subtotal,
         shipping_jpy: shipping,
@@ -1201,7 +1209,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: q, error: qErr } = await supabase
         .from("checkout_quotes")
-        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id")
+        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id, reserved_invoice_seq")
         .eq("id", quoteId)
         .eq("customer_id", customer.id)
         .maybeSingle();
@@ -1269,6 +1277,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // one type for a quote however it was obtained.
       return jsonResponse(scrub({
         quote_id: row.id,
+        // Same two keys, same construction as POST /checkout/quote.
+        invoice_number: row.reserved_invoice_seq == null ? null : String(row.reserved_invoice_seq),
+        web_reference: row.reserved_invoice_seq == null ? null : "CJ-W-" + String(row.reserved_invoice_seq).padStart(6, "0"),
         items: row.items ?? [],
         subtotal_jpy: subtotalJpy,
         shipping_jpy: shippingJpy,
