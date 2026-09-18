@@ -5876,6 +5876,8 @@ export type Database = {
       }
       create_web_layaway_atomic: {
         Args: {
+          p_agreement_signed_at?: string
+          p_agreement_version?: string
           p_customer_id: string
           p_lang?: string
           p_order_date?: string
