@@ -863,3 +863,18 @@ recorded in `20260917070050_record_live_loyalty_fixes.sql`,
 `20260917070100_record_live_only_functions.sql`,
 `20260917070200_record_live_drifted_functions.sql` and
 `20260917070300_record_drop_validate_schedule_start_year.sql`.
+
+### checkout_quotes.reserved_invoice_seq + trg_checkout_quotes_reserve_invoice (added 2026-09-18)
+
+`checkout_quotes.reserved_invoice_seq bigint` — drawn from `web_order_number_seq` by the
+BEFORE INSERT trigger `trg_checkout_quotes_reserve_invoice` (function
+`checkout_quotes_reserve_invoice()`, SECURITY DEFINER) when `mode = 'layaway'` and the
+column is NULL; full-payment quotes stay NULL. Partial unique index
+`uq_checkout_quotes_reserved_invoice_seq` (WHERE NOT NULL). `create_web_layaway_atomic`
+sets `v_seq := coalesce(v_quote.reserved_invoice_seq, nextval(...))`, so the plan's
+`invoice_number` = the seq and `web_reference` = `'CJ-W-' || lpad(seq, 6, '0')` are the
+numbers the quote already carried; the coalesce serves quotes created before migration
+`20260918120000`. `POST /checkout/quote` and `GET /checkout/quote/:id` return them as
+`invoice_number` / `web_reference` (both `null` for full-payment quotes). Expired or
+abandoned layaway quotes keep their number — the sequence has gaps by design, and cash
+web orders draw from the same sequence.

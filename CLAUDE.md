@@ -1787,6 +1787,13 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   stored figures, refuses `below_plan_minimum`, inserts the account, the
   schedule and the item lines, and decrements stock — one transaction. The
   `website` edge function never writes a layaway row itself.
+  THE INVOICE NUMBER IS RESERVED AT QUOTE TIME (2026-09-18): a layaway
+  `checkout_quotes` row draws `reserved_invoice_seq` from `web_order_number_seq`
+  on insert (trigger `trg_checkout_quotes_reserve_invoice`), `POST /checkout/quote`
+  returns it as `invoice_number` / `web_reference` so the agreement is signed
+  against the plan's real number, and `create_web_layaway_atomic` carries that
+  same number through to the account. Abandoned quotes leave sequence gaps by
+  design.
 
   THE DEPOSIT DEADLINE IS A FIELD, NOT A COMPUTED RULE (owner decision
   2026-09-13). `transfer_due_at` is when the deposit must arrive. It is offered
