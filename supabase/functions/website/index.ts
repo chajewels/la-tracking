@@ -1166,6 +1166,131 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }));
     }
 
+    // GET /checkout/quote/:id — read back a quote this customer already took.
+    //
+    // WHY THIS EXISTS. The layaway agreement is signed on another site, so the
+    // customer leaves the checkout and comes back. `checkout_quotes.id` is the
+    // handle the signature is keyed on, so it — not a fresh quote — is what
+    // must still be paid against when they return: re-quoting would mint a new
+    // id and orphan the signature they just gave. The storefront holds its
+    // checkout state in React only, so on a same-tab return it has the id from
+    // the URL and nothing else. This is how it gets the figures back.
+    //
+    // READ-ONLY, AND SCOPED TO THE CALLER. The customer_id filter is what makes
+    // another customer's quote a 404 rather than a disclosure — the same rule
+    // create_web_layaway_atomic applies when it answers quote_not_found.
+    //
+    // Derived, not cached: the layaway block comes from layaway_quote and the
+    // methods from transfer_methods, exactly as POST /checkout/quote builds
+    // them, so a re-read cannot disagree with the original answer. The stored
+    // yen figures and the stored rate are the only inputs.
+    if (req.method === "GET" && segments[0] === "checkout" && segments[1] === "quote" && segments[2] && !segments[3]) {
+      // WHO IS ASKING. `customer` is bound per route handler in this file, never
+      // at file scope, so every authed route opens with these four lines — and
+      // this one shipped without them. They are not ceremony: without
+      // customerForAuthUser there is no customer_id to scope the read by, and
+      // the "another customer's quote is a 404, not a disclosure" guarantee
+      // below would have been a comment describing nothing.
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const quoteId = decodeURIComponent(segments[2]).trim();
+      if (!quoteId) return jsonResponse({ error: "quote_id_required" }, 400);
+
+      const { data: q, error: qErr } = await supabase
+        .from("checkout_quotes")
+        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id")
+        .eq("id", quoteId)
+        .eq("customer_id", customer.id)
+        .maybeSingle();
+      if (qErr) throw qErr;
+      if (!q) return notFound();
+
+      const row = q as AnyRec;
+      // A spent quote is gone for good — consumed_at is set inside the writer's
+      // transaction. Saying so plainly lets the storefront re-price instead of
+      // showing figures it can no longer act on.
+      if (row.consumed_at) return jsonResponse({ error: "quote_already_used" }, 409);
+      if (row.expires_at && new Date(String(row.expires_at)) <= new Date()) {
+        return jsonResponse({ error: "quote_expired" }, 409);
+      }
+
+      const settlement = String(row.settlement_currency ?? "JPY");
+      const fxRate = row.fx_rate === null || row.fx_rate === undefined ? null : Number(row.fx_rate);
+      const subtotalJpy = Number(row.subtotal_jpy ?? 0);
+      const shippingJpy = row.shipping_jpy === null || row.shipping_jpy === undefined ? null : Number(row.shipping_jpy);
+      const totalJpy = Number(row.total_jpy ?? 0);
+
+      // Same arithmetic as the POST: shipping is converted and the subtotal is
+      // the remainder, so the parts sum to the total exactly.
+      const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
+      const totalSettle = toSettle(totalJpy);
+      const shippingSettle = shippingJpy === null ? null : toSettle(shippingJpy);
+      const subtotalSettle = totalSettle - (shippingSettle ?? 0);
+
+      let layawayOut: AnyRec | null = null;
+      if (String(row.mode ?? "full") === "layaway") {
+        const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
+          p_price: subtotalSettle,
+          p_term_months: Number(row.term_months ?? 3),
+          p_currency: settlement,
+          p_order_date: phtToday(),
+          p_shipping: shippingSettle ?? 0,
+          p_services: 0,
+        });
+        if (lqErr) throw lqErr;
+        const lay = (lq ?? {}) as AnyRec;
+        layawayOut = {
+          term_months: lay.term_months,
+          deposit: lay.deposit,
+          monthly: lay.monthly,
+          last_month: lay.last_month,
+          schedule: lay.schedule,
+          allowed_terms: lay.allowed_terms,
+        };
+      }
+
+      const methods = await transferMethods(supabase, settlement);
+
+      let depositDeadlineHours: number | null = null;
+      {
+        const { data: hrs, error: hrsErr } = await supabase
+          .rpc("web_deposit_deadline_hours", { p_customer_id: customer.id });
+        if (hrsErr) {
+          console.warn("[website] web_deposit_deadline_hours failed:", hrsErr.message);
+        } else if (typeof hrs === "number" && Number.isFinite(hrs)) {
+          depositDeadlineHours = hrs;
+        }
+      }
+
+      // The same shape POST /checkout/quote answers with, so the storefront has
+      // one type for a quote however it was obtained.
+      return jsonResponse(scrub({
+        quote_id: row.id,
+        items: row.items ?? [],
+        subtotal_jpy: subtotalJpy,
+        shipping_jpy: shippingJpy,
+        total_jpy: totalJpy,
+        mode: row.mode ?? "full",
+        settlement_currency: settlement,
+        fx_rate: fxRate,
+        fx_rate_date: row.fx_rate_date ?? null,
+        subtotal_settlement: subtotalSettle,
+        shipping_settlement: shippingSettle,
+        total_settlement: totalSettle,
+        layaway: layawayOut,
+        requires_manual_quote: shippingJpy === null,
+        transfer_region: regionForCurrency(settlement),
+        transfer_methods: methods,
+        transfer_available: methods.length > 0,
+        order_type: row.order_type ?? "SELF",
+        expires_at: row.expires_at,
+        deposit_deadline_hours: depositDeadlineHours,
+      }));
+    }
+
     // POST /checkout/pay — turn a quote into a real order.
     if (req.method === "POST" && segments[0] === "checkout" && segments[1] === "pay" && !segments[2]) {
       const who = await requireCustomerUser(req, supabase);
@@ -1210,12 +1335,29 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // matters — re-pricing, the schedule, the stock hold, consuming the quote
       // — happens inside create_web_layaway_atomic.
       if (String((quoteRow as AnyRec | null)?.mode ?? "full") === "layaway") {
+        // THE SIGNED AGREEMENT, AS THE STOREFRONT VERIFIED IT.
+        // The storefront checks the signing record (a Google Sheet row, read
+        // through the Apps Script that owns it) server-side before it calls
+        // this, and fails closed when it cannot. It passes what the customer
+        // actually signed; the plan records that and nothing invented.
+        // Never a literal: the Hub's own NewCashOrder.tsx hardcodes 'v1' and
+        // has been wrong against the live agreement ever since.
+        // Absent stays absent — a caller that sends neither writes two NULLs,
+        // exactly as before this field existed.
+        const agreementVersion = String(body.agreement_version ?? "").trim() || null;
+        const agreementSignedAtRaw = String(body.agreement_signed_at ?? "").trim();
+        const agreementSignedAt = agreementSignedAtRaw && !Number.isNaN(Date.parse(agreementSignedAtRaw))
+          ? new Date(agreementSignedAtRaw).toISOString()
+          : null;
+
         const { data: lay, error: layErr } = await supabase.rpc("create_web_layaway_atomic", {
           p_customer_id: customer.id,
           p_quote_id: quoteId,
           p_lang: lang,
           p_transfer_due_at: null,     // default 72 hours; staff may move it later
           p_order_date: phtToday(),
+          p_agreement_version: agreementVersion,
+          p_agreement_signed_at: agreementSignedAt,
         });
         if (layErr) throw layErr;
         const plan = (lay ?? {}) as AnyRec;
