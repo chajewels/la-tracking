@@ -529,6 +529,7 @@ export type Database = {
           order_type: string
           recipient_name: string | null
           recipient_phone: string | null
+          reserved_invoice_seq: number | null
           schedule: Json | null
           settlement_currency: string
           ship_to_address_id: string | null
@@ -552,6 +553,7 @@ export type Database = {
           order_type?: string
           recipient_name?: string | null
           recipient_phone?: string | null
+          reserved_invoice_seq?: number | null
           schedule?: Json | null
           settlement_currency?: string
           ship_to_address_id?: string | null
@@ -575,6 +577,7 @@ export type Database = {
           order_type?: string
           recipient_name?: string | null
           recipient_phone?: string | null
+          reserved_invoice_seq?: number | null
           schedule?: Json | null
           settlement_currency?: string
           ship_to_address_id?: string | null
