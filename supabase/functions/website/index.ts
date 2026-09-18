@@ -1185,6 +1185,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
     // them, so a re-read cannot disagree with the original answer. The stored
     // yen figures and the stored rate are the only inputs.
     if (req.method === "GET" && segments[0] === "checkout" && segments[1] === "quote" && segments[2] && !segments[3]) {
+      // WHO IS ASKING. `customer` is bound per route handler in this file, never
+      // at file scope, so every authed route opens with these four lines — and
+      // this one shipped without them. They are not ceremony: without
+      // customerForAuthUser there is no customer_id to scope the read by, and
+      // the "another customer's quote is a 404, not a disclosure" guarantee
+      // below would have been a comment describing nothing.
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
       const quoteId = decodeURIComponent(segments[2]).trim();
       if (!quoteId) return jsonResponse({ error: "quote_id_required" }, 400);
 
