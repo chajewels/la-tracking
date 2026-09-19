@@ -39,6 +39,22 @@ const ALLOWED_HOSTS = ["chajewelsjapan.com", "www.chajewelsjapan.com"];
 const PHOTO_BUCKET = "promotions";
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
+/** WEBSTORE PHOTO FALLBACK. Invoice 19768 carried no photo key on its line at
+ *  all (source_photo_url null, photo_failures empty), so the copy step had
+ *  nothing to copy. The same catalogue is public on the webstore, keyed by the
+ *  product_id the invoice line already carries, so look there before giving up.
+ *  Two steps, in order, each bounded — a slow or unreachable webstore must
+ *  never hold an import open:
+ *    a) the product endpoint, by product_id      (one request, 6s)
+ *    b) the paged product list, matched by SKU   (60 pages / 20s, shared)
+ *  NEITHER IS TRUSTED BLINDLY. Every response must parse as JSON and yield a
+ *  usable URL through pickPhotoUrl, or the step is recorded as failed and the
+ *  photo stays null. A guessed URL is never stored. */
+const WEBSTORE_ORIGIN = "https://www.chajewelsjapan.com";
+const PHOTO_LOOKUP_TIMEOUT_MS = 6_000;
+const PHOTO_SCAN_MAX_PAGES = 60;
+const PHOTO_SCAN_BUDGET_MS = 20_000;
+
 /** Yen is integral. Totals must reconcile to the yen, not "about". */
 const RECONCILE_TOLERANCE_JPY = 1;
 
@@ -52,6 +68,11 @@ interface DraftItem {
   note: string | null;
   photo_url: string | null;
   source_photo_url: string | null;
+  /** What happened while looking for this line's picture, in words the CSR can
+   *  act on. Null once a photo is in hand. Surfaced in the review screen's
+   *  placeholder tooltip so the owner can tell us what the webstore answered
+   *  rather than reporting "it is still blank". */
+  photo_note: string | null;
 }
 
 /** A RESIZE FEE is a SERVICE, never a product line. Services belong in
@@ -107,7 +128,10 @@ function asUrlString(v: unknown): string | null {
   if (typeof v === "string" && v.trim()) return v.trim();
   if (v && typeof v === "object" && !Array.isArray(v)) {
     const o = v as Record<string, unknown>;
-    for (const k of ["url", "src", "path", "href", "large", "medium", "original"]) {
+    // `normal` first: the webstore's product photo object is {normal, thumb, …}
+    // and `normal` is the full-size one. Without it every webstore lookup would
+    // find the object, fail to read a URL out of it, and report "no photo".
+    for (const k of ["url", "src", "path", "href", "normal", "large", "original", "medium", "small", "thumb"]) {
       const hit = asUrlString(o[k]);
       if (hit) return hit;
     }
@@ -129,6 +153,71 @@ function pickPhotoUrl(...sources: Record<string, unknown>[]): string | null {
     }
   }
   return null;
+}
+
+/** JSON over HTTP with a hard timeout, and no exceptions escaping. Every
+ *  failure comes back as prose because that prose is what the CSR is shown. */
+type JsonResult = { ok: true; json: unknown } | { ok: false; why: string };
+
+async function getJson(url: string): Promise<JsonResult> {
+  try {
+    const res = await fetchWithRetryOnRateLimit(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(PHOTO_LOOKUP_TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, why: `HTTP ${res.status}` };
+    const text = await res.text();
+    try {
+      return { ok: true, json: JSON.parse(text) };
+    } catch {
+      // An HTML error page or a login redirect lands here. Say which, because
+      // "not JSON" and "404" mean very different things about the webstore.
+      const head = text.trim().slice(0, 40).replace(/\s+/g, " ");
+      return { ok: false, why: `response was not JSON (starts "${head}")` };
+    }
+  } catch (e) {
+    const name = (e as Error)?.name;
+    return { ok: false, why: name === "TimeoutError" ? `no answer within ${PHOTO_LOOKUP_TIMEOUT_MS / 1000}s` : String((e as Error)?.message ?? e) };
+  }
+}
+
+/** Page365's own timestamps, normalised to ISO or dropped. An unparseable date
+ *  is NOT passed through as a raw string: the review screen turns these into
+ *  the order date and the deposit deadline, and a value it cannot parse would
+ *  silently become "today" with a "from Page365" label next to it — a wrong
+ *  date wearing a badge that says it is right. */
+function isoOrNull(v: unknown): string | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/** The list endpoint's envelope is not documented, so accept the shapes it
+ *  could plausibly use rather than assuming one and reporting "no photo". */
+function asProductArray(json: unknown): Record<string, unknown>[] {
+  if (Array.isArray(json)) return json.filter(isObj);
+  if (isObj(json)) {
+    for (const k of ["products", "data", "items", "results"]) {
+      const v = json[k];
+      if (Array.isArray(v)) return v.filter(isObj);
+    }
+  }
+  return [];
+}
+
+/** A product name leads with its code ("R1056 Ring K18 …"), so the SKU must
+ *  match at a WORD BOUNDARY — otherwise R105 would claim R1056's photo. */
+function skuMatches(productName: string, sku: string): boolean {
+  const n = productName.trim().toLowerCase();
+  const s = sku.trim().toLowerCase();
+  if (!s || !n.startsWith(s)) return false;
+  const next = n.charAt(s.length);
+  return next === "" || !/[a-z0-9]/.test(next);
 }
 
 function extFromUrl(url: string, contentType: string | null): string {
@@ -254,6 +343,10 @@ Deno.serve(async (req) => {
     }
 
     const items: DraftItem[] = [];
+    /** product_id per line, parallel to `items`. The webstore's product
+     *  endpoint is keyed on it, so it is what step (a) of the photo fallback
+     *  needs. Kept out of the stored draft — it is a lookup key, not order data. */
+    const productIds: (string | null)[] = [];
     for (let i = 0; i < rawItems.length; i++) {
       const it = rawItems[i];
       const name = String(it["name"] ?? "").trim();
@@ -277,6 +370,11 @@ Deno.serve(async (req) => {
       // beat the product's own catalogue image when both are present.
       const photo = pickPhotoUrl(product, it as Record<string, unknown>);
 
+      const pid = product["product_id"] ?? product["id"];
+      productIds.push(
+        typeof pid === "string" || typeof pid === "number" ? String(pid) : null,
+      );
+
       items.push({
         kind: isServiceLine(name) ? "service" : "product",
         name,
@@ -287,6 +385,7 @@ Deno.serve(async (req) => {
         note: typeof it["note"] === "string" && it["note"].trim() ? String(it["note"]).trim() : null,
         photo_url: null,
         source_photo_url: photo,
+        photo_note: null,
       });
     }
 
@@ -316,18 +415,96 @@ Deno.serve(async (req) => {
     // keeps forever. A photo that cannot be copied is left null — a missing
     // picture is cosmetic, and is not worth refusing an otherwise sound import.
     const photoFailures: string[] = [];
+
+    // ── Fallback: ask the webstore for the photos the invoice did not carry ──
+    // Bounded and shared: `scanDeadline` and `pageCache` span every line, so a
+    // four-line order cannot spend four times the budget, and a page fetched
+    // for line 1 is reused by line 3.
+    const scanDeadline = Date.now() + PHOTO_SCAN_BUDGET_MS;
+    const pageCache = new Map<number, Record<string, unknown>[]>();
+    let scanExhausted: string | null = null;
+
+    for (let n = 0; n < items.length; n++) {
+      if (items[n].source_photo_url || items[n].kind !== "product") continue;
+
+      const tried: string[] = [];
+      const sku = items[n].sku;
+      const pid = productIds[n];
+
+      // (a) Straight at the product, by the id the invoice line carries.
+      if (pid) {
+        const r = await getJson(`${WEBSTORE_ORIGIN}/products/${encodeURIComponent(pid)}`);
+        if (!r.ok) {
+          tried.push(`product ${pid}: ${r.why}`);
+        } else {
+          const body = isObj(r.json) && isObj(r.json["product"]) ? r.json["product"] : r.json;
+          const hit = isObj(body) ? pickPhotoUrl(body) : null;
+          if (hit) {
+            items[n].source_photo_url = hit;
+            items[n].photo_note = `photo found on the webstore product page (${pid})`;
+            continue;
+          }
+          tried.push(`product ${pid}: returned JSON with no usable photo field`);
+        }
+      } else {
+        tried.push("the Page365 line carried no product id, so the product page could not be tried");
+      }
+
+      // (b) Walk the catalogue looking for a name that starts with this SKU.
+      if (!sku) {
+        tried.push("no SKU could be read from the line name, so the catalogue could not be searched");
+      } else if (scanExhausted) {
+        tried.push(`catalogue search skipped (${scanExhausted})`);
+      } else {
+        let found: string | null = null;
+        let page = 1;
+        for (; page <= PHOTO_SCAN_MAX_PAGES; page++) {
+          if (Date.now() > scanDeadline) {
+            scanExhausted = `search budget of ${PHOTO_SCAN_BUDGET_MS / 1000}s spent`;
+            break;
+          }
+          let list = pageCache.get(page);
+          if (!list) {
+            const r = await getJson(`${WEBSTORE_ORIGIN}/products?page=${page}`);
+            if (!r.ok) {
+              scanExhausted = `page ${page}: ${r.why}`;
+              break;
+            }
+            list = asProductArray(r.json);
+            pageCache.set(page, list);
+          }
+          // An empty page is the end of the catalogue, not a failure.
+          if (list.length === 0) {
+            scanExhausted = `catalogue ends at page ${page - 1}`;
+            break;
+          }
+          const match = list.find((prod) => skuMatches(String(prod["name"] ?? ""), sku));
+          if (match) {
+            found = pickPhotoUrl(match);
+            if (!found) tried.push(`catalogue page ${page} matched ${sku} but the product had no usable photo field`);
+            break;
+          }
+        }
+        if (found) {
+          items[n].source_photo_url = found;
+          items[n].photo_note = `photo found by searching the webstore catalogue for ${sku} (page ${page})`;
+          continue;
+        }
+        if (!found && !scanExhausted && page > PHOTO_SCAN_MAX_PAGES) {
+          scanExhausted = `${PHOTO_SCAN_MAX_PAGES} pages searched without a match`;
+        }
+        if (scanExhausted) tried.push(`catalogue search stopped: ${scanExhausted}`);
+      }
+
+      // Nothing worked. Record exactly what was attempted and why each failed —
+      // this text is what the owner reads in the placeholder tooltip.
+      items[n].photo_note = `No photo. Tried: ${tried.join("; ")}.`;
+      photoFailures.push(`${items[n].name}: ${tried.join("; ")}`);
+    }
+
     for (let n = 0; n < items.length; n++) {
       const src = items[n].source_photo_url;
-      if (!src) {
-        // Say so. Invoice 19768 reached the CSR as a blank placeholder with an
-        // empty photo_failures, which reads as "the copy failed silently" when
-        // in fact no URL was ever offered. A service line (a resize fee) has no
-        // picture by nature and is not worth reporting.
-        if (items[n].kind === "product") {
-          photoFailures.push(`${items[n].name}: the Page365 line carried no photo URL`);
-        }
-        continue;
-      }
+      if (!src) continue;
       try {
         const imgRes = await fetchWithRetryOnRateLimit(src, { method: "GET" });
         if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
@@ -344,7 +521,9 @@ Deno.serve(async (req) => {
         const { data: pub } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
         items[n].photo_url = pub.publicUrl;
       } catch (e) {
-        photoFailures.push(`${items[n].name}: ${(e as Error).message}`);
+        const why = (e as Error).message;
+        items[n].photo_note = `A photo URL was found but could not be copied into Hub storage: ${why}`;
+        photoFailures.push(`${items[n].name}: could not copy the photo (${why})`);
       }
     }
 
@@ -371,6 +550,11 @@ Deno.serve(async (req) => {
       total_jpy: Math.round(totalJpy),
       fx: { php_jpy_rate: phpJpyRate, source: "system_settings.php_jpy_rate", read_at: new Date().toISOString() },
       page365_stage: typeof raw["stage"] === "string" ? raw["stage"] : null,
+      // When the customer's invoice was raised, and when Page365 says it lapses.
+      // The review screen prefers these over "today" for the order date and the
+      // deposit deadline — an import entered days later must not be dated today.
+      page365_created_at: isoOrNull(raw["created_at"]),
+      page365_expires_on: isoOrNull(raw["expires_on"]),
       shipping_option: raw["shipping_option"] ?? null,
       fetched_at: new Date().toISOString(),
       photo_failures: photoFailures,
