@@ -234,14 +234,40 @@ export default function Page365Review() {
     orderType === 'layaway' && planMinimum !== null && planMinimum > 0 && amount > 0 && amount < planMinimum;
 
   // Prefill the deposit from the plan's dp_percentage until the CSR types one.
+  // plan_configurations.dp_percentage is a FRACTION: every live row holds 0.30
+  // and means 30%. Dividing it by 100 again produced a 0.3% deposit -- 260 pesos
+  // on an 86,512 plan, which is what the first real import showed. Tolerate a
+  // future row stored as 30 by reading anything above 1 as percent-out-of-100.
+  const dpFraction = (pct: number) => (pct > 1 ? pct / 100 : pct);
+
   useEffect(() => {
     if (orderType !== 'layaway' || dpTouched) return;
     const pct = planConfig?.dp_percentage;
-    if (pct != null && amount > 0) setDownpayment(String(Math.round((amount * Number(pct)) / 100)));
+    if (pct != null && amount > 0) setDownpayment(String(Math.round(amount * dpFraction(Number(pct)))));
   }, [orderType, planConfig, amount, dpTouched]);
 
   const downpaymentAmount = Number(downpayment) || 0;
   const previewDates = orderDate && orderType === 'layaway' ? generateScheduleDates(orderDate, planMonths) : [];
+
+  /* ── Schedule preview ───────────────────────────────────────────────────
+   * This screen sends NO custom_installments, so create-layaway-account does
+   * the split itself (index.ts:250-266):
+   *     base      = floor(baseForInstallments / months)
+   *     remainder = baseForInstallments - base * months   -> on the LAST row
+   * Reproduced exactly here so the CSR is shown the schedule that will
+   * actually be written, not an approximation of it. NOTE: this is the
+   * remainder-on-LAST rule the edge function uses, which is NOT what
+   * calculateInstallments() in src/lib/calculations.ts does (it puts the
+   * remainder on the FIRST row) -- see the PR description. */
+  const baseForInstallments = Math.max(0, amount - downpaymentAmount);
+  const previewInstallments = useMemo(() => {
+    if (orderType !== 'layaway' || planMonths <= 0 || baseForInstallments <= 0) return [];
+    const base = Math.floor(baseForInstallments / planMonths);
+    const rem = baseForInstallments - base * planMonths;
+    return Array.from({ length: planMonths }, (_, i) => (i === planMonths - 1 ? base + rem : base));
+  }, [orderType, planMonths, baseForInstallments]);
+  const monthlyAmount = previewInstallments[0] ?? 0;
+  const lastAmount = previewInstallments[previewInstallments.length - 1] ?? 0;
 
   /* ── Customer suggestions: name OR phone, same shape as NewAccount's search,
    *    but each result carries WHY it matched and nothing is auto-selected. ─ */
@@ -433,7 +459,7 @@ export default function Page365Review() {
           <div className="rounded-xl border border-border bg-card p-4 flex gap-2">
             <ImageIcon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
             <div className="text-sm text-muted-foreground">
-              <p className="text-card-foreground">Some photos could not be copied:</p>
+              <p className="text-card-foreground">Some lines have no photo:</p>
               <ul className="list-disc pl-5 mt-1 text-xs">
                 {draft.photo_failures.map((f) => <li key={f}>{f}</li>)}
               </ul>
@@ -508,6 +534,10 @@ export default function Page365Review() {
           {items.map((it, idx) => (
             <div key={it.rowId} className="rounded-lg border border-border bg-background p-3 space-y-2">
               <div className="flex gap-3">
+                {/* A blank box says nothing. The draft knows WHY there is no
+                  * picture -- no URL came with the line at all, or one came and
+                  * the copy into Hub storage failed -- and the CSR is told
+                  * which. A photo is cosmetic and never blocks the import. */}
                 {it.photo_url ? (
                   <img
                     src={it.photo_url}
@@ -516,8 +546,16 @@ export default function Page365Review() {
                     className="h-16 w-16 rounded-md object-cover border border-border shrink-0"
                   />
                 ) : (
-                  <div className="h-16 w-16 rounded-md border border-border bg-muted flex items-center justify-center shrink-0">
-                    <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                  <div
+                    className="h-16 w-16 rounded-md border border-dashed border-border bg-muted flex flex-col items-center justify-center gap-0.5 shrink-0 text-center px-1"
+                    title={it.source_photo_url
+                      ? 'Page365 had a photo for this line but it could not be copied into Hub storage.'
+                      : 'This Page365 line carried no photo.'}
+                  >
+                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[8px] leading-tight text-muted-foreground">
+                      {it.source_photo_url ? 'copy failed' : 'no photo'}
+                    </span>
                   </div>
                 )}
                 <div className="flex-1 min-w-0 space-y-2">
@@ -715,13 +753,66 @@ export default function Page365Review() {
                   </p>
                 </div>
                 <div>
-                  <Label className="text-xs">Schedule</Label>
-                  <p className="text-xs text-muted-foreground mt-1.5 tabular-nums">
-                    {previewDates.length > 0
-                      ? `${previewDates.length} installments, ${previewDates[0]} → ${previewDates[previewDates.length - 1]}`
-                      : 'Set an order date to preview'}
+                  <Label className="text-xs">Remaining for installments</Label>
+                  <p className="text-sm text-card-foreground mt-1.5 tabular-nums font-semibold">
+                    {formatCurrency(baseForInstallments, currency)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {formatCurrency(amount, currency)} total − {formatCurrency(downpaymentAmount, currency)} deposit
                   </p>
                 </div>
+              </div>
+
+              {/* Schedule preview — the exact rows create-layaway-account will write. */}
+              <div className="rounded-lg border border-primary/20 bg-background p-3">
+                <div className="flex items-baseline justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-card-foreground">
+                    Schedule preview ({planMonths} months)
+                  </h3>
+                  {previewInstallments.length > 0 && (
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {formatCurrency(monthlyAmount, currency)} × {planMonths}
+                      {lastAmount !== monthlyAmount && <> · last {formatCurrency(lastAmount, currency)}</>}
+                    </span>
+                  )}
+                </div>
+
+                {previewDates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Set an order date to preview the schedule.</p>
+                ) : previewInstallments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Enter a total above the deposit to preview the monthly amounts.
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      {previewDates.map((date, i) => (
+                        <div key={date} className="flex items-center justify-between gap-3 text-xs py-1 border-b border-border last:border-0">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground shrink-0">
+                              {i + 1}
+                            </span>
+                            <span className="text-card-foreground truncate">
+                              {new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          </span>
+                          <span className="tabular-nums text-card-foreground shrink-0">
+                            {formatCurrency(previewInstallments[i] ?? 0, currency)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 mt-1 text-xs font-semibold text-card-foreground">
+                      <span>Deposit + installments</span>
+                      <span className="tabular-nums">
+                        {formatCurrency(
+                          downpaymentAmount + previewInstallments.reduce((a, b) => a + b, 0),
+                          currency,
+                        )}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

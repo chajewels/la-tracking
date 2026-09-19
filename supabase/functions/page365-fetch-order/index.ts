@@ -81,6 +81,56 @@ function toNumber(v: unknown): number | null {
   return null;
 }
 
+/**
+ * Pull an image URL off a Page365 line.
+ *
+ * The original read exactly `product.photo` and nothing else. Invoice 19768
+ * (the first real import) produced `source_photo_url: null` with an EMPTY
+ * `photo_failures` -- proof that the copy step never ran, because no URL was
+ * ever found to copy. The ?sig= capability is deliberately not stored, so that
+ * invoice cannot be re-fetched to confirm which key it actually used.
+ *
+ * So this widens the search across the shapes Page365 plausibly emits rather
+ * than guessing one: singular and plural keys, on the product and on the line
+ * itself, each holding a string, an object with url/src/path, or an array of
+ * either. It can only find MORE than before -- a line that yielded a URL
+ * yields the same one. Absence is now reported (see `photo_failures`) instead
+ * of arriving as a silent blank box.
+ */
+const PHOTO_KEYS = [
+  "photo", "photos", "photo_url", "photo_urls",
+  "image", "images", "image_url", "image_urls",
+  "thumbnail", "thumb", "picture", "pictures", "cover",
+] as const;
+
+function asUrlString(v: unknown): string | null {
+  if (typeof v === "string" && v.trim()) return v.trim();
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    for (const k of ["url", "src", "path", "href", "large", "medium", "original"]) {
+      const hit = asUrlString(o[k]);
+      if (hit) return hit;
+    }
+  }
+  if (Array.isArray(v)) {
+    for (const el of v) {
+      const hit = asUrlString(el);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function pickPhotoUrl(...sources: Record<string, unknown>[]): string | null {
+  for (const src of sources) {
+    for (const key of PHOTO_KEYS) {
+      const hit = asUrlString(src[key]);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 function extFromUrl(url: string, contentType: string | null): string {
   const fromType = contentType?.split(";")[0].trim().toLowerCase();
   if (fromType === "image/jpeg") return "jpg";
@@ -223,9 +273,9 @@ Deno.serve(async (req) => {
       const lineTotal = sub ?? unit * qty;
 
       const product = (it["product"] ?? {}) as Record<string, unknown>;
-      const photo = typeof product["photo"] === "string" && product["photo"].trim()
-        ? String(product["photo"]).trim()
-        : null;
+      // Product first, then the line itself -- a line-level override should not
+      // beat the product's own catalogue image when both are present.
+      const photo = pickPhotoUrl(product, it as Record<string, unknown>);
 
       items.push({
         kind: isServiceLine(name) ? "service" : "product",
@@ -268,7 +318,16 @@ Deno.serve(async (req) => {
     const photoFailures: string[] = [];
     for (let n = 0; n < items.length; n++) {
       const src = items[n].source_photo_url;
-      if (!src) continue;
+      if (!src) {
+        // Say so. Invoice 19768 reached the CSR as a blank placeholder with an
+        // empty photo_failures, which reads as "the copy failed silently" when
+        // in fact no URL was ever offered. A service line (a resize fee) has no
+        // picture by nature and is not worth reporting.
+        if (items[n].kind === "product") {
+          photoFailures.push(`${items[n].name}: the Page365 line carried no photo URL`);
+        }
+        continue;
+      }
       try {
         const imgRes = await fetchWithRetryOnRateLimit(src, { method: "GET" });
         if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
