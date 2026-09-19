@@ -1937,6 +1937,22 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #285 — store credit applied as a downpayment was invisible to every DP detector; later downpayments undercounted (2026-09-19)
+`redeem_store_credit_atomic` decides for itself whether a store-credit application is the downpayment: when the layaway still owes DP it sets `v_is_dp = TRUE` and passes `p_is_downpayment => true` to `allocate_payment_atomic`, so INVARIANT 11 applies and the required portion creates no schedule allocations. But it wrote the payment with `reference_number = 'SC-<uuid>'` and `remarks = 'Store credit applied'` — and the Hub does not carry the DP flag on `payments`, it re-derives DP from those two fields. Four incompatible predicates exist across the codebase (`reference_number LIKE 'DP-%' OR remarks ILIKE '%down%'` in the canonical heuristic; `remarks = 'downpayment'` exactly on five portal surfaces; remarks-only in `fix-account-totals`), and the SC payment matched none of them. Every later DP calculation therefore saw prior DP = 0.
+
+Evidence, invoice 19774 (PHP): a ₱445 store-credit application was classified DP by the RPC and allocated nothing, exactly as INVARIANT 11 requires. A subsequent ₱2,500 downpayment then computed prior DP = 0, found no excess over `downpayment_amount`, and allocated nothing either — so ₱2,945 of received money sat in `payments` with the schedule untouched. `total_paid` was right (INVARIANT 1 reads payments); the schedule was not.
+
+Fix — migration `20260919160000_store_credit_downpayment_visible.sql`, `redeem_store_credit_atomic` only, two lines, layaway-DP branch only:
+- `reference_number` becomes `'DP-' || invoice_number || '-SC-' || left(app_id,8)` (falls back to `p_account_id::text` when the invoice is null), satisfying the `LIKE 'DP-%'` half.
+- `remarks` becomes `'Store credit applied (downpayment)'`, satisfying every remarks-based reader including `fix-account-totals`.
+Both fields change because no single field satisfies all four predicates. When `v_is_dp` is FALSE, and on the cash branch in every case, the original `'SC-' || v_app_id` reference and `'Store credit applied'` remark are byte-identical to before. `allocate_payment_atomic` is not touched. The body was taken from the live-recorded copy in `20260917070100_record_live_only_functions.sql` (md5 `8e551b917c2df83d0ba777cf0b12823d`, 9241 bytes, confirmed equal to live `pg_get_functiondef`) per the Bug #280 rule. Nothing anywhere reads the `SC-` prefix — a repo-wide grep across `supabase/` and `src/` returns only the assignment being changed.
+
+Two behaviour changes follow from the payment now being DP-shaped:
+- A SECOND store-credit application on the same account is now counted by the RPC's own `v_dp_prior` query, so once accumulated DP reaches `downpayment_amount` the RPC stops re-classifying further applications as downpayments and routes them through the ordinary waterfall.
+- `void-payment` now revokes loyalty points when such a payment is voided (correct — the award fired on DP confirmation), and `restore-payment` now takes the DP short-circuit: unvoid plus totals recompute, no waterfall. For a DP within the requirement that is right, since it had no allocations; for a DP carrying EXCESS the excess' allocations are not rebuilt. That gap is pre-existing for every DP-shaped payment since INVARIANT 11 (2026-07-06) and is not introduced here.
+
+Invoice 19774's own data is NOT repaired by this migration — that is a separate step.
+
 ### #284 — customer profile could not start a layaway order; zero-account customers were told "all your layaway accounts have been completed" (2026-09-17)
 The Layaway Accounts tab in CustomerDetail listed accounts only, while the Cash Orders tab offered New Cash Order with the customer locked; /accounts/new never read customer_id. The tab now has the same header and empty state with New Layaway Order (permission create_account) → /accounts/new?customer_id=…. NewAccount reads customer_id, locks the customer field (no search, no clear, no new-customer dialog), loads the customer directly when it is missing from the cached list, and never restores, saves or clears the single shared draft, which may belong to another customer. Separately, buildConsolidatedMessage returned "All your layaway accounts have been completed 🎉" whenever no account was open, including customers with no layaway accounts at all (found on CJ-2026-07320); the Consolidated Message card is now hidden when the customer has no layaway accounts.
 
