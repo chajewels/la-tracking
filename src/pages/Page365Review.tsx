@@ -36,6 +36,9 @@ interface DraftItem {
   note: string | null;
   photo_url: string | null;
   source_photo_url: string | null;
+  /** What the fetch function tried and what answered, for the tooltip. Older
+   *  drafts predate the field, so treat undefined as "nothing recorded". */
+  photo_note?: string | null;
 }
 
 interface DraftPayload {
@@ -49,8 +52,45 @@ interface DraftPayload {
   total_jpy: number;
   fx: { php_jpy_rate: number | null; source: string; read_at: string };
   page365_stage: string | null;
+  /** The invoice's own timestamps. Optional: drafts fetched before this shipped
+   *  do not carry them, and the screen falls back to today as it always did. */
+  page365_created_at?: string | null;
+  page365_expires_on?: string | null;
   fetched_at: string;
   photo_failures: string[];
+}
+
+/** Page365 is a Japanese system and its invoice timestamps are instants. The
+ *  DATE the merchant saw is therefore the Tokyo calendar date, not the Manila
+ *  one — for an invoice raised late evening JST the two differ by a day, and
+ *  dating the order a day early shifts every installment due date with it.
+ *  This is deliberately NOT getPHTToday(): that answers "what is today here",
+ *  which is a different question from "what date does this instant fall on
+ *  where it was created". Both return '' on an unusable input so the caller
+ *  can fall back rather than render 'Invalid Date'. */
+const TOKYO = 'Asia/Tokyo';
+
+function tokyoDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TOKYO, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/** Tokyo wall-clock in the shape <input type="datetime-local"> expects. */
+function tokyoDateTimeLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TOKYO, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((x) => x.type === t)?.value ?? '';
+  const hh = get('hour') === '24' ? '00' : get('hour');
+  return `${get('year')}-${get('month')}-${get('day')}T${hh}:${get('minute')}`;
 }
 
 type OrderType = 'cash' | 'layaway';
@@ -132,6 +172,10 @@ export default function Page365Review() {
   const [planMonths, setPlanMonths] = useState<PlanMonths>(3);
   const [downpayment, setDownpayment] = useState('');
   const [dpTouched, setDpTouched] = useState(false);
+  /** Whether the visible order date is the invoice's own, so the badge only
+   *  claims "from Page365" while that is still true. Cleared the moment the
+   *  CSR types over it. */
+  const [orderDateFromP365, setOrderDateFromP365] = useState(false);
   const [isTrade, setIsTrade] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -151,6 +195,18 @@ export default function Page365Review() {
     setTotalInput(String(draft.total_jpy ?? 0));
     setInvoiceNumber(String(draft.page365_no));
     setOrderType('cash');
+
+    // The invoice's own date, not today's. An invoice raised on the 16th and
+    // imported on the 19th is a 16th order, and every installment date follows
+    // from it. Falls back to today when the draft predates these fields or
+    // Page365 sent something unparseable.
+    const created = tokyoDate(draft.page365_created_at);
+    if (created) {
+      setOrderDate(created);
+      setOrderDateFromP365(true);
+    }
+    const expires = tokyoDateTimeLocal(draft.page365_expires_on);
+    if (expires) setTransferDueAt(expires);
   }, [draft]);
 
   /* ── Money. Line items are ALWAYS yen (the columns are named _jpy and the
@@ -548,9 +604,10 @@ export default function Page365Review() {
                 ) : (
                   <div
                     className="h-16 w-16 rounded-md border border-dashed border-border bg-muted flex flex-col items-center justify-center gap-0.5 shrink-0 text-center px-1"
-                    title={it.source_photo_url
-                      ? 'Page365 had a photo for this line but it could not be copied into Hub storage.'
-                      : 'This Page365 line carried no photo.'}
+                    title={it.photo_note
+                      ?? (it.source_photo_url
+                        ? 'Page365 had a photo for this line but it could not be copied into Hub storage.'
+                        : 'This Page365 line carried no photo.')}
                   >
                     <ImageIcon className="h-4 w-4 text-muted-foreground" />
                     <span className="text-[8px] leading-tight text-muted-foreground">
@@ -700,9 +757,17 @@ export default function Page365Review() {
                 onChange={(e) => setDiscount(e.target.value)} className="bg-background border-border tabular-nums" />
             </div>
             <div>
-              <Label htmlFor="p365-orderdate" className="text-xs">Order date</Label>
+              <Label htmlFor="p365-orderdate" className="text-xs flex items-center gap-1.5">
+                Order date
+                {orderDateFromP365 && (
+                  <span className="rounded-full border border-primary/40 px-1.5 py-px text-[9px] font-medium text-primary">
+                    from Page365
+                  </span>
+                )}
+              </Label>
               <Input id="p365-orderdate" type="date" value={orderDate}
-                onChange={(e) => setOrderDate(e.target.value)} className="bg-background border-border" />
+                onChange={(e) => { setOrderDate(e.target.value); setOrderDateFromP365(false); }}
+                className="bg-background border-border" />
             </div>
             {orderType === 'cash' ? (
               <div>
