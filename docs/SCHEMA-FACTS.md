@@ -878,3 +878,78 @@ numbers the quote already carried; the coalesce serves quotes created before mig
 `invoice_number` / `web_reference` (both `null` for full-payment quotes). Expired or
 abandoned layaway quotes keep their number — the sequence has gaps by design, and cash
 web orders draw from the same sequence.
+
+## Page365 import — `invoice_numbers`, `page365_drafts`, provenance columns (added 2026-09-19)
+
+Migration `20260919100000_page365_import.sql`.
+
+### `public.invoice_numbers` — cross-table invoice uniqueness
+
+`invoice_number` is UNIQUE within `cash_orders` and UNIQUE within `layaway_accounts`,
+and there was **no constraint between them**. The same number could therefore be a
+cash order and a layaway plan at once, and `create-layaway-account` did not even
+pre-check its own table — a collision surfaced as a raw Postgres unique-violation
+(`create-cash-order` has pre-checked both since it was written; the asymmetry was
+real, not theoretical).
+
+`invoice_numbers(invoice_number text PK, source text, order_id uuid, created_at)` now
+holds one row per invoice number in use across both tables. It is maintained
+**entirely by triggers** — `register_invoice_number()` on
+`trg_zz_invoice_registry_{cash,layaway}` (BEFORE INSERT OR UPDATE OF invoice_number)
+and `trg_zz_invoice_registry_{cash,layaway}_del` (AFTER DELETE). Application code
+never writes it: there is a SELECT policy for staff and **no** INSERT/UPDATE/DELETE
+policy at all.
+
+**The `trg_zz_` prefix is load-bearing, not cosmetic.** Postgres fires BEFORE triggers
+in *name* order. `enforce_test_invoice_prefix` runs as
+`trg_test_invoice_prefix_{cash,layaway}` BEFORE INSERT and rewrites `invoice_number`
+to `TEST-<n>` for `is_test` customers; on layaway `trg_enforce_plan_minimum` also runs
+BEFORE INSERT. A registry trigger sorting ahead of either would record the wrong
+value. Verified on live data in a rolled-back transaction: a test customer's order
+numbered `990003` registers as `TEST-990003`.
+
+**UPDATE and DELETE are handled, and must stay handled.** `invoice_number` is mutable
+(the prefix trigger itself fires on `UPDATE OF invoice_number`), and unpaid,
+never-completed orders can still be deleted by admin. An INSERT-only registry would
+permanently burn the number of a deleted typo and would miss renames entirely.
+
+Backfill measured on live 2026-09-19: **160 cash + 1538 layaway = 1698 rows, 1698
+distinct, 0 cross-table duplicates.** Every row is registered including `TEST-`
+prefixed ones — a test invoice is still a number in use, and omitting it would let a
+real order claim it. The migration's DO block RAISEs rather than skipping if any
+cross-table duplicate is ever found, and post-checks that the registry count equals
+the sum of both tables.
+
+### `public.page365_drafts` — staging, not a record
+
+`(id, created_by, created_at, expires_at default now()+2h, page365_no, page365_slug,
+payload jsonb, consumed_at)`. Written only by `page365-fetch-order` under the service
+role; RLS gives staff SELECT on their own unexpired rows and no write policy at all,
+so a CSR cannot forge a draft carrying prices Page365 never returned.
+
+**The `?sig=` is never stored.** It is a capability token: anyone holding the full
+Page365 link can read that customer's name, phone and address. It is used for the one
+outbound fetch and dropped — not persisted, not logged, not returned. Only the slug
+and the invoice number survive.
+
+### `page365_no` / `page365_slug` on both order tables
+
+Provenance, on `cash_orders` AND `layaway_accounts` (ACCOUNT-SCOPE COVERAGE). Partial
+unique indexes `uq_{cash_orders,layaway_accounts}_page365_no` make one Hub order per
+Page365 invoice structural; both creating functions also pre-check across both tables
+and answer 409 `already_imported` with the order's id, because an index error is not
+a message a CSR can act on.
+
+### Line-item money columns are YEN, whatever the account currency
+
+`cash_order_items` and `layaway_account_items` name their money columns
+`unit_price_jpy` / `line_total_jpy`. Page365 invoices are JPY (owner decision
+2026-09-19) and the manual pages pick from a JPY catalogue, so lines stay in yen even
+on a PHP account. Only account-currency money — `total_amount`, `shipping_fee`,
+`discount_amount` — converts. Converting the line columns would make their names lie
+and would corrupt the loyalty basis, which is the product amount in yen (INVARIANT 10).
+
+`image_url` existed on both tables since the Shopify work and had never been written
+by anything (0 of 9 live rows). A Page365 import is its first real writer; web lines
+still resolve photos at read time from `website_product_media` by variant (Bug #275),
+which Page365 items cannot use because they have no variant.

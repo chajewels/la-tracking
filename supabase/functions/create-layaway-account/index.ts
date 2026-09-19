@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { writeOrderExtras, type OrderExtras } from "../_shared/order-extras.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +66,15 @@ Deno.serve(async (req) => {
       // exactly as every account did before. (settlement_due_at was removed
       // 2026-09-15: nothing read it and no row ever carried a value.)
       transfer_due_at,
+      // Optional extras, written inside THIS call rather than by the browser
+      // afterwards — see _shared/order-extras.ts. Absent on every existing
+      // caller, whose behaviour is therefore unchanged.
+      items,
+      discount,
+      shipping_fee,
+      initial_note,
+      page365_no,
+      page365_slug,
     } = body;
 
     // Validation
@@ -94,6 +104,46 @@ Deno.serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // A test customer's invoice_number is REWRITTEN to TEST-<n> by
+    // enforce_test_invoice_prefix, which fires after this check — so the raw
+    // number colliding with a real order is not a real collision. Skip the
+    // pre-check for test customers and let trg_zz_invoice_registry_*, which
+    // sees the final prefixed value, be the judge.
+    const { data: custFlags } = await supabase
+      .from("customers").select("is_test").eq("id", customer_id).maybeSingle();
+    const isTestCustomer = custFlags?.is_test === true;
+
+    // The invoice number must be free across BOTH order tables. This function
+    // never checked at all (create-cash-order has checked both since it was
+    // written), so a collision surfaced as a raw Postgres unique-violation.
+    // public.invoice_numbers and its triggers are the structural guarantee;
+    // this is the message a CSR can act on.
+    const [{ data: existingCash }, { data: existingLayaway }] = await Promise.all([
+      supabase.from("cash_orders").select("id").eq("invoice_number", invoice_number).maybeSingle(),
+      supabase.from("layaway_accounts").select("id").eq("invoice_number", invoice_number).maybeSingle(),
+    ]);
+    if (!isTestCustomer && (existingCash || existingLayaway)) {
+      return new Response(JSON.stringify({
+        error: `invoice_number ${invoice_number} already exists on ${existingCash ? "a cash order" : "a layaway account"}`,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // One Hub order per Page365 invoice. uq_*_page365_no is the backstop.
+    if (page365_no != null) {
+      const [{ data: p365Cash }, { data: p365Layaway }] = await Promise.all([
+        supabase.from("cash_orders").select("id").eq("page365_no", page365_no).maybeSingle(),
+        supabase.from("layaway_accounts").select("id").eq("page365_no", page365_no).maybeSingle(),
+      ]);
+      if (p365Cash || p365Layaway) {
+        return new Response(JSON.stringify({
+          error: `Page365 invoice ${page365_no} has already been imported`,
+          already_imported: p365Cash
+            ? { source: "cash_order", id: p365Cash.id }
+            : { source: "layaway_account", id: p365Layaway!.id },
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     const totalAmountNum = Number(total_amount);
@@ -163,6 +213,8 @@ Deno.serve(async (req) => {
         is_trade: is_trade ?? false,
         transfer_due_at: transfer_due_at || null,
         created_by_user_id: user.id,
+        page365_no: page365_no ?? null,
+        page365_slug: page365_slug ?? null,
       })
       .select()
       .single();
@@ -236,6 +288,33 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Optional extras (line items, opening note, discount/shipping). These used
+    // to be three best-effort browser writes that each swallowed their own
+    // failure into a toast; here a failure rolls the account back, using the
+    // same rollback the schedule failure above uses. An account whose lines
+    // silently vanished is exactly the half-created state this removes.
+    let extrasResult: unknown = null;
+    const layawayExtras: OrderExtras = { items, discount, shipping_fee, initial_note };
+    const hasExtras =
+      (Array.isArray(items) && items.length > 0) ||
+      discount != null || shipping_fee != null ||
+      (typeof initial_note === "string" && initial_note.trim() !== "");
+    if (hasExtras) {
+      try {
+        extrasResult = await writeOrderExtras(supabase, "layaway", account.id, layawayExtras, {
+          id: user.id,
+          name: (user.user_metadata as Record<string, unknown> | undefined)?.full_name as string
+            ?? user.email ?? "Unknown",
+        });
+      } catch (e) {
+        await supabase.from("layaway_accounts").delete().eq("id", account.id);
+        return new Response(JSON.stringify({ error: (e as Error).message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Create audit log
@@ -405,7 +484,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults }),
+      JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults, extras: extrasResult }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
