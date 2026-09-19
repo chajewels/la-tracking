@@ -44,6 +44,7 @@ function resolveConfig(
         primaryAction: () => navigate('/cash-orders/new'),
         dropdownItems: [
           { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
+          { label: 'From Page365', action: () => window.dispatchEvent(new CustomEvent('open-page365-import')) },
           { label: 'Submit Payment', action: () => setRecordOpen(true) },
         ],
       };
@@ -54,6 +55,7 @@ function resolveConfig(
       primaryAction: () => navigate('/accounts/new'),
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
+        { label: 'From Page365', action: () => window.dispatchEvent(new CustomEvent('open-page365-import')) },
         { label: 'Submit Payment', action: () => setRecordOpen(true) },
       ],
     };

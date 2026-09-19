@@ -26,6 +26,9 @@
 --        distinct invoice_number ....... 1698
 --        cross-table duplicates ........... 0
 --    So nothing is broken today and the backfill is exact: 1698 in, 1698 rows.
+--    APPLIED 2026-09-19: 160 + 1543 = 1703 — five layaway plans were created
+--    between this measurement and the run. The post-check below asserts
+--    registry = cash + layaway, not the literal 1698, which is why that was fine.
 --    But the same Page365 invoice could legally be imported once as a cash
 --    order and once as a layaway plan, and today create-layaway-account does
 --    not even pre-check its own table -- it relies on the index and surfaces a

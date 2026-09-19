@@ -1946,11 +1946,39 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   external system it came from. A photo that cannot be copied is left null; a
   missing picture is cosmetic and is not worth refusing a sound import.
 
+  A CONSUMED DRAFT IS A COURTESY, NOT THE GUARD. `consume_page365_draft` (a
+  SECURITY DEFINER RPC — `page365_drafts` deliberately has no UPDATE policy)
+  stamps `consumed_at` after a successful import, and the review screen treats
+  a failure as non-fatal because the order already exists. What actually stops
+  a double import is `uq_{cash_orders,layaway_accounts}_page365_no` plus the
+  409 `already_imported` both create functions return.
+
   ONE HUB ORDER PER PAGE365 INVOICE, and one invoice_number across BOTH order
   tables — see `public.invoice_numbers` in docs/SCHEMA-FACTS.md. The registry
   triggers are named `trg_zz_*` so they fire AFTER `enforce_test_invoice_prefix`
   and record the final, possibly `TEST-` prefixed, value; never rename them to
   something that sorts earlier.
+
+  THE UI IS THE ONLY WAY IN, AND IT NEVER AUTO-DECIDES. Sales → the split
+  button's "From Page365" opens a paste box; a successful fetch navigates to
+  `/page365/review/:draftId`, where every parsed field is editable before
+  anything is created. The customer is SUGGESTED, never auto-selected — matches
+  are listed with the basis shown (name / phone / name + phone) because live
+  phone data is only 80 clean E.164 of 891, with 10 colliding digit-groups.
+  Item notes are displayed beside their line and never parsed. A RESIZE FEE
+  arrives flagged `kind: 'service'` and the CSR can move any line between
+  product and service; the loyalty basis sent to the creating function is the
+  PRODUCT total in yen and nothing else.
+  Currency is the CSR's choice at review: JPY default, and PHP converts the
+  total, shipping and discount with the rate the DRAFT carries (`payload.fx`,
+  `system_settings.php_jpy_rate`) — shown once on screen with its source and
+  read time. Line items stay in yen whatever the account currency.
+  THE ROUTE IS PERMISSIONED ON EITHER CREATE KEY. `/page365/` in
+  PermissionsContext resolves to `create_cash_order OR create_account`, because
+  the screen can produce either and gating on one would lock out a user who
+  holds the other; the cash/layaway toggle then offers only the type they can
+  actually create. An unmapped path there returns false for everyone but admin
+  — the documented new-feature lockout.
 
   LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (`_shared/order-extras.ts`),
   not by the browser afterwards. The old post-RPC writes in NewAccount.tsx and
