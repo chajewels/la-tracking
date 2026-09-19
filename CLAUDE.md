@@ -1295,7 +1295,12 @@ When completing a partially_paid month:
     IN (`admin`, `staff`, `finance`, `csr`).
     `get-page365-order` — requires valid user JWT + `user_roles`
     IN (`admin`, `staff`, `finance`, `csr`). Only caller:
-    `InvoiceGeneratorSheet.tsx` (`invoke`).
+    `InvoiceGeneratorSheet.tsx` (`invoke`). Reads the Google Drive
+    CSV mirror by invoice number — it does NOT call Page365. Left
+    untouched by the 2026-09-19 import work; the two coexist.
+    `page365-fetch-order` — requires valid user JWT + `user_roles`
+    IN (`admin`, `staff`, `finance`, `csr`), `verify_jwt = true`.
+    Link in, parsed draft out; never writes an order.
     Never reintroduce an `isInternalKey` or anon-key bypass on
     any of these.
 
@@ -1896,6 +1901,64 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
 
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.
+
+## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
+
+  A CSR pastes a public Page365 invoice link; the Hub fetches it, the CSR
+  confirms, and the Hub creates a normal cash order or layaway plan. There is
+  NO new write path — `create-cash-order` and `create-layaway-account` create
+  the order exactly as they do for a hand-typed one, so plan minimums, the
+  loyalty gate, permissions and the `is_test` prefix all still apply.
+
+  `page365-fetch-order` NEVER WRITES AN ORDER. Link in, draft out, into
+  `page365_drafts`. It refuses the whole import naming the field when anything
+  is missing or the totals do not reconcile to the yen — a half-parsed draft is
+  worse than none, because the CSR cannot see what is absent until the order is
+  already wrong.
+
+  THE `?sig=` IS A CAPABILITY, NOT AN IDENTIFIER. Anyone holding the full link
+  can read that customer's name, phone and address. It is used for the single
+  outbound fetch and dropped: never stored on the draft, never on the order,
+  never logged, never returned. Only the slug and the invoice number survive.
+
+  PAGE365 INVOICES ARE JPY (owner decision 2026-09-19) — item prices and
+  shipping alike. The draft is yen throughout; the ACCOUNT currency is the
+  CSR's choice at confirmation. A PHP plan converts at
+  `system_settings.php_jpy_rate`, and the rate plus the moment it was read
+  travel with the draft so the peso total can be reproduced later. NEVER use
+  `src/lib/currency-converter.ts` `getConversionRate()` server-side or as the
+  basis of a stored figure: it reads `localStorage` with a hardcoded 0.42
+  fallback, so it is per-browser and not auditable.
+
+  A RESIZE FEE IS A SERVICE, NOT A PRODUCT LINE. The parser flags it
+  `kind: 'service'`. A service belongs in `account_services` (already inside
+  `total_amount`) and must never reach `loyalty_jpy_amount`, which is the
+  product amount alone — booking one as a product inflates the customer's tier
+  progress with a fee paid for labour.
+
+  ITEM NOTES ARE DISPLAYED, NEVER APPLIED. "Layaway (May) 8M / DP on 09/20 /
+  Resize # 16" is free text a human wrote. The CSR reads it and sets the term;
+  nothing parses it into fields. Page365 stock is not a stock source, and
+  `origin` is never auto-set.
+
+  PHOTOS ARE COPIED, NEVER HOTLINKED — `promotions/page365/<no>/<n>.<ext>`,
+  into `{cash_order,layaway_account}_items.image_url`. An order outlives the
+  external system it came from. A photo that cannot be copied is left null; a
+  missing picture is cosmetic and is not worth refusing a sound import.
+
+  ONE HUB ORDER PER PAGE365 INVOICE, and one invoice_number across BOTH order
+  tables — see `public.invoice_numbers` in docs/SCHEMA-FACTS.md. The registry
+  triggers are named `trg_zz_*` so they fire AFTER `enforce_test_invoice_prefix`
+  and record the final, possibly `TEST-` prefixed, value; never rename them to
+  something that sorts earlier.
+
+  LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (`_shared/order-extras.ts`),
+  not by the browser afterwards. The old post-RPC writes in NewAccount.tsx and
+  NewCashOrder.tsx swallowed their own failure into a `toast.warning` on an
+  order the CSR had just been told was created successfully. On an import
+  nobody typed the lines, so nobody would know what was lost. A failure now
+  rolls the order back. Every extra field is optional and a caller that sends
+  none behaves exactly as before.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

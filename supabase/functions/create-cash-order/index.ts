@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { writeOrderExtras, type OrderExtras } from "../_shared/order-extras.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,6 +57,14 @@ Deno.serve(async (req) => {
       notes,
       agreement_version,
       is_trade, // boolean — optional, trade program flag (locked after creation)
+      // Optional extras, written inside THIS call rather than by the browser
+      // afterwards — see _shared/order-extras.ts for why. Absent on every
+      // existing caller, whose behaviour is therefore unchanged.
+      items,
+      discount,
+      shipping_fee,
+      page365_no,
+      page365_slug,
     } = body;
 
     if (!customer_id || !invoice_number || !currency || total_amount == null || !expires_at) {
@@ -99,16 +108,42 @@ Deno.serve(async (req) => {
       });
     }
 
+    // A test customer's invoice_number is REWRITTEN to TEST-<n> by
+    // enforce_test_invoice_prefix, which fires after this check — so the raw
+    // number colliding with a real order is not a real collision. Skip the
+    // pre-check for test customers and let trg_zz_invoice_registry_*, which
+    // sees the final prefixed value, be the judge.
+    const { data: custFlags } = await supabase
+      .from("customers").select("is_test").eq("id", customer_id).maybeSingle();
+    const isTestCustomer = custFlags?.is_test === true;
+
     // 5. Invoice number must be unique across cash_orders AND layaway_accounts
     const [{ data: existingCash }, { data: existingLayaway }] = await Promise.all([
       supabase.from("cash_orders").select("id").eq("invoice_number", invoice_number).maybeSingle(),
       supabase.from("layaway_accounts").select("id").eq("invoice_number", invoice_number).maybeSingle(),
     ]);
-    if (existingCash || existingLayaway) {
+    if (!isTestCustomer && (existingCash || existingLayaway)) {
       return new Response(JSON.stringify({ error: `invoice_number ${invoice_number} already exists` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // 5b. One Hub order per Page365 invoice. uq_{cash_orders,layaway_accounts}
+    // _page365_no is the backstop; this is the message a CSR can act on.
+    if (page365_no != null) {
+      const [{ data: p365Cash }, { data: p365Layaway }] = await Promise.all([
+        supabase.from("cash_orders").select("id").eq("page365_no", page365_no).maybeSingle(),
+        supabase.from("layaway_accounts").select("id").eq("page365_no", page365_no).maybeSingle(),
+      ]);
+      if (p365Cash || p365Layaway) {
+        return new Response(JSON.stringify({
+          error: `Page365 invoice ${page365_no} has already been imported`,
+          already_imported: p365Cash
+            ? { source: "cash_order", id: p365Cash.id }
+            : { source: "layaway_account", id: p365Layaway!.id },
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // 6. Loyalty-only product amount in JPY — manually entered by
@@ -164,6 +199,8 @@ Deno.serve(async (req) => {
       loyalty_jpy_amount: loyaltyJpyAmount,
       is_trade: is_trade ?? false,
       created_by_user_id: user.id,
+      page365_no: page365_no ?? null,
+      page365_slug: page365_slug ?? null,
     };
     if (agreement_version) {
       insertRow.agreement_version = agreement_version;
@@ -184,6 +221,32 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 9b. Optional extras (line items, discount/shipping, Page365 provenance).
+    // These used to be best-effort browser writes that swallowed their own
+    // failure into a toast; here a failure rolls the order back rather than
+    // leaving one whose lines silently vanished. The order has no payments yet,
+    // so prevent_paid_order_delete permits the rollback.
+    let extrasResult: unknown = null;
+    const cashExtras: OrderExtras = { items, discount, shipping_fee };
+    const hasExtras =
+      (Array.isArray(items) && items.length > 0) ||
+      discount != null || shipping_fee != null;
+    if (hasExtras) {
+      try {
+        extrasResult = await writeOrderExtras(supabase, "cash", cashOrder.id, cashExtras, {
+          id: user.id,
+          name: (user.user_metadata as Record<string, unknown> | undefined)?.full_name as string
+            ?? user.email ?? "Unknown",
+        });
+      } catch (e) {
+        await supabase.from("cash_orders").delete().eq("id", cashOrder.id);
+        return new Response(JSON.stringify({ error: (e as Error).message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // 10. Audit log
     await supabase.from("audit_logs").insert({
       entity_type: "cash_order",
@@ -194,7 +257,7 @@ Deno.serve(async (req) => {
     });
 
     // 11. Return created record
-    return new Response(JSON.stringify({ cash_order: cashOrder }), {
+    return new Response(JSON.stringify({ cash_order: cashOrder, extras: extrasResult }), {
       status: 201,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
