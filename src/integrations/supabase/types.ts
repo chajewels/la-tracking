@@ -285,6 +285,8 @@ export type Database = {
           notes: string | null
           order_date: string
           order_type: string | null
+          page365_no: number | null
+          page365_slug: string | null
           pancake_order_id: string | null
           payment_method: string | null
           payment_status: string | null
@@ -342,6 +344,8 @@ export type Database = {
           notes?: string | null
           order_date?: string
           order_type?: string | null
+          page365_no?: number | null
+          page365_slug?: string | null
           pancake_order_id?: string | null
           payment_method?: string | null
           payment_status?: string | null
@@ -399,6 +403,8 @@ export type Database = {
           notes?: string | null
           order_date?: string
           order_type?: string | null
+          page365_no?: number | null
+          page365_slug?: string | null
           pancake_order_id?: string | null
           payment_method?: string | null
           payment_status?: string | null
@@ -1517,6 +1523,27 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_numbers: {
+        Row: {
+          created_at: string
+          invoice_number: string
+          order_id: string
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          invoice_number: string
+          order_id: string
+          source: string
+        }
+        Update: {
+          created_at?: string
+          invoice_number?: string
+          order_id?: string
+          source?: string
+        }
+        Relationships: []
+      }
       keep_fix_audit: {
         Row: {
           base_installment_amount: number | null
@@ -1669,6 +1696,8 @@ export type Database = {
           loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
+          page365_no: number | null
+          page365_slug: string | null
           pancake_order_id: string | null
           payment_plan_months: number
           penalty_count_at_reactivation: number | null
@@ -1720,6 +1749,8 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date: string
+          page365_no?: number | null
+          page365_slug?: string | null
           pancake_order_id?: string | null
           payment_plan_months: number
           penalty_count_at_reactivation?: number | null
@@ -1771,6 +1802,8 @@ export type Database = {
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
+          page365_no?: number | null
+          page365_slug?: string | null
           pancake_order_id?: string | null
           payment_plan_months?: number
           penalty_count_at_reactivation?: number | null
@@ -3125,6 +3158,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      page365_drafts: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          page365_no: number
+          page365_slug: string
+          payload: Json
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          created_by: string
+          expires_at?: string
+          id?: string
+          page365_no: number
+          page365_slug: string
+          payload: Json
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          page365_no?: number
+          page365_slug?: string
+          payload?: Json
+        }
+        Relationships: []
       }
       pancake_events: {
         Row: {
