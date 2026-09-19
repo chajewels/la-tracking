@@ -198,33 +198,18 @@ export default function CustomerPortalShareMenu({
     if (!customerEmail) return;
     setSendingInvite(true);
     try {
-      const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(customerEmail)}`;
-      const { data: customerRow } = await supabase
-        .from('customers')
-        .select('mobile_number')
-        .eq('id', customerId)
-        .maybeSingle();
-      const digits = (customerRow?.mobile_number ?? '').replace(/\D/g, '');
-      const customerPin = digits.length >= 4 ? digits.slice(-4) : '----';
-      const { error: invokeError } = await supabase.functions.invoke('send-transactional-email', {
-        body: {
-          template_name: 'portal-setup-invite',
-          recipient_email: customerEmail,
-          templateData: { customerName, setupUrl, customerEmail, customerPin },
-        },
+      const { data, error: invokeError } = await supabase.functions.invoke('send-portal-setup-invite', {
+        body: { customer_id: customerId },
       });
       if (invokeError) throw invokeError;
 
-      // Tracking update — non-blocking on email success
-      const nowIso = new Date().toISOString();
-      const { error: updateError } = await supabase
-        .from('customers')
-        .update({ setup_link_sent_at: nowIso })
-        .eq('id', customerId);
-      if (updateError) {
-        console.warn('[setup-invite] tracking update failed:', updateError);
+      if (data?.suppressed) {
+        setShowSetupConfirm(false);
+        toast.info('No email was sent — this address is on the unsubscribe or suppression list.');
+        return;
       }
 
+      const nowIso = (data?.setup_link_sent_at as string | undefined) ?? new Date().toISOString();
       setLocalSetupSentAt(nowIso);
       setShowSetupConfirm(false);
       toast.success(`Setup link sent to ${customerEmail}`);
