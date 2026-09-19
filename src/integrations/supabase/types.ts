@@ -5932,6 +5932,7 @@ export type Database = {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
         Returns: number
       }
+      consume_page365_draft: { Args: { p_draft_id: string }; Returns: Json }
       consume_store_credit_for_shopify_atomic: {
         Args: {
           p_amount: number
