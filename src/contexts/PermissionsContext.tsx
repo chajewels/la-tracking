@@ -213,6 +213,10 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       if (path.startsWith('/accounts/')) permKey = 'view_accounts';
       else if (path.startsWith('/customers/')) permKey = 'view_customers';
       else if (path.startsWith('/cash-orders/')) permKey = 'view_cash_orders';
+      // The Page365 review screen can create EITHER an order type, so gating it
+      // on a single create key would wrongly lock out someone who holds the
+      // other. The toggle on the screen only offers the type the user can make.
+      else if (path.startsWith('/page365/')) return can('create_cash_order') || can('create_account');
       else return false;
     }
     return can(permKey);

@@ -9,6 +9,7 @@ import CashOrdersList from '@/components/customers/CashOrdersList';
 import AccountList from './AccountList';
 import PaymentsHub from './PaymentsHub';
 import Waivers from './Waivers';
+import Page365ImportDialog from '@/components/page365/Page365ImportDialog';
 
 const MemoCashOrdersList = memo(CashOrdersList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
 const MemoAccountList = memo(AccountList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
@@ -35,6 +36,11 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
   const [layawaySearch, setLayawaySearch] = useState('');
   const [paymentsSearch, setPaymentsSearch] = useState('');
   const [waiversSearch, setWaiversSearch] = useState('');
+  // The "From Page365" split-button item lives in WorkspaceSplitButton, which is
+  // rendered inside the toolbar and has no path back here. The repo's existing
+  // convention for that (open-new-customer-dialog, open-trade-in-dialog) is a
+  // window CustomEvent, so this follows it rather than inventing a second way.
+  const [page365Open, setPage365Open] = useState(false);
 
   // Refs hold each child's exported CSV download handler. The active tab's
   // ref is invoked when the workspace toolbar export button is clicked.
@@ -53,6 +59,12 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  useEffect(() => {
+    const open = () => setPage365Open(true);
+    window.addEventListener('open-page365-import', open);
+    return () => window.removeEventListener('open-page365-import', open);
+  }, []);
 
   const setTab = (next: SalesTabKey) => {
     setTabState(next);
@@ -125,6 +137,8 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             <MemoWaivers embedded search={waiversSearch} />
           </TabsContent>
         </Tabs>
+
+        <Page365ImportDialog open={page365Open} onOpenChange={setPage365Open} />
       </div>
     </Wrapper>
   );

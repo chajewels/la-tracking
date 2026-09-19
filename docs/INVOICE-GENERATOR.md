@@ -375,3 +375,19 @@
   Text sanitization (2026-07-06, Bug #248): populateSheet
   apostrophe-prefixes strings starting with =, +, -, or ' so
   international phone numbers and free text render literally.
+
+## The Page365 IMPORT does not touch this generator (added 2026-09-19)
+
+`get-page365-order` and the "Pre-filled from Page365" badge in
+`InvoiceGeneratorSheet.tsx` are UNCHANGED. That path still takes an INVOICE
+NUMBER, reads the Google Drive CSV mirror (`PAGE365_MIRROR_FOLDER_ID`, UTF-16LE
+TSV, matched on the `No.` column) and prefills address, phone, shipping fee,
+discount and items for an order that already exists.
+
+The 2026-09-19 import feature is a different thing that happens to share a
+name: `page365-fetch-order` takes a LINK, calls Page365's JSON endpoint, and
+produces a draft from which a NEW order is created at
+`/page365/review/:draftId`. It never reads the CSV mirror and the generator
+never calls it. The two coexist deliberately — do not "consolidate" them
+without checking that the Drive mirror is still the only source that works for
+an invoice whose `?sig=` nobody has.

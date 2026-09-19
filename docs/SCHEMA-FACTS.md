@@ -914,7 +914,10 @@ never-completed orders can still be deleted by admin. An INSERT-only registry wo
 permanently burn the number of a deleted typo and would miss renames entirely.
 
 Backfill measured on live 2026-09-19: **160 cash + 1538 layaway = 1698 rows, 1698
-distinct, 0 cross-table duplicates.** Every row is registered including `TEST-`
+distinct, 0 cross-table duplicates.** APPLIED figures differ and that is correct:
+when Lovable ran the migration the same day it inserted **160 + 1543 = 1703**,
+five layaway plans having been created in between. The invariant the migration
+post-checks is `registry = cash + layaway`, never the literal 1698. Every row is registered including `TEST-`
 prefixed ones — a test invoice is still a number in use, and omitting it would let a
 real order claim it. The migration's DO block RAISEs rather than skipping if any
 cross-table duplicate is ever found, and post-checks that the registry count equals
