@@ -25,6 +25,7 @@ import { japaneseFor, translateJa } from "@/components/website/translate";
 import { HeroImageField, uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, CategoriesEditor, fetchCategories } from "@/components/website/CategoriesCard";
 import { MultiPick } from "@/components/website/MultiPick";
+import { TestimonialsCard } from "@/components/website/TestimonialsCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
@@ -610,6 +611,8 @@ export default function WebsiteCatalog() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <TestimonialsCard isAdmin={!!isAdmin} />
 
       <WholesaleInquiries />
 
