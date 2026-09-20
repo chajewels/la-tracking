@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -24,7 +23,8 @@ import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucid
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import { japaneseFor, translateJa } from "@/components/website/translate";
 import { HeroImageField, uploadWebsiteImage } from "@/components/website/HeroImageField";
-import { CategoriesEditor } from "@/components/website/CategoriesCard";
+import { CATEGORIES_QUERY_KEY, CategoriesEditor, fetchCategories } from "@/components/website/CategoriesCard";
+import { MultiPick } from "@/components/website/MultiPick";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
@@ -80,6 +80,8 @@ interface ProductForm {
   savedEn: string;
   status: Status;
   collectionIds: string[];
+  /** website_category_products, in the order picked. */
+  categoryIds: string[];
   variants: VariantRow[];
 }
 
@@ -91,7 +93,7 @@ const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", name_ja: "", savedName: "", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
-  status: "draft", collectionIds: [], variants: [emptyVariant(0)],
+  status: "draft", collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
 });
 
 const slugify = (s: string) =>
@@ -129,13 +131,15 @@ export default function WebsiteCatalog() {
         .select(
           "id, sku, slug, name, name_ja, karat, metals, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
           "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
-          "website_collection_products(collection_id)"
+          "website_collection_products(collection_id), website_category_products(category_id)"
         )
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
+
+  const categories = useQuery({ queryKey: CATEGORIES_QUERY_KEY, queryFn: fetchCategories });
 
   const fx = useQuery({
     queryKey: ["website-fx-rate"],
@@ -200,6 +204,7 @@ export default function WebsiteCatalog() {
       savedEn: p.description_en ?? "",
       status: p.status ?? "draft",
       collectionIds: ((p.website_collection_products ?? []) as any[]).map((c) => c.collection_id),
+      categoryIds: ((p.website_category_products ?? []) as any[]).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
     });
     setOpen(true);
@@ -382,6 +387,19 @@ export default function WebsiteCatalog() {
         const { error } = await supabase.from("website_collection_products" as any)
           .insert(f.collectionIds.map((cid, idx) => ({
             collection_id: cid, product_id: productId, sort: idx,
+          })));
+        if (error) throw error;
+      }
+
+      // Category membership — its own join table with its own column name
+      // (sort_order, not sort). Never the collection payload.
+      const { error: delCatErr } = await supabase.from("website_category_products" as any)
+        .delete().eq("product_id", productId);
+      if (delCatErr) throw delCatErr;
+      if (f.categoryIds.length) {
+        const { error } = await supabase.from("website_category_products" as any)
+          .insert(f.categoryIds.map((cid, idx) => ({
+            category_id: cid, product_id: productId, sort_order: idx,
           })));
         if (error) throw error;
       }
@@ -630,23 +648,30 @@ export default function WebsiteCatalog() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Jewelry type</Label>
-              <div className="flex flex-wrap gap-4">
-                {(collections.data ?? []).map((c: any) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={form.collectionIds.includes(c.id)}
-                      onCheckedChange={(checked) => setForm((f) => ({
-                        ...f,
-                        collectionIds: checked
-                          ? [...f.collectionIds, c.id]
-                          : f.collectionIds.filter((id) => id !== c.id),
-                      }))}
-                    />
-                    {c.name}
-                  </label>
-                ))}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Jewelry types</Label>
+                <MultiPick
+                  ariaLabel="Jewelry types"
+                  buttonLabel="Add jewelry type"
+                  placeholder="Search jewelry types…"
+                  emptyText="No jewelry type matches."
+                  options={(collections.data ?? []).map((c: any) => ({ id: c.id, label: c.name, hint: c.name_ja }))}
+                  value={form.collectionIds}
+                  onChange={(collectionIds) => setForm((f) => ({ ...f, collectionIds }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Categories</Label>
+                <MultiPick
+                  ariaLabel="Categories"
+                  buttonLabel="Add category"
+                  placeholder="Search categories…"
+                  emptyText="No category matches."
+                  options={(categories.data ?? []).map((c) => ({ id: c.id, label: c.published ? c.name : `${c.name} (unpublished)`, hint: c.name_ja }))}
+                  value={form.categoryIds}
+                  onChange={(categoryIds) => setForm((f) => ({ ...f, categoryIds }))}
+                />
               </div>
             </div>
 
