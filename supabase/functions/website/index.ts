@@ -546,12 +546,62 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (linkError) throw linkError;
 
       const fx = await latestFx(supabase);
-      const products = (links ?? [])
+      const shaped = (links ?? [])
         .map((l: AnyRec) => l.product as AnyRec | null)
         .filter((p): p is AnyRec => !!p && p.status === "active")
         .map((p) => shapeProduct(p, fx));
+      const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
+    }
+
+    // GET /catalog/categories — published only, in display order
+    if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "categories" && !segments[2]) {
+      const { data, error } = await supabase
+        .from("website_categories")
+        .select(CATEGORY_FIELDS)
+        .eq("published", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
+    }
+
+    // GET /catalog/categories/:slug — the category plus its products, shaped
+    // exactly as /catalog/collections/:slug shapes products. 404 when the
+    // category is missing or unpublished.
+    if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "categories" && segments[2]) {
+      const slug = decodeURIComponent(segments[2]);
+      const { data: category, error } = await supabase
+        .from("website_categories")
+        .select(CATEGORY_FIELDS)
+        .eq("slug", slug)
+        .eq("published", true)
+        .maybeSingle();
+      if (error) throw error;
+      if (!category) return notFound();
+
+      const { data: links, error: linkError } = await supabase
+        .from("website_category_products")
+        .select(`sort_order, product:website_products(${PRODUCT_SELECT})`)
+        .eq("category_id", (category as AnyRec).id)
+        .order("sort_order", { ascending: true });
+      if (linkError) throw linkError;
+
+      // Order: website_category_products.sort_order, then product name.
+      const rows = (links ?? [])
+        .map((l: AnyRec) => ({ sort: Number(l.sort_order ?? 0), product: l.product as AnyRec | null }))
+        .filter((r): r is { sort: number; product: AnyRec } => !!r.product && r.product.status === "active");
+      rows.sort((a, b) =>
+        a.sort - b.sort || String(a.product.name ?? "").localeCompare(String(b.product.name ?? "")));
+
+      const fx = await latestFx(supabase);
+      const products = await attachCategorySlugs(
+        supabase,
+        rows.map((r) => shapeProduct(r.product, fx)),
+      );
+
+      return jsonResponse(scrub({ ...(category as AnyRec), products }));
     }
 
     // GET /catalog/products/:slug
