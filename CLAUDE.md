@@ -1593,6 +1593,34 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   Penalties apply ON the due date at 8 AM PHT — the grace period is
   the customer's consideration time, not the filter.
 
+  ACCOUNT-SCOPED RUN (added 2026-09-20, owner decision). penalty-engine accepts
+  an optional body { account_id: uuid } and then evaluates that ONE account.
+  The narrowing is a single .eq("account_id", …) on the overdue-item query and
+  NOTHING ELSE: same statuses, same Guard 1 / Guard 2, same freeze guard (an
+  account with a pending submission is still skipped — INVARIANT 12), same
+  caps and reactivation cap bump, same stage:cycle idempotency. A scoped run is
+  therefore a strict subset of the nightly run and can never create a penalty
+  the nightly run would not have created the same day — only sooner. No body,
+  or no account_id, is byte-for-byte the previous behaviour. The response
+  carries { scope: "account" | "all", account_id } plus a `created` array of
+  the rows written.
+
+  NO RULE CHANGED HERE — ONLY WHEN THE RULES ARE EVALUATED. The amounts, the
+  caps, the grace reset and the trigger schedule are all untouched.
+
+  reactivate-account CALLS IT for the reactivated account, after the account
+  update, the Extension Month row and the extension_requests block have all
+  succeeded (the engine reads status, is_reactivated and the un-cancelled
+  schedule rows, so it must not run before those are written). The call is
+  non-blocking: a failure is logged and reactivation still succeeds, because
+  the engine is idempotent and the nightly run picks up anything missed.
+  Why it exists: a forfeited account sits in a status the engine does not
+  select, so reactivation is the moment it re-enters scope — and the next cron
+  can be up to ~24h away. Invoice 18788 was reactivated at 04:16 UTC on
+  2026-09-20 with installment 6 (due that day) carrying no penalty, because the
+  account had been in `final_settlement` since 2026-09-03 and was invisible to
+  every cron run in between, including the one four hours earlier.
+
 ### Freeze guard:
   Accounts with pending payment submissions (status='submitted' or 'under_review')
   are frozen — no new penalties until the submission is resolved.
@@ -1691,6 +1719,9 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   penalty-engine and auto-forfeit-settlement are INDEPENDENT
   — neither calls the other. Penalty engine creates penalties;
   auto-forfeit-settlement checks forfeiture conditions.
+  Still true as of 2026-09-20. reactivate-account calling penalty-engine
+  (account-scoped) is a THIRD party invoking the engine, not these two
+  becoming coupled — auto-forfeit-settlement neither calls nor is called.
 
 ## TRADE PROGRAM — NON-NEGOTIABLE (added 2026-05-31)
 
