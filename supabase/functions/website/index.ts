@@ -167,6 +167,7 @@ const CATEGORY_FIELDS =
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function attachCategorySlugs(supabase: any, products: AnyRec[]): Promise<AnyRec[]> {
+  if (!products.length) return products;
   const ids = products.map((p) => String(p.id ?? "")).filter(Boolean);
   if (!ids.length) return products.map((p) => ({ ...p, category_slugs: [] as string[] }));
   const { data, error } = await supabase
@@ -549,7 +550,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = (links ?? [])
         .map((l: AnyRec) => l.product as AnyRec | null)
         .filter((p): p is AnyRec => !!p && p.status === "active")
-        .map((p) => shapeProduct(p, fx));
+        .map((p) => shapeProduct(p, fx))
+        .filter((p): p is AnyRec => p !== null);
       const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
@@ -596,10 +598,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         a.sort - b.sort || String(a.product.name ?? "").localeCompare(String(b.product.name ?? "")));
 
       const fx = await latestFx(supabase);
-      const products = await attachCategorySlugs(
-        supabase,
-        rows.map((r) => shapeProduct(r.product, fx)),
-      );
+      const shaped = rows
+        .map((r) => shapeProduct(r.product, fx))
+        .filter((p): p is AnyRec => p !== null);
+      const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...(category as AnyRec), products }));
     }
@@ -646,7 +648,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .limit(limit);
       if (error) throw error;
       const fx = await latestFx(supabase);
-      const shaped = (data ?? []).map((p) => shapeProduct(p as AnyRec, fx));
+      const shaped = (data ?? [])
+        .map((p) => shapeProduct(p as AnyRec, fx))
+        .filter((p): p is AnyRec => p !== null);
       const products = await attachCategorySlugs(supabase, shaped);
       return jsonResponse(scrub(products));
     }
