@@ -646,8 +646,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .limit(limit);
       if (error) throw error;
       const fx = await latestFx(supabase);
-      const products = (data ?? []).map((p) => shapeProduct(p as AnyRec, fx));
+      const shaped = (data ?? []).map((p) => shapeProduct(p as AnyRec, fx));
+      const products = await attachCategorySlugs(supabase, shaped);
       return jsonResponse(scrub(products));
+    }
+
+    // GET /testimonials — published only. An empty table is a valid state and
+    // returns [], never an error.
+    if (req.method === "GET" && segments[0] === "testimonials" && !segments[1]) {
+      const { data, error } = await supabase
+        .from("website_testimonials")
+        .select("id, customer_name, location, quote_en, quote_ja, item, rating")
+        .eq("published", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
     }
 
     // POST /layaway/quote
