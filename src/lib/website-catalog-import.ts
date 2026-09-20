@@ -6,9 +6,10 @@
  * modal uses.
  *
  * Source sheet: cha-jewels-product-upload-template.xlsx, sheet `Upload`.
- * Columns A–X are the Page365 export; Y–AF are the hub_* columns. Row 1 is the
- * header, rows 2–4 are guidance (required/optional, help text, Hub field map)
- * and are skipped — data starts at row 5.
+ * Columns A–X are the Page365 export; Y–AH are the hub_* columns; AI–AJ are
+ * collection_slugs / category_slugs (|-separated). Row 1 is the header, rows
+ * 2–4 are guidance (required/optional, help text, Hub field map) and are
+ * skipped — data starts at row 5. The `Reference` sheet lists valid slugs.
  */
 
 export const SHEET_NAME = "Upload";
@@ -98,6 +99,32 @@ export function hasForbiddenGoldTerm(...parts: (string | null | undefined)[]): b
 }
 
 export interface CollectionOption { id: string; name: string; slug: string }
+export interface CategoryOption { id: string; name: string; slug: string }
+
+/** Separator in collection_slugs / category_slugs: "preloved|gifts". */
+export const SLUG_SEPARATOR = "|";
+
+/** "Preloved | gifts|preloved" -> ["preloved", "gifts"]: trimmed, lower-cased, de-duplicated, empties dropped. */
+export function parseSlugList(raw: string): string[] {
+  const out: string[] = [];
+  for (const token of String(raw ?? "").split(SLUG_SEPARATOR)) {
+    const t = token.trim().toLowerCase();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** Exact slug match, case-insensitive. Unknown slugs come back separately so the row can name them. */
+export function resolveSlugs<T extends { id: string; slug: string }>(slugs: string[], options: T[]): { ids: string[]; unknown: string[] } {
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  for (const s of slugs) {
+    const hit = options.find((o) => o.slug.trim().toLowerCase() === s);
+    if (!hit) unknown.push(s);
+    else if (!ids.includes(hit.id)) ids.push(hit.id);
+  }
+  return { ids, unknown };
+}
 
 /**
  * English -> Japanese for catalog copy (edge function translate-product-description).
@@ -127,6 +154,10 @@ export interface ImportRowInput {
   hub_origin: string;
   /** Required only when hub_origin is Branded. */
   hub_brand: string;
+  /** Extra jewelry types by slug, |-separated. Blank keeps the existing ones. */
+  collection_slugs: string;
+  /** Website categories by slug, |-separated. Blank keeps the existing ones. */
+  category_slugs: string;
   images: string[];
 }
 
@@ -140,7 +171,12 @@ export interface ImportRow {
     sku: string;
     name: string;
     slug: string;
-    collectionId: string;
+    /** hub_jewelry_type first, then collection_slugs in sheet order; at least one. */
+    collectionIds: string[];
+    /** category_slugs in sheet order; empty when the cell is blank or nothing matched. */
+    categoryIds: string[];
+    /** category_slugs cell was blank — the importer leaves the product's categories alone. */
+    categoriesBlank: boolean;
     /** At least one, in sheet order. */
     metals: MetalValue[];
     weight_g: number;
@@ -207,6 +243,7 @@ function isHttpUrl(u: string): boolean {
 
 export interface ValidateContext {
   collections: CollectionOption[];
+  categories: CategoryOption[];
   /** cost is only written by admins; a non-admin's cost column is dropped. */
   isAdmin: boolean;
   /** SKUs already in the catalog, uppercased — decides Create vs Update. */
@@ -240,6 +277,18 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
     errors.push(
       `hub_jewelry_type "${r.hub_jewelry_type.trim()}" is not a jewelry type in the Hub`,
     );
+  }
+
+  // Extra types and categories by slug. Unknown slugs stop the row: a typo must
+  // not silently drop a piece out of a category it was meant to be in.
+  const extraCollections = resolveSlugs(parseSlugList(r.collection_slugs), ctx.collections);
+  if (extraCollections.unknown.length) {
+    errors.push(`collection_slugs "${extraCollections.unknown.join('", "')}" is not a jewelry type slug in the Hub (see the Reference sheet)`);
+  }
+  const categoriesBlank = !r.category_slugs.trim();
+  const categories = resolveSlugs(parseSlugList(r.category_slugs), ctx.categories);
+  if (categories.unknown.length) {
+    errors.push(`category_slugs "${categories.unknown.join('", "')}" is not a category slug in the Hub (see the Reference sheet)`);
   }
 
   const { metals, unknown: unknownMetals } = parseMetals(r.hub_metal);
@@ -327,7 +376,9 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
       sku,
       name,
       slug: slugify(name),
-      collectionId: collection!.id,
+      collectionIds: [collection!.id, ...extraCollections.ids.filter((id) => id !== collection!.id)],
+      categoryIds: categories.ids,
+      categoriesBlank,
       metals,
       weight_g: weight!,
       description_en: description,

@@ -488,6 +488,7 @@ export default function WebsiteCatalog() {
           </Button>
           <ProductImportDialog
             collections={(collections.data ?? []) as any[]}
+            categories={(categories.data ?? []).map((c) => ({ id: c.id, name: c.name, slug: c.slug }))}
             isAdmin={!!isAdmin}
             translate={translateJa}
           />
