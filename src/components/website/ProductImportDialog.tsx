@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertTriangle, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  CollectionOption, DATA_START_ROW, ImportRow, ImportRowInput, SHEET_NAME,
+  CategoryOption, CollectionOption, DATA_START_ROW, ImportRow, ImportRowInput, SHEET_NAME, SLUG_SEPARATOR,
   isBlankRow, rowAction, validateRow,
 } from "@/lib/website-catalog-import";
 import type { TranslateFn } from "@/lib/website-catalog-import";
@@ -29,6 +30,7 @@ import type { TranslateFn } from "@/lib/website-catalog-import";
 
 interface Props {
   collections: CollectionOption[];
+  categories: CategoryOption[];
   isAdmin: boolean;
   /** Same translate call the edit modal's Regenerate button uses. */
   translate: TranslateFn;
@@ -36,10 +38,18 @@ interface Props {
 
 interface Summary { created: number; updated: number; skipped: number }
 
+/**
+ * How a row's jewelry types and categories land on an existing product.
+ * Add: insert the ids the sheet names that the product does not have yet.
+ * Replace: delete the product's rows in that table, insert the sheet's.
+ * Either way a blank category_slugs cell writes nothing to categories.
+ */
+export type AssignMode = "add" | "replace";
+
 const HEADER_ROW_INDEX = 0;
 const IMAGE_COLUMNS = Array.from({ length: 10 }, (_, i) => `image_${i + 1}`);
 
-export default function ProductImportDialog({ collections, isAdmin, translate }: Props) {
+export default function ProductImportDialog({ collections, categories, isAdmin, translate }: Props) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -49,6 +59,7 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
   const [parsing, setParsing] = useState(false);
   const [skipErrors, setSkipErrors] = useState(false);
   const [translateJa, setTranslateJa] = useState(true);
+  const [assignMode, setAssignMode] = useState<AssignMode>("add");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
 
@@ -120,10 +131,13 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
           // simply yields "" here, which validateRow reads as UNKNOWN / no brand.
           hub_origin: cell(r, "hub_origin"),
           hub_brand: cell(r, "hub_brand"),
+          // New to the template; an older sheet without them yields "" — keep existing.
+          collection_slugs: cell(r, "collection_slugs"),
+          category_slugs: cell(r, "category_slugs"),
           images: IMAGE_COLUMNS.map((c) => cell(r, c)),
         };
         if (isBlankRow(input)) continue;
-        parsed.push(validateRow(input, { collections, isAdmin, existingSkus: skus }));
+        parsed.push(validateRow(input, { collections, categories, isAdmin, existingSkus: skus }));
       }
 
       if (!parsed.length) {
@@ -251,14 +265,35 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
       if (insErr) throw insErr;
     }
 
-    const { error: delColErr } = await supabase.from("website_collection_products" as any)
-      .delete().eq("product_id", productId);
-    if (delColErr) throw delColErr;
-    const { error: colErr } = await supabase.from("website_collection_products" as any)
-      .insert({ collection_id: v.collectionId, product_id: productId, sort: 0 });
-    if (colErr) throw colErr;
+    // Memberships. Two join tables, two payload shapes — never the same one:
+    //   website_collection_products { collection_id, product_id, sort }
+    //   website_category_products   { category_id,   product_id, sort_order }
+    await assignMembership("website_collection_products", "collection_id", "sort", productId, v.collectionIds);
+    if (!v.categoriesBlank) {
+      await assignMembership("website_category_products", "category_id", "sort_order", productId, v.categoryIds);
+    }
 
     return action;
+  }
+
+  /** Add: insert only the ids the product lacks (appended after its current ones). Replace: delete-then-insert. */
+  async function assignMembership(table: string, idColumn: string, orderColumn: string, productId: string, ids: string[]) {
+    const row = (id: string, order: number) => ({ [idColumn]: id, product_id: productId, [orderColumn]: order });
+    if (assignMode === "replace") {
+      const { error: delErr } = await supabase.from(table as any).delete().eq("product_id", productId);
+      if (delErr) throw delErr;
+      if (!ids.length) return;
+      const { error } = await supabase.from(table as any).insert(ids.map((id, i) => row(id, i)));
+      if (error) throw error;
+      return;
+    }
+    const { data: existing, error: readErr } = await supabase.from(table as any).select(idColumn).eq("product_id", productId);
+    if (readErr) throw readErr;
+    const have = new Set(((existing ?? []) as unknown as Record<string, string>[]).map((r) => r[idColumn]));
+    const missing = ids.filter((id) => !have.has(id));
+    if (!missing.length) return;
+    const { error } = await supabase.from(table as any).insert(missing.map((id, i) => row(id, have.size + i)));
+    if (error) throw error;
   }
 
   async function runImport() {
@@ -415,6 +450,18 @@ export default function ProductImportDialog({ collections, isAdmin, translate }:
                     </span>
                   </label>
                 )}
+
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                  <p className="font-medium text-foreground">Jewelry types and categories on pieces that already exist</p>
+                  <RadioGroup value={assignMode} onValueChange={(v) => setAssignMode(v as AssignMode)} className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+                    <label className="flex items-center gap-2"><RadioGroupItem value="add" id="assign-add" /> Add to existing</label>
+                    <label className="flex items-center gap-2"><RadioGroupItem value="replace" id="assign-replace" /> Replace with the sheet's</label>
+                  </RadioGroup>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    hub_jewelry_type plus collection_slugs set the types; category_slugs sets the categories
+                    (separate several with {SLUG_SEPARATOR}). A blank category_slugs cell leaves the piece's categories as they are.
+                  </p>
+                </div>
 
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox checked={translateJa} onCheckedChange={(c) => setTranslateJa(c === true)} />

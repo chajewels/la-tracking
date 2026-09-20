@@ -4,8 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import {
-  CollectionOption, DATA_START_ROW, ImportRowInput, SHEET_NAME,
-  hasForbiddenGoldTerm, isBlankRow, parseOrigin, resolveCollection, validateRow, parseMetals,
+  CategoryOption, CollectionOption, DATA_START_ROW, ImportRowInput, SHEET_NAME,
+  hasForbiddenGoldTerm, isBlankRow, parseOrigin, parseSlugList, resolveCollection, resolveSlugs, validateRow, parseMetals,
 } from "@/lib/website-catalog-import";
 
 /**
@@ -25,13 +25,18 @@ const COLLECTIONS: CollectionOption[] = [
   { id: "c-sets", name: "Sets", slug: "sets" },
 ];
 
-const ctx = { collections: COLLECTIONS, isAdmin: true, existingSkus: new Set<string>() };
+const CATEGORIES: CategoryOption[] = [
+  { id: "k-preloved", name: "Preloved", slug: "preloved" },
+  { id: "k-gifts", name: "Gifts", slug: "gifts" },
+];
+
+const ctx = { collections: COLLECTIONS, categories: CATEGORIES, isAdmin: true, existingSkus: new Set<string>() };
 
 const blank: ImportRowInput = {
   sheetRow: 5, buy_code: "", product_name: "", product_description: "", price: "",
   cost: "", stock_amount: "", hub_jewelry_type: "", hub_metal: "", hub_weight_g: "",
   hub_stone: "", hub_size: "", hub_condition: "", hub_status: "",
-  hub_origin: "", hub_brand: "", images: [],
+  hub_origin: "", hub_brand: "", collection_slugs: "", category_slugs: "", images: [],
 };
 
 const good: ImportRowInput = {
@@ -90,7 +95,7 @@ describe("validateRow", () => {
     const row = validateRow(good, ctx);
     expect(row.errors).toEqual([]);
     expect(row.value).toMatchObject({
-      sku: "R3341", collectionId: "c-rings", metals: ["K18"], weight_g: 16.2,
+      sku: "R3341", collectionIds: ["c-rings"], categoryIds: [], categoriesBlank: true, metals: ["K18"], weight_g: 16.2,
       condition: "Preloved", status: "draft", size: "13", price_jpy: 628980, stock_qty: 1,
     });
   });
@@ -194,6 +199,37 @@ describe("validateRow", () => {
   });
 });
 
+describe("collection_slugs / category_slugs", () => {
+  it("parses a |-separated list: trimmed, lower-cased, de-duplicated", () => {
+    expect(parseSlugList(" Preloved | gifts|preloved | ")).toEqual(["preloved", "gifts"]);
+    expect(parseSlugList("")).toEqual([]);
+  });
+
+  it("resolves known slugs and names the unknown ones", () => {
+    expect(resolveSlugs(["gifts", "nope"], CATEGORIES)).toEqual({ ids: ["k-gifts"], unknown: ["nope"] });
+  });
+
+  it("adds extra jewelry types after hub_jewelry_type and never duplicates it", () => {
+    const row = validateRow({ ...good, collection_slugs: "rings|pendants" }, ctx);
+    expect(row.errors).toEqual([]);
+    expect(row.value?.collectionIds).toEqual(["c-rings", "c-pendants"]);
+  });
+
+  it("resolves categories and marks a blank cell so existing categories are kept", () => {
+    const blankCell = validateRow(good, ctx);
+    expect(blankCell.value?.categoriesBlank).toBe(true);
+    expect(blankCell.value?.categoryIds).toEqual([]);
+    const withCats = validateRow({ ...good, category_slugs: "preloved|gifts" }, ctx);
+    expect(withCats.value?.categoriesBlank).toBe(false);
+    expect(withCats.value?.categoryIds).toEqual(["k-preloved", "k-gifts"]);
+  });
+
+  it("stops the row on an unknown slug in either column", () => {
+    expect(validateRow({ ...good, collection_slugs: "brooches" }, ctx).errors.join(" ")).toMatch(/collection_slugs "brooches"/);
+    expect(validateRow({ ...good, category_slugs: "bridal" }, ctx).errors.join(" ")).toMatch(/category_slugs "bridal"/);
+  });
+});
+
 describe("the shipped template", () => {
   // ESM: __dirname is not defined under Vitest.
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -225,6 +261,8 @@ describe("the shipped template", () => {
     hub_status: cell(r, "hub_status"),
     hub_origin: cell(r, "hub_origin"),
     hub_brand: cell(r, "hub_brand"),
+    collection_slugs: cell(r, "collection_slugs"),
+    category_slugs: cell(r, "category_slugs"),
     images: Array.from({ length: 10 }, (_, i) => cell(r, `image_${i + 1}`)),
   });
 
@@ -234,6 +272,16 @@ describe("the shipped template", () => {
     expect(header).toContain("hub_origin");
     expect(header).toContain("hub_brand");
     expect(header).toContain("image_10");
+    expect(header).toContain("collection_slugs");
+    expect(header).toContain("category_slugs");
+  });
+
+  it("ships a Reference sheet listing the seeded collection slugs", () => {
+    const ref = wb.Sheets["Reference"];
+    expect(ref).toBeTruthy();
+    const rows = XLSX.utils.sheet_to_json<string[]>(ref, { header: 1, raw: false, defval: "" });
+    expect(rows[0]?.slice(0, 2)).toEqual(["collection_slug", "category_slug"]);
+    expect(rows.slice(1).map((r) => r[0])).toEqual(COLLECTIONS.map((c) => c.slug));
   });
 
   it("yields exactly the two example rows once guidance rows are skipped", () => {
@@ -253,7 +301,9 @@ describe("the shipped template", () => {
 
     expect(rows.flatMap((r) => r.errors)).toEqual([]);
     for (const r of rows) {
-      expect(r.value?.collectionId).toBe("c-rings");
+      expect(r.value?.collectionIds).toEqual(["c-rings"]);
+      expect(r.value?.categoryIds).toEqual([]);
+      expect(r.value?.categoriesBlank).toBe(true);
       expect(r.value?.condition).toBe("Preloved");
       expect(r.value?.status).toBe("draft");
       expect(r.value?.metals).toEqual(["K18"]);
