@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
@@ -35,10 +35,17 @@ interface Props {
  * there is no invoice number to test. `is_test` is the DB-enforced flag
  * described in CLAUDE.md TEST ACCOUNT EXCLUSION and is the only signal that
  * works for every request.
+ *
+ * `?open=<id>` deep-links a single request — the staff notification bell sends
+ * that when a `service_request_created` notification is clicked. The param is
+ * consumed once the row it names has loaded, so closing the drawer and coming
+ * back to the tab does not reopen it.
  */
 export default function ServiceRequestsTab({ searchValue }: Props = {}) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [statusChip, setStatusChip] = useState<StatusChip>('All');
   const [openRequest, setOpenRequest] = useState<ServiceRequestRow | null>(null);
+  const consumedOpenParam = useRef(false);
 
   const { data: requests = [], isLoading, isError } = useQuery<ServiceRequestRow[]>({
     queryKey: ['service-requests'],
@@ -52,6 +59,21 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
       return ((data ?? []) as ServiceRequestRow[]).filter((r) => r.customers?.is_test !== true);
     },
   });
+
+  // Deep link: open the named request once the queue has loaded it. An id
+  // that matches nothing (wrong row, test customer, already deleted) is left
+  // alone rather than surfacing an error — the queue itself is the fallback.
+  const openParam = searchParams.get('open');
+  useEffect(() => {
+    if (!openParam || consumedOpenParam.current || requests.length === 0) return;
+    const match = requests.find((r) => r.id === openParam);
+    if (!match) return;
+    consumedOpenParam.current = true;
+    setOpenRequest(match);
+    const next = new URLSearchParams(searchParams);
+    next.delete('open');
+    setSearchParams(next, { replace: true });
+  }, [openParam, requests, searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     const q = (searchValue ?? '').trim().toLowerCase();
