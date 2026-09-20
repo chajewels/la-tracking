@@ -3,6 +3,8 @@ import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -23,6 +25,25 @@ const corsHeaders = {
  * Each penalty event = PHP 500 / JPY 1,000
  * Cap per installment months 1-5: PHP 1,000 / JPY 2,000
  * Month 6+: uncapped (continues accumulating)
+ *
+ * TWO SCOPES, ONE SET OF RULES (added 2026-09-20).
+ *   no body / no account_id -> every eligible account, exactly as the 00:05 UTC
+ *                              cron has always run it.
+ *   { account_id: uuid }    -> the same run, narrowed to one account.
+ * The narrowing is ONE extra .eq() on the overdue-item query and nothing else:
+ * the same statuses, the same Guard 1 / Guard 2, the same freeze guard, the
+ * same caps and cap bump, the same stage:cycle idempotency. An account-scoped
+ * run can therefore never create a penalty the nightly run would not have
+ * created on the same day — it only creates it sooner.
+ *
+ * WHY THE SCOPED MODE EXISTS. Reactivation moves an account back into an
+ * eligible status, but the engine next looks at 00:05 UTC, so an account
+ * reactivated at 04:16 waits ~20 hours for penalties the rules already say are
+ * due. reactivate-account now calls this function for that one account.
+ * Verified on invoice 18788: `final_settlement` from 2026-09-03 put it outside
+ * the eligible status set, so installment 6 (due 2026-09-20) was skipped by
+ * every cron run in between, including the one 4 hours before it was
+ * reactivated.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -39,6 +60,36 @@ Deno.serve(async (req) => {
     });
   }
 
+
+  // ── Optional scope: { account_id } narrows the run to one account ──
+  // The cron POSTs no body at all, so an empty body MUST stay valid. Anything
+  // present but unusable is refused rather than silently widened to a full
+  // run: a caller that meant "this one account" must never get all of them.
+  let scopedAccountId: string | null = null;
+  try {
+    const rawBody = await req.text();
+    if (rawBody.trim()) {
+      const parsed = JSON.parse(rawBody);
+      const candidate = (parsed ?? {}).account_id;
+      if (typeof candidate === "string" && UUID_RE.test(candidate)) {
+        scopedAccountId = candidate;
+      } else if (candidate !== undefined && candidate !== null) {
+        return new Response(JSON.stringify({ error: "account_id must be a uuid" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+  } catch {
+    return new Response(JSON.stringify({ error: "Body must be JSON or empty" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const scope = scopedAccountId ? "account" : "all";
+  /** Stamped on every response so a log line says which run produced it. */
+  const scopeInfo = { scope, account_id: scopedAccountId };
 
   try {
     const supabase = createClient(
@@ -95,7 +146,7 @@ Deno.serve(async (req) => {
     let page = 0;
     const pageSize = 500;
     while (true) {
-      const { data: batch } = await supabase
+      let q = supabase
         .from("layaway_schedule")
         .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months, is_reactivated)")
         .in("status", ["pending", "overdue", "partially_paid"])
@@ -105,7 +156,14 @@ Deno.serve(async (req) => {
         // their documented baselines (docs/TEST-ACCOUNTS.md). TEST-004/TEST-005
         // intentionally still accrue as live penalty-testing scaffolds.
         // Same embedded-join filter pattern as the Bug #124 fix in CSR monitoring.
-        .not("layaway_accounts.invoice_number", "in", '("TEST-001","TEST-002","TEST-003")')
+        .not("layaway_accounts.invoice_number", "in", '("TEST-001","TEST-002","TEST-003")');
+
+      // The ONLY difference between the two scopes. Everything above and
+      // everything below is shared, so a scoped run is a subset of the
+      // nightly run and can never reach a row the nightly run would not.
+      if (scopedAccountId) q = q.eq("account_id", scopedAccountId);
+
+      const { data: batch } = await q
         .order("installment_number", { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (!batch || batch.length === 0) break;
@@ -115,7 +173,7 @@ Deno.serve(async (req) => {
     }
 
     if (allOverdueItems.length === 0) {
-      return new Response(JSON.stringify({ message: "No overdue items found", penalties_created: 0 }), {
+      return new Response(JSON.stringify({ ...scopeInfo, message: "No overdue items found", penalties_created: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -138,7 +196,7 @@ Deno.serve(async (req) => {
     });
 
     if (allOverdueItems.length === 0) {
-      return new Response(JSON.stringify({ message: "No eligible overdue items (all fully paid)", penalties_created: 0 }), {
+      return new Response(JSON.stringify({ ...scopeInfo, message: "No eligible overdue items (all fully paid)", penalties_created: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -190,6 +248,7 @@ Deno.serve(async (req) => {
 
     if (allOverdueItems.length === 0) {
       return new Response(JSON.stringify({
+        ...scopeInfo,
         message: "No eligible overdue items (all covered by allocations)",
         penalties_created: 0,
         guard2_skipped: guard2Skipped,
@@ -728,9 +787,26 @@ Deno.serve(async (req) => {
       }
     }
 
+    // The rows actually written, by installment. reactivate-account reports
+    // these to the CSR, so a scoped run can say WHICH months were charged
+    // rather than only how many rows appeared.
+    const installmentByScheduleId = new Map<string, number>(
+      allOverdueItems.map((i: any) => [i.id, i.installment_number]),
+    );
+    const created = successfulPenalties.map((p: any) => ({
+      installment_number: installmentByScheduleId.get(p.schedule_id) ?? null,
+      amount: Number(p.penalty_amount),
+      currency: p.currency,
+      stage: p.penalty_stage,
+      cycle: p.penalty_cycle,
+      penalty_date: p.penalty_date,
+    }));
+
     return new Response(JSON.stringify({
+      ...scopeInfo,
       message: "Penalty engine completed",
       penalties_created: penaltiesCreated,
+      created,
       items_checked: allOverdueItems.length,
       accounts_affected: accountsToMarkOverdue.size,
     }), {

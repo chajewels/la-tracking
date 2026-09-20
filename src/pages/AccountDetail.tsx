@@ -1317,7 +1317,17 @@ export default function AccountDetail() {
                     });
                     if (error) throw error;
                     if (data?.error) throw new Error(data.error);
-                    toast.success(data.message || 'Account reactivated');
+                    // The engine now runs for this account at reactivation, so
+                    // say what it did — silence here reads as "no penalties",
+                    // which is a different thing from "the engine did not run".
+                    const pr = data?.penalty_result;
+                    const n = Number(pr?.penalties_created ?? 0);
+                    const penaltyLine = pr?.error
+                      ? 'Penalty check could not run — tonight\'s run will pick it up.'
+                      : n > 0
+                        ? `${n} penalty row(s) applied.`
+                        : 'No penalties due.';
+                    toast.success(`${data.message || 'Account reactivated'} ${penaltyLine}`);
                     queryClient.invalidateQueries({ queryKey: ['account', account.id] });
                     queryClient.invalidateQueries({ queryKey: ['accounts'] });
                     queryClient.invalidateQueries({ queryKey: ['schedule', id] });

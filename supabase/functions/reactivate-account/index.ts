@@ -190,6 +190,63 @@ Deno.serve(async (req) => {
       console.warn(`[reactivate-account] extension_requests block threw for ${account.invoice_number} (non-blocking):`, e);
     }
 
+    // ── Run the penalty engine for THIS account, now ──────────────────────
+    // Reactivation is the moment the account re-enters the engine's eligible
+    // status set. Waiting for the 00:05 UTC cron leaves up to ~24 hours in
+    // which the schedule shows overdue months carrying no penalty the rules
+    // already say is due — which is what happened to invoice 18788
+    // (reactivated 04:16 UTC, next cron 20 hours away).
+    //
+    // Deliberately AFTER the account update, the Extension Month row and the
+    // extension_requests block: the engine reads account.status,
+    // is_reactivated and the un-cancelled schedule rows, so it must not run
+    // until all three are written.
+    //
+    // Non-blocking, exactly like restore-loyalty-points below: a failure here
+    // must never undo a reactivation that already succeeded. The engine is
+    // idempotent per stage:cycle, so tonight's cron picks up anything missed.
+    let penaltyResult: {
+      penalties_created: number;
+      created: Array<{ installment_number: number | null; amount: number; currency?: string }>;
+      error?: string;
+    } = { penalties_created: 0, created: [] };
+
+    try {
+      const peRes = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/penalty-engine`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ account_id }),
+        },
+      );
+      if (peRes.ok) {
+        const peBody = await peRes.json().catch(() => null);
+        penaltyResult = {
+          penalties_created: Number(peBody?.penalties_created ?? 0),
+          created: Array.isArray(peBody?.created) ? peBody.created : [],
+        };
+        console.log(
+          `[reactivate-account] penalty-engine (account scope) for ${account.invoice_number}: ${penaltyResult.penalties_created} penalty row(s)`,
+        );
+      } else {
+        const t = await peRes.text().catch(() => "<no body>");
+        penaltyResult.error = `penalty-engine returned ${peRes.status}`;
+        console.error(
+          `[reactivate-account] penalty-engine failed (${peRes.status}) for ${account.invoice_number} (non-blocking): ${t}`,
+        );
+      }
+    } catch (peErr) {
+      penaltyResult.error = (peErr as Error)?.message ?? "penalty-engine call failed";
+      console.warn(
+        `[reactivate-account] penalty-engine call threw for ${account.invoice_number} (non-blocking):`,
+        peErr,
+      );
+    }
+
     // Fetch customer name for audit
     const { data: cust } = await supabase
       .from("customers")
@@ -207,6 +264,7 @@ Deno.serve(async (req) => {
         invoice_number: account.invoice_number,
         customer_name: cust?.full_name || "Unknown",
         penalty_count_at_reactivation: currentPenaltyCount,
+        penalties_created_at_reactivation: penaltyResult.penalties_created,
         extension_end_date: extensionEndDate,
         timestamp: now,
       },
@@ -307,6 +365,7 @@ Deno.serve(async (req) => {
       new_status: "extension_active",
       extension_end_date: extensionEndDate,
       penalty_count_preserved: currentPenaltyCount,
+      penalty_result: penaltyResult,
       message: `Account reactivated. Extension until ${extensionEndDate}. Penalty count continues from ${currentPenaltyCount}.`,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
