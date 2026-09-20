@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import LinkedJobCell from './LinkedJobCell';
 import {
   SERVICE_REQUEST_SELECT,
   kindLabel,
@@ -67,6 +68,7 @@ export default function ServiceRequestsSection({ layawayAccountId, cashOrderId }
                 <th className="py-2 pr-3 font-medium">Kind</th>
                 <th className="py-2 pr-3 font-medium">Ring Size</th>
                 <th className="py-2 pr-3 font-medium">Details</th>
+                <th className="py-2 pr-3 font-medium">Job</th>
                 <th className="py-2 pr-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -81,6 +83,9 @@ export default function ServiceRequestsSection({ layawayAccountId, cashOrderId }
                   <td className="py-2 pr-3 tabular-nums">{r.ring_size ?? '—'}</td>
                   <td className="py-2 pr-3 max-w-[280px] truncate" title={r.details ?? ''}>
                     {r.details ?? '—'}
+                  </td>
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    <LinkedJobCell request={r} />
                   </td>
                   <td className="py-2 pr-3">
                     <Badge variant="outline" className={requestStatusBadgeClass(r.status)}>

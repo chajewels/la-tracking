@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import ServiceRequestDrawer from './ServiceRequestDrawer';
+import LinkedJobCell from './LinkedJobCell';
 import {
   SERVICE_REQUEST_STATUSES,
   serviceRequests,
@@ -142,6 +143,7 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
                 <th className="py-3 px-3 font-medium">Kind</th>
                 <th className="py-3 px-3 font-medium">Ring Size</th>
                 <th className="py-3 px-3 font-medium">Reference</th>
+                <th className="py-3 px-3 font-medium">Job</th>
                 <th className="py-3 px-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -184,6 +186,9 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
                   <td className="py-2 px-3 tabular-nums">{r.ring_size ?? '—'}</td>
                   <td className="py-2 px-3 tabular-nums whitespace-nowrap">
                     <RequestReference request={r} />
+                  </td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    <LinkedJobCell request={r} />
                   </td>
                   <td className="py-2 px-3">
                     <Badge variant="outline" className={requestStatusBadgeClass(r.status)}>

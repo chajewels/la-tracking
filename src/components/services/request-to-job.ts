@@ -42,6 +42,11 @@ export function jobTypeForKind(
   }
 }
 
+/** Where the job raised from a request lives, for a link on the request side. */
+export function serviceJobHref(jobId: string): string {
+  return `/services?tab=service-jobs&job=${jobId}`;
+}
+
 /** The invoice the job is booked against — a plan or an order, or none. */
 export function invoiceForRequest(request: ServiceRequestRow): string | undefined {
   return (

@@ -16,7 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import ServiceJobDialog from './ServiceJobDialog';
-import { buildServiceJobPrefill, invoiceForRequest } from './request-to-job';
+import { buildServiceJobPrefill, invoiceForRequest, serviceJobHref } from './request-to-job';
 import {
   SERVICE_REQUEST_STATUSES,
   serviceRequests,
@@ -288,10 +288,12 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
               {request.service_job_id ? (
                 <>
                   <p className="text-[11px] text-muted-foreground">
-                    A job has been raised for this request.
+                    {request.service_jobs
+                      ? `${request.service_jobs.service_type} · ${request.service_jobs.service_status}`
+                      : 'A job has been raised for this request.'}
                   </p>
                   <Link
-                    to={`/services?tab=service-jobs&job=${request.service_job_id}`}
+                    to={serviceJobHref(request.service_job_id)}
                     className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                   >
                     <Wrench className="h-3.5 w-3.5" /> Open the service job
