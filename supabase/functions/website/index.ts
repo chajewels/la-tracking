@@ -1875,8 +1875,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
     // matching the plan terminology the storefront uses everywhere else.
     // staff_note is NEVER selected — it is internal-only.
 
-    // GET /account/service-requests — this customer's requests, newest first.
-    if (req.method === "GET" && segments[0] === "account" && segments[1] === "service-requests" && !segments[2]) {
+    // GET /me/service-requests — this customer's requests, newest first.
+    if (req.method === "GET" && segments[0] === "me" && segments[1] === "service-requests" && !segments[2]) {
       const who = await requireCustomerUser(req, supabase);
       if (who instanceof Response) return who;
       const customer = await customerForAuthUser(supabase, who.id);
@@ -1896,8 +1896,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }));
     }
 
-    // POST /account/service-requests — request service on one owned order/plan.
-    if (req.method === "POST" && segments[0] === "account" && segments[1] === "service-requests" && !segments[2]) {
+    // POST /me/service-requests — request service on one owned order/plan.
+    if (req.method === "POST" && segments[0] === "me" && segments[1] === "service-requests" && !segments[2]) {
       const who = await requireCustomerUser(req, supabase);
       if (who instanceof Response) return who;
       const customer = await customerForAuthUser(supabase, who.id);
