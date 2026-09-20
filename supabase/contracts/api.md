@@ -86,12 +86,12 @@ the code is unknown.
 
 ### Service requests
 
-#### GET /account/service-requests
+#### GET /me/service-requests
 The signed-in customer's requests, newest first: `[{ id, kind, status,
 item_title, details, ring_size, cash_order_id, layaway_plan_id, customer_note,
 created_at, updated_at }]`. `staff_note` is never returned.
 
-#### POST /account/service-requests
+#### POST /me/service-requests
 Body `{ kind, details, ring_size?, cash_order_id? | layaway_plan_id?,
 item_title? }`. `kind` must be one of `resize`, `cleaning`, `repair`,
 `appraisal`, `other`; `details` 1–1000 chars; exactly one of the two ids, and
