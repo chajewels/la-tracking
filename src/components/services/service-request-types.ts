@@ -111,6 +111,8 @@ export interface ServiceRequestRow {
   details: string | null;
   ring_size: string | null;
   status: string;
+  /** The service job raised from this request, once one has been. */
+  service_job_id: string | null;
   staff_note: string | null;
   customer_note: string | null;
   created_at: string;
