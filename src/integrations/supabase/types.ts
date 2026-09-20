@@ -4623,6 +4623,76 @@ export type Database = {
           },
         ]
       }
+      service_requests: {
+        Row: {
+          cash_order_id: string | null
+          created_at: string
+          customer_id: string
+          customer_note: string | null
+          details: string
+          id: string
+          item_title: string | null
+          kind: string
+          layaway_account_id: string | null
+          ring_size: string | null
+          staff_note: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cash_order_id?: string | null
+          created_at?: string
+          customer_id: string
+          customer_note?: string | null
+          details: string
+          id?: string
+          item_title?: string | null
+          kind: string
+          layaway_account_id?: string | null
+          ring_size?: string | null
+          staff_note?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cash_order_id?: string | null
+          created_at?: string
+          customer_id?: string
+          customer_note?: string | null
+          details?: string
+          id?: string
+          item_title?: string | null
+          kind?: string
+          layaway_account_id?: string | null
+          ring_size?: string | null
+          staff_note?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_requests_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_requests_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_requests_layaway_account_id_fkey"
+            columns: ["layaway_account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipping_methods: {
         Row: {
           created_at: string
