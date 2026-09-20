@@ -22,15 +22,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
-import type { TranslateFn } from "@/lib/website-catalog-import";
+import { japaneseFor, translateJa } from "@/components/website/translate";
+import { HeroImageField, uploadWebsiteImage } from "@/components/website/HeroImageField";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 
 /** Public website catalog manager. Feeds the `website` API used by chajewelsjp.com. */
 
-const MEDIA_BUCKET = "promotions";
-const MEDIA_PREFIX = "website";
 /** Served from public/ — the Page365 upload sheet with the hub_* columns. */
 const TEMPLATE_PATH = "/templates/cha-jewels-product-upload-template.xlsx";
 
@@ -98,35 +97,6 @@ const slugify = (s: string) =>
 
 const yen = (n: number) => `¥ ${Math.round(n).toLocaleString("en-US")}`;
 
-/**
- * Formal-retail Japanese from Lovable AI. Server-side — the key never ships.
- * Name and description are translated independently by the edge function;
- * pass only the fields that need refreshing. A field left out comes back "".
- */
-const translateJa: TranslateFn = async (fields) => {
-  const name = fields.name?.trim() ?? "";
-  const description = fields.description?.trim() ?? "";
-  if (!name && !description) return { name_ja: "", description_ja: "" };
-  const { data, error } = await supabase.functions.invoke("translate-product-description", {
-    body: { name: name || undefined, description: description || undefined },
-  });
-  if (error) {
-    // invoke() reports a bare "non-2xx status" — the useful message (rate limit,
-    // credits exhausted, banned terminology) is in the response body.
-    const res = (error as any)?.context as Response | undefined;
-    const detail = res ? await res.json().catch(() => null) : null;
-    throw new Error(detail?.error ?? error.message);
-  }
-  const out = {
-    name_ja: String((data as any)?.name_ja ?? "").trim(),
-    description_ja: String((data as any)?.description_ja ?? "").trim(),
-  };
-  if ((name && !out.name_ja) || (description && !out.description_ja)) {
-    throw new Error((data as any)?.error ?? "Translation came back empty.");
-  }
-  return out;
-};
-
 export default function WebsiteCatalog() {
   const { roles } = useAuth();
   const isAdmin = roles?.includes("admin");
@@ -142,7 +112,7 @@ export default function WebsiteCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("website_collections" as any)
-        .select("id, slug, name, description")
+        .select("id, slug, name, name_ja, description, description_ja, hero_media")
         .order("name");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -441,12 +411,8 @@ export default function WebsiteCatalog() {
     try {
       const uploaded: MediaRow[] = [];
       for (const file of Array.from(files)) {
-        const ext = file.name.split(".").pop() ?? "jpg";
-        const path = `${MEDIA_PREFIX}/${crypto.randomUUID()}.${ext}`;
-        const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, file, { upsert: false });
-        if (error) throw error;
-        const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path);
-        uploaded.push({ url: data.publicUrl, alt: form.name || null, sort: 0 });
+        const url = await uploadWebsiteImage("", file);
+        uploaded.push({ url, alt: form.name || null, sort: 0 });
       }
       setForm((f) => {
         const variants = [...f.variants];
@@ -603,7 +569,14 @@ export default function WebsiteCatalog() {
         </CardContent>
       </Card>
 
-      <JewelryTypes isAdmin={!!isAdmin} />
+      <Card>
+        <CardHeader className="hairline-b">
+          <CardTitle className="text-base">Jewelry types</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <JewelryTypes isAdmin={!!isAdmin} />
+        </CardContent>
+      </Card>
 
       <WholesaleInquiries />
 
@@ -900,15 +873,19 @@ export default function WebsiteCatalog() {
  * Jewelry types (website_collections). Necklaces, Pendants, Earrings, Bracelets,
  * Rings, Anklets, Sets ship as the starting set — staff add more here.
  *
- * Staff write English only. The Japanese name and description are generated on
- * save (and by Regenerate) through the same translator the products use; the
- * site shows Japanese by default and English on toggle.
+ * English and Japanese are both editable. Save writes what was typed, verbatim;
+ * Regenerate overwrites the Japanese from the translator the products use. A
+ * new type gets its Japanese generated once on add. The hero image is the
+ * picture the site shows for the type (collection cards, hero slides) — the
+ * site falls back to its own placeholder when there is none.
  */
+type TypeDraft = { description: string; name_ja: string; description_ja: string };
+
 function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, Partial<TypeDraft>>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const types = useQuery({
@@ -916,7 +893,7 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("website_collections" as any)
-        .select("id, slug, name, name_ja, description, description_ja")
+        .select("id, slug, name, name_ja, description, description_ja, hero_media")
         .order("name");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -924,24 +901,10 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["website-collections"] });
-
-  /** Translation failures never block the English save — the row still lands; Regenerate retries. */
-  async function japaneseFor(fields: { name?: string; description?: string }): Promise<Partial<{ name_ja: string | null; description_ja: string | null }>> {
-    try {
-      const out = await translateJa(fields);
-      const patch: Partial<{ name_ja: string | null; description_ja: string | null }> = {};
-      if (fields.name !== undefined) patch.name_ja = out.name_ja || null;
-      if (fields.description !== undefined) patch.description_ja = out.description_ja || null;
-      return patch;
-    } catch (e: any) {
-      toast({
-        title: "Japanese not regenerated",
-        description: `${e.message} The English still saved — use Regenerate to retry.`,
-        variant: "destructive",
-      });
-      return {};
-    }
-  }
+  const patchDraft = (id: string, patch: Partial<TypeDraft>) =>
+    setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+  const clearDraft = (id: string) =>
+    setDrafts((d) => { const next = { ...d }; delete next[id]; return next; });
 
   const add = useMutation({
     mutationFn: async () => {
@@ -961,29 +924,35 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
     onError: (e: any) => toast({ title: "Could not add type", description: e.message, variant: "destructive" }),
   });
 
-  const saveDescription = useMutation({
-    mutationFn: async ({ id, description, name, hasNameJa }: { id: string; description: string; name: string; hasNameJa: boolean }) => {
+  /** Writes the typed text as it is — no translation on save. */
+  const saveRow = useMutation({
+    mutationFn: async ({ id, draft }: { id: string; draft: TypeDraft }) => {
       setBusyId(id);
-      const en = description.trim();
-      const ja = await japaneseFor({
-        description: en || undefined,
-        // Backfill a missing Japanese name while we are here — one call, not two.
-        name: hasNameJa ? undefined : name,
-      });
       const { error } = await supabase.from("website_collections" as any)
-        .update({ description: en || null, description_ja: en ? (ja.description_ja ?? null) : null, ...(ja.name_ja ? { name_ja: ja.name_ja } : {}) })
+        .update({
+          description: draft.description.trim() || null,
+          name_ja: draft.name_ja.trim() || null,
+          description_ja: draft.description_ja.trim() || null,
+        })
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_d, v) => {
-      toast({ title: "Description saved" });
-      setDrafts((d) => { const next = { ...d }; delete next[v.id]; return next; });
-      invalidate();
-    },
+    onSuccess: (_d, v) => { toast({ title: "Type saved" }); clearDraft(v.id); invalidate(); },
     onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
     onSettled: () => setBusyId(null),
   });
 
+  const saveHero = useMutation({
+    mutationFn: async ({ id, hero_media }: { id: string; hero_media: string | null }) => {
+      const { error } = await supabase.from("website_collections" as any)
+        .update({ hero_media }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => { toast({ title: v.hero_media ? "Hero image saved" : "Hero image removed" }); invalidate(); },
+    onError: (e: any) => toast({ title: "Could not save hero image", description: e.message, variant: "destructive" }),
+  });
+
+  /** Overwrites the Japanese from the translator, discarding any unsaved Japanese draft. */
   const regenerate = useMutation({
     mutationFn: async ({ id, name, description }: { id: string; name: string; description: string }) => {
       setBusyId(id);
@@ -993,7 +962,16 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { toast({ title: "Japanese updated" }); invalidate(); },
+    onSuccess: (_d, v) => {
+      toast({ title: "Japanese updated" });
+      setDrafts((d) => {
+        const cur = d[v.id];
+        if (!cur) return d;
+        const { name_ja: _n, description_ja: _j, ...rest } = cur;
+        return { ...d, [v.id]: rest };
+      });
+      invalidate();
+    },
     onError: (e: any) => toast({ title: "Could not translate", description: e.message, variant: "destructive" }),
     onSettled: () => setBusyId(null),
   });
@@ -1008,116 +986,130 @@ function JewelryTypes({ isAdmin }: { isAdmin: boolean }) {
   });
 
   return (
-    <Card>
-      <CardHeader className="hairline-b">
-        <CardTitle className="text-base">
-          Jewelry types {types.data ? `(${types.data.length})` : ""}
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          These are the categories the website browses by. Write the English; the Japanese name and
-          description are generated on save and shown on the site by default.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-4">
-        {types.isLoading ? (
-          <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-44">Type</TableHead>
-                <TableHead className="w-32">Slug</TableHead>
-                <TableHead>Description (English)</TableHead>
-                <TableHead className="w-[26%]">Japanese (generated)</TableHead>
-                <TableHead className="w-36" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(types.data ?? []).map((t: any) => {
-                const value = drafts[t.id] ?? t.description ?? "";
-                const dirty = drafts[t.id] !== undefined && drafts[t.id] !== (t.description ?? "");
-                const busy = busyId === t.id;
-                return (
-                  <TableRow key={t.id}>
-                    <TableCell className="font-medium">
-                      {t.name}
-                      <div className="text-xs font-normal text-muted-foreground" lang="ja">
-                        {t.name_ja || <span className="italic">no Japanese yet</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{t.slug}</TableCell>
-                    <TableCell>
-                      <Input
-                        value={value}
-                        onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
-                      />
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground" lang="ja">
-                      {t.description_ja || <span className="italic">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="outline" size="sm" disabled={!dirty || busy}
-                          onClick={() => saveDescription.mutate({ id: t.id, description: value, name: t.name, hasNameJa: !!t.name_ja })}
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          variant="ghost" size="icon" title="Regenerate Japanese" aria-label="Regenerate Japanese"
-                          disabled={busy}
-                          onClick={() => regenerate.mutate({ id: t.id, name: t.name, description: t.description ?? "" })}
-                        >
-                          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        </Button>
-                        {isAdmin && (
-                          <Button
-                            variant="ghost" size="icon"
-                            onClick={() => {
-                              if (confirm(`Remove the ${t.name} type? Products stay, they just lose this type.`)) {
-                                removeType.mutate(t.id);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-
-        <div className="grid gap-3 rounded-lg border border-dashed border-border p-3 sm:grid-cols-[minmax(0,12rem)_1fr_auto]">
-          <div className="space-y-1">
-            <Label className="text-xs">New type</Label>
-            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Brooches" />
-            {newName.trim() && (
-              <p className="text-[11px] text-muted-foreground">slug: {slugify(newName)}</p>
-            )}
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Description (English)</Label>
-            <Input
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              placeholder="One line shown on the type's page."
-            />
-          </div>
-          <div className="flex items-end">
-            <Button onClick={() => add.mutate()} disabled={!newName.trim() || add.isPending}>
-              {add.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Add type
-            </Button>
-          </div>
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        The jewelry types the website browses by. English and Japanese are both editable; Regenerate
+        rewrites the Japanese from the English. The hero image is the picture shown for the type.
+      </p>
+      {types.isLoading ? (
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
         </div>
-      </CardContent>
-    </Card>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-44">Type</TableHead>
+              <TableHead className="w-28">Slug</TableHead>
+              <TableHead>Description (English)</TableHead>
+              <TableHead className="w-[26%]">Description (Japanese)</TableHead>
+              <TableHead className="w-44">Hero image</TableHead>
+              <TableHead className="w-36" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(types.data ?? []).map((t: any) => {
+              const saved: TypeDraft = {
+                description: t.description ?? "", name_ja: t.name_ja ?? "", description_ja: t.description_ja ?? "",
+              };
+              const draft: TypeDraft = { ...saved, ...(drafts[t.id] ?? {}) };
+              const dirty = (Object.keys(saved) as (keyof TypeDraft)[]).some((k) => draft[k] !== saved[k]);
+              const busy = busyId === t.id;
+              return (
+                <TableRow key={t.id}>
+                  <TableCell className="font-medium align-top">
+                    {t.name}
+                    <Input
+                      lang="ja" value={draft.name_ja}
+                      onChange={(e) => patchDraft(t.id, { name_ja: e.target.value })}
+                      placeholder="日本語の名前"
+                      aria-label={`${t.name} — Japanese name`}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground align-top">{t.slug}</TableCell>
+                  <TableCell className="align-top">
+                    <Input
+                      value={draft.description}
+                      onChange={(e) => patchDraft(t.id, { description: e.target.value })}
+                      aria-label={`${t.name} — description (English)`}
+                    />
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Input
+                      lang="ja" value={draft.description_ja}
+                      onChange={(e) => patchDraft(t.id, { description_ja: e.target.value })}
+                      placeholder="日本語の説明"
+                      aria-label={`${t.name} — description (Japanese)`}
+                    />
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <HeroImageField
+                      url={t.hero_media ?? null} folder="collections" size="sm"
+                      disabled={saveHero.isPending}
+                      onChange={(url) => saveHero.mutate({ id: t.id, hero_media: url })}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right align-top">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="outline" size="sm" disabled={!dirty || busy}
+                        onClick={() => saveRow.mutate({ id: t.id, draft })}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost" size="icon" title="Regenerate Japanese" aria-label="Regenerate Japanese"
+                        disabled={busy}
+                        onClick={() => regenerate.mutate({ id: t.id, name: t.name, description: draft.description })}
+                      >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="ghost" size="icon" aria-label={`Remove ${t.name}`}
+                          onClick={() => {
+                            if (confirm(`Remove the ${t.name} type? Products stay, they just lose this type.`)) {
+                              removeType.mutate(t.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+
+      <div className="grid gap-3 rounded-lg border border-dashed border-border p-3 sm:grid-cols-[minmax(0,12rem)_1fr_auto]">
+        <div className="space-y-1">
+          <Label className="text-xs">New type</Label>
+          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Brooches" />
+          {newName.trim() && (
+            <p className="text-[11px] text-muted-foreground">slug: {slugify(newName)}</p>
+          )}
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Description (English)</Label>
+          <Input
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            placeholder="One line shown on the type's page."
+          />
+        </div>
+        <div className="flex items-end">
+          <Button onClick={() => add.mutate()} disabled={!newName.trim() || add.isPending}>
+            {add.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Add type
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
