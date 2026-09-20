@@ -1923,18 +1923,21 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if ((cashOrderId ? 1 : 0) + (layawayPlanId ? 1 : 0) !== 1) {
         return jsonResponse({ error: "exactly_one_target_required" }, 400);
       }
+      let targetInvoiceNumber: string | null = null;
       if (cashOrderId) {
         const { data: order, error: oErr } = await supabase
-          .from("cash_orders").select("id")
+          .from("cash_orders").select("id, invoice_number")
           .eq("id", cashOrderId).eq("customer_id", customer.id).maybeSingle();
         if (oErr) throw oErr;
         if (!order) return notFound();
+        targetInvoiceNumber = String((order as AnyRec).invoice_number ?? "") || null;
       } else {
         const { data: plan, error: pErr } = await supabase
-          .from("layaway_accounts").select("id")
+          .from("layaway_accounts").select("id, invoice_number")
           .eq("id", layawayPlanId).eq("customer_id", customer.id).maybeSingle();
         if (pErr) throw pErr;
         if (!plan) return notFound();
+        targetInvoiceNumber = String((plan as AnyRec).invoice_number ?? "") || null;
       }
 
       // More than five open ('requested') requests and the customer must wait
@@ -1964,6 +1967,29 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, customer_note, created_at, updated_at")
         .single();
       if (iErr) throw iErr;
+
+      // Staff bell, non-blocking — a notification failure must never fail the
+      // request that was just created successfully.
+      try {
+        const customerName = String(customer.full_name ?? customer.customer_code ?? "Customer");
+        const itemLabel = itemTitle ?? "no item";
+        const detailsSnippet = details.length > 120 ? details.slice(0, 120) : details;
+        await supabase.from("staff_notifications").insert({
+          type: "service_request_created",
+          title: `Service request: ${kind}`,
+          body: `${customerName} — ${targetInvoiceNumber ?? "no invoice"} · ${itemLabel} · ${detailsSnippet}`,
+          customer_id: customer.id,
+          invoice_number: targetInvoiceNumber,
+          metadata: {
+            service_request_id: (created as AnyRec).id,
+            kind,
+            cash_order_id: cashOrderId || null,
+            layaway_account_id: layawayPlanId || null,
+          },
+        });
+      } catch (notifyErr) {
+        console.warn("[website] service_request_created notification failed (non-blocking):", notifyErr);
+      }
 
       const { layaway_account_id, ...rest } = created as AnyRec;
       return jsonResponse({ ...rest, layaway_plan_id: layaway_account_id ?? null });
