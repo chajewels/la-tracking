@@ -1930,14 +1930,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           .eq("id", cashOrderId).eq("customer_id", customer.id).maybeSingle();
         if (oErr) throw oErr;
         if (!order) return notFound();
-        targetInvoiceNumber = (order as AnyRec).invoice_number ?? null;
+        targetInvoiceNumber = String((order as AnyRec).invoice_number ?? "") || null;
       } else {
         const { data: plan, error: pErr } = await supabase
           .from("layaway_accounts").select("id, invoice_number")
           .eq("id", layawayPlanId).eq("customer_id", customer.id).maybeSingle();
         if (pErr) throw pErr;
         if (!plan) return notFound();
-        targetInvoiceNumber = (plan as AnyRec).invoice_number ?? null;
+        targetInvoiceNumber = String((plan as AnyRec).invoice_number ?? "") || null;
       }
 
       // More than five open ('requested') requests and the customer must wait
