@@ -157,6 +157,35 @@ const nonEmpty = (v: unknown): string | null => {
 
 const COLLECTION_FIELDS = "id, slug, name, name_ja, hero_media, description, description_ja";
 
+const CATEGORY_FIELDS =
+  "id, slug, name, name_ja, description, description_ja, hero_media, cta_label, cta_label_ja, sort_order";
+
+/**
+ * Attaches category_slugs to each product: the slugs of the PUBLISHED
+ * categories the product belongs to (unpublished categories are not a public
+ * surface, so their slugs must not leak). Empty array when uncategorised.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function attachCategorySlugs(supabase: any, products: AnyRec[]): Promise<AnyRec[]> {
+  const ids = products.map((p) => String(p.id ?? "")).filter(Boolean);
+  if (!ids.length) return products.map((p) => ({ ...p, category_slugs: [] as string[] }));
+  const { data, error } = await supabase
+    .from("website_category_products")
+    .select("product_id, category:website_categories!website_category_products_category_id_fkey(slug, published)")
+    .in("product_id", ids);
+  if (error) throw error;
+  const byProduct = new Map<string, string[]>();
+  for (const row of (data ?? []) as AnyRec[]) {
+    const cat = row.category as AnyRec | null;
+    if (!cat || cat.published !== true) continue;
+    const slug = nonEmpty(cat.slug);
+    if (!slug) continue;
+    const pid = String(row.product_id);
+    byProduct.set(pid, [...(byProduct.get(pid) ?? []), slug]);
+  }
+  return products.map((p) => ({ ...p, category_slugs: byProduct.get(String(p.id)) ?? [] }));
+}
+
 /**
  * Bilingual contract for jewelry types: name_en / name_ja / description_en /
  * description_ja. `name` and `description` stay as English aliases so a
