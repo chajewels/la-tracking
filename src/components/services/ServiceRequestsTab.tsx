@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import ServiceRequestDrawer from './ServiceRequestDrawer';
 import {
   SERVICE_REQUEST_STATUSES,
   serviceRequests,
@@ -37,6 +38,7 @@ interface Props {
  */
 export default function ServiceRequestsTab({ searchValue }: Props = {}) {
   const [statusChip, setStatusChip] = useState<StatusChip>('All');
+  const [openRequest, setOpenRequest] = useState<ServiceRequestRow | null>(null);
 
   const { data: requests = [], isLoading, isError } = useQuery<ServiceRequestRow[]>({
     queryKey: ['service-requests'],
@@ -123,13 +125,30 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={r.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
+                <tr
+                  key={r.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Open request: ${r.item_title ?? 'service request'}`}
+                  onClick={() => setOpenRequest(r)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setOpenRequest(r);
+                    }
+                  }}
+                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <td className="py-2 px-3 whitespace-nowrap text-muted-foreground">
                     {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
                   </td>
                   <td className="py-2 px-3">
                     {r.customer_id ? (
-                      <Link to={`/customers/${r.customer_id}`} className="text-primary hover:underline">
+                      <Link
+                        to={`/customers/${r.customer_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-primary hover:underline"
+                      >
                         {r.customers?.full_name ?? 'Unknown customer'}
                       </Link>
                     ) : (
@@ -155,6 +174,8 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
           </table>
         )}
       </div>
+
+      <ServiceRequestDrawer request={openRequest} onClose={() => setOpenRequest(null)} />
     </div>
   );
 }
@@ -181,14 +202,22 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 function RequestReference({ request }: { request: ServiceRequestRow }) {
   if (request.layaway_account_id && request.layaway_accounts) {
     return (
-      <Link to={`/accounts/${request.layaway_account_id}`} className="text-primary hover:underline">
+      <Link
+        to={`/accounts/${request.layaway_account_id}`}
+        onClick={(e) => e.stopPropagation()}
+        className="text-primary hover:underline"
+      >
         {request.layaway_accounts.invoice_number ?? 'Plan'}
       </Link>
     );
   }
   if (request.cash_order_id && request.cash_orders) {
     return (
-      <Link to={`/cash-orders/${request.cash_order_id}`} className="text-primary hover:underline">
+      <Link
+        to={`/cash-orders/${request.cash_order_id}`}
+        onClick={(e) => e.stopPropagation()}
+        className="text-primary hover:underline"
+      >
         {request.cash_orders.invoice_number ?? 'Order'}
       </Link>
     );
