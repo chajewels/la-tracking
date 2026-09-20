@@ -1870,6 +1870,105 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub({ ok: true, submission: created, is_deposit: isDeposit }));
     }
 
+    // ======================================== service requests (customer)
+    // The DB column is layaway_account_id; the API calls it layaway_plan_id,
+    // matching the plan terminology the storefront uses everywhere else.
+    // staff_note is NEVER selected — it is internal-only.
+
+    // GET /account/service-requests — this customer's requests, newest first.
+    if (req.method === "GET" && segments[0] === "account" && segments[1] === "service-requests" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const { data, error } = await supabase
+        .from("service_requests")
+        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, customer_note, created_at, updated_at")
+        .eq("customer_id", customer.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+
+      return jsonResponse(((data ?? []) as AnyRec[]).map((row) => {
+        const { layaway_account_id, ...rest } = row;
+        return { ...rest, layaway_plan_id: layaway_account_id ?? null };
+      }));
+    }
+
+    // POST /account/service-requests — request service on one owned order/plan.
+    if (req.method === "POST" && segments[0] === "account" && segments[1] === "service-requests" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+
+      const ALLOWED_KINDS = ["resize", "cleaning", "repair", "appraisal", "other"];
+      const kind = String(body.kind ?? "").trim();
+      if (!ALLOWED_KINDS.includes(kind)) return jsonResponse({ error: "bad_kind" }, 400);
+
+      const details = String(body.details ?? "").trim();
+      if (details.length < 1 || details.length > 1000) {
+        return jsonResponse({ error: "bad_details" }, 400);
+      }
+
+      const ringSize = body.ring_size == null ? null : String(body.ring_size).trim() || null;
+      const itemTitle = body.item_title == null ? null : String(body.item_title).trim() || null;
+
+      // Exactly one target, and it must be this customer's.
+      const cashOrderId = String(body.cash_order_id ?? "").trim();
+      const layawayPlanId = String(body.layaway_plan_id ?? "").trim();
+      if ((cashOrderId ? 1 : 0) + (layawayPlanId ? 1 : 0) !== 1) {
+        return jsonResponse({ error: "exactly_one_target_required" }, 400);
+      }
+      if (cashOrderId) {
+        const { data: order, error: oErr } = await supabase
+          .from("cash_orders").select("id")
+          .eq("id", cashOrderId).eq("customer_id", customer.id).maybeSingle();
+        if (oErr) throw oErr;
+        if (!order) return notFound();
+      } else {
+        const { data: plan, error: pErr } = await supabase
+          .from("layaway_accounts").select("id")
+          .eq("id", layawayPlanId).eq("customer_id", customer.id).maybeSingle();
+        if (pErr) throw pErr;
+        if (!plan) return notFound();
+      }
+
+      // More than five open ('requested') requests and the customer must wait
+      // for staff to move one along first.
+      const { count, error: cErr } = await supabase
+        .from("service_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customer.id)
+        .eq("status", "requested");
+      if (cErr) throw cErr;
+      if ((count ?? 0) > 5) {
+        return jsonResponse({ error: "too_many_open_requests" }, 429);
+      }
+
+      const { data: created, error: iErr } = await supabase
+        .from("service_requests")
+        .insert({
+          customer_id: customer.id,
+          kind,
+          details,
+          ring_size: ringSize,
+          item_title: itemTitle,
+          cash_order_id: cashOrderId || null,
+          layaway_account_id: layawayPlanId || null,
+          status: "requested",
+        })
+        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, customer_note, created_at, updated_at")
+        .single();
+      if (iErr) throw iErr;
+
+      const { layaway_account_id, ...rest } = created as AnyRec;
+      return jsonResponse({ ...rest, layaway_plan_id: layaway_account_id ?? null });
+    }
+
     return notFound();
   } catch (err) {
     // The one line that explains a "Ref: …" on the storefront. Postgres errors
