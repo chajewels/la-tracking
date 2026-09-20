@@ -24,6 +24,8 @@ import { Download, Globe, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucid
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import { japaneseFor, translateJa } from "@/components/website/translate";
 import { HeroImageField, uploadWebsiteImage } from "@/components/website/HeroImageField";
+import { CategoriesEditor } from "@/components/website/CategoriesCard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
@@ -569,12 +571,24 @@ export default function WebsiteCatalog() {
         </CardContent>
       </Card>
 
+      {/* Two taxonomies, one card. Jewelry types are what the site browses by;
+          categories sit above them and a product can carry several of each. */}
       <Card>
         <CardHeader className="hairline-b">
-          <CardTitle className="text-base">Jewelry types</CardTitle>
+          <CardTitle className="text-base">Jewelry types &amp; categories</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            A product has one or more jewelry types and one or more categories. Both are shown on the site.
+          </p>
         </CardHeader>
         <CardContent className="pt-4">
-          <JewelryTypes isAdmin={!!isAdmin} />
+          <Tabs defaultValue="types">
+            <TabsList>
+              <TabsTrigger value="types">Jewelry types{collections.data ? ` (${collections.data.length})` : ""}</TabsTrigger>
+              <TabsTrigger value="categories">Categories</TabsTrigger>
+            </TabsList>
+            <TabsContent value="types" className="pt-4"><JewelryTypes isAdmin={!!isAdmin} /></TabsContent>
+            <TabsContent value="categories" className="pt-4"><CategoriesEditor isAdmin={!!isAdmin} /></TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
