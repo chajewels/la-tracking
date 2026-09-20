@@ -84,4 +84,20 @@ the code is unknown.
 - `POST /checkout` — creates the order (`create_web_order_atomic` /
   `create_web_layaway_atomic`).
 
+### Service requests
+
+#### GET /account/service-requests
+The signed-in customer's requests, newest first: `[{ id, kind, status,
+item_title, details, ring_size, cash_order_id, layaway_plan_id, customer_note,
+created_at, updated_at }]`. `staff_note` is never returned.
+
+#### POST /account/service-requests
+Body `{ kind, details, ring_size?, cash_order_id? | layaway_plan_id?,
+item_title? }`. `kind` must be one of `resize`, `cleaning`, `repair`,
+`appraisal`, `other`; `details` 1–1000 chars; exactly one of the two ids, and
+it must belong to the signed-in customer (404 otherwise). Inserts with status
+`requested` and returns the created row in the GET shape. 429
+`too_many_open_requests` when the customer already has more than 5 requests in
+`requested` status.
+
 See the function source for exact request/response shapes of these routes.
