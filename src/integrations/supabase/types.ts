@@ -5403,6 +5403,87 @@ export type Database = {
         }
         Relationships: []
       }
+      website_categories: {
+        Row: {
+          created_at: string
+          cta_label: string | null
+          cta_label_ja: string | null
+          description: string | null
+          description_ja: string | null
+          hero_media: string | null
+          id: string
+          name: string
+          name_ja: string | null
+          published: boolean
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          cta_label?: string | null
+          cta_label_ja?: string | null
+          description?: string | null
+          description_ja?: string | null
+          hero_media?: string | null
+          id?: string
+          name: string
+          name_ja?: string | null
+          published?: boolean
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          cta_label?: string | null
+          cta_label_ja?: string | null
+          description?: string | null
+          description_ja?: string | null
+          hero_media?: string | null
+          id?: string
+          name?: string
+          name_ja?: string | null
+          published?: boolean
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      website_category_products: {
+        Row: {
+          category_id: string
+          product_id: string
+          sort_order: number
+        }
+        Insert: {
+          category_id: string
+          product_id: string
+          sort_order?: number
+        }
+        Update: {
+          category_id?: string
+          product_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_category_products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "website_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_category_products_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_collection_products: {
         Row: {
           collection_id: string
