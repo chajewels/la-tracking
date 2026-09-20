@@ -157,6 +157,36 @@ const nonEmpty = (v: unknown): string | null => {
 
 const COLLECTION_FIELDS = "id, slug, name, name_ja, hero_media, description, description_ja";
 
+const CATEGORY_FIELDS =
+  "id, slug, name, name_ja, description, description_ja, hero_media, cta_label, cta_label_ja, sort_order";
+
+/**
+ * Attaches category_slugs to each product: the slugs of the PUBLISHED
+ * categories the product belongs to (unpublished categories are not a public
+ * surface, so their slugs must not leak). Empty array when uncategorised.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function attachCategorySlugs(supabase: any, products: AnyRec[]): Promise<AnyRec[]> {
+  if (!products.length) return products;
+  const ids = products.map((p) => String(p.id ?? "")).filter(Boolean);
+  if (!ids.length) return products.map((p) => ({ ...p, category_slugs: [] as string[] }));
+  const { data, error } = await supabase
+    .from("website_category_products")
+    .select("product_id, category:website_categories!website_category_products_category_id_fkey(slug, published)")
+    .in("product_id", ids);
+  if (error) throw error;
+  const byProduct = new Map<string, string[]>();
+  for (const row of (data ?? []) as AnyRec[]) {
+    const cat = row.category as AnyRec | null;
+    if (!cat || cat.published !== true) continue;
+    const slug = nonEmpty(cat.slug);
+    if (!slug) continue;
+    const pid = String(row.product_id);
+    byProduct.set(pid, [...(byProduct.get(pid) ?? []), slug]);
+  }
+  return products.map((p) => ({ ...p, category_slugs: byProduct.get(String(p.id)) ?? [] }));
+}
+
 /**
  * Bilingual contract for jewelry types: name_en / name_ja / description_en /
  * description_ja. `name` and `description` stay as English aliases so a
@@ -517,12 +547,63 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (linkError) throw linkError;
 
       const fx = await latestFx(supabase);
-      const products = (links ?? [])
+      const shaped = (links ?? [])
         .map((l: AnyRec) => l.product as AnyRec | null)
         .filter((p): p is AnyRec => !!p && p.status === "active")
-        .map((p) => shapeProduct(p, fx));
+        .map((p) => shapeProduct(p, fx))
+        .filter((p): p is AnyRec => p !== null);
+      const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
+    }
+
+    // GET /catalog/categories — published only, in display order
+    if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "categories" && !segments[2]) {
+      const { data, error } = await supabase
+        .from("website_categories")
+        .select(CATEGORY_FIELDS)
+        .eq("published", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
+    }
+
+    // GET /catalog/categories/:slug — the category plus its products, shaped
+    // exactly as /catalog/collections/:slug shapes products. 404 when the
+    // category is missing or unpublished.
+    if (req.method === "GET" && segments[0] === "catalog" && segments[1] === "categories" && segments[2]) {
+      const slug = decodeURIComponent(segments[2]);
+      const { data: category, error } = await supabase
+        .from("website_categories")
+        .select(CATEGORY_FIELDS)
+        .eq("slug", slug)
+        .eq("published", true)
+        .maybeSingle();
+      if (error) throw error;
+      if (!category) return notFound();
+
+      const { data: links, error: linkError } = await supabase
+        .from("website_category_products")
+        .select(`sort_order, product:website_products(${PRODUCT_SELECT})`)
+        .eq("category_id", (category as AnyRec).id)
+        .order("sort_order", { ascending: true });
+      if (linkError) throw linkError;
+
+      // Order: website_category_products.sort_order, then product name.
+      const rows = (links ?? [])
+        .map((l: AnyRec) => ({ sort: Number(l.sort_order ?? 0), product: l.product as AnyRec | null }))
+        .filter((r): r is { sort: number; product: AnyRec } => !!r.product && r.product.status === "active");
+      rows.sort((a, b) =>
+        a.sort - b.sort || String(a.product.name ?? "").localeCompare(String(b.product.name ?? "")));
+
+      const fx = await latestFx(supabase);
+      const shaped = rows
+        .map((r) => shapeProduct(r.product, fx))
+        .filter((p): p is AnyRec => p !== null);
+      const products = await attachCategorySlugs(supabase, shaped);
+
+      return jsonResponse(scrub({ ...(category as AnyRec), products }));
     }
 
     // GET /catalog/products/:slug
@@ -567,8 +648,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .limit(limit);
       if (error) throw error;
       const fx = await latestFx(supabase);
-      const products = (data ?? []).map((p) => shapeProduct(p as AnyRec, fx));
+      const shaped = (data ?? [])
+        .map((p) => shapeProduct(p as AnyRec, fx))
+        .filter((p): p is AnyRec => p !== null);
+      const products = await attachCategorySlugs(supabase, shaped);
       return jsonResponse(scrub(products));
+    }
+
+    // GET /testimonials — published only. An empty table is a valid state and
+    // returns [], never an error.
+    if (req.method === "GET" && segments[0] === "testimonials" && !segments[1]) {
+      const { data, error } = await supabase
+        .from("website_testimonials")
+        .select("id, customer_name, location, quote_en, quote_ja, item, rating")
+        .eq("published", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
     }
 
     // POST /layaway/quote
