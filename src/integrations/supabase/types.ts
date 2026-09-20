@@ -5701,6 +5701,48 @@ export type Database = {
         }
         Relationships: []
       }
+      website_testimonials: {
+        Row: {
+          created_at: string
+          customer_name: string
+          id: string
+          item: string | null
+          location: string | null
+          published: boolean
+          quote_en: string | null
+          quote_ja: string | null
+          rating: number | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_name: string
+          id?: string
+          item?: string | null
+          location?: string | null
+          published?: boolean
+          quote_en?: string | null
+          quote_ja?: string | null
+          rating?: number | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string
+          id?: string
+          item?: string | null
+          location?: string | null
+          published?: boolean
+          quote_en?: string | null
+          quote_ja?: string | null
+          rating?: number | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       wholesale_inquiries: {
         Row: {
           business: string
