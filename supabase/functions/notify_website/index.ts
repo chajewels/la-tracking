@@ -53,6 +53,9 @@ Deno.serve(async (req) => {
   const payload: Record<string, string> = {};
   if (body?.productSlug) payload.productSlug = String(body.productSlug);
   if (body?.collectionSlug) payload.collectionSlug = String(body.collectionSlug);
+  // Tag-based revalidation (e.g. { tag: "content" } from website_settings
+  // edits), forwarded alongside the slug fields rather than instead of them.
+  if (body?.tag) payload.tag = String(body.tag);
 
   try {
     const res = await fetch(`${websiteUrl}/api/revalidate`, {
