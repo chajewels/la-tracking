@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +90,7 @@ function toRow(d: Draft) {
   const quote_ja = d.quote_ja.trim();
   if (!quote_en && !quote_ja) throw new Error("Type the quote in English or Japanese.");
   const sort_order = Number(d.sort_order);
-  if (!Number.isInteger(sort_order)) throw new Error("Order must be a whole number.");
+  if (!Number.isInteger(sort_order)) throw new Error("Display order must be a whole number.");
   return {
     customer_name,
     location: d.location.trim() || null,
@@ -121,7 +123,14 @@ function monthLabel(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : format(d, "MMM yyyy");
 }
 
-export function TestimonialsCard({ isAdmin }: { isAdmin: boolean }) {
+export function TestimonialsCard() {
+  // The delete guard. Was `isAdmin`, which meant a staff member trusted with
+  // this screen still could not finish a job on it. It is the permission that
+  // decides, and admin keeps passing because can() returns true for admin.
+  const { roles } = useAuth();
+  const { can } = usePermissions();
+  const canManage = can("manage_website_content") || !!roles?.includes("admin");
+
   const qc = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, Partial<Draft>>>({});
   const [adding, setAdding] = useState<Draft | null>(null);
@@ -276,7 +285,7 @@ export function TestimonialsCard({ isAdmin }: { isAdmin: boolean }) {
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                     </Button>
-                    {isAdmin && (
+                    {canManage && (
                       <Button
                         variant="ghost" size="icon" aria-label={`Remove ${t.customer_name}'s testimonial`}
                         disabled={remove.isPending}

@@ -76,10 +76,15 @@ export function NewsletterSubscribersCard() {
       setFocusedId(subscriberParam);
       cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    const next = new URLSearchParams(searchParams);
-    next.delete('subscriber');
-    setSearchParams(next, { replace: true });
-  }, [subscriberParam, allRows, searchParams, setSearchParams]);
+    // Functional, so the Website workspace writing ?tab= in the same tick
+    // cannot be clobbered by a stale snapshot — this card only exists on the
+    // audience tab, and losing the tab would bounce the reader to catalog.
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('subscriber');
+      return next;
+    }, { replace: true });
+  }, [subscriberParam, allRows, setSearchParams]);
 
   const focused = useMemo(
     () => (focusedId ? allRows.find(r => r.id === focusedId) ?? null : null),

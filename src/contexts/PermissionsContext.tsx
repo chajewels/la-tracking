@@ -78,6 +78,7 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/bulk-payment-import': 'view_finance',
   '/promotions': 'manage_promotions',
   '/website-catalog': 'manage_website_catalog',
+  // '/website' is NOT here — it needs OR, handled in canAccessPage below.
   '/loyalty/admin': 'view_loyalty_redemptions',
   '/loyalty/redemptions': 'view_loyalty_redemptions',
 };
@@ -94,7 +95,7 @@ const PAGE_FEATURE_MAP: Record<string, string> = {
 const PUBLIC_AUTHENTICATED_PATHS = ['/help', '/policy-hub', '/commissions', '/timesheet'];
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
-const NAV_PATHS = ['/', '/sales', '/customers', '/cash-orders', '/services', '/monitoring', '/inquiries', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions', '/waivers', '/website-catalog'];
+const NAV_PATHS = ['/', '/sales', '/customers', '/cash-orders', '/services', '/monitoring', '/inquiries', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions', '/waivers', '/website-catalog', '/website'];
 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();
@@ -217,6 +218,11 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       // on a single create key would wrongly lock out someone who holds the
       // other. The toggle on the screen only offers the type the user can make.
       else if (path.startsWith('/page365/')) return can('create_cash_order') || can('create_account');
+      // The Website workspace carries two independent jobs — the shop and the
+      // words on the site — behind one route. Gating it on a single key would
+      // lock out whoever holds only the other, so the route opens for either
+      // and each TAB is filtered by its own key in the sidebar and the page.
+      else if (path === '/website') return can('manage_website_catalog') || can('manage_website_content');
       else return false;
     }
     return can(permKey);
