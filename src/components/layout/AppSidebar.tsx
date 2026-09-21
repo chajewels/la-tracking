@@ -30,6 +30,7 @@ import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
 import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
+import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
 import { cn } from '@/lib/utils';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
 import { PortalTokenPill } from '@/components/system/PortalTokenIndicator';
@@ -53,7 +54,7 @@ export type SubMenuItem = {
   // instead of `${parentPath}?tab=${tab}`. Used for sub-items that are real
   // routes rather than tab states (e.g. Inquiries under CSR Operations).
   path?: string;
-  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments';
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
@@ -92,6 +93,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
     children: [
       { label: 'Service Jobs', tab: 'service-jobs' },
       { label: 'Trade-Ins', tab: 'trade-ins' },
+      { label: 'Requests', tab: 'requests', badgeKey: 'services_requests' },
     ],
   },
   {
@@ -191,18 +193,21 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: pendingExtensions } = useExtensionRequestCount();
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
+  const { count: openServiceRequests } = useServiceRequestCount();
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
     [ROUTES.SALES]: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
     [ROUTES.MONITORING]: pendingExtensions ?? 0,
     [ROUTES.DASHBOARD]: (newLayawayToday ?? 0) + (newCashToday ?? 0),
+    [ROUTES.SERVICES]: openServiceRequests ?? 0,
   };
 
   const badgeBySubKey: Record<string, number> = {
     sales_payments: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
     monitoring_extensions: pendingExtensions ?? 0,
     loyalty_redemptions: pendingRedemptions ?? 0,
+    services_requests: openServiceRequests ?? 0,
   };
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});

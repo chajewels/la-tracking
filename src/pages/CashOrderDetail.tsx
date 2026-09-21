@@ -47,6 +47,7 @@ import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
+import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 
 // Shape of cancel-cash-order's preview response (preview:true writes nothing).
@@ -1790,6 +1791,9 @@ export default function CashOrderDetail() {
 
         {/* Services (service_jobs scoped to this invoice) */}
         <ServiceJobsSection invoiceNumber={order?.invoice_number} />
+
+        {/* What the customer asked for, beside what the workshop did */}
+        <ServiceRequestsSection cashOrderId={order?.id} />
 
         {/* Customer Message — mirrors AccountDetail.tsx */}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">

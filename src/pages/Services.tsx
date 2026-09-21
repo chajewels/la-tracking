@@ -17,6 +17,7 @@ import ServiceJobDialog, {
 } from '@/components/services/ServiceJobDialog';
 import { serviceStatusBadgeClass, serviceTypeBadgeClass } from '@/components/services/service-badge-styles';
 import TradeInsTab from '@/components/services/TradeInsTab';
+import ServiceRequestsTab from '@/components/services/ServiceRequestsTab';
 import { formatCurrency } from '@/lib/calculations';
 import { useInvoiceAccountMap, invoiceHref } from '@/hooks/useInvoiceAccountMap';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
@@ -25,10 +26,10 @@ import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 type StatusFilter = 'All' | ServiceStatus;
 type TypeFilter = 'All' | ServiceType;
 type UpdatedByFilter = 'All' | typeof UPDATED_BY_OPTIONS[number];
-type TabKey = 'service-jobs' | 'trade-ins';
+type TabKey = 'service-jobs' | 'trade-ins' | 'requests';
 
 const DEFAULT_TAB: TabKey = 'service-jobs';
-const VALID_TABS: TabKey[] = ['service-jobs', 'trade-ins'];
+const VALID_TABS: TabKey[] = ['service-jobs', 'trade-ins', 'requests'];
 
 export default function Services() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -53,6 +54,13 @@ export default function Services() {
   // into Trade-Ins (or vice versa) when the user switches tabs.
   const [jobSearch, setJobSearch] = useState('');
   const [tradeSearch, setTradeSearch] = useState('');
+  const [requestSearch, setRequestSearch] = useState('');
+
+  const searchFor: Record<TabKey, { value: string; set: (v: string) => void; placeholder: string }> = {
+    'service-jobs': { value: jobSearch, set: setJobSearch, placeholder: 'Search service jobs...' },
+    'trade-ins': { value: tradeSearch, set: setTradeSearch, placeholder: 'Search trade-ins...' },
+    requests: { value: requestSearch, set: setRequestSearch, placeholder: 'Search requests...' },
+  };
 
   return (
     <AppLayout>
@@ -63,15 +71,15 @@ export default function Services() {
         </div>
 
         <WorkspaceToolbar
-          searchValue={tab === 'service-jobs' ? jobSearch : tradeSearch}
-          onSearchChange={tab === 'service-jobs' ? setJobSearch : setTradeSearch}
-          searchPlaceholder={tab === 'service-jobs' ? 'Search service jobs...' : 'Search trade-ins...'}
+          searchValue={searchFor[tab].value}
+          onSearchChange={searchFor[tab].set}
+          searchPlaceholder={searchFor[tab].placeholder}
           splitButton={<WorkspaceSplitButton />}
         />
 
-        {tab === 'service-jobs'
-          ? <ServiceJobsTab searchValue={jobSearch} />
-          : <TradeInsTab searchValue={tradeSearch} />}
+        {tab === 'service-jobs' && <ServiceJobsTab searchValue={jobSearch} />}
+        {tab === 'trade-ins' && <TradeInsTab searchValue={tradeSearch} />}
+        {tab === 'requests' && <ServiceRequestsTab searchValue={requestSearch} />}
       </div>
     </AppLayout>
   );

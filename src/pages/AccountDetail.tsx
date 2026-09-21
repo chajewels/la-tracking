@@ -11,6 +11,7 @@ import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
+import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
 import EditAccountDialog from '@/components/accounts/EditAccountDialog';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
@@ -2426,6 +2427,9 @@ export default function AccountDetail() {
 
         {/* Services (service_jobs scoped to this invoice) */}
         <ServiceJobsSection invoiceNumber={account?.invoice_number} />
+
+        {/* What the customer asked for, beside what the workshop did */}
+        <ServiceRequestsSection layawayAccountId={account?.id} />
 
         {/* Customer Message */}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
