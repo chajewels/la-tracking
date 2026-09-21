@@ -62,11 +62,13 @@ jobs:
       # to dashboard and splash never mounts"), so running everything here would
       # be red every time and teach people to ignore it.
       #
-      # These three files guard the places where nothing else would notice a
-      # break: the shipped .xlsx against the importer it feeds, and the jsonb
-      # the Settings tab reads and writes against the copy the site ships with.
-      - name: Import, template and settings tests
-        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts
+      # These files guard the places where nothing else would notice a break:
+      # the shipped .xlsx against the importer it feeds, the jsonb the Settings
+      # tab reads and writes against the copy the site ships with, and the post
+      # slug rule — which fills a NOT NULL UNIQUE column that becomes a public
+      # URL, so a wrong rule saves a broken address rather than erroring.
+      - name: Website and template tests
+        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx
 
       - name: Build app
         run: npm run build

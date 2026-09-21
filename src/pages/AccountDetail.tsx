@@ -1415,6 +1415,7 @@ export default function AccountDetail() {
           sourceChannel={webFields.source_channel ?? null}
           depositPaid={Number(account.total_paid ?? 0) > 0}
           expiredAt={webFields.expired_at ?? null}
+          createdAt={account.created_at ?? null}
           canEdit={canPerm('edit_account')}
         />
 

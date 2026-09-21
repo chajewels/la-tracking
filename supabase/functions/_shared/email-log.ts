@@ -118,9 +118,18 @@ export async function recordEmailAttempt(a: EmailAttempt): Promise<void> {
       idempotency_key: a.status === "sent" ? null : (a.idempotencyKey ?? null),
       metadata: { ...(a.metadata ?? {}), idempotency_key: a.idempotencyKey ?? null },
     });
-    if (error) console.warn("[email-log] insert failed (non-blocking):", error.message ?? error);
+    // Loud, not fatal: the send's outcome is already decided, but a row that
+    // never lands is the exact blind spot this file exists to close, so it is
+    // an error in the function log, with the status and template named.
+    if (error) {
+      console.error(
+        `[email-log] insert FAILED for status=${a.status} template=${a.template} channel=${a.channel}:`,
+        error.message ?? error,
+        error.code ?? "",
+      );
+    }
     if (a.status === "failed" && info) await alertFirstRefusal(supabase, a, info);
   } catch (e) {
-    console.warn("[email-log] record failed (non-blocking):", e);
+    console.error(`[email-log] record FAILED for status=${a.status} template=${a.template}:`, e);
   }
 }

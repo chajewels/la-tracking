@@ -1937,6 +1937,89 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #289 — email_send_log rejected 'skipped' rows (reported; live already admits it) and a lost log row was a warning (2026-09-22)
+Lovable's issue scan reported that `recordEmailAttempt()` writes `status = 'skipped'`
+(`_shared/storefront-email.ts:120`) against a CHECK constraint that only knew seven
+values, so every skip row was rejected. Checked against LIVE, read-only, on
+2026-09-21: `pg_get_constraintdef(email_send_log_status_check)` already admits nine
+values — `pending, sent, suppressed, failed, bounced, complained, dlq, skipped,
+rate_limited` — exactly the set the code writes (`email-log.ts:24`,
+`process-email-queue/index.ts:293`, `handle-email-suppression`). Migration
+`20260915020000_email_send_log_skipped_status.sql` is the record and was applied
+on 2026-09-15; the scan read the baseline. No new migration was written: a
+DROP/ADD of an identical constraint would be a no-op that reads as if something
+changed. `email_send_log` carries 0 `skipped` rows because no storefront send has
+been skipped since the deploy, not because rows were lost.
+
+What WAS wrong: a rejected log insert was `console.warn` in `recordEmailAttempt()`
+(both the insert branch and the catch) and unread altogether in
+process-email-queue's `rate_limited` insert — the failure this file exists to
+make visible was itself invisible. Both are `console.error` now, naming the
+status, template and channel, and the queue insert destructures `error`. Neither
+changes the send outcome. Needs a redeploy of the functions that import
+`_shared/email-log.ts` to take effect.
+
+### #288 — order deadline copy: the Hub's last hardcoded 72 hours; the customer-facing "within 72 hours" lives in the storefront (2026-09-22)
+The web deposit window follows the customer — 24 hours on a first order, 72 on a
+returning one, decided by `web_deposit_deadline_hours()` (migration
+`20260916060000`) and nowhere else. The Hub's order/plan detail copy already
+carries no number: `CashOrderDetail.tsx:1324` says "Past the deadline above" and
+`DeadlinesCard.tsx` says "Past the deadline" with the channel's consequence. The
+one hardcoded value left in `src/` was `DeadlinesCard.tsx:188`, the revive
+dialog's default of `now + 72h` — a returning customer's window offered to every
+lapsed plan. It now proposes the plan's own original window
+(`transfer_due_at − created_at`, passed as `createdAt` from AccountDetail) and
+proposes nothing when either timestamp is missing.
+
+Also checked and clean: the auto-expire default reason is "not received by the
+deadline" live (record `20260917070200:1181`); 0 of the 3 cancelled web cash
+orders carry a "72 hours" reason; no Hub portal i18n or email template body
+says 72 (only three template header comments do).
+
+NOT fixed here, other repo: the literal customer copy is cha-jewels-web
+`lib/i18n.ts:465` `plans.layawayDeadline` ("Please send the deposit within 72
+hours" / 「72時間以内に」), shown on the storefront plan detail. It needs a
+storefront PR that renders the plan's `transfer_due_at` (or the quote's
+`deposit_deadline_hours`) instead of a number. `holdNote` (:197) and the FAQ
+(:96) state the 24/72 rule itself and are correct.
+
+### #287 — "From Page365" did nothing on Financial Documentation, account and cash-order pages (2026-09-22)
+`WorkspaceSplitButton.tsx` offered "From Page365" in both dropdowns of the sales
+branch (`resolveConfig`, old lines 47 and 58), and that branch covers `/sales`,
+`/cash-orders`, `/layaway`, `/accounts`, `/payments-hub` and `/waivers` (lines
+27-34). The item dispatches `open-page365-import`, whose only listener is the
+`Page365ImportDialog` mounted by `src/pages/Sales.tsx:65,141`. On `/payments-hub`
+(Financial Documentation) there is no `?tab`, so `tab` defaulted to `'cash'`
+(line 35), the item rendered, and the event had no listener. The same was true on
+every account and cash-order detail page.
+
+Fix: the item is offered only when `pathname.startsWith('/sales')`. Chosen over
+mounting the dialog on the payments page because Financial Documentation is a
+review surface (submissions, proofs, waivers), not an order-entry point; an
+import belongs where orders are created. `/sales?tab=payments` and
+`?tab=waivers` still render no split button at all (line 37).
+
+### #286 — Regenerate Japanese wiped a typed category description when the English was empty (2026-09-22)
+`CategoriesCard.tsx` `regenerate()` wrote
+`description_ja: description ? out.description_ja : ""` (old line 129), so with
+an empty English description the typed Japanese description was cleared in the
+form, and Save (line 149, `f.description_ja.trim() || null`) then stored NULL.
+Same defect in `JewelryTypesCard.tsx` `regenerate` (old line 113), which wrote
+`description_ja: description.trim() ? … : null` straight to `website_collections`.
+
+Fix, both editors: a JA field is overwritten only when the translator returned
+text for it; otherwise the current value stays. Categories — before:
+`patch({ name_ja: name ? out.name_ja : form.name_ja, description_ja: description ? out.description_ja : "" })`;
+after: `name_ja: name && out.name_ja ? out.name_ja : form.name_ja`,
+`description_ja: description && out.description_ja ? out.description_ja : form.description_ja`.
+Jewelry types build the UPDATE from the fields that came back and throw
+"Translation came back empty." when none did; the unsaved draft is cleared only
+for the fields actually rewritten. `translateJa` (translate.ts:16,32) already
+returns "" for a field not asked for and throws when an asked-for field comes
+back empty, so name and description regenerate independently. The products
+editor keeps its wipe on purpose: its Japanese is generated-only and Save
+derives it from the English.
+
 ### #285 — store credit applied as a downpayment was invisible to every DP detector; later downpayments undercounted (2026-09-19)
 `redeem_store_credit_atomic` decides for itself whether a store-credit application is the downpayment: when the layaway still owes DP it sets `v_is_dp = TRUE` and passes `p_is_downpayment => true` to `allocate_payment_atomic`, so INVARIANT 11 applies and the required portion creates no schedule allocations. But it wrote the payment with `reference_number = 'SC-<uuid>'` and `remarks = 'Store credit applied'` — and the Hub does not carry the DP flag on `payments`, it re-derives DP from those two fields. Four incompatible predicates exist across the codebase (`reference_number LIKE 'DP-%' OR remarks ILIKE '%down%'` in the canonical heuristic; `remarks = 'downpayment'` exactly on five portal surfaces; remarks-only in `fix-account-totals`), and the SC payment matched none of them. Every later DP calculation therefore saw prior DP = 0.
 

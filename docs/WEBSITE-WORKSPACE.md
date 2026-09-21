@@ -3,7 +3,7 @@
 Everything that feeds chajewelsjp.com, on one route with four tabs. Replaced
 `/website-catalog`, which was a single page of six unrelated cards.
 
-Added 2026-09-21. Posts and FAQ (content tab) arrive in PRs 5–6.
+Added 2026-09-21. FAQ (content tab) arrives later.
 
 ---
 
@@ -12,7 +12,7 @@ Added 2026-09-21. Posts and FAQ (content tab) arrive in PRs 5–6.
 | Tab | `?tab=` | Cards | Permission |
 |---|---|---|---|
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
-| Content | `content` | TestimonialsCard | `manage_website_content` |
+| Content | `content` | PostsCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
 | Settings | `settings` | SettingsCard | `manage_website_content` |
 
@@ -102,6 +102,7 @@ ago.
 | `website_collections` (jewelry types) | JewelryTypesCard | catalog |
 | `website_categories` | CategoriesCard → CategoriesEditor | catalog |
 | `website_collection_products`, `website_category_products` | written by ProductDialog's save | catalog |
+| `website_posts` | PostsCard | content |
 | `website_testimonials` | TestimonialsCard | content |
 | `newsletter_subscribers` | NewsletterSubscribersCard (read + subscribe state only) | audience |
 | `wholesale_inquiries` | WholesaleInquiriesCard (read only) | audience |
@@ -244,7 +245,81 @@ the DDL, the policies, the `updated_at` trigger and the seed. The
 table are **not** recorded there: they were applied by Lovable's own migration
 and belong to it.
 
-## 8. Files
+## 8. website_posts — articles and news
+
+`id`, `slug` (NOT NULL **UNIQUE**), `type` (`article` | `news`), `title_en/ja`,
+`excerpt_en/ja`, `body_en/ja`, `cover_media`, `published`, `published_at`
+(date), `layaway_only`, `created_at`, `updated_at`, `updated_by`.
+
+English is the source language. The Japanese columns are nullable because a
+post is written and published before it is translated; the list shows a **no
+JA** chip on any post still missing one.
+
+### Bodies are markdown, edited as textareas
+
+Not a rich-text editor. The storefront renders markdown, so a WYSIWYG would be
+showing the writer something the site never promised to reproduce. Each body
+has a **Preview** toggle rendering through
+`src/components/website/markdown.tsx`, which uses `react-markdown` +
+`remark-gfm` — both already dependencies (Help.tsx has rendered the staff
+handbook with them since it shipped), so this added no package.
+
+`Help.tsx` keeps its own component map: it is a full documentation page with
+3xl headings, and this one is sized for a preview pane beside a textarea. Links
+in the preview open in a new tab with `noopener`, because a preview must never
+navigate the Hub away from an unsaved draft.
+
+### The slug
+
+Auto-filled from `title_en` and editable. It stops following the title once the
+post has an id, or once the slug has been typed into — after that it is an
+address someone may already have linked to, and the editor says so under the
+field.
+
+`postSlug()` is deliberately **not** the catalog's `slugify` from
+`product-form.ts`. That one may return `""` (fine for a product, whose slug
+falls back to a generated one) and does not truncate. This column is NOT NULL
+UNIQUE and ends up in a public URL, so `postSlug`:
+
+- folds accents (`Café` → `cafe`) rather than dropping the letter;
+- keeps an apostrophe inside a word (`Japan's` → `japans`, not `japan-s`);
+- caps at 80 characters **on a word boundary**, never mid-word;
+- is idempotent — running it on its own output changes nothing, which is what
+  lets the field re-slug on every keystroke;
+- returns `""` for a title with nothing slug-able in it (a Japanese-only
+  title), which `validatePost` then reports instead of saving.
+
+Uniqueness is checked twice on purpose. `isSlugTaken` is the friendly check, so
+the writer is told before they press Save. The DB's UNIQUE index is the
+authority, and the save path handles `23505` with a plain-English message,
+because two writers can clear the friendly check in the same moment.
+
+### Publishing
+
+Switching **Published** on fills `published_at` with today (PHT) if it is
+blank — visibly, in the date field, rather than silently at save.
+`validatePost` refuses a published post with no date, which can only happen if
+someone clears it by hand. An unpublished post may be as half-written as the
+writer likes.
+
+`layaway_only` is labelled *"Shown on the English site only"* and shows as an
+**EN only** chip in the list.
+
+### Saving and deleting
+
+Upsert on `id` with `updated_by`; one `audit_logs` row per save
+(`entity_type: 'website_post'`, `create_` / `update_website_post`) recording
+the slug, type and published state. Delete is confirmed, names what will break
+(`any link to /slug will stop working`), content-managers only, and writes its
+own audit row with the deleted post's slug and title — the row itself is gone,
+so the log is the only record it existed.
+
+Recorded in `supabase/migrations/20260922090000_record_website_posts.sql`. No
+seed: the site ships with no posts, and an invented one would appear on
+chajewelsjp.com as though someone had written it. The revalidation trigger on
+this table is Lovable's and is not recorded; the `updated_at` trigger is.
+
+## 9. Files
 
 ```
 src/pages/Website.tsx                              the workspace + tab state
@@ -260,7 +335,11 @@ src/components/website/WholesaleInquiriesCard.tsx
 src/components/website/ContactInquiriesCard.tsx
 src/components/website/SettingsCard.tsx              the Settings tab
 src/components/website/website-settings.ts           the typed key schema
+src/components/website/PostsCard.tsx                 the Posts card + editor
+src/components/website/website-posts.ts              post shape, slug rule
+src/components/website/markdown.tsx                  the preview renderer
 src/test/website-settings.test.ts                    schema round-trip vs the seed
+src/test/website-posts.test.tsx                      slug rule + markdown preview
 ```
 
 See also: docs/NEWSLETTER-SUBSCRIBERS.md, docs/WEBSITE-VERCEL.md.
