@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Wrench } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import ServiceJobDialog from './ServiceJobDialog';
+import { buildServiceJobPrefill, invoiceForRequest, serviceJobHref } from './request-to-job';
 import {
   SERVICE_REQUEST_STATUSES,
   serviceRequests,
@@ -45,6 +47,12 @@ interface Props {
  * A status change also writes an audit_logs row. A note edit does not: the
  * note is already visible in the drawer, whereas a status move is what other
  * surfaces and the customer's portal react to.
+ *
+ * CONVERTING TO A JOB is the one thing here that creates another record. It
+ * opens the job dialog with a prefill (never a description — see
+ * request-to-job.ts) and, once the job exists, links it back and moves the
+ * request to `received`. A job is money (SERVICES RULE), so a person makes
+ * that call and the dialog is never skipped.
  */
 export default function ServiceRequestDrawer({ request, onClose }: Props) {
   const qc = useQueryClient();
@@ -55,6 +63,7 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
   const [status, setStatus] = useState<ServiceRequestStatus>('requested');
   const [staffNote, setStaffNote] = useState('');
   const [customerNote, setCustomerNote] = useState('');
+  const [jobDialogOpen, setJobDialogOpen] = useState(false);
 
   // Re-seed the form whenever a different request opens the drawer.
   useEffect(() => {
@@ -107,6 +116,57 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
     },
     onError: (err: Error) => {
       toast.error('Save failed', { description: err.message });
+    },
+  });
+
+  // Memoised so the dialog's open-time hydration reads one stable object.
+  const prefill = useMemo(
+    () => (request ? buildServiceJobPrefill(request) : null),
+    [request],
+  );
+
+  /**
+   * Link the job the dialog just created back to this request.
+   *
+   * The status move to `received` is the Hub's, and only on the way IN. From
+   * there the DB trigger trg_sync_service_request_from_job owns the request's
+   * status as the job progresses — the Hub must not duplicate that, or the two
+   * writers will disagree.
+   */
+  const linkJob = useMutation({
+    mutationFn: async (jobId: string) => {
+      if (!request) return;
+      const previousStatus = request.status;
+      const { error } = await serviceRequests()
+        .update({
+          service_job_id: jobId,
+          status: 'received',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', request.id);
+      if (error) throw error;
+
+      await supabase.from('audit_logs').insert([{
+        entity_type: 'service_request',
+        entity_id: request.id,
+        action: 'convert_service_request_to_job',
+        old_value_json: { status: previousStatus, service_job_id: request.service_job_id },
+        new_value_json: { status: 'received', service_job_id: jobId },
+        performed_by_user_id: user?.id ?? null,
+      }]);
+    },
+    onSuccess: () => {
+      toast.success('Service job linked to this request');
+      qc.invalidateQueries({ queryKey: ['service-requests'] });
+      qc.invalidateQueries({ queryKey: ['service-requests-open-count'] });
+      qc.invalidateQueries({ queryKey: ['service-requests-by-target'] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      // The job itself was created — say so, rather than implying it was lost.
+      toast.error('Job created, but linking it to the request failed', {
+        description: err.message,
+      });
     },
   });
 
@@ -219,6 +279,54 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
                 {mutation.isPending ? 'Saving…' : 'Save'}
               </Button>
             </section>
+
+            <div className="hairline-gold my-4" />
+
+            {/* The one action here that creates another record. */}
+            <section aria-label="Service job" className="space-y-2">
+              <p className="label-caps">Service Job</p>
+              {request.service_job_id ? (
+                <>
+                  <p className="text-[11px] text-muted-foreground">
+                    {request.service_jobs
+                      ? `${request.service_jobs.service_type} · ${request.service_jobs.service_status}`
+                      : 'A job has been raised for this request.'}
+                  </p>
+                  <Link
+                    to={serviceJobHref(request.service_job_id)}
+                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                  >
+                    <Wrench className="h-3.5 w-3.5" /> Open the service job
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted-foreground">
+                    {invoiceForRequest(request)
+                      ? 'Opens the job form with what the customer told us. A job carries a fee, so nothing is created until you save it.'
+                      : 'This request has no order or plan behind it — you will need to enter the invoice yourself.'}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setJobDialogOpen(true)}
+                    disabled={!canEdit || linkJob.isPending}
+                    className="w-full"
+                  >
+                    <Wrench className="mr-2 h-3.5 w-3.5" />
+                    {linkJob.isPending ? 'Linking…' : 'Convert to service job'}
+                  </Button>
+                </>
+              )}
+            </section>
+
+            <ServiceJobDialog
+              open={jobDialogOpen}
+              onOpenChange={setJobDialogOpen}
+              mode="add"
+              prefill={prefill}
+              onCreated={(jobId) => linkJob.mutate(jobId)}
+            />
           </>
         )}
       </SheetContent>

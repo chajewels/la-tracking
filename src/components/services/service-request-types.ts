@@ -111,6 +111,8 @@ export interface ServiceRequestRow {
   details: string | null;
   ring_size: string | null;
   status: string;
+  /** The service job raised from this request, once one has been. */
+  service_job_id: string | null;
   staff_note: string | null;
   customer_note: string | null;
   created_at: string;
@@ -119,6 +121,14 @@ export interface ServiceRequestRow {
   customers?: { id: string; full_name: string | null; is_test: boolean | null } | null;
   cash_orders?: { id: string; invoice_number: string | null } | null;
   layaway_accounts?: { id: string; invoice_number: string | null } | null;
+  service_jobs?: {
+    id: string;
+    service_type: string;
+    service_status: string;
+    date_received: string | null;
+    estimated_completion: string | null;
+    date_completed: string | null;
+  } | null;
 }
 
 /**
@@ -130,5 +140,8 @@ export const SERVICE_REQUEST_SELECT = `
   *,
   customers:customer_id (id, full_name, is_test),
   cash_orders!service_requests_cash_order_id_fkey (id, invoice_number),
-  layaway_accounts!service_requests_layaway_account_id_fkey (id, invoice_number)
+  layaway_accounts!service_requests_layaway_account_id_fkey (id, invoice_number),
+  service_jobs!service_requests_service_job_id_fkey (
+    id, service_type, service_status, date_received, estimated_completion, date_completed
+  )
 `;
