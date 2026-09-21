@@ -480,7 +480,99 @@ async function transferAvailable(supabase: any, currency: string): Promise<boole
   return (await transferMethods(supabase, currency)).length > 0;
 }
 
-// POST /newsletter rate limiter: timestamps per IP, in-memory per isolate.
+// POST /newsletter and POST /contact rate limiters: timestamps per IP,
+// in-memory per isolate. Separate maps so the two limits are independent.
+const newsletterHits = new Map<string, number[]>();
+const contactHits = new Map<string, number[]>();
+
+// Returns true when the IP is over 5 posts in 10 minutes (and records the hit
+// when it is not). Per-isolate, so a dampener against bursts, not a hard
+// guarantee.
+function rateLimited(map: Map<string, number[]>, ip: string): boolean {
+  const now = Date.now();
+  const hits = (map.get(ip) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+  if (hits.length >= 5) return true;
+  hits.push(now);
+  map.set(ip, hits);
+  return false;
+}
+
+// Optional customer session: the same resolution the order routes use, but any
+// failure is silently treated as anonymous — public routes must work for
+// visitors too.
+async function optionalCustomerId(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  try {
+    const { data: userData } = await supabase.auth.getUser(authHeader.slice(7));
+    if (!userData?.user) return null;
+    const customer = await customerForAuthUser(supabase, userData.user.id);
+    return customer ? String(customer.id) : null;
+  } catch {
+    return null; // anonymous is fine
+  }
+}
+
+// THE newsletter upsert — POST /newsletter and POST /contact (newsletter:true)
+// both call this; the logic must never be duplicated. New address → insert
+// with consent now; previously unsubscribed → re-consent; active → untouched.
+// A staff bell fires on NEW subscriptions only. Never reveals existence beyond
+// the subscribed / already_subscribed distinction.
+async function upsertNewsletterSubscriber(
+  supabase: ReturnType<typeof createClient>,
+  input: { email: string; lang: string; source: string | null; customerId: string | null },
+): Promise<"subscribed" | "already_subscribed"> {
+  const { email, lang, source, customerId } = input;
+  const emailNorm = email.toLowerCase();
+  const nowIso = new Date().toISOString();
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from("newsletter_subscribers")
+    .select("id, unsubscribed_at")
+    .eq("email_norm", emailNorm)
+    .maybeSingle();
+  if (lookupErr) throw lookupErr;
+
+  if (!existing) {
+    const { data: inserted, error: insErr } = await supabase
+      .from("newsletter_subscribers")
+      // email_norm is a GENERATED column (lower(btrim(email))) — Postgres
+      // refuses 428C9 if it appears in the payload. It is read-only: the
+      // lookup above matches on it, the insert must never send it.
+      .insert({ email, lang, source, customer_id: customerId, consented_at: nowIso })
+      .select("id")
+      .single();
+    if (insErr) throw insErr;
+    // Staff bell on NEW subscriptions only, non-blocking.
+    try {
+      await supabase.from("staff_notifications").insert({
+        type: "newsletter_subscribed",
+        title: "New newsletter subscriber",
+        body: `${emailNorm} · lang ${lang} · source ${source ?? "none"}`,
+        metadata: { id: (inserted as AnyRec).id, lang, source },
+      });
+    } catch (notifyErr) {
+      console.warn("[website] newsletter_subscribed notification failed (non-blocking):", notifyErr);
+    }
+    return "subscribed";
+  }
+
+  if ((existing as AnyRec).unsubscribed_at) {
+    // Re-consent: clear the unsubscribe and stamp a fresh consent.
+    const { error: upErr } = await supabase
+      .from("newsletter_subscribers")
+      .update({ unsubscribed_at: null, consented_at: nowIso, lang, ...(customerId ? { customer_id: customerId } : {}) })
+      .eq("id", (existing as AnyRec).id);
+    if (upErr) throw upErr;
+    return "subscribed";
+  }
+
+  // Active row: no change.
+  return "already_subscribed";
+}
 // The layaway quote route has no limiter to reuse, so this is the pattern.
 const newsletterHits = new Map<string, number[]>();
 
