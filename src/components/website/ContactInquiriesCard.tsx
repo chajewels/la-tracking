@@ -131,7 +131,15 @@ export function ContactInquiriesCard() {
   const triage = useMutation({
     mutationFn: async ({ row, status, staff_note }: { row: ContactInquiryRow; status: ContactStatus; staff_note: string }) => {
       const previous = { status: statusOf(row), staff_note: row.staff_note };
-      const next = { status, staff_note: staff_note.trim() || null };
+      // updated_at is set HERE because contact_inquiries has no
+      // trg_*_updated_at trigger, unlike every other website_* table. Without
+      // this the column would hold the insert time forever and read as though
+      // the row had never been triaged. See docs/WEBSITE-WORKSPACE.md §6.
+      const next = {
+        status,
+        staff_note: staff_note.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
 
       const { error } = await supabase
         .from('contact_inquiries' as any)
@@ -144,7 +152,7 @@ export function ContactInquiriesCard() {
         entity_id: row.id,
         action: 'triage_contact_inquiry',
         old_value_json: previous,
-        new_value_json: next,
+        new_value_json: { status: next.status, staff_note: next.staff_note },
         performed_by_user_id: user?.id ?? null,
       }]);
     },

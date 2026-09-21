@@ -41,6 +41,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-VERCEL.md — Vercel storefront integration: `website` API contract, revalidation chain, the three secrets, go-live checklist
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: the four tabs, the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
 
