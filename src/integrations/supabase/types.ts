@@ -684,6 +684,59 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_inquiries: {
+        Row: {
+          created_at: string
+          customer_id: string | null
+          email: string
+          full_name: string
+          id: string
+          lang: string
+          message: string
+          page: string | null
+          phone: string | null
+          staff_note: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id?: string | null
+          email: string
+          full_name: string
+          id?: string
+          lang?: string
+          message: string
+          page?: string | null
+          phone?: string | null
+          staff_note?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          lang?: string
+          message?: string
+          page?: string | null
+          phone?: string | null
+          staff_note?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_inquiries_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       csr_notifications: {
         Row: {
           account_id: string

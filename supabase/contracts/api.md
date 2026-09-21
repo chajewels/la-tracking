@@ -74,6 +74,21 @@ notification.
 Sets `unsubscribed_at` for the matching token. Always 200 `{ "status":
 "unsubscribed" }` whether or not the token matched — existence is never leaked.
 
+## Contact
+
+### POST /contact
+Body `{ full_name, email, phone?, message, lang?, page?, newsletter? }`.
+No customer auth required; a valid customer session, when present, links
+`customer_id`. Validation: `full_name` 1–120 chars, `email` format, `phone` ≤
+40 chars, `message` 10–2000 chars, `lang` `en`|`ja` (default `en`), `page` ≤
+200 chars. Honeypot: a non-empty `company` field gets 200 `{ "status":
+"received" }` with nothing written. Rate-limited to 5 posts per IP per 10
+minutes (429 `rate_limited`; in-memory per isolate, independent of the
+/newsletter limit). Inserts the inquiry with status `new`; with
+`newsletter: true` it also runs the same newsletter upsert as POST /newsletter
+with source `contact`. New inquiries raise a `contact_inquiry` staff
+notification. Response 200 `{ "status": "received" }`.
+
 ## FX
 
 ### GET /fx

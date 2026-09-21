@@ -480,9 +480,103 @@ async function transferAvailable(supabase: any, currency: string): Promise<boole
   return (await transferMethods(supabase, currency)).length > 0;
 }
 
-// POST /newsletter rate limiter: timestamps per IP, in-memory per isolate.
-// The layaway quote route has no limiter to reuse, so this is the pattern.
+// The client type every helper in this file already takes (supabase: any) —
+// named once here so the two helpers below stay consistent with it.
+type WebsiteClient = Parameters<typeof customerForAuthUser>[0];
+
+// POST /newsletter and POST /contact rate limiters: timestamps per IP,
+// in-memory per isolate. Separate maps so the two limits are independent.
 const newsletterHits = new Map<string, number[]>();
+const contactHits = new Map<string, number[]>();
+
+// Returns true when the IP is over 5 posts in 10 minutes (and records the hit
+// when it is not). Per-isolate, so a dampener against bursts, not a hard
+// guarantee.
+function rateLimited(map: Map<string, number[]>, ip: string): boolean {
+  const now = Date.now();
+  const hits = (map.get(ip) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+  if (hits.length >= 5) return true;
+  hits.push(now);
+  map.set(ip, hits);
+  return false;
+}
+
+// Optional customer session: the same resolution the order routes use, but any
+// failure is silently treated as anonymous — public routes must work for
+// visitors too.
+async function optionalCustomerId(
+  req: Request,
+  supabase: WebsiteClient,
+): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  try {
+    const { data: userData } = await supabase.auth.getUser(authHeader.slice(7));
+    if (!userData?.user) return null;
+    const customer = await customerForAuthUser(supabase, userData.user.id);
+    return customer ? String(customer.id) : null;
+  } catch {
+    return null; // anonymous is fine
+  }
+}
+
+// THE newsletter upsert — POST /newsletter and POST /contact (newsletter:true)
+// both call this; the logic must never be duplicated. New address → insert
+// with consent now; previously unsubscribed → re-consent; active → untouched.
+// A staff bell fires on NEW subscriptions only. Never reveals existence beyond
+// the subscribed / already_subscribed distinction.
+async function upsertNewsletterSubscriber(
+  supabase: WebsiteClient,
+  input: { email: string; lang: string; source: string | null; customerId: string | null },
+): Promise<"subscribed" | "already_subscribed"> {
+  const { email, lang, source, customerId } = input;
+  const emailNorm = email.toLowerCase();
+  const nowIso = new Date().toISOString();
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from("newsletter_subscribers")
+    .select("id, unsubscribed_at")
+    .eq("email_norm", emailNorm)
+    .maybeSingle();
+  if (lookupErr) throw lookupErr;
+
+  if (!existing) {
+    const { data: inserted, error: insErr } = await supabase
+      .from("newsletter_subscribers")
+      // email_norm is a GENERATED column (lower(btrim(email))) — Postgres
+      // refuses 428C9 if it appears in the payload. It is read-only: the
+      // lookup above matches on it, the insert must never send it.
+      .insert({ email, lang, source, customer_id: customerId, consented_at: nowIso })
+      .select("id")
+      .single();
+    if (insErr) throw insErr;
+    // Staff bell on NEW subscriptions only, non-blocking.
+    try {
+      await supabase.from("staff_notifications").insert({
+        type: "newsletter_subscribed",
+        title: "New newsletter subscriber",
+        body: `${emailNorm} · lang ${lang} · source ${source ?? "none"}`,
+        metadata: { id: (inserted as AnyRec).id, lang, source },
+      });
+    } catch (notifyErr) {
+      console.warn("[website] newsletter_subscribed notification failed (non-blocking):", notifyErr);
+    }
+    return "subscribed";
+  }
+
+  if ((existing as AnyRec).unsubscribed_at) {
+    // Re-consent: clear the unsubscribe and stamp a fresh consent.
+    const { error: upErr } = await supabase
+      .from("newsletter_subscribers")
+      .update({ unsubscribed_at: null, consented_at: nowIso, lang, ...(customerId ? { customer_id: customerId } : {}) })
+      .eq("id", (existing as AnyRec).id);
+    if (upErr) throw upErr;
+    return "subscribed";
+  }
+
+  // Active row: no change.
+  return "already_subscribed";
+}
 
 function notFound() {
   return jsonResponse({ error: "not_found" }, 404);
@@ -2002,15 +2096,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
     // POST /newsletter — public subscribe. x-api-key only; a customer session
     // is optional and, when present and resolvable, links customer_id.
     if (req.method === "POST" && segments[0] === "newsletter" && !segments[1]) {
-      // Rate limit: >5 posts per IP per 10 minutes. Simple in-memory map —
-      // the layaway quote route has no limiter to copy from. Per-isolate, so
-      // it is a dampener against bursts, not a hard guarantee.
       const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
-      const now = Date.now();
-      const hits = (newsletterHits.get(ip) ?? []).filter((t) => now - t < 10 * 60 * 1000);
-      if (hits.length >= 5) return jsonResponse({ error: "rate_limited" }, 429);
-      hits.push(now);
-      newsletterHits.set(ip, hits);
+      if (rateLimited(newsletterHits, ip)) return jsonResponse({ error: "rate_limited" }, 429);
 
       const body = await req.json().catch(() => ({}));
       const email = String(body?.email ?? "").trim();
@@ -2021,68 +2108,84 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
       if (!["en", "ja"].includes(lang)) return jsonResponse({ error: "invalid_lang" }, 400);
       if (sourceRaw !== null && sourceRaw.length > 64) return jsonResponse({ error: "invalid_source" }, 400);
-      const source = sourceRaw || null;
-      const emailNorm = email.toLowerCase();
 
-      // Optional customer session: same resolution the order routes use, but
-      // any failure is silently treated as anonymous — subscribe must work
-      // for visitors too.
-      let customerId: string | null = null;
-      const authHeader = req.headers.get("Authorization") ?? "";
-      if (authHeader.startsWith("Bearer ")) {
-        try {
-          const { data: userData } = await supabase.auth.getUser(authHeader.slice(7));
-          if (userData?.user) {
-            const customer = await customerForAuthUser(supabase, userData.user.id);
-            if (customer) customerId = String(customer.id);
-          }
-        } catch { /* anonymous subscribe is fine */ }
+      const status = await upsertNewsletterSubscriber(supabase, {
+        email,
+        lang,
+        source: sourceRaw || null,
+        customerId: await optionalCustomerId(req, supabase),
+      });
+      return jsonResponse({ status });
+    }
+
+    // POST /contact — public contact form. x-api-key only; a customer session
+    // is optional and, when present and resolvable, links customer_id.
+    if (req.method === "POST" && segments[0] === "contact" && !segments[1]) {
+      const body = await req.json().catch(() => ({}));
+
+      // Honeypot: a real visitor never fills `company`. Answer as if accepted
+      // and write nothing — a bot must not learn it was filtered.
+      if (String(body?.company ?? "").trim() !== "") {
+        return jsonResponse({ status: "received" });
       }
 
-      const nowIso = new Date().toISOString();
-      const { data: existing, error: lookupErr } = await supabase
-        .from("newsletter_subscribers")
-        .select("id, unsubscribed_at")
-        .eq("email_norm", emailNorm)
-        .maybeSingle();
-      if (lookupErr) throw lookupErr;
+      const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+      if (rateLimited(contactHits, ip)) return jsonResponse({ error: "rate_limited" }, 429);
 
-      if (!existing) {
-        const { data: inserted, error: insErr } = await supabase
-          .from("newsletter_subscribers")
-          // email_norm is a GENERATED column (lower(btrim(email))) — Postgres
-          // refuses 428C9 if it appears in the payload. It is read-only: the
-          // lookup above matches on it, the insert must never send it.
-          .insert({ email, lang, source, customer_id: customerId, consented_at: nowIso })
-          .select("id")
-          .single();
-        if (insErr) throw insErr;
-        // Staff bell on NEW subscriptions only, non-blocking.
-        try {
-          await supabase.from("staff_notifications").insert({
-            type: "newsletter_subscribed",
-            title: "New newsletter subscriber",
-            body: `${emailNorm} · lang ${lang} · source ${source ?? "none"}`,
-            metadata: { id: (inserted as AnyRec).id, lang, source },
-          });
-        } catch (notifyErr) {
-          console.warn("[website] newsletter_subscribed notification failed (non-blocking):", notifyErr);
-        }
-        return jsonResponse({ status: "subscribed" });
+      const fullName = String(body?.full_name ?? "").trim();
+      const email = String(body?.email ?? "").trim();
+      const phoneRaw = body?.phone === undefined || body?.phone === null ? null : String(body.phone).trim();
+      const message = String(body?.message ?? "").trim();
+      const lang = String(body?.lang ?? "en").trim().toLowerCase();
+      const pageRaw = body?.page === undefined || body?.page === null ? null : String(body.page).trim();
+      const wantsNewsletter = body?.newsletter === true;
+
+      if (fullName.length < 1 || fullName.length > 120) return jsonResponse({ error: "invalid_full_name" }, 400);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+        return jsonResponse({ error: "invalid_email" }, 400);
+      }
+      if (phoneRaw !== null && phoneRaw.length > 40) return jsonResponse({ error: "invalid_phone" }, 400);
+      if (message.length < 10 || message.length > 2000) return jsonResponse({ error: "invalid_message" }, 400);
+      if (!["en", "ja"].includes(lang)) return jsonResponse({ error: "invalid_lang" }, 400);
+      if (pageRaw !== null && pageRaw.length > 200) return jsonResponse({ error: "invalid_page" }, 400);
+
+      const customerId = await optionalCustomerId(req, supabase);
+
+      // id / created_at / updated_at / status are defaulted columns — never
+      // sent in the payload (status defaults to 'new').
+      const { data: inserted, error: insErr } = await supabase
+        .from("contact_inquiries")
+        .insert({
+          full_name: fullName,
+          email,
+          phone: phoneRaw || null,
+          message,
+          lang,
+          page: pageRaw || null,
+          customer_id: customerId,
+        })
+        .select("id")
+        .single();
+      if (insErr) throw insErr;
+
+      if (wantsNewsletter) {
+        await upsertNewsletterSubscriber(supabase, { email, lang, source: "contact", customerId });
       }
 
-      if ((existing as AnyRec).unsubscribed_at) {
-        // Re-consent: clear the unsubscribe and stamp a fresh consent.
-        const { error: upErr } = await supabase
-          .from("newsletter_subscribers")
-          .update({ unsubscribed_at: null, consented_at: nowIso, lang, ...(customerId ? { customer_id: customerId } : {}) })
-          .eq("id", (existing as AnyRec).id);
-        if (upErr) throw upErr;
-        return jsonResponse({ status: "subscribed" });
+      // Staff bell, non-blocking.
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "contact_inquiry",
+          title: "New contact message",
+          body: `${fullName} <${email}> — ${message.slice(0, 120)}`,
+          customer_id: customerId,
+          metadata: { id: (inserted as AnyRec).id, lang, page: pageRaw || null },
+        });
+      } catch (notifyErr) {
+        console.warn("[website] contact_inquiry notification failed (non-blocking):", notifyErr);
       }
 
-      // Active row: no change. The response never reveals the row existed.
-      return jsonResponse({ status: "already_subscribed" });
+      return jsonResponse({ status: "received" });
     }
 
     // GET /newsletter/unsubscribe?token=<uuid> — always 200 whether or not
