@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Mail } from 'lucide-react';
+import { Download, Loader2, Mail, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,8 +49,43 @@ export function NewsletterSubscribersCard() {
     },
   });
 
-  const rows = useMemo(() => subscribers.data ?? [], [subscribers.data]);
-  const active = useMemo(() => rows.filter(isActive), [rows]);
+  const allRows = useMemo(() => subscribers.data ?? [], [subscribers.data]);
+  const active = useMemo(() => allRows.filter(isActive), [allRows]);
+
+  /**
+   * `?subscriber=<id>` deep-links one subscriber — the bell sends staff here
+   * from a 'newsletter_subscribed' notification. The list is long and the row
+   * is one of hundreds, so the param narrows the table to that person rather
+   * than dropping them at the top of everything.
+   *
+   * It is consumed ONCE, as soon as the row it names has loaded: clearing the
+   * filter, or coming back to this page later, must not silently re-apply a
+   * filter from a notification read days ago. `focusedId` is state, not the
+   * URL, so Clear works and the param does not come back.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subscriberParam = searchParams.get('subscriber');
+  const consumedParam = useRef(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!subscriberParam || consumedParam.current || allRows.length === 0) return;
+    consumedParam.current = true;
+    if (allRows.some(r => r.id === subscriberParam)) {
+      setFocusedId(subscriberParam);
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('subscriber');
+    setSearchParams(next, { replace: true });
+  }, [subscriberParam, allRows, searchParams, setSearchParams]);
+
+  const focused = useMemo(
+    () => (focusedId ? allRows.find(r => r.id === focusedId) ?? null : null),
+    [focusedId, allRows],
+  );
+  const rows = useMemo(() => (focused ? [focused] : allRows), [focused, allRows]);
 
   /**
    * Flip one subscriber's state.
@@ -205,14 +241,14 @@ export function NewsletterSubscribersCard() {
   };
 
   return (
-    <Card id="subscribers" className="scroll-mt-24">
+    <Card id="subscribers" ref={cardRef} className="scroll-mt-24">
       <CardHeader className="hairline-b">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <Mail className="h-4 w-4 text-primary" />
               Newsletter subscribers{' '}
-              {subscribers.data ? `(${active.length} active of ${rows.length})` : ''}
+              {subscribers.data ? `(${active.length} active of ${allRows.length})` : ''}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               Collected by the newsletter form on chajewelsjp.com. The Hub does not send to
@@ -231,13 +267,28 @@ export function NewsletterSubscribersCard() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        {focused && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3 text-xs">
+            <span className="text-muted-foreground">Showing one subscriber from a notification:</span>
+            <span className="text-card-foreground">{focused.email}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => setFocusedId(null)}
+            >
+              <X className="mr-1 h-3 w-3" /> Show all
+            </Button>
+          </div>
+        )}
         {subscribers.isLoading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : subscribers.isError ? (
           <p className="px-6 py-10 text-sm text-muted-foreground">Couldn't load subscribers.</p>
-        ) : rows.length === 0 ? (
+        ) : allRows.length === 0 ? (
           <p className="px-6 py-10 text-sm text-muted-foreground">No subscribers yet.</p>
         ) : (
           <DataTable
