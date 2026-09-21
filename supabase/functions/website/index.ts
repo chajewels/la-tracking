@@ -480,6 +480,10 @@ async function transferAvailable(supabase: any, currency: string): Promise<boole
   return (await transferMethods(supabase, currency)).length > 0;
 }
 
+// The client type every helper in this file already takes (supabase: any) —
+// named once here so the two helpers below stay consistent with it.
+type WebsiteClient = Parameters<typeof customerForAuthUser>[0];
+
 // POST /newsletter and POST /contact rate limiters: timestamps per IP,
 // in-memory per isolate. Separate maps so the two limits are independent.
 const newsletterHits = new Map<string, number[]>();
@@ -502,7 +506,7 @@ function rateLimited(map: Map<string, number[]>, ip: string): boolean {
 // visitors too.
 async function optionalCustomerId(
   req: Request,
-  supabase: ReturnType<typeof createClient>,
+  supabase: WebsiteClient,
 ): Promise<string | null> {
   const authHeader = req.headers.get("Authorization") ?? "";
   if (!authHeader.startsWith("Bearer ")) return null;
@@ -522,7 +526,7 @@ async function optionalCustomerId(
 // A staff bell fires on NEW subscriptions only. Never reveals existence beyond
 // the subscribed / already_subscribed distinction.
 async function upsertNewsletterSubscriber(
-  supabase: ReturnType<typeof createClient>,
+  supabase: WebsiteClient,
   input: { email: string; lang: string; source: string | null; customerId: string | null },
 ): Promise<"subscribed" | "already_subscribed"> {
   const { email, lang, source, customerId } = input;
@@ -573,8 +577,6 @@ async function upsertNewsletterSubscriber(
   // Active row: no change.
   return "already_subscribed";
 }
-// The layaway quote route has no limiter to reuse, so this is the pattern.
-const newsletterHits = new Map<string, number[]>();
 
 function notFound() {
   return jsonResponse({ error: "not_found" }, 404);
