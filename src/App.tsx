@@ -2,7 +2,7 @@
 import { ROUTES } from "@/constants/routes";
 import { Component, ErrorInfo, ReactNode, lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -97,7 +97,7 @@ const Sales = lazy(() => import("./pages/Sales"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const PolicyHub = lazy(() => import("./pages/PolicyHub"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
-const WebsiteCatalog = lazy(() => import("./pages/WebsiteCatalog"));
+const Website = lazy(() => import("./pages/Website"));
 
 
 // DEV-only fixture preview (Playwright verification harness). The DEV guard
@@ -126,6 +126,24 @@ function PageLoader() {
       <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
     </div>
   );
+}
+
+/**
+ * /website-catalog is gone; the Website workspace replaced it.
+ *
+ * A bare <Navigate to> would drop the query string, and the query string is
+ * the whole point here: staff notification bells sent people to
+ * `/website-catalog?subscriber=<id>#subscribers` for months, and those links
+ * are still in the bell's history. So every param is carried across and the
+ * two that name a row on the Audience tab pick that tab; everything else lands
+ * on catalog, which is what the old page opened on.
+ */
+function WebsiteCatalogRedirect() {
+  const [searchParams] = useSearchParams();
+  const params = new URLSearchParams(searchParams);
+  const tab = params.has('subscriber') || params.has('inquiry') ? 'audience' : 'catalog';
+  params.set('tab', tab);
+  return <Navigate to={`${ROUTES.WEBSITE}?${params.toString()}${window.location.hash}`} replace />;
 }
 
 function RecoveryRedirect() {
@@ -193,7 +211,8 @@ const App = () => (
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
-                <Route path="/website-catalog" element={<Protected><WebsiteCatalog /></Protected>} />
+                <Route path="/website" element={<Protected><Website /></Protected>} />
+                <Route path="/website-catalog" element={<WebsiteCatalogRedirect />} />
 
                 <Route path="/loyalty/admin" element={<Protected><LoyaltyAdmin /></Protected>} />
                 <Route path="/loyalty/redemptions" element={<Navigate to="/loyalty/admin?tab=redemptions" replace />} />
