@@ -758,7 +758,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
     if (req.method === "GET" && segments[0] === "testimonials" && !segments[1]) {
       const { data, error } = await supabase
         .from("website_testimonials")
-        .select("id, customer_name, location, quote_en, quote_ja, item, rating")
+        .select("id, customer_name, location, quote_en, quote_ja, item, rating, testimonial_date")
         .eq("published", true)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: false });

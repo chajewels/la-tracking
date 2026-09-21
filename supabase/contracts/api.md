@@ -55,7 +55,9 @@ product_media: [{ url, alt }] }], category_slugs: string[] }`
 ### GET /testimonials
 Published testimonials (`published = true`), ordered by `sort_order` ascending
 then `created_at` descending: `[{ id, customer_name, location, quote_en,
-quote_ja, item, rating }]`. Returns `[]` when there are none — never an error.
+quote_ja, item, rating, testimonial_date }]`. `testimonial_date` is a nullable
+date (when the testimonial was originally given). Returns `[]` when there are
+none — never an error.
 
 ## Newsletter
 

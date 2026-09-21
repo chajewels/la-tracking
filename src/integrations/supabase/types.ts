@@ -5974,6 +5974,7 @@ export type Database = {
           quote_ja: string | null
           rating: number | null
           sort_order: number
+          testimonial_date: string | null
           updated_at: string
         }
         Insert: {
@@ -5987,6 +5988,7 @@ export type Database = {
           quote_ja?: string | null
           rating?: number | null
           sort_order?: number
+          testimonial_date?: string | null
           updated_at?: string
         }
         Update: {
@@ -6000,6 +6002,7 @@ export type Database = {
           quote_ja?: string | null
           rating?: number | null
           sort_order?: number
+          testimonial_date?: string | null
           updated_at?: string
         }
         Relationships: []
