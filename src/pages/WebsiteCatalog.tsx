@@ -26,6 +26,7 @@ import { HeroImageField, uploadWebsiteImage } from "@/components/website/HeroIma
 import { CATEGORIES_QUERY_KEY, CategoriesEditor, fetchCategories } from "@/components/website/CategoriesCard";
 import { MultiPick } from "@/components/website/MultiPick";
 import { TestimonialsCard } from "@/components/website/TestimonialsCard";
+import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscribersCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, MetalValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
@@ -613,6 +614,8 @@ export default function WebsiteCatalog() {
       </Card>
 
       <TestimonialsCard isAdmin={!!isAdmin} />
+
+      <NewsletterSubscribersCard />
 
       <WholesaleInquiries />
 
