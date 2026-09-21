@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,12 @@ import {
 export default function ProductsCard() {
   const { roles } = useAuth();
   const isAdmin = roles?.includes("admin");
+  // The delete guard. isAdmin still gates the two ADMIN-ONLY things here — the
+  // cost-basis field and the importer's admin mode — because those are about
+  // money, not about who maintains the catalog. Removing a product is the
+  // latter, so it follows the permission.
+  const { can } = usePermissions();
+  const canManage = can("manage_website_catalog") || !!isAdmin;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyProduct());
@@ -485,7 +492,7 @@ export default function ProductsCard() {
                       <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {isAdmin && (
+                      {canManage && (
                         <Button
                           variant="ghost" size="icon"
                           onClick={(e) => {

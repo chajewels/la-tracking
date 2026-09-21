@@ -93,14 +93,14 @@ export default function Website() {
           {canCatalog && (
             <TabsContent value="catalog" className="mt-5 space-y-6" tabIndex={-1}>
               <ProductsCard />
-              <JewelryTypesCard isAdmin={isAdmin} />
-              <CategoriesCard isAdmin={isAdmin} />
+              <JewelryTypesCard />
+              <CategoriesCard />
             </TabsContent>
           )}
 
           {canContent && (
             <TabsContent value="content" className="mt-5 space-y-6" tabIndex={-1}>
-              <TestimonialsCard isAdmin={isAdmin} />
+              <TestimonialsCard />
             </TabsContent>
           )}
 

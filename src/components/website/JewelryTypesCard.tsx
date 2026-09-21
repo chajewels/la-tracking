@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +26,14 @@ import { slugify } from "@/components/website/product-form";
  */
 type TypeDraft = { description: string; name_ja: string; description_ja: string };
 
-export function JewelryTypesCard({ isAdmin }: { isAdmin: boolean }) {
+export function JewelryTypesCard() {
+  // The delete guard. Was `isAdmin`, which meant a staff member trusted with
+  // this screen still could not finish a job on it. It is the permission that
+  // decides, and admin keeps passing because can() returns true for admin.
+  const { roles } = useAuth();
+  const { can } = usePermissions();
+  const canManage = can('manage_website_catalog') || !!roles?.includes('admin');
+
   const qc = useQueryClient();
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -214,7 +223,7 @@ export function JewelryTypesCard({ isAdmin }: { isAdmin: boolean }) {
                       >
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                       </Button>
-                      {isAdmin && (
+                      {canManage && (
                         <Button
                           variant="ghost" size="icon" aria-label={`Remove ${t.name}`}
                           onClick={() => {
