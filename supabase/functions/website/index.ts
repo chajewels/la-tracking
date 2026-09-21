@@ -2050,7 +2050,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!existing) {
         const { data: inserted, error: insErr } = await supabase
           .from("newsletter_subscribers")
-          .insert({ email, email_norm: emailNorm, lang, source, customer_id: customerId, consented_at: nowIso })
+          // email_norm is a GENERATED column (lower(btrim(email))) — Postgres
+          // refuses 428C9 if it appears in the payload. It is read-only: the
+          // lookup above matches on it, the insert must never send it.
+          .insert({ email, lang, source, customer_id: customerId, consented_at: nowIso })
           .select("id")
           .single();
         if (insErr) throw insErr;
