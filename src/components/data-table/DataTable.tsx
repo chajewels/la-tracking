@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
 import { transition } from '@/theme/motion';
+import { downloadCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
 /**
@@ -70,12 +71,6 @@ interface DataTableProps<T> {
 interface TableSort {
   key: string;
   dir: 'asc' | 'desc';
-}
-
-function csvEscape(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
 }
 
 export default function DataTable<T>({
@@ -150,24 +145,13 @@ export default function DataTable<T>({
 
   const exportCsv = () => {
     const cols = visibleColumns;
-    const header = cols.map(c => csvEscape(c.header)).join(',');
-    const lines = processedRows.map(r =>
-      cols
-        .map(c => {
-          const v = c.csvValue?.(r) ?? c.filterValue?.(r) ?? c.sortValue?.(r) ?? '';
-          return csvEscape(v);
-        })
-        .join(','),
+    downloadCsv(
+      csvName ?? 'export',
+      cols.map(c => c.header),
+      processedRows.map(r =>
+        cols.map(c => c.csvValue?.(r) ?? c.filterValue?.(r) ?? c.sortValue?.(r) ?? ''),
+      ),
     );
-    const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${csvName ?? 'export'}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   const activeFilterCount = Object.values(columnFilters).filter(v => v.trim()).length;
