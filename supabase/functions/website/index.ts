@@ -480,6 +480,10 @@ async function transferAvailable(supabase: any, currency: string): Promise<boole
   return (await transferMethods(supabase, currency)).length > 0;
 }
 
+// POST /newsletter rate limiter: timestamps per IP, in-memory per isolate.
+// The layaway quote route has no limiter to reuse, so this is the pattern.
+const newsletterHits = new Map<string, number[]>();
+
 function notFound() {
   return jsonResponse({ error: "not_found" }, 404);
 }
