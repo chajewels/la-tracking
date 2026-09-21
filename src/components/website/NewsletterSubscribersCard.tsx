@@ -1,11 +1,15 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Loader2, Mail } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { downloadCsv } from '@/lib/csv';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { formatPHTDisplay } from '@/lib/date-utils';
 import {
   NEWSLETTER_SUBSCRIBER_SELECT,
@@ -28,6 +32,11 @@ import {
  * sold to, and they are exactly who the list is for.
  */
 export function NewsletterSubscribersCard() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const { can } = usePermissions();
+  const canManage = can('manage_website_catalog');
+
   const subscribers = useQuery<NewsletterSubscriberRow[]>({
     queryKey: ['newsletter-subscribers'],
     queryFn: async () => {
@@ -41,6 +50,49 @@ export function NewsletterSubscribersCard() {
 
   const rows = useMemo(() => subscribers.data ?? [], [subscribers.data]);
   const active = useMemo(() => rows.filter(isActive), [rows]);
+
+  /**
+   * Flip one subscriber's state.
+   *
+   * Unsubscribing stamps `unsubscribed_at`; re-subscribing clears it and
+   * TOUCHES NOTHING ELSE. `consented_at` in particular stays exactly as it
+   * was: it records when this person actually consented, and a staff member
+   * putting them back on the list is not a fresh act of consent by them.
+   * Rewriting it would launder a staff action into the customer's own — and
+   * consent is the one field a mailing list is answerable for.
+   *
+   * Both directions write an audit_logs row. There is no other record: the
+   * row itself only ever shows the CURRENT state, so without the log nobody
+   * could tell a customer who unsubscribed themselves from one a staff
+   * member removed.
+   */
+  const setSubscribed = useMutation({
+    mutationFn: async ({ row, subscribed }: { row: NewsletterSubscriberRow; subscribed: boolean }) => {
+      const previous = row.unsubscribed_at;
+      const next = subscribed ? null : new Date().toISOString();
+
+      const { error } = await newsletterSubscribers()
+        .update({ unsubscribed_at: next })
+        .eq('id', row.id);
+      if (error) throw error;
+
+      await supabase.from('audit_logs').insert([{
+        entity_type: 'newsletter_subscriber',
+        entity_id: row.id,
+        action: subscribed ? 'resubscribe_newsletter_subscriber' : 'unsubscribe_newsletter_subscriber',
+        old_value_json: { unsubscribed_at: previous },
+        new_value_json: { unsubscribed_at: next },
+        performed_by_user_id: user?.id ?? null,
+      }]);
+    },
+    onSuccess: (_data, { subscribed }) => {
+      toast.success(subscribed ? 'Subscriber re-subscribed' : 'Subscriber unsubscribed');
+      qc.invalidateQueries({ queryKey: ['newsletter-subscribers'] });
+    },
+    onError: (err: Error) => {
+      toast.error('Could not update subscriber', { description: err.message });
+    },
+  });
 
   const columns = useMemo<DataTableColumn<NewsletterSubscriberRow>[]>(
     () => [
@@ -111,8 +163,28 @@ export function NewsletterSubscribersCard() {
         sortValue: r => r.unsubscribed_at ?? '',
         csvValue: r => r.unsubscribed_at ?? '',
       },
+      ...(canManage
+        ? [{
+            key: 'actions',
+            header: '',
+            align: 'right' as const,
+            hideable: false,
+            cell: (r: NewsletterSubscriberRow) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={setSubscribed.isPending}
+                onClick={() => setSubscribed.mutate({ row: r, subscribed: !isActive(r) })}
+              >
+                {isActive(r) ? 'Unsubscribe' : 'Re-subscribe'}
+              </Button>
+            ),
+          }]
+        : []),
     ],
-    [],
+    [canManage, setSubscribed],
   );
 
   /**
