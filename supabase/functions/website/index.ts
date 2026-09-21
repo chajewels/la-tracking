@@ -826,6 +826,49 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub(data));
     }
 
+    // GET /content/faq — published sections (sort_order), each with its
+    // published items (sort_order). Empty array when none. Same x-api-key
+    // rule and cache treatment as /catalog/collections; freshness comes
+    // from the website_faq_* revalidate triggers.
+    if (req.method === "GET" && segments[0] === "content" && segments[1] === "faq" && !segments[2]) {
+      const { data: sections, error: sErr } = await supabase
+        .from("website_faq_sections")
+        .select("id, slug, title_en, title_ja, sort_order")
+        .eq("published", true)
+        .order("sort_order", { ascending: true });
+      if (sErr) throw sErr;
+      const sectionIds = ((sections ?? []) as AnyRec[]).map((s) => s.id);
+      const { data: items, error: iErr } = sectionIds.length
+        ? await supabase
+          .from("website_faq_items")
+          .select("id, section_id, question_en, question_ja, answer_en, answer_ja, layaway_only, sort_order")
+          .eq("published", true)
+          .in("section_id", sectionIds)
+          .order("sort_order", { ascending: true })
+        : { data: [], error: null };
+      if (iErr) throw iErr;
+      const itemsBySection = new Map<string, AnyRec[]>();
+      for (const item of (items ?? []) as AnyRec[]) {
+        const list = itemsBySection.get(String(item.section_id)) ?? [];
+        list.push(item);
+        itemsBySection.set(String(item.section_id), list);
+      }
+      const faq = ((sections ?? []) as AnyRec[]).map((s) => ({
+        slug: s.slug,
+        title_en: s.title_en,
+        title_ja: s.title_ja,
+        items: (itemsBySection.get(String(s.id)) ?? []).map((i) => ({
+          id: i.id,
+          question_en: i.question_en,
+          question_ja: i.question_ja,
+          answer_en: i.answer_en,
+          answer_ja: i.answer_ja,
+          layaway_only: i.layaway_only,
+        })),
+      }));
+      return jsonResponse(scrub(faq));
+    }
+
 
 
 
