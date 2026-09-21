@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { translateJa } from "@/components/website/translate";
 
 /**
@@ -33,13 +34,15 @@ export interface WebsiteTestimonial {
   quote_en: string | null;
   quote_ja: string | null;
   item: string | null;
+  /** The month the customer said it, as a date. Nullable: older rows have none. */
+  testimonial_date: string | null;
   rating: number | null;
   sort_order: number;
   published: boolean;
 }
 
 const TESTIMONIALS_QUERY_KEY = ["website-testimonials"] as const;
-const FIELDS = "id, customer_name, location, quote_en, quote_ja, item, rating, sort_order, published";
+const FIELDS = "id, customer_name, location, quote_en, quote_ja, item, testimonial_date, rating, sort_order, published";
 const RATINGS = ["1", "2", "3", "4", "5"] as const;
 /** Select cannot hold an empty-string value; this token stands for "no rating". */
 const NO_RATING = "none";
@@ -58,6 +61,8 @@ interface Draft {
   customer_name: string;
   location: string;
   item: string;
+  /** "" while empty — <input type="date"> has no null, and toRow maps it back. */
+  testimonial_date: string;
   rating: string;
   quote_en: string;
   quote_ja: string;
@@ -68,6 +73,7 @@ const toDraft = (t: WebsiteTestimonial): Draft => ({
   customer_name: t.customer_name ?? "",
   location: t.location ?? "",
   item: t.item ?? "",
+  testimonial_date: t.testimonial_date ?? "",
   rating: t.rating == null ? NO_RATING : String(t.rating),
   quote_en: t.quote_en ?? "",
   quote_ja: t.quote_ja ?? "",
@@ -87,6 +93,8 @@ function toRow(d: Draft) {
     customer_name,
     location: d.location.trim() || null,
     item: d.item.trim() || null,
+    // Empty box means no date, not the epoch.
+    testimonial_date: d.testimonial_date.trim() || null,
     rating: d.rating === NO_RATING ? null : Number(d.rating),
     quote_en: quote_en || null,
     quote_ja: quote_ja || null,
@@ -95,8 +103,23 @@ function toRow(d: Draft) {
 }
 
 const newDraft = (nextSort: number): Draft => ({
-  customer_name: "", location: "", item: "", rating: "5", quote_en: "", quote_ja: "", sort_order: String(nextSort),
+  customer_name: "", location: "", item: "", testimonial_date: "", rating: "5", quote_en: "", quote_ja: "", sort_order: String(nextSort),
 });
+
+/**
+ * The month a testimonial is from, for the row header: "Sep 2026", or an em
+ * dash when there is none.
+ *
+ * parseISO, not new Date(): a date-only string goes through new Date() as UTC
+ * midnight, which in any timezone behind UTC lands on the previous day. Here
+ * that would only ever move the MONTH at a month boundary, but the repo's
+ * timezone standard is explicit and this is the parse that honours it.
+ */
+function monthLabel(iso: string | null): string {
+  if (!iso) return "—";
+  const d = parseISO(iso);
+  return Number.isNaN(d.getTime()) ? "—" : format(d, "MMM yyyy");
+}
 
 export function TestimonialsCard({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
@@ -230,6 +253,7 @@ export function TestimonialsCard({ isAdmin }: { isAdmin: boolean }) {
                 header={
                   <div className="flex items-center gap-3">
                     <Badge variant={t.published ? "default" : "outline"}>{t.published ? "Published" : "Draft"}</Badge>
+                    <span className="text-xs tabular-nums text-muted-foreground">{monthLabel(t.testimonial_date)}</span>
                     <Label htmlFor={`${t.id}-published`} className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
                       <Switch
                         id={`${t.id}-published`} checked={t.published}
@@ -301,6 +325,10 @@ function TestimonialFields({ idPrefix, draft, onChange, header, actions }: {
         <div className="space-y-1">
           <Label htmlFor={id("item")}>Item</Label>
           <Input id={id("item")} value={draft.item} onChange={(e) => onChange({ item: e.target.value })} placeholder="K18 diamond ring" />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={id("testimonial_date")}>Date</Label>
+          <Input id={id("testimonial_date")} type="date" value={draft.testimonial_date} onChange={(e) => onChange({ testimonial_date: e.target.value })} />
         </div>
         <div className="space-y-1 md:col-span-2">
           <Label htmlFor={id("quote_en")}>Quote (English)</Label>
