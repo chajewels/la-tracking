@@ -96,6 +96,14 @@ export interface DeadlinesCardProps {
    * deposit apart from a plan a human cancelled — only the first is reactivated.
    */
   expiredAt?: string | null;
+  /**
+   * When the order was created. With transferDueAt it gives the window the
+   * customer was actually granted (24 hours on a first web order, 72 when they
+   * had ordered before — web_deposit_deadline_hours() decides, never this file),
+   * which is what a revived plan is offered again. Absent, no default is
+   * proposed and staff pick the date.
+   */
+  createdAt?: string | null;
   canEdit: boolean;
 }
 
@@ -105,7 +113,7 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, expiredAt, canEdit,
+  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, expiredAt, createdAt, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
@@ -183,10 +191,16 @@ export default function DeadlinesCard({
   }
 
   function openRevive() {
-    // A fresh deadline, not the one it already missed. 72 hours is the returning
-    // customer's window and the safe default to show; staff can change it.
-    const d = new Date(Date.now() + 72 * 3600 * 1000);
-    setReviveDue(toPhtInputValue(d.toISOString()));
+    // A fresh deadline, not the one it already missed. Propose the same window
+    // the plan was originally given (its deadline minus its creation time); the
+    // number of hours is the server's rule, so no fixed value lives here. When
+    // either timestamp is missing, propose nothing and let staff pick.
+    const windowMs = createdAt && transferDueAt
+      ? new Date(transferDueAt).getTime() - new Date(createdAt).getTime()
+      : NaN;
+    setReviveDue(Number.isFinite(windowMs) && windowMs > 0
+      ? toPhtInputValue(new Date(Date.now() + windowMs).toISOString())
+      : '');
     setReviveReason('');
     setReviveOpen(true);
   }

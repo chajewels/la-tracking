@@ -115,7 +115,12 @@ export function CategoriesEditor() {
   function openNew() { setForm(emptyForm(nextSort)); setOpen(true); }
   function openEdit(c: WebsiteCategory) { setForm(toForm(c)); setOpen(true); }
 
-  /** Overwrites the Japanese name and description from the translator. */
+  /**
+   * Refreshes the Japanese name and description from the translator — each
+   * field independently, and only when the translator actually returned text
+   * for it. An empty English description therefore leaves a typed Japanese
+   * description untouched instead of wiping it (and Save then storing "").
+   */
   async function regenerate() {
     const name = form.name.trim();
     const description = form.description.trim();
@@ -126,7 +131,10 @@ export function CategoriesEditor() {
     setTranslating(true);
     try {
       const out = await translateJa({ name: name || undefined, description: description || undefined });
-      patch({ name_ja: name ? out.name_ja : form.name_ja, description_ja: description ? out.description_ja : "" });
+      patch({
+        name_ja: name && out.name_ja ? out.name_ja : form.name_ja,
+        description_ja: description && out.description_ja ? out.description_ja : form.description_ja,
+      });
       toast({ title: "Japanese updated" });
     } catch (e) {
       toast({ title: "Could not translate", description: (e as Error).message, variant: "destructive" });

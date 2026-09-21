@@ -38,13 +38,23 @@ function resolveConfig(
       return null;
     }
 
+    // "From Page365" fires 'open-page365-import', and the only listener is the
+    // Page365ImportDialog mounted by src/pages/Sales.tsx. On every other path in
+    // this branch — /payments-hub (Financial Documentation, no ?tab so it lands
+    // on the cash default), /accounts/*, /cash-orders/*, /waivers — the event
+    // had no listener and the item silently did nothing. Offer it only where it
+    // works.
+    const page365: DropdownAction[] = pathname.startsWith('/sales')
+      ? [{ label: 'From Page365', action: () => window.dispatchEvent(new CustomEvent('open-page365-import')) }]
+      : [];
+
     if (tab === 'cash') {
       return {
         primaryLabel: '+ New Cash Order',
         primaryAction: () => navigate('/cash-orders/new'),
         dropdownItems: [
           { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
-          { label: 'From Page365', action: () => window.dispatchEvent(new CustomEvent('open-page365-import')) },
+          ...page365,
           { label: 'Submit Payment', action: () => setRecordOpen(true) },
         ],
       };
@@ -55,7 +65,7 @@ function resolveConfig(
       primaryAction: () => navigate('/accounts/new'),
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
-        { label: 'From Page365', action: () => window.dispatchEvent(new CustomEvent('open-page365-import')) },
+        ...page365,
         { label: 'Submit Payment', action: () => setRecordOpen(true) },
       ],
     };

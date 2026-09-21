@@ -104,22 +104,34 @@ export function JewelryTypesCard() {
     onError: (e: any) => toast({ title: "Could not save hero image", description: e.message, variant: "destructive" }),
   });
 
-  /** Overwrites the Japanese from the translator, discarding any unsaved Japanese draft. */
+  /**
+   * Refreshes the Japanese from the translator, field by field: a field is
+   * written only when the translator returned text for it, so an empty English
+   * description leaves the stored Japanese description alone rather than
+   * nulling it. Discards the unsaved Japanese draft of the fields it rewrote.
+   */
   const regenerate = useMutation({
     mutationFn: async ({ id, name, description }: { id: string; name: string; description: string }) => {
       setBusyId(id);
       const out = await translateJa({ name, description: description.trim() || undefined });
+      const update: { name_ja?: string; description_ja?: string } = {};
+      if (out.name_ja) update.name_ja = out.name_ja;
+      if (description.trim() && out.description_ja) update.description_ja = out.description_ja;
+      if (!Object.keys(update).length) throw new Error("Translation came back empty.");
       const { error } = await supabase.from("website_collections" as any)
-        .update({ name_ja: out.name_ja || null, description_ja: description.trim() ? out.description_ja || null : null })
+        .update(update)
         .eq("id", id);
       if (error) throw error;
+      return update;
     },
-    onSuccess: (_d, v) => {
+    onSuccess: (written, v) => {
       toast({ title: "Japanese updated" });
       setDrafts((d) => {
         const cur = d[v.id];
         if (!cur) return d;
-        const { name_ja: _n, description_ja: _j, ...rest } = cur;
+        const rest = { ...cur };
+        if (written.name_ja !== undefined) delete rest.name_ja;
+        if (written.description_ja !== undefined) delete rest.description_ja;
         return { ...d, [v.id]: rest };
       });
       invalidate();
