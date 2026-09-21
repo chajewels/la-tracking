@@ -59,6 +59,8 @@ function iconForType(type: string) {
       return <UserPlus className="h-3.5 w-3.5 text-emerald-400" />;
     case 'customer_notified':
       return <Mail className="h-3.5 w-3.5 text-amber-400" />;
+    case 'newsletter_subscribed':
+      return <Mail className="h-3.5 w-3.5 text-primary" />;
     case 'email_send_refused':
     case 'email_delivery_outage':
       return <Mail className="h-3.5 w-3.5 text-destructive" />;
@@ -164,6 +166,14 @@ export default function StaffNotificationBell() {
       const params = new URLSearchParams({ tab: 'requests' });
       if (requestId) params.set('open', requestId);
       navigate(`${ROUTES.SERVICES}?${params.toString()}`);
+      return;
+    }
+    // A subscriber is not an account either — the list lives on Website
+    // Catalog, and the hash scrolls to the card the id names.
+    if (n.type === 'newsletter_subscribed') {
+      const subscriberId = (n.metadata as { id?: string } | null)?.id;
+      const query = subscriberId ? `?subscriber=${subscriberId}` : '';
+      navigate(`${ROUTES.WEBSITE_CATALOG}${query}#subscribers`);
       return;
     }
     if (n.account_id) {
