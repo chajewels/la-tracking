@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -335,5 +336,30 @@ export function CategoriesEditor({ isAdmin }: { isAdmin: boolean }) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * CategoriesEditor in its own card, so the Website workspace's catalog tab can
+ * stand it beside Products and Jewelry types. The editor itself is untouched —
+ * this adds the header and nothing else.
+ */
+export function CategoriesCard({ isAdmin }: { isAdmin: boolean }) {
+  const categories = useQuery({ queryKey: CATEGORIES_QUERY_KEY, queryFn: fetchCategories });
+  return (
+    <Card>
+      <CardHeader className="hairline-b">
+        <CardTitle className="text-base">
+          Categories {categories.data ? `(${categories.data.length})` : ""}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Categories sit above the jewelry types — a product can carry several of each, and both are
+          shown on the site.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-4">
+        <CategoriesEditor isAdmin={isAdmin} />
+      </CardContent>
+    </Card>
   );
 }
