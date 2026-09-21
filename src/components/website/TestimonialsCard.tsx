@@ -349,7 +349,7 @@ function TestimonialFields({ idPrefix, draft, onChange, header, actions }: {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label htmlFor={id("sort_order")}>Order</Label>
+          <Label htmlFor={id("sort_order")}>Display order</Label>
           <Input id={id("sort_order")} type="number" step={1} value={draft.sort_order} onChange={(e) => onChange({ sort_order: e.target.value })} />
         </div>
       </div>

@@ -17,6 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   CategoryOption, CollectionOption, DATA_START_ROW, ImportRow, ImportRowInput, SHEET_NAME, SLUG_SEPARATOR,
   isBlankRow, rowAction, validateRow,
+  TEMPLATE_IMAGE_COLUMNS,
 } from "@/lib/website-catalog-import";
 import type { TranslateFn } from "@/lib/website-catalog-import";
 
@@ -47,7 +48,9 @@ interface Summary { created: number; updated: number; skipped: number }
 export type AssignMode = "add" | "replace";
 
 const HEADER_ROW_INDEX = 0;
-const IMAGE_COLUMNS = Array.from({ length: 10 }, (_, i) => `image_${i + 1}`);
+// The image column names come from the lib, so the dialog and the template
+// test cannot disagree about how many there are.
+const IMAGE_COLUMNS: readonly string[] = TEMPLATE_IMAGE_COLUMNS;
 
 export default function ProductImportDialog({ collections, categories, isAdmin, translate }: Props) {
   const qc = useQueryClient();
