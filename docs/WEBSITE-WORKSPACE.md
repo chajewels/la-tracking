@@ -3,8 +3,7 @@
 Everything that feeds chajewelsjp.com, on one route with four tabs. Replaced
 `/website-catalog`, which was a single page of six unrelated cards.
 
-Added 2026-09-21. Posts and FAQ (content tab) arrive in PRs 5–6; site settings
-(settings tab) in PR 4.
+Added 2026-09-21. Posts and FAQ (content tab) arrive in PRs 5–6.
 
 ---
 
@@ -15,7 +14,7 @@ Added 2026-09-21. Posts and FAQ (content tab) arrive in PRs 5–6; site settings
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
-| Settings | `settings` | placeholder | `manage_website_content` |
+| Settings | `settings` | SettingsCard | `manage_website_content` |
 
 `catalog` is the fallback: an unknown or absent `?tab=` renders it rather than
 nothing. Tab state is written back with a **functional** `setSearchParams`, not
@@ -108,6 +107,7 @@ ago.
 | `wholesale_inquiries` | WholesaleInquiriesCard (read only) | audience |
 | `contact_inquiries` | ContactInquiriesCard (read + triage only) | audience |
 | `fx_rates` | not edited here; ProductsCard reads the latest row for the peso hint | catalog |
+| `website_settings` | SettingsCard | settings |
 
 ## 6. contact_inquiries
 
@@ -159,7 +159,92 @@ Type `contact_inquiry`, Mail icon, opens
 `/website?tab=audience&inquiry=<id>#contact-inquiries`. The id opens that
 message's drawer, the way `?subscriber=` narrows the list above it.
 
-## 7. Files
+## 7. website_settings — the Settings tab
+
+A key/value table: `key` (PK), `value jsonb NOT NULL`, `kind`, `public`,
+`updated_at`, `updated_by`.
+
+**The Hub does not offer a free-form key editor over it.** That would be a JSON
+text box, which is how a storefront ends up with `announcement.untill` and a
+silently dead banner. `src/components/website/website-settings.ts` holds a
+typed schema — every key the Hub manages, the shape of its value, and what
+counts as valid — and `SettingsCard` renders fields from it.
+
+### The eight keys
+
+| Key | kind | Shape |
+|---|---|---|
+| `contact.email` | `text` | string, email-validated |
+| `social.follow` | `json` | `[{key, href}]` — the footer's social row, in order |
+| `social.loyalty_groups` | `json` | `[{key, href}]` — group-chat invites for loyalty members |
+| `footer.tagline` | `bilingual` | `{en, ja}` |
+| `announcement.active` | `bool` | `true`/`false` |
+| `announcement.text` | `bilingual` | `{en, ja}` |
+| `announcement.href` | `text` | string, optional |
+| `announcement.until` | `date` | ISO date, `""` when unset |
+
+`kind` must be one of the five the table's CHECK allows (`text`, `bilingual`,
+`json`, `bool`, `date`). `SETTING_KIND` is the only place that decides, and a
+key added without one will not compile.
+
+A social row's `key` comes from a fixed set — `email`, `facebook`, `messenger`,
+`instagram`, `whatsapp`, `line`, `tiktok`, `youtube` — because the storefront
+renders an icon per key and a key it does not know renders as nothing at all. A
+row whose key is outside the set is dropped on read rather than shown broken.
+`href` must be a `mailto:` address or an `https://` URL; plain `http://` is
+refused, because the storefront is https and an http link in the footer is a
+mixed-content warning in the customer's browser.
+
+### Saving
+
+**Per section**, and only the keys that actually changed are written — pressing
+Save on Contact must not stamp `updated_by` on the announcement. Each written
+key gets its own `audit_logs` row (`entity_type: 'website_setting'`,
+`entity_id: <the key>`, `action: 'update_website_setting'`) with the old and
+new value, because a key/value table shows only what a setting IS and never
+what it was or who changed it. One row per KEY, not per Save: "Announcement
+changed" tells nobody which of its four keys moved.
+
+The upsert deliberately does **not** send `public` or `updated_at`. `public`
+keeps its column default on insert and its existing value on conflict;
+`updated_at` is the table's own `trg_website_settings_updated_at` trigger's job.
+
+### `serializeSetting` never returns null
+
+`value` is `jsonb NOT NULL`, and PostgREST turns a JSON `null` in the request
+body into **SQL NULL** — which would fail that constraint on every save of an
+announcement with no end date. An unset value is written as `""` instead, which
+is already this table's own convention: the seed stores `announcement.href` as
+`""` for exactly the same "optional, not set" case.
+
+The seed does store `announcement.until` as JSON `null`. `parseSetting` reads
+`null` and `""` identically, so the seeded row needs no migration — it simply
+becomes `""` the first time someone saves the announcement.
+`src/test/website-settings.test.ts` asserts that no key, on an empty draft,
+ever serializes to null.
+
+### Unknown keys
+
+Rows in the table the schema does not know are listed **read-only** at the
+bottom of the card with their key, kind and raw JSON. Hiding them would make a
+row that exists invisible, which is the failure mode a typed schema otherwise
+introduces.
+
+### Permission
+
+Writes are gated on `manage_website_content`, matching the table's own RLS
+(`Content managers can manage website settings`). Without the key the card is
+**read-only rather than hidden**: knowing what the site currently says is
+useful to anyone who can see this tab. Staff may read via a separate SELECT
+policy.
+
+Recorded in `supabase/migrations/20260921150000_record_website_settings.sql` —
+the DDL, the policies, the `updated_at` trigger and the seed. The
+`notify_website_revalidate()` extension and the revalidate trigger on this
+table are **not** recorded there: they were applied by Lovable's own migration
+and belong to it.
+
+## 8. Files
 
 ```
 src/pages/Website.tsx                              the workspace + tab state
@@ -173,6 +258,9 @@ src/components/website/TestimonialsCard.tsx
 src/components/website/NewsletterSubscribersCard.tsx
 src/components/website/WholesaleInquiriesCard.tsx
 src/components/website/ContactInquiriesCard.tsx
+src/components/website/SettingsCard.tsx              the Settings tab
+src/components/website/website-settings.ts           the typed key schema
+src/test/website-settings.test.ts                    schema round-trip vs the seed
 ```
 
 See also: docs/NEWSLETTER-SUBSCRIBERS.md, docs/WEBSITE-VERCEL.md.

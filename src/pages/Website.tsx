@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { Globe } from "lucide-react";
 import PageMeta from "@/components/seo/PageMeta";
 import AppLayout from "@/components/layout/AppLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
@@ -14,6 +13,7 @@ import { TestimonialsCard } from "@/components/website/TestimonialsCard";
 import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscribersCard";
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
 import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard";
+import { SettingsCard } from "@/components/website/SettingsCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on four tabs.
@@ -114,16 +114,7 @@ export default function Website() {
 
           {canContent && (
             <TabsContent value="settings" className="mt-5 space-y-6" tabIndex={-1}>
-              <Card>
-                <CardHeader className="hairline-b">
-                  <CardTitle className="text-base">Site settings</CardTitle>
-                </CardHeader>
-                <CardContent className="py-10">
-                  <p className="text-sm text-muted-foreground">
-                    Site settings arrive in the next release.
-                  </p>
-                </CardContent>
-              </Card>
+              <SettingsCard />
             </TabsContent>
           )}
         </Tabs>
