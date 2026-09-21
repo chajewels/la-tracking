@@ -35,6 +35,8 @@ export function serviceTypeBadgeClass(type: ServiceType): string {
       return 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30';
     case 'Color Change':
       return 'bg-pink-500/10 text-pink-500 border-pink-500/30';
+    case 'Appraisal':
+      return 'bg-teal-500/10 text-teal-500 border-teal-500/30';
     default:
       return 'bg-muted/40 text-muted-foreground border-border';
   }

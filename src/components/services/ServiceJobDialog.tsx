@@ -17,6 +17,20 @@ import {
 import { getPHTToday } from '@/lib/date-utils';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
+/**
+ * `service_jobs.service_type` gained 'Appraisal' in the owner's live SQL.
+ * `src/integrations/supabase/types.ts` is Supabase-auto-generated and is NEVER
+ * hand-edited (CLAUDE.md GENERATED FILES), so it still carries the
+ * pre-Appraisal enum and rejects the new value on write. That rule's remedy is
+ * to cast at the call site — this is that cast, made ONCE for both writes
+ * rather than inline at each. Reads are unaffected: they already widen through
+ * `as unknown as ServiceJobRow[]`.
+ *
+ * Delete it when Lovable's next deploy regenerates types.ts with 'Appraisal'.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const serviceJobsWrite = () => (supabase as any).from('service_jobs');
+
 export const SERVICE_TYPES = [
   'Ring Resize',
   'Certificate',
@@ -25,6 +39,7 @@ export const SERVICE_TYPES = [
   'Polishing',
   'Watch Polishing',
   'Color Change',
+  'Appraisal',
 ] as const;
 export type ServiceType = typeof SERVICE_TYPES[number];
 
@@ -70,11 +85,34 @@ export interface ServiceJobRow {
   customers?: { id: string; full_name: string } | null;
 }
 
+/**
+ * A head start for a NEW job, from somewhere that already knows some of it —
+ * today that is the service-request drawer.
+ *
+ * There is deliberately NO service_description field here. On a Ring Resize
+ * the fee is derived from a signed size token in the description, and the
+ * number a customer gives is their TARGET size, not the delta the workshop
+ * will cut. Letting a prefill reach that field would auto-fill a fee off the
+ * wrong number, so the customer's words and their size go to `notes` and the
+ * CSR writes the description themselves.
+ */
+export interface ServiceJobPrefill {
+  invoiceNumber?: string;
+  /** '' leaves the CSR to choose — see jobTypeForKind. */
+  serviceType?: ServiceType | '';
+  notes?: string;
+  /** Shown once under Service Type when the kind did not map to a type. */
+  hint?: string;
+}
+
 interface ServiceJobDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'add' | 'edit';
   initialJob?: ServiceJobRow | null;
+  prefill?: ServiceJobPrefill | null;
+  /** Called with the new job's id after a successful create. */
+  onCreated?: (jobId: string) => void;
 }
 
 // Ring resize fee table — derives fee from the size token in the description.
@@ -120,7 +158,7 @@ function addWorkingDays(baseISO: string, days: number): string {
 }
 
 export default function ServiceJobDialog({
-  open, onOpenChange, mode, initialJob,
+  open, onOpenChange, mode, initialJob, prefill, onCreated,
 }: ServiceJobDialogProps) {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -153,6 +191,15 @@ export default function ServiceJobDialog({
   const [polishingComplimentary, setPolishingComplimentary] = useState(false);
   const [polishingPreCheckFee, setPolishingPreCheckFee] = useState<string>('');
 
+  // The hint a prefill asked us to show under Service Type, if any.
+  const [prefillHint, setPrefillHint] = useState<string>('');
+
+  // Read through a ref, not a dependency: the hydrate effect must fire when the
+  // dialog OPENS, never again. A caller that rebuilds the prefill object on
+  // render would otherwise wipe whatever the CSR has typed so far.
+  const prefillRef = useRef<ServiceJobPrefill | null | undefined>(prefill);
+  prefillRef.current = prefill;
+
   // Reset on open / hydrate on edit
   useEffect(() => {
     if (!open) return;
@@ -181,13 +228,19 @@ export default function ServiceJobDialog({
       setPolishingComplimentary(isFreePolish);
       setPolishingPreCheckFee('');
     } else {
+      const pre = prefillRef.current;
       setDateReceived(getPHTToday());
-      setInvoiceNumber('');
-      setServiceType('');
+      setInvoiceNumber(pre?.invoiceNumber ?? '');
+      // Set by STATE, never through handleServiceTypeChange: that handler runs
+      // applyServiceTypeDefaults, which on Ring Resize reads a size out of the
+      // description and fills the fee from it. A prefilled job has no
+      // description yet and must not acquire a fee before the CSR writes one.
+      setServiceType(pre?.serviceType ?? '');
+      // Always empty. See ServiceJobPrefill — the customer's size is in notes.
       setServiceDescription('');
       setServiceFee('');
       setServiceStatus('Logged');
-      setNotes('');
+      setNotes(pre?.notes ?? '');
       setEstimatedCompletion('');
       setDateCompleted('');
       setUpdatedBy('');
@@ -197,7 +250,12 @@ export default function ServiceJobDialog({
       setResolveError('');
       setPolishingComplimentary(false);
       setPolishingPreCheckFee('');
+      setPrefillHint(pre?.hint ?? '');
+      // Resolve the prefilled invoice so customer + account type are ready.
+      if (pre?.invoiceNumber) void resolveInvoice(pre.invoiceNumber);
     }
+    // Deps are the OPEN transition only. resolveInvoice is re-created each
+    // render and only calls setState; depending on it would re-run this reset.
   }, [open, isEdit, initialJob]);
 
   // Resolve invoice on blur / when typed
@@ -374,22 +432,25 @@ export default function ServiceJobDialog({
         updated_by: updatedBy,
       };
       if (isEdit && initialJob) {
-        const { error } = await supabase
-          .from('service_jobs')
+        const { error } = await serviceJobsWrite()
           .update({ ...basePayload, updated_at: new Date().toISOString() })
           .eq('id', initialJob.id);
         if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('service_jobs')
-          .insert({ ...basePayload, created_by_user_id: user?.id ?? null });
-        if (error) throw error;
+        return null;
       }
+      const { data, error } = await serviceJobsWrite()
+        .insert({ ...basePayload, created_by_user_id: user?.id ?? null })
+        .select('id')
+        .single();
+      if (error) throw error;
+      return (data as { id: string } | null)?.id ?? null;
     },
-    onSuccess: () => {
+    onSuccess: (jobId) => {
       toast.success('Service job saved');
       qc.invalidateQueries({ queryKey: ['service-jobs'] });
       qc.invalidateQueries({ queryKey: ['service-jobs-by-invoice'] });
+      // Before the close: the caller links the new job to its request.
+      if (jobId) onCreated?.(jobId);
       onOpenChange(false);
     },
     onError: (err: Error) => {
@@ -474,9 +535,11 @@ export default function ServiceJobDialog({
                   ))}
                 </SelectContent>
               </Select>
-              {attemptedSave && errors.serviceType && (
+              {attemptedSave && errors.serviceType ? (
                 <p className="mt-1 text-xs text-destructive">{errors.serviceType}</p>
-              )}
+              ) : prefillHint ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">{prefillHint}</p>
+              ) : null}
             </div>
             <div>
               <Label>Service Fee (¥)</Label>

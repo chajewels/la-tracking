@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink, ReceiptText } from 'lucide-react';
+import { ExternalLink, MessageSquare, ReceiptText } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
 import { Currency } from '@/lib/types';
+import {
+  OPEN_SERVICE_REQUEST_STATUSES,
+  SERVICE_REQUEST_SELECT,
+  kindLabel,
+  requestStatusBadgeClass,
+  serviceRequests,
+  // `statusLabel` here is the ACCOUNT status prop; alias the request one.
+  statusLabel as requestStatusLabel,
+  type ServiceRequestRow,
+} from '@/components/services/service-request-types';
 
 /**
  * Quick-view drawer for a layaway account — progressive disclosure so staff
@@ -71,7 +81,7 @@ export default function AccountQuickView({ account, statusLabel, statusClassName
     enabled: !!account,
     staleTime: 30_000,
     queryFn: async () => {
-      const [payments, penalties] = await Promise.all([
+      const [payments, penalties, openRequests] = await Promise.all([
         supabase
           .from('payments')
           .select('id, amount_paid, payment_method, reference_number, created_at, voided_at')
@@ -83,12 +93,22 @@ export default function AccountQuickView({ account, statusLabel, statusClassName
           .select('id, penalty_amount, status, penalty_date, penalty_cycle, penalty_stage')
           .eq('account_id', account!.id)
           .order('penalty_date', { ascending: false }),
+        // Open requests only — a settled one belongs on the full account page,
+        // not in a drawer meant for what still needs doing.
+        serviceRequests()
+          .select(SERVICE_REQUEST_SELECT)
+          .eq('layaway_account_id', account!.id)
+          .in('status', OPEN_SERVICE_REQUEST_STATUSES)
+          .order('created_at', { ascending: false }),
       ]);
       if (payments.error) throw payments.error;
       if (penalties.error) throw penalties.error;
+      // A request failure must not take the drawer's payment history down
+      // with it — the history is why staff opened this.
       return {
         payments: (payments.data ?? []) as PaymentRow[],
         penalties: (penalties.data ?? []) as PenaltyRow[],
+        openRequests: (openRequests.error ? [] : (openRequests.data ?? [])) as ServiceRequestRow[],
       };
     },
   });
@@ -174,6 +194,33 @@ export default function AccountQuickView({ account, statusLabel, statusClassName
                 </ul>
               )}
             </section>
+
+            {(data?.openRequests.length ?? 0) > 0 && (
+              <>
+                <div className="hairline-gold my-4" />
+                <section aria-label="Open service requests">
+                  <h3 className="label-caps mb-2 flex items-center gap-1.5">
+                    <MessageSquare className="h-3.5 w-3.5" /> Open Service Requests
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {data!.openRequests.map(r => (
+                      <li key={r.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-2/60 px-2.5 py-1.5">
+                        <div className="min-w-0">
+                          <p className="text-xs text-champagne truncate">{r.item_title ?? 'Service request'}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {kindLabel(r.kind)}
+                            {r.ring_size ? ` · Ring size ${r.ring_size}` : ''}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className={`text-[10px] shrink-0 ${requestStatusBadgeClass(r.status)}`}>
+                          {requestStatusLabel(r.status)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </>
+            )}
 
             {penalties.length > 0 && (
               <>

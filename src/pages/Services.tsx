@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,13 +10,15 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Wrench, Pencil, Loader2 } from 'lucide-react';
+import { Wrench, Pencil, Loader2, MessageSquare } from 'lucide-react';
 import ServiceJobDialog, {
   SERVICE_STATUSES, SERVICE_TYPES, UPDATED_BY_OPTIONS,
   type ServiceJobRow, type ServiceStatus, type ServiceType,
 } from '@/components/services/ServiceJobDialog';
 import { serviceStatusBadgeClass, serviceTypeBadgeClass } from '@/components/services/service-badge-styles';
 import TradeInsTab from '@/components/services/TradeInsTab';
+import ServiceRequestsTab from '@/components/services/ServiceRequestsTab';
+import { serviceRequests } from '@/components/services/service-request-types';
 import { formatCurrency } from '@/lib/calculations';
 import { useInvoiceAccountMap, invoiceHref } from '@/hooks/useInvoiceAccountMap';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
@@ -25,10 +27,10 @@ import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 type StatusFilter = 'All' | ServiceStatus;
 type TypeFilter = 'All' | ServiceType;
 type UpdatedByFilter = 'All' | typeof UPDATED_BY_OPTIONS[number];
-type TabKey = 'service-jobs' | 'trade-ins';
+type TabKey = 'service-jobs' | 'trade-ins' | 'requests';
 
 const DEFAULT_TAB: TabKey = 'service-jobs';
-const VALID_TABS: TabKey[] = ['service-jobs', 'trade-ins'];
+const VALID_TABS: TabKey[] = ['service-jobs', 'trade-ins', 'requests'];
 
 export default function Services() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -53,6 +55,13 @@ export default function Services() {
   // into Trade-Ins (or vice versa) when the user switches tabs.
   const [jobSearch, setJobSearch] = useState('');
   const [tradeSearch, setTradeSearch] = useState('');
+  const [requestSearch, setRequestSearch] = useState('');
+
+  const searchFor: Record<TabKey, { value: string; set: (v: string) => void; placeholder: string }> = {
+    'service-jobs': { value: jobSearch, set: setJobSearch, placeholder: 'Search service jobs...' },
+    'trade-ins': { value: tradeSearch, set: setTradeSearch, placeholder: 'Search trade-ins...' },
+    requests: { value: requestSearch, set: setRequestSearch, placeholder: 'Search requests...' },
+  };
 
   return (
     <AppLayout>
@@ -63,15 +72,15 @@ export default function Services() {
         </div>
 
         <WorkspaceToolbar
-          searchValue={tab === 'service-jobs' ? jobSearch : tradeSearch}
-          onSearchChange={tab === 'service-jobs' ? setJobSearch : setTradeSearch}
-          searchPlaceholder={tab === 'service-jobs' ? 'Search service jobs...' : 'Search trade-ins...'}
+          searchValue={searchFor[tab].value}
+          onSearchChange={searchFor[tab].set}
+          searchPlaceholder={searchFor[tab].placeholder}
           splitButton={<WorkspaceSplitButton />}
         />
 
-        {tab === 'service-jobs'
-          ? <ServiceJobsTab searchValue={jobSearch} />
-          : <TradeInsTab searchValue={tradeSearch} />}
+        {tab === 'service-jobs' && <ServiceJobsTab searchValue={jobSearch} />}
+        {tab === 'trade-ins' && <TradeInsTab searchValue={tradeSearch} />}
+        {tab === 'requests' && <ServiceRequestsTab searchValue={requestSearch} />}
       </div>
     </AppLayout>
   );
@@ -82,6 +91,7 @@ interface ServiceJobsTabProps {
 }
 
 function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('All');
   const [updatedByFilter, setUpdatedByFilter] = useState<UpdatedByFilter>('All');
@@ -104,6 +114,13 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
     return () => window.removeEventListener('open-new-service-job', handler);
   }, []);
 
+  // Deep link: ?job=<id> opens that job for editing, the counterpart of
+  // ?open=<id> on the requests tab. The param is consumed once the job it
+  // names has loaded, so closing the dialog does not reopen it; an id that
+  // matches no loaded job is left alone, with the table as the fallback.
+  const jobParam = searchParams.get('job');
+  const consumedJobParam = useRef(false);
+
   // Mirror the parent-level search into the local search state so the
   // existing `filtered` useMemo (depending on `search`) keeps working
   // without any other change.
@@ -112,6 +129,29 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
       setSearch(searchValue);
     }
   }, [searchValue]);
+
+  /**
+   * Which of these jobs came from a customer request, and which request.
+   *
+   * The FK lives on service_requests (service_job_id), so the link is read
+   * from that side; service_jobs knows nothing about it. One small query
+   * rather than an embed, because the jobs query is the typed client's and
+   * service_requests is not in the generated types yet.
+   */
+  const { data: requestByJobId = {} } = useQuery<Record<string, string>>({
+    queryKey: ['service-requests-by-job'],
+    queryFn: async () => {
+      const { data, error } = await serviceRequests()
+        .select('id, service_job_id')
+        .not('service_job_id', 'is', null);
+      if (error) throw error;
+      const out: Record<string, string> = {};
+      for (const row of (data ?? []) as Array<{ id: string; service_job_id: string }>) {
+        out[row.service_job_id] = row.id;
+      }
+      return out;
+    },
+  });
 
   const { data: jobs = [], isLoading } = useQuery<ServiceJobRow[]>({
     queryKey: ['service-jobs'],
@@ -127,6 +167,18 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
       return (data as unknown as ServiceJobRow[]).filter((r) => /^[0-9]+$/.test(r.invoice_number));
     },
   });
+
+  useEffect(() => {
+    if (!jobParam || consumedJobParam.current || jobs.length === 0) return;
+    const match = jobs.find((j) => j.id === jobParam);
+    if (!match) return;
+    consumedJobParam.current = true;
+    setEditJob(match);
+    setDialogOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('job');
+    setSearchParams(next, { replace: true });
+  }, [jobParam, jobs, searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -286,8 +338,16 @@ function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
                     )}
                   </td>
                   <td className="py-2 px-3">{j.customers?.full_name ?? '—'}</td>
-                  <td className="py-2 px-3 max-w-[260px] truncate" title={j.service_description ?? ''}>
-                    {j.service_description ?? '—'}
+                  <td className="py-2 px-3 max-w-[260px]" title={j.service_description ?? ''}>
+                    <span className="block truncate">{j.service_description ?? '—'}</span>
+                    {requestByJobId[j.id] && (
+                      <Link
+                        to={`/services?tab=requests&open=${requestByJobId[j.id]}`}
+                        className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary hover:underline"
+                      >
+                        <MessageSquare className="h-3 w-3" /> From customer request
+                      </Link>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <Badge variant="outline" className={serviceTypeBadgeClass(j.service_type)}>

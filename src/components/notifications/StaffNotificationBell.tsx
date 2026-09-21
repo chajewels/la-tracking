@@ -17,6 +17,7 @@ import {
   Ban,
   Volume2,
   VolumeX,
+  Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -75,6 +76,8 @@ function iconForType(type: string) {
       return <XCircle className="h-3.5 w-3.5 text-muted-foreground" />;
     case 'redemption_voided':
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
+    case 'service_request_created':
+      return <Wrench className="h-3.5 w-3.5 text-sky-400" />;
     default:
       return <CheckCircle className="h-3.5 w-3.5 text-muted-foreground" />;
   }
@@ -153,6 +156,15 @@ export default function StaffNotificationBell() {
   const handleItemClick = (n: StaffNotificationRow) => {
     if (!readIds.has(n.id)) {
       markRead.mutate([n.id]);
+    }
+    // A service request is triaged in the Services queue, not on the account
+    // it happens to reference, so this branch comes before the account one.
+    if (n.type === 'service_request_created') {
+      const requestId = (n.metadata as { service_request_id?: string } | null)?.service_request_id;
+      const params = new URLSearchParams({ tab: 'requests' });
+      if (requestId) params.set('open', requestId);
+      navigate(`${ROUTES.SERVICES}?${params.toString()}`);
+      return;
     }
     if (n.account_id) {
       navigate(`/accounts/${n.account_id}`);
