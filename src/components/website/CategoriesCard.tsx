@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -88,7 +91,14 @@ const toForm = (c: WebsiteCategory): CategoryForm => ({
   published: !!c.published,
 });
 
-export function CategoriesEditor({ isAdmin }: { isAdmin: boolean }) {
+export function CategoriesEditor() {
+  // The delete guard. Was `isAdmin`, which meant a staff member trusted with
+  // this screen still could not finish a job on it. It is the permission that
+  // decides, and admin keeps passing because can() returns true for admin.
+  const { roles } = useAuth();
+  const { can } = usePermissions();
+  const canManage = can("manage_website_catalog") || !!roles?.includes("admin");
+
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<CategoryForm>(emptyForm(0));
@@ -246,7 +256,7 @@ export function CategoriesEditor({ isAdmin }: { isAdmin: boolean }) {
                     <Button variant="ghost" size="icon" aria-label={`Edit ${c.name}`} onClick={() => openEdit(c)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    {isAdmin && (
+                    {canManage && (
                       <Button
                         variant="ghost" size="icon" aria-label={`Remove ${c.name}`} disabled={remove.isPending}
                         onClick={() => { if (confirm(`Remove the ${c.name} category?`)) remove.mutate(c); }}
@@ -335,5 +345,30 @@ export function CategoriesEditor({ isAdmin }: { isAdmin: boolean }) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * CategoriesEditor in its own card, so the Website workspace's catalog tab can
+ * stand it beside Products and Jewelry types. The editor itself is untouched —
+ * this adds the header and nothing else.
+ */
+export function CategoriesCard() {
+  const categories = useQuery({ queryKey: CATEGORIES_QUERY_KEY, queryFn: fetchCategories });
+  return (
+    <Card>
+      <CardHeader className="hairline-b">
+        <CardTitle className="text-base">
+          Categories {categories.data ? `(${categories.data.length})` : ""}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Categories sit above the jewelry types — a product can carry several of each, and both are
+          shown on the site.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-4">
+        <CategoriesEditor />
+      </CardContent>
+    </Card>
   );
 }

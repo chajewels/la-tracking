@@ -110,7 +110,20 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Announcements', tab: 'announcements' },
     ],
   },
-  { label: 'Website Catalog', icon: Globe, path: ROUTES.WEBSITE_CATALOG, permPath: ROUTES.WEBSITE_CATALOG },
+  {
+    // No permPath: /website resolves as manage_website_catalog OR
+    // manage_website_content, and a single-key permPath would hide the whole
+    // parent from someone who holds only the other one. The children carry the
+    // split, and the parent disappears on its own when both are filtered out
+    // (the .filter below drops a parent left with no children).
+    label: 'Website', icon: Globe, parentPath: ROUTES.WEBSITE,
+    children: [
+      { label: 'Catalog', tab: 'catalog', permFilter: (can) => can('manage_website_catalog') },
+      { label: 'Content', tab: 'content', permFilter: (can) => can('manage_website_content') },
+      { label: 'Audience', tab: 'audience', permFilter: (can) => can('manage_website_catalog') },
+      { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
+    ],
+  },
 
   {
     label: 'Loyalty', icon: Sparkles, parentPath: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN,

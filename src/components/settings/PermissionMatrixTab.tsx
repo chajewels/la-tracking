@@ -10,7 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 export const ROLES = ['admin', 'staff', 'finance', 'csr', 'live_agent'] as const;
 
-export const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string; section?: string }[] }[] = [
+export const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string; section?: string; description?: string }[] }[] = [
   {
     module: 'Dashboard',
     permissions: [
@@ -136,6 +136,24 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_inquiries', label: 'View Inquiries' },
     ],
   },
+  {
+    // Two keys, because the Website workspace carries two different jobs and
+    // they are not held by the same people: whoever maintains the shop is not
+    // necessarily whoever writes the site's words.
+    module: 'Website',
+    permissions: [
+      {
+        key: 'manage_website_catalog',
+        label: 'Manage Website Catalog',
+        description: 'Products, jewelry types, categories, subscribers, inquiries',
+      },
+      {
+        key: 'manage_website_content',
+        label: 'Manage Website Content',
+        description: 'Testimonials, posts, FAQ, site settings',
+      },
+    ],
+  },
 ];
 
 const ADMIN_LOCKED = ['admin_settings', 'manage_team', 'view_dashboard'];
@@ -217,7 +235,12 @@ function RoleMatrix({
                         </tr>
                       )}
                       <tr className="border-b border-border/30 hover:bg-muted/20">
-                        <td className="py-2 px-3 text-foreground font-medium">{perm.label}</td>
+                        <td className="py-2 px-3 text-foreground font-medium">
+                          {perm.label}
+                          {perm.description && (
+                            <div className="text-[10px] font-normal text-muted-foreground">{perm.description}</div>
+                          )}
+                        </td>
                         {ROLES.map(role => {
                           const allowed = getPermission(role, perm.key);
                           const isLocked = role === 'admin' && ADMIN_LOCKED.includes(perm.key);
@@ -443,9 +466,12 @@ function MemberMatrix({
                     }`}
                   >
                     {/* Left: permission label */}
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
                       <span className={`text-xs font-medium ${hasOverride ? 'text-foreground' : 'text-muted-foreground'}`}>
                         {perm.label}
+                        {perm.description && (
+                          <span className="block text-[10px] font-normal text-muted-foreground">{perm.description}</span>
+                        )}
                       </span>
                       {hasOverride && (
                         <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-amber-500/50 text-amber-400 bg-amber-500/10 shrink-0">

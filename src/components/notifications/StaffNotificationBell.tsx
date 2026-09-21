@@ -61,6 +61,8 @@ function iconForType(type: string) {
       return <Mail className="h-3.5 w-3.5 text-amber-400" />;
     case 'newsletter_subscribed':
       return <Mail className="h-3.5 w-3.5 text-primary" />;
+    case 'contact_inquiry':
+      return <Mail className="h-3.5 w-3.5 text-primary" />;
     case 'email_send_refused':
     case 'email_delivery_outage':
       return <Mail className="h-3.5 w-3.5 text-destructive" />;
@@ -172,8 +174,18 @@ export default function StaffNotificationBell() {
     // Catalog, and the hash scrolls to the card the id names.
     if (n.type === 'newsletter_subscribed') {
       const subscriberId = (n.metadata as { id?: string } | null)?.id;
-      const query = subscriberId ? `?subscriber=${subscriberId}` : '';
-      navigate(`${ROUTES.WEBSITE_CATALOG}${query}#subscribers`);
+      const params = new URLSearchParams({ tab: 'audience' });
+      if (subscriberId) params.set('subscriber', subscriberId);
+      navigate(`${ROUTES.WEBSITE}?${params.toString()}#subscribers`);
+      return;
+    }
+    // A contact-form message is triaged on the same Audience tab; the id opens
+    // its drawer, the way ?subscriber= narrows the list above it.
+    if (n.type === 'contact_inquiry') {
+      const inquiryId = (n.metadata as { id?: string } | null)?.id;
+      const params = new URLSearchParams({ tab: 'audience' });
+      if (inquiryId) params.set('inquiry', inquiryId);
+      navigate(`${ROUTES.WEBSITE}?${params.toString()}#contact-inquiries`);
       return;
     }
     if (n.account_id) {

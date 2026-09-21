@@ -26,6 +26,8 @@ export const ROUTES = {
   EXECUTIVE_DASHBOARD: "/executive-dashboard",
   SALES: "/sales",
   HELP: "/help",
+  WEBSITE: "/website",
+  /** Legacy — redirects to WEBSITE?tab=catalog, query string preserved. */
   WEBSITE_CATALOG: "/website-catalog",
 
   POLICY_HUB: "/policy-hub",
