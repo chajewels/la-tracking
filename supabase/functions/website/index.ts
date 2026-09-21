@@ -766,6 +766,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub(data ?? []));
     }
 
+    // GET /content/settings — public rows only, flattened to { key: value }.
+    // Same x-api-key rule and the same (default) cache treatment as
+    // /catalog/collections; freshness comes from the website_settings
+    // revalidate trigger, not from a shorter cache window.
+    if (req.method === "GET" && segments[0] === "content" && segments[1] === "settings" && !segments[2]) {
+      const { data, error } = await supabase
+        .from("website_settings")
+        .select("key, value")
+        .eq("public", true)
+        .order("key", { ascending: true });
+      if (error) throw error;
+      const settings: Record<string, unknown> = {};
+      for (const row of (data ?? []) as AnyRec[]) settings[String(row.key)] = row.value;
+      return jsonResponse(scrub(settings));
+    }
+
+
+
     // POST /layaway/quote
     if (req.method === "POST" && segments[0] === "layaway" && segments[1] === "quote") {
       const body = await req.json().catch(() => ({}));

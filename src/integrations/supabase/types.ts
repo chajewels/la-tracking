@@ -5962,6 +5962,33 @@ export type Database = {
         }
         Relationships: []
       }
+      website_settings: {
+        Row: {
+          key: string
+          kind: string
+          public: boolean
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          kind: string
+          public?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          kind?: string
+          public?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       website_testimonials: {
         Row: {
           created_at: string
