@@ -85,6 +85,17 @@ Same `x-api-key` rule and cache treatment as `/catalog/collections`; freshness
 comes from the `website_posts` revalidate trigger, which posts
 `{ "tag": "content", "postSlug": <slug> }` on every insert, update or delete.
 
+### GET /content/faq
+Published FAQ sections ordered by `sort_order`, each with its published items
+ordered by `sort_order`: `[{ slug, title_en, title_ja, items: [{ id,
+question_en, question_ja, answer_en, answer_ja, layaway_only }] }]`. Returns
+`[]` when there are none.
+
+Same `x-api-key` rule and cache treatment as `/catalog/collections`; freshness
+comes from the `website_faq_sections` / `website_faq_items` revalidate
+triggers, which post `{ "tag": "content", "path": "/faq" }` on every insert,
+update or delete.
+
 
 ## Newsletter
 

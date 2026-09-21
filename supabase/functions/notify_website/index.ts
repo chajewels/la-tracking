@@ -58,6 +58,9 @@ Deno.serve(async (req) => {
   if (body?.tag) payload.tag = String(body.tag);
   // A post carries both: the content tag and its own slug.
   if (body?.postSlug) payload.postSlug = String(body.postSlug);
+  // Path-based revalidation (e.g. { tag: "content", path: "/faq" } from
+  // website_faq_* edits), forwarded alongside the other fields.
+  if (body?.path) payload.path = String(body.path);
 
   try {
     const res = await fetch(`${websiteUrl}/api/revalidate`, {

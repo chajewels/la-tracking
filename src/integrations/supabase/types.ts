@@ -5733,6 +5733,95 @@ export type Database = {
         }
         Relationships: []
       }
+      website_faq_items: {
+        Row: {
+          answer_en: string
+          answer_ja: string | null
+          created_at: string
+          id: string
+          layaway_only: boolean
+          published: boolean
+          question_en: string
+          question_ja: string | null
+          section_id: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          answer_en: string
+          answer_ja?: string | null
+          created_at?: string
+          id?: string
+          layaway_only?: boolean
+          published?: boolean
+          question_en: string
+          question_ja?: string | null
+          section_id: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          answer_en?: string
+          answer_ja?: string | null
+          created_at?: string
+          id?: string
+          layaway_only?: boolean
+          published?: boolean
+          question_en?: string
+          question_ja?: string | null
+          section_id?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_faq_items_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "website_faq_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_faq_sections: {
+        Row: {
+          created_at: string
+          id: string
+          published: boolean
+          slug: string
+          sort_order: number
+          title_en: string
+          title_ja: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          published?: boolean
+          slug: string
+          sort_order?: number
+          title_en: string
+          title_ja?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          published?: boolean
+          slug?: string
+          sort_order?: number
+          title_en?: string
+          title_ja?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       website_import_batches: {
         Row: {
           created: number | null
