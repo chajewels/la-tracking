@@ -56,6 +56,8 @@ Deno.serve(async (req) => {
   // Tag-based revalidation (e.g. { tag: "content" } from website_settings
   // edits), forwarded alongside the slug fields rather than instead of them.
   if (body?.tag) payload.tag = String(body.tag);
+  // A post carries both: the content tag and its own slug.
+  if (body?.postSlug) payload.postSlug = String(body.postSlug);
 
   try {
     const res = await fetch(`${websiteUrl}/api/revalidate`, {

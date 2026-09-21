@@ -782,6 +782,52 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub(settings));
     }
 
+    // Posts list fields — the body is deliberately absent from the list
+    // response; it is only served by /content/posts/:slug.
+    const POST_LIST_FIELDS =
+      "id, slug, type, title_en, title_ja, excerpt_en, excerpt_ja, cover_media, published_at, layaway_only";
+
+    // "Today" is PHT (Asia/Manila) — the canonical day boundary. A post dated
+    // tomorrow is not published yet, whatever the server's own clock says.
+    const phtToday = () =>
+      new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+
+    // GET /content/posts?type=article|news — published, not future-dated.
+    // Same x-api-key rule and cache treatment as /catalog/collections;
+    // freshness comes from the website_posts revalidate trigger.
+    if (req.method === "GET" && segments[0] === "content" && segments[1] === "posts" && !segments[2]) {
+      const type = url.searchParams.get("type");
+      let q = supabase
+        .from("website_posts")
+        .select(POST_LIST_FIELDS)
+        .eq("published", true)
+        .lte("published_at", phtToday())
+        .order("published_at", { ascending: false });
+      if (type) q = q.eq("type", type);
+      const { data, error } = await q;
+      if (error) throw error;
+      return jsonResponse(scrub(data ?? []));
+    }
+
+    // GET /content/posts/:slug — the full row, body included. Unpublished,
+    // future-dated and unknown slugs are all 404 (existence is not leaked).
+    if (req.method === "GET" && segments[0] === "content" && segments[1] === "posts" && segments[2]) {
+      const { data, error } = await supabase
+        .from("website_posts")
+        .select(
+          "id, slug, type, title_en, title_ja, excerpt_en, excerpt_ja, body_en, body_ja, cover_media, published_at, layaway_only",
+        )
+        .eq("slug", segments[2])
+        .eq("published", true)
+        .lte("published_at", phtToday())
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return jsonResponse({ error: "not_found" }, 404);
+      return jsonResponse(scrub(data));
+    }
+
+
+
 
 
     // POST /layaway/quote
