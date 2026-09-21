@@ -220,7 +220,6 @@ type MissingFromTemplate = Exclude<
   TemplateFieldKey,
   (typeof TEMPLATE_FIELD_COLUMNS)[number] | (typeof TEMPLATE_HUB_FIELD_COLUMNS)[number]
 >;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _everyParsedFieldIsInTheTemplate: MissingFromTemplate extends never ? true : never = true;
 
 export interface ImportRow {
