@@ -56,6 +56,17 @@ jobs:
       - name: Typecheck
         run: npx tsc -p tsconfig.app.json --noEmit
 
+      # TARGETED, not `npm test`. The full suite still carries one pre-existing
+      # failure on develop that has nothing to do with the importer
+      # (src/test/post-login-splash-guard.test.tsx, "session restore: redirects
+      # to dashboard and splash never mounts"), so running everything here would
+      # be red from the first commit and teach people to ignore it. These two
+      # files are the ones that keep the shipped upload template and the product
+      # editor in step; the template is a static .xlsx, so this is the only
+      # thing that notices when the code around it moves.
+      - name: Import and template tests
+        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts
+
       - name: Build app
         run: npm run build
         env:

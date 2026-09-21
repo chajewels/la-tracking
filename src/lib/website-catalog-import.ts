@@ -161,6 +161,67 @@ export interface ImportRowInput {
   images: string[];
 }
 
+/**
+ * The Upload sheet's column headers that the importer actually reads, in sheet
+ * order. ONE list, and the template test measures the .xlsx against it.
+ *
+ * It is not a second hand-typed copy: every entry outside IMAGE_COLUMNS is
+ * constrained below to be a key of `ImportRowInput`, so renaming a field the
+ * parser reads without updating this list fails the BUILD, not a test. The
+ * image columns are the one thing ImportRowInput cannot express — the parser
+ * folds image_1..image_10 into a single `images: string[]`.
+ *
+ * A header in the sheet that is NOT here is either Page365's (columns A–X, not
+ * ours) or an orphan — hub_design was exactly that, labelled as a Hub field
+ * that no Hub field existed for. The drift test treats any unlisted `hub_*` or
+ * `*_slugs` header as a failure for that reason.
+ */
+export const TEMPLATE_IMAGE_COLUMNS = Array.from({ length: 10 }, (_, i) => `image_${i + 1}` as const);
+
+/** Keys of ImportRowInput the sheet supplies by name (everything but the
+ *  bookkeeping `sheetRow` and the folded `images`). */
+type TemplateFieldKey = Exclude<keyof ImportRowInput, "sheetRow" | "images">;
+
+const TEMPLATE_FIELD_COLUMNS = [
+  "buy_code",
+  "product_name",
+  "price",
+  "cost",
+  "stock_amount",
+  "product_description",
+] as const satisfies readonly TemplateFieldKey[];
+
+const TEMPLATE_HUB_FIELD_COLUMNS = [
+  "hub_jewelry_type",
+  "hub_metal",
+  "hub_weight_g",
+  "hub_stone",
+  "hub_size",
+  "hub_condition",
+  "hub_status",
+  "hub_origin",
+  "hub_brand",
+  "collection_slugs",
+  "category_slugs",
+] as const satisfies readonly TemplateFieldKey[];
+
+export const TEMPLATE_HUB_COLUMNS: readonly string[] = [
+  ...TEMPLATE_FIELD_COLUMNS,
+  ...TEMPLATE_IMAGE_COLUMNS,
+  ...TEMPLATE_HUB_FIELD_COLUMNS,
+];
+
+/**
+ * Every ImportRowInput field the sheet names must appear in the list above.
+ * This is the half that catches a field ADDED to the parser and forgotten in
+ * the template; `satisfies` above catches one renamed or removed.
+ */
+type MissingFromTemplate = Exclude<
+  TemplateFieldKey,
+  (typeof TEMPLATE_FIELD_COLUMNS)[number] | (typeof TEMPLATE_HUB_FIELD_COLUMNS)[number]
+>;
+const _everyParsedFieldIsInTheTemplate: MissingFromTemplate extends never ? true : never = true;
+
 export interface ImportRow {
   sheetRow: number;
   sku: string;
