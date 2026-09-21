@@ -3066,6 +3066,53 @@ export type Database = {
         }
         Relationships: []
       }
+      newsletter_subscribers: {
+        Row: {
+          consented_at: string
+          created_at: string
+          customer_id: string | null
+          email: string
+          email_norm: string | null
+          id: string
+          lang: string
+          source: string | null
+          unsubscribe_token: string
+          unsubscribed_at: string | null
+        }
+        Insert: {
+          consented_at?: string
+          created_at?: string
+          customer_id?: string | null
+          email: string
+          email_norm?: string | null
+          id?: string
+          lang?: string
+          source?: string | null
+          unsubscribe_token?: string
+          unsubscribed_at?: string | null
+        }
+        Update: {
+          consented_at?: string
+          created_at?: string
+          customer_id?: string | null
+          email?: string
+          email_norm?: string | null
+          id?: string
+          lang?: string
+          source?: string | null
+          unsubscribe_token?: string
+          unsubscribed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_subscribers_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notify_loyalty_launch: {
         Row: {
           created_at: string
@@ -4635,6 +4682,7 @@ export type Database = {
           kind: string
           layaway_account_id: string | null
           ring_size: string | null
+          service_job_id: string | null
           staff_note: string | null
           status: string
           updated_at: string
@@ -4650,6 +4698,7 @@ export type Database = {
           kind: string
           layaway_account_id?: string | null
           ring_size?: string | null
+          service_job_id?: string | null
           staff_note?: string | null
           status?: string
           updated_at?: string
@@ -4665,6 +4714,7 @@ export type Database = {
           kind?: string
           layaway_account_id?: string | null
           ring_size?: string | null
+          service_job_id?: string | null
           staff_note?: string | null
           status?: string
           updated_at?: string
@@ -4689,6 +4739,13 @@ export type Database = {
             columns: ["layaway_account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_requests_service_job_id_fkey"
+            columns: ["service_job_id"]
+            isOneToOne: false
+            referencedRelation: "service_jobs"
             referencedColumns: ["id"]
           },
         ]
@@ -6872,6 +6929,7 @@ export type Database = {
         | "Polishing"
         | "Watch Polishing"
         | "Color Change"
+        | "Appraisal"
       store_credit_lot_status: "active" | "consumed" | "expired" | "voided"
       store_credit_txn_type:
         | "issued"
@@ -7102,6 +7160,7 @@ export const Constants = {
         "Polishing",
         "Watch Polishing",
         "Color Change",
+        "Appraisal",
       ],
       store_credit_lot_status: ["active", "consumed", "expired", "voided"],
       store_credit_txn_type: [

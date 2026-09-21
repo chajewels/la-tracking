@@ -57,6 +57,23 @@ Published testimonials (`published = true`), ordered by `sort_order` ascending
 then `created_at` descending: `[{ id, customer_name, location, quote_en,
 quote_ja, item, rating }]`. Returns `[]` when there are none — never an error.
 
+## Newsletter
+
+### POST /newsletter
+Body `{ email, lang?, source? }` (`lang` `en`|`ja`, default `en`; `source` ≤ 64
+chars). No customer auth required; a valid customer session, when present,
+links `customer_id`. Rate-limited to 5 posts per IP per 10 minutes (429
+`rate_limited`; in-memory per isolate). Upserts on the normalised email: a new
+address inserts with `consented_at` now, a previously unsubscribed address
+re-consents, an active address is unchanged. Response 200 `{ "status":
+"subscribed" | "already_subscribed" }` — it never reveals whether the address
+existed beyond that. New subscriptions raise a `newsletter_subscribed` staff
+notification.
+
+### GET /newsletter/unsubscribe?token=<uuid>
+Sets `unsubscribed_at` for the matching token. Always 200 `{ "status":
+"unsubscribed" }` whether or not the token matched — existence is never leaked.
+
 ## FX
 
 ### GET /fx
