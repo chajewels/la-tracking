@@ -5823,6 +5823,63 @@ export type Database = {
           },
         ]
       }
+      website_posts: {
+        Row: {
+          body_en: string
+          body_ja: string | null
+          cover_media: string | null
+          created_at: string
+          excerpt_en: string | null
+          excerpt_ja: string | null
+          id: string
+          layaway_only: boolean
+          published: boolean
+          published_at: string | null
+          slug: string
+          title_en: string
+          title_ja: string | null
+          type: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          body_en: string
+          body_ja?: string | null
+          cover_media?: string | null
+          created_at?: string
+          excerpt_en?: string | null
+          excerpt_ja?: string | null
+          id?: string
+          layaway_only?: boolean
+          published?: boolean
+          published_at?: string | null
+          slug: string
+          title_en: string
+          title_ja?: string | null
+          type?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          body_en?: string
+          body_ja?: string | null
+          cover_media?: string | null
+          created_at?: string
+          excerpt_en?: string | null
+          excerpt_ja?: string | null
+          id?: string
+          layaway_only?: boolean
+          published?: boolean
+          published_at?: string | null
+          slug?: string
+          title_en?: string
+          title_ja?: string | null
+          type?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       website_product_media: {
         Row: {
           alt: string | null
