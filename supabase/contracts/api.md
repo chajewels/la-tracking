@@ -59,6 +59,17 @@ quote_ja, item, rating, testimonial_date }]`. `testimonial_date` is a nullable
 date (when the testimonial was originally given). Returns `[]` when there are
 none — never an error.
 
+## Content
+
+### GET /content/settings
+Every `website_settings` row with `public = true`, flattened to
+`{ key: value }` (values are the stored JSON). Ordered by key; non-public rows
+are never returned. Same `x-api-key` rule and same cache treatment as
+`/catalog/collections` — freshness comes from the `website_settings`
+revalidate trigger, which posts `{ "tag": "content" }` to the storefront's
+revalidate endpoint on every insert, update or delete.
+
+
 ## Newsletter
 
 ### POST /newsletter
