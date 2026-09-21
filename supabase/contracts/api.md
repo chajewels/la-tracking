@@ -69,6 +69,22 @@ are never returned. Same `x-api-key` rule and same cache treatment as
 revalidate trigger, which posts `{ "tag": "content" }` to the storefront's
 revalidate endpoint on every insert, update or delete.
 
+### GET /content/posts?type=article|news
+Posts with `published = true` and `published_at <= today` (PHT), ordered by
+`published_at` descending. `type` is optional and filters exactly. Each:
+`{ id, slug, type, title_en, title_ja, excerpt_en, excerpt_ja, cover_media,
+published_at, layaway_only }` — the body is never in the list response. Returns
+`[]` when there are none.
+
+### GET /content/posts/:slug
+The full post, `body_en` / `body_ja` included. 404 `{ "error": "not_found" }`
+when the slug is unknown, the post is unpublished, or `published_at` is in the
+future.
+
+Same `x-api-key` rule and cache treatment as `/catalog/collections`; freshness
+comes from the `website_posts` revalidate trigger, which posts
+`{ "tag": "content", "postSlug": <slug> }` on every insert, update or delete.
+
 
 ## Newsletter
 
