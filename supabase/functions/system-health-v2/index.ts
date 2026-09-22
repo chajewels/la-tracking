@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
@@ -86,20 +85,22 @@ function isDPPayment(p: any): boolean {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Auth gate. Accept either:
-  //   (a) the service-role key (cron / internal callers), OR
-  //   (b) a signed-in admin/staff/finance/csr user JWT (frontend callers
-  //       like UnifiedSystemHealthTab / SystemHealthCheckPanel).
-  // Same role list as dashboard-summary — this endpoint exposes the same
-  // business data class so it must match exactly. Customers (Phase B JWT
-  // holders without a staff user_roles row) get 403.
+  // Auth gate. ONE path only: a signed-in user JWT carrying the
+  // `system_health` permission (frontend callers UnifiedSystemHealthTab /
+  // SystemHealthCheckPanel). Same data class as dashboard-summary, so the
+  // same access bar; customers (Phase B JWT holders without a staff
+  // user_roles row) get 403.
+  //
+  // SERVICE-ROLE CALLERS ARE NO LONGER ACCEPTED (F01, 2026-09-23). This
+  // function has no cron and no edge-function caller — every caller sends a
+  // real user JWT — so the service-role branch bought nothing and cost the
+  // whole gate: it ran behind `verify_jwt = false`, where isServiceRole's
+  // claims fallback reads an UNSIGNED token, so anyone could assert
+  // `role: "service_role"` in a self-made JWT and read the health report.
+  // The gateway check is now on (config.toml) and this path is gone.
   const authHeader = req.headers.get("Authorization");
-  const authToken = authHeader?.replace("Bearer ", "") ?? "";
   let authorized = false;
-  // Bug #168 fix (Batch F): use parseJwtClaims for service-role detection — never string equality
-  if (authToken && isServiceRole(authToken)) {
-    authorized = true;
-  } else if (authHeader?.startsWith("Bearer ")) {
+  if (authHeader?.startsWith("Bearer ")) {
     const anonClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -111,7 +112,7 @@ Deno.serve(async (req) => {
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
       );
-      // Permission gate (Bug #205 Batch F: matrix-driven access — user JWT path, service_role handled above)
+      // Permission gate (Bug #205 Batch F: matrix-driven access — the only path)
       authorized = await checkPermission(supabaseGate, user.id, "system_health");
     }
   }
