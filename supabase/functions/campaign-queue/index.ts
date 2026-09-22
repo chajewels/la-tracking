@@ -63,23 +63,27 @@ Deno.serve(async (req) => {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
         return jsonResponse({ error: "invalid_test_email" }, 400);
       }
-      const rendered: Array<{ lang: Lang; subject: string; html: string; sent: boolean }> = [];
+      const rendered: Array<
+        { lang: Lang; subject: string; html: string; sent: boolean; provider_id?: string | null }
+      > = [];
       for (const lang of langs) {
         // A test copy carries a real-looking unsubscribe link so the footer can
         // be eyeballed, but the token is not a subscriber's.
         const unsub = unsubscribeUrl("test-preview");
         const { subject, html } = await renderCampaign(supabase, c, lang, unsub, "[TEST] ");
         let sent = false;
+        let providerId: string | null = null;
         if (provider.enabled) {
           const outcome = await sendCampaignEmail({ to: testEmail, subject, html, unsubscribeUrl: unsub });
           sent = outcome.status === "sent";
+          providerId = sent ? (outcome as { providerId: string | null }).providerId : null;
           await recordEmailAttempt({
             channel: "hub",
             template: "newsletter-campaign",
             recipient: testEmail,
             status: sent ? "sent" : "failed",
             error: sent ? undefined : (outcome as { error: string }).error,
-            metadata: { campaign_id: c.id, lang, test: true },
+            metadata: { campaign_id: c.id, lang, test: true, provider_id: providerId },
           });
           if (!sent) {
             return jsonResponse({
@@ -98,7 +102,7 @@ Deno.serve(async (req) => {
             metadata: { campaign_id: c.id, lang, test: true, reason: provider.reason },
           });
         }
-        rendered.push({ lang, subject, html, sent });
+        rendered.push({ lang, subject, html, sent, provider_id: providerId });
       }
       return jsonResponse({
         mode: "test",
