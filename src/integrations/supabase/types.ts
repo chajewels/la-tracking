@@ -3119,6 +3119,108 @@ export type Database = {
         }
         Relationships: []
       }
+      newsletter_campaign_recipients: {
+        Row: {
+          campaign_id: string
+          error: string | null
+          lang: string
+          sent_at: string | null
+          status: string
+          subscriber_id: string
+        }
+        Insert: {
+          campaign_id: string
+          error?: string | null
+          lang: string
+          sent_at?: string | null
+          status?: string
+          subscriber_id: string
+        }
+        Update: {
+          campaign_id?: string
+          error?: string | null
+          lang?: string
+          sent_at?: string | null
+          status?: string
+          subscriber_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_campaign_recipients_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "newsletter_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "newsletter_campaign_recipients_subscriber_id_fkey"
+            columns: ["subscriber_id"]
+            isOneToOne: false
+            referencedRelation: "newsletter_subscribers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      newsletter_campaigns: {
+        Row: {
+          audience: string
+          body_en: string | null
+          body_ja: string | null
+          created_at: string
+          created_by: string | null
+          failed_count: number
+          id: string
+          post_slug: string | null
+          product_ids: string[]
+          queued_at: string | null
+          sent_at: string | null
+          sent_count: number
+          status: string
+          subject_en: string | null
+          subject_ja: string | null
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          audience?: string
+          body_en?: string | null
+          body_ja?: string | null
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          id?: string
+          post_slug?: string | null
+          product_ids?: string[]
+          queued_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          status?: string
+          subject_en?: string | null
+          subject_ja?: string | null
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          audience?: string
+          body_en?: string | null
+          body_ja?: string | null
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          id?: string
+          post_slug?: string | null
+          product_ids?: string[]
+          queued_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          status?: string
+          subject_en?: string | null
+          subject_ja?: string | null
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       newsletter_subscribers: {
         Row: {
           consented_at: string
