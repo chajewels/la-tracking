@@ -50,7 +50,7 @@ const COPY = {
     read: 'Read more',
     view: 'View piece',
     company: 'Ｃｈａ Ｊｅｗｅｌｓ株式会社',
-    address: 'Tateishi, Katsushika, Tokyo, Japan',
+    address: 'Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan',
     why: 'You are receiving this because you subscribed to Cha Jewels updates.',
     unsub: 'Unsubscribe',
   },
@@ -59,11 +59,13 @@ const COPY = {
     read: '続きを読む',
     view: '商品を見る',
     company: 'Ｃｈａ Ｊｅｗｅｌｓ株式会社',
-    address: '東京都葛飾区立石',
+    address: '〒124-0012 東京都葛飾区立石6-5-1 タイムマンション301',
     why: 'Cha Jewels のニュースレターにご登録いただいた方にお送りしています。',
     unsub: '配信停止',
   },
 } as const
+
+const CONTACT_EMAIL = 'sales@chajewelsjp.com'
 
 const NewsletterCampaignEmail = ({
   subject = 'Cha Jewels',
