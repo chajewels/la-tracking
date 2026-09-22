@@ -188,3 +188,9 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.page365-fetch-order]
     verify_jwt = true
+  [functions.campaign-queue]
+    verify_jwt = true
+  [functions.process-newsletter-campaigns]
+    verify_jwt = true
+  [functions.campaign-cancel]
+    verify_jwt = true

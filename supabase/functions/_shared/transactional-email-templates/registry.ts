@@ -47,6 +47,7 @@ import { template as loyaltyExpireDeduct } from './loyalty-expire-deduct.tsx'
 import { template as loyaltyRedeem } from './loyalty-redeem.tsx'
 import { template as loyaltyRedemptionVoided } from './loyalty-redemption-voided.tsx'
 import { template as loyaltyBroadcast } from './loyalty-broadcast.tsx'
+import { template as newsletterCampaign } from './newsletter-campaign.tsx'
 import { PortalSetupInviteEmail } from './portal-setup-invite.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
@@ -79,6 +80,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'loyalty-redeem': loyaltyRedeem,
   'loyalty-redemption-voided': loyaltyRedemptionVoided,
   'loyalty-broadcast': loyaltyBroadcast,
+  'newsletter-campaign': newsletterCampaign,
   'portal-setup-invite': {
     audience: 'customer',
     component: PortalSetupInviteEmail,
