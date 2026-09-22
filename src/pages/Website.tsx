@@ -10,6 +10,7 @@ import ProductsCard from "@/components/website/ProductsCard";
 import { JewelryTypesCard } from "@/components/website/JewelryTypesCard";
 import { CategoriesCard } from "@/components/website/CategoriesCard";
 import { PostsCard } from "@/components/website/PostsCard";
+import { FaqCard } from "@/components/website/FaqCard";
 import { TestimonialsCard } from "@/components/website/TestimonialsCard";
 import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscribersCard";
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
@@ -102,6 +103,7 @@ export default function Website() {
           {canContent && (
             <TabsContent value="content" className="mt-5 space-y-6" tabIndex={-1}>
               <PostsCard />
+              <FaqCard />
               <TestimonialsCard />
             </TabsContent>
           )}

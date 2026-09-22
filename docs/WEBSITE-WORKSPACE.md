@@ -3,7 +3,7 @@
 Everything that feeds chajewelsjp.com, on one route with four tabs. Replaced
 `/website-catalog`, which was a single page of six unrelated cards.
 
-Added 2026-09-21. FAQ (content tab) arrives later.
+Added 2026-09-21.
 
 ---
 
@@ -12,7 +12,7 @@ Added 2026-09-21. FAQ (content tab) arrives later.
 | Tab | `?tab=` | Cards | Permission |
 |---|---|---|---|
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
-| Content | `content` | PostsCard, TestimonialsCard | `manage_website_content` |
+| Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
 | Settings | `settings` | SettingsCard | `manage_website_content` |
 
@@ -103,6 +103,7 @@ ago.
 | `website_categories` | CategoriesCard → CategoriesEditor | catalog |
 | `website_collection_products`, `website_category_products` | written by ProductDialog's save | catalog |
 | `website_posts` | PostsCard | content |
+| `website_faq_sections`, `website_faq_items` | FaqCard | content |
 | `website_testimonials` | TestimonialsCard | content |
 | `newsletter_subscribers` | NewsletterSubscribersCard (read + subscribe state only) | audience |
 | `wholesale_inquiries` | WholesaleInquiriesCard (read only) | audience |
@@ -319,7 +320,73 @@ seed: the site ships with no posts, and an invented one would appear on
 chajewelsjp.com as though someone had written it. The revalidation trigger on
 this table is Lovable's and is not recorded; the `updated_at` trigger is.
 
-## 9. Files
+## 9. website_faq_sections + website_faq_items — the FAQ
+
+Two tables. Sections carry `slug` (NOT NULL **UNIQUE**, the page anchor),
+`title_en/ja`, `sort_order`, `published`. Items carry `section_id`,
+`question_en/ja`, `answer_en/ja`, `layaway_only`, `sort_order`, `published`.
+
+`published` defaults to **true** on both — unlike a post, an FAQ entry is
+visible the moment it exists. The drafts in `website-faq.ts` default the same
+way, so the editor never shows a state the database would not have produced.
+
+### The delete guard is load-bearing
+
+`website_faq_items.section_id` is **`ON DELETE CASCADE`**. Deleting a section
+takes every answer in it, silently, at the database — no error, the FAQ page is
+just shorter.
+
+So the Hub refuses to delete a section that still has items.
+`sectionDeleteBlocker()` is that refusal, and it is checked **twice**: once to
+decide what the button does, and again inside the delete mutation with a fresh
+`count` from the server, because the button was enabled against a list that may
+be a minute old. This is the one guard in the workspace where being wrong is
+unrecoverable.
+
+### Ordering
+
+`sort_order` has **no UNIQUE constraint**, so two rows can legitimately share a
+value. A naive swap between equal values is a no-op: the row does not move, the
+button looks broken, and nothing errors. `reorder()` therefore returns the
+explicit `sort_order` each of the two rows must be written to, stepping them
+apart when they are tied, rather than swapping stored numbers.
+
+`inOrder()` breaks ties by id so two rows sharing a value never swap places
+between renders. New rows land at `max + 10`, starting from the column default
+of 100.
+
+Reordering is immediate — a click writes both rows and logs **one** audit row,
+for the row that moved. The other only shifted to make space.
+
+Up/down buttons rather than drag: the repo has no drag-and-drop dependency, and
+adding one for this would be a package for a pair of buttons that are keyboard-
+accessible for free.
+
+### Answers are markdown
+
+Previewed through the same `src/components/website/markdown.tsx` the posts
+editor uses — one renderer, so a list that previews correctly in a post
+previews correctly here. Section slugs use `postSlug` from `website-posts.ts`
+for the same reason: a third slug rule in this folder is a third way for two of
+them to disagree.
+
+### The audit is not optional
+
+These answers carry binding layaway and loyalty terms. Every write logs one
+row, and an **item's log carries the old and new answer text**, both languages
+— not just the id and a changed flag. A log that records *that* an answer
+changed without recording *what it said* cannot settle a dispute about what a
+customer was told. Deletes log the full question and answer, since the row
+itself is gone.
+
+Entity types: `website_faq_section`, `website_faq_item`. Actions:
+`create_` / `update_` / `delete_` / `reorder_faq_section` and `…_faq_item`.
+
+Recorded in `supabase/migrations/20260922100000_record_website_faq.sql`. The
+revalidation triggers on both tables are Lovable's and are not recorded; the
+`updated_at` triggers are.
+
+## 10. Files
 
 ```
 src/pages/Website.tsx                              the workspace + tab state
@@ -339,7 +406,10 @@ src/components/website/PostsCard.tsx                 the Posts card + editor
 src/components/website/website-posts.ts              post shape, slug rule
 src/components/website/markdown.tsx                  the preview renderer
 src/test/website-settings.test.ts                    schema round-trip vs the seed
+src/components/website/FaqCard.tsx                    sections + questions
+src/components/website/website-faq.ts                ordering, delete guard
 src/test/website-posts.test.tsx                      slug rule + markdown preview
+src/test/website-faq.test.ts                         ordering + the delete guard
 ```
 
 See also: docs/NEWSLETTER-SUBSCRIBERS.md, docs/WEBSITE-VERCEL.md.
