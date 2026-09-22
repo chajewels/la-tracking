@@ -13,12 +13,16 @@ Added 2026-09-21.
 |---|---|---|---|
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
-| Audience | `audience` | CampaignsCard\*, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
+| Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
 | Settings | `settings` | SettingsCard | `manage_website_content` |
 
-\* **CampaignsCard is the one card whose write key differs from its tab's.** It
-sits on Audience (`manage_website_catalog`) but writes under
-`manage_website_content`, because campaigns are the site's words. See §10.
+**Audience is the one tab that is not a single key's.** Three of its cards
+belong to `manage_website_catalog` — who subscribed, who wrote in — and
+CampaignsCard belongs to `manage_website_content`, because a campaign is words
+the site sends. So the **tab** opens to *either* key and each **card** keeps
+its own gate. A holder of one key sees exactly their cards, and never an empty
+tab: whichever key opened it also renders at least one card. The sidebar's
+`permFilter` for Audience is the same `||`.
 
 `catalog` is the fallback: an unknown or absent `?tab=` renders it rather than
 nothing. Tab state is written back with a **functional** `setSearchParams`, not
@@ -465,21 +469,25 @@ editing it is the fix.
 Send and cancel both write `audit_logs` (`entity_type
 'newsletter_campaign'`).
 
-### A permission seam worth knowing
+### Which key sees this card
 
-CampaignsCard sits on the **Audience** tab, which is gated on
-`manage_website_catalog`, but its own writes are gated on
-`manage_website_content`. Consequences:
+CampaignsCard writes under **`manage_website_content`** — a campaign is words
+the site sends — while the three cards beside it on Audience are
+`manage_website_catalog`'s.
 
-- a **catalog-only** holder sees the tab and the campaign history, read-only;
-- a **content-only** holder holds the key to write campaigns but **cannot reach
-  the tab they are on**.
+An earlier revision gated the whole tab on the catalog key, which meant a
+content-only holder held the key to write campaigns and could not reach the tab
+they were on. That is now fixed the other way: the **tab** opens to either key
+(`canAudience` in `Website.tsx`, and the matching `||` in the sidebar's
+`permFilter`), and each **card** is rendered only for its own key.
 
-Today that is theoretical — the live seed grants both keys to admin only — but
-it becomes real the moment someone is granted content-only. The fix is one
-line, and it is a permission-model decision rather than a bug to patch
-silently: either add `manage_website_content` to the Audience tab's filter in
-`Website.tsx`, or move this card to Content.
+So:
+
+- **catalog-only** → Subscribers, Wholesale, Contact messages. No Campaigns.
+- **content-only** → Campaigns only, on a tab they can now reach.
+- **both** (every live holder today, since the seed grants both to admin) → all four.
+
+The tab is never empty: whichever key opened it also renders at least one card.
 
 Recorded in `supabase/migrations/20260922110000_record_newsletter_campaigns.sql`.
 
