@@ -12,6 +12,7 @@ import { CategoriesCard } from "@/components/website/CategoriesCard";
 import { PostsCard } from "@/components/website/PostsCard";
 import { FaqCard } from "@/components/website/FaqCard";
 import { TestimonialsCard } from "@/components/website/TestimonialsCard";
+import { CampaignsCard } from "@/components/website/CampaignsCard";
 import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscribersCard";
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
 import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard";
@@ -28,8 +29,9 @@ import { SettingsCard } from "@/components/website/SettingsCard";
  * so Back and a pasted link both land on the right tab.
  *
  * Two permission keys, not one — see docs/WEBSITE-WORKSPACE.md:
- *   catalog, audience → manage_website_catalog  (the shop and who wrote in)
+ *   catalog          → manage_website_catalog  (the shop)
  *   content, settings → manage_website_content  (the words on the site)
+ *   audience         → EITHER, with each card on its own key — see canAudience
  */
 export const WEBSITE_TABS = ["catalog", "content", "audience", "settings"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];
@@ -43,6 +45,19 @@ export default function Website() {
   const { can } = usePermissions();
   const canCatalog = can("manage_website_catalog") || isAdmin;
   const canContent = can("manage_website_content") || isAdmin;
+  /**
+   * Audience is the one tab that is NOT one key's.
+   *
+   * Three of its cards are the catalog key's (who wrote in, who subscribed)
+   * and Campaigns is the content key's (words the site sends). Gating the tab
+   * on either one alone hid a card from someone holding the key for it —
+   * a content-only holder could write campaigns and never reach them.
+   *
+   * So the TAB opens to either key and each CARD keeps its own gate. A holder
+   * of one key sees exactly their cards, and never an empty tab: whichever key
+   * opened it also renders at least one card.
+   */
+  const canAudience = canCatalog || canContent;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTabState] = useState<WebsiteTab>(() => {
@@ -88,7 +103,7 @@ export default function Website() {
           <TabsList>
             {canCatalog && <TabsTrigger value="catalog">Catalog</TabsTrigger>}
             {canContent && <TabsTrigger value="content">Content</TabsTrigger>}
-            {canCatalog && <TabsTrigger value="audience">Audience</TabsTrigger>}
+            {canAudience && <TabsTrigger value="audience">Audience</TabsTrigger>}
             {canContent && <TabsTrigger value="settings">Settings</TabsTrigger>}
           </TabsList>
 
@@ -108,11 +123,12 @@ export default function Website() {
             </TabsContent>
           )}
 
-          {canCatalog && (
+          {canAudience && (
             <TabsContent value="audience" className="mt-5 space-y-6" tabIndex={-1}>
-              <NewsletterSubscribersCard />
-              <WholesaleInquiriesCard />
-              <ContactInquiriesCard />
+              {canContent && <CampaignsCard />}
+              {canCatalog && <NewsletterSubscribersCard />}
+              {canCatalog && <WholesaleInquiriesCard />}
+              {canCatalog && <ContactInquiriesCard />}
             </TabsContent>
           )}
 

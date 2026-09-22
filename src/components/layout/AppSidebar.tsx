@@ -120,7 +120,10 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
     children: [
       { label: 'Catalog', tab: 'catalog', permFilter: (can) => can('manage_website_catalog') },
       { label: 'Content', tab: 'content', permFilter: (can) => can('manage_website_content') },
-      { label: 'Audience', tab: 'audience', permFilter: (can) => can('manage_website_catalog') },
+      // Audience carries cards from BOTH keys — subscribers, wholesale and
+      // contact messages on catalog, campaigns on content — so either key
+      // opens it and the page renders only that key's cards.
+      { label: 'Audience', tab: 'audience', permFilter: (can) => can('manage_website_catalog') || can('manage_website_content') },
       { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
     ],
   },
