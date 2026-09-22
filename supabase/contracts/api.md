@@ -173,3 +173,34 @@ it must belong to the signed-in customer (404 otherwise). Inserts with status
 `requested` status.
 
 See the function source for exact request/response shapes of these routes.
+
+## Newsletter campaigns (staff JWT + `manage_website_content`)
+
+These are Hub endpoints, not storefront routes: they take a staff session, not
+`x-api-key`. Campaign mail is sent through the dedicated marketing provider
+(Resend, sender `news@news.chajewelsjp.com`), never through the transactional
+sender. See `docs/RETROACTIVE-AND-EMAIL.md` for the setup steps and the rate
+cap.
+
+### POST /functions/v1/campaign-queue
+Body `{ campaign_id, test_email? }`.
+
+- With `test_email`: renders one copy per language the campaign has, subject
+  prefixed `[TEST] `, and returns `{ mode: "test", sent, provider: { enabled,
+  reason, message, from }, rendered: [{ lang, subject, html, sent }] }`. While
+  sending is disabled the HTML is returned and nothing is sent.
+- Without: only from status `draft`. Snapshots active subscribers filtered by
+  the campaign audience and returns `{ mode: "queued", total, skipped,
+  audience }`. 409 `campaign_not_draft` / `sending_disabled`.
+
+### POST /functions/v1/process-newsletter-campaigns
+No body. Service-role (cron, every 10 minutes) or a staff session with
+`manage_website_content`. Sends up to `newsletter_rate_per_hour / 6` recipients
+per run, 5 concurrent, oldest queued campaign first. Returns `{ budget,
+rate_per_hour, sent, failed, skipped, rate_limited }`, or `{ skipped: true,
+reason, message }` while sending is disabled.
+
+### POST /functions/v1/campaign-cancel
+Body `{ campaign_id }`. Queued/sending → `cancelled`, pending recipients →
+`skipped`. Returns `{ cancelled: true, skipped }`. 409
+`campaign_not_cancellable`.

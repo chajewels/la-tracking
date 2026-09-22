@@ -117,3 +117,78 @@
     3. Pace the queue worker to <=90/hr so over-cap days spill gracefully.
     4. Connect own Resend account to escape the workspace cap (largest lift).
 
+
+## NEWSLETTER CAMPAIGNS — DEDICATED PROVIDER (added 2026-09-22)
+
+  Newsletter campaigns are MARKETING mail and are sent through their OWN
+  provider (Resend) on their OWN sender subdomain — NEVER through
+  send-transactional-email. Two reasons, both non-negotiable:
+    1. The Lovable-managed transactional API does not permit bulk/marketing
+       sending.
+    2. A campaign's complaint and bounce rate must never be able to damage
+       delivery of payment, penalty, loyalty or portal email. The campaign
+       sender is news@news.chajewelsjp.com — a SUBDOMAIN, so its reputation is
+       scored separately from chajewelsjp.com.
+
+### Sending stays OFF until setup is complete
+  Both conditions must hold or nothing is sent:
+    1. secret RESEND_API_KEY is set, and
+    2. secret/env NEWSLETTER_DOMAIN_VERIFIED = "true".
+  While off:
+    - campaign-queue "send to list" is refused 409 sending_disabled with the
+      reason in plain words (recipients are NOT snapshotted, nothing is lost).
+    - campaign-queue with test_email returns the fully rendered HTML and sends
+      nothing (logged to email_send_log as 'skipped').
+    - process-newsletter-campaigns returns { skipped: true, reason } and leaves
+      every recipient pending.
+
+### Setup steps (in order)
+  1. In Resend, add the domain news.chajewelsjp.com (a subdomain — do NOT add
+     chajewelsjp.com, and do NOT reuse the Lovable-managed email subdomain:
+     that one's DNS is delegated to Lovable nameservers and a second provider
+     cannot verify records inside it).
+  2. Add the SPF, DKIM and DMARC records Resend shows for
+     news.chajewelsjp.com at the DNS provider, and wait for Verified.
+  3. Save the Resend API key as the RESEND_API_KEY secret.
+  4. Set NEWSLETTER_DOMAIN_VERIFIED = "true".
+  5. Optional overrides: NEWSLETTER_FROM_EMAIL (default
+     news@news.chajewelsjp.com), NEWSLETTER_FROM_NAME (default "Cha Jewels").
+  6. Send a test first (campaign-queue with test_email) and read the footer:
+     registered name Ｃｈａ Ｊｅｗｅｌｓ株式会社, the registered address, and a
+     working unsubscribe link. The same URL is sent as List-Unsubscribe /
+     List-Unsubscribe-Post (one-click) by the provider adapter.
+
+### Rate cap — CONFIG, not a constant
+  system_settings.newsletter_rate_per_hour (jsonb scalar, DEFAULT 60 when
+  missing or invalid). The worker runs every 10 minutes and takes one sixth of
+  the hourly allowance per run, so the default is 10 per run = 60/hour.
+  Because the provider is dedicated, this budget is NOT shared with
+  transactional mail (which stays bound by Lovable's 100/hour workspace cap) —
+  raise it once the sending domain is warmed up:
+    UPDATE system_settings SET value = '120'::jsonb
+     WHERE key = 'newsletter_rate_per_hour';
+  Warm-up guidance: stay at 60/hour for the first sends, then raise gradually.
+  A provider 429 stops that run and leaves the remaining recipients pending —
+  no mail lost, delivery delayed to the next tick.
+
+### Pipeline
+  campaign-queue (staff JWT + manage_website_content)
+    { campaign_id } → from status 'draft' only: snapshots active subscribers
+    (unsubscribed_at IS NULL) filtered by campaign audience, one recipient row
+    each with the language they will receive, total = pending count, status
+    'queued', queued_at now.
+    { campaign_id, test_email } → renders and sends ONE copy per language the
+    campaign has, subject prefixed "[TEST] ", no recipient rows, returns the
+    HTML.
+  Language rule: recipient language = subscriber language; a subscriber whose
+  language is missing from the campaign falls back to the other one — EXCEPT a
+  JA subscriber is SKIPPED when only the EN version exists and it mentions
+  layaway (financial terms half-understood are worse than no email).
+  process-newsletter-campaigns (cron */10, Vault-backed service key)
+    Oldest queued campaign first, 5 concurrent, recipients re-checked for
+    unsubscribed_at at send time (→ 'skipped'), recordEmailAttempt() per
+    recipient, campaign → 'sending' on first send and 'sent' when no pending
+    rows remain.
+  campaign-cancel (staff JWT + manage_website_content)
+    { campaign_id } → queued/sending become 'cancelled'; pending recipients
+    become 'skipped'. Already-sent recipients are never rewritten.
