@@ -132,7 +132,10 @@ const NewsletterCampaignEmail = ({
           <Text style={footer}>
             <Link href={unsubscribeUrl} style={unsubLink}>{t.unsub}</Link>
           </Text>
-          <Text style={footerBrand}>{t.company}</Text>
+          <Text style={footerBrand}>
+            {t.company} ·{' '}
+            <Link href={`mailto:${CONTACT_EMAIL}`} style={footerMailLink}>{CONTACT_EMAIL}</Link>
+          </Text>
           <Text style={footerAddr}>{t.address}</Text>
         </Container>
       </Body>
@@ -176,4 +179,5 @@ const hr = { borderColor: '#e5e7eb', margin: '24px' }
 const footer = { fontSize: '12px', color: '#9ca3af', padding: '0 24px', margin: '0 0 6px', lineHeight: '1.5', textAlign: 'center' as const }
 const unsubLink = { color: '#9ca3af', textDecoration: 'underline' }
 const footerBrand = { fontSize: '11px', color: '#C9A227', textAlign: 'center' as const, padding: '8px 24px 0', margin: '0', fontWeight: 'bold' as const }
+const footerMailLink = { color: '#C9A227', textDecoration: 'underline' }
 const footerAddr = { fontSize: '11px', color: '#9ca3af', textAlign: 'center' as const, padding: '2px 24px 24px', margin: '0' }
