@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
             metadata: { campaign_id: c.id, lang, test: true, reason: provider.reason },
           });
         }
-        rendered.push({ lang, subject, html, sent });
+        rendered.push({ lang, subject, html, sent, provider_id: providerId });
       }
       return jsonResponse({
         mode: "test",
