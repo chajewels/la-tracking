@@ -50,7 +50,7 @@ const COPY = {
     read: 'Read more',
     view: 'View piece',
     company: 'Ｃｈａ Ｊｅｗｅｌｓ株式会社',
-    address: 'Tateishi, Katsushika, Tokyo, Japan',
+    address: 'Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan',
     why: 'You are receiving this because you subscribed to Cha Jewels updates.',
     unsub: 'Unsubscribe',
   },
@@ -59,11 +59,13 @@ const COPY = {
     read: '続きを読む',
     view: '商品を見る',
     company: 'Ｃｈａ Ｊｅｗｅｌｓ株式会社',
-    address: '東京都葛飾区立石',
+    address: '〒124-0012 東京都葛飾区立石6-5-1 タイムマンション301',
     why: 'Cha Jewels のニュースレターにご登録いただいた方にお送りしています。',
     unsub: '配信停止',
   },
 } as const
+
+const CONTACT_EMAIL = 'sales@chajewelsjp.com'
 
 const NewsletterCampaignEmail = ({
   subject = 'Cha Jewels',
@@ -130,7 +132,10 @@ const NewsletterCampaignEmail = ({
           <Text style={footer}>
             <Link href={unsubscribeUrl} style={unsubLink}>{t.unsub}</Link>
           </Text>
-          <Text style={footerBrand}>{t.company}</Text>
+          <Text style={footerBrand}>
+            {t.company} ·{' '}
+            <Link href={`mailto:${CONTACT_EMAIL}`} style={footerMailLink}>{CONTACT_EMAIL}</Link>
+          </Text>
           <Text style={footerAddr}>{t.address}</Text>
         </Container>
       </Body>
@@ -174,4 +179,5 @@ const hr = { borderColor: '#e5e7eb', margin: '24px' }
 const footer = { fontSize: '12px', color: '#9ca3af', padding: '0 24px', margin: '0 0 6px', lineHeight: '1.5', textAlign: 'center' as const }
 const unsubLink = { color: '#9ca3af', textDecoration: 'underline' }
 const footerBrand = { fontSize: '11px', color: '#C9A227', textAlign: 'center' as const, padding: '8px 24px 0', margin: '0', fontWeight: 'bold' as const }
+const footerMailLink = { color: '#C9A227', textDecoration: 'underline' }
 const footerAddr = { fontSize: '11px', color: '#9ca3af', textAlign: 'center' as const, padding: '2px 24px 24px', margin: '0' }
