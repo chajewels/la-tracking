@@ -13,8 +13,12 @@ Added 2026-09-21.
 |---|---|---|---|
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
-| Audience | `audience` | NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
+| Audience | `audience` | CampaignsCard\*, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | `manage_website_catalog` |
 | Settings | `settings` | SettingsCard | `manage_website_content` |
+
+\* **CampaignsCard is the one card whose write key differs from its tab's.** It
+sits on Audience (`manage_website_catalog`) but writes under
+`manage_website_content`, because campaigns are the site's words. See §10.
 
 `catalog` is the fallback: an unknown or absent `?tab=` renders it rather than
 nothing. Tab state is written back with a **functional** `setSearchParams`, not
@@ -104,6 +108,8 @@ ago.
 | `website_collection_products`, `website_category_products` | written by ProductDialog's save | catalog |
 | `website_posts` | PostsCard | content |
 | `website_faq_sections`, `website_faq_items` | FaqCard | content |
+| `newsletter_campaigns` | CampaignsCard | audience |
+| `newsletter_campaign_recipients` | not edited here; written by the queue worker | — |
 | `website_testimonials` | TestimonialsCard | content |
 | `newsletter_subscribers` | NewsletterSubscribersCard (read + subscribe state only) | audience |
 | `wholesale_inquiries` | WholesaleInquiriesCard (read only) | audience |
@@ -386,7 +392,98 @@ Recorded in `supabase/migrations/20260922100000_record_website_faq.sql`. The
 revalidation triggers on both tables are Lovable's and are not recorded; the
 `updated_at` triggers are.
 
-## 10. Files
+## 10. newsletter_campaigns — sending to the list
+
+`newsletter_campaigns` holds the composed campaign;
+`newsletter_campaign_recipients` is the per-address queue, with a composite
+`PRIMARY KEY (campaign_id, subscriber_id)` that stops the worker enqueuing the
+same subscriber twice however it retries.
+
+**The Hub composes and queues. It does not send.** Lovable's `campaign-queue`,
+`process-newsletter-campaigns` and `campaign-cancel` edge functions and their
+cron do that, and none of them is recorded here. `newsletter_campaign_recipients`
+is **staff-SELECT only with no write policy at all** — those rows belong to the
+worker, which runs as service role.
+
+### 60 per hour is not the provider rate
+
+`SEND_RATE_PER_HOUR = 60`, and docs/RETROACTIVE-AND-EMAIL.md records the actual
+Lovable workspace cap as **100 emails per hour, hard** — already reached by the
+deduped payment-reminder batch on peak days. A newsletter assuming 100 would be
+competing with the reminders for the same allowance, and the reminders are the
+ones a customer is waiting on. 60 is deliberate headroom.
+
+The number lives in `newsletter-campaigns.ts` so the estimate the confirm
+dialog shows and the rate the queue actually runs at cannot drift apart
+silently. If Lovable's cron changes, that constant changes with it.
+
+### Who a campaign reaches
+
+`recipientsFor()` applies the same two rules as the subscriber list (§4 of
+docs/NEWSLETTER-SUBSCRIBERS.md): active is `unsubscribed_at IS NULL`, and a
+test **customer's** subscription is excluded while a subscriber with **no
+customer at all is kept**.
+
+A subscriber whose `lang` is neither `en` nor `ja` counts under **All** and
+under neither language. It is a real address, so All must not lose it, and
+guessing which language to send it is worse than not sending.
+
+### The layaway refusal
+
+`public.campaign_no_layaway_in_ja()` refuses any write whose Japanese subject
+or body mentions layaway, in English or as レイアウェイ. It refuses at **write**
+time, not send time, so a campaign that would breach it cannot be saved at all.
+
+It `RAISE`s without an ERRCODE, so it arrives as **SQLSTATE P0001** — the
+generic code every other `RAISE` in the schema shares. The Hub therefore
+identifies it by **message**, in `isLayawayError()`. **Changing the trigger's
+wording without changing that matcher turns the friendly inline hint back into
+a raw database exception**; both the migration and the helper say so.
+
+When it fires, the Japanese panel is outlined, both Japanese fields get
+`aria-invalid`, and the hint appears in a `role="alert"`. Editing either
+Japanese field clears it — the refusal was about the text as it was, and
+editing it is the fix.
+
+### Sending
+
+- **Send test** calls `campaign-queue` with `test_email` set to the signed-in
+  user's address and renders the returned HTML in an `<iframe sandbox="">` —
+  no scripts, no same-origin. It is generated email being *displayed*, never
+  trusted.
+- **Send to list** confirms first, stating the recipient count and the
+  duration. A non-ok answer from the function is surfaced **as written**: when
+  the Resend setup is unfinished the function says so in its own words, and
+  rewording that into "Could not send" would hide the one sentence explaining
+  why.
+- **Cancel** is offered while `queued` or `sending`, and says how many have
+  already gone and cannot be recalled.
+- Only `draft` campaigns are editable.
+- Progress polls every 30s **only while something is in flight** — it is
+  written by the worker, so the screen has no other way to see it move.
+
+Send and cancel both write `audit_logs` (`entity_type
+'newsletter_campaign'`).
+
+### A permission seam worth knowing
+
+CampaignsCard sits on the **Audience** tab, which is gated on
+`manage_website_catalog`, but its own writes are gated on
+`manage_website_content`. Consequences:
+
+- a **catalog-only** holder sees the tab and the campaign history, read-only;
+- a **content-only** holder holds the key to write campaigns but **cannot reach
+  the tab they are on**.
+
+Today that is theoretical — the live seed grants both keys to admin only — but
+it becomes real the moment someone is granted content-only. The fix is one
+line, and it is a permission-model decision rather than a bug to patch
+silently: either add `manage_website_content` to the Audience tab's filter in
+`Website.tsx`, or move this card to Content.
+
+Recorded in `supabase/migrations/20260922110000_record_newsletter_campaigns.sql`.
+
+## 11. Files
 
 ```
 src/pages/Website.tsx                              the workspace + tab state
@@ -409,7 +506,10 @@ src/test/website-settings.test.ts                    schema round-trip vs the se
 src/components/website/FaqCard.tsx                    sections + questions
 src/components/website/website-faq.ts                ordering, delete guard
 src/test/website-posts.test.tsx                      slug rule + markdown preview
+src/components/website/CampaignsCard.tsx              compose, send, cancel
+src/components/website/newsletter-campaigns.ts       audience, estimate, layaway error
 src/test/website-faq.test.ts                         ordering + the delete guard
+src/test/newsletter-campaigns.test.ts                recipients + hours + layaway
 ```
 
 See also: docs/NEWSLETTER-SUBSCRIBERS.md, docs/WEBSITE-VERCEL.md.
