@@ -180,7 +180,9 @@
   /* Press feedback changes no layout; native button/Slot behavior is retained. */
   .ui-button {
     touch-action: manipulation;
-    transition: scale var(--ui-motion-micro) var(--ui-motion-ease);
+    transition-property: scale, color, background-color, border-color, box-shadow, opacity;
+    transition-duration: var(--ui-motion-micro, 0.12s);
+    transition-timing-function: var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
   }
   .ui-button:active:not(:disabled):not([aria-disabled="true"]) {
     scale: 0.98;
@@ -190,8 +192,8 @@
   }
 
   .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] {
-    animation-duration: var(--ui-motion-standard);
-    animation-timing-function: var(--ui-motion-ease);
+    animation-duration: var(--ui-motion-standard, 0.2s);
+    animation-timing-function: var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
   }
   .ui-dialog-panel {
     box-shadow: 0 2px 6px rgb(0 0 0 / 0.16),
@@ -342,11 +344,25 @@
 
   /* Premium card hover */
   .card-hover {
-    transition: transform var(--ui-motion-standard) var(--ui-motion-ease);
+    position: relative;
+    transition: transform var(--ui-motion-standard, 0.2s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
     box-shadow: 0 2px 6px rgb(0 0 0 / 0.12), 0 8px 24px rgb(0 0 0 / 0.18);
+  }
+  /* Gilded hover ring: fades a pre-rendered shadow layer via opacity so
+     box-shadow itself is never animated. */
+  .card-hover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.55), 0 0 18px hsl(var(--primary) / 0.22);
+    opacity: 0;
+    transition: opacity var(--ui-motion-standard, 0.2s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
   }
   @media (hover: hover) and (pointer: fine) {
     .card-hover:hover { transform: translateY(-2px); }
+    .card-hover:hover::after { opacity: 1; }
   }
 
   /* Status glow pulse for overdue */
@@ -524,7 +540,7 @@
   .ui-button:active:not(:disabled):not([aria-disabled="true"]) { scale: 1; }
   .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] { animation: none !important; }
   .animate-fade-in { animation: none; }
-  .card-hover { transition: none; }
+  .card-hover, .card-hover::after { transition: none; }
   .card-hover:hover { transform: none; }
   /* Skeletons fall back to a static tinted block — no sweep. */
   .skeleton-shimmer::after { animation: none; opacity: 0; }

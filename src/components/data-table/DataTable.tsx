@@ -165,7 +165,7 @@ export default function DataTable<T>({
       <div className="flex flex-wrap items-center gap-2">
         {toolbar}
         {searchText && (
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={searchInput}
