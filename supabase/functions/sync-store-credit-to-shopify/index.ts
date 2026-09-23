@@ -9,7 +9,6 @@
 // committed); it is recorded in store_credit_shopify_sync for retry.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { isServiceRole } from "../_shared/jwt-claims.ts";
 
 const LOG = "[sync-store-credit-to-shopify]";
 
@@ -67,7 +66,20 @@ Deno.serve(async (req) => {
     if (!authHeader) return json({ error: "Missing Authorization header" }, 401);
     const token = authHeader.replace("Bearer ", "");
 
-    if (!isServiceRole(token)) {
+    // DELIBERATE, NARROW EXCEPTION to the SCHEMA-FACTS:419 rule that
+    // isServiceRole is the only correct internal-caller detector. That rule
+    // exists for functions a cron or the Vault can call, where the key is a
+    // legitimately non-identical service_role JWT (Bug #168). THIS function
+    // has no cron and no vault caller: all five callers (cancel-cash-order,
+    // issue-store-credit, redeem-store-credit, shopify-webhook,
+    // void-store-credit-lot) send the env SUPABASE_SERVICE_ROLE_KEY verbatim.
+    // It also runs at verify_jwt = false, so isServiceRole's claims fallback
+    // would parse an UNSIGNED token — anyone could assert role:"service_role"
+    // and mint Shopify store credit. Exact equality against the env key is
+    // the gate here; never widen it back to a claims check.
+    const envKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isInternalCaller = !!envKey && token === envKey;
+    if (!isInternalCaller) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) return json({ error: "Unauthorized" }, 401);
       const { data: roleRows } = await supabase
