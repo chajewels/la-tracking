@@ -39,7 +39,7 @@ import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
-import { useDeleteCashOrder } from '@/hooks/use-supabase-data';
+import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
@@ -433,6 +433,32 @@ export default function CashOrderDetail() {
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
   const [editExpiryValue, setEditExpiryValue] = useState('');
   const [editExpirySaving, setEditExpirySaving] = useState(false);
+  // Web orders revive through ONE RPC (stock, payment_status, deadline, audit);
+  // the date input and the client-side writes below are for Hub orders only.
+  const [reviveReason, setReviveReason] = useState('');
+  const reviveWeb = useReviveWebCashOrder();
+  const confirmReviveWeb = useCallback(async () => {
+    if (!order) return;
+    const reason = reviveReason.trim();
+    if (!reason) {
+      toast.error('A reason is required to revive an order');
+      return;
+    }
+    try {
+      const res = await reviveWeb.mutateAsync({ cash_order_id: order.id, reason });
+      const unheld = res.unheld_lines > 0
+        ? ` ${res.unheld_lines} line(s) have no catalog variant and could not be held.`
+        : '';
+      toast.success(
+        `Order revived — the customer has until ${formatPHTDisplay(res.transfer_due_at)} (${res.deadline_hours}h rule). Stock re-held on ${res.stock_lines_taken} line(s).${unheld}`,
+      );
+      setReviveReason('');
+      setEditExpiryOpen(false);
+      qc.invalidateQueries({ queryKey: ['cash-order', id] });
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Could not revive the order');
+    }
+  }, [order, reviveReason, reviveWeb, qc, id]);
   const openEditExpiry = useCallback(() => {
     if (!order) return;
     // Pre-fill with current expires_at as YYYY-MM-DD if set
@@ -1402,7 +1428,7 @@ export default function CashOrderDetail() {
           {/* A live order's deadline is moved on the Deadlines card below — one
               field, one control. This button survives only for the revive path
               (Bug #217): an expired order given a future date comes back. */}
-          {(isAdmin || isStaff) && order.status === 'expired' && (
+          {order.status === 'expired' && (isWebOrder(order) ? can('edit_account') : (isAdmin || isStaff)) && (
             <Button
               variant="outline"
               onClick={openEditExpiry}
@@ -2128,6 +2154,39 @@ export default function CashOrderDetail() {
               Revive Order
             </DialogTitle>
           </DialogHeader>
+          {isWebOrder(order) ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Web order {cashOrderRef(order)} has expired and its pieces went back on sale.
+                Reviving takes them off sale again (it is refused if one has sold), shows the
+                customer the transfer details again, and sets a new deadline by the usual rule:
+                24 hours for a first order, 72 hours for a returning customer.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="revive-reason">Reason *</Label>
+                <Textarea
+                  id="revive-reason"
+                  value={reviveReason}
+                  onChange={e => setReviveReason(e.target.value)}
+                  placeholder="e.g. Customer messaged — transfer was delayed by the bank"
+                  className="bg-background border-border"
+                />
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setEditExpiryOpen(false)} disabled={reviveWeb.isPending}>
+                  Back
+                </Button>
+                <Button
+                  onClick={confirmReviveWeb}
+                  disabled={reviveWeb.isPending || !reviveReason.trim()}
+                  className="gold-gradient text-primary-foreground font-medium"
+                >
+                  {reviveWeb.isPending ? 'Reviving…' : 'Revive order'}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+          <>
           <p className="text-sm text-muted-foreground">
             Cash order #{order.invoice_number} has expired. A future date here
             brings it back to pending and the hourly job will expire it again
@@ -2158,6 +2217,8 @@ export default function CashOrderDetail() {
               {editExpirySaving ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 

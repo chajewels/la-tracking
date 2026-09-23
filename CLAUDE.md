@@ -1123,8 +1123,13 @@ When completing a partially_paid month:
     (expire_web_layaway_atomic refuses with 'submission_pending'),
     auto-forfeit-settlement (skips such accounts before the path checks),
     and the penalty engine (its pre-existing freeze guard is the same
-    rule and predates this invariant). Cash-order expiry inherits it
-    through the same pending-submission test.
+    rule and predates this invariant). Cash-order expiry: enforced since
+    2026-09-23 (#298) — auto-expire-cash-orders skips and reports such
+    orders (frozen_pending_submission) and NEVER auto-rejects the
+    submission, and terminate_web_order_atomic refuses outcome 'expired'
+    and any system-sourced cancel with 'submission_pending'. Before #298
+    this line claimed the inheritance while the code expired the order and
+    rejected the submission.
     Every new automated status writer MUST carry the same NOT EXISTS
     guard. A staff member acting deliberately is never blocked by this —
     the freeze is on automation, not on people.
@@ -1898,7 +1903,21 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   customer comes back the order is created fresh, so there is no stock
   re-hold path to get wrong. (The pre-existing cash-order revive button,
   Bug #217, survives for expired cash orders only and is the one exception,
-  predating this rule.)
+  predating this rule. On a WEB cash order it is ONE RPC since 2026-09-23,
+  #298: revive_web_cash_order_atomic via revive-web-cash-order, edit_account,
+  reason required — re-takes the stock or refuses out_of_stock, resets
+  payment_status to pending_transfer, and sets transfer_due_at = expires_at by
+  web_deposit_deadline_hours. Never revive a web order with client-side writes.)
+
+  A STAFF FORFEIT OF A WEB LAYAWAY RETURNS ITS STOCK (2026-09-23, #298).
+  manual_forfeit_layaway_atomic flips the status, cancels the unpaid schedule,
+  puts the pieces back on sale and stamps layaway_accounts.stock_released_at,
+  in one transaction; the customer gets the storefront layaway-forfeited email.
+  While stock_released_at is set the plan holds no stock, and
+  trg_rehold_released_web_layaway_stock takes it back — or fails the status
+  change with web_layaway_stock_unavailable — when the plan returns to a live
+  status (the one-time reactivation). auto-forfeit-settlement does NOT release
+  stock; a web plan it forfeits keeps its pieces held.
 
   EXPIRY: `expire_web_layaway_atomic`, swept hourly by
   auto-expire-cash-orders, releases a web layaway whose deposit never arrived
