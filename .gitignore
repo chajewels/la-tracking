@@ -28,3 +28,6 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# Local tool output cache — never commit
+tool-results-cache.txt
