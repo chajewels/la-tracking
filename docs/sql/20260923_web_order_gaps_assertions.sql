@@ -39,6 +39,18 @@
 -- The revalidation trigger on the two website tables calls net.http_post;
 -- pg_net only queues the request in-transaction, so ROLLBACK sends nothing.
 --
+-- LIVE-ONLY DRIFT (found by this preflight on live, 2026-09-23 — revision 3).
+-- layaway_accounts carries a CHECK that no migration defines:
+--   layaway_accounts_discount_type_check
+--     CHECK (discount_type IS NULL OR discount_type = ANY (ARRAY['amount','percent']))
+-- and the columns behind it — discount_amount, discount_type, discount_value on
+-- BOTH layaway_accounts and cash_orders — are live-only too (the Hub writes
+-- them from EditAccountDialog and _shared/order-extras.ts; types.ts has them;
+-- supabase/migrations/ has none). No discount_type CHECK exists on
+-- cash_orders: the preflight would have named it. The layaway fixtures set
+-- discount_type to NULL explicitly, which that CHECK allows. Filed in
+-- docs/OPEN-BUGS.md; a record-only migration belongs to a later pass.
+--
 -- PREFLIGHT. Before any insert, the script compares LIVE against that list:
 -- any CHECK constraint on these tables it does not know, and any NOT NULL
 -- column without a default that a fixture does not set, are ALL named in one
@@ -96,6 +108,7 @@ BEGIN
                'layaway_accounts_payment_plan_months_check', 'layaway_accounts_total_amount_check',
                'layaway_accounts_total_paid_check', 'layaway_accounts_tracking_pair_check',
                'layaway_accounts_source_channel_check', 'layaway_accounts_customer_lang_check',
+               'layaway_accounts_discount_type_check',   -- live-only drift, see header
                'layaway_account_items_quantity_check',
                'base_amount_positive', 'carried_amount_non_negative',
                'layaway_schedule_base_installment_amount_check', 'layaway_schedule_installment_number_check',
@@ -271,8 +284,9 @@ BEGIN
   -- ======================================= GAP 3 — forfeit returns web stock
   INSERT INTO public.layaway_accounts (customer_id, invoice_number, currency, total_amount, remaining_balance,
                                        payment_plan_months, order_date, status, source_channel, web_reference,
-                                       downpayment_amount, customer_lang)
-  VALUES (v_c, 'ZZGAPS0923L', 'JPY', 30000, 30000, 3, current_date, 'active', 'web', 'CJ-W-ZZ0923L', 9000, 'en')
+                                       downpayment_amount, customer_lang, discount_type)
+  VALUES (v_c, 'ZZGAPS0923L', 'JPY', 30000, 30000, 3, current_date, 'active', 'web', 'CJ-W-ZZ0923L', 9000, 'en',
+          NULL)   -- explicit: layaway_accounts_discount_type_check allows NULL
   RETURNING id INTO v_la1;
   INSERT INTO public.layaway_account_items (account_id, website_product_id, variant_id, title, sku, quantity,
                                             unit_price_jpy, line_total_jpy)
@@ -282,8 +296,9 @@ BEGIN
   VALUES (v_la1, 1, current_date + 30, 7000, 7000, 'JPY', 'pending');
 
   INSERT INTO public.layaway_accounts (customer_id, invoice_number, currency, total_amount, remaining_balance,
-                                       payment_plan_months, order_date, status, source_channel)
-  VALUES (v_c, 'ZZGAPS0923H', 'JPY', 30000, 30000, 3, current_date, 'active', 'hub_manual')
+                                       payment_plan_months, order_date, status, source_channel, discount_type)
+  VALUES (v_c, 'ZZGAPS0923H', 'JPY', 30000, 30000, 3, current_date, 'active', 'hub_manual',
+          NULL)   -- explicit: layaway_accounts_discount_type_check allows NULL
   RETURNING id INTO v_la2;
 
   -- 3a. Web plan: forfeited, schedule cancelled, piece back on sale, marker set.
