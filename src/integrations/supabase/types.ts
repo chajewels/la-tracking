@@ -1764,6 +1764,7 @@ export type Database = {
           shipping_method_id: string | null
           source_channel: string
           status: Database["public"]["Enums"]["account_status"]
+          stock_released_at: string | null
           total_amount: number
           total_paid: number
           tracking_number: string | null
@@ -1817,6 +1818,7 @@ export type Database = {
           shipping_method_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["account_status"]
+          stock_released_at?: string | null
           total_amount: number
           total_paid?: number
           tracking_number?: string | null
@@ -1870,6 +1872,7 @@ export type Database = {
           shipping_method_id?: string | null
           source_channel?: string
           status?: Database["public"]["Enums"]["account_status"]
+          stock_released_at?: string | null
           total_amount?: number
           total_paid?: number
           tracking_number?: string | null
@@ -6912,6 +6915,10 @@ export type Database = {
         Args: { p_member_id: string; p_reference: string }
         Returns: number
       }
+      manual_forfeit_layaway_atomic: {
+        Args: { p_account_id: string; p_source?: string; p_user_id?: string }
+        Returns: Json
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -7023,6 +7030,16 @@ export type Database = {
       }
       revalidate_account_from_vault: {
         Args: { p_invoice_number: string }
+        Returns: Json
+      }
+      revive_web_cash_order_atomic: {
+        Args: {
+          p_order_id: string
+          p_reason: string
+          p_source?: string
+          p_user_email?: string
+          p_user_id?: string
+        }
         Returns: Json
       }
       revoke_loyalty_points: {
