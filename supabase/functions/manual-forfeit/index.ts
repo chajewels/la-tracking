@@ -3,9 +3,7 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { forfeitEmailKind } from "../_shared/web-order-rules.ts";
-import { pickLang, sendStorefrontEmail } from "../_shared/storefront-email.ts";
-import { LayawayForfeitedEmail, layawayForfeitedSubject } from "../_shared/email-templates/layaway-forfeited.tsx";
-import * as React from "npm:react@18.3.1";
+import { sendLayawayForfeitedEmail } from "../_shared/layaway-forfeit-email.ts";
 
 /**
  * manual-forfeit — staff forfeit a layaway (permission forfeit_account).
@@ -81,22 +79,10 @@ Deno.serve(async (req) => {
     const customer = (account as any).customers;
     try {
       if (forfeitEmailKind((account as any).source_channel) === "storefront") {
-        const reference = String((account as any).web_reference ?? account.invoice_number);
-        const site = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "");
-        await sendStorefrontEmail({
-          to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
-          subject: layawayForfeitedSubject(reference),
-          label: "layaway-forfeited",
-          reference,
+        // Same sender as the automatic path (auto-forfeit-settlement).
+        await sendLayawayForfeitedEmail(supabase, account_id, {
+          final: false,
           idempotencyKey: `layaway-forfeited-${account_id}-${result.forfeited_at}`,
-          element: React.createElement(LayawayForfeitedEmail, {
-            lang: pickLang((account as any).customer_lang),
-            reference,
-            currency: String(account.currency ?? "JPY") as "JPY" | "PHP",
-            totalAmount: Number((account as any).total_amount ?? 0),
-            totalPaid: Number(account.total_paid ?? 0),
-            planUrl: site ? `${site}/account/layaway/${account_id}` : null,
-          }),
         });
       } else if (customer?.email) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${account.invoice_number || ""}`;
