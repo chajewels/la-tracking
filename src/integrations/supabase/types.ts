@@ -291,6 +291,8 @@ export type Database = {
           payment_method: string | null
           payment_status: string | null
           quote_id: string | null
+          ready_confirmed_at: string | null
+          ready_confirmed_by: string | null
           recipient_name: string | null
           recipient_phone: string | null
           refund_decided_at: string | null
@@ -350,6 +352,8 @@ export type Database = {
           payment_method?: string | null
           payment_status?: string | null
           quote_id?: string | null
+          ready_confirmed_at?: string | null
+          ready_confirmed_by?: string | null
           recipient_name?: string | null
           recipient_phone?: string | null
           refund_decided_at?: string | null
@@ -409,6 +413,8 @@ export type Database = {
           payment_method?: string | null
           payment_status?: string | null
           quote_id?: string | null
+          ready_confirmed_at?: string | null
+          ready_confirmed_by?: string | null
           recipient_name?: string | null
           recipient_phone?: string | null
           refund_decided_at?: string | null
@@ -1757,6 +1763,8 @@ export type Database = {
           quote_id: string | null
           reactivated_at: string | null
           reactivated_by_user_id: string | null
+          ready_confirmed_at: string | null
+          ready_confirmed_by: string | null
           remaining_balance: number
           ship_to_snapshot: Json | null
           shipped_at: string | null
@@ -1811,6 +1819,8 @@ export type Database = {
           quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
+          ready_confirmed_at?: string | null
+          ready_confirmed_by?: string | null
           remaining_balance: number
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
@@ -1865,6 +1875,8 @@ export type Database = {
           quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
+          ready_confirmed_at?: string | null
+          ready_confirmed_by?: string | null
           remaining_balance?: number
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
@@ -6446,6 +6458,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      confirm_web_order_ready_atomic: {
+        Args: {
+          p_entity_id: string
+          p_entity_type: string
+          p_note?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       consume_lots_fifo: {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
         Returns: number
@@ -6470,6 +6491,7 @@ export type Database = {
           p_lang?: string
           p_order_date?: string
           p_quote_id: string
+          p_reserve?: boolean
           p_transfer_due_at?: string
         }
         Returns: Json
@@ -6480,10 +6502,20 @@ export type Database = {
           p_lang?: string
           p_method: string
           p_quote_id: string
+          p_reserve?: boolean
         }
         Returns: Json
       }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
+      decline_web_layaway_reservation_atomic: {
+        Args: {
+          p_account_id: string
+          p_reason: string
+          p_source?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
         Returns: Json
@@ -6519,6 +6551,10 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      expire_unconfirmed_web_reservations_atomic: {
+        Args: { p_hours?: number; p_limit?: number }
+        Returns: Json
       }
       expire_web_layaway_atomic: {
         Args: { p_account_id: string; p_source?: string }
@@ -7144,7 +7180,7 @@ export type Database = {
         Returns: Json
       }
       web_deposit_deadline_hours: {
-        Args: { p_customer_id: string }
+        Args: { p_customer_id: string; p_exclude_order?: string }
         Returns: number
       }
     }
