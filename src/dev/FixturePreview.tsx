@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Route, Routes, useSearchParams } from 'react-router-dom';
 import AccountList from '@/pages/AccountList';
 import Dashboard from '@/pages/Dashboard';
+import AccountDetail from '@/pages/AccountDetail';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
@@ -79,6 +80,9 @@ import {
  *   /__fixtures?view=product-dialog → Website Catalog ProductDialog (long form)
  *   /__fixtures?view=datatable      → DataTable with expandable rows
  *   /__fixtures?view=tabs           → Tabs primitive (sliding indicator)
+ *   /__fixtures/<account-id>?view=account-detail
+ *                                   → AccountDetail for a seeded account
+ *                                     (summary tiles; empty schedule/payments)
  *   &empty=1                        → empty-state variant of any view
  */
 export default function FixturePreview() {
@@ -106,6 +110,8 @@ export default function FixturePreview() {
     seed(['needs-attention-cash'], buildAttentionCash(empty));
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
+      seed(['account', a.id], a);
+      for (const k of ['schedule', 'payments', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
     }
     return null;
   });
@@ -114,6 +120,13 @@ export default function FixturePreview() {
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;
+  if (view === 'account-detail') {
+    return (
+      <Routes>
+        <Route path=":id" element={<AccountDetail />} />
+      </Routes>
+    );
+  }
   if (view === 'dashboard') return <Dashboard />;
   if (view === 'attention') {
     return (

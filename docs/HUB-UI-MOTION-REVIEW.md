@@ -40,9 +40,12 @@ Follow-up to the review of `7ecf3d68`. All timings still come from `src/theme/mo
 1. **Button hover regression** (`src/index.css`, `.ui-button`). The base button had lost its color transition, so hover colors snapped. The transition now covers `scale, color, background-color, border-color, box-shadow, opacity` at `var(--ui-motion-micro, 0.12s)` with the shared ease. `touch-action`, the `:active` 0.98 scale, the coarse-pointer 44px rule and the reduced-motion override are unchanged.
 2. **CSS variable fallbacks** (`src/index.css`). Every `var(--ui-motion-micro|standard|ease)` usage now has a fallback equal to `motion.ts` (0.12s / 0.2s / `cubic-bezier(0.22,1,0.36,1)`). That covers the button, the dialog panel/overlay, `.card-hover` and its new `::after`. `main.tsx` still injects the variables, so `motion.ts` remains the single source of truth.
 3. **DataTable mobile search** (`src/components/data-table/DataTable.tsx`). The search wrapper is `relative w-full sm:w-auto`, so the input's `w-full` spans the toolbar row on mobile.
-4. **Gilded card hover without animating box-shadow** (`src/index.css`, `.card-hover`). The card is now `position: relative` with a `::after` layer carrying the gold ring and glow at opacity 0. Hover (fine pointers only) fades that layer to opacity 1, so only `opacity` animates. Under reduced motion there is no transition and no translateY.
+4. **Gilded card hover without animating box-shadow** (`src/index.css`, `.card-hover`). The card is now `position: relative` with a `::after` layer at opacity 0. Hover (fine pointers only) fades that layer to opacity 1, so only `opacity` animates. Under reduced motion there is no transition and no translateY.
+   - **Ring drawn inset so it survives overflow-hidden (all 14 cards):** `inset 0 0 0 1px hsl(var(--primary) / 0.55), inset 0 0 12px hsl(var(--primary) / 0.18)`. The owner approved the switch after the first version, an outer ring, was clipped on the 11 cards that carry `overflow-hidden`.
    - Position audit: all 14 `.card-hover` usages were checked. None positions the card itself absolute, fixed or sticky. 11 were already `relative`; 3 were static (CustomerCard, CashOrdersList, CustomerCashOrdersTab). None was skipped.
-   - **Known limitation, needs a decision:** 11 of the 14 cards also carry `overflow-hidden`: StatCard, the Dashboard plan-tier tiles and the AccountDetail tiles. On those cards the outer ring and glow are clipped at the padding box, so the hover shows only the lift and the card's own border change. The ring is fully visible on the 3 cards without `overflow-hidden`. Swapping to inset shadows (`inset 0 0 0 1px …, inset 0 0 18px …`) would make it visible on all 14. That is a one-line change, but it deviates from the specified values, so it was left as specified.
+   - Clicks: the `::after` is `pointer-events: none`. At 1440px, the element at each card's centre is the card's own content (KPI StatCard, AccountDetail tile, AccountList card), and clicking a KPI card still navigates.
+   - Text tint: measured on the card interior (20px in from each edge, where the text sits), hover changes 0 pixels on the AccountDetail tile. On the KPI StatCard the mean change is 1.3/255, all of it from the card's existing group-hover effects: the icon's `scale-110` and the "View →" hint. The inset glow does not reach the text.
+   - Screenshots: `dashboard-kpi-card-hover-1440.png`, `account-detail-tile-hover-1440.png`, `account-list-card-hover-1440.png`.
 
 ### Enhancements (Framer Motion)
 
@@ -55,9 +58,13 @@ Follow-up to the review of `7ecf3d68`. All timings still come from `src/theme/mo
 - `npx vite build`: passed.
 - `npx vitest run`: 141/142. The one failure is `post-login-splash-guard` "session restore", which also fails on `develop` (see above).
 - ESLint on the touched TSX files: clean.
-- Playwright (Chromium) screenshots at 375px and 1440px, plus a prefers-reduced-motion set, are in `docs/screenshots/hub-ui-motion/`. They were taken against the DEV-only `/__fixtures` harness with fixture data, not live data. Three harness views were added for this: `product-dialog` (the real Website Catalog `ProductDialog` with a long form), `datatable` (the real `DataTable` with expandable rows) and `tabs` (the real Tabs primitive with the /website tab set). The live `/website` page needs a signed-in session with website permissions, so it could not be shot from the harness.
+- Playwright (Chromium) screenshots at 375px and 1440px, plus a prefers-reduced-motion set, are in `docs/screenshots/hub-ui-motion/`. They were taken against the DEV-only `/__fixtures` harness with fixture data, not live data. Four harness views were added for this: `account-detail` (the real AccountDetail for a seeded account, at `/__fixtures/<id>?view=account-detail`), `product-dialog` (the real Website Catalog `ProductDialog` with a long form), `datatable` (the real `DataTable` with expandable rows) and `tabs` (the real Tabs primitive with the /website tab set). The live `/website` page needs a signed-in session with website permissions, so it could not be shot from the harness.
 - Console: the only errors were `ERR_CONNECTION_REFUSED`, from unseeded queries trying to reach the placeholder backend the harness runs against.
 
 ### Still pending acceptance
 
-Physical-phone checks and a pass on the Firebase PR preview with real data. The card-hover limitation above needs Cynthia's call.
+Physical-phone checks and a pass on the Firebase PR preview with real data.
+
+### Production exclusion of the harness
+
+The `/__fixtures` route is registered only under `import.meta.env.DEV`, via a dynamic import, so Vite drops it from production builds. After `npx vite build`, `grep -rlF -- "<s>" dist` returns no files for any of: `__fixtures`, `FixturePreview`, `ProductDialogFixture`, `DataTableFixture`, `TabsFixture`, `fixture-inquiries`, `fixture-product`, `fixture-acct`, `CJ-NK-0142`, `K18 Diamond Pendant Necklace`, `Hallmarked, inspected`, `Shipping to Manila`, `Wholesale pricing`, `account-detail`, `product-dialog`, `buildAccountFixtures`, `buildQuickViewFixture`.
