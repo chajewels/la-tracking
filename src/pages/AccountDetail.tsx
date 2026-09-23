@@ -743,6 +743,10 @@ export default function AccountDetail() {
     expired_at?: string | null;
   } | undefined ?? {};
 
+  /** Web plans follow the web lifecycle: expiry or the normal overdue path. The
+   *  database refuses to delete one; the page must not offer to. */
+  const isWebPlan = webFields.source_channel === 'web';
+
   const message = useMemo(() => {
   if (!account) return '';
 
@@ -1377,7 +1381,11 @@ export default function AccountDetail() {
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
             )}
-            {can('delete_account') && !(account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
+            {/* A web layaway is never deleted (trg_prevent_web_layaway_delete), so the
+                action does not belong on the page at all — offering it and letting the
+                database refuse is how this rule used to reach staff as a bare 500. The
+                rule itself is unchanged; only where they read it is. */}
+            {can('delete_account') && !isWebPlan && !(account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -1386,7 +1394,12 @@ export default function AccountDetail() {
               <Trash2 className="h-4 w-4 mr-2" /> Delete Account
             </Button>
             )}
-            {can('delete_account') && (account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
+            {can('delete_account') && isWebPlan && (
+              <p className="basis-full text-xs text-muted-foreground" title="Web layaway rule: a web plan expires or runs its lifecycle, it is never deleted">
+                A web layaway is never deleted. It expires if the deposit never arrives, or it runs its lifecycle — cancel or forfeit with a reason instead.
+              </p>
+            )}
+            {can('delete_account') && !isWebPlan && (account.status === 'completed' || Number(account.total_paid ?? 0) > 0) && (
               <p className="basis-full text-xs text-muted-foreground" title="Owner rule 2026-09-13: completed or paid accounts are never deleted">
                 Completed or paid accounts are never deleted. Cancel or forfeit with a reason, or void the payment.
               </p>

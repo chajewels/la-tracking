@@ -1937,6 +1937,214 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #294 — Two polled dashboard queries had no index (2026-09-23)
+`payment_submissions` had no index on `status` for the layaway path — the only
+status index is `idx_payment_submissions_cash_order_status`, scoped to
+`cash_order_id IS NOT NULL`. So `usePendingSubmissionCount`
+(`src/hooks/use-pending-submissions.ts:15`), which every signed-in user who can
+see submissions polls **every 30 seconds**, scanned all 4,902 rows to count the
+**4** that match. Measured over the 191-day `pg_stat_statements` window:
+**256,582 calls at 214.7ms mean = 55,078 s — 15.3 hours of database time** for a
+number that fits in one byte. The summary query at `:47` added 59,684 calls at
+128.6ms = 7,674 s.
+
+`idx_payment_submissions_status_pending` — `(status) WHERE status IN
+('submitted','under_review')` — makes both an Index Only Scan. Verified against
+live in a rolled-back transaction: **0.053 ms**, four heap fetches. The partial
+predicate matches the `= ANY (ARRAY[…]::submission_status[])` form PostgREST
+generates from `.in('status', […])`, which the pre-existing cash-order index
+already demonstrated.
+
+`reminder_logs` got `(delivery_status, created_at DESC)`, and **what it buys is
+narrower than it looks** — this is worth recording because the obvious reading is
+wrong. The column has two values in production: `sent` 15,471 and `generated`
+3,448 of 18,919. So `dashboard-summary/index.ts:172` (`.eq('failed')`, 0 rows) is
+served — 55,098 calls at 61.9ms = **3,410 s** removed, verified Index Only Scan at
+0.060 ms — while `:171` (`sent`+`delivered`, 82% of the table) and
+`Monitoring.tsx:152` (`sent`) are **not** served and should not be: at that
+selectivity the planner correctly keeps a sequential scan (verified: Seq Scan,
+5.8 ms). `:170` is an unfiltered count no index can help, and `Monitoring.tsx:119`
+orders by `created_at` with no status filter, so the second column does not serve
+it either. The index earns its keep on the failure counts and on any future
+status that is actually rare — which is precisely the case that matters.
+
+Migration `20260923100000_reconciliation_batch_cursor.sql`. Neither table is
+touched by any other change here.
+
+### #293 — The nightly reconciliation cursor was built in JS, and one run was never going to be enough (2026-09-23)
+`daily-reconciliation` paged all of `reconciliation_log` newest-first into a JS
+`Map` to work out which accounts were least recently reconciled, stopping when
+the Map held as many distinct accounts as there were candidates.
+
+**That stop condition is wrong**, and the fix proves it. It counts every account
+the log has ever carried — 1,305 distinct — not the 563 candidates, so it can
+stop with candidates still unseen, and those are then handed to the sort as
+"never reconciled" and jump the queue ahead of accounts that genuinely have not
+been checked. The 2026-09-23 run recorded `never_checked_at_start: 2`; the SQL
+ordering over the whole log says the true figure is **0**. Two accounts were
+being re-reconciled out of turn every night on a false reading. The page count
+also grows with the log (20,134 rows, ~92 more each night), not with the work.
+
+`next_reconciliation_batch(p_limit int)` does the same ordering in SQL, exactly:
+`LEFT JOIN LATERAL (SELECT max(checked_at) …)` ordered by
+`COALESCE(last_checked_at, '-infinity'), id`, backed by a new
+`reconciliation_log (account_id, checked_at DESC)` index. Verified against live in
+a rolled-back transaction: 563 rows, Index Only Scan with 563 loops,
+**4.231 ms execution**. The edge function's paging loop, `LOG_PAGE`, the `Map` and
+the comparator are gone; it reads `last_checked_at` from the RPC.
+
+**DO NOT RECORD THIS AS A SPEED FIX — it is a correctness fix.** The sweep it
+replaced was cheap: about three pages a night, ~60 ms of database time, under a
+second of wall clock. Measured from `reconciliation_log` timestamps on five
+consecutive nights, the run spends **~2.0 s per account on the HTTP round trip to
+`reconcile-account`** and covers **91** of 563 candidates before its budget is
+spent (2026-09-18 through 09-22: 91, 91, 91, 91 accounts, 179 s spans, first row
+~2 s after the cron fires). Removing the cursor frees well under a second, i.e.
+**91 → ~91**. The budget is spent on real work; there is no overhead left to
+reclaim.
+
+So the second half of the fix is the one that moves the number: **a second cron at
+12:20 UTC** (20:20 PHT), `daily-reconciliation-midday`, same Vault-backed
+`email_queue_service_role_key` body as jobid 15 per the CRON AUTH RULE. Two runs
+cover **~182 accounts a day** and close a full pass in **~3 days instead of ~6.2**.
+12:20 UTC sits far from the 00:00–00:55 morning chain and competes with nothing in
+it; `cron.schedule` upserts by jobname, so replaying the migration is a no-op.
+
+The completion record is unchanged — same keys, same `budget_exhausted` /
+`remaining` semantics, so Check 17 reads it exactly as before.
+
+**Noted, not changed:** the deployed `BUDGET_MS` behaves like **180,000 ms**, not
+the 150,000 in the repo. Derived from the same timestamps — the run breaks after
+the account that completes at ~181 s and not after the one at ~179 s. Left alone
+because nothing here depends on it and changing a budget is a separate decision;
+recorded so the next person measuring does not think they have found a new bug.
+
+### #292 — A web layaway's delete refusal reached staff as a bare 500 (2026-09-23)
+The rule is unchanged and stays: a web layaway is never deleted (WEB LAYAWAY,
+`trg_prevent_web_layaway_delete`). Only how staff learn it has changed.
+
+The Hub offered "Delete Account" on a web plan — `can('delete_account')` and a
+not-completed/not-paid test were the whole gate (`src/pages/AccountDetail.tsx:1380`)
+— so the only way to discover the rule was to click it. The trigger's `RAISE`
+(ERRCODE `P0001`) fires inside `delete_account_atomic`, which carries no
+`EXCEPTION … WHEN` block, so it surfaced in `delete-account/index.ts` as an
+ordinary `rpcError` and was returned by the catch-all
+`return … { error: rpcError.message }, status: 500`. A rule rendered as a server
+failure.
+
+**`src/pages/AccountDetail.tsx`.** `isWebPlan` derived beside the existing
+`webFields` cast. The Delete button now also requires `!isWebPlan`, and a web plan
+shows one line in its place: *"A web layaway is never deleted. It expires if the
+deposit never arrives, or it runs its lifecycle — cancel or forfeit with a reason
+instead."* The completed/paid line (owner rule 2026-09-13) is unchanged and now
+also requires `!isWebPlan`, so the two never both render.
+
+**`supabase/functions/delete-account/index.ts`.** The `rpcError` branch checks for
+`web_layaway_delete_forbidden` and returns **409** with the trigger's own sentence
+as `message` and the condition as `error`, stripping only the machine prefix — the
+same shape the paid-order refusal already used. Every other `rpcError` keeps its
+500. `data?.error === 'web_layaway_delete_forbidden'` was added to the soft-error
+status map too, so the mapping holds whichever way the RPC ever reports it.
+`useDeleteAccount` (`src/hooks/use-supabase-data.ts:895-902`) already reads
+`body.message` off a `FunctionsHttpError`, so the toast shows the sentence with no
+change.
+
+The rule deliberately stays in the database. The page hides an action it cannot
+perform; it does not restate the rule as a second gate that could drift.
+
+### #291 — Payment allocations accepted negatives, NaN and a ±1 mismatch; a negative leg was then silently dropped (2026-09-23)
+`record-multi-payment` validated a batch by its SUM and nothing else, then threw
+away any leg it did not like. A batch of **+100 and −50** sums to 50, so a
+declared `total_amount_paid` of 50 passed the old check
+`Math.abs(totalAllocated - total_amount_paid) > 1`. The processing loop then hit
+`if (Number(inputAlloc.amount) <= 0) continue;`, silently dropped the −50 leg,
+and submitted **100** — twice what the batch said, with no error anywhere and
+nothing in the response to show a leg had gone missing. Audit F04.
+
+Four independent defects made that possible:
+
+1. **No per-leg sign check.** Only the sum was tested, so any pair that netted
+   correctly got through.
+2. **A ±1 tolerance, not an epsilon.** `> 1` is a whole peso or a whole yen. A
+   batch could be 99 centavos out and still book. CLAUDE.md DECIMAL RULES says
+   "Money equality: always use moneyEqual() with EPSILON tolerance", and
+   `MONEY_EPSILON` is `0.01` — a hundred times tighter.
+3. **`total_amount_paid` was optional.** The guard read
+   `if (total_amount_paid && Math.abs(…))`, so omitting the field — or sending
+   `0` — skipped the cross-check entirely and let the legs sum to anything.
+4. **No NaN or precision test.** `NaN <= 0` and `NaN > 0` are BOTH false, so a
+   NaN amount passed every ordering test in the function. Nothing checked whole
+   yen for JPY or two decimals for PHP either.
+
+**New: `supabase/functions/_shared/payment-validation.ts`.** A pure module — no
+Deno globals, no Supabase client, no I/O — so vitest imports the exact file the
+edge functions run rather than a copy. `validateAllocations(rows, total, currency)`
+throws a specific `Error` for each failure: empty list; non-finite amount
+(`typeof` **and** `Number.isFinite`, because a comparison alone never catches
+NaN); amount `<= 0`; currency precision (JPY whole, PHP ≤ 2dp, with a float-noise
+guard so `0.1 + 0.2` is accepted as 30 centavos while `10.555` is not); duplicate
+`account_id`; mixed-currency batch; a missing, non-finite or non-positive
+`total_amount_paid`; and sum ≠ total compared on **MONEY_EPSILON**, summed in
+integer cents. `validateSingleAmount` is the same rules for one amount.
+`MONEY_EPSILON`, `toInt` and `moneyEqual` are MIRRORED from
+`src/lib/business-rules.ts`, not imported — edge functions must not reach across
+into `src/`, which is bundled for the browser. Keep the two in step.
+
+THE WIRE FORMAT DID NOT CHANGE. Amounts stay decimal (`12.34`), not minor units;
+integer cents are internal to the summation only. No caller contract moved.
+
+**`supabase/functions/record-multi-payment/index.ts`.** `validateAllocations`
+runs before any write, after the account fetch because it needs the resolved
+currency (everything above that point is a read); a failure is a 400 carrying the
+validator's specific message, naming the offending account. The
+`if (… <= 0) continue;` skip is GONE — after validation nothing reaching the loop
+can be non-positive, and dropping a leg silently is the defect itself.
+`total_amount_paid` is now REQUIRED. The `audit_logs` insert error is
+destructured and logged; it does not fail the request, because the submission
+already exists and failing would tell the caller nothing was booked.
+
+**`supabase/functions/record-payment/index.ts`.** Reuses `validateSingleAmount`
+for the single-amount path, replacing `!amount_paid || amount_paid <= 0` — which
+used falsiness and never tested NaN, Infinity or precision. The `audit_logs`
+insert error is logged, not ignored. **The `proof_url` update error now fails the
+request**: under PROOF REQUIRED, `review-payment-submission` refuses to confirm a
+submission with an empty `proof_url`, so returning 201 after a failed attach
+reported success for an UNCONFIRMABLE row that would sit in the queue while the
+money never booked. It now returns 500 `proof_attach_failed` carrying the
+`submission_id` and `submission_exists_without_proof: true`, and says in words
+that staff must RE-ATTACH proof to that submission rather than resubmit. The row
+is deliberately NOT deleted — it is a real record of a real attempt, it holds the
+advisory-lock dedupe slot, and deleting it invites a duplicate.
+
+**Tests:** `src/test/payment-validation.test.ts`, 27 cases — the +100/−50 batch,
+single negative, zero, NaN, Infinity, non-numeric string, JPY with decimals, PHP
+with 3 decimals, duplicate account, mixed currency, missing/zero/non-finite
+total, a mismatch the old ±1 window would have accepted, a gap of exactly 0.01
+(must fail, mirroring `moneyEqual`'s strict `<`), a difference inside epsilon
+that must PASS, and a valid multi-account batch.
+
+**NOT attempted here, and deliberately so — recorded as a TODO in the code.**
+`record-multi-payment` is still neither atomic nor idempotent. Each leg inserts
+its own `payment_submissions` row inside the loop, so a failure on leg 3 of 5
+leaves 1–2 submitted and 3–5 not, with no rollback and no marker on the
+`batch_id`. And `batch_id` is a fresh `crypto.randomUUID()` per call, so a client
+retry after a timeout creates a SECOND full set of submissions for the same
+money — `record-payment` gets per-account protection from
+`insert_payment_submission_guarded`, and the batch path has no equivalent. Both
+need one transactional RPC taking the whole batch plus a caller-supplied
+idempotency key. That is its own step; this one is validation only.
+
+**Callers:** no change needed in `src/`. `MultiInvoicePaymentDialog.tsx` already
+sends `total_amount_paid: totalAllocated` and already blocks non-positive legs in
+the UI, so REQUIRED breaks nothing. `RecordPaymentDialog.tsx`,
+`BulkPaymentImport.tsx` and `use-supabase-data.ts` all send numeric amounts.
+Note that `validateAllocations` rejects numerically-shaped STRINGS such as
+`"100"` as well as `"abc"`; the wire format is JSON numbers and no caller sends
+strings, but it is a strictness increase worth knowing about.
+
+**Status:** merged to main, edge deploy pending via Lovable. All three edge files
+need the Lovable redeploy before any of this is in force.
+
 ### #290 — Unsigned service-role claims accepted on non-gateway functions (2026-09-23)
 Two edge functions ran at `verify_jwt = false` and still trusted a caller that
 merely *claimed* `role: "service_role"`. With the gateway check off, nothing
@@ -1987,8 +2195,58 @@ a function with no cron and no vault caller — today that is
 `sync-store-credit-to-shopify` and nothing else. The rule now carries that
 carve-out explicitly; see docs/SCHEMA-FACTS.md.
 
-**Status:** merged to main, edge deploy pending via Lovable. `config.toml` and
-both function bodies need the Lovable redeploy before any of this is in force.
+**Status: DEPLOYED 2026-09-23.** Merged to main (PR #141 → develop, PR #142
+develop → main, merge commit `fbab2ffb`) and deployed to the live project by
+Lovable on 2026-09-23. All three functions — `system-health-v2`,
+`reconcile-store-credit`, `sync-store-credit-to-shopify` — were redeployed in
+one pass after the eight mirror source assertions passed.
+
+Production probes, run by Lovable against
+`https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1` immediately after the
+deploy, reported verbatim:
+
+> 1. `system-health-v2`, `Bearer not-a-jwt` → **401** `{"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}`
+> 2. `system-health-v2`, self-signed `{"role":"service_role"}` → **401** `{"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}` — no health report returned
+> 3. `reconcile-store-credit`, `Bearer not-a-jwt` → **401** `{"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}`
+> 4. `sync-store-credit-to-shopify`, self-signed `{"role":"service_role"}`, body `{}` → **401** `{"error":"Unauthorized"}` — not the old 400 `customer_id is required`, so the new code is live
+
+Probe 2 is the finding closed: that same token returned 200 with the full
+health report on the pre-fix main. Probe 4 proves the code half independently —
+a 400 `customer_id is required` there would have meant `isServiceRole` was
+still running.
+
+**LOVABLE'S DEPLOY DOES APPLY `supabase/config.toml` — now confirmed, and it was
+not before.** This was carried as an explicit unknown on release PR #142: the
+whole gateway half of the fix depended on it. Probe 2 settles it. That function
+sat at `verify_jwt = false` before this deploy and now rejects at the GATEWAY
+with a gateway-format error (`UNAUTHORIZED_*` envelope), which only happens if
+the gateway setting moved. Probe 4 confirms the same mechanism in the other
+direction: `sync-store-credit-to-shopify` reached its own handler and answered
+in the function's own error shape, as `verify_jwt = false` requires. Future
+config-only changes can therefore be shipped through a Lovable deploy — but keep
+asserting on a probe, not on the deploy report.
+
+**STILL UNVERIFIED: the runtime format of `SUPABASE_SERVICE_ROLE_KEY`.** The
+exact-match gate in `sync-store-credit-to-shopify`, and the decision to keep that
+function at `verify_jwt = false`, both rest on assumptions about this value that
+nothing has tested. Lovable reported it is not observable from its side: the key
+is runtime-injected, absent from the project secrets list, and reading even its
+length or first characters would require deploying or invoking code that echoes
+it. Locally it is a classic signed JWT, so the `sb_secret_*` non-JWT case — the
+one that motivated `verify_jwt = false` — has never been exercised. If the five
+internal callers ever start failing with 401, this is the first thing to check.
+
+Two further items Lovable could not observe, reported rather than substituted:
+the **deployed version number** and the **deploy timestamp** for each function
+("not observable on this backend"). The `verify_jwt` values above are inferred
+from probe behaviour, not read from stored config.
+
+**OUTSTANDING AS OF WRITING: the `reconcile-store-credit-daily` cron has not been
+confirmed.** `reconcile-store-credit` moved from an undeclared default to an
+explicit `verify_jwt = true`, which is a no-op in principle, and its nightly cron
+sends a Vault-backed service-role JWT that the gateway should accept. That has
+not been observed end to end — no cron run has been checked since the deploy.
+Confirm the next nightly run completed before treating this as closed.
 
 ### #289 — email_send_log rejected 'skipped' rows (reported; live already admits it) and a lost log row was a warning (2026-09-22)
 Lovable's issue scan reported that `recordEmailAttempt()` writes `status = 'skipped'`
