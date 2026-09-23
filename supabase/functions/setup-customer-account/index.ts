@@ -135,6 +135,69 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Duplicate-customer prevention (owner rules 2026-09-23). This branch
+      // would CREATE a customer, so a match on full name, Facebook name,
+      // mobile or email blocks signup; the email-link branches below are her
+      // own record and never reach here. A failed check never inserts.
+      const { data: dupMatches, error: dupErr } = await supabase.rpc(
+        "find_customer_matches",
+        {
+          p_full_name: fullName || null,
+          p_facebook_name: facebookName || null,
+          p_mobile: mobileNumber || null,
+          p_email: authUserEmail,
+        },
+      );
+      if (dupErr) {
+        console.error("[setup-customer-account] duplicate check failed:", dupErr);
+        return json({ error: "Duplicate check failed" }, 500);
+      }
+      const dups = (dupMatches ?? []) as Array<{
+        customer_id: string;
+        customer_code: string | null;
+        matched_on: string[];
+      }>;
+      if (dups.length > 0) {
+        try {
+          const { error: notifyErr } = await supabase.from("staff_notifications").insert({
+            type: "duplicate_signup_blocked",
+            title: "Signup blocked — existing customer",
+            body: `Portal signup blocked: ${fullName} <${authUserEmail}>`
+              + `, Facebook: ${facebookName || "—"}, mobile: ${mobileNumber || "—"}`
+              + `, location: ${locationVal || country || "—"}, auth user ${authUserId}. Matches: `
+              + dups.map((d) => `${d.customer_code ?? "no code"} (${d.matched_on.join(", ")})`).join("; "),
+            customer_id: dups[0].customer_id,
+            metadata: {
+              source: "setup-customer-account",
+              auth_user_id: authUserId,
+              email: authUserEmail,
+              full_name: fullName,
+              facebook_name: facebookName,
+              mobile_number: mobileNumber || null,
+              location: locationVal || null,
+              country,
+              matches: dups.map((d) => ({
+                customer_id: d.customer_id,
+                customer_code: d.customer_code,
+                matched_on: d.matched_on,
+              })),
+            },
+          });
+          if (notifyErr) {
+            console.warn("[setup-customer-account] duplicate_signup_blocked notification failed (non-blocking):", notifyErr);
+          }
+        } catch (notifyBlockErr) {
+          console.warn("[setup-customer-account] duplicate_signup_blocked notification failed (non-blocking):", notifyBlockErr);
+        }
+        return json(
+          {
+            error: "already_registered",
+            message: "You are already registered. Please contact Cha Jewels for your account details.",
+          },
+          409,
+        );
+      }
+
       const customerInsert: Record<string, unknown> = {
         full_name: fullName,
         email: authUserEmail,

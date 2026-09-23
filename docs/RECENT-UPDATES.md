@@ -1,5 +1,20 @@
 ## Recent Updates
 
+  2026-09-24 — Duplicate-customer prevention (owner rules 2026-09-23;
+  full spec in docs/SCHEMA-FACTS.md "Duplicate-customer prevention").
+  New RPC public.find_customer_matches (applied live by the owner,
+  recorded in migration 20260924000000). Hub: NewCustomerDialog,
+  EditCustomerDialog, ImportCustomersDialog and the AI command modal
+  block on a match — no "create anyway"; staff use the existing
+  account (audit_logs 'duplicate_prevented'). Signup:
+  setup-customer-account and website POST /auth/customer return 409
+  already_registered on the create branch and raise staff bell
+  'duplicate_signup_blocked'; POST /auth/customer also accepts optional
+  facebook_name / messenger_link / mobile_number / location. Portal
+  shows "You are already registered. Please contact Cha Jewels for your
+  account details." Edge functions need a Lovable deploy after the
+  develop -> main release.
+
   2026-05-28 — record-payment rate limit: downpayment submissions now
   5 per account per 24h (counted on downpayment submissions alone);
   installment/other submissions unchanged at 3. Commit ec8843f.
