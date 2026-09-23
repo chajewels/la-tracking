@@ -6960,6 +6960,15 @@ export type Database = {
           use_count: number
         }[]
       }
+      reactivate_layaway_atomic: {
+        Args: {
+          p_account_id: string
+          p_extension_end_date: string
+          p_penalty_count: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
       reactivate_web_layaway_atomic: {
         Args: {
           p_account_id: string
