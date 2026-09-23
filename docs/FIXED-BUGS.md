@@ -1987,8 +1987,58 @@ a function with no cron and no vault caller — today that is
 `sync-store-credit-to-shopify` and nothing else. The rule now carries that
 carve-out explicitly; see docs/SCHEMA-FACTS.md.
 
-**Status:** merged to main, edge deploy pending via Lovable. `config.toml` and
-both function bodies need the Lovable redeploy before any of this is in force.
+**Status: DEPLOYED 2026-09-23.** Merged to main (PR #141 → develop, PR #142
+develop → main, merge commit `fbab2ffb`) and deployed to the live project by
+Lovable on 2026-09-23. All three functions — `system-health-v2`,
+`reconcile-store-credit`, `sync-store-credit-to-shopify` — were redeployed in
+one pass after the eight mirror source assertions passed.
+
+Production probes, run by Lovable against
+`https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1` immediately after the
+deploy, reported verbatim:
+
+> 1. `system-health-v2`, `Bearer not-a-jwt` → **401** `{"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}`
+> 2. `system-health-v2`, self-signed `{"role":"service_role"}` → **401** `{"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}` — no health report returned
+> 3. `reconcile-store-credit`, `Bearer not-a-jwt` → **401** `{"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}`
+> 4. `sync-store-credit-to-shopify`, self-signed `{"role":"service_role"}`, body `{}` → **401** `{"error":"Unauthorized"}` — not the old 400 `customer_id is required`, so the new code is live
+
+Probe 2 is the finding closed: that same token returned 200 with the full
+health report on the pre-fix main. Probe 4 proves the code half independently —
+a 400 `customer_id is required` there would have meant `isServiceRole` was
+still running.
+
+**LOVABLE'S DEPLOY DOES APPLY `supabase/config.toml` — now confirmed, and it was
+not before.** This was carried as an explicit unknown on release PR #142: the
+whole gateway half of the fix depended on it. Probe 2 settles it. That function
+sat at `verify_jwt = false` before this deploy and now rejects at the GATEWAY
+with a gateway-format error (`UNAUTHORIZED_*` envelope), which only happens if
+the gateway setting moved. Probe 4 confirms the same mechanism in the other
+direction: `sync-store-credit-to-shopify` reached its own handler and answered
+in the function's own error shape, as `verify_jwt = false` requires. Future
+config-only changes can therefore be shipped through a Lovable deploy — but keep
+asserting on a probe, not on the deploy report.
+
+**STILL UNVERIFIED: the runtime format of `SUPABASE_SERVICE_ROLE_KEY`.** The
+exact-match gate in `sync-store-credit-to-shopify`, and the decision to keep that
+function at `verify_jwt = false`, both rest on assumptions about this value that
+nothing has tested. Lovable reported it is not observable from its side: the key
+is runtime-injected, absent from the project secrets list, and reading even its
+length or first characters would require deploying or invoking code that echoes
+it. Locally it is a classic signed JWT, so the `sb_secret_*` non-JWT case — the
+one that motivated `verify_jwt = false` — has never been exercised. If the five
+internal callers ever start failing with 401, this is the first thing to check.
+
+Two further items Lovable could not observe, reported rather than substituted:
+the **deployed version number** and the **deploy timestamp** for each function
+("not observable on this backend"). The `verify_jwt` values above are inferred
+from probe behaviour, not read from stored config.
+
+**OUTSTANDING AS OF WRITING: the `reconcile-store-credit-daily` cron has not been
+confirmed.** `reconcile-store-credit` moved from an undeclared default to an
+explicit `verify_jwt = true`, which is a no-op in principle, and its nightly cron
+sends a Vault-backed service-role JWT that the gateway should accept. That has
+not been observed end to end — no cron run has been checked since the deploy.
+Confirm the next nightly run completed before treating this as closed.
 
 ### #289 — email_send_log rejected 'skipped' rows (reported; live already admits it) and a lost log row was a warning (2026-09-22)
 Lovable's issue scan reported that `recordEmailAttempt()` writes `status = 'skipped'`
