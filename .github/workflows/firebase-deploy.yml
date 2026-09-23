@@ -74,8 +74,11 @@ jobs:
       #   the campaign recipient count and duration estimate, which are the two
       #     numbers staff read before pressing Send — and a send cannot be
       #     taken back.
+      #   the web-order lifecycle rules: which orders INVARIANT 12 freezes
+      #     out of the expiry sweep (an expiry over a pending submission looks
+      #     like any other expiry), and which email a forfeited web plan gets.
       - name: Website and template tests
-        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts
+        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts
 
       - name: Build app
         run: npm run build

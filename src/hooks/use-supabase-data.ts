@@ -644,6 +644,59 @@ export function useReactivateWebLayaway() {
   });
 }
 
+/**
+ * Revive an EXPIRED web cash order (owner decision 2026-09-23).
+ *
+ * One RPC behind revive-web-cash-order: the stock expiry released is taken
+ * back (refused by name if a piece has sold), payment_status returns to
+ * pending_transfer so the storefront shows the customer how to pay, and the
+ * deadline comes from the same rule the order was placed under (24h first
+ * order / 72h returning) — staff do not type it.
+ */
+export function useReviveWebCashOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { cash_order_id: string; reason: string }) => {
+      const { data, error } = await supabase.functions.invoke('revive-web-cash-order', { body: payload });
+      if (error) {
+        let detailedMsg = error.message || 'Could not revive the order';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error === 'out_of_stock') {
+              const lines = Array.isArray(body.lines) ? body.lines : [];
+              const names = lines.map((l: any) => l?.sku || l?.title).filter(Boolean).join(', ');
+              detailedMsg = names
+                ? `Cannot revive — no longer in stock: ${names}.`
+                : 'Cannot revive — one of the pieces is no longer in stock.';
+            } else if (body?.error === 'not_expired') {
+              detailedMsg = `This order is ${body.status} — only an expired order can be revived.`;
+            } else if (body?.error === 'already_paid' || body?.error === 'payment_exists') {
+              detailedMsg = 'This order has money on it, so it cannot be revived as an unpaid order.';
+            } else if (body?.message) detailedMsg = body.message;
+            else if (body?.error) detailedMsg = body.error;
+          }
+        } catch { /* fall back to the generic message */ }
+        throw new Error(detailedMsg);
+      }
+      if (data?.error) throw new Error(String(data.error));
+      return data as {
+        ok: true;
+        web_reference: string | null;
+        transfer_due_at: string;
+        deadline_hours: number;
+        stock_lines_taken: number;
+        unheld_lines: number;
+      };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-order'] });
+      qc.invalidateQueries({ queryKey: ['cash-orders'] });
+      qc.invalidateQueries({ queryKey: ['website-products'] });
+    },
+  });
+}
+
 export function useSetAccountDeadlines() {
   const qc = useQueryClient();
   return useMutation({

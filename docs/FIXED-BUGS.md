@@ -1937,6 +1937,60 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #298 — Three web-order lifecycle gaps: cash expiry ignored INVARIANT 12, "Revive Order" left a web order half-alive, forfeiting a web layaway kept its stock (2026-09-23)
+Found while tracing the storefront flow for the Rule A (reservation-first)
+design. All three are fixed in one PR, migration
+`20260923120000_web_order_gaps.sql`, before any Rule A work.
+
+**1. INVARIANT 12 on the cash side.** CLAUDE.md said cash-order expiry
+"inherits" the freeze on automated status while a payment submission is
+unconfirmed. It did not. `auto-expire-cash-orders` expired the order and then
+**auto-rejected** its `submitted` / `under_review` submissions ("Cash order
+expired (auto-rejected)"), throwing away the customer's proof of a transfer that
+may have arrived on time; `terminate_web_order_atomic` had no pending-submission
+test at all. Fix: the sweep reads the frozen order ids first, keeps them out of
+its quota (a `.limit(100)` followed by a skip would let frozen orders at the head
+of the queue starve every run), reports them as `frozen_pending_submission` /
+`frozen_details`, and rejects nothing. `terminate_web_order_atomic` refuses with
+`submission_pending` for outcome `expired` and for system-sourced cancels —
+inside the row lock, so a submission landing after the sweep's read still wins.
+**Staff cancels are not blocked**: INVARIANT 12 freezes automation, never a
+person acting deliberately. Hub (non-web) cash orders are re-checked immediately
+before their plain update; the residual window is milliseconds.
+
+**2. "Revive Order" on a web cash order** (Bug #217's button) did three
+client-side writes — status `pending`, `expired_at` null, a staff-typed
+`expires_at`. Expiry had put the pieces back on sale and nothing took them back;
+`payment_status` stayed `cancelled`, so the storefront never showed the customer
+how to pay; `transfer_due_at`, the deadline the customer sees, did not move.
+Fix: `revive_web_cash_order_atomic` behind `revive-web-cash-order`
+(`edit_account`, reason required) — re-takes the stock or refuses
+`out_of_stock` naming the lines, resets `payment_status` to `pending_transfer`,
+sets `transfer_due_at = expires_at` from `web_deposit_deadline_hours` (measured
+while the order is still expired, so it does not count itself), writes
+`account_notes` + `audit_logs web_order_revived`. Hub orders keep the old
+dialog. The customer is NOT emailed on revival (unchanged; see OPEN-BUGS).
+
+**3. Forfeiting a web layaway kept its stock.** Only expiry and
+`reactivate_web_layaway_atomic` ever touched `website_product_variants` for a
+plan. There is no staff *cancel* for a layaway in the Hub — `manual-forfeit` is
+the only staff exit — so that is the path fixed. `manual_forfeit_layaway_atomic`
+now does the status flip, the schedule cancel, the audit row and (web only) the
+stock return in one transaction, stamping the new
+`layaway_accounts.stock_released_at`. Because a forfeited plan can be reactivated
+once and `reactivate-account` is a LOCKED function, the re-hold is a trigger
+(`trg_rehold_released_web_layaway_stock`): a web plan whose stock was released
+that returns to a live status takes the stock back in the same statement, or the
+status change fails with `web_layaway_stock_unavailable` if a piece has sold.
+The customer of a web plan now gets the storefront `layaway-forfeited` email
+(logged via `recordEmailAttempt`, channel `storefront`); Hub plans keep
+`account-forfeited`. `auto-forfeit-settlement` is unchanged and still keeps a
+forfeited web plan's stock held (owner scope was staff forfeits).
+
+Tests: `src/test/web-order-gaps.test.ts` (CI step "Website and template
+tests"); SQL assertions `docs/sql/20260923_web_order_gaps_assertions.sql`
+(transaction + ROLLBACK).
+
 ### #297 — Every discounted Page365 invoice was refused with a 422, and the discount would never have reached the account (2026-09-23)
 `page365-fetch-order` read three money fields off the invoice — `price_subtotal`,
 `price_shipping`, `price_total` — and reconciled them as

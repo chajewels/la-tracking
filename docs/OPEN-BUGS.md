@@ -4,6 +4,35 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### web-order lifecycle follow-ups left open by #298 (filed 2026-09-23)
+
+  Filed, not fixed — each is outside the owner-approved scope of #298.
+
+  **1. No customer email on revival.** `revive-web-cash-order` and
+  `reactivate-web-layaway` bring an order back with a NEW deadline and tell the
+  customer nothing; the last email they received said the order was cancelled.
+  Revival normally follows a customer contact, but the new deadline exists
+  only on the storefront account page. Fix pattern: send the existing
+  `order-confirmation` / `layaway-plan-created` content (transfer cards + the
+  new deadline) from each function after the RPC succeeds, via
+  `sendStorefrontEmail`.
+
+  **2. auto-forfeit-settlement keeps a forfeited web plan's stock held.** Only
+  the staff forfeit returns it. A web plan forfeited by PATH 1/2 sits with its
+  piece off sale until someone acts; if it later reaches `final_forfeited` the
+  piece is held forever. Fix pattern: route the automated forfeit through the
+  same release (`stock_released_at` + `website_product_variants`) — the
+  re-hold trigger already covers the way back.
+
+  **3. Reactivating a forfeited web plan whose piece has sold leaves its
+  schedule un-cancelled.** `reactivate-account` (LOCKED) un-cancels schedule
+  rows BEFORE it updates the account; when
+  `trg_rehold_released_web_layaway_stock` refuses the status change, the
+  account stays `forfeited` but those rows are already back to `overdue`.
+  Needs owner approval to touch the locked function. Fix pattern: a read-only
+  stock pre-check at the top of `reactivate-account` for web plans with
+  `stock_released_at` set, returning 409 before any write.
+
 ### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
 
   Filed, not fixed — deliberately. Both are narrower than the fault they came

@@ -2721,6 +2721,11 @@ export default function AccountDetail() {
               <p className="text-sm text-muted-foreground mb-4">
                 This will mark INV #{account.invoice_number} as forfeited. The customer will be flagged as a high-risk payer. Payments can no longer be recorded on this account.
               </p>
+              {isWebPlan && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  This is a web plan: its pieces go back on sale on the website now, and the customer is emailed. If the plan is reactivated later, the pieces are taken back off sale — and reactivation is refused if one has sold in the meantime.
+                </p>
+              )}
               <div className="mb-4">
                 <TypedConfirmField word={account.invoice_number} onArmedChange={setForfeitArmed} />
               </div>
@@ -2735,8 +2740,13 @@ export default function AccountDetail() {
                   disabled={forfeitAccount.isPending || !forfeitArmed}
                   onClick={async () => {
                     try {
-                      await forfeitAccount.mutateAsync(account.id);
-                      toast.success(`Account INV #${account.invoice_number} forfeited`);
+                      const res = await forfeitAccount.mutateAsync(account.id);
+                      const restored = Number((res as any)?.stock_lines_restored ?? 0);
+                      toast.success(
+                        (res as any)?.is_web
+                          ? `Account INV #${account.invoice_number} forfeited — ${restored} piece line(s) back on sale`
+                          : `Account INV #${account.invoice_number} forfeited`,
+                      );
                       setForfeitConfirmOpen(false);
                     } catch (err: any) {
                       toast.error(err.message || 'Failed to forfeit account');

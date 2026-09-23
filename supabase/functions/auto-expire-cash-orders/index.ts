@@ -1,15 +1,14 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/handler.ts";
+import {
+  FREEZING_SUBMISSION_STATUSES,
+  partitionExpiryCandidates,
+} from "../_shared/web-order-rules.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { pickLang, sendStorefrontEmail } from "../_shared/storefront-email.ts";
 import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 const MAX_ORDERS_PER_RUN = 100;
 
@@ -17,9 +16,22 @@ const MAX_ORDERS_PER_RUN = 100;
  * Auto Expire Cash Orders — and web layaway holds
  *
  * Hourly cron — transitions pending cash orders past their expires_at deadline
- * to status='expired'. Auto-rejects all pending payment_submissions on the
- * expired order. Confirmed payments are NEVER voided — money already received
- * stays received; only the unpaid portion is forfeited per the order terms.
+ * to status='expired'. Confirmed payments are NEVER voided — money already
+ * received stays received; only the unpaid portion is forfeited per the order
+ * terms.
+ *
+ * INVARIANT 12 (fixed 2026-09-23). An order carrying a payment submission in
+ * 'submitted' or 'under_review' is NOT expired: the money may already be in
+ * the bank and only the reviewer knows. It is skipped and reported in the
+ * response as `frozen`, every run, until the reviewer confirms or rejects the
+ * submission. This function used to expire such an order and then
+ * AUTO-REJECT the submission, which threw away the customer's proof of a
+ * transfer that may have arrived on time. It no longer rejects anything.
+ * Web orders are also protected inside terminate_web_order_atomic (reason
+ * 'submission_pending'), so a submission that lands between this function's
+ * read and the RPC's lock still wins. Hub orders are re-checked immediately
+ * before their update; the remaining window is the few milliseconds between
+ * that read and the write.
  *
  * Since step 4 it also releases WEB LAYAWAY holds whose deposit never arrived.
  * That sweep is narrower by design: it touches only plans that have received
@@ -27,30 +39,22 @@ const MAX_ORDERS_PER_RUN = 100;
  * submission. There is no cancel-after-deposit — once a deposit is confirmed the
  * reservation is confirmed and the Hub's own lifecycle is the only way out.
  *
- * Runs at 30 0 * * * (08:30 PHT) — after auto-forfeit-settlement and
- * daily-reconciliation, alongside loyalty-inactivity-check.
+ * Runs hourly at :40 (cron `40 * * * *`, migration 20260913071937).
  *
  * No user auth — runs with service-role key from pg_cron.
  */
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const pre = corsPreflight(req);
+  if (pre) return pre;
 
-  // Service-role-only guard — cron-only endpoint.
-  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (!isServiceRole(authToken)) {
-    return new Response(JSON.stringify({ error: "Forbidden" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // Service-role-only guard — cron-only endpoint. A valid user session is
+  // still refused: nobody expires orders by hand through this door.
+  const ctx = await requireAuth(req, { allowServiceRole: true });
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.isService) return jsonResponse({ error: "Forbidden" }, 403);
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const { supabase } = ctx;
 
     const now = new Date();
     const nowIso = now.toISOString();
@@ -95,8 +99,32 @@ Deno.serve(async (req) => {
       }
     };
 
-    // 1. Fetch pending cash orders past expires_at with outstanding balance
-    const { data: orders, error: fetchErr } = await supabase
+    // 0. INVARIANT 12 — the orders a pending submission freezes. Read first so
+    //    they can be kept out of this run's quota instead of starving it.
+    const frozenIds = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data: subs, error: subErr } = await supabase
+        .from("payment_submissions")
+        .select("cash_order_id")
+        .not("cash_order_id", "is", null)
+        .in("status", [...FREEZING_SUBMISSION_STATUSES])
+        .range(from, from + 999);
+      if (subErr) {
+        // Fail closed: without the freeze list we cannot honour INVARIANT 12,
+        // so this run expires nothing. The next hourly run tries again.
+        console.error("[auto-expire-cash-orders] pending-submission read failed:", subErr);
+        return jsonResponse({ error: `pending-submission read failed: ${subErr.message}` }, 500);
+      }
+      for (const r of (subs ?? []) as Array<{ cash_order_id: string | null }>) {
+        if (r.cash_order_id) frozenIds.add(r.cash_order_id);
+      }
+      if (!subs || subs.length < 1000) break;
+    }
+
+    // 1. Fetch pending cash orders past expires_at with outstanding balance.
+    //    The limit is widened by the frozen count so frozen orders at the head
+    //    of the queue never take the places of orders that can expire.
+    const { data: candidates, error: fetchErr } = await supabase
       .from("cash_orders")
       .select("id, invoice_number, customer_id, currency, total_amount, total_paid, remaining_balance, expires_at, source_channel, web_reference, customer_lang, shipping_fee, transfer_due_at, ship_to_snapshot, ship_to_address:customer_addresses(country), customers(full_name, email, is_test)")
       .eq("status", "pending")
@@ -104,23 +132,37 @@ Deno.serve(async (req) => {
       .lt("expires_at", nowIso)
       .gt("remaining_balance", 0)
       .order("expires_at", { ascending: true })
-      .limit(MAX_ORDERS_PER_RUN);
+      .limit(MAX_ORDERS_PER_RUN + frozenIds.size);
 
     if (fetchErr) {
       console.error("[auto-expire-cash-orders] fetch error:", fetchErr);
-      return new Response(JSON.stringify({ error: fetchErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: fetchErr.message }, 500);
+    }
+
+    const { expire: orders, frozen } = partitionExpiryCandidates(
+      (candidates ?? []) as any[],
+      frozenIds,
+      MAX_ORDERS_PER_RUN,
+    );
+    // Reported, not acted on: the submission is already in the Submissions
+    // queue, which is where a human resolves it.
+    const frozenResults: Array<{ id: string; invoice_number: string; reference: string; expires_at: string }> =
+      frozen.map((o: any) => ({
+        id: o.id,
+        invoice_number: o.invoice_number,
+        reference: String(o.web_reference ?? o.invoice_number),
+        expires_at: o.expires_at,
+      }));
+    for (const f of frozenResults) {
+      console.log(`[auto-expire-cash-orders] ${f.reference} past its deadline but frozen by a pending payment submission (INVARIANT 12) — not expired`);
     }
 
     // No early return when there are no cash orders: the web-layaway sweep at
     // step 3 runs on its own schedule and must not be skipped because the cash
     // side happens to be quiet.
 
-    const expiredResults: Array<{ id: string; invoice_number: string; submissions_rejected: number }> = [];
+    const expiredResults: Array<{ id: string; invoice_number: string }> = [];
     const errors: Array<{ id: string; invoice_number: string; error: string }> = [];
-    let totalSubmissionsRejected = 0;
 
     // 2. Per-order processing with try/catch — one failure won't abort the batch
     for (const order of orders ?? []) {
@@ -135,11 +177,38 @@ Deno.serve(async (req) => {
           const { data: exp, error: expErr } = await supabase.rpc("expire_web_order_atomic", { p_order_id: order.id });
           if (expErr) throw new Error(`expire_web_order_atomic failed: ${expErr.message}`);
           if (!(exp as any)?.ok) {
+            if ((exp as any)?.reason === "submission_pending") {
+              // A submission arrived after step 0 — the RPC's own INVARIANT 12
+              // check caught it under the row lock. Report it with the others.
+              frozenResults.push({
+                id: order.id,
+                invoice_number: order.invoice_number,
+                reference: String((order as any).web_reference ?? order.invoice_number),
+                expires_at: order.expires_at,
+              });
+              continue;
+            }
             // Already changed under us (paid or cancelled since the select): skip, no email.
             console.log(`[auto-expire-cash-orders] ${(order as any).web_reference ?? order.invoice_number} not expired: ${(exp as any)?.reason}`);
             continue;
           }
         } else {
+          // Re-check INVARIANT 12 as late as possible before the write.
+          const { count: pendingCount, error: pendErr } = await supabase
+            .from("payment_submissions")
+            .select("id", { count: "exact", head: true })
+            .eq("cash_order_id", order.id)
+            .in("status", [...FREEZING_SUBMISSION_STATUSES]);
+          if (pendErr) throw new Error(`pending-submission re-check failed: ${pendErr.message}`);
+          if ((pendingCount ?? 0) > 0) {
+            frozenResults.push({
+              id: order.id,
+              invoice_number: order.invoice_number,
+              reference: String(order.invoice_number),
+              expires_at: order.expires_at,
+            });
+            continue;
+          }
           const { error: updErr } = await supabase
             .from("cash_orders")
             .update({
@@ -153,25 +222,8 @@ Deno.serve(async (req) => {
           }
         }
 
-        // 2b. Auto-reject all pending/under-review submissions for this order
-        const { data: rejectedRows, error: rejErr } = await supabase
-          .from("payment_submissions")
-          .update({
-            status: "rejected",
-            reviewer_notes: "Cash order expired (auto-rejected)",
-            updated_at: nowIso,
-          })
-          .eq("cash_order_id", order.id)
-          .in("status", ["submitted", "under_review"])
-          .select("id");
-        if (rejErr) {
-          // Log but don't roll back — the order is already expired and that's
-          // the source of truth. Manual cleanup via SQL is preferable to
-          // attempting a half-rollback that could leave the system inconsistent.
-          console.error(`[auto-expire-cash-orders] submission rejection failed for ${order.invoice_number}:`, rejErr);
-        }
-        const rejectedCount = (rejectedRows || []).length;
-        totalSubmissionsRejected += rejectedCount;
+        // 2b. (Removed 2026-09-23.) Submissions are never auto-rejected — see
+        //     INVARIANT 12 in the header. An order with one never reaches here.
 
         // 2c. Audit log
         await supabase.from("audit_logs").insert({
@@ -187,7 +239,6 @@ Deno.serve(async (req) => {
             remaining_balance: Number(order.remaining_balance),
             expires_at: order.expires_at,
             expired_at: nowIso,
-            submissions_rejected: rejectedCount,
           },
         });
 
@@ -260,7 +311,6 @@ Deno.serve(async (req) => {
         expiredResults.push({
           id: order.id,
           invoice_number: order.invoice_number,
-          submissions_rejected: rejectedCount,
         });
       } catch (perOrderErr: unknown) {
         const msg = (perOrderErr as Error).message || "unknown error";
@@ -360,23 +410,21 @@ Deno.serve(async (req) => {
       console.error("[auto-expire-cash-orders] layaway sweep failed:", sweepErr);
     }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       message: "auto-expire-cash-orders completed",
-      processed: (orders ?? []).length,
+      processed: orders.length,
       expired: expiredResults.length,
-      submissions_rejected: totalSubmissionsRejected,
+      // INVARIANT 12: past the deadline, not expired, because a payment
+      // submission is awaiting review. Nothing was rejected.
+      frozen_pending_submission: frozenResults.length,
+      frozen_details: frozenResults,
       layaway_expired: layawayResults.length,
       layaway_details: layawayResults,
       errors,
       expired_details: expiredResults,
-    }, null, 2), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
     console.error("[auto-expire-cash-orders] fatal error:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message || "Internal server error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: (err as Error).message || "Internal server error" }, 500);
   }
 });
