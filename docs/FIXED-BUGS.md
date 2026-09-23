@@ -1937,6 +1937,59 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #290 — Unsigned service-role claims accepted on non-gateway functions (2026-09-23)
+Two edge functions ran at `verify_jwt = false` and still trusted a caller that
+merely *claimed* `role: "service_role"`. With the gateway check off, nothing
+validates the token's signature before the handler runs, so
+`isServiceRole`'s claims fallback (`_shared/jwt-claims.ts`) decodes an UNSIGNED
+token: any caller could hand-craft a JWT payload, skip the signature entirely
+and be treated as an internal caller. `system-health-v2` leaked the full system
+health report that way; `sync-store-credit-to-shopify` could be driven to mint
+or debit Shopify store credit. Audit F01.
+
+**`supabase/config.toml`.** `[functions.system-health-v2]` flipped from
+`verify_jwt = false` to `verify_jwt = true` — its only two callers,
+`SystemHealthCheckPanel.tsx` and `UnifiedSystemHealthTab.tsx`, invoke it with a
+signed-in user JWT, so the gateway check costs them nothing. Two functions that
+were relying on the platform default are now declared explicitly, so no future
+deploy can flip them by accident: `[functions.reconcile-store-credit]`
+`verify_jwt = true` (its nightly cron sends the Vault JWT and the Hub sends a
+user JWT — both are real signed JWTs, so the gateway check is safe) and
+`[functions.sync-store-credit-to-shopify]` `verify_jwt = false` (its callers
+send the raw env key, whose format the gateway cannot verify — the gate has to
+live in the function's own code, below).
+
+**`supabase/functions/system-health-v2/index.ts`.** The service-role branch is
+gone; the signed-in user + `checkPermission(..., "system_health")` path is the
+only way in. No cron and no edge function calls this endpoint — verified by
+grep across `supabase/` and `src/` — so the branch was dead weight that
+happened to be the hole. The now-unused `isServiceRole` / `parseJwtClaims`
+import and the `authToken` local went with it.
+
+**`supabase/functions/sync-store-credit-to-shopify/index.ts`.** `isServiceRole(token)`
+replaced with an exact match against the env key:
+`const envKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); const isInternalCaller = !!envKey && token === envKey;`.
+The admin-user fallback inside the block is unchanged. All five callers —
+`cancel-cash-order`, `issue-store-credit`, `redeem-store-credit`,
+`shopify-webhook`, `void-store-credit-lot` — send
+`Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` verbatim, so an exact
+match admits every legitimate caller and nothing else. The import was removed.
+
+**Why `_shared/jwt-claims.ts` stays exactly as it is.** The narrow exception
+above is not a repudiation of the SCHEMA-FACTS:419 rule (Bug #223) — it is the
+one case the rule's premise does not hold. That rule exists because the HTTP
+crons (16 registered jobs) authenticate with the Vault-stored service-role key,
+and a Vault-issued `service_role` JWT is a *valid but not string-identical*
+credential: exact equality against the runtime env value rejects it and takes
+the nightly suite down (Bug #168, 2026-06-06). Every function a cron or the
+Vault can reach must keep using `isServiceRole`. The exception applies only to
+a function with no cron and no vault caller — today that is
+`sync-store-credit-to-shopify` and nothing else. The rule now carries that
+carve-out explicitly; see docs/SCHEMA-FACTS.md.
+
+**Status:** merged to main, edge deploy pending via Lovable. `config.toml` and
+both function bodies need the Lovable redeploy before any of this is in force.
+
 ### #289 — email_send_log rejected 'skipped' rows (reported; live already admits it) and a lost log row was a warning (2026-09-22)
 Lovable's issue scan reported that `recordEmailAttempt()` writes `status = 'skipped'`
 (`_shared/storefront-email.ts:120`) against a CHECK constraint that only knew seven

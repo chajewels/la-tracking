@@ -22,7 +22,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.finance-reconciliation]
     verify_jwt = true
   [functions.system-health-v2]
-    verify_jwt = false
+    verify_jwt = true
   [functions.system-health-check]
     verify_jwt = true
   [functions.email-health-check]
@@ -194,3 +194,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.campaign-cancel]
     verify_jwt = true
+  [functions.reconcile-store-credit]
+    verify_jwt = true
+  [functions.sync-store-credit-to-shopify]
+    verify_jwt = false
