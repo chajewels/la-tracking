@@ -18,9 +18,18 @@
 -- constraint only when missing), which on live is nothing.
 --
 -- Sources of the definitions:
---   columns      docs/SCHEMA-FACTS.md:594 — discount_amount numeric (layaway
---                15,2 / cash 12,2) NOT NULL default 0; discount_type text
---                nullable; discount_value numeric nullable
+--   columns      live, read by Lovable's pre-check 2026-09-23 (verbatim):
+--                discount_amount numeric(15,2) layaway / numeric(12,2) cash,
+--                NOT NULL default 0; discount_type text nullable;
+--                discount_value numeric(15,2) layaway / numeric(12,2) cash,
+--                nullable
+--
+-- REVISION 2 (2026-09-23). The first apply stopped itself in section 1 and
+-- wrote nothing: this file recorded discount_value as bare numeric (taken
+-- from docs/SCHEMA-FACTS.md, which said so), live carries it scaled like
+-- discount_amount. Corrected to match live here and in SCHEMA-FACTS. Edited
+-- in place because the file never applied anywhere — the proof aborted before
+-- any write, so no environment carries the earlier text.
 --   constraints  pg_constraint on live, supplied by the owner 2026-09-23:
 --                CHECK (((discount_type IS NULL) OR (discount_type = ANY
 --                (ARRAY['amount'::text, 'percent'::text]))))
@@ -46,10 +55,10 @@ BEGIN
       FROM (VALUES
         ('layaway_accounts', 'discount_amount', 'numeric(15,2)', true,  '0'),
         ('layaway_accounts', 'discount_type',   'text',          false, NULL),
-        ('layaway_accounts', 'discount_value',  'numeric',       false, NULL),
+        ('layaway_accounts', 'discount_value',  'numeric(15,2)', false, NULL),
         ('cash_orders',      'discount_amount', 'numeric(12,2)', true,  '0'),
         ('cash_orders',      'discount_type',   'text',          false, NULL),
-        ('cash_orders',      'discount_value',  'numeric',       false, NULL)
+        ('cash_orders',      'discount_value',  'numeric(12,2)', false, NULL)
       ) AS w(tbl, col, want_type, want_notnull, want_default)
       JOIN pg_attribute a
         ON a.attrelid = ('public.' || w.tbl)::regclass AND a.attname = w.col AND NOT a.attisdropped
@@ -89,12 +98,12 @@ $proof$;
 ALTER TABLE public.layaway_accounts
   ADD COLUMN IF NOT EXISTS discount_amount numeric(15,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS discount_type   text,
-  ADD COLUMN IF NOT EXISTS discount_value  numeric;
+  ADD COLUMN IF NOT EXISTS discount_value  numeric(15,2);
 
 ALTER TABLE public.cash_orders
   ADD COLUMN IF NOT EXISTS discount_amount numeric(12,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS discount_type   text,
-  ADD COLUMN IF NOT EXISTS discount_value  numeric;
+  ADD COLUMN IF NOT EXISTS discount_value  numeric(12,2);
 
 DO $record$
 BEGIN
