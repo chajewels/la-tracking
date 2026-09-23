@@ -41,8 +41,19 @@ function saveDraft(draft: Omit<AccountDraft, 'savedAt'>) {
   }
 }
 
+/**
+ * Remove the single global new-account draft (F02, #295).
+ *
+ * Exported for AuthContext to call on sign-out: the draft holds a customer id,
+ * invoice number and amounts typed by whoever was signed in, and it must not
+ * survive into the next person's session on a shared device.
+ */
 export function clearAccountDraft() {
-  sessionStorage.removeItem(DRAFT_KEY);
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
 }
 
 export function useAccountDraft() {

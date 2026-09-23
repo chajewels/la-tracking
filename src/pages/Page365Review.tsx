@@ -49,6 +49,15 @@ interface DraftPayload {
   items: DraftItem[];
   shipping_jpy: number;
   subtotal_jpy: number;
+  /** subtotal + shipping − discount = total. Page365 discounts the INVOICE, not
+   *  the lines, so the item subtotals above are at full price. Optional because
+   *  drafts fetched before the discount shipped do not carry them — treat a
+   *  missing value as no discount, which is what those invoices had. */
+  discount_jpy?: number;
+  discount_breakdown?: { price_discount_jpy: number; campaign_discount_jpy: number };
+  /** Shown to the CSR beside the discount. Never written to the order. */
+  promotion_code?: string | null;
+  discount_campaign_name?: string | null;
   total_jpy: number;
   fx: { php_jpy_rate: number | null; source: string; read_at: string };
   page365_stage: string | null;
@@ -164,6 +173,10 @@ export default function Page365Review() {
   const [discount, setDiscount] = useState('');   // account currency
   const [totalInput, setTotalInput] = useState(''); // account currency, editable
   const [totalTouched, setTotalTouched] = useState(false);
+  /** Whether the CSR has typed over the discount Page365 supplied. While false,
+   *  the loyalty basis uses the draft's exact yen figure rather than converting
+   *  the input back — a PHP round trip loses yen to rounding twice. */
+  const [discountTouched, setDiscountTouched] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [orderDate, setOrderDate] = useState(() => getPHTToday());
@@ -192,6 +205,10 @@ export default function Page365Review() {
     seeded.current = true;
     setItems(draft.items.map((i, idx) => ({ ...i, rowId: `p365-${idx}` })));
     setShipping(String(draft.shipping_jpy ?? 0));
+    // The invoice's own discount, in yen. Currency is still JPY at seed time,
+    // so a later switch to PHP converts it through switchCurrency at the
+    // draft's rate, exactly like shipping.
+    if ((draft.discount_jpy ?? 0) > 0) setDiscount(String(draft.discount_jpy));
     setTotalInput(String(draft.total_jpy ?? 0));
     setInvoiceNumber(String(draft.page365_no));
     setOrderType('cash');
@@ -357,9 +374,26 @@ export default function Page365Review() {
     },
   });
 
-  /* ── Loyalty basis: PRODUCT lines only, always yen. A service (a resize fee)
-   *    is labour the customer paid for and must never inflate tier progress. ─ */
-  const loyaltyJpyAmount = productJpy > 0 ? Math.round(productJpy) : null;
+  /* ── Loyalty basis: PRODUCT lines MINUS the discount, always yen. A service
+   *    (a resize fee) is labour the customer paid for and must never inflate
+   *    tier progress, and neither must money the customer never spent — the
+   *    whole discount comes off the product amount (owner rule 2026-09-23:
+   *    "loyalty excludes the discount and the shipping fee"). Shipping was
+   *    already outside the basis because it is not a line item.
+   *
+   *    While the discount is still the one Page365 supplied, use the draft's
+   *    exact yen figure. Converting the PHP input back rounds twice — at 0.42,
+   *    ¥2,998 shows as ₱1,259 and returns as ¥2,997.6, which happens to round
+   *    home; at other rates it does not, and the basis must never drift because
+   *    the CSR toggled the currency. ─────────────────────────────────────── */
+  const discountJpy =
+    !discountTouched && (draft?.discount_jpy ?? 0) > 0
+      ? Number(draft!.discount_jpy)
+      : currency === 'JPY'
+        ? Number(discount) || 0
+        : rate ? Math.round((Number(discount) || 0) / rate) : 0;
+  const loyaltyBasisJpy = Math.max(0, Math.round(productJpy - discountJpy));
+  const loyaltyJpyAmount = loyaltyBasisJpy > 0 ? loyaltyBasisJpy : null;
 
   const setItem = (idx: number, patch: Partial<DraftItem>) =>
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -693,7 +727,7 @@ export default function Page365Review() {
 
           <div className="text-xs text-muted-foreground space-y-0.5 pt-1">
             <p>Products ¥{productJpy.toLocaleString()} · Services ¥{serviceJpy.toLocaleString()}</p>
-            <p>Loyalty basis (products only): {loyaltyJpyAmount ? `¥${loyaltyJpyAmount.toLocaleString()}` : '—'}</p>
+            <p>Loyalty basis (products − discount): {loyaltyJpyAmount ? `¥${loyaltyJpyAmount.toLocaleString()}` : '—'}</p>
           </div>
         </section>
 
@@ -754,7 +788,14 @@ export default function Page365Review() {
             <div>
               <Label htmlFor="p365-discount" className="text-xs">Discount ({currency})</Label>
               <Input id="p365-discount" type="number" value={discount}
-                onChange={(e) => setDiscount(e.target.value)} className="bg-background border-border tabular-nums" />
+                onChange={(e) => { setDiscount(e.target.value); setDiscountTouched(true); }}
+                className="bg-background border-border tabular-nums" />
+              {(draft.discount_jpy ?? 0) > 0 && !discountTouched && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  From Page365
+                  {draft.promotion_code ? ` · promo code ${draft.promotion_code}` : ''}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="p365-orderdate" className="text-xs flex items-center gap-1.5">

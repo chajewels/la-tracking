@@ -1,0 +1,37 @@
+-- ============================================================================
+-- RECORD-ONLY migration. The change is ALREADY LIVE.
+--
+-- public.sales_log_backup_20260616 was dropped BY HAND in the Supabase SQL
+-- Editor on 2026-09-23. This file exists only so that a from-scratch rebuild
+-- (local dev, staging bootstrap) matches live; replaying it against a database
+-- that has already had the table removed is a no-op.
+--
+-- WHY IT WAS DROPPED. It was a one-off backup of public.sales_log taken on
+-- 2026-06-16 and never cleaned up. At the moment of the drop it had:
+--   - RLS DISABLED, and zero policies
+--   - ZERO ROWS
+--   - full DML grants to `anon` AND `authenticated` — SELECT, INSERT, UPDATE,
+--     DELETE and TRUNCATE
+--
+-- The exposure was therefore NOT a data leak: the table was empty, so there was
+-- nothing for anyone to read. The risk was the WRITE side. `anon` is the
+-- publishable key shipped in every browser bundle, so anybody at all could
+-- INSERT arbitrary rows into a `sales_log`-shaped table inside the public
+-- schema — and TRUNCATE it again afterwards. Nothing in `src/` or
+-- `supabase/functions/` referenced it (verified by grep); it appeared only in
+-- the 20260705230000 baseline and in the generated
+-- src/integrations/supabase/types.ts.
+--
+-- Per CLAUDE.md "A SQL EDITOR CHANGE THAT IS NEVER COMMITTED IS INVISIBLE TO
+-- EVERY LATER REBUILD" (Bug #280): the baseline still CREATEs this table, so
+-- without this file every fresh rebuild would resurrect it, RLS off and anon
+-- grants included. The baseline is deliberately NOT edited in place.
+--
+-- IF NOT EXISTS makes this idempotent and safe to replay. There is no CASCADE:
+-- nothing depended on the table, and a silent cascade is not something a
+-- record-only migration should be able to do.
+--
+-- See docs/FIXED-BUGS.md #296.
+-- ============================================================================
+
+DROP TABLE IF EXISTS public.sales_log_backup_20260616;

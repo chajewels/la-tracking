@@ -65,6 +65,10 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg,woff2}'],
         cleanupOutdatedCaches: true,
+        // Drops the legacy 'supabase-cache' on activation. cleanupOutdatedCaches
+        // only prunes Workbox's own precaches, so a device holding cached
+        // authenticated rows keeps them until this runs. See the file header.
+        importScripts: ['/sw-drop-legacy-cache.js'],
         // navigateFallback removed: it served SPA navigations from the
         // precached index.html, which lagged behind deploys (the precache
         // retained multiple index.html revisions), so reloads loaded stale
@@ -92,12 +96,29 @@ export default defineConfig(({ mode }) => ({
             },
           },
           {
+            // NetworkOnly — NEVER cache Supabase API traffic (F02, #295).
+            //
+            // This was NetworkFirst into 'supabase-cache' for 300s. A Workbox
+            // cache is keyed on the request URL alone; the Authorization
+            // header is not part of the key. Every PostgREST read is a GET
+            // whose URL is identical for every caller, so two staff sharing a
+            // device (or one signing out and another signing in) could be
+            // served each other's rows straight from the service worker, with
+            // no request reaching Supabase and RLS never consulted.
+            //
+            // NetworkOnly is the only safe blanket answer: caching a response
+            // whose visibility depends on who asked requires keying on the
+            // asker, which Workbox does not do.
+            //
+            // NO allowlist is added here. Public storage objects would be a
+            // legitimate exception, but the Hub reaches brand-assets and
+            // payment-proofs through getPublicUrl()/<img>, which the browser
+            // HTTP cache already handles — there is no caller that needs a
+            // service-worker rule, so none is written. If one ever does, add
+            // it as an explicit path prefix with its own cacheName, never as
+            // a pattern that can match /rest/v1 or /auth/v1.
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-            },
+            handler: 'NetworkOnly',
           },
         ],
       },

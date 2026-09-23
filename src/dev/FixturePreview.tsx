@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Route, Routes, useSearchParams } from 'react-router-dom';
 import AccountList from '@/pages/AccountList';
 import Dashboard from '@/pages/Dashboard';
+import AccountDetail from '@/pages/AccountDetail';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
@@ -43,6 +44,10 @@ import {
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
+import ProductDialog from '@/components/website/ProductDialog';
+import { emptyProduct, emptyVariant, type ProductForm } from '@/components/website/product-form';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   buildAccountFixtures,
   buildCashOrderFixtures,
@@ -72,6 +77,12 @@ import {
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
  *                                     real page, so shot standalone here)
  *   /__fixtures?view=kpi-loading    → KPI strip + panel skeleton states
+ *   /__fixtures?view=product-dialog → Website Catalog ProductDialog (long form)
+ *   /__fixtures?view=datatable      → DataTable with expandable rows
+ *   /__fixtures?view=tabs           → Tabs primitive (sliding indicator)
+ *   /__fixtures/<account-id>?view=account-detail
+ *                                   → AccountDetail for a seeded account
+ *                                     (summary tiles; empty schedule/payments)
  *   &empty=1                        → empty-state variant of any view
  */
 export default function FixturePreview() {
@@ -99,11 +110,23 @@ export default function FixturePreview() {
     seed(['needs-attention-cash'], buildAttentionCash(empty));
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
+      seed(['account', a.id], a);
+      for (const k of ['schedule', 'payments', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
     }
     return null;
   });
 
   if (view === 'cash') return <CashOrdersList />;
+  if (view === 'product-dialog') return <ProductDialogFixture />;
+  if (view === 'datatable') return <DataTableFixture />;
+  if (view === 'tabs') return <TabsFixture />;
+  if (view === 'account-detail') {
+    return (
+      <Routes>
+        <Route path=":id" element={<AccountDetail />} />
+      </Routes>
+    );
+  }
   if (view === 'dashboard') return <Dashboard />;
   if (view === 'attention') {
     return (
@@ -793,6 +816,107 @@ function PortalNavFixture() {
         <p className="text-sm text-muted-foreground">Active tab: <span className="text-primary font-medium">{tab}</span></p>
       </div>
       <PortalBottomNav active={tab} onChange={setTab} />
+    </div>
+  );
+}
+
+/** Website Catalog product editor with enough content to force scrolling. */
+function ProductDialogFixture() {
+  const longEn = Array.from({ length: 6 }, () =>
+    '18K yellow gold chain with a hand-set natural diamond pendant. Hallmarked, inspected and polished in Tokyo before shipping.',
+  ).join(' ');
+  const [form, setForm] = useState<ProductForm>(() => ({
+    ...emptyProduct(),
+    id: 'fixture-product',
+    sku: 'CJ-NK-0142',
+    slug: 'k18-diamond-pendant-necklace',
+    name: 'K18 Diamond Pendant Necklace',
+    name_ja: 'K18 ダイヤモンド ペンダント ネックレス',
+    brand: 'Cha Jewels',
+    weight_g: 4.2,
+    description_en: longEn,
+    description_ja: 'K18 イエローゴールドのチェーンに天然ダイヤモンドのペンダント。'.repeat(8),
+    status: 'active',
+    variants: [0, 1, 2, 3].map(i => ({
+      ...emptyVariant(i),
+      size: `${40 + i * 5}cm`,
+      stone: i % 2 ? '0.30ct' : '0.20ct',
+      price_jpy: 128000 + i * 24000,
+      stock_qty: 3 - (i % 3),
+    })),
+  }));
+  return (
+    <ProductDialog
+      open
+      onOpenChange={() => {}}
+      form={form}
+      setForm={setForm}
+      collections={[{ id: 'c1', name: 'Signature' }, { id: 'c2', name: 'Bridal' }]}
+      categories={[{ id: 'k1', name: 'Necklaces', published: true }, { id: 'k2', name: 'Pendants', published: true }]}
+      isAdmin
+      translating={false}
+      uploadingKey={null}
+      peso={n => `₱ ${Math.round(n * 0.42).toLocaleString('en-US')}`}
+      saving={false}
+      onSave={() => {}}
+      onRegenerateJapanese={() => {}}
+      onUploadMedia={() => {}}
+      onPatchVariant={(i, patch) =>
+        setForm(f => ({ ...f, variants: f.variants.map((v, j) => (j === i ? { ...v, ...patch } : v)) }))
+      }
+    />
+  );
+}
+
+interface InquiryFixture { id: string; name: string; email: string; subject: string; received: string; message: string }
+
+/** DataTable with searchable, expandable rows (inquiry-card shape). */
+function DataTableFixture() {
+  const rows: InquiryFixture[] = Array.from({ length: 8 }, (_, i) => ({
+    id: `inq-${i}`,
+    name: ['Maria Santos', 'Yuki Tanaka', 'Ana Reyes', 'Kenji Mori'][i % 4],
+    email: `customer${i + 1}@example.com`,
+    subject: ['Ring sizing', 'Layaway question', 'Wholesale pricing', 'Shipping to Manila'][i % 4],
+    received: `2026-09-${String(20 - i).padStart(2, '0')}`,
+    message: 'Hello, I would like to ask about the availability of this piece and whether it can be reserved on a 6-month layaway plan.',
+  }));
+  const columns: DataTableColumn<InquiryFixture>[] = [
+    { key: 'name', header: 'Name', cell: r => r.name, sortValue: r => r.name },
+    { key: 'email', header: 'Email', cell: r => r.email, hideable: true },
+    { key: 'subject', header: 'Subject', cell: r => r.subject },
+    { key: 'received', header: 'Received', cell: r => r.received, sortValue: r => r.received, align: 'right' },
+  ];
+  return (
+    <div className="p-4 sm:p-6">
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={r => r.id}
+        searchText={r => [r.name, r.email, r.subject]}
+        renderExpanded={r => <p className="text-sm text-muted-foreground">{r.message}</p>}
+        csvName="fixture-inquiries"
+      />
+    </div>
+  );
+}
+
+/** Tabs primitive mirroring the /website workspace tab set. */
+function TabsFixture() {
+  return (
+    <div className="p-4 sm:p-6">
+      <Tabs defaultValue="catalog" className="w-full">
+        <TabsList>
+          <TabsTrigger value="catalog">Catalog</TabsTrigger>
+          <TabsTrigger value="content">Content</TabsTrigger>
+          <TabsTrigger value="audience">Audience</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+        {['catalog', 'content', 'audience', 'settings'].map(v => (
+          <TabsContent key={v} value={v} className="mt-5">
+            <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground capitalize">{v} panel</div>
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 }

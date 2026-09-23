@@ -1937,6 +1937,203 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #297 — Every discounted Page365 invoice was refused with a 422, and the discount would never have reached the account (2026-09-23)
+`page365-fetch-order` read three money fields off the invoice — `price_subtotal`,
+`price_shipping`, `price_total` — and reconciled them as
+`subtotal + shipping = total` to the yen (`index.ts:405`, tolerance 1).
+
+Page365 discounts the **invoice**, not the lines. A live fetch of invoice 19787
+settles the shape: `price_subtotal` 29,980 + `price_shipping` 4,400 −
+`price_discount` 2,998 − `campaign_discount` 0 = `price_total` 31,382, with the
+single item line still reading 29,980. The identity the parser asserted was
+therefore false for every discounted invoice, and it refused all of them:
+*"Subtotal ¥29,980 + shipping ¥4,400 = ¥34,380, but the invoice total is
+¥31,382. Refusing to import a draft that does not reconcile."* Correct behaviour
+from a parser that had been told the wrong identity, and a hard stop on a real
+CSR workflow.
+
+The second half is what it would have done had the reconcile passed.
+`Page365Review.tsx` never seeded `discount` (state `:164`, seeding effect
+`:188-209`), so the CSR would have had to notice the gap and retype the discount
+by hand. And the loyalty basis (`:362`) was `productJpy` — **gross** — so a
+customer who paid ¥26,982 would have earned tier progress on ¥29,980.
+
+**`supabase/functions/page365-fetch-order/index.ts`.** Reads `price_discount`
+and `campaign_discount` after the `price_total` check, refuses a negative in
+either by name, sums them, and reconciles
+`subtotal + shipping − discount = total` at the same ±1 yen. Summing the two is
+deliberate: if Page365 ever reports one discount in both fields the total stops
+reconciling and the import is refused — better than silently halving a
+customer's total. The draft gains `discount_jpy`, `discount_breakdown`,
+`promotion_code` and `discount_campaign_name`. The raw response's top-level
+`sig` still never enters the draft.
+
+**`src/pages/Page365Review.tsx`.** The four fields are OPTIONAL on
+`DraftPayload` — drafts fetched before the deploy lack them and a missing value
+reads as no discount, which is what those invoices had. The seeding effect
+pre-fills the Discount input from `discount_jpy` while the currency is still
+JPY, so the existing `switchCurrency` converts it at the draft's rate like
+shipping. A "From Page365" line (plus the promo code when there is one) sits
+under the input until `discountTouched` flips.
+
+**The loyalty basis is now product lines MINUS the discount** — owner rule
+2026-09-23, "loyalty excludes the discount and the shipping fee". Services stay
+out as before and shipping was never in; the whole discount comes off the
+product amount. While the discount is still Page365's own, the basis uses the
+draft's exact yen figure rather than converting the peso input back: a PHP round
+trip rounds twice and the basis must not drift when the CSR toggles currency.
+
+**No data repair is needed, and that was checked rather than assumed.** All 11
+drafts in `page365_drafts` — including the five consumed into accounts, 19668,
+19768, 19780, 19781 and 19786 — reconcile with `subtotal + shipping − total = 0`
+exactly, and none carries a `discount_jpy` key. Nothing discounted ever got in,
+because nothing discounted ever could.
+
+Edge-function deploy pending via Lovable; this PR is code and docs only.
+
+### #296 — sales_log_backup_20260616: an empty, RLS-less table the anon key could write to and TRUNCATE (2026-09-23)
+`public.sales_log_backup_20260616` was a one-off backup of `public.sales_log`
+taken on 2026-06-16 and never cleaned up. At the moment it was dropped it had
+**RLS DISABLED and zero policies**, **zero rows**, and **full DML grants to both
+`anon` and `authenticated`** — SELECT, INSERT, UPDATE, DELETE and TRUNCATE.
+
+**No data was exposed.** The table was empty, so there was nothing to read; the
+`SELECT` grant to `anon` gave up nothing. Recording that explicitly because the
+shape of this finding invites the opposite assumption.
+
+**The risk was unauthorised WRITES.** `anon` is the publishable key shipped in
+every browser bundle — it is not a secret and is not meant to be one. With RLS
+off and no policy to fall back on, anybody at all could INSERT arbitrary rows
+into a `sales_log`-shaped table sitting in the public schema, UPDATE or DELETE
+whatever they had inserted, and TRUNCATE it again to cover the traces. Nothing
+would have refused them and nothing would have logged it. The practical damage
+was bounded — no code reads the table, so junk in it could not reach a report,
+a balance or a customer — but a writable public-schema table is a foothold, and
+a `sales_log`-shaped one is a convincing place to hide a forged row if anything
+ever did start reading it.
+
+**Reach, verified by grep:** nothing in `src/` or `supabase/functions/`
+referenced it. It appeared in exactly two places — the `20260705230000`
+baseline, which CREATEs it, and the generated
+`src/integrations/supabase/types.ts`.
+
+**The drop.** Applied BY HAND in the Supabase SQL Editor on 2026-09-23 by the
+owner. Recorded here as `supabase/migrations/20260923110000_record_drop_sales_log_backup.sql`,
+a record-only migration carrying `DROP TABLE IF EXISTS
+public.sales_log_backup_20260616;` — idempotent, no CASCADE (nothing depended
+on it, and a record-only migration should not be able to cascade silently).
+
+**Why the migration is not optional.** Per CLAUDE.md *"A SQL EDITOR CHANGE THAT
+IS NEVER COMMITTED IS INVISIBLE TO EVERY LATER REBUILD"* (Bug #280), the
+baseline still CREATEs this table. Without the record-only file, every
+from-scratch rebuild — local dev, staging bootstrap — would resurrect it with
+RLS off and the anon grants intact, reintroducing the exact exposure that was
+just closed. The baseline is deliberately NOT edited in place.
+
+**`src/integrations/supabase/types.ts` still lists the table.** It is
+SUPABASE-AUTO-GENERATED and must never be hand-edited (CLAUDE.md GENERATED
+FILES); the entry disappears on the next regeneration. It is a type declaration
+for a relation that no longer exists and that no code touches, so it is inert —
+but anyone grepping for the table will find it there until then.
+
+**Status:** merged to main. No deploy of any kind is involved — no edge
+function, no frontend change. The live database is already in the target state;
+this commit only makes the repo agree with it.
+
+### #295 — Two staff on one device could read each other's data: a URL-keyed service-worker cache and a query cache that outlived sign-out (2026-09-23)
+Nothing about signing out actually removed the previous user's data from the
+device. Audit F02. Three independent leak paths, all frontend:
+
+**1. The service worker cached authenticated Supabase responses.**
+`vite.config.ts` carried a blanket `runtimeCaching` rule —
+`urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i`, `NetworkFirst`, `cacheName:
+'supabase-cache'`, 300s. A Workbox cache is keyed on the request URL ALONE; the
+`Authorization` header is not part of the key. Every PostgREST read is a GET
+whose URL is identical for every caller, so for five minutes after any staff
+member loaded a page, the next person on that device could be served those
+exact rows out of Cache Storage — no request reaching Supabase, RLS never
+consulted, nothing in any log. Sign-out did not touch it.
+
+**2. The React Query cache survived sign-out.** `src/App.tsx` creates the
+`QueryClient` at MODULE scope, outside React, so it outlives every route change
+and every sign-out; `grep -rn 'queryClient.clear()\|removeQueries\|resetQueries'
+src/` returned ZERO matches. `signOut()` was `await supabase.auth.signOut()` and
+nothing else, and the `SIGNED_OUT` branch of `onAuthStateChange` called only
+`clearAuthState()` (React state). Sign-out is an SPA navigation, not a reload,
+so module state is never re-initialised. Query keys carry no user identity
+(`['unified-health-v2']`, `['customers']`, …), so the next session read the
+previous one's entries. `staleTime` defaults to 0, so a mounted query refetches
+— making this a transient flash rather than a permanent wrong render — but a
+cached entry that is never re-mounted just sits there.
+
+**3. Drafts outlived the session.** `use-account-draft.ts` keeps one global
+`cha-jewels-new-account-draft` in sessionStorage (customer id, invoice number,
+amounts) and `use-payment-draft.ts` keeps a `payment_draft_<accountId>` per
+account (amount, date, method, notes). Neither is auth state, so nothing removed
+them; the next person to open that form had the previous user's half-typed entry
+restored for them.
+
+**The fix.**
+- `vite.config.ts`: the Supabase rule is now **`NetworkOnly`** with no
+  `cacheName`. Caching a response whose visibility depends on who asked requires
+  keying on the asker, which Workbox does not do, so the only safe blanket
+  answer is not to cache. **No allowlist was added** — public storage objects
+  would be a legitimate exception, but `brand-assets` / `payment-proofs` are
+  reached through `getPublicUrl()`/`<img>` and the browser HTTP cache already
+  handles them, so there is no caller that needs a rule. The `/version.json` and
+  `navigation-cache` rules are untouched (the latter fixed the stale-bundle bug).
+- `public/sw-drop-legacy-cache.js`, imported via `workbox.importScripts`:
+  deletes the legacy `'supabase-cache'` on service-worker **activation**, so
+  devices already holding cached rows drop them on the next update. Removing the
+  rule stops new writes but evicts nothing, and `cleanupOutdatedCaches` only
+  prunes Workbox's own precaches. Exactly one `caches.delete`, for one
+  hardcoded name — it must never iterate `caches.keys()`.
+- `AuthContext.tsx`: a `clearSensitiveState()` wired to the **`SIGNED_OUT`
+  event**, not to `signOut()`. It `cancelQueries()` FIRST and then `clear()` —
+  a query already in flight otherwise resolves after the clear and React Query
+  writes the result back, repopulating the cache a beat after it was emptied —
+  then calls `clearAccountDraft()` and the new `clearAllPaymentDrafts()`. The
+  client comes from `useQueryClient()` (AuthProvider sits inside
+  `QueryClientProvider`), not from the module singleton.
+- Each hook exports its own clear; AuthContext never reaches into
+  sessionStorage. `clearAllPaymentDrafts()` collects keys BEFORE removing,
+  because sessionStorage re-indexes on delete and iterating forwards while
+  mutating skips entries.
+- **Untouched on purpose:** density toggle, notification sound, FX rate,
+  announcement dismissal, loyalty tier and every other unrelated key. They hold
+  nothing about who was signed in, and wiping them would make sign-out feel like
+  a factory reset. Drafts are never discarded while the user is still signed in.
+
+**Cross-tab: verified, not assumed.** Wiring to the event rather than the button
+only helps if the event actually travels, so this was checked against the pinned
+`@supabase/auth-js` **2.116.0** rather than taken on faith. `GoTrueClient`'s
+constructor opens `new BroadcastChannel(this.storageKey)` when
+`isBrowser() && globalThis.BroadcastChannel && this.persistSession &&
+this.storageKey` (`GoTrueClient.js:267-269`) and subscribes to its `message`
+event (`:274`); our client sets `persistSession: true`; `_signOut()` ends with
+`_notifyAllSubscribers('SIGNED_OUT', null)` (`:4430`), and
+`_notifyAllSubscribers(event, session, broadcast = true)` (`:4332`) posts to
+that channel, the receiving tab re-notifying with `broadcast = false` (`:4341`).
+**So a sign-out in one tab does deliver SIGNED_OUT to the others.**
+
+**The gap, stated rather than papered over:** auth-js wraps the channel
+construction in try/catch and logs *"Failed to create a new BroadcastChannel,
+multi-tab state changes will not be available"* (`:272`). Where BroadcastChannel
+is missing or blocked, no cross-tab event arrives and the other tab keeps its
+cache until it reloads or its own session read fails. auth-js registers **no**
+`storage` event listener, so there is no second mechanism to fall back on.
+Closing that would need our own BroadcastChannel (or a `storage` listener on the
+auth key) posting a logout ping each tab acts on — deliberately NOT built here,
+because it is a separate behaviour with its own failure modes.
+
+**Tests:** `src/test/logout-clears-sensitive-state.test.ts`, 6 cases — cache
+emptied, in-flight query cancelled and unable to repopulate after clear, account
+draft and every payment draft removed, ten drafts cleared despite sessionStorage
+re-indexing, unrelated localStorage and non-draft sessionStorage keys surviving.
+
+**Status:** merged to main, Firebase deploys on merge. No Lovable deploy is
+involved — this is frontend only, no edge function and no migration.
+
 ### #294 — Two polled dashboard queries had no index (2026-09-23)
 `payment_submissions` had no index on `status` for the layaway path — the only
 status index is `idx_payment_submissions_cash_order_status`, scoped to

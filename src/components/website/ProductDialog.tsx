@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,7 +36,7 @@ export default function ProductDialog({
   onOpenChange: (open: boolean) => void;
   form: ProductForm;
   setForm: React.Dispatch<React.SetStateAction<ProductForm>>;
-  collections: any[];
+  collections: { id: string; name: string; name_ja?: string | null }[];
   categories: { id: string; name: string; name_ja?: string | null; published?: boolean }[];
   isAdmin: boolean;
   translating: boolean;
@@ -47,9 +48,10 @@ export default function ProductDialog({
   onUploadMedia: (variantIndex: number, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
 }) {
+  const formId = useId();
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{form.id ? "Edit product" : "New product"}</DialogTitle>
           </DialogHeader>
@@ -57,12 +59,13 @@ export default function ProductDialog({
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>SKU</Label>
-                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} placeholder="R3341" />
+                <Label htmlFor={`${formId}-sku`}>SKU</Label>
+                <Input id={`${formId}-sku`} value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} placeholder="R3341" />
               </div>
               <div className="space-y-1.5">
-                <Label>Name</Label>
+                <Label htmlFor={`${formId}-name`}>Name</Label>
                 <Input
+                  id={`${formId}-name`}
                   value={form.name}
                   onChange={(e) => setForm((f) => ({
                     ...f, name: e.target.value,
@@ -78,8 +81,8 @@ export default function ProductDialog({
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label>Web address (slug)</Label>
-                <Input value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value) }))} />
+                <Label htmlFor={`${formId}-slug`}>Web address (slug)</Label>
+                <Input id={`${formId}-slug`} value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value) }))} />
               </div>
             </div>
 
@@ -91,7 +94,7 @@ export default function ProductDialog({
                   buttonLabel="Add jewelry type"
                   placeholder="Search jewelry types…"
                   emptyText="No jewelry type matches."
-                  options={collections.map((c: any) => ({ id: c.id, label: c.name, hint: c.name_ja }))}
+                  options={collections.map((c) => ({ id: c.id, label: c.name, hint: c.name_ja }))}
                   value={form.collectionIds}
                   onChange={(collectionIds) => setForm((f) => ({ ...f, collectionIds }))}
                 />

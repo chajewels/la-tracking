@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { FileText, Banknote, AlertTriangle, Gift } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { ROUTES } from '@/constants/routes';
+import { staggerContainer, staggerItem } from '@/theme/motion';
 import type { MonthlyAnalyticsRow, RedemptionsKpi } from '@/hooks/useDashboardExtras';
 
 /**
@@ -80,6 +82,14 @@ export default function KpiStrip({
     return { series, deltaPct };
   }, [collectedRows]);
 
+  // Entrance stagger plays once, on the first render with data. Later
+  // refetches (including a skeleton round-trip that remounts the grid)
+  // render with initial={false} so cards never re-animate.
+  const hasAnimatedRef = useRef(false);
+  useEffect(() => {
+    if (!summaryLoading) hasAnimatedRef.current = true;
+  }, [summaryLoading]);
+
   if (summaryLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -91,74 +101,83 @@ export default function KpiStrip({
   const newDelta = newAccounts.thisMonth - newAccounts.lastMonth;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-      <StatCard
-        title="Total Active Layaways"
-        value={(activeLayaways ?? 0).toLocaleString('en-US')}
-        countUpValue={activeLayaways ?? 0}
-        subtitle="new/mo"
-        icon={FileText}
-        variant="gold"
-        staggerIndex={0}
-        href={`${ROUTES.ACCOUNTS}?status=active`}
-        sparkline={{ points: newAccounts.series, label: 'New accounts per month, last 6 months' }}
-        trend={
-          newAccounts.lastMonth > 0 || newAccounts.thisMonth > 0
-            ? { value: `${Math.abs(newDelta)} new vs last mo`, positive: newDelta >= 0 }
-            : undefined
-        }
-      />
-      <StatCard
-        title="Collections This Month"
-        value={formatCurrency(collectionsThisMonth ?? 0, displayCurrency)}
-        countUpValue={collectionsThisMonth ?? 0}
-        formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)}
-        subtitle="Cash received"
-        icon={Banknote}
-        variant="gold"
-        staggerIndex={1}
-        sparkline={
-          collected.series.length >= 2
-            ? { points: collected.series, label: 'Collected per month, last 6 months' }
-            : undefined
-        }
-        trend={
-          collected.deltaPct !== null
-            ? { value: `${Math.abs(collected.deltaPct)}% vs last mo`, positive: collected.deltaPct >= 0 }
-            : undefined
-        }
-      />
-      <StatCard
-        title="Overdue"
-        value={(overdueCount ?? 0).toLocaleString('en-US')}
-        countUpValue={overdueCount ?? 0}
-        subtitle={`${formatCurrency(overdueAmount ?? 0, displayCurrency)} outstanding`}
-        icon={AlertTriangle}
-        variant="danger"
-        staggerIndex={2}
-        href={`${ROUTES.MONITORING}?filter=overdue`}
-      />
-      <StatCard
-        title="Loyalty Redemptions"
-        value={redemptionsUnavailable ? '—' : (redemptions?.thisMonthCount ?? 0).toLocaleString('en-US')}
-        countUpValue={redemptionsUnavailable ? undefined : redemptions?.thisMonthCount ?? 0}
-        subtitle="This month"
-        icon={Gift}
-        staggerIndex={3}
-        sparkline={
-          !redemptionsUnavailable && redemptions && redemptions.series.length >= 2
-            ? { points: redemptions.series, label: 'Redemptions per month, last 6 months' }
-            : undefined
-        }
-        trend={
-          !redemptionsUnavailable && redemptions && redemptions.lastMonthCount > 0
-            ? {
-                value: `${Math.abs(redemptions.thisMonthCount - redemptions.lastMonthCount)} vs last mo`,
-                positive: redemptions.thisMonthCount >= redemptions.lastMonthCount,
-              }
-            : undefined
-        }
-      />
-    </div>
+    <motion.div
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4"
+      variants={staggerContainer}
+      initial={hasAnimatedRef.current ? false : 'initial'}
+      animate="animate"
+    >
+      <motion.div className="grid" variants={staggerItem}>
+        <StatCard
+          title="Total Active Layaways"
+          value={(activeLayaways ?? 0).toLocaleString('en-US')}
+          countUpValue={activeLayaways ?? 0}
+          subtitle="new/mo"
+          icon={FileText}
+          variant="gold"
+          href={`${ROUTES.ACCOUNTS}?status=active`}
+          sparkline={{ points: newAccounts.series, label: 'New accounts per month, last 6 months' }}
+          trend={
+            newAccounts.lastMonth > 0 || newAccounts.thisMonth > 0
+              ? { value: `${Math.abs(newDelta)} new vs last mo`, positive: newDelta >= 0 }
+              : undefined
+          }
+        />
+      </motion.div>
+      <motion.div className="grid" variants={staggerItem}>
+        <StatCard
+          title="Collections This Month"
+          value={formatCurrency(collectionsThisMonth ?? 0, displayCurrency)}
+          countUpValue={collectionsThisMonth ?? 0}
+          formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)}
+          subtitle="Cash received"
+          icon={Banknote}
+          variant="gold"
+          sparkline={
+            collected.series.length >= 2
+              ? { points: collected.series, label: 'Collected per month, last 6 months' }
+              : undefined
+          }
+          trend={
+            collected.deltaPct !== null
+              ? { value: `${Math.abs(collected.deltaPct)}% vs last mo`, positive: collected.deltaPct >= 0 }
+              : undefined
+          }
+        />
+      </motion.div>
+      <motion.div className="grid" variants={staggerItem}>
+        <StatCard
+          title="Overdue"
+          value={(overdueCount ?? 0).toLocaleString('en-US')}
+          countUpValue={overdueCount ?? 0}
+          subtitle={`${formatCurrency(overdueAmount ?? 0, displayCurrency)} outstanding`}
+          icon={AlertTriangle}
+          variant="danger"
+          href={`${ROUTES.MONITORING}?filter=overdue`}
+        />
+      </motion.div>
+      <motion.div className="grid" variants={staggerItem}>
+        <StatCard
+          title="Loyalty Redemptions"
+          value={redemptionsUnavailable ? '—' : (redemptions?.thisMonthCount ?? 0).toLocaleString('en-US')}
+          countUpValue={redemptionsUnavailable ? undefined : redemptions?.thisMonthCount ?? 0}
+          subtitle="This month"
+          icon={Gift}
+          sparkline={
+            !redemptionsUnavailable && redemptions && redemptions.series.length >= 2
+              ? { points: redemptions.series, label: 'Redemptions per month, last 6 months' }
+              : undefined
+          }
+          trend={
+            !redemptionsUnavailable && redemptions && redemptions.lastMonthCount > 0
+              ? {
+                  value: `${Math.abs(redemptions.thisMonthCount - redemptions.lastMonthCount)} vs last mo`,
+                  positive: redemptions.thisMonthCount >= redemptions.lastMonthCount,
+                }
+              : undefined
+          }
+        />
+      </motion.div>
+    </motion.div>
   );
 }
