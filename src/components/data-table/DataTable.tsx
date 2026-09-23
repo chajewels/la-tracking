@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronDown, ChevronRight, Columns3, Download, Filter, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -88,6 +88,7 @@ export default function DataTable<T>({
   emptyState,
   className,
 }: DataTableProps<T>) {
+  const reducedMotion = useReducedMotion();
   const [sort, setSort] = useState<TableSort | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -170,7 +171,8 @@ export default function DataTable<T>({
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               placeholder="Search…"
-              className="h-9 w-[200px] pl-8 text-xs"
+              aria-label="Search table"
+              className="h-11 sm:h-9 w-full sm:w-[200px] pl-8 text-base sm:text-sm"
             />
           </div>
         )}
@@ -178,7 +180,7 @@ export default function DataTable<T>({
           {densityKey && <DensityToggle value={density} onChange={setDensity} />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs">
+              <Button variant="outline" size="sm" aria-label="Show columns" className="h-9 gap-1.5 text-xs">
                 <Columns3 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Columns</span>
               </Button>
@@ -212,6 +214,7 @@ export default function DataTable<T>({
               size="sm"
               className="h-9 gap-1.5 text-xs"
               onClick={exportCsv}
+              aria-label="Export CSV"
               disabled={processedRows.length === 0}
             >
               <Download className="h-3.5 w-3.5" />
@@ -242,7 +245,7 @@ export default function DataTable<T>({
                         <button
                           type="button"
                           onClick={() => toggleSort(col.key)}
-                          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                          className="inline-flex min-h-11 sm:min-h-8 items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {col.header}
                           <motion.span
@@ -263,7 +266,7 @@ export default function DataTable<T>({
                               type="button"
                               aria-label={`Filter ${col.header}`}
                               className={cn(
-                                'inline-flex opacity-40 hover:opacity-100 transition-opacity',
+                                'inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                                 columnFilters[col.key]?.trim() && 'opacity-100 text-gold-300',
                               )}
                             >
@@ -276,7 +279,8 @@ export default function DataTable<T>({
                               value={columnFilters[col.key] ?? ''}
                               onChange={e => setColumnFilters(prev => ({ ...prev, [col.key]: e.target.value }))}
                               placeholder={`Filter ${col.header.toLowerCase()}…`}
-                              className="h-8 text-xs"
+                              aria-label={`Filter ${col.header}`}
+                              className="h-11 sm:h-9 text-base sm:text-sm"
                             />
                           </PopoverContent>
                         </Popover>
@@ -311,7 +315,7 @@ export default function DataTable<T>({
                             aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
                             aria-expanded={isExpanded}
                             onClick={() => setExpanded(isExpanded ? null : key)}
-                            className="text-muted-foreground hover:text-foreground"
+                            className="inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <motion.span animate={{ rotate: isExpanded ? 90 : 0 }} transition={transition.micro} className="inline-flex">
                               <ChevronRight className="h-3.5 w-3.5" />
@@ -334,9 +338,9 @@ export default function DataTable<T>({
                           <TableRow key={`${key}-expanded`} className="hover:bg-transparent">
                             <TableCell colSpan={colSpan} className="p-0">
                               <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto', transition: transition.standard }}
-                                exit={{ opacity: 0, height: 0, transition: transition.micro }}
+                                initial={{ opacity: reducedMotion ? 1 : 0 }}
+                                animate={{ opacity: 1, transition: transition.standard }}
+                                exit={{ opacity: 0, transition: reducedMotion ? { duration: 0 } : transition.micro }}
                                 className="overflow-hidden"
                               >
                                 <div className="px-4 py-3 bg-surface-2/50 hairline-t">{renderExpanded(row)}</div>

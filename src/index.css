@@ -177,6 +177,26 @@
 }
 
 @layer components {
+  /* Press feedback changes no layout; native button/Slot behavior is retained. */
+  .ui-button {
+    touch-action: manipulation;
+    transition: scale var(--ui-motion-micro) var(--ui-motion-ease);
+  }
+  .ui-button:active:not(:disabled):not([aria-disabled="true"]) {
+    scale: 0.98;
+  }
+  @media (pointer: coarse) {
+    .ui-button { min-height: 44px; min-width: 44px; }
+  }
+
+  .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] {
+    animation-duration: var(--ui-motion-standard);
+    animation-timing-function: var(--ui-motion-ease);
+  }
+  .ui-dialog-panel {
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.16),
+      0 12px 32px rgb(0 0 0 / 0.22), 0 32px 80px rgb(0 0 0 / 0.24);
+  }
   /*
    * Deco Ledger signature: the "ledger line" — a thin 1px gold hairline
    * (gold-500 at 40%) used as the structural divider across cards,
@@ -227,12 +247,12 @@
       hsl(var(--gold-300) / 0.07) 60%,
       transparent 100%
     );
-    background-size: 200% 100%;
+    transform: translateX(-100%);
     animation: skeleton-sweep 1.6s ease-in-out infinite;
   }
   @keyframes skeleton-sweep {
-    0% { background-position: 150% 0; }
-    100% { background-position: -50% 0; }
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
 
   /* Ken Burns drift for brand imagery (Login left panel). Transform-only
@@ -322,14 +342,11 @@
 
   /* Premium card hover */
   .card-hover {
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform var(--ui-motion-standard) var(--ui-motion-ease);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.12), 0 8px 24px rgb(0 0 0 / 0.18);
   }
-  .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4),
-                0 0 0 1px hsl(var(--primary) / 0.55),
-                0 0 18px hsl(var(--primary) / 0.30),
-                0 0 40px hsl(var(--primary) / 0.12);
+  @media (hover: hover) and (pointer: fine) {
+    .card-hover:hover { transform: translateY(-2px); }
   }
 
   /* Status glow pulse for overdue */
@@ -503,6 +520,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ui-button { transition: none; }
+  .ui-button:active:not(:disabled):not([aria-disabled="true"]) { scale: 1; }
+  .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] { animation: none !important; }
   .animate-fade-in { animation: none; }
   .card-hover { transition: none; }
   .card-hover:hover { transform: none; }

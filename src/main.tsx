@@ -4,6 +4,11 @@ import { registerSW } from 'virtual:pwa-register';
 import App from "./App.tsx";
 import { setUpdateSW } from './lib/pwaUpdate';
 import "./index.css";
+import { cssMotion } from './theme/motion';
+
+Object.entries(cssMotion).forEach(([name, value]) => {
+  document.documentElement.style.setProperty(name, value);
+});
 
 // Unregister any service worker inside Lovable preview / iframe contexts.
 // The PWA SW caches index.html and bundles, causing the preview to serve

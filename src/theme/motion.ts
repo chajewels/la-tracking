@@ -27,7 +27,16 @@ export const DURATION = {
 /** cubic-bezier(0.22, 1, 0.36, 1) — confident ease-out, no bounce. */
 export const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
+/** Shared CSS primitives use the same timing source as Motion components. */
+export const cssMotion = {
+  '--ui-motion-micro': `${DURATION.micro}s`,
+  '--ui-motion-standard': `${DURATION.standard}s`,
+  '--ui-motion-ease': `cubic-bezier(${EASE.join(',')})`,
+} as const;
+
 export const transition = {
+  /** Near-critical damping: settles without decorative bounce. */
+  spatial: { type: 'spring', stiffness: 320, damping: 36, mass: 1 } satisfies Transition,
   micro: { duration: DURATION.micro, ease: EASE } satisfies Transition,
   standard: { duration: DURATION.standard, ease: EASE } satisfies Transition,
   emphasis: { duration: DURATION.emphasis, ease: EASE } satisfies Transition,
@@ -36,7 +45,7 @@ export const transition = {
 /** Page transitions: fade + 8px upward slide on route change. */
 export const pageEnter: Variants = {
   initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: transition.standard },
+  animate: { opacity: 1, y: 0, transition: { y: transition.spatial, opacity: transition.standard } },
 };
 
 /** Generic fade-in for async content replacing a skeleton. */
