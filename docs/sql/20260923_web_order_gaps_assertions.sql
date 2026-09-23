@@ -11,6 +11,39 @@
 -- Reading the result: the script ends with NOTICE 'ALL WEB ORDER GAP
 -- ASSERTIONS PASSED'. Any failure RAISEs 'ASSERTION FAILED — …' naming the
 -- check, and the ROLLBACK still runs.
+--
+-- REVISION 2 (2026-09-23). The first run failed on its first insert:
+--   23514 website_products violates "website_products_metals_nonempty"
+-- (metals defaults to '{}' and the CHECK needs at least one). Every fixture
+-- has now been checked against every constraint and trigger in the migrations
+-- on the tables it writes:
+--   website_products        metals nonempty + allowed list (K18), condition
+--                           and origin CHECKs (defaults 'New' / 'UNKNOWN'),
+--                           sku / slug UNIQUE, forbidden-gold-terms trigger,
+--                           metals->karat sync trigger (K18 is a karat value)
+--   website_product_variants price_jpy / price_php / stock_qty >= 0
+--   cash_orders             total_amount > 0, source_channel / order_type /
+--                           payment_method / payment_status / customer_lang /
+--                           refund_status value lists, tracking pair,
+--                           invoice UNIQUE + invoice registry, test prefix
+--   cash_order_items        written with website_product_id, NEVER product_id
+--                           (product_id is the Shopify FK — Bug #266); the
+--                           column list is exactly create_web_order_atomic's
+--   payment_submissions     required columns only (no CHECKs)
+--   layaway_accounts        3-month plan (no minimum), source_channel,
+--                           customer_lang, total_amount > 0, tracking pair
+--   layaway_account_items   quantity > 0; column list is exactly
+--                           create_web_layaway_atomic's
+--   layaway_schedule        amounts >= 0, installment_number > 0,
+--                           (account_id, installment_number) UNIQUE, chronology
+-- The revalidation trigger on the two website tables calls net.http_post;
+-- pg_net only queues the request in-transaction, so ROLLBACK sends nothing.
+--
+-- PREFLIGHT. Before any insert, the script compares LIVE against that list:
+-- any CHECK constraint on these tables it does not know, and any NOT NULL
+-- column without a default that a fixture does not set, are ALL named in one
+-- 'PREFLIGHT —' error and nothing is inserted. That turns "fails on the first
+-- unknown constraint" into "names every unknown constraint at once".
 -- ============================================================================
 
 BEGIN;
@@ -35,17 +68,86 @@ DECLARE
   exp  timestamptz;
   rel  timestamptz;
   raised boolean;
+  unknown text;
+  missing text;
 BEGIN
+  -- ------------------------------------------------------------- preflight
+  -- Read-only. Names every live CHECK constraint these fixtures were not
+  -- written against, and every required column they do not set, then stops.
+  SELECT string_agg(format('%s.%s: %s', rel::regclass, conname, pg_get_constraintdef(oid)), E'\n  ')
+    INTO unknown
+    FROM (SELECT oid, conrelid AS rel, conname FROM pg_constraint
+           WHERE contype = 'c'
+             AND conrelid IN ('public.customers'::regclass, 'public.website_products'::regclass,
+                              'public.website_product_variants'::regclass, 'public.cash_orders'::regclass,
+                              'public.cash_order_items'::regclass, 'public.payment_submissions'::regclass,
+                              'public.layaway_accounts'::regclass, 'public.layaway_account_items'::regclass,
+                              'public.layaway_schedule'::regclass)
+             AND conname <> ALL (ARRAY[
+               'website_products_condition_check', 'website_products_origin_check',
+               'website_products_metals_nonempty', 'website_products_metals_values',
+               'website_product_variants_price_jpy_check', 'website_product_variants_price_php_check',
+               'website_product_variants_stock_qty_check',
+               'cash_orders_total_amount_check', 'cash_orders_total_paid_check',
+               'cash_orders_tracking_pair_check', 'cash_orders_source_channel_check',
+               'cash_orders_order_type_check', 'cash_orders_payment_method_check',
+               'cash_orders_payment_status_check', 'cash_orders_customer_lang_check',
+               'cash_orders_refund_status_check',
+               'layaway_accounts_payment_plan_months_check', 'layaway_accounts_total_amount_check',
+               'layaway_accounts_total_paid_check', 'layaway_accounts_tracking_pair_check',
+               'layaway_accounts_source_channel_check', 'layaway_accounts_customer_lang_check',
+               'layaway_account_items_quantity_check',
+               'base_amount_positive', 'carried_amount_non_negative',
+               'layaway_schedule_base_installment_amount_check', 'layaway_schedule_installment_number_check',
+               'layaway_schedule_paid_amount_check', 'layaway_schedule_penalty_amount_check',
+               'layaway_schedule_total_due_amount_check', 'penalty_non_negative'])) k;
+
+  SELECT string_agg(format('%s.%s', c.table_name, c.column_name), ', ')
+    INTO missing
+    FROM information_schema.columns c
+    JOIN (VALUES
+      ('customers',                ARRAY['full_name','is_test']),
+      ('website_products',         ARRAY['sku','slug','name','status','metals']),
+      ('website_product_variants', ARRAY['product_id','price_jpy','stock_qty','sort']),
+      ('cash_orders',              ARRAY['invoice_number','customer_id','currency','total_amount','remaining_balance',
+                                         'status','source_channel','payment_status','payment_method','order_type',
+                                         'web_reference','transfer_due_at','expires_at']),
+      ('cash_order_items',         ARRAY['cash_order_id','website_product_id','variant_id','title','sku','quantity',
+                                         'unit_price_jpy','line_total_jpy']),
+      ('payment_submissions',      ARRAY['customer_id','cash_order_id','submitted_amount','payment_date',
+                                         'payment_method','status']),
+      ('layaway_accounts',         ARRAY['customer_id','invoice_number','currency','total_amount','remaining_balance',
+                                         'payment_plan_months','order_date','status','source_channel']),
+      ('layaway_account_items',    ARRAY['account_id','website_product_id','variant_id','title','sku','quantity',
+                                         'unit_price_jpy','line_total_jpy']),
+      ('layaway_schedule',         ARRAY['account_id','installment_number','due_date','base_installment_amount',
+                                         'total_due_amount','currency','status'])
+    ) AS s(t, cols) ON s.t = c.table_name
+   WHERE c.table_schema = 'public'
+     AND c.is_nullable = 'NO'
+     AND c.column_default IS NULL
+     AND c.is_generated = 'NEVER'
+     AND c.is_identity = 'NO'
+     AND NOT (c.column_name = ANY (s.cols));
+
+  IF unknown IS NOT NULL OR missing IS NOT NULL THEN
+    RAISE EXCEPTION E'PREFLIGHT — the fixtures were not written against these live objects. Nothing was inserted. Send this whole message to Claude Code.\n CHECK constraints not accounted for:\n  %\n Required columns the fixtures do not set: %',
+      coalesce(unknown, '(none)'), coalesce(missing, '(none)');
+  END IF;
+
   SELECT user_id INTO staff FROM public.user_roles WHERE role = 'admin' LIMIT 1;
   IF staff IS NULL THEN RAISE EXCEPTION 'setup: no admin user to act as staff'; END IF;
 
   INSERT INTO public.customers (full_name, is_test)
   VALUES ('ZZ web-order-gaps assertion', true) RETURNING id INTO c;
 
-  INSERT INTO public.website_products (sku, slug, name, status)
-  VALUES ('ZZ-GAPS-0923', 'zz-gaps-0923', 'ZZ gaps assertion', 'active') RETURNING id INTO p;
-  INSERT INTO public.website_product_variants (product_id, price_jpy, stock_qty)
-  VALUES (p, 1000, 0) RETURNING id INTO v1;
+  -- metals: at least one, from the allowed list (website_products_metals_*);
+  -- condition / origin take their CHECK-valid defaults ('New' / 'UNKNOWN').
+  INSERT INTO public.website_products (sku, slug, name, status, metals)
+  VALUES ('ZZ-GAPS-0923', 'zz-gaps-0923', 'ZZ gaps assertion', 'active', ARRAY['K18']::text[])
+  RETURNING id INTO p;
+  INSERT INTO public.website_product_variants (product_id, price_jpy, stock_qty, sort)
+  VALUES (p, 1000, 0, 0) RETURNING id INTO v1;
   INSERT INTO public.website_product_variants (product_id, price_jpy, stock_qty, sort)
   VALUES (p, 1000, 0, 1) RETURNING id INTO v2;
 
@@ -58,7 +160,9 @@ BEGIN
   VALUES ('ZZGAPS0923A', c, 'JPY', 1000, 1000, 'pending', 'web', 'pending_transfer', 'transfer', 'SELF',
           'CJ-W-ZZ0923A', now() - interval '1 hour', now() - interval '1 hour')
   RETURNING id INTO o1;
-  INSERT INTO public.cash_order_items (cash_order_id, product_id, variant_id, title, sku, quantity, unit_price_jpy, line_total_jpy)
+  -- website_product_id, never product_id: product_id is the Shopify FK (Bug #266).
+  INSERT INTO public.cash_order_items (cash_order_id, website_product_id, variant_id, title, sku, quantity,
+                                       unit_price_jpy, line_total_jpy)
   VALUES (o1, p, v1, 'ZZ gaps assertion', 'ZZ-GAPS-0923', 1, 1000, 1000);
 
   INSERT INTO public.cash_orders (invoice_number, customer_id, currency, total_amount, remaining_balance,
