@@ -4,6 +4,21 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23)
+
+  Added on live with the discount columns on 2026-07-09 (docs/SCHEMA-FACTS.md
+  "AFB"), `shipping_fee numeric NOT NULL default 0` on both tables is in no
+  migration either. The discount columns were recorded by
+  `20260923130000_record_live_discount_columns.sql`; shipping_fee was outside
+  that pass's scope. A rebuild from `supabase/migrations/` lacks it, and
+  `create_web_order_atomic`, `_shared/order-extras.ts` and the creation forms
+  write it.
+
+  **Fix pattern:** the same proof-first record-only migration as
+  20260923130000 — prove any existing definition against the record (type
+  from live via `format_type`, NOT NULL, default) BEFORE writing, then
+  `ADD COLUMN IF NOT EXISTS`.
+
 ### web-order lifecycle follow-ups left open by #298 (filed 2026-09-23)
 
   Filed, not fixed — each is outside the owner-approved scope of #298.
@@ -17,21 +32,9 @@
   new deadline) from each function after the RPC succeeds, via
   `sendStorefrontEmail`.
 
-  **2. auto-forfeit-settlement keeps a forfeited web plan's stock held.** Only
-  the staff forfeit returns it. A web plan forfeited by PATH 1/2 sits with its
-  piece off sale until someone acts; if it later reaches `final_forfeited` the
-  piece is held forever. Fix pattern: route the automated forfeit through the
-  same release (`stock_released_at` + `website_product_variants`) — the
-  re-hold trigger already covers the way back.
-
-  **3. Reactivating a forfeited web plan whose piece has sold leaves its
-  schedule un-cancelled.** `reactivate-account` (LOCKED) un-cancels schedule
-  rows BEFORE it updates the account; when
-  `trg_rehold_released_web_layaway_stock` refuses the status change, the
-  account stays `forfeited` but those rows are already back to `overdue`.
-  Needs owner approval to touch the locked function. Fix pattern: a read-only
-  stock pre-check at the top of `reactivate-account` for web plans with
-  `stock_released_at` set, returning 409 before any write.
+  Items 2 (automatic forfeits kept a web plan's stock) and 3 (a refused
+  reactivation left the schedule un-cancelled) were fixed on 2026-09-23 — see
+  docs/FIXED-BUGS.md #299. Item 1 is still open.
 
 ### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
 

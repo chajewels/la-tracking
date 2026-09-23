@@ -1937,6 +1937,53 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #299 — Automatic forfeits kept a web layaway's pieces; a refused reactivation still un-cancelled the schedule; the discount columns were in no migration (2026-09-23)
+Follow-up to #298, owner-approved the same day.
+
+**1. Automatic forfeits now return a web plan's pieces.** The only automatic
+forfeit writer is `auto-forfeit-settlement` (cron `daily-auto-forfeit`, 00:10
+UTC), at four places: extension expired → `final_forfeited`, extension-month
+penalty cap → `final_forfeited`, PATH 1 (final-month cap) → `forfeited`, PATH 2
+(3 months overdue) → `forfeited`. No SQL function or other cron writes either
+status. That function is LOCKED, so the pieces go back via a new trigger,
+`trg_release_forfeited_web_layaway_stock`, on the status change itself — same
+statement, same transaction, any writer. It acts only while
+`stock_released_at` is NULL, so the staff RPC (which stamps it in the same
+UPDATE) and an already-released plan are never released twice; a plan re-held
+by reactivation releases again at `final_forfeited`. The customer of a web plan
+now gets the storefront `layaway-forfeited` email from the automatic path too
+(one sender, `_shared/layaway-forfeit-email.ts`, logged via
+`recordEmailAttempt`), with a new `final` variant for `final_forfeited` that
+offers no extension. The only edit to `auto-forfeit-settlement` is inside
+`sendForfeitEmail`; its LOCKED note records it.
+
+**2. Reactivation is all-or-nothing.** `reactivate-account` (LOCKED; owner
+authorised the edit) un-cancelled the schedule, then flipped the account, then
+inserted the Extension Month row, as separate calls. When the re-hold trigger
+refused the flip because a piece had sold, the account stayed forfeited with
+its rows already `overdue`. Those three writes are now
+`reactivate_layaway_atomic`, one transaction, same values; for a released web
+plan it checks the pieces BEFORE writing and returns `out_of_stock` naming
+them — the edge function answers 409 and AccountDetail shows the message. The
+Extension Month insert still never blocks reactivation (the edge function
+never checked it), now in a subtransaction whose failure is reported. The RPC
+is called through a service-role client: the function's own client carries the
+staff JWT, and granting the RPC to `authenticated` would have let any
+signed-in user call it directly. Every guard, the penalty-engine call, the
+audit row, the email and the loyalty restore are unchanged.
+
+**3. Record-only migration for the discount drift.**
+`20260923130000_record_live_discount_columns.sql` records `discount_amount` /
+`discount_type` / `discount_value` on both tables and both `discount_type`
+CHECKs. It PROVES any existing definition against the record before writing
+anything, then adds only what is absent — a no-op on live. `shipping_fee`, from
+the same 2026-07-09 change, is filed in OPEN-BUGS.
+
+Tests: `src/test/web-order-gaps.test.ts` (reactivation refusals, short-line
+naming, final variant); `docs/sql/20260923_web_layaway_stock_assertions.sql`
+(preflight + ROLLBACK), run end-to-end in a scratch Postgres against stubs
+carrying every live CHECK and the real function bodies.
+
 ### #298 — Three web-order lifecycle gaps: cash expiry ignored INVARIANT 12, "Revive Order" left a web order half-alive, forfeiting a web layaway kept its stock (2026-09-23)
 Found while tracing the storefront flow for the Rule A (reservation-first)
 design. All three are fixed in one PR, migration

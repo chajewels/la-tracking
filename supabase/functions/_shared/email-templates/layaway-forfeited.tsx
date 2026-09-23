@@ -5,7 +5,13 @@ import { formatMoney, type Lang } from '../storefront-email.ts'
 import { WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark } from './order-shared.tsx'
 
 /**
- * Sent by manual-forfeit when staff forfeit a WEB layaway. The customer of a
+ * Sent when a WEB layaway is forfeited — by staff (manual-forfeit) or
+ * automatically (auto-forfeit-settlement), through
+ * _shared/layaway-forfeit-email.ts. `final` is the permanent variant
+ * (final_forfeited: the extension expired or hit its penalty cap): it says the
+ * closure is permanent and offers no extension.
+ *
+ * Originally sent by manual-forfeit only. The customer of a
  * web plan has only ever dealt with the storefront, so this replaces the Hub's
  * account-forfeited template for them (the same split auto-expire-cash-orders
  * makes between order-expired and cash-order-expired).
@@ -24,6 +30,8 @@ export interface LayawayForfeitedProps {
   totalAmount: number
   totalPaid: number
   planUrl: string | null
+  /** final_forfeited — permanent, no extension on offer. */
+  final?: boolean
 }
 
 export const layawayForfeitedSubject = (reference: string) =>
@@ -35,6 +43,9 @@ const COPY = {
     intro: (ref: string) => `ご予約番号 ${ref} の分割払いプランは、規約に基づき終了（失効）となりました。`,
     released: 'お取り置きしていたお品物は解除され、再び販売中となっております。',
     extension: 'お品物がまだ販売中の場合に限り、一度だけ延長をご相談いただける場合がございます。ご希望の際は、7日以内にこのメールへご返信ください。',
+    finalHeading: 'ご契約を最終的に終了いたしました',
+    finalIntro: (ref: string) => `ご予約番号 ${ref} の分割払いプランは、延長期間の終了により、規約に基づき最終的に終了（失効）となりました。`,
+    finalNote: 'この終了は確定となり、延長や再開のお手続きはお受けできません。',
     total: 'お支払い総額',
     paid: 'お支払い済み',
     view: 'ご契約内容を確認する',
@@ -44,6 +55,9 @@ const COPY = {
     intro: (ref: string) => `Your layaway plan ${ref} has been closed under the plan terms (forfeited).`,
     released: 'The piece that was held for you has been released and is back on sale.',
     extension: 'While the piece is still available, you may be able to ask for a one-time extension. To ask, reply to this email within 7 days.',
+    finalHeading: 'Your layaway plan has been permanently closed',
+    finalIntro: (ref: string) => `Your layaway plan ${ref} has been permanently closed under the plan terms (forfeited) after its extension ended.`,
+    finalNote: 'This closure is final; the plan cannot be extended or reopened.',
     total: 'Plan total',
     paid: 'Paid so far',
     view: 'View your plan',
@@ -54,13 +68,13 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: LayawayForfeitedProps; pri
   const c = COPY[lang]
   return (
     <>
-      <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
-      <Text style={text}>{c.intro(p.reference)}</Text>
+      <Heading style={primary ? h1 : h2}>{p.final ? c.finalHeading : c.heading}</Heading>
+      <Text style={text}>{p.final ? c.finalIntro(p.reference) : c.intro(p.reference)}</Text>
       <Text style={notice}>{c.released}</Text>
       <Text style={muted}>
         {c.total}: {formatMoney(p.totalAmount, p.currency)} · {c.paid}: {formatMoney(p.totalPaid, p.currency)}
       </Text>
-      <Text style={text}>{c.extension}</Text>
+      <Text style={text}>{p.final ? c.finalNote : c.extension}</Text>
       {p.planUrl && (
         <Section style={buttonWrap}>
           <Button style={button} href={p.planUrl}>{c.view}</Button>

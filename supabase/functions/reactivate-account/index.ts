@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { reactivateRefusal } from "../_shared/web-order-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,16 @@ const corsHeaders = {
  *
  * ⛔ PERMANENT FORFEITURE LIFECYCLE — LOCKED RULE
  * DO NOT MODIFY without explicit business owner approval.
+ *
+ * OWNER-APPROVED CHANGE 2026-09-23 — reactivation is ALL-OR-NOTHING. Actions
+ * 1, 2 and 4 below (account flip, reactivation fields, un-cancel) and the
+ * Extension Month row are now ONE transaction in reactivate_layaway_atomic,
+ * with the same values as before. For a WEB plan whose pieces were put back on
+ * sale at forfeiture, the RPC re-holds them first; if one has sold it returns
+ * out_of_stock and NOTHING changes — schedule rows stay cancelled, the status
+ * stays forfeited — and staff get a 409 naming the piece. Every guard, the
+ * penalty-engine call, the audit row, the extension-granted email and the
+ * loyalty restore are unchanged and in the same order.
  *
  * GUARDS (all enforced server-side):
  *   - Account MUST be in 'forfeited' status
@@ -118,13 +129,6 @@ Deno.serve(async (req) => {
       .in("status", ["unpaid", "paid"]);
     const currentPenaltyCount = (penalties || []).length;
 
-    // Get the last due date from schedule to compute extension end
-    const { data: schedItems } = await supabase
-      .from("layaway_schedule")
-      .select("due_date, id, status")
-      .eq("account_id", account_id)
-      .order("installment_number", { ascending: false });
-
     // Extension = 1 month from reactivation date (Bug #108 fix, 2026-05-15)
     // Business rule: customer gets 1 month from reactivation to settle, regardless of last due date
     const extDate = new Date();
@@ -133,42 +137,41 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
-    // Un-cancel remaining schedule items so penalty engine can continue
-    const cancelledItems = (schedItems || []).filter((s: any) => s.status === "cancelled");
-    for (const item of cancelledItems) {
-      await supabase.from("layaway_schedule").update({
-        status: "overdue",
-        updated_at: now,
-      }).eq("id", item.id);
-    }
-
-    // Update account
-    const { error: updateErr } = await supabase
-      .from("layaway_accounts")
-      .update({
-        status: "extension_active",
-        is_reactivated: true,
-        reactivated_at: now,
-        reactivated_by_user_id: staffUserId,
-        extension_end_date: extensionEndDate,
-        penalty_count_at_reactivation: currentPenaltyCount,
-        updated_at: now,
-      })
-      .eq("id", account_id);
-
-    if (updateErr) throw updateErr;
-
-    // Always create Extension Month row so penalty cap path is reachable
-    // regardless of forfeit reason (Bug #106 fix, 2026-05-15)
-    await supabase.from("layaway_schedule").insert({
-      account_id: account_id,
-      installment_number: account.payment_plan_months + 1,
-      due_date: extensionEndDate,
-      base_installment_amount: 0,
-      total_due_amount: 0,
-      currency: account.currency,
-      status: "pending",
+    // Un-cancel the remaining schedule items, flip the account and add the
+    // Extension Month row — ONE transaction (owner-approved 2026-09-23). Same
+    // rows and values as the three separate writes this replaced; the
+    // Extension Month insert still never blocks reactivation (the RPC runs it
+    // in a subtransaction and reports a failure instead of raising).
+    // For a web plan whose pieces were released at forfeiture the RPC re-holds
+    // them first and refuses out_of_stock before writing anything.
+    // Service-role client for the RPC only: `supabase` above carries the staff
+    // JWT (every other call here runs under it, unchanged), and the RPC is
+    // granted to service_role alone so no signed-in user can call it directly
+    // and skip the reactivate_account permission checked above.
+    const serviceClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data: reactivated, error: reactErr } = await serviceClient.rpc("reactivate_layaway_atomic", {
+      p_account_id: account_id,
+      p_user_id: staffUserId,
+      p_extension_end_date: extensionEndDate,
+      p_penalty_count: currentPenaltyCount,
     });
+    const refusal = reactivateRefusal(
+      reactErr ? { message: reactErr.message } : (reactivated as Record<string, unknown> | null),
+    );
+    if (refusal) {
+      return new Response(JSON.stringify(refusal.body), {
+        status: refusal.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (reactErr) throw reactErr;
+    if ((reactivated as any)?.extension_row_error) {
+      console.warn(
+        `[reactivate-account] Extension Month row not inserted for ${account.invoice_number} (non-blocking, as before): ${(reactivated as any).extension_row_error}`,
+      );
+    }
 
     // Auto-approve any pending extension request for this account
     try {
