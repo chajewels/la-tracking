@@ -1993,6 +1993,27 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   and record the final, possibly `TEST-` prefixed, value; never rename them to
   something that sorts earlier.
 
+  DISCOUNTS: `price_total` IS ALREADY NET (added 2026-09-23). Page365 discounts
+  the INVOICE, not the lines. `price_subtotal` and every item `subtotal` stay at
+  full price, and `price_total` = subtotal + shipping − `price_discount` −
+  `campaign_discount`. Both fields are read, both are subtracted, and the
+  reconcile is that identity to the yen; a negative in either is refused by name.
+  Summing the two is deliberate — if Page365 ever reported ONE discount in BOTH,
+  the total stops reconciling and the import is refused, which beats silently
+  halving a customer's total. Reading neither is what refused EVERY discounted
+  invoice with a 422 until this landed.
+  The draft carries `discount_jpy`, `discount_breakdown` and, for display only,
+  `promotion_code` and `discount_campaign_name` — a promo code is never written
+  to the order. The review screen PRE-FILLS the Discount field from
+  `discount_jpy` and marks it "From Page365" until the CSR types over it.
+  LOYALTY BASIS = PRODUCT LINES − DISCOUNT, in yen (owner rule 2026-09-23:
+  "loyalty excludes the discount and the shipping fee"). The whole discount
+  comes off the product amount; services and shipping were already outside it.
+  Points must never be earned on money the customer did not spend. While the
+  discount is still Page365's own the basis uses the draft's exact yen figure
+  rather than converting the peso input back, so the basis cannot drift when the
+  CSR toggles the currency.
+
   THE UI IS THE ONLY WAY IN, AND IT NEVER AUTO-DECIDES. Sales → the split
   button's "From Page365" opens a paste box; a successful fetch navigates to
   `/page365/review/:draftId`, where every parsed field is editable before
@@ -2002,7 +2023,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   Item notes are displayed beside their line and never parsed. A RESIZE FEE
   arrives flagged `kind: 'service'` and the CSR can move any line between
   product and service; the loyalty basis sent to the creating function is the
-  PRODUCT total in yen and nothing else.
+  PRODUCT total in yen, LESS the discount (see DISCOUNTS below) — services and
+  shipping are never in it.
   Currency is the CSR's choice at review: JPY default, and PHP converts the
   total, shipping and discount with the rate the DRAFT carries (`payload.fx`,
   `system_settings.php_jpy_rate`) — shown once on screen with its source and
