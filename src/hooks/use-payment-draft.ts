@@ -10,8 +10,36 @@ interface PaymentDraft {
 
 const DRAFT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+const DRAFT_KEY_PREFIX = 'payment_draft_';
+
 function getDraftKey(accountId: string) {
-  return `payment_draft_${accountId}`;
+  return `${DRAFT_KEY_PREFIX}${accountId}`;
+}
+
+/**
+ * Remove EVERY payment draft, for every account (F02, #295).
+ *
+ * Drafts are per-account (`payment_draft_<accountId>`), so there is no single
+ * key to delete — on sign-out the whole family has to go, or the next person
+ * on the device opens an account and finds the previous user's half-typed
+ * amount, method and notes restored for them.
+ *
+ * Exported so AuthContext can call it without knowing the key shape; the
+ * storage layout stays this hook's business. Keys are collected before
+ * removing, because sessionStorage re-indexes on delete and iterating
+ * forwards while mutating skips entries.
+ */
+export function clearAllPaymentDrafts() {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(DRAFT_KEY_PREFIX)) keys.push(k);
+    }
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // Storage unavailable (private mode, blocked site data) — nothing to clear.
+  }
 }
 
 export function usePaymentDraft(accountId: string) {

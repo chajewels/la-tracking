@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { palette } from '@/theme/tokens';
 import { Session, User } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { clearAccountDraft } from '@/hooks/use-account-draft';
+import { clearAllPaymentDrafts } from '@/hooks/use-payment-draft';
 
 type AppRole = 'admin' | 'staff' | 'finance' | 'csr' | 'customer' | 'live_agent';
 
@@ -31,6 +34,13 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // App.tsx creates the QueryClient at MODULE scope, so it outlives every
+  // sign-out and nothing in src/ ever emptied it. Taking it from context here
+  // (AuthProvider sits inside QueryClientProvider in App.tsx) gives the
+  // SIGNED_OUT handler the same instance the app reads from, without
+  // importing the module-scope singleton. useQueryClient is referentially
+  // stable, so the mount-once effect below can close over it safely.
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
@@ -104,11 +114,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isInitial) { setLoading(false); setInitialLoadDone(true); initialLoadDoneRef.current = true; }
     };
 
+    // ── F02 / #295: drop everything the previous user could still be read from ──
+    //
+    // Wired to the SIGNED_OUT EVENT, not to signOut(), on purpose. signOut() is
+    // only the button in this tab; the event also fires when the session ends
+    // some other way — and cross-tab, which matters on a shared machine.
+    //
+    // CROSS-TAB IS REAL, AND HERE IS THE EVIDENCE (checked against the pinned
+    // @supabase/auth-js 2.116.0, not assumed):
+    //   - GoTrueClient's constructor opens `new BroadcastChannel(this.storageKey)`
+    //     when `isBrowser() && globalThis.BroadcastChannel && this.persistSession
+    //     && this.storageKey` (GoTrueClient.js:267-269), and subscribes to its
+    //     'message' event (:274).
+    //   - Our client sets `persistSession: true`
+    //     (src/integrations/supabase/client.ts), so the channel is opened.
+    //   - `_signOut()` ends with `await this._notifyAllSubscribers('SIGNED_OUT', null)`
+    //     (:4430), and `_notifyAllSubscribers(event, session, broadcast = true)`
+    //     (:4332) posts to that channel; the receiving tab re-notifies its own
+    //     subscribers with `broadcast = false` (:4341 comment).
+    //   So a sign-out in tab A delivers SIGNED_OUT to this handler in tab B.
+    //
+    // THE ONE GAP, stated rather than papered over: auth-js wraps the channel
+    // construction in try/catch and logs "Failed to create a new
+    // BroadcastChannel, multi-tab state changes will not be available" (:272).
+    // Where BroadcastChannel is missing or blocked, no cross-tab event arrives
+    // and the other tab keeps its cache until it is reloaded or its own session
+    // read fails. auth-js registers NO 'storage' event listener, so there is no
+    // second mechanism to fall back on. Closing that would need our own
+    // BroadcastChannel (or a `storage` listener on the auth key) posting a
+    // logout ping that each tab acts on — deliberately not built here, because
+    // it is a separate behaviour with its own failure modes.
+    const clearSensitiveState = async () => {
+      // Cancel first, then clear. A query already in flight resolves AFTER the
+      // clear otherwise, and React Query writes the result back into the cache
+      // — repopulating it with the signed-out user's rows a beat after we
+      // emptied it. cancelQueries settles the in-flight ones before we wipe.
+      try {
+        await queryClient.cancelQueries();
+      } catch {
+        // Never let teardown block the sign-out itself.
+      }
+      queryClient.clear();
+
+      // Drafts live in sessionStorage and are NOT auth state, so nothing else
+      // removes them. Each hook owns its own key shape and exports its own
+      // clear — AuthContext does not reach into sessionStorage itself.
+      clearAccountDraft();
+      clearAllPaymentDrafts();
+
+      // Deliberately NOT touched: density toggle, notification sound, FX rate,
+      // announcement dismissal, loyalty tier and every other unrelated
+      // localStorage key. They are device preferences, hold nothing about who
+      // was signed in, and wiping them would make sign-out feel like a reset.
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
 
       // On SIGNED_OUT, clear immediately without showing spinner
       if (event === 'SIGNED_OUT') {
+        void clearSensitiveState();
         clearAuthState();
         return;
       }
