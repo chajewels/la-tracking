@@ -1937,6 +1937,55 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #296 — sales_log_backup_20260616: an empty, RLS-less table the anon key could write to and TRUNCATE (2026-09-23)
+`public.sales_log_backup_20260616` was a one-off backup of `public.sales_log`
+taken on 2026-06-16 and never cleaned up. At the moment it was dropped it had
+**RLS DISABLED and zero policies**, **zero rows**, and **full DML grants to both
+`anon` and `authenticated`** — SELECT, INSERT, UPDATE, DELETE and TRUNCATE.
+
+**No data was exposed.** The table was empty, so there was nothing to read; the
+`SELECT` grant to `anon` gave up nothing. Recording that explicitly because the
+shape of this finding invites the opposite assumption.
+
+**The risk was unauthorised WRITES.** `anon` is the publishable key shipped in
+every browser bundle — it is not a secret and is not meant to be one. With RLS
+off and no policy to fall back on, anybody at all could INSERT arbitrary rows
+into a `sales_log`-shaped table sitting in the public schema, UPDATE or DELETE
+whatever they had inserted, and TRUNCATE it again to cover the traces. Nothing
+would have refused them and nothing would have logged it. The practical damage
+was bounded — no code reads the table, so junk in it could not reach a report,
+a balance or a customer — but a writable public-schema table is a foothold, and
+a `sales_log`-shaped one is a convincing place to hide a forged row if anything
+ever did start reading it.
+
+**Reach, verified by grep:** nothing in `src/` or `supabase/functions/`
+referenced it. It appeared in exactly two places — the `20260705230000`
+baseline, which CREATEs it, and the generated
+`src/integrations/supabase/types.ts`.
+
+**The drop.** Applied BY HAND in the Supabase SQL Editor on 2026-09-23 by the
+owner. Recorded here as `supabase/migrations/20260923110000_record_drop_sales_log_backup.sql`,
+a record-only migration carrying `DROP TABLE IF EXISTS
+public.sales_log_backup_20260616;` — idempotent, no CASCADE (nothing depended
+on it, and a record-only migration should not be able to cascade silently).
+
+**Why the migration is not optional.** Per CLAUDE.md *"A SQL EDITOR CHANGE THAT
+IS NEVER COMMITTED IS INVISIBLE TO EVERY LATER REBUILD"* (Bug #280), the
+baseline still CREATEs this table. Without the record-only file, every
+from-scratch rebuild — local dev, staging bootstrap — would resurrect it with
+RLS off and the anon grants intact, reintroducing the exact exposure that was
+just closed. The baseline is deliberately NOT edited in place.
+
+**`src/integrations/supabase/types.ts` still lists the table.** It is
+SUPABASE-AUTO-GENERATED and must never be hand-edited (CLAUDE.md GENERATED
+FILES); the entry disappears on the next regeneration. It is a type declaration
+for a relation that no longer exists and that no code touches, so it is inert —
+but anyone grepping for the table will find it there until then.
+
+**Status:** merged to main. No deploy of any kind is involved — no edge
+function, no frontend change. The live database is already in the target state;
+this commit only makes the repo agree with it.
+
 ### #295 — Two staff on one device could read each other's data: a URL-keyed service-worker cache and a query cache that outlived sign-out (2026-09-23)
 Nothing about signing out actually removed the previous user's data from the
 device. Audit F02. Three independent leak paths, all frontend:
