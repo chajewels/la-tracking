@@ -1937,6 +1937,99 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #291 — Payment allocations accepted negatives, NaN and a ±1 mismatch; a negative leg was then silently dropped (2026-09-23)
+`record-multi-payment` validated a batch by its SUM and nothing else, then threw
+away any leg it did not like. A batch of **+100 and −50** sums to 50, so a
+declared `total_amount_paid` of 50 passed the old check
+`Math.abs(totalAllocated - total_amount_paid) > 1`. The processing loop then hit
+`if (Number(inputAlloc.amount) <= 0) continue;`, silently dropped the −50 leg,
+and submitted **100** — twice what the batch said, with no error anywhere and
+nothing in the response to show a leg had gone missing. Audit F04.
+
+Four independent defects made that possible:
+
+1. **No per-leg sign check.** Only the sum was tested, so any pair that netted
+   correctly got through.
+2. **A ±1 tolerance, not an epsilon.** `> 1` is a whole peso or a whole yen. A
+   batch could be 99 centavos out and still book. CLAUDE.md DECIMAL RULES says
+   "Money equality: always use moneyEqual() with EPSILON tolerance", and
+   `MONEY_EPSILON` is `0.01` — a hundred times tighter.
+3. **`total_amount_paid` was optional.** The guard read
+   `if (total_amount_paid && Math.abs(…))`, so omitting the field — or sending
+   `0` — skipped the cross-check entirely and let the legs sum to anything.
+4. **No NaN or precision test.** `NaN <= 0` and `NaN > 0` are BOTH false, so a
+   NaN amount passed every ordering test in the function. Nothing checked whole
+   yen for JPY or two decimals for PHP either.
+
+**New: `supabase/functions/_shared/payment-validation.ts`.** A pure module — no
+Deno globals, no Supabase client, no I/O — so vitest imports the exact file the
+edge functions run rather than a copy. `validateAllocations(rows, total, currency)`
+throws a specific `Error` for each failure: empty list; non-finite amount
+(`typeof` **and** `Number.isFinite`, because a comparison alone never catches
+NaN); amount `<= 0`; currency precision (JPY whole, PHP ≤ 2dp, with a float-noise
+guard so `0.1 + 0.2` is accepted as 30 centavos while `10.555` is not); duplicate
+`account_id`; mixed-currency batch; a missing, non-finite or non-positive
+`total_amount_paid`; and sum ≠ total compared on **MONEY_EPSILON**, summed in
+integer cents. `validateSingleAmount` is the same rules for one amount.
+`MONEY_EPSILON`, `toInt` and `moneyEqual` are MIRRORED from
+`src/lib/business-rules.ts`, not imported — edge functions must not reach across
+into `src/`, which is bundled for the browser. Keep the two in step.
+
+THE WIRE FORMAT DID NOT CHANGE. Amounts stay decimal (`12.34`), not minor units;
+integer cents are internal to the summation only. No caller contract moved.
+
+**`supabase/functions/record-multi-payment/index.ts`.** `validateAllocations`
+runs before any write, after the account fetch because it needs the resolved
+currency (everything above that point is a read); a failure is a 400 carrying the
+validator's specific message, naming the offending account. The
+`if (… <= 0) continue;` skip is GONE — after validation nothing reaching the loop
+can be non-positive, and dropping a leg silently is the defect itself.
+`total_amount_paid` is now REQUIRED. The `audit_logs` insert error is
+destructured and logged; it does not fail the request, because the submission
+already exists and failing would tell the caller nothing was booked.
+
+**`supabase/functions/record-payment/index.ts`.** Reuses `validateSingleAmount`
+for the single-amount path, replacing `!amount_paid || amount_paid <= 0` — which
+used falsiness and never tested NaN, Infinity or precision. The `audit_logs`
+insert error is logged, not ignored. **The `proof_url` update error now fails the
+request**: under PROOF REQUIRED, `review-payment-submission` refuses to confirm a
+submission with an empty `proof_url`, so returning 201 after a failed attach
+reported success for an UNCONFIRMABLE row that would sit in the queue while the
+money never booked. It now returns 500 `proof_attach_failed` carrying the
+`submission_id` and `submission_exists_without_proof: true`, and says in words
+that staff must RE-ATTACH proof to that submission rather than resubmit. The row
+is deliberately NOT deleted — it is a real record of a real attempt, it holds the
+advisory-lock dedupe slot, and deleting it invites a duplicate.
+
+**Tests:** `src/test/payment-validation.test.ts`, 27 cases — the +100/−50 batch,
+single negative, zero, NaN, Infinity, non-numeric string, JPY with decimals, PHP
+with 3 decimals, duplicate account, mixed currency, missing/zero/non-finite
+total, a mismatch the old ±1 window would have accepted, a gap of exactly 0.01
+(must fail, mirroring `moneyEqual`'s strict `<`), a difference inside epsilon
+that must PASS, and a valid multi-account batch.
+
+**NOT attempted here, and deliberately so — recorded as a TODO in the code.**
+`record-multi-payment` is still neither atomic nor idempotent. Each leg inserts
+its own `payment_submissions` row inside the loop, so a failure on leg 3 of 5
+leaves 1–2 submitted and 3–5 not, with no rollback and no marker on the
+`batch_id`. And `batch_id` is a fresh `crypto.randomUUID()` per call, so a client
+retry after a timeout creates a SECOND full set of submissions for the same
+money — `record-payment` gets per-account protection from
+`insert_payment_submission_guarded`, and the batch path has no equivalent. Both
+need one transactional RPC taking the whole batch plus a caller-supplied
+idempotency key. That is its own step; this one is validation only.
+
+**Callers:** no change needed in `src/`. `MultiInvoicePaymentDialog.tsx` already
+sends `total_amount_paid: totalAllocated` and already blocks non-positive legs in
+the UI, so REQUIRED breaks nothing. `RecordPaymentDialog.tsx`,
+`BulkPaymentImport.tsx` and `use-supabase-data.ts` all send numeric amounts.
+Note that `validateAllocations` rejects numerically-shaped STRINGS such as
+`"100"` as well as `"abc"`; the wire format is JSON numbers and no caller sends
+strings, but it is a strictness increase worth knowing about.
+
+**Status:** merged to main, edge deploy pending via Lovable. All three edge files
+need the Lovable redeploy before any of this is in force.
+
 ### #290 — Unsigned service-role claims accepted on non-gateway functions (2026-09-23)
 Two edge functions ran at `verify_jwt = false` and still trusted a caller that
 merely *claimed* `role: "service_role"`. With the gateway check off, nothing

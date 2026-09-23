@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateAllocations } from "../_shared/payment-validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +61,9 @@ Deno.serve(async (req) => {
       proof_url,
     } = body as {
       customer_id: string;
+      /** REQUIRED (F04). Enforced by validateAllocations, which rejects a
+       *  missing, non-finite or non-positive value outright — the previous
+       *  `if (total_amount_paid && …)` made the cross-check optional. */
       total_amount_paid: number;
       date_paid?: string;
       payment_method?: string;
@@ -85,20 +89,16 @@ Deno.serve(async (req) => {
     }
 
     const totalAllocated = inputAllocations.reduce((s, a) => s + Number(a.amount), 0);
-    if (totalAllocated <= 0) {
-      return new Response(JSON.stringify({ error: "Total allocated must be > 0" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
-    // Check total matches
-    if (total_amount_paid && Math.abs(totalAllocated - Number(total_amount_paid)) > 1) {
-      return new Response(
-        JSON.stringify({ error: "Allocation total does not match total_amount_paid" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // The former guards here — `totalAllocated <= 0` and the OPTIONAL
+    // `if (total_amount_paid && Math.abs(diff) > 1)` — are gone. They are
+    // replaced by validateAllocations below, which runs after the account
+    // fetch because it needs the resolved currency. See F04 / #291:
+    //   - the ±1 window let a batch be a whole peso or yen out;
+    //   - the `total_amount_paid &&` prefix made the cross-check optional, so
+    //     omitting the field skipped it entirely;
+    //   - a per-leg sign check is the only thing that catches a +100/-50 pair,
+    //     which nets to a "matching" total.
 
     // Fetch all target accounts
     const accountIds = inputAllocations.map((a) => a.account_id);
@@ -113,6 +113,31 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "One or more accounts not found or don't belong to this customer" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // ── F04: validate the whole batch BEFORE any write ──
+    // Runs here, not earlier, because the currency comes from the fetched
+    // accounts. Everything above this point is a read. Any failure is a 400
+    // carrying the validator's specific message — the caller is told which
+    // leg is wrong and why, not just "invalid".
+    try {
+      validateAllocations(
+        inputAllocations.map((a) => {
+          const acct = accounts.find((x) => x.id === a.account_id);
+          return {
+            account_id: a.account_id,
+            amount: a.amount as unknown as number,
+            currency: acct?.currency ?? null,
+          };
+        }),
+        total_amount_paid,
+        accounts[0]?.currency ?? "",
+      );
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: e?.message ?? "Invalid allocations" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Validate each account is active/overdue and amount <= remaining_balance
@@ -150,9 +175,25 @@ Deno.serve(async (req) => {
     const effectiveMethod = payment_method || "cash";
     const batchId = crypto.randomUUID();
 
+    // TODO (deferred — needs an RPC, tracked as its own step): this loop is
+    // NOT atomic and NOT idempotent.
+    //   PARTIAL BATCH: each leg inserts its own payment_submissions row inside
+    //   the loop. A failure on leg 3 of 5 leaves legs 1-2 submitted and 3-5
+    //   not, with no rollback and no marker on the batch_id, so the reviewer
+    //   sees a batch that is short by two legs and nothing says why.
+    //   RETRY: batch_id is a fresh crypto.randomUUID() per call, so a client
+    //   retry after a timeout creates a SECOND full set of submissions for the
+    //   same money. Nothing dedupes them — the per-account advisory-lock guard
+    //   that record-payment gets from insert_payment_submission_guarded has no
+    //   equivalent here.
+    // Both need one transactional RPC that takes the whole batch plus a
+    // caller-supplied idempotency key. Deliberately NOT attempted in this step
+    // (F04 / #291 is validation only).
     for (const inputAlloc of inputAllocations) {
-      if (Number(inputAlloc.amount) <= 0) continue;
-
+      // The former `if (Number(inputAlloc.amount) <= 0) continue;` is GONE.
+      // validateAllocations has already rejected every non-positive and
+      // non-finite amount, so nothing reaching here can be skipped — and
+      // silently dropping a leg is exactly what produced the wrong total.
       const acct = accounts.find((a) => a.id === inputAlloc.account_id)!;
       const amountForAccount = Number(inputAlloc.amount);
       const carryOver = !!inputAlloc.carry_over;
@@ -241,7 +282,10 @@ Deno.serve(async (req) => {
           .single();
         if (subErr) throw subErr;
 
-        await supabase.from("audit_logs").insert({
+        // Audit write is best-effort, but NEVER silently ignored: the
+        // submission already exists, so failing the request here would leave
+        // the caller thinking nothing was booked. Log loudly instead.
+        const { error: auditErr } = await supabase.from("audit_logs").insert({
           entity_type: "payment_submission",
           entity_id: submission.id,
           action: "staff_multi_payment_submitted",
@@ -252,6 +296,12 @@ Deno.serve(async (req) => {
           },
           performed_by_user_id: userId,
         });
+        if (auditErr) {
+          console.error(
+            `[multi-pay] audit_logs insert FAILED for submission ${submission.id} ` +
+              `(batch ${batchId}, account ${inputAlloc.account_id}): ${auditErr.message}`,
+          );
+        }
       }
     }
 

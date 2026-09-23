@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateSingleAmount } from "../_shared/payment-validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type, force, proof_url } = body;
 
-    if (!account_id || !amount_paid || amount_paid <= 0) {
+    if (!account_id) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,6 +71,21 @@ Deno.serve(async (req) => {
     if (accErr || !account) {
       return new Response(JSON.stringify({ error: "Account not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── F04: shared amount validation, BEFORE any write ──
+    // Replaces the old `!amount_paid || amount_paid <= 0` guard, which used
+    // falsiness (so it caught 0 but reported it the same as a missing field)
+    // and never tested NaN, Infinity or currency precision. Runs here rather
+    // than at body-parse time because the precision rule needs the account's
+    // currency. Everything above this point is a read.
+    try {
+      validateSingleAmount(amount_paid, account.currency, "amount_paid");
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: e?.message ?? "Invalid payment data" }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -168,17 +184,62 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Audit log
-      await supabase.from("audit_logs").insert({
+      // Audit log — best-effort, but never silently ignored. The submission
+      // already exists, so a failed audit write must not fail the request;
+      // it must not vanish either.
+      const { error: auditErr } = await supabase.from("audit_logs").insert({
         entity_type: "payment_submission",
         entity_id: guarded.submission_id,
         action: "staff_payment_submitted",
         new_value_json: { amount_paid, account_id, payment_method, date_paid },
         performed_by_user_id: user.id,
       });
+      if (auditErr) {
+        console.error(
+          `[record-payment] audit_logs insert FAILED for submission ` +
+            `${guarded.submission_id} (account ${account_id}): ${auditErr.message}`,
+        );
+      }
 
-      // Attach proof to the submission (proof_url validated above).
-      await supabase.from("payment_submissions").update({ proof_url: proof_url.trim() }).eq("id", guarded.submission_id);
+      // ── Attach proof to the submission (proof_url validated above) ──
+      // This one is NOT best-effort. PROOF REQUIRED (2026-06-30) means
+      // review-payment-submission refuses to confirm a submission whose
+      // proof_url is empty, so a submission that exists without proof is
+      // UNCONFIRMABLE — stuck in the queue, invisible as a problem, and the
+      // money never books. Returning 201 here would tell the caller the
+      // payment was submitted successfully when it is in fact a dead row.
+      //
+      // The row is deliberately NOT deleted: it is a real record of a real
+      // payment attempt, it already holds the advisory-lock dedupe slot, and
+      // deleting it would invite a resubmit that creates a duplicate. Staff
+      // must RE-ATTACH proof to this submission from the Submissions tab
+      // (the proof-only action), not resubmit the payment — so the response
+      // says exactly that, and carries the submission_id to act on.
+      const { error: proofErr } = await supabase
+        .from("payment_submissions")
+        .update({ proof_url: proof_url.trim() })
+        .eq("id", guarded.submission_id);
+
+      if (proofErr) {
+        console.error(
+          `[record-payment] proof_url update FAILED for submission ` +
+            `${guarded.submission_id} (account ${account_id}): ${proofErr.message}`,
+        );
+        return new Response(JSON.stringify({
+          error: "proof_attach_failed",
+          submission_id: guarded.submission_id,
+          submission_exists_without_proof: true,
+          message:
+            `The payment submission was created (id ${guarded.submission_id}) but the ` +
+            `proof of payment could not be attached: ${proofErr.message}. It CANNOT be ` +
+            `confirmed until proof is attached. Do NOT resubmit the payment — that would ` +
+            `create a duplicate. Open Submissions, find this submission, and attach the ` +
+            `proof to it directly.`,
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       return new Response(JSON.stringify({
         submitted_for_confirmation: true,
