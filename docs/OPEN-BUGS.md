@@ -4,31 +4,20 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### live-only drift: discount columns and their discount_type CHECKs (found 2026-09-23)
+### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23)
 
-  Found by the preflight of `docs/sql/20260923_web_order_gaps_assertions.sql`
-  on live and confirmed against the owner's pg_constraint dump. Nothing is
-  broken; the repo simply does not record it.
+  Added on live with the discount columns on 2026-07-09 (docs/SCHEMA-FACTS.md
+  "AFB"), `shipping_fee numeric NOT NULL default 0` on both tables is in no
+  migration either. The discount columns were recorded by
+  `20260923130000_record_live_discount_columns.sql`; shipping_fee was outside
+  that pass's scope. A rebuild from `supabase/migrations/` lacks it, and
+  `create_web_order_atomic`, `_shared/order-extras.ts` and the creation forms
+  write it.
 
-  - `cash_orders_discount_type_check` and `layaway_accounts_discount_type_check`,
-    both `CHECK (discount_type IS NULL OR discount_type = ANY (ARRAY['amount','percent']))`,
-    exist live and in no migration. (An earlier revision of this entry said
-    `cash_orders` had no such CHECK. That was an inference from one preflight
-    output, and it was wrong.)
-  - The columns behind them — `discount_amount`, `discount_type`,
-    `discount_value` — exist live on BOTH `layaway_accounts` and `cash_orders`
-    and in no migration. They are written by `EditAccountDialog.tsx` and
-    `_shared/order-extras.ts`, and `types.ts` carries them. `discount_amount`
-    is NOT NULL with a default (the preflight's required-column check did not
-    name it).
-
-  Consequence: a rebuild from `supabase/migrations/` lacks all six columns and
-  both CHECKs, so every writer above fails on a fresh environment.
-
-  **Fix pattern (later pass):** a record-only migration — capture each column
-  definition (type, NOT NULL, default) and both constraints with
-  `pg_get_constraintdef` from live, write them as `ADD COLUMN IF NOT EXISTS` /
-  `ADD CONSTRAINT` guarded by existence, so replaying it on live is a no-op.
+  **Fix pattern:** the same proof-first record-only migration as
+  20260923130000 — prove any existing definition against the record (type
+  from live via `format_type`, NOT NULL, default) BEFORE writing, then
+  `ADD COLUMN IF NOT EXISTS`.
 
 ### web-order lifecycle follow-ups left open by #298 (filed 2026-09-23)
 
@@ -43,21 +32,9 @@
   new deadline) from each function after the RPC succeeds, via
   `sendStorefrontEmail`.
 
-  **2. auto-forfeit-settlement keeps a forfeited web plan's stock held.** Only
-  the staff forfeit returns it. A web plan forfeited by PATH 1/2 sits with its
-  piece off sale until someone acts; if it later reaches `final_forfeited` the
-  piece is held forever. Fix pattern: route the automated forfeit through the
-  same release (`stock_released_at` + `website_product_variants`) — the
-  re-hold trigger already covers the way back.
-
-  **3. Reactivating a forfeited web plan whose piece has sold leaves its
-  schedule un-cancelled.** `reactivate-account` (LOCKED) un-cancels schedule
-  rows BEFORE it updates the account; when
-  `trg_rehold_released_web_layaway_stock` refuses the status change, the
-  account stays `forfeited` but those rows are already back to `overdue`.
-  Needs owner approval to touch the locked function. Fix pattern: a read-only
-  stock pre-check at the top of `reactivate-account` for web plans with
-  `stock_released_at` set, returning 409 before any write.
+  Items 2 (automatic forfeits kept a web plan's stock) and 3 (a refused
+  reactivation left the schedule un-cancelled) were fixed on 2026-09-23 — see
+  docs/FIXED-BUGS.md #299. Item 1 is still open.
 
 ### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
 

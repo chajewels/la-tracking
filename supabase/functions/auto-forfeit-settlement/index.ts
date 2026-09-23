@@ -2,6 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { forfeitEmailKind } from "../_shared/web-order-rules.ts";
+import { sendLayawayForfeitedEmail } from "../_shared/layaway-forfeit-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +17,16 @@ const MAX_ACCOUNTS_PER_RUN = 100;
  *
  * ⛔ PERMANENT FORFEITURE LIFECYCLE — LOCKED RULE
  * DO NOT MODIFY without explicit business owner approval.
+ *
+ * OWNER-APPROVED CHANGE 2026-09-23 (web layaway stock follow-up): the ONLY
+ * edit is inside sendForfeitEmail — a WEB plan now gets the storefront
+ * layaway-forfeited email (_shared/layaway-forfeit-email.ts, the same sender
+ * as manual-forfeit; `final` for final_forfeited) instead of the Hub's
+ * account-forfeited template. Hub plans are unchanged. The forfeiture rules,
+ * statuses, schedule writes and order of operations are untouched; the pieces
+ * of a web plan go back on sale via the DB trigger
+ * trg_release_forfeited_web_layaway_stock, in the same statement as each
+ * status write below.
  *
  * STATUS FLOW: OVERDUE → FORFEITED → EXTENSION_ACTIVE → FINAL_FORFEITED
  *
@@ -124,6 +136,16 @@ Deno.serve(async (req) => {
           .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
           .eq("id", accountId)
           .single();
+        // Web plan → the storefront email, same sender as manual-forfeit.
+        // extensionAvailable=false is the final_forfeited call.
+        if (forfeitEmailKind((acctForEmail as any)?.source_channel) === "storefront") {
+          const final = !extensionAvailable;
+          await sendLayawayForfeitedEmail(supabase, accountId, {
+            final,
+            idempotencyKey: `layaway-forfeited-${accountId}-${final ? "final_forfeited" : "forfeited"}-${now.toISOString().slice(0, 10)}`,
+          });
+          return;
+        }
         const customerEmail = (acctForEmail as any)?.customers?.email;
         const customerName = (acctForEmail as any)?.customers?.full_name;
         if (!customerEmail) return;

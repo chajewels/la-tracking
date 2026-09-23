@@ -1916,8 +1916,16 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   While stock_released_at is set the plan holds no stock, and
   trg_rehold_released_web_layaway_stock takes it back — or fails the status
   change with web_layaway_stock_unavailable — when the plan returns to a live
-  status (the one-time reactivation). auto-forfeit-settlement does NOT release
-  stock; a web plan it forfeits keeps its pieces held.
+  status (the one-time reactivation). AUTOMATIC forfeits release too (#299,
+  2026-09-23): trg_release_forfeited_web_layaway_stock returns a web plan's
+  pieces in the same statement as ANY status change to forfeited /
+  final_forfeited while stock_released_at is NULL, so auto-forfeit-settlement
+  (LOCKED, untouched apart from its email) is covered, and the customer gets
+  the same storefront layaway-forfeited email from both paths
+  (_shared/layaway-forfeit-email.ts; `final` variant for final_forfeited).
+  REACTIVATION IS ALL-OR-NOTHING: reactivate-account's un-cancel, account flip
+  and Extension Month row are one transaction (reactivate_layaway_atomic); a
+  sold piece refuses with out_of_stock naming it and nothing changes.
 
   EXPIRY: `expire_web_layaway_atomic`, swept hourly by
   auto-expire-cash-orders, releases a web layaway whose deposit never arrived

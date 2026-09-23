@@ -1320,7 +1320,20 @@ export default function AccountDetail() {
                     const { data, error } = await supabase.functions.invoke('reactivate-account', {
                       body: { account_id: account.id, staff_user_id: user?.id },
                     });
-                    if (error) throw error;
+                    if (error) {
+                      // A refusal (e.g. 409 — a web plan's piece has sold) carries
+                      // the reason in the body; the generic "non-2xx" message
+                      // would hide which piece blocked it.
+                      let msg = error.message;
+                      try {
+                        const ctxBody = (error as any)?.context?.body;
+                        if (ctxBody) {
+                          const body = await new Response(ctxBody).json();
+                          if (body?.error) msg = body.error;
+                        }
+                      } catch { /* keep the generic message */ }
+                      throw new Error(msg);
+                    }
                     if (data?.error) throw new Error(data.error);
                     // The engine now runs for this account at reactivation, so
                     // say what it did — silence here reads as "no penalties",
