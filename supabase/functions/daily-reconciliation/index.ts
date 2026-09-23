@@ -10,14 +10,17 @@ const corsHeaders = {
 const MAX_ACCOUNTS_PER_RUN = 800;
 
 // Stop and report rather than being killed mid-loop. reconcile-account costs
-// ~1.56s per account, so 493 accounts need ~13 minutes against a hard ~185s
-// ceiling: the run died every night having covered ~120, and everything after
-// the loop was unreachable. The cron comes back tomorrow and the cursor below
-// resumes where this run stopped. Same shape as loyalty-award-sweep.
+// ~2.0s per account (measured over five consecutive nights of reconciliation_log
+// timestamps), so the 563 current candidates need ~19 minutes against a hard
+// ~185s ceiling: the run died every night having covered ~120, and everything
+// after the loop was unreachable. The cursor below resumes where this run
+// stopped. Same shape as loyalty-award-sweep.
+//
+// One run therefore covers ~91 accounts, a ~6-day cycle. THE BUDGET IS NOT WHERE
+// THE TIME GOES TO WASTE — it is all real per-account work — so the way to cover
+// the list sooner is more runs, not a cheaper cursor: a second cron at 12:20 UTC
+// (migration 20260923100000) makes it ~182 a day and a ~3-day cycle.
 const BUDGET_MS = 150_000;
-
-// Page size for the reconciliation_log sweep that builds the cursor.
-const LOG_PAGE = 1000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -44,18 +47,25 @@ Deno.serve(async (req) => {
   console.log(`[daily-recon:${runId}] Starting run at ${runStart}, max=${MAX_ACCOUNTS_PER_RUN}`);
 
   try {
-    // Candidates first, ordering second. The ordering key USED TO BE
+    // Candidates AND ordering, in one query. The ordering key USED TO BE
     // layaway_accounts.updated_at, and that was the bug: reconcile-account is
     // report-only (Bug #34) — it writes one reconciliation_log row and never
     // touches the account — so reconciling a row left updated_at untouched and
-    // every run got the same head of the same list, forever. 55% of accounts
-    // had not been reconciled once in eight days. The cursor below is
+    // every run got the same head of the same list, forever. The cursor is
     // reconciliation_log.checked_at, which reconciling DOES advance.
-    const { data: accounts, error: acctErr } = await supabase
-      .from("layaway_accounts")
-      .select("id, invoice_number, status, total_paid, remaining_balance")
-      .in("status", ["active", "overdue", "extension_active", "final_settlement"])
-      .limit(MAX_ACCOUNTS_PER_RUN);
+    //
+    // That cursor was built here in JS, by paging reconciliation_log newest-first
+    // into a Map until it had seen as many distinct accounts as there were
+    // candidates. It was cheap (~3 pages, ~60ms of database time) but it was not
+    // correct: the stop condition counts every account the log has ever carried,
+    // not the candidates, so it can stop with candidates still unseen and hand
+    // them to the sort as "never reconciled" — and the page count grows with the
+    // log, not with the work. next_reconciliation_batch does the same ordering in
+    // SQL, exactly, over the whole log, in one round trip.
+    const { data: accounts, error: acctErr } = await supabase.rpc(
+      "next_reconciliation_batch",
+      { p_limit: MAX_ACCOUNTS_PER_RUN }
+    );
 
     if (acctErr) {
       console.error(`[daily-recon:${runId}] Failed to fetch accounts:`, acctErr);
@@ -65,44 +75,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    const candidates = accounts || [];
+    // Already ordered by the RPC: never reconciled first, then oldest first,
+    // stable on id. Nothing to sort here.
+    const accountList = (accounts || []) as Array<{
+      id: string;
+      invoice_number: string;
+      status: string;
+      total_paid: number;
+      remaining_balance: number;
+      last_checked_at: string | null;
+    }>;
 
-    // One paginated pass over reconciliation_log, JS-aggregated to a
-    // Map<account_id, latest checked_at> — no N+1 and no .in(ids) URL-length
-    // risk (Bug #59 precedent). Rows come back newest-first, so the FIRST
-    // sighting of an account is its latest run; we stop as soon as every
-    // candidate is accounted for.
-    const lastChecked = new Map<string, string>();
-    for (let from = 0; lastChecked.size < candidates.length; from += LOG_PAGE) {
-      const { data: logRows, error: logErr } = await supabase
-        .from("reconciliation_log")
-        .select("account_id, checked_at")
-        .order("checked_at", { ascending: false })
-        .range(from, from + LOG_PAGE - 1);
-      if (logErr) {
-        console.error(`[daily-recon:${runId}] reconciliation_log page ${from} failed:`, logErr);
-        break; // fall back to whatever we have — never-checked accounts still sort first
-      }
-      if (!logRows || logRows.length === 0) break;
-      for (const r of logRows as Array<{ account_id: string; checked_at: string }>) {
-        if (r.account_id && !lastChecked.has(r.account_id)) lastChecked.set(r.account_id, r.checked_at);
-      }
-      if (logRows.length < LOG_PAGE) break;
-    }
-
-    // Never reconciled first, then oldest first. Stable on id so a tie cannot
-    // make two runs disagree about who is next.
-    const accountList = [...candidates].sort((a, b) => {
-      const ta = lastChecked.get(a.id);
-      const tb = lastChecked.get(b.id);
-      if (ta === undefined && tb === undefined) return a.id < b.id ? -1 : 1;
-      if (ta === undefined) return -1;
-      if (tb === undefined) return 1;
-      if (ta !== tb) return ta < tb ? -1 : 1;
-      return a.id < b.id ? -1 : 1;
-    });
-
-    const neverChecked = accountList.filter((a) => !lastChecked.has(a.id)).length;
+    const neverChecked = accountList.filter((a) => a.last_checked_at === null).length;
     console.log(
       `[daily-recon:${runId}] ${accountList.length} candidates, ` +
       `${neverChecked} never reconciled, budget ${BUDGET_MS}ms`

@@ -963,3 +963,59 @@ and would corrupt the loyalty basis, which is the product amount in yen (INVARIA
 by anything (0 of 9 live rows). A Page365 import is its first real writer; web lines
 still resolve photos at read time from `website_product_media` by variant (Bug #275),
 which Page365 items cannot use because they have no variant.
+
+## `next_reconciliation_batch` and the second reconciliation run (added 2026-09-23)
+
+`public.next_reconciliation_batch(p_limit integer DEFAULT 800)` returns the
+accounts `daily-reconciliation` should reconcile next — `id, invoice_number,
+status, total_paid, remaining_balance, last_checked_at` — ordered **never
+reconciled first, then oldest `reconciliation_log.checked_at` first, then `id`**.
+`LANGUAGE sql STABLE SECURITY DEFINER`, `search_path` pinned to `public`,
+`EXECUTE` revoked from `PUBLIC` and granted to `service_role` only. It replaces a
+JS sweep of `reconciliation_log` in the edge function.
+
+Backed by `idx_reconciliation_log_account_checked (account_id, checked_at DESC)`,
+which turns the lateral `max(checked_at)` into an Index Only Scan — one loop per
+candidate, 563 loops, 4.231 ms measured against live.
+
+**Why the ordering lives in SQL now.** The JS version stopped paging once its
+`Map` held as many *distinct accounts* as there were *candidates*. Those are two
+different populations — the log carries 1,305 accounts, the candidate set is 563 —
+so it could stop with candidates still unseen and treat them as never reconciled.
+On 2026-09-23 it reported 2 never-reconciled accounts where the true figure is 0.
+The page count also grew with the log rather than with the work.
+
+**What it does NOT buy is speed.** Measured from `reconciliation_log` timestamps
+over five consecutive nights, the run spends ~2.0 s per account on the HTTP round
+trip to `reconcile-account`, and covers 91 of 563 candidates before the budget is
+spent. The sweep it replaced cost ~60 ms of database time. Throughput is unchanged
+by this function; do not quote it as a performance fix.
+
+**`daily-reconciliation-midday`** — pg_cron, `20 12 * * *` (20:20 PHT), identical
+Vault-backed body to jobid 15 (`email_queue_service_role_key`, CRON AUTH RULE).
+This is what moves throughput: ~91 accounts a day becomes ~182, and a full pass
+over the candidate set drops from ~6.2 days to ~3. It sits far from the
+00:00–00:55 morning chain and is not part of its ordering. `cron.schedule` upserts
+by jobname, so re-running the migration is a no-op.
+
+## Two polled-query indexes, and the one that is narrower than it looks (added 2026-09-23)
+
+`idx_payment_submissions_status_pending` — `(status) WHERE status IN
+('submitted','under_review')`. Serves `use-pending-submissions.ts:15` (polled every
+30 s by every user who can see submissions) and `:47`. The table has 4,902 rows and
+4 matches; the count query alone had burned 55,078 s of database time over the
+191-day `pg_stat_statements` window. Index Only Scan, 0.053 ms measured. The
+partial predicate matches the `= ANY (ARRAY[…]::submission_status[])` form
+PostgREST generates from `.in('status', […])` — the pre-existing
+`idx_payment_submissions_cash_order_status` already relied on this.
+
+`idx_reminder_logs_delivery_status_created` — `(delivery_status, created_at DESC)`.
+**`reminder_logs.delivery_status` is not a selective column.** Production holds
+exactly two values: `sent` 15,471 and `generated` 3,448 of 18,919. So the index
+serves `dashboard-summary/index.ts:172` (`.eq('failed')`, 0 rows — 3,410 s of the
+window removed, Index Only Scan at 0.060 ms) and nothing else today:
+`:171` (`sent`+`delivered`, 82% of the table) and `Monitoring.tsx:152` (`sent`)
+correctly keep a sequential scan (5.8 ms measured), `:170` is an unfiltered count,
+and `Monitoring.tsx:119` has no status filter so the `created_at DESC` column does
+not apply. Its value is the failure counts and any status that becomes rare — which
+is the case that matters. Do not "fix" those sequential scans with another index.

@@ -1937,6 +1937,121 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #293 — Two polled dashboard queries had no index (2026-09-23)
+`payment_submissions` had no index on `status` for the layaway path — the only
+status index is `idx_payment_submissions_cash_order_status`, scoped to
+`cash_order_id IS NOT NULL`. So `usePendingSubmissionCount`
+(`src/hooks/use-pending-submissions.ts:15`), which every signed-in user who can
+see submissions polls **every 30 seconds**, scanned all 4,902 rows to count the
+**4** that match. Measured over the 191-day `pg_stat_statements` window:
+**256,582 calls at 214.7ms mean = 55,078 s — 15.3 hours of database time** for a
+number that fits in one byte. The summary query at `:47` added 59,684 calls at
+128.6ms = 7,674 s.
+
+`idx_payment_submissions_status_pending` — `(status) WHERE status IN
+('submitted','under_review')` — makes both an Index Only Scan. Verified against
+live in a rolled-back transaction: **0.053 ms**, four heap fetches. The partial
+predicate matches the `= ANY (ARRAY[…]::submission_status[])` form PostgREST
+generates from `.in('status', […])`, which the pre-existing cash-order index
+already demonstrated.
+
+`reminder_logs` got `(delivery_status, created_at DESC)`, and **what it buys is
+narrower than it looks** — this is worth recording because the obvious reading is
+wrong. The column has two values in production: `sent` 15,471 and `generated`
+3,448 of 18,919. So `dashboard-summary/index.ts:172` (`.eq('failed')`, 0 rows) is
+served — 55,098 calls at 61.9ms = **3,410 s** removed, verified Index Only Scan at
+0.060 ms — while `:171` (`sent`+`delivered`, 82% of the table) and
+`Monitoring.tsx:152` (`sent`) are **not** served and should not be: at that
+selectivity the planner correctly keeps a sequential scan (verified: Seq Scan,
+5.8 ms). `:170` is an unfiltered count no index can help, and `Monitoring.tsx:119`
+orders by `created_at` with no status filter, so the second column does not serve
+it either. The index earns its keep on the failure counts and on any future
+status that is actually rare — which is precisely the case that matters.
+
+Migration `20260923100000_reconciliation_batch_cursor.sql`. Neither table is
+touched by any other change here.
+
+### #292 — The nightly reconciliation cursor was built in JS, and one run was never going to be enough (2026-09-23)
+`daily-reconciliation` paged all of `reconciliation_log` newest-first into a JS
+`Map` to work out which accounts were least recently reconciled, stopping when
+the Map held as many distinct accounts as there were candidates.
+
+**That stop condition is wrong**, and the fix proves it. It counts every account
+the log has ever carried — 1,305 distinct — not the 563 candidates, so it can
+stop with candidates still unseen, and those are then handed to the sort as
+"never reconciled" and jump the queue ahead of accounts that genuinely have not
+been checked. The 2026-09-23 run recorded `never_checked_at_start: 2`; the SQL
+ordering over the whole log says the true figure is **0**. Two accounts were
+being re-reconciled out of turn every night on a false reading. The page count
+also grows with the log (20,134 rows, ~92 more each night), not with the work.
+
+`next_reconciliation_batch(p_limit int)` does the same ordering in SQL, exactly:
+`LEFT JOIN LATERAL (SELECT max(checked_at) …)` ordered by
+`COALESCE(last_checked_at, '-infinity'), id`, backed by a new
+`reconciliation_log (account_id, checked_at DESC)` index. Verified against live in
+a rolled-back transaction: 563 rows, Index Only Scan with 563 loops,
+**4.231 ms execution**. The edge function's paging loop, `LOG_PAGE`, the `Map` and
+the comparator are gone; it reads `last_checked_at` from the RPC.
+
+**DO NOT RECORD THIS AS A SPEED FIX — it is a correctness fix.** The sweep it
+replaced was cheap: about three pages a night, ~60 ms of database time, under a
+second of wall clock. Measured from `reconciliation_log` timestamps on five
+consecutive nights, the run spends **~2.0 s per account on the HTTP round trip to
+`reconcile-account`** and covers **91** of 563 candidates before its budget is
+spent (2026-09-18 through 09-22: 91, 91, 91, 91 accounts, 179 s spans, first row
+~2 s after the cron fires). Removing the cursor frees well under a second, i.e.
+**91 → ~91**. The budget is spent on real work; there is no overhead left to
+reclaim.
+
+So the second half of the fix is the one that moves the number: **a second cron at
+12:20 UTC** (20:20 PHT), `daily-reconciliation-midday`, same Vault-backed
+`email_queue_service_role_key` body as jobid 15 per the CRON AUTH RULE. Two runs
+cover **~182 accounts a day** and close a full pass in **~3 days instead of ~6.2**.
+12:20 UTC sits far from the 00:00–00:55 morning chain and competes with nothing in
+it; `cron.schedule` upserts by jobname, so replaying the migration is a no-op.
+
+The completion record is unchanged — same keys, same `budget_exhausted` /
+`remaining` semantics, so Check 17 reads it exactly as before.
+
+**Noted, not changed:** the deployed `BUDGET_MS` behaves like **180,000 ms**, not
+the 150,000 in the repo. Derived from the same timestamps — the run breaks after
+the account that completes at ~181 s and not after the one at ~179 s. Left alone
+because nothing here depends on it and changing a budget is a separate decision;
+recorded so the next person measuring does not think they have found a new bug.
+
+### #291 — A web layaway's delete refusal reached staff as a bare 500 (2026-09-23)
+The rule is unchanged and stays: a web layaway is never deleted (WEB LAYAWAY,
+`trg_prevent_web_layaway_delete`). Only how staff learn it has changed.
+
+The Hub offered "Delete Account" on a web plan — `can('delete_account')` and a
+not-completed/not-paid test were the whole gate (`src/pages/AccountDetail.tsx:1380`)
+— so the only way to discover the rule was to click it. The trigger's `RAISE`
+(ERRCODE `P0001`) fires inside `delete_account_atomic`, which carries no
+`EXCEPTION … WHEN` block, so it surfaced in `delete-account/index.ts` as an
+ordinary `rpcError` and was returned by the catch-all
+`return … { error: rpcError.message }, status: 500`. A rule rendered as a server
+failure.
+
+**`src/pages/AccountDetail.tsx`.** `isWebPlan` derived beside the existing
+`webFields` cast. The Delete button now also requires `!isWebPlan`, and a web plan
+shows one line in its place: *"A web layaway is never deleted. It expires if the
+deposit never arrives, or it runs its lifecycle — cancel or forfeit with a reason
+instead."* The completed/paid line (owner rule 2026-09-13) is unchanged and now
+also requires `!isWebPlan`, so the two never both render.
+
+**`supabase/functions/delete-account/index.ts`.** The `rpcError` branch checks for
+`web_layaway_delete_forbidden` and returns **409** with the trigger's own sentence
+as `message` and the condition as `error`, stripping only the machine prefix — the
+same shape the paid-order refusal already used. Every other `rpcError` keeps its
+500. `data?.error === 'web_layaway_delete_forbidden'` was added to the soft-error
+status map too, so the mapping holds whichever way the RPC ever reports it.
+`useDeleteAccount` (`src/hooks/use-supabase-data.ts:895-902`) already reads
+`body.message` off a `FunctionsHttpError`, so the toast shows the sentence with no
+change.
+
+The rule deliberately stays in the database. The page hides an action it cannot
+perform; it does not restate the rule as a second gate that could drift.
+
 ### #290 — Unsigned service-role claims accepted on non-gateway functions (2026-09-23)
 Two edge functions ran at `verify_jwt = false` and still trusted a caller that
 merely *claimed* `role: "service_role"`. With the gateway check off, nothing

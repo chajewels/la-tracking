@@ -91,6 +91,18 @@ Deno.serve(async (req) => {
     });
 
     if (rpcError) {
+      // trg_prevent_web_layaway_delete RAISEs inside the RPC's transaction, so a
+      // refused web plan arrives here as an ordinary RPC error and used to render
+      // as a bare 500 with no explanation. The trigger's own sentence is the one
+      // staff should read, so pass it through verbatim as a 409 — the refusal is a
+      // rule, not a failure. Everything else keeps the 500 it had.
+      const rpcMsg = rpcError.message ?? "";
+      if (rpcMsg.includes("web_layaway_delete_forbidden")) {
+        return new Response(JSON.stringify({
+          error: "web_layaway_delete_forbidden",
+          message: rpcMsg.replace(/^[\s\S]*?web_layaway_delete_forbidden:\s*/, ""),
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({ error: rpcError.message }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -98,7 +110,8 @@ Deno.serve(async (req) => {
 
     if (data?.error) {
       const status = data.error === 'Account not found' ? 404
-        : data.error === 'paid_order_delete_forbidden' ? 409 : 500;
+        : data.error === 'paid_order_delete_forbidden' ? 409
+        : data.error === 'web_layaway_delete_forbidden' ? 409 : 500;
       return new Response(JSON.stringify({ error: data.error, message: data.message ?? undefined }), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
