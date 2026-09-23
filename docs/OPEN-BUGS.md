@@ -4,6 +4,32 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### live-only drift: discount columns and their discount_type CHECKs (found 2026-09-23)
+
+  Found by the preflight of `docs/sql/20260923_web_order_gaps_assertions.sql`
+  on live and confirmed against the owner's pg_constraint dump. Nothing is
+  broken; the repo simply does not record it.
+
+  - `cash_orders_discount_type_check` and `layaway_accounts_discount_type_check`,
+    both `CHECK (discount_type IS NULL OR discount_type = ANY (ARRAY['amount','percent']))`,
+    exist live and in no migration. (An earlier revision of this entry said
+    `cash_orders` had no such CHECK. That was an inference from one preflight
+    output, and it was wrong.)
+  - The columns behind them — `discount_amount`, `discount_type`,
+    `discount_value` — exist live on BOTH `layaway_accounts` and `cash_orders`
+    and in no migration. They are written by `EditAccountDialog.tsx` and
+    `_shared/order-extras.ts`, and `types.ts` carries them. `discount_amount`
+    is NOT NULL with a default (the preflight's required-column check did not
+    name it).
+
+  Consequence: a rebuild from `supabase/migrations/` lacks all six columns and
+  both CHECKs, so every writer above fails on a fresh environment.
+
+  **Fix pattern (later pass):** a record-only migration — capture each column
+  definition (type, NOT NULL, default) and both constraints with
+  `pg_get_constraintdef` from live, write them as `ADD COLUMN IF NOT EXISTS` /
+  `ADD CONSTRAINT` guarded by existence, so replaying it on live is a no-op.
+
 ### web-order lifecycle follow-ups left open by #298 (filed 2026-09-23)
 
   Filed, not fixed — each is outside the owner-approved scope of #298.
