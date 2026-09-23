@@ -229,7 +229,7 @@ const App = () => (
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
                 <Route path="/help" element={<Protected><Help /></Protected>} />
                 <Route path={ROUTES.POLICY_HUB} element={<Protected><PolicyHub /></Protected>} />
-                {FixturePreview && <Route path="/__fixtures" element={<FixturePreview />} />}
+                {FixturePreview && <Route path="/__fixtures/*" element={<FixturePreview />} />}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

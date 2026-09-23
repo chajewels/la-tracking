@@ -177,6 +177,28 @@
 }
 
 @layer components {
+  /* Press feedback changes no layout; native button/Slot behavior is retained. */
+  .ui-button {
+    touch-action: manipulation;
+    transition-property: scale, color, background-color, border-color, box-shadow, opacity;
+    transition-duration: var(--ui-motion-micro, 0.12s);
+    transition-timing-function: var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+  }
+  .ui-button:active:not(:disabled):not([aria-disabled="true"]) {
+    scale: 0.98;
+  }
+  @media (pointer: coarse) {
+    .ui-button { min-height: 44px; min-width: 44px; }
+  }
+
+  .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] {
+    animation-duration: var(--ui-motion-standard, 0.2s);
+    animation-timing-function: var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+  }
+  .ui-dialog-panel {
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.16),
+      0 12px 32px rgb(0 0 0 / 0.22), 0 32px 80px rgb(0 0 0 / 0.24);
+  }
   /*
    * Deco Ledger signature: the "ledger line" — a thin 1px gold hairline
    * (gold-500 at 40%) used as the structural divider across cards,
@@ -227,12 +249,12 @@
       hsl(var(--gold-300) / 0.07) 60%,
       transparent 100%
     );
-    background-size: 200% 100%;
+    transform: translateX(-100%);
     animation: skeleton-sweep 1.6s ease-in-out infinite;
   }
   @keyframes skeleton-sweep {
-    0% { background-position: 150% 0; }
-    100% { background-position: -50% 0; }
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
 
   /* Ken Burns drift for brand imagery (Login left panel). Transform-only
@@ -322,14 +344,26 @@
 
   /* Premium card hover */
   .card-hover {
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    transition: transform var(--ui-motion-standard, 0.2s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.12), 0 8px 24px rgb(0 0 0 / 0.18);
   }
-  .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4),
-                0 0 0 1px hsl(var(--primary) / 0.55),
-                0 0 18px hsl(var(--primary) / 0.30),
-                0 0 40px hsl(var(--primary) / 0.12);
+  /* Gilded hover ring: fades a pre-rendered shadow layer via opacity so
+     box-shadow itself is never animated. Drawn inset so it survives the
+     overflow-hidden used by most cards. */
+  .card-hover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55), inset 0 0 12px hsl(var(--primary) / 0.18);
+    opacity: 0;
+    transition: opacity var(--ui-motion-standard, 0.2s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .card-hover:hover { transform: translateY(-2px); }
+    .card-hover:hover::after { opacity: 1; }
   }
 
   /* Status glow pulse for overdue */
@@ -503,8 +537,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ui-button { transition: none; }
+  .ui-button:active:not(:disabled):not([aria-disabled="true"]) { scale: 1; }
+  .ui-dialog-panel[data-state], .ui-dialog-overlay[data-state] { animation: none !important; }
   .animate-fade-in { animation: none; }
-  .card-hover { transition: none; }
+  .card-hover, .card-hover::after { transition: none; }
   .card-hover:hover { transform: none; }
   /* Skeletons fall back to a static tinted block — no sweep. */
   .skeleton-shimmer::after { animation: none; opacity: 0; }

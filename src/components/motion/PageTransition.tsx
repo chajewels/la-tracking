@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { pageEnter } from '@/theme/motion';
 
 /**
- * Route-change transition: fade + 8px upward slide (200ms).
+ * Route-change transition: 200ms fade + a damped 8px spring entrance.
  * AppLayout remounts on every route change (each page instantiates it),
  * so a mount animation here fires exactly once per navigation.
  * Reduced motion collapses to fade-only via the app-root <MotionConfig>.
