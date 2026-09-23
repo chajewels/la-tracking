@@ -1937,6 +1937,100 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #295 — Two staff on one device could read each other's data: a URL-keyed service-worker cache and a query cache that outlived sign-out (2026-09-23)
+Nothing about signing out actually removed the previous user's data from the
+device. Audit F02. Three independent leak paths, all frontend:
+
+**1. The service worker cached authenticated Supabase responses.**
+`vite.config.ts` carried a blanket `runtimeCaching` rule —
+`urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i`, `NetworkFirst`, `cacheName:
+'supabase-cache'`, 300s. A Workbox cache is keyed on the request URL ALONE; the
+`Authorization` header is not part of the key. Every PostgREST read is a GET
+whose URL is identical for every caller, so for five minutes after any staff
+member loaded a page, the next person on that device could be served those
+exact rows out of Cache Storage — no request reaching Supabase, RLS never
+consulted, nothing in any log. Sign-out did not touch it.
+
+**2. The React Query cache survived sign-out.** `src/App.tsx` creates the
+`QueryClient` at MODULE scope, outside React, so it outlives every route change
+and every sign-out; `grep -rn 'queryClient.clear()\|removeQueries\|resetQueries'
+src/` returned ZERO matches. `signOut()` was `await supabase.auth.signOut()` and
+nothing else, and the `SIGNED_OUT` branch of `onAuthStateChange` called only
+`clearAuthState()` (React state). Sign-out is an SPA navigation, not a reload,
+so module state is never re-initialised. Query keys carry no user identity
+(`['unified-health-v2']`, `['customers']`, …), so the next session read the
+previous one's entries. `staleTime` defaults to 0, so a mounted query refetches
+— making this a transient flash rather than a permanent wrong render — but a
+cached entry that is never re-mounted just sits there.
+
+**3. Drafts outlived the session.** `use-account-draft.ts` keeps one global
+`cha-jewels-new-account-draft` in sessionStorage (customer id, invoice number,
+amounts) and `use-payment-draft.ts` keeps a `payment_draft_<accountId>` per
+account (amount, date, method, notes). Neither is auth state, so nothing removed
+them; the next person to open that form had the previous user's half-typed entry
+restored for them.
+
+**The fix.**
+- `vite.config.ts`: the Supabase rule is now **`NetworkOnly`** with no
+  `cacheName`. Caching a response whose visibility depends on who asked requires
+  keying on the asker, which Workbox does not do, so the only safe blanket
+  answer is not to cache. **No allowlist was added** — public storage objects
+  would be a legitimate exception, but `brand-assets` / `payment-proofs` are
+  reached through `getPublicUrl()`/`<img>` and the browser HTTP cache already
+  handles them, so there is no caller that needs a rule. The `/version.json` and
+  `navigation-cache` rules are untouched (the latter fixed the stale-bundle bug).
+- `public/sw-drop-legacy-cache.js`, imported via `workbox.importScripts`:
+  deletes the legacy `'supabase-cache'` on service-worker **activation**, so
+  devices already holding cached rows drop them on the next update. Removing the
+  rule stops new writes but evicts nothing, and `cleanupOutdatedCaches` only
+  prunes Workbox's own precaches. Exactly one `caches.delete`, for one
+  hardcoded name — it must never iterate `caches.keys()`.
+- `AuthContext.tsx`: a `clearSensitiveState()` wired to the **`SIGNED_OUT`
+  event**, not to `signOut()`. It `cancelQueries()` FIRST and then `clear()` —
+  a query already in flight otherwise resolves after the clear and React Query
+  writes the result back, repopulating the cache a beat after it was emptied —
+  then calls `clearAccountDraft()` and the new `clearAllPaymentDrafts()`. The
+  client comes from `useQueryClient()` (AuthProvider sits inside
+  `QueryClientProvider`), not from the module singleton.
+- Each hook exports its own clear; AuthContext never reaches into
+  sessionStorage. `clearAllPaymentDrafts()` collects keys BEFORE removing,
+  because sessionStorage re-indexes on delete and iterating forwards while
+  mutating skips entries.
+- **Untouched on purpose:** density toggle, notification sound, FX rate,
+  announcement dismissal, loyalty tier and every other unrelated key. They hold
+  nothing about who was signed in, and wiping them would make sign-out feel like
+  a factory reset. Drafts are never discarded while the user is still signed in.
+
+**Cross-tab: verified, not assumed.** Wiring to the event rather than the button
+only helps if the event actually travels, so this was checked against the pinned
+`@supabase/auth-js` **2.116.0** rather than taken on faith. `GoTrueClient`'s
+constructor opens `new BroadcastChannel(this.storageKey)` when
+`isBrowser() && globalThis.BroadcastChannel && this.persistSession &&
+this.storageKey` (`GoTrueClient.js:267-269`) and subscribes to its `message`
+event (`:274`); our client sets `persistSession: true`; `_signOut()` ends with
+`_notifyAllSubscribers('SIGNED_OUT', null)` (`:4430`), and
+`_notifyAllSubscribers(event, session, broadcast = true)` (`:4332`) posts to
+that channel, the receiving tab re-notifying with `broadcast = false` (`:4341`).
+**So a sign-out in one tab does deliver SIGNED_OUT to the others.**
+
+**The gap, stated rather than papered over:** auth-js wraps the channel
+construction in try/catch and logs *"Failed to create a new BroadcastChannel,
+multi-tab state changes will not be available"* (`:272`). Where BroadcastChannel
+is missing or blocked, no cross-tab event arrives and the other tab keeps its
+cache until it reloads or its own session read fails. auth-js registers **no**
+`storage` event listener, so there is no second mechanism to fall back on.
+Closing that would need our own BroadcastChannel (or a `storage` listener on the
+auth key) posting a logout ping each tab acts on — deliberately NOT built here,
+because it is a separate behaviour with its own failure modes.
+
+**Tests:** `src/test/logout-clears-sensitive-state.test.ts`, 6 cases — cache
+emptied, in-flight query cancelled and unable to repopulate after clear, account
+draft and every payment draft removed, ten drafts cleared despite sessionStorage
+re-indexing, unrelated localStorage and non-draft sessionStorage keys surviving.
+
+**Status:** merged to main, Firebase deploys on merge. No Lovable deploy is
+involved — this is frontend only, no edge function and no migration.
+
 ### #294 — Two polled dashboard queries had no index (2026-09-23)
 `payment_submissions` had no index on `status` for the layaway path — the only
 status index is `idx_payment_submissions_cash_order_status`, scoped to
