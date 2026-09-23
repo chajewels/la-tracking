@@ -39,17 +39,33 @@
 -- The revalidation trigger on the two website tables calls net.http_post;
 -- pg_net only queues the request in-transaction, so ROLLBACK sends nothing.
 --
--- LIVE-ONLY DRIFT (found by this preflight on live, 2026-09-23 — revision 3).
--- layaway_accounts carries a CHECK that no migration defines:
---   layaway_accounts_discount_type_check
---     CHECK (discount_type IS NULL OR discount_type = ANY (ARRAY['amount','percent']))
--- and the columns behind it — discount_amount, discount_type, discount_value on
--- BOTH layaway_accounts and cash_orders — are live-only too (the Hub writes
--- them from EditAccountDialog and _shared/order-extras.ts; types.ts has them;
--- supabase/migrations/ has none). No discount_type CHECK exists on
--- cash_orders: the preflight would have named it. The layaway fixtures set
--- discount_type to NULL explicitly, which that CHECK allows. Filed in
--- docs/OPEN-BUGS.md; a record-only migration belongs to a later pass.
+-- LIVE vs REPO — CHECK constraints (revision 4, 2026-09-23). The accepted
+-- list in the preflight is now EXACTLY the live pg_constraint list for these
+-- tables, supplied by the owner after the preflight fired twice on live.
+--
+--   Live-only (in no migration) — drift, filed in docs/OPEN-BUGS.md:
+--     cash_orders_discount_type_check
+--     layaway_accounts_discount_type_check
+--       both: CHECK (discount_type IS NULL OR discount_type IN ('amount','percent'))
+--     and the columns behind them — discount_amount, discount_type,
+--     discount_value on cash_orders AND layaway_accounts (written by
+--     EditAccountDialog and _shared/order-extras.ts; in types.ts; in no
+--     migration). Revision 3 of this header said cash_orders had no such
+--     CHECK; that was an inference from one preflight output and was wrong.
+--   Repo-only, NOT drift: website_product_variants_price_php_check was
+--     created inline in 20260908030829 and went away with the column
+--     (20260908121000 drops price_php). Removed from the accepted list.
+--   Every other live CHECK matches a migration.
+--
+-- Fixtures vs every live CHECK: every cash_orders and layaway_accounts row
+-- sets discount_type = NULL explicitly; customer_lang NULL / 'en';
+-- order_type 'SELF'; payment_method 'transfer'; payment_status
+-- 'pending_transfer' (then 'cancelled' / back via the functions);
+-- refund_status stays NULL (the staff cancel has no money received);
+-- source_channel 'web' / 'hub_manual'; totals > 0; total_paid 0; tracking
+-- and shipping method both NULL; plan 3 months; schedule amounts >= 0 and
+-- installment 1; metals {K18}; condition / origin at their defaults
+-- ('New' / 'UNKNOWN'); price_jpy 1000; stock_qty never below 0.
 --
 -- PREFLIGHT. Before any insert, the script compares LIVE against that list:
 -- any CHECK constraint on these tables it does not know, and any NOT NULL
@@ -95,21 +111,27 @@ BEGIN
                               'public.cash_order_items'::regclass, 'public.payment_submissions'::regclass,
                               'public.layaway_accounts'::regclass, 'public.layaway_account_items'::regclass,
                               'public.layaway_schedule'::regclass)
+             -- EXACTLY the live CHECK list on these tables, from pg_constraint
+             -- (owner, 2026-09-23). customers, cash_order_items,
+             -- payment_submissions and layaway_account_items have none live.
              AND pc.conname <> ALL (ARRAY[
-               'website_products_condition_check', 'website_products_origin_check',
-               'website_products_metals_nonempty', 'website_products_metals_values',
-               'website_product_variants_price_jpy_check', 'website_product_variants_price_php_check',
-               'website_product_variants_stock_qty_check',
-               'cash_orders_total_amount_check', 'cash_orders_total_paid_check',
-               'cash_orders_tracking_pair_check', 'cash_orders_source_channel_check',
+               -- website_products
+               'website_products_condition_check', 'website_products_metals_nonempty',
+               'website_products_metals_values', 'website_products_origin_check',
+               -- website_product_variants
+               'website_product_variants_price_jpy_check', 'website_product_variants_stock_qty_check',
+               -- cash_orders
+               'cash_orders_customer_lang_check', 'cash_orders_discount_type_check',
                'cash_orders_order_type_check', 'cash_orders_payment_method_check',
-               'cash_orders_payment_status_check', 'cash_orders_customer_lang_check',
-               'cash_orders_refund_status_check',
-               'layaway_accounts_payment_plan_months_check', 'layaway_accounts_total_amount_check',
-               'layaway_accounts_total_paid_check', 'layaway_accounts_tracking_pair_check',
-               'layaway_accounts_source_channel_check', 'layaway_accounts_customer_lang_check',
-               'layaway_accounts_discount_type_check',   -- live-only drift, see header
-               'layaway_account_items_quantity_check',
+               'cash_orders_payment_status_check', 'cash_orders_refund_status_check',
+               'cash_orders_source_channel_check', 'cash_orders_total_amount_check',
+               'cash_orders_total_paid_check', 'cash_orders_tracking_pair_check',
+               -- layaway_accounts
+               'layaway_accounts_customer_lang_check', 'layaway_accounts_discount_type_check',
+               'layaway_accounts_payment_plan_months_check', 'layaway_accounts_source_channel_check',
+               'layaway_accounts_total_amount_check', 'layaway_accounts_total_paid_check',
+               'layaway_accounts_tracking_pair_check',
+               -- layaway_schedule
                'base_amount_positive', 'carried_amount_non_negative',
                'layaway_schedule_base_installment_amount_check', 'layaway_schedule_installment_number_check',
                'layaway_schedule_paid_amount_check', 'layaway_schedule_penalty_amount_check',
@@ -169,9 +191,10 @@ BEGIN
   -- (stock already taken: v1 sits at 0).
   INSERT INTO public.cash_orders (invoice_number, customer_id, currency, total_amount, remaining_balance,
                                   status, source_channel, payment_status, payment_method, order_type,
-                                  web_reference, transfer_due_at, expires_at)
+                                  web_reference, transfer_due_at, expires_at, discount_type)
   VALUES ('ZZGAPS0923A', v_c, 'JPY', 1000, 1000, 'pending', 'web', 'pending_transfer', 'transfer', 'SELF',
-          'CJ-W-ZZ0923A', now() - interval '1 hour', now() - interval '1 hour')
+          'CJ-W-ZZ0923A', now() - interval '1 hour', now() - interval '1 hour',
+          NULL)   -- explicit: cash_orders_discount_type_check allows NULL
   RETURNING id INTO v_o1;
   -- website_product_id, never product_id: product_id is the Shopify FK (Bug #266).
   INSERT INTO public.cash_order_items (cash_order_id, website_product_id, variant_id, title, sku, quantity,
@@ -180,9 +203,10 @@ BEGIN
 
   INSERT INTO public.cash_orders (invoice_number, customer_id, currency, total_amount, remaining_balance,
                                   status, source_channel, payment_status, payment_method, order_type,
-                                  web_reference, transfer_due_at, expires_at)
+                                  web_reference, transfer_due_at, expires_at, discount_type)
   VALUES ('ZZGAPS0923B', v_c, 'JPY', 1000, 1000, 'pending', 'web', 'pending_transfer', 'transfer', 'SELF',
-          'CJ-W-ZZ0923B', now() - interval '1 hour', now() - interval '1 hour')
+          'CJ-W-ZZ0923B', now() - interval '1 hour', now() - interval '1 hour',
+          NULL)   -- explicit: cash_orders_discount_type_check allows NULL
   RETURNING id INTO v_o2;
 
   INSERT INTO public.payment_submissions (customer_id, cash_order_id, submitted_amount, payment_date,
