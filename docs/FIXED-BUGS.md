@@ -1937,6 +1937,60 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### #297 — Every discounted Page365 invoice was refused with a 422, and the discount would never have reached the account (2026-09-23)
+`page365-fetch-order` read three money fields off the invoice — `price_subtotal`,
+`price_shipping`, `price_total` — and reconciled them as
+`subtotal + shipping = total` to the yen (`index.ts:405`, tolerance 1).
+
+Page365 discounts the **invoice**, not the lines. A live fetch of invoice 19787
+settles the shape: `price_subtotal` 29,980 + `price_shipping` 4,400 −
+`price_discount` 2,998 − `campaign_discount` 0 = `price_total` 31,382, with the
+single item line still reading 29,980. The identity the parser asserted was
+therefore false for every discounted invoice, and it refused all of them:
+*"Subtotal ¥29,980 + shipping ¥4,400 = ¥34,380, but the invoice total is
+¥31,382. Refusing to import a draft that does not reconcile."* Correct behaviour
+from a parser that had been told the wrong identity, and a hard stop on a real
+CSR workflow.
+
+The second half is what it would have done had the reconcile passed.
+`Page365Review.tsx` never seeded `discount` (state `:164`, seeding effect
+`:188-209`), so the CSR would have had to notice the gap and retype the discount
+by hand. And the loyalty basis (`:362`) was `productJpy` — **gross** — so a
+customer who paid ¥26,982 would have earned tier progress on ¥29,980.
+
+**`supabase/functions/page365-fetch-order/index.ts`.** Reads `price_discount`
+and `campaign_discount` after the `price_total` check, refuses a negative in
+either by name, sums them, and reconciles
+`subtotal + shipping − discount = total` at the same ±1 yen. Summing the two is
+deliberate: if Page365 ever reports one discount in both fields the total stops
+reconciling and the import is refused — better than silently halving a
+customer's total. The draft gains `discount_jpy`, `discount_breakdown`,
+`promotion_code` and `discount_campaign_name`. The raw response's top-level
+`sig` still never enters the draft.
+
+**`src/pages/Page365Review.tsx`.** The four fields are OPTIONAL on
+`DraftPayload` — drafts fetched before the deploy lack them and a missing value
+reads as no discount, which is what those invoices had. The seeding effect
+pre-fills the Discount input from `discount_jpy` while the currency is still
+JPY, so the existing `switchCurrency` converts it at the draft's rate like
+shipping. A "From Page365" line (plus the promo code when there is one) sits
+under the input until `discountTouched` flips.
+
+**The loyalty basis is now product lines MINUS the discount** — owner rule
+2026-09-23, "loyalty excludes the discount and the shipping fee". Services stay
+out as before and shipping was never in; the whole discount comes off the
+product amount. While the discount is still Page365's own, the basis uses the
+draft's exact yen figure rather than converting the peso input back: a PHP round
+trip rounds twice and the basis must not drift when the CSR toggles currency.
+
+**No data repair is needed, and that was checked rather than assumed.** All 11
+drafts in `page365_drafts` — including the five consumed into accounts, 19668,
+19768, 19780, 19781 and 19786 — reconcile with `subtotal + shipping − total = 0`
+exactly, and none carries a `discount_jpy` key. Nothing discounted ever got in,
+because nothing discounted ever could.
+
+Edge-function deploy pending via Lovable; this PR is code and docs only.
+
 ### #296 — sales_log_backup_20260616: an empty, RLS-less table the anon key could write to and TRUNCATE (2026-09-23)
 `public.sales_log_backup_20260616` was a one-off backup of `public.sales_log`
 taken on 2026-06-16 and never cleaned up. At the moment it was dropped it had

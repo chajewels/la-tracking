@@ -19,6 +19,15 @@
  * the field. A half-parsed draft is worse than no draft, because the CSR cannot
  * see what is missing until the order is already wrong.
  *
+ * PRICE_TOTAL IS AFTER THE DISCOUNT. Page365 discounts the INVOICE, not the
+ * lines: `price_subtotal` and every item `subtotal` stay at full price, and
+ * `price_total` = subtotal + shipping − `price_discount` − `campaign_discount`.
+ * Both discount fields are read and both are subtracted, so the reconcile below
+ * is the real identity rather than the discount-free one it used to be. The
+ * draft carries `discount_jpy` and its breakdown, plus `promotion_code` and
+ * `discount_campaign_name` — the last two are shown to the CSR and are never
+ * written to the order.
+ *
  * EVERYTHING IS YEN. Page365 invoices are JPY (owner decision 2026-09-19). The
  * draft is therefore entirely in yen, and the account currency is the CSR's
  * choice on the confirmation screen. The server's php_jpy_rate travels with the
@@ -394,18 +403,38 @@ Deno.serve(async (req) => {
     const totalJpy = toNumber(raw["price_total"]);
     if (totalJpy === null) return jsonResponse({ error: "Page365 invoice is missing its total (`price_total`)." }, 422);
 
+    // THE DISCOUNT. Page365 carries it in two independent fields and applies
+    // BOTH to price_total, leaving the item lines and price_subtotal at full
+    // price. Verified on invoice 19787: subtotal 29,980 + shipping 4,400 −
+    // price_discount 2,998 − campaign_discount 0 = price_total 31,382, with the
+    // single line still reading 29,980. Reading neither is what made every
+    // discounted invoice fail the reconcile below with a 422.
+    const priceDiscountJpy = Math.round(toNumber(raw["price_discount"]) ?? 0);
+    const campaignDiscountJpy = Math.round(toNumber(raw["campaign_discount"]) ?? 0);
+    if (priceDiscountJpy < 0) {
+      return jsonResponse({ error: `Page365 invoice reports a negative \`price_discount\` (¥${priceDiscountJpy.toLocaleString()}). Refusing to import it.` }, 422);
+    }
+    if (campaignDiscountJpy < 0) {
+      return jsonResponse({ error: `Page365 invoice reports a negative \`campaign_discount\` (¥${campaignDiscountJpy.toLocaleString()}). Refusing to import it.` }, 422);
+    }
+    const discountJpy = priceDiscountJpy + campaignDiscountJpy;
+
     // Reconcile. If the parts do not add up, something was read wrong and the
-    // CSR must not be shown a plausible-looking draft built on it.
+    // CSR must not be shown a plausible-looking draft built on it. Summing the
+    // two discount fields is deliberate: should Page365 ever report ONE
+    // discount in BOTH, the total will not reconcile and the import is refused
+    // — which is the right outcome, because the alternative is silently halving
+    // a customer's total.
     const lineSum = items.reduce((s, i) => s + i.line_total_jpy, 0);
     if (Math.abs(lineSum - subtotalJpy) > RECONCILE_TOLERANCE_JPY) {
       return jsonResponse({
         error: `Item lines total ¥${lineSum.toLocaleString()} but the invoice subtotal is ¥${subtotalJpy.toLocaleString()}. Refusing to import a draft that does not reconcile.`,
       }, 422);
     }
-    const expectedTotal = subtotalJpy + shippingJpy;
+    const expectedTotal = subtotalJpy + shippingJpy - discountJpy;
     if (Math.abs(expectedTotal - Math.round(totalJpy)) > RECONCILE_TOLERANCE_JPY) {
       return jsonResponse({
-        error: `Subtotal ¥${subtotalJpy.toLocaleString()} + shipping ¥${shippingJpy.toLocaleString()} = ¥${expectedTotal.toLocaleString()}, but the invoice total is ¥${Math.round(totalJpy).toLocaleString()}. Refusing to import a draft that does not reconcile.`,
+        error: `Subtotal ¥${subtotalJpy.toLocaleString()} + shipping ¥${shippingJpy.toLocaleString()} − discount ¥${discountJpy.toLocaleString()} = ¥${expectedTotal.toLocaleString()}, but the invoice total is ¥${Math.round(totalJpy).toLocaleString()}. Refusing to import a draft that does not reconcile.`,
       }, 422);
     }
 
@@ -547,6 +576,19 @@ Deno.serve(async (req) => {
       items,
       shipping_jpy: shippingJpy,
       subtotal_jpy: subtotalJpy,
+      // subtotal + shipping − discount = total. The discount is carried so the
+      // review screen can pre-fill it and so the loyalty basis can exclude it;
+      // the promo code and campaign name are for the CSR's eyes only and are
+      // never written to the order.
+      discount_jpy: discountJpy,
+      discount_breakdown: {
+        price_discount_jpy: priceDiscountJpy,
+        campaign_discount_jpy: campaignDiscountJpy,
+      },
+      promotion_code: typeof raw["promotion_code"] === "string" && raw["promotion_code"].trim()
+        ? String(raw["promotion_code"]).trim() : null,
+      discount_campaign_name: typeof raw["discount_campaign_name"] === "string" && raw["discount_campaign_name"].trim()
+        ? String(raw["discount_campaign_name"]).trim() : null,
       total_jpy: Math.round(totalJpy),
       fx: { php_jpy_rate: phpJpyRate, source: "system_settings.php_jpy_rate", read_at: new Date().toISOString() },
       page365_stage: typeof raw["stage"] === "string" ? raw["stage"] : null,
