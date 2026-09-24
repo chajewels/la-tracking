@@ -6880,6 +6880,7 @@ export type Database = {
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
+      get_web_reservation_mode: { Args: never; Returns: Json }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
         Returns: boolean
@@ -7148,6 +7149,10 @@ export type Database = {
           p_transfer_due_at: string
           p_user_id?: string
         }
+        Returns: Json
+      }
+      set_web_reservation_mode: {
+        Args: { p_enabled: boolean; p_expected?: boolean }
         Returns: Json
       }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
