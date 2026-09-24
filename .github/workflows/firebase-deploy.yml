@@ -56,6 +56,12 @@ jobs:
       - name: Typecheck
         run: npx tsc -p tsconfig.app.json --noEmit
 
+      # Must run BEFORE "Build app": mcpPlugin() re-bundles
+      # supabase/functions/mcp/index.ts during the build. This checks the file
+      # as committed. See the script's header for why it exists.
+      - name: MCP bundle carries the real project ref
+        run: scripts/check-mcp-bundle
+
       # TARGETED, not `npm test`. The full suite still carries one pre-existing
       # failure on develop that has nothing to do with any of this
       # (src/test/post-login-splash-guard.test.tsx, "session restore: redirects
