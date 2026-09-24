@@ -6712,6 +6712,26 @@ export type Database = {
         }[]
       }
       fc_portfolio_value: { Args: never; Returns: number }
+      find_customer_matches: {
+        Args: {
+          p_email?: string
+          p_exclude_customer_id?: string
+          p_facebook_name?: string
+          p_full_name?: string
+          p_mobile?: string
+        }
+        Returns: {
+          customer_code: string
+          customer_id: string
+          email: string
+          facebook_name: string
+          full_name: string
+          has_login: boolean
+          location: string
+          matched_on: string[]
+          mobile_number: string
+        }[]
+      }
       get_aging_buckets: {
         Args: { p_scope?: string }
         Returns: {
