@@ -4,6 +4,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
+import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -127,7 +128,7 @@ Deno.serve(async (req) => {
     // 3. Fetch cash order — must exist and be pending
     const { data: cashOrder, error: cashErr } = await supabase
       .from("cash_orders")
-      .select("id, customer_id, status, remaining_balance, currency, invoice_number, web_reference, source_channel")
+      .select("id, customer_id, status, remaining_balance, currency, invoice_number, web_reference, source_channel, ready_confirmed_at")
       .eq("id", cash_order_id)
       .maybeSingle();
     if (cashErr || !cashOrder) {
@@ -147,6 +148,20 @@ Deno.serve(async (req) => {
     if (pathACustomerId && cashOrder.customer_id !== pathACustomerId) {
       return new Response(JSON.stringify({ error: "Access denied" }), {
         status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 4b. RESERVE-FIRST (A2): no payment against a web reservation staff have
+    // not confirmed. The customer has been shown no payment details yet, and a
+    // staff member recording one should confirm the piece first — it is one
+    // click, and it is what starts the customer's deadline.
+    if (isUnconfirmedReservation(cashOrder)) {
+      return new Response(JSON.stringify({
+        error: NOT_READY_FOR_PAYMENT,
+        message: "This web order is still a reservation. Confirm the piece before recording a payment.",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

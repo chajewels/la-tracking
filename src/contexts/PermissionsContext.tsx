@@ -56,6 +56,14 @@ const PermissionsContext = createContext<PermissionsContextType>({
 
 export const usePermissions = () => useContext(PermissionsContext);
 
+/**
+ * The raw context, for the DEV fixture harness (src/dev/FixturePreview.tsx)
+ * only: it lets a preview render permission-gated UI without a signed-in
+ * session. Production code reads permissions through usePermissions() and the
+ * provider below — never through this.
+ */
+export const PermissionsContextForFixtures = PermissionsContext;
+
 // Map page paths to required permission keys
 const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/': 'view_dashboard',

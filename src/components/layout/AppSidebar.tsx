@@ -20,6 +20,7 @@ import {
   ShoppingBag,
   BookOpen,
   Globe,
+  Hourglass,
 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,6 +32,7 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
+import { useWebReservations } from '@/hooks/use-supabase-data';
 import { cn } from '@/lib/utils';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
 import { PortalTokenPill } from '@/components/system/PortalTokenIndicator';
@@ -210,6 +212,12 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
   const { count: openServiceRequests } = useServiceRequestCount();
+  // Reserve-first (A2): web reservations nobody has confirmed. Shown on every
+  // page, above the menu, to whoever can act on them — the bell alone is too
+  // easy to miss for a customer who has been told nothing yet.
+  const canConfirmReservations = can('confirm_web_order_ready');
+  const { data: reservations } = useWebReservations(canConfirmReservations);
+  const reservationCount = canConfirmReservations ? (reservations?.length ?? 0) : 0;
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
@@ -286,6 +294,17 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-4" style={{ background: 'hsl(var(--sidebar-background))' }}>
+        {reservationCount > 0 && (
+          <button
+            type="button"
+            onClick={() => navigate(`${ROUTES.DASHBOARD}#reservations`)}
+            className="mb-3 flex w-full items-center gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2.5 text-left text-sm font-semibold text-warning transition-colors hover:bg-warning/25"
+            aria-label={`${reservationCount} web reservation${reservationCount === 1 ? '' : 's'} to confirm`}
+          >
+            <Hourglass className="h-4 w-4 shrink-0" />
+            <span className="flex-1">To confirm · {reservationCount}</span>
+          </button>
+        )}
         <SidebarMenu>
           {visibleItems.map((item) => {
             // Category header — non-interactive label

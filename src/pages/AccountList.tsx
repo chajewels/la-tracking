@@ -28,6 +28,7 @@ import VirtualCardGrid from '@/components/list-kit/VirtualCardGrid';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import AccountQuickView, { type QuickViewAccount } from '@/components/accounts/AccountQuickView';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { toast } from '@/components/ui/use-toast';
 
 const statusStyles: Record<string, string> = {
@@ -86,19 +87,25 @@ const isTestInvoice = (inv: string | null | undefined) => (inv || '').startsWith
  * no filter, and the CJ-W reference was not even searchable — only the invoice
  * number was, which is not the string the customer or the notification quotes.
  */
-type ChannelFilter = 'all' | 'web' | 'hub';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
-const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
+// 'awaiting' (reserve-first A2): web reservations nobody has confirmed yet —
+// the same option, and the same words, as the cash order list.
+type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 
 type AccountRefFields = {
   invoice_number: string;
   web_reference?: string | null;
   source_channel?: string | null;
+  ready_confirmed_at?: string | null;
+  status?: string | null;
   customers?: { full_name?: string | null } | null;
 };
 
 const matchesAccountChannel = (a: AccountRefFields, f: ChannelFilter) =>
-  f === 'all' || (f === 'web' ? isWebOrder(a) : !isWebOrder(a));
+  f === 'all'
+  || (f === 'awaiting' ? isAwaitingConfirmation(a, 'layaway')
+    : f === 'web' ? isWebOrder(a) : !isWebOrder(a));
 
 /** Invoice number, customer name, OR the CJ-W reference the customer quotes. */
 const matchesAccountSearch = (a: AccountRefFields, q: string) => {
@@ -384,6 +391,11 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
               {statusLabel[account.status] || account.status}
             </Badge>
+            {isAwaitingConfirmation(account as AccountRefFields, 'layaway') && (
+              <Badge variant="outline" className="text-[10px] shrink-0 bg-warning/15 text-warning border-warning/40 font-bold">
+                ⏳ To confirm
+              </Badge>
+            )}
             {isTestInvoice(account.invoice_number) && (
               <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
                 🧪 TEST
