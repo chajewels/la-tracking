@@ -376,7 +376,10 @@ export default function Customers() {
           <>
             {renderCards(paged)}
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 mt-6">
+              // On the table's own opaque card surface, so the label reads the
+              // same over any part of the background photo (ink-muted on
+              // surface-1 = 5.9:1, WCAG AA).
+              <div className="mx-auto mt-6 flex w-fit max-w-full items-center justify-center gap-3 rounded-full border border-gold-500/15 bg-card px-2 py-1.5 shadow-sm">
                 <Button
                   variant="outline"
                   size="sm"
@@ -385,7 +388,7 @@ export default function Customers() {
                 >
                   Previous
                 </Button>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm tabular-nums text-muted-foreground">
                   Page {page + 1} of {totalPages}
                   <span className="hidden sm:inline"> · {displayed.length} customer{displayed.length !== 1 ? 's' : ''}</span>
                 </span>
