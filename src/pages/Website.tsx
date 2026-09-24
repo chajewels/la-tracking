@@ -17,6 +17,7 @@ import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscr
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
 import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard";
 import { SettingsCard } from "@/components/website/SettingsCard";
+import { ReservationModeCard } from "@/components/website/ReservationModeCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on four tabs.
@@ -134,6 +135,7 @@ export default function Website() {
 
           {canContent && (
             <TabsContent value="settings" className="mt-5 space-y-6" tabIndex={-1}>
+              <ReservationModeCard />
               <SettingsCard />
             </TabsContent>
           )}

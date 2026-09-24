@@ -14,7 +14,7 @@ Added 2026-09-21.
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
-| Settings | `settings` | SettingsCard | `manage_website_content` |
+| Settings | `settings` | ReservationModeCard, SettingsCard | `manage_website_content` (the reserve-first switch itself: **admin only**) |
 
 **Audience is the one tab that is not a single key's.** Three of its cards
 belong to `manage_website_catalog` — who subscribed, who wrote in — and
@@ -505,6 +505,8 @@ src/components/website/TestimonialsCard.tsx
 src/components/website/NewsletterSubscribersCard.tsx
 src/components/website/WholesaleInquiriesCard.tsx
 src/components/website/ContactInquiriesCard.tsx
+src/components/website/ReservationModeCard.tsx       reserve-first switch (docs/RESERVE-FIRST.md)
+src/components/website/reservation-mode.ts           its copy + refusal words
 src/components/website/SettingsCard.tsx              the Settings tab
 src/components/website/website-settings.ts           the typed key schema
 src/components/website/PostsCard.tsx                 the Posts card + editor

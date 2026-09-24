@@ -53,6 +53,9 @@ import { PermissionsContextForFixtures, usePermissions } from '@/contexts/Permis
 import ReservationsAwaitingCard from '@/components/reservations/ReservationsAwaitingCard';
 import ReservationPanel from '@/components/reservations/ReservationPanel';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import { ReservationModeCard } from '@/components/website/ReservationModeCard';
+import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
+import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
 import {
   buildAccountFixtures,
@@ -115,6 +118,9 @@ import { supabase } from '@/integrations/supabase/client';
  *                                   → Dashboard + sidebar "To confirm" pill
  *   /__fixtures?view=reservations-cash
  *                                   → CashOrdersList with reservations
+ *   /__fixtures?view=reservation-mode[&on=1][&waiting=N][&role=staff]
+ *                                   → Website → Settings reserve-first switch card
+ *                                     (admin by default; role=staff = read-only)
  *   (the three reservations views grant every permission — the UI is gated
  *    on confirm_web_order_ready, and a fixture has no session)
  *   &empty=1                        → empty-state variant of any view
@@ -161,6 +167,17 @@ export default function FixturePreview() {
         : buildReservationFixtures(),
     );
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
+    if (view === 'reservation-mode') {
+      const admin = searchParams.get('role') !== 'staff';
+      seed([...RESERVATION_MODE_KEY], {
+        enabled: searchParams.get('on') === '1',
+        updated_at: '2026-09-24T01:15:00Z',
+        updated_by_user_id: 'fixture-admin',
+        updated_by_name: 'Cynthia Largo',
+        can_change: admin,
+        awaiting_total: Number(searchParams.get('waiting') ?? 0),
+      });
+    }
     // Sales → Payments / Waivers (Phase 2B). Same keys the real pages read.
     stubProofStorage(supabase.storage as never);
     const subs = submissionCacheEntries();
@@ -190,6 +207,7 @@ export default function FixturePreview() {
   if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
   if (view === 'reservations-cash') return <AllowAll><CashOrdersList /></AllowAll>;
+  if (view === 'reservation-mode') return <ReservationModeFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;
@@ -1062,6 +1080,16 @@ function AllowAll({ children }: { children: ReactNode }) {
     >
       {children}
     </PermissionsContextForFixtures.Provider>
+  );
+}
+
+/** Website → Settings reserve-first card, with the role the fixture asks for. */
+function ReservationModeFixture({ admin }: { admin: boolean }) {
+  const base = useAuth();
+  return (
+    <AuthContext.Provider value={{ ...base, roles: admin ? ['admin'] : ['staff'] } as typeof base}>
+      <div className="mx-auto max-w-3xl p-4 sm:p-6"><ReservationModeCard /></div>
+    </AuthContext.Provider>
   );
 }
 

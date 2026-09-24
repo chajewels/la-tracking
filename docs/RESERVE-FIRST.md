@@ -10,6 +10,34 @@ It is split into two parts:
   `20260924100000_reserve_first_a2.sql`, assertions in
   `docs/sql/20260924_reserve_first_a2_assertions.sql`.
 
+## The switch — Hub only, admin only (2026-09-24)
+
+`system_settings.web_reservation_mode` is changed from **Website → Settings →
+Reserve-first checkout** and from nowhere else. Migration
+`20260924120000_web_reservation_mode_toggle.sql`, assertions in
+`docs/sql/20260924_web_reservation_mode_toggle_assertions.sql`.
+
+- **Read:** `get_web_reservation_mode()` returns the state, who changed it
+  last and when, `can_change`, and how many reservations are still waiting.
+  Callers need `manage_website_content` or admin. `enabled` uses the website
+  reader's own rule: only JSON `true` or `"true"` counts as on.
+- **Write:** `set_web_reservation_mode(p_enabled, p_expected)` is the ONLY
+  writer. It checks the **admin role** itself; no permission override can
+  grant it. It stores JSON `true`/`false`, stamps `updated_by_user_id` and
+  `updated_at`, and writes one `audit_logs` row (`entity_type
+  'system_setting'`, action `set_web_reservation_mode`, old → new, user,
+  time). `p_expected` is the state the admin saw; if it no longer holds, the
+  call returns `stale` and writes nothing. Setting the state it already has
+  writes nothing.
+- **Guard:** `trg_guard_web_reservation_mode` refuses any other UPDATE or
+  DELETE of this row, including an admin's direct PostgREST write and a SQL
+  Editor UPDATE. `system_settings` RLS is unchanged, and every other key is
+  unaffected.
+- The website reads the switch per request, so a change applies to the next
+  checkout with no deploy. `/content/settings` is cached like the rest of that
+  endpoint, so storefront copy that reads `web_reservation_mode` from it can
+  lag by the normal cache window.
+
 ## The flow
 
 1. **Checkout creates a reservation.** The website edge function reads
@@ -124,7 +152,7 @@ These were checked 2026-09-23:
 
 ## What A2 built (2026-09-24)
 
-The switch `system_settings.web_reservation_mode` is still **false**. With it
+The switch `system_settings.web_reservation_mode` shipped **false** (it is now changed from the Hub — see "The switch" above). With it
 false every customer-facing path is today's: `p_reserve` is not even sent, the
 same emails go out (`order-confirmation`, `layaway-plan-created` render
 byte-for-byte as before — proved by rendering both old and new), and the same
