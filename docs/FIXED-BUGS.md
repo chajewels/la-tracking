@@ -5137,3 +5137,25 @@ Side effect of the reproduction: web_order_number_seq advanced (one number consu
 Root cause: new_order_discount on a layaway checked only total_paid = 0, never layaway_accounts.status, at all three layers (portal RedemptionForm, process-loyalty-redemption create, approve_redemption_atomic). Cash path already required status='pending'. A cancelled-before-payment layaway was fully redeemable; approval would insert a loyalty payment onto the closed account. catalog_reward also accepted any free-text invoice_number.
 Fix: closed-status guard for layaway (cancelled/forfeited/completed/final_settlement) at request time (form + create → 400) and approval time (RPC RAISE account_not_open → 409). Cash guard added to the RPC too (status must be pending). catalog_reward invoice, when supplied, must be the customer's own open order. Migration 20260912000000_redemption_closed_order_guard.sql.
 Not done (accepted): cancelling an account does not auto-cancel its pending redemptions — the approval guard rejects them and staff cancel with a reason.
+
+### "Loyalty spend could not be reversed" bell on unpaid web orders (2026-09-24)
+
+Symptom (owner acceptance run, finding 2): cancelling or declining a web
+reservation raised the staff bell "Loyalty spend could not be reversed — INV
+TEST-900046 was cancel, but it has no loyalty ledger row…". Live had three
+(TEST-900046/-047/-048), all ¥0 received with loyalty_jpy_amount 72,980.
+
+Root cause: revoke_loyalty_points' unsourced branch (Bug #271 follow-up,
+2026-09-14) fired on `total_paid > 0 OR loyalty_jpy_amount IS NOT NULL`. Every
+web order carries its loyalty basis from checkout, so any web order ending
+before payment matched. Loyalty is only ever earned on money received, so
+there was nothing to reverse.
+
+Fix: migration 20260924140000_loyalty_unsourced_needs_money.sql. The branch now
+needs money received: the total_paid cache OR a non-voided payments /
+cash_payments row (INVARIANT 1). The two genuine bells on live (18788,
+19634, both with money received) still fire. Patched from the live body
+(md5 f4b2834e… → 8f475dbf…, guarded); proven in a scratch cluster that
+reproduces both md5s; assertions in
+docs/sql/20260924_loyalty_unsourced_needs_money_assertions.sql.
+Do not reintroduce: the loyalty basis alone never proves spend was earned.

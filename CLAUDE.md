@@ -2511,13 +2511,16 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      a defaulted parameter without dropping the old signature, or every call
      that omits it fails with "is not unique".
      A REVERSAL THAT CANNOT BE SOURCED IS NEVER SILENT. When the basis is 0, no
-     lots survive, the order has NO earned and NO revoked ledger row, and it
-     still carries money received or a non-null loyalty_jpy_amount, the function
+     lots survive, the order has NO earned and NO revoked ledger row, and money
+     WAS received on it (total_paid, or a non-voided payment row), the function
      writes audit_logs + staff_notifications type 'loyalty_reversal_unsourced'
      naming the invoice, then RETURNS — it does not refuse. Blocking a terminal
      action because the loyalty history predates the Hub is worse than the gap.
      An order that earned and was already reversed HAS ledger rows that net to
      zero; that stays silent. The discriminator is the row COUNT, not the net.
+     An order that received NO money has nothing to reverse and stays silent
+     too — a loyalty_jpy_amount alone proves nothing (every web order carries
+     one from checkout; 2026-09-24).
      A post-award CORRECTION that adds points follows the same shape in reverse:
      an 'earned' ledger row tagged with the invoice (never 'adjusted', which the
      integrity report counts as a deduction), and a revoke-and-replace of the
