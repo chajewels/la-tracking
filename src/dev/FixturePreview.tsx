@@ -82,6 +82,13 @@ import {
   submissionCacheEntries,
 } from './sales-fixtures';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  buildCustomerCashOrderFixtures,
+  buildCustomerDetailFixture,
+  buildCustomerDirectoryFixtures,
+  buildCustomerTierMap,
+  DEMO_CUSTOMER_ID,
+} from './customer-fixtures';
 
 /**
  * DEV-only preview harness (/__fixtures) used for Playwright screenshot
@@ -102,6 +109,9 @@ import { supabase } from '@/integrations/supabase/client';
  *                                   → Sales → Payments / Waivers, seeded from
  *                                     sales-fixtures.ts (proof thumbnails are
  *                                     drawn locally — no storage session)
+ *   /__fixtures?view=hub&at=/customers  → Customers directory (Phase 3)
+ *   /__fixtures?view=hub&at=/customers/fixture-cust-demo[?tab=cash]
+ *                                   → a fully populated customer page
  *   /__fixtures?view=cash           → CashOrdersList
  *   /__fixtures?view=dashboard      → Dashboard (full page, seeded)
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
@@ -114,6 +124,9 @@ import { supabase } from '@/integrations/supabase/client';
  *   /__fixtures/<account-id>?view=account-detail
  *                                   → AccountDetail for a seeded account
  *                                     (summary tiles; empty schedule/payments)
+ *   /__fixtures?view=hub&roles=staff[,admin]
+ *                                   → the Hub signed in as that role mix (header +
+ *                                     sidebar footer role label)
  *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
  *                                     detail-page panels, DeadlinesCard
  *   /__fixtures?view=reservations-dashboard
@@ -155,7 +168,15 @@ export default function FixturePreview() {
       seed(['cash-payments', o.id], buildCashPaymentFixtures(o));
       for (const k of ['cash-submissions', 'cash-order-notes', 'cash-order-items']) seed([k, o.id], []);
     }
-    seed(['customers'], buildCustomerFixtures(empty));
+    // Customers (Phase 3): the directory, its lookups, and one full customer
+    // page at /customers/fixture-cust-demo (hub view).
+    seed(['customers'], buildCustomerDirectoryFixtures(empty));
+    seed(['cash-orders-light'], cashOrders.map((o) => ({ id: o.id, customer_id: o.customers.id, status: o.status })));
+    seed(['customers-loyalty-tiers'], empty ? new Map() : buildCustomerTierMap());
+    if (!empty) {
+      seed(['customer-detail', DEMO_CUSTOMER_ID], buildCustomerDetailFixture());
+      seed(['cash-orders-by-customer', DEMO_CUSTOMER_ID], buildCustomerCashOrderFixtures());
+    }
     seed(['dashboard-summary', 'ALL'], buildDashboardSummary(empty));
     seed(['monthly-analytics', getPHTToday()], buildMonthlyAnalytics(empty));
     seed(['dashboard-redemptions-kpi'], buildRedemptionsKpi(empty));
@@ -168,6 +189,13 @@ export default function FixturePreview() {
         : view === 'hub' ? (hubReservations ? hubReservationQueue(accounts, cashOrders) : [])
         : buildReservationFixtures(),
     );
+    // Sidebar footer health pills. The harness has no backend, so unseeded they
+    // always read "unknown"; &health=unseeded shows that state on purpose.
+    if (searchParams.get('health') !== 'unseeded') {
+      const now = new Date().toISOString();
+      seed(['email-health', 24], { status: 'ok', last_sent_at: now, generated_at: now });
+      seed(['portal-token-health', 60], { status: 'ok', expiring_in_window: 0, expiring_in_window_with_live_plan: 0, generated_at: now });
+    }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
       const admin = searchParams.get('role') !== 'staff';
@@ -204,7 +232,10 @@ export default function FixturePreview() {
     return null;
   });
 
-  if (view === 'hub') return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} /></AllowAll>;
+  if (view === 'hub') {
+    const roles = searchParams.get('roles')?.split(',').map((r) => r.trim()).filter(Boolean);
+    return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} roles={roles} /></AllowAll>;
+  }
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;

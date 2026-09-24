@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`at 375px > Customer page > Copy Message copies the same consolidated message 1`] = `
+"Thank you for your payment. ₱ 3,000 has been received.
+
+Inv # 19001
+Total LA Amount: ₱ 30,000
+Amount Paid: ₱ 9,000 (DP) + ₱ 3,000 = ₱ 12,000
+================
+LA NOV remaining balance - ₱ 14,000 to pay in 2 months
+
+Monthly Payment:
+✅ 1st month Sep 01: ₱ 7,000 (PAID)
+2nd month Oct 01: ₱ 7,000
+3rd month Nov 01: ₱ 7,000
+
+Please note your next monthly payment is on Oct 01. Please expect another payment reminder from us.
+
+Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡"
+`;
+
+exports[`at 1280px > Customer page > Copy Message copies the same consolidated message 1`] = `
+"Thank you for your payment. ₱ 3,000 has been received.
+
+Inv # 19001
+Total LA Amount: ₱ 30,000
+Amount Paid: ₱ 9,000 (DP) + ₱ 3,000 = ₱ 12,000
+================
+LA NOV remaining balance - ₱ 14,000 to pay in 2 months
+
+Monthly Payment:
+✅ 1st month Sep 01: ₱ 7,000 (PAID)
+2nd month Oct 01: ₱ 7,000
+3rd month Nov 01: ₱ 7,000
+
+Please note your next monthly payment is on Oct 01. Please expect another payment reminder from us.
+
+Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡"
+`;

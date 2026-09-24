@@ -29,7 +29,7 @@ const AlphabetNav = memo(function AlphabetNav({ customers, activeLetter, onSelec
   if (viewMode === 'all') return null;
 
   return (
-    <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border py-3">
+    <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-md hairline-b py-3">
       <div className="flex flex-wrap gap-1.5 justify-center px-2">
         {allLetters.map(letter => {
           const count = counts[letter] || 0;
@@ -40,20 +40,21 @@ const AlphabetNav = memo(function AlphabetNav({ customers, activeLetter, onSelec
               onClick={() => onSelect(isActive ? null : letter)}
               disabled={count === 0 && viewMode === 'filter'}
               className={cn(
-                'relative flex flex-col items-center justify-center min-w-[2.25rem] h-9 rounded-full text-xs font-semibold transition-all duration-200',
-                'hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                'relative flex flex-col items-center justify-center min-w-[2.25rem] h-9 rounded-full font-deco text-sm font-semibold transition-all duration-200',
+                // Lift only for a fine pointer, and never under reduced motion.
+                'motion-safe:[@media(hover:hover)_and_(pointer:fine)]:hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 isActive
-                  ? 'gold-gradient text-primary-foreground shadow-lg shadow-primary/30'
+                  ? 'border border-gold-500/70 bg-gold-500/15 text-gold-300 shadow-[0_0_12px_hsl(var(--gold-500)/0.25)]'
                   : count > 0
-                    ? 'bg-card border border-border text-card-foreground hover:border-primary/50 hover:text-primary'
+                    ? 'bg-card border border-gold-500/15 text-card-foreground hover:border-gold-500/50 hover:text-gold-300'
                     : 'bg-muted/30 text-muted-foreground/40 cursor-not-allowed'
               )}
             >
               <span>{letter}</span>
               {count > 0 && (
                 <span className={cn(
-                  'absolute -top-1.5 -right-1 text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1',
-                  isActive ? 'bg-background text-primary' : 'bg-primary/20 text-primary'
+                  'absolute -top-1.5 -right-1 font-sans text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1',
+                  isActive ? 'bg-gold-500 text-primary-foreground' : 'bg-gold-500/20 text-gold-300'
                 )}>
                   {count}
                 </span>

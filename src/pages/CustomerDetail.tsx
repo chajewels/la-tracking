@@ -1,8 +1,16 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save } from 'lucide-react';
+import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save, ChevronRight, Mail, Phone, Facebook, StickyNote } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import Monogram from '@/components/shared/Monogram';
+import StatusPill from '@/components/shared/StatusPill';
+import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState from '@/components/shared/LedgerIllustration';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 import AppLayout from '@/components/layout/AppLayout';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
@@ -35,6 +43,9 @@ import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
+
+// Key-fact pill in the header card — the same treatment as AccountDetail's.
+const factPill = 'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground';
 
 export default function CustomerDetail() {
   const { customerId } = useParams();
@@ -133,6 +144,8 @@ export default function CustomerDetail() {
   };
 
   const customer = data?.customer;
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
 
   const startEditCustomer = useCallback(() => {
     if (!customer) return;
@@ -194,8 +207,74 @@ export default function CustomerDetail() {
   }
 
   const { accounts } = data;
+  // Override stale OVERDUE status: only truly overdue if an unpaid month has a past due_date
+  const cdToday = getPHTToday();
+  const effectiveStatusOf = (account: (typeof accounts)[number]['account'], schedule: (typeof accounts)[number]['schedule']) => {
+    const cdHasUnpaidPastDue = schedule.some(s => !isEffectivelyPaid(s) && s.due_date < cdToday);
+    return account.status === 'overdue' && !cdHasUnpaidPastDue ? 'active' : account.status;
+  };
+  const badgeLabel: Record<string, string> = {
+    active: 'Active', overdue: 'Overdue', completed: 'Completed',
+    cancelled: 'Cancelled', forfeited: 'Forfeited',
+    extension_active: 'Extension', final_forfeited: 'Perm. Forfeited',
+    final_settlement: 'Settlement',
+  };
+  // Layaway accounts as the Sales ledger table (desktop) — same fields the
+  // cards below show; each row opens the account as the invoice link does.
+  type AcctRow = (typeof accounts)[number];
+  const money = (n: number, c: Currency) => <span className="tabular-nums">{formatCurrency(n, c)}</span>;
+  const accountColumns: DataTableColumn<AcctRow>[] = [
+    {
+      key: 'invoice', header: 'Invoice', cellClassName: 'whitespace-nowrap',
+      cell: ({ account }) => (
+        <Link to={`/accounts/${account.id}`} onClick={(e) => e.stopPropagation()} className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums] hover:text-gold-300 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          #{account.invoice_number}
+        </Link>
+      ),
+    },
+    {
+      key: 'status', header: 'Status',
+      cell: ({ account, schedule }) => {
+        const st = effectiveStatusOf(account, schedule);
+        return <StatusPill label={badgeLabel[st] || st} tone={ACCOUNT_STATUS_TONE[st] ?? 'muted'} pulse={st === 'overdue'} />;
+      },
+    },
+    {
+      key: 'progress', header: 'Paid',
+      cell: ({ account }) => {
+        const total = Number(account.total_amount);
+        const pct = total > 0 ? (Number(account.total_paid) / total) * 100 : 0;
+        return (
+          <span className="flex items-center gap-2" title={`${Math.round(pct)}% paid · ${account.payment_plan_months}mo plan`}>
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
+            </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{Math.round(pct)}%</span>
+          </span>
+        );
+      },
+    },
+    { key: 'currency', header: 'Currency', cell: ({ account }) => <span className="text-muted-foreground">{account.currency}</span> },
+    { key: 'total', header: 'Total', align: 'right', cell: ({ account }) => money(Number(account.total_amount), account.currency as Currency) },
+    { key: 'paid', header: 'Received', align: 'right', cell: ({ account }) => <span className="text-success">{money(Number(account.total_paid), account.currency as Currency)}</span> },
+    {
+      key: 'balance', header: 'Balance', align: 'right',
+      cell: ({ account }) => <span className="font-semibold text-champagne">{money(Number(account.remaining_balance), account.currency as Currency)}</span>,
+    },
+    {
+      key: 'open', header: '', hideable: false, align: 'right', cellClassName: 'w-12',
+      cell: ({ account }) => (
+        <Link to={`/accounts/${account.id}`} aria-label={`Open account ${account.invoice_number}`} onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" tabIndex={-1}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </Link>
+      ),
+    },
+  ];
   // Same entry point as the Cash Orders tab (Bug #284).
   const canCreateLayaway = can('create_account');
+  const canEditCustomer = can('edit_customer');
   const newLayawayHref = `/accounts/new?customer_id=${encodeURIComponent(customerId ?? '')}`;
 
   // Filter accounts: only include active/open invoices for consolidated message
@@ -386,21 +465,42 @@ export default function CustomerDetail() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6 max-w-5xl">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Link to={ROUTES.CUSTOMERS}>
-            <Button variant="ghost" size="icon" className="text-muted-foreground">
+        <PageHeaderBand
+          className="pb-3"
+          crumbs={[
+            { label: 'Hub', to: ROUTES.DASHBOARD },
+            { label: 'Customers', to: ROUTES.CUSTOMERS },
+            { label: customer.full_name },
+          ]}
+        />
+
+        {/* Header card (Hub visual refresh): monogram, name, key facts as
+            pills — all values the page already has — and the actions. */}
+        <div className="ledger-card relative overflow-hidden rounded-2xl border border-gold-500/20 bg-card/90 p-4 sm:p-6">
+        <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-3 sm:gap-5">
+          <Link to={ROUTES.CUSTOMERS} className="hidden sm:block">
+            <Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="Back to customers">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div className="flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">{customer.full_name}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {customer.customer_code} · {accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length} active account{accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length !== 1 ? 's' : ''}
-              {customer.facebook_name && ` · @${customer.facebook_name}`}
-            </p>
+          <Monogram name={customer.full_name} />
+          <div className="flex-1 min-w-0">
+            <h1 className="font-deco text-[1.75rem] sm:text-[2.6rem] font-semibold leading-[1.05] tracking-tight text-champagne break-words">{customer.full_name}</h1>
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {customer.customer_code && (
+                <span className={cn(factPill, 'border-gold-500/25 bg-gold-500/[0.06] font-mono text-gold-300')}>{customer.customer_code}</span>
+              )}
+              <span className={factPill}>
+                {accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length} active account{accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length !== 1 ? 's' : ''}
+              </span>
+              {customer.facebook_name && <span className={cn(factPill, 'max-w-full truncate')} title={`@${customer.facebook_name}`}>@{customer.facebook_name}</span>}
+              {customer.messenger_link && (
+                <span className={factPill}><MessageCircle className="h-3 w-3 text-info" aria-hidden /> Messenger</span>
+              )}
+            </div>
             {/* Location */}
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-2">
               <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
               {editingLocation ? (
                 <div className="flex items-center gap-2 flex-wrap">
@@ -438,7 +538,7 @@ export default function CustomerDetail() {
               ) : (
                 <div className="flex items-center gap-1.5 group">
                   <span className="text-xs text-muted-foreground">{(customer as any).location || 'Not set'}</span>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => {
+                  <Button variant="ghost" size="icon" aria-label="Edit location" className="h-5 w-5 transition-opacity text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 focus-visible:opacity-100" onClick={() => {
                     const parsed = parseLocation((customer as any).location);
                     setLocationType(parsed.locationType);
                     setCountry(parsed.country);
@@ -448,7 +548,8 @@ export default function CustomerDetail() {
               )}
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
+        </div>
+        <div className="flex gap-2 flex-wrap border-t border-gold-500/15 pt-4 sm:justify-end">
             <Button variant="outline" size="sm" onClick={startEditCustomer} className="border-primary/30 text-primary hover:bg-primary/10">
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Details
             </Button>
@@ -486,15 +587,17 @@ export default function CustomerDetail() {
                 </Button>
               </a>
             )}
-          </div>
+        </div>
+        </div>
         </div>
 
         {/* Inline Customer Detail Editor */}
         {editingCustomer && (
-          <div className="rounded-xl border border-primary/20 bg-card p-4 space-y-3 animate-fade-in">
-            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
-              <Pencil className="h-3.5 w-3.5 text-primary" /> Edit Customer Details
-              <span className="text-[10px] text-muted-foreground font-normal ml-auto">Changes will reflect in generated messages</span>
+          <div className="rounded-2xl border border-gold-500/30 bg-card p-4 sm:p-5 space-y-3 animate-fade-in">
+            <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 pb-2 hairline-b">
+              <Pencil className="h-3.5 w-3.5 text-gold-300" aria-hidden />
+              <span className="font-deco text-xl font-semibold text-champagne">Edit Customer Details</span>
+              <span className="text-[10px] text-muted-foreground font-normal sm:ml-auto">Changes will reflect in generated messages</span>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -525,6 +628,40 @@ export default function CustomerDetail() {
               </Button>
             </div>
           </div>
+        )}
+
+        {/* Contact & notes — the customer row the page already loaded. Shown
+            only to users who may edit customers (owner decision, PR #175). */}
+        {canEditCustomer && (
+        <section aria-label="Contact details" className="rounded-2xl border border-gold-500/15 bg-card p-4 sm:p-5">
+          <h2 className="font-deco text-xl font-semibold text-champagne pb-2 mb-3 hairline-b">Contact &amp; notes</h2>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            {([
+              { icon: Phone, label: 'Mobile', value: customer.mobile_number },
+              { icon: Mail, label: 'Email', value: customer.email },
+              { icon: Facebook, label: 'Facebook name', value: customer.facebook_name ? `@${customer.facebook_name}` : null },
+              { icon: MessageCircle, label: 'Messenger', value: customer.messenger_link, href: customer.messenger_link },
+              { icon: MapPin, label: 'Location', value: customer.location },
+            ] as { icon: typeof Phone; label: string; value: string | null; href?: string | null }[]).map(({ icon: Icon, label, value, href }) => (
+              <div key={label} className="min-w-0">
+                <dt className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+                  <Icon className="h-3 w-3" aria-hidden /> {label}
+                </dt>
+                <dd className="mt-0.5 truncate text-sm text-card-foreground" title={value ?? undefined}>
+                  {value ? (href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-info hover:underline">{value}</a> : value) : <span className="text-muted-foreground/60">—</span>}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {customer.notes && (
+            <div className="mt-3 pt-3 hairline-t">
+              <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+                <StickyNote className="h-3 w-3" aria-hidden /> Notes
+              </p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-card-foreground">{customer.notes}</p>
+            </div>
+          )}
+        </section>
         )}
 
         {/* Customer Portal Link */}
@@ -586,7 +723,7 @@ export default function CustomerDetail() {
         )}
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+          <TabsList className="flex w-full max-w-2xl justify-start overflow-x-auto scrollbar-hide sm:grid sm:grid-cols-4 [&>*]:shrink-0">
             <TabsTrigger value="layaway">Layaway Accounts ({accounts.length})</TabsTrigger>
             <TabsTrigger value="cash">Cash Orders</TabsTrigger>
             <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
@@ -596,15 +733,10 @@ export default function CustomerDetail() {
           <TabsContent value="layaway" className="mt-5 space-y-6">
 
         {/* Header — mirrors the Cash Orders tab (Bug #284) */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg gold-gradient">
-              <Gem className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-foreground font-display">Layaway Accounts</h3>
-              <p className="text-xs text-muted-foreground">{accounts.length} total</p>
-            </div>
+        <div className="flex items-end justify-between gap-3 flex-wrap pb-3 hairline-b">
+          <div>
+            <h3 className="font-deco text-2xl font-semibold leading-tight text-champagne">Layaway Accounts</h3>
+            <p className="text-xs text-muted-foreground">{accounts.length} total</p>
           </div>
           {canCreateLayaway && (
             <Link to={newLayawayHref}>
@@ -616,17 +748,41 @@ export default function CustomerDetail() {
         </div>
 
         {accounts.length === 0 && (
-          <div className="rounded-xl border border-border bg-card p-10 text-center">
-            <Gem className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground mb-4">No layaway accounts for this customer</p>
-            {canCreateLayaway && (
+          <IllustratedState
+            kind="ledger"
+            className="rounded-xl border border-gold-500/15 bg-card py-10"
+            text="No layaway accounts for this customer"
+            action={canCreateLayaway ? (
               <Link to={newLayawayHref}>
                 <Button className="gold-gradient text-primary-foreground font-medium">
                   <Plus className="h-4 w-4 mr-1.5" /> New Layaway Order
                 </Button>
               </Link>
-            )}
-          </div>
+            ) : undefined}
+          />
+        )}
+
+        {/* Desktop: every layaway account at a glance, as the Sales ledger. */}
+        {!isMobile && accounts.length > 0 && (
+          <DataTable
+            variant="ledger"
+            showToolbar={false}
+            stickyHeader={false}
+            columns={accountColumns}
+            rows={accounts}
+            rowKey={({ account }) => account.id}
+            onRowClick={({ account }) => navigate(`/accounts/${account.id}`)}
+            rowProps={({ account }) => ({
+              tabIndex: 0,
+              'aria-label': `Account ${account.invoice_number}. Press Enter to open.`,
+              onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if ((e.target as HTMLElement).closest('button, a')) return;
+                e.preventDefault();
+                navigate(`/accounts/${account.id}`);
+              },
+            })}
+          />
         )}
 
         {/* All Accounts */}
@@ -637,45 +793,26 @@ export default function CustomerDetail() {
           const remainingBalance = Number(account.remaining_balance);
           const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
-          // Override stale OVERDUE status: only truly overdue if an unpaid month has a past due_date
-          const cdToday = getPHTToday();
-          const cdHasUnpaidPastDue = schedule.some(s => !isEffectivelyPaid(s) && s.due_date < cdToday);
-          const effectiveStatus = account.status === 'overdue' && !cdHasUnpaidPastDue
-            ? 'active'
-            : account.status;
-
-          const badgeClass =
-            effectiveStatus === 'completed' ? 'bg-success/10 text-success border-success/20' :
-            effectiveStatus === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20' :
-            effectiveStatus === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' :
-            effectiveStatus === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20' :
-            effectiveStatus === 'extension_active' ? 'bg-info/10 text-info border-info/20' :
-            effectiveStatus === 'final_settlement' ? 'bg-warning/10 text-warning border-warning/20' :
-            effectiveStatus === 'cancelled' ? 'bg-muted text-muted-foreground border-border' :
-            'bg-primary/10 text-primary border-primary/20';
-
-          const badgeLabel: Record<string, string> = {
-            active: 'Active', overdue: 'Overdue', completed: 'Completed',
-            cancelled: 'Cancelled', forfeited: 'Forfeited',
-            extension_active: 'Extension', final_forfeited: 'Perm. Forfeited',
-            final_settlement: 'Settlement',
-          };
+          const effectiveStatus = effectiveStatusOf(account, schedule);
 
           return (
-          <div key={account.id} className="rounded-xl border border-border bg-card p-4 sm:p-5 space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-3">
-                  <Link to={`/accounts/${account.id}`} className="hover:text-primary transition-colors">
-                    <h2 className="text-base sm:text-lg font-bold text-card-foreground font-display">
+          <div key={account.id} id={`account-${account.id}`} className="rounded-2xl border border-gold-500/15 bg-card p-4 sm:p-5 space-y-4 scroll-mt-24">
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 hairline-b">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <Link to={`/accounts/${account.id}`} className="rounded-sm transition-colors hover:text-gold-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <h2 className="font-deco text-xl sm:text-2xl font-semibold leading-none text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
                       INV #{account.invoice_number}
                     </h2>
                   </Link>
-                  <Badge variant="outline" className={`text-xs ${badgeClass}`}>
-                    {badgeLabel[effectiveStatus] || effectiveStatus}
-                  </Badge>
-                  <Badge variant="outline" className="text-xs">{currency}</Badge>
+                  <StatusPill
+                    size="md"
+                    label={badgeLabel[effectiveStatus] || effectiveStatus}
+                    tone={ACCOUNT_STATUS_TONE[effectiveStatus] ?? 'muted'}
+                    pulse={effectiveStatus === 'overdue'}
+                  />
+                  <span className={factPill}>{currency}</span>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center flex-wrap">
                   {account.status !== 'completed' && account.status !== 'forfeited' && remainingBalance > 0 && (
                     <>
                       <RecordPaymentDialog
@@ -731,7 +868,7 @@ export default function CustomerDetail() {
               {/* Summary row */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase">Total</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Total</p>
                   <p className="text-sm font-bold text-card-foreground tabular-nums">{formatCurrency(totalAmount, currency)}</p>
                 </div>
                 {(() => {
@@ -743,7 +880,7 @@ export default function CustomerDetail() {
                   const dpPd = dpPays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
                   return (
                     <div>
-                      <p className="text-[10px] text-muted-foreground uppercase">Downpayment</p>
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Downpayment</p>
                       <p className="text-sm font-bold text-primary tabular-nums">{formatCurrency(dpAmt, currency)}</p>
                       <p className={`text-[10px] ${dpPd >= dpAmt ? 'text-success' : dpPd > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
                         {dpPd >= dpAmt ? '✅ Paid' : dpPd > 0 ? `Paid: ${formatCurrency(dpPd, currency)}` : 'Unpaid'}
@@ -752,15 +889,15 @@ export default function CustomerDetail() {
                   );
                 })()}
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase">Paid</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Paid</p>
                   <p className="text-sm font-bold text-success tabular-nums">{formatCurrency(totalPaid, currency)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase">Remaining</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Remaining</p>
                   <p className="text-sm font-bold text-card-foreground tabular-nums">{formatCurrency(remainingBalance, currency)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase">Progress</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Progress</p>
                   <p className="text-sm font-bold text-primary">{Math.round(progress)}%</p>
                   <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
                     <div className="h-full gold-gradient rounded-full transition-all" style={{ width: `${progress}%` }} />
@@ -770,10 +907,10 @@ export default function CustomerDetail() {
 
               {/* Schedule */}
               <div className="space-y-1.5">
-                <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-primary" /> Schedule
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-gold-300" aria-hidden /> Schedule
                   {account.status === 'completed' && (
-                    <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 ml-1">Paid in Full</Badge>
+                    <StatusPill label="Paid in Full" tone="gold" className="ml-1 normal-case tracking-normal" />
                   )}
                 </h3>
                 {/* Downpayment row */}
@@ -858,9 +995,9 @@ export default function CustomerDetail() {
               {/* Additional Services */}
               {(acctServices as any[] || []).length > 0 && (
                 <div className="space-y-1.5">
-                  <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                    <Wrench className="h-3.5 w-3.5 text-primary" /> Additional Services
-                    <span className="ml-auto text-xs font-bold text-card-foreground tabular-nums">
+                  <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-gold-300" aria-hidden /> Additional Services
+                    <span className="ml-auto text-xs font-bold normal-case tracking-normal text-card-foreground tabular-nums">
                       Total: {formatCurrency((acctServices as any[]).reduce((s: number, svc: any) => s + Number(svc.amount), 0), currency)}
                     </span>
                   </h3>
@@ -890,9 +1027,10 @@ export default function CustomerDetail() {
 
         {/* Consolidated Customer Message — only when the customer has layaway accounts (Bug #284) */}
         {accounts.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-info" /> Consolidated Customer Message
+        <div className="rounded-2xl border border-gold-500/15 bg-card p-4 sm:p-5">
+          <h3 className="flex items-center gap-2 pb-2 mb-4 hairline-b">
+            <MessageCircle className="h-4 w-4 text-info" aria-hidden />
+            <span className="font-deco text-xl font-semibold text-champagne">Consolidated Customer Message</span>
           </h3>
           <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border">
             <pre className="text-[10px] sm:text-xs text-card-foreground whitespace-pre-wrap font-body leading-relaxed">

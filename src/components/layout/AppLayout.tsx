@@ -1,4 +1,5 @@
 import { ReactNode, useState, useEffect } from 'react';
+import { roleLabel as roleLabelFor } from '@/lib/role-label';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
 import { LogOut, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -80,10 +81,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         .slice(0, 2)
     : '??';
 
-  const roleLabel =
-    roles.length > 0
-      ? roles[0].split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-      : 'User';
+  const roleLabel = roleLabelFor(roles);
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={handleSidebarOpenChange}>
