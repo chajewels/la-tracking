@@ -507,3 +507,38 @@ describe(`at ${width}px`, () => {
   });
 });
 }
+
+// ================================================================== review fixes
+// PR #168 review (2026-09-24). NEW behaviour, so these are not part of the
+// develop-parity claim above — they pin the two display fixes and assert the
+// fixes themselves send nothing.
+describe("PR #168 review fixes (new behaviour)", () => {
+  beforeEach(() => { Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1280 }); });
+
+  it("an auto_unwaived waiver reads 'Auto-unwaived', never 'Pending'", async () => {
+    h.tables.penalty_waiver_requests = [waiver({ status: "auto_unwaived" })];
+    renderWithProviders(<Waivers embedded search="" />);
+    fireEvent.click(button("All Requests"));
+    fireEvent.click((await screen.findAllByText("Ana Reyes"))[0]);
+    expect(await screen.findByText("Auto-unwaived")).toBeInTheDocument();
+    expect(screen.queryByText("Pending", { selector: "span" })).toBeNull();
+    expect(writes()).toEqual([]);
+  });
+
+  it("the proof opened from inside Confirm takes focus and gives it back; Confirm stays open", async () => {
+    h.tables.payment_submissions = [sub({})];
+    renderWithProviders(<PaymentSubmissions embedded searchValue="" />);
+    await screen.findAllByText("Maria Santos");
+    fireEvent.click(button("Confirm"));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm Payment" });
+    const trigger = within(confirm).getByRole("button", { name: /Proof of payment — view full size/ });
+    fireEvent.click(trigger);
+    const preview = await screen.findByRole("dialog", { name: "Proof of Payment" });
+    await waitFor(() => expect(preview.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(preview, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Proof of Payment" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(screen.getByRole("dialog", { name: "Confirm Payment" })).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+});

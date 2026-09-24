@@ -22,7 +22,7 @@ import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import StatusPill from '@/components/shared/StatusPill';
-import { PENALTY_STATUS_TONE, WAIVER_STATUS_TONE } from '@/components/shared/status-tone';
+import { PENALTY_STATUS_TONE, WAIVER_STATUS_LABEL, WAIVER_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -62,6 +62,7 @@ const statusConfig = {
   pending: { icon: Clock, label: 'Pending', className: 'bg-warning/10 text-warning border-warning/20' },
   approved: { icon: CheckCircle, label: 'Approved', className: 'bg-success/10 text-success border-success/20' },
   rejected: { icon: XCircle, label: 'Rejected', className: 'bg-destructive/10 text-destructive border-destructive/20' },
+  auto_unwaived: { icon: Undo2, label: WAIVER_STATUS_LABEL.auto_unwaived, className: 'bg-muted text-muted-foreground border-border' },
 } as const;
 
 type FilterStatus = 'pending' | 'all';

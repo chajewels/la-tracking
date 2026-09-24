@@ -156,7 +156,7 @@ interface ActionDialogModalProps {
   confirmScheduleRows: ScheduleViewRow[];
   confirmPartialRow: { scheduleId: string; row: ScheduleViewRow; shortfall: number } | null;
   isPending: boolean;
-  setProofDialog: (url: string | null) => void;
+  setProofDialog: (url: string | null, trigger?: HTMLElement | null) => void;
   onCancel: () => void;
   onSubmit: (notes: string) => void;
 }
@@ -240,7 +240,8 @@ const ActionDialogModal = memo(function ActionDialogModal({
                 <>
                   <button
                     type="button"
-                    onClick={() => setProofDialog(actionDialog.sub.proof_url!)}
+                    aria-label="Proof of payment — view full size"
+                    onClick={(e) => setProofDialog(actionDialog.sub.proof_url!, e.currentTarget)}
                     className="block w-full text-left">
                     <ProofImage
                       url={actionDialog.sub.proof_url}
@@ -561,7 +562,7 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
 /** Proof of payment: PDF link, or image preview + View / full size / Download. */
 function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-cover' }: {
   url: string | null;
-  onExpand: (url: string) => void;
+  onExpand: (url: string, trigger?: HTMLElement | null) => void;
   imageClassName?: string;
 }) {
   if (!hasProof(url)) {
@@ -582,7 +583,7 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
         </div>
       ) : (
         <>
-          <button onClick={() => onExpand(url)} className="block w-full text-left">
+          <button onClick={(e) => onExpand(url, e.currentTarget)} className="block w-full text-left">
             <ProofImage url={url}
               className={cn(imageClassName, 'rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in')} />
           </button>
@@ -590,7 +591,7 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
             <button type="button" onClick={() => window.open(url, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
               <ImageIcon className="h-3 w-3" /> View Proof
             </button>
-            <button onClick={() => onExpand(url)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+            <button onClick={(e) => onExpand(url, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
               View full size
             </button>
             <a href={url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
@@ -729,7 +730,15 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
   }, [searchValue]);
 
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
-  const [proofDialog, setProofDialog] = useState<string | null>(null);
+  const [proofDialog, setProofDialogState] = useState<string | null>(null);
+  // Whatever opened the preview gets focus back when it closes — including
+  // the image inside the Confirm dialog. Passed explicitly because Safari
+  // does not focus a button on click, so activeElement can't be trusted.
+  const proofReturnFocus = useRef<HTMLElement | null>(null);
+  const setProofDialog = useCallback((url: string | null, trigger?: HTMLElement | null) => {
+    if (url) proofReturnFocus.current = trigger ?? (document.activeElement as HTMLElement | null);
+    setProofDialogState(url);
+  }, []);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
   // Staff attach/replace-proof dialog (proof-only; supports layaway + cash subs)
@@ -1239,7 +1248,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           );
         }
         return (
-          <button type="button" onClick={() => setProofDialog(url)} aria-label="Proof of payment — view full size" title="View full size"
+          <button type="button" onClick={(e) => setProofDialog(url, e.currentTarget)} aria-label="Proof of payment — view full size" title="View full size"
             className="block h-10 w-10 overflow-hidden rounded border border-gold-500/25 hover:border-gold-500/60 cursor-zoom-in">
             <ProofImage url={url} compact className="h-full w-full object-cover" />
           </button>
@@ -1365,7 +1374,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                     <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
                       <ImageIcon className="h-3 w-3" /> View Proof
                     </button>
-                    <button onClick={() => setProofDialog(sub.proof_url!)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                    <button onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                       View full size
                     </button>
                     <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
@@ -1537,7 +1546,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
 
                     <div className="flex flex-wrap gap-1.5 pt-3 hairline-t">
                       {hasProof(sub.proof_url) && !isPdf(sub.proof_url) && (
-                        <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
+                        <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)}>
                           <ImageIcon className="h-3.5 w-3.5" /> Expand
                         </Button>
                       )}
@@ -1847,8 +1856,21 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       )}
 
       {/* Proof Preview Dialog */}
+      {/* Stacks ABOVE the hand-rolled review modals (z 9998 / 9999), so an
+          image clicked inside Confirm opens in front of it. Outside clicks
+          close on the overlay's own click — not on pointer-down — so the
+          click never falls through to the Confirm backdrop and closes it. */}
       <Dialog open={!!proofDialog} onOpenChange={(open) => !open && setProofDialog(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg z-[10001]"
+          overlayProps={{ className: 'z-[10000]', onClick: () => setProofDialog(null) }}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            const el = proofReturnFocus.current;
+            proofReturnFocus.current = null;
+            if (el && el.isConnected) { e.preventDefault(); el.focus(); }
+          }}
+        >
           <DialogHeader className="space-y-0">
             <DecoDialogHeader icon={<FileText />} title={<DialogTitle className={decoTitleClass}>Proof of Payment</DialogTitle>} />
           </DialogHeader>

@@ -178,6 +178,8 @@ export function buildWaiverFixtures() {
     // Resolved — only under "All Requests".
     waiver('fx-w-07', a4, penalty('fx-p-07', 'week1', 1, 500, '2026-08-11', 'waived'), { status: 'approved', approved_at: hoursAgo(300), approved_by_user_id: 'fixture-fin' }),
     waiver('fx-w-08', a5, penalty('fx-p-08', 'week2', 1, 1_000, '2026-08-19'), { status: 'rejected', rejected_at: hoursAgo(200), approved_by_user_id: 'fixture-fin', reason: 'Asked after the grace window' }),
+    // Grace window passed → penalty-engine reinstated it (auto_unwaived).
+    waiver('fx-w-09', a5, penalty('fx-p-09', 'week1', 1, 1_000, '2026-08-05'), { status: 'auto_unwaived', approved_at: hoursAgo(500), approved_by_user_id: 'fixture-fin', reason: 'Approved, then not paid within the 7-day grace window' }),
   ];
 }
 
