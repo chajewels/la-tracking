@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useCustomers, useAccountsLight, useCashOrdersLight } from '@/hooks/use-supabase-data';
+import { buildAccountStatsMap } from '@/lib/customer-account-stats';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -194,33 +195,12 @@ export default function Customers() {
     if (firstNonEmpty) setActiveLetter(firstNonEmpty);
   }, [grouped, activeLetter]);
 
-  // Account stats lookup
-  const accountStats = useMemo(() => {
-    const map = new Map<string, { active: number; completed: number }>();
-    for (const a of accounts || []) {
-      if (a.status === 'cancelled') continue;
-      const stats = map.get(a.customer_id) || { active: 0, completed: 0 };
-      if (a.status === 'completed' || Number(a.remaining_balance) <= 0) {
-        stats.completed++;
-      } else if (!['forfeited', 'final_forfeited'].includes(a.status)) {
-        stats.active++;
-      }
-      map.set(a.customer_id, stats);
-    }
-    // NEW — parallel cash_orders aggregation (cash orders are first-class accounts)
-    for (const co of (cashOrders ?? [])) {
-      if (co.status === 'cancelled' || co.status === 'expired') continue;
-      const stats = map.get(co.customer_id) || { active: 0, completed: 0 };
-      if (co.status === 'completed') {
-        stats.completed++;
-      } else {
-        // co.status === 'pending'
-        stats.active++;
-      }
-      map.set(co.customer_id, stats);
-    }
-    return map;
-  }, [accounts, cashOrders]);
+  // Account stats lookup — the shared active/done rule (also the customer
+  // page header badge): src/lib/customer-account-stats.ts
+  const accountStats = useMemo(
+    () => buildAccountStatsMap(accounts ?? [], cashOrders ?? []),
+    [accounts, cashOrders],
+  );
 
   const handleLetterSelect = useCallback((letter: string | null) => {
     setActiveLetter(letter);

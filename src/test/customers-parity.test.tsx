@@ -473,6 +473,9 @@ describe(`at ${width}px`, () => {
       const seen = reads().map((r) => `${r.target} ${r.payload} ${JSON.stringify(r.filters)}`);
       expect([...new Set(seen)].sort()).toEqual([
         'account_services * [["in","account_id",["a-1"]]]',
+        // Header badge counts cash orders too (same query + cache as the Cash
+        // Orders tab), so the page now reads them on open (2026-09-24).
+        'cash_orders id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference [["eq","customer_id","c-1"]]',
         'customer_portal_tokens token, expires_at [["eq","customer_id","c-1"],["eq","is_active",true]]',
         'customers * [["eq","id","c-1"]]',
         'layaway_accounts * [["eq","customer_id","c-1"]]',
@@ -485,6 +488,13 @@ describe(`at ${width}px`, () => {
         { kind: "rpc", target: "check_customer_email_conflict", payload: { p_customer_id: "c-1" } },
       ]);
       expect(writes()).toEqual([]);
+    });
+
+    it("header badge uses the directory's active/done rule, cash orders included", async () => {
+      await open();
+      // c-1: one open layaway (a-1) + one pending cash order (co-1).
+      await waitFor(() => expect(screen.getByTestId("customer-order-counts")).toHaveTextContent("2 active"));
+      expect(screen.queryByText(/active accounts?/)).not.toBeInTheDocument();
     });
 
     it("every action is there, each link goes where it did", async () => {
