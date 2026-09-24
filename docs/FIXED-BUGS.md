@@ -5181,3 +5181,14 @@ become service_role only (every caller is a service-role edge function or a
 definer function); get_daily_* become authenticated + service_role.
 Do not reintroduce: after any DROP + CREATE of a function, re-assert its
 REVOKE/GRANT in the same migration.
+
+Follow-up, same day: the four get_daily_* reads keep the authenticated grant
+because the Finance page calls them from the browser. But portal customers are
+authenticated too, and these functions had no caller check. Migration
+20260924140200 gives each one an md5-guarded in-place check on view_finance,
+the /finance route's own key (uid NULL, i.e. service role, passes).
+usePrefetchHeavyPages now warms them only for users who hold view_finance.
+Call sites checked 2026-09-24: none of the five service-role-only functions is
+called from src/. Every call is an edge function using a service-role client
+(website, reactivate-web-layaway, unwaive-waiver, process-loyalty-redemption,
+confirm-web-order-ready).
