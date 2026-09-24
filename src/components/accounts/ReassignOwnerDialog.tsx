@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { UserRoundCog, Search, ArrowRight, AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
+import { UserRoundCog, Search, ArrowRight, AlertTriangle, CheckCircle2, Sparkles, ShieldAlert } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useCustomers } from '@/hooks/use-supabase-data';
 import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import { supabase } from '@/integrations/supabase/client';
+import { matchedOnText, movedList } from '@/lib/reassign-owner-labels';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -56,6 +58,10 @@ interface Preview {
   target: Side & { enrolled_at: string | null };
   refusals: { code: string; message: string }[];
   can_apply: boolean;
+  /** R11 — identity fields the target shares with the current owner. */
+  matched_on: string[];
+  /** R11 — true when nothing matched (a different customer). */
+  unmatched: boolean;
   loyalty_jpy_amount: { stored: number | null; effective: number | null; changes: boolean };
   award_point: { at: string | null; source: string | null };
   catch_up: {
@@ -79,16 +85,6 @@ const CLOSED: Record<Kind, string[]> = {
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('en-US')}`;
 const pts = (n: number) => `${Math.round(n).toLocaleString('en-US')} pt`;
-
-const CHILD_LABELS: Record<string, string> = {
-  payment_submissions: 'payment submissions',
-  extension_requests: 'extension requests',
-  service_jobs: 'service jobs',
-  service_requests: 'service requests',
-  checkout_quotes: 'checkout quote',
-  csr_notifications: 'CSR notifications',
-  ship_to_address_detached: 'saved address (kept as a snapshot)',
-};
 
 async function callReassign(body: Record<string, unknown>): Promise<Preview> {
   const { data, error } = await supabase.functions.invoke('reassign-order-owner', { body });
@@ -149,9 +145,15 @@ export default function ReassignOwnerDialog({
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [done, setDone] = useState<Preview | null>(null);
+  /** R11 override: the wrong-customer confirmation box, and the override
+   *  flag the preview on screen was computed with (they must agree before
+   *  Confirm is enabled, so what is shown is what will be applied). */
+  const [overrideTicked, setOverrideTicked] = useState(false);
+  const [previewOverride, setPreviewOverride] = useState(false);
 
   const { can } = usePermissions();
   const canEditLoyalty = can('edit_loyalty_amount');
+  const canOverride = can('reassign_owner_unmatched');
   const { data: customers } = useCustomers();
   const { data: award, isLoading: awardLoading } = useOrderLoyaltyAward(kind, orderId, open);
   const queryClient = useQueryClient();
@@ -159,6 +161,7 @@ export default function ReassignOwnerDialog({
   useEffect(() => {
     if (open) return;
     setSearch(''); setSelected(null); setReason(''); setPreview(null); setDone(null);
+    setOverrideTicked(false); setPreviewOverride(false);
     setLoyaltyInput(loyaltyJpyAmount ? String(loyaltyJpyAmount) : '');
   }, [open, loyaltyJpyAmount]);
 
@@ -208,25 +211,27 @@ export default function ReassignOwnerDialog({
   const loyaltyChanged = loyaltyValue !== (loyaltyJpyAmount ?? null);
   const closed = CLOSED[kind].includes(status);
 
-  const body = (apply: boolean) => ({
+  const body = (apply: boolean, override: boolean) => ({
     kind,
     order_id: orderId,
     new_customer_id: selected,
     reason: reason.trim(),
     apply,
+    ...(override ? { override: true } : {}),
     ...(loyaltyChanged && loyaltyValue !== null ? { loyalty_jpy_amount: loyaltyValue } : {}),
   });
 
-  const runPreview = async () => {
+  const runPreview = async (override = false) => {
     if (!selected) return;
     setBusy(true);
     try {
-      const res = await callReassign(body(false));
+      const res = await callReassign(body(false, override));
       if (!res.refusals) {
         toast.error(res.message || res.error || 'Preview failed');
         return;
       }
       setPreview(res);
+      setPreviewOverride(override);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Preview failed');
     } finally {
@@ -234,10 +239,17 @@ export default function ReassignOwnerDialog({
     }
   };
 
+  // Ticking or unticking the wrong-customer box re-runs the preview with the
+  // matching override flag, so the result on screen is the one Confirm applies.
+  const toggleOverride = (checked: boolean) => {
+    setOverrideTicked(checked);
+    void runPreview(checked);
+  };
+
   const runApply = async () => {
     setBusy(true);
     try {
-      const res = await callReassign(body(true));
+      const res = await callReassign(body(true, previewOverride));
       if (!res.ok || !res.applied) {
         toast.error(res.message || res.error || 'Reassign failed');
         if (res.refusals) setPreview(res);
@@ -267,8 +279,16 @@ export default function ReassignOwnerDialog({
     }
   };
 
-  const movedList = (rows: Record<string, number>) =>
-    Object.entries(rows).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${CHILD_LABELS[k] ?? k}`);
+  // R11. With the override permission, a no-match is not shown as a red
+  // refusal: it becomes the amber wrong-customer block below. Every other
+  // refusal stays red — the override bypasses R11 only.
+  const overrideOffered = !!preview?.unmatched && canOverride;
+  const shownRefusals = (preview?.refusals ?? []).filter(
+    r => !(overrideOffered && r.code === 'different_customer_details'),
+  );
+  const matchedText = matchedOnText(preview?.matched_on);
+  const confirmEnabled = !!preview && !busy && preview.can_apply
+    && (!overrideOffered || (overrideTicked && previewOverride));
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -324,13 +344,39 @@ export default function ReassignOwnerDialog({
               <SideCard title="To" side={preview.target} />
             </div>
 
-            {preview.refusals.length > 0 ? (
+            {matchedText && (
+              <p className="text-xs text-muted-foreground">{matchedText}</p>
+            )}
+
+            {overrideOffered && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 space-y-2.5">
+                <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
+                  <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                  Different customer details — use only if this order was put on the wrong customer
+                </p>
+                <label htmlFor="reassign-override" className="flex items-start gap-2 text-sm text-card-foreground cursor-pointer">
+                  <Checkbox
+                    id="reassign-override"
+                    checked={overrideTicked}
+                    disabled={busy}
+                    onCheckedChange={v => toggleOverride(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    I confirm this order was put on the wrong customer and should belong to{' '}
+                    <span className="font-medium">{preview.target.full_name}</span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {shownRefusals.length > 0 ? (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 space-y-1.5">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-destructive">
                   <AlertTriangle className="h-4 w-4" /> This order cannot be moved
                 </p>
                 <ul className="list-disc pl-5 space-y-1 text-sm text-card-foreground">
-                  {preview.refusals.map(r => <li key={r.code}>{r.message}</li>)}
+                  {shownRefusals.map(r => <li key={r.code}>{r.message}</li>)}
                 </ul>
               </div>
             ) : (
@@ -350,10 +396,15 @@ export default function ReassignOwnerDialog({
             )}
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-1">
-              <Button type="button" variant="outline" onClick={() => setPreview(null)} disabled={busy}>Back</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => { setPreview(null); setOverrideTicked(false); setPreviewOverride(false); }}
+                disabled={busy}
+              >Back</Button>
               <Button
                 onClick={runApply}
-                disabled={busy || !preview.can_apply}
+                disabled={!confirmEnabled}
                 className="gold-gradient text-primary-foreground font-medium"
               >
                 {busy ? 'Moving…' : `Confirm — move to ${preview.target.full_name}`}
@@ -432,7 +483,7 @@ export default function ReassignOwnerDialog({
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button
-                onClick={runPreview}
+                onClick={() => runPreview(false)}
                 disabled={!selected || !loyaltyOk || !reason.trim() || busy}
                 className="gold-gradient text-primary-foreground font-medium"
               >

@@ -39,6 +39,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'forfeit_account', label: 'Forfeit Account' },
       { key: 'reactivate_account', label: 'Reactivate Account' },
       { key: 'reassign_owner', label: 'Reassign Owner' },
+      { key: 'reassign_owner_unmatched', label: 'Reassign owner — different customer (wrong-customer override)' },
       { key: 'view_cash_orders', label: 'View Cash Orders', section: 'Cash Orders' },
       { key: 'create_cash_order', label: 'Create Cash Order' },
       { key: 'cancel_cash_order', label: 'Cancel Cash Order' },

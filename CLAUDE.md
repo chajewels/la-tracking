@@ -1381,12 +1381,16 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   R8 A written reason is required for every reassign. Web orders are allowed.
   R9 If the move commits but the catch-up award fails: the move stands; insert a staff_notifications row type 'reassign_catch_up_failed' naming the invoice, both customers and the error.
   R10 Out of scope: changing the normal award's last_purchase_at = now(); any merge-customers tool.
+  R11 IDENTITY MATCH. A reassign is allowed only if the target account matches the CURRENT owner on at least one of: full name, Facebook name (both: lower-case, trim, collapse spaces), mobile (last 10 digits, only when >= 10 digits), email (exact, case-insensitive) — the same normalisation as find_customer_matches. No match → refused: code different_customer_details, message "Different customer details — this order can only move to another account of the same customer. Contact the owner."
+     Exception: a user holding the permission reassign_owner_unmatched may move an order with NO matching detail (an order put on the wrong customer), only by explicitly choosing the override and with the required written reason; it is logged as an unmatched reassign. The override bypasses ONLY R11 — every other refusal (R1 points-account rule, earned order, closed status, Shopify, split submissions, redemptions/store credit, test↔real, same owner, loyalty amount) still applies.
 
   ("Section F" in R5 is the 2026-09-24 investigation report; its markers are
   the ones listed in the same rule, all checked by reassign_order_owner_atomic.)
 
   How "born expired" lots are written, the separate catch-up call, the child
   rows that move, and permissions: docs/REASSIGN-OWNER.md (moved verbatim 2026-09-24).
+  R11 mechanics (p_allow_unmatched, override_not_permitted, audit flags):
+  docs/REASSIGN-OWNER.md "R11 MECHANICS".
 
 ## WEB LAYAWAY — NON-NEGOTIABLE (added 2026-09-14)
 
