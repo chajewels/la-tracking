@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { roleLabel } from '@/lib/role-label';
 import { ROUTES } from "@/constants/routes";
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -262,7 +263,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { profile, signOut, user } = useAuth();
+  const { profile, signOut, user, roles } = useAuth();
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
   const { canSeeNav, can } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
@@ -590,7 +591,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
             <div className="truncate text-sm font-medium text-white/80">
               {profile?.full_name || 'Cha Jewels'}
             </div>
-            <div className="text-xs text-primary">Admin</div>
+            <div className="text-xs text-primary">{roleLabel(roles)}</div>
           </div>
         </div>
 

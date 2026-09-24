@@ -124,6 +124,9 @@ import {
  *   /__fixtures/<account-id>?view=account-detail
  *                                   → AccountDetail for a seeded account
  *                                     (summary tiles; empty schedule/payments)
+ *   /__fixtures?view=hub&roles=staff[,admin]
+ *                                   → the Hub signed in as that role mix (header +
+ *                                     sidebar footer role label)
  *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
  *                                     detail-page panels, DeadlinesCard
  *   /__fixtures?view=reservations-dashboard
@@ -186,6 +189,13 @@ export default function FixturePreview() {
         : view === 'hub' ? (hubReservations ? hubReservationQueue(accounts, cashOrders) : [])
         : buildReservationFixtures(),
     );
+    // Sidebar footer health pills. The harness has no backend, so unseeded they
+    // always read "unknown"; &health=unseeded shows that state on purpose.
+    if (searchParams.get('health') !== 'unseeded') {
+      const now = new Date().toISOString();
+      seed(['email-health', 24], { status: 'ok', last_sent_at: now, generated_at: now });
+      seed(['portal-token-health', 60], { status: 'ok', expiring_in_window: 0, expiring_in_window_with_live_plan: 0, generated_at: now });
+    }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
       const admin = searchParams.get('role') !== 'staff';
@@ -222,7 +232,10 @@ export default function FixturePreview() {
     return null;
   });
 
-  if (view === 'hub') return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} /></AllowAll>;
+  if (view === 'hub') {
+    const roles = searchParams.get('roles')?.split(',').map((r) => r.trim()).filter(Boolean);
+    return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} roles={roles} /></AllowAll>;
+  }
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
