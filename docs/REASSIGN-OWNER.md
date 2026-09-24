@@ -39,3 +39,16 @@
   src/lib/role-permissions.ts default for reassign_owner (['admin']) is a
   fallback table only and was not changed.
 
+  R11 MECHANICS (20260924150000_reassign_identity_match.sql): the RPC gained a
+  LAST parameter p_allow_unmatched boolean DEFAULT false (the 7-argument
+  function was dropped, not overloaded, so a named call is never ambiguous);
+  the edge function sends it only for body override:true AND
+  reassign_owner_unmatched, and answers 403 override_not_permitted when the
+  override is asked for without the permission. The RPC re-checks the
+  permission itself. Preview gains matched_on (text[]) and unmatched; the
+  audit row gains matched_on, unmatched and override_used.
+  reassign_owner_unmatched is seeded admin = true, everyone else false, ON
+  CONFLICT DO NOTHING. find_customer_matches is untouched — R11 repeats its
+  normalisation inline; the TS mirror is identityMatches() in
+  _shared/reassign-owner-rules.ts.
+

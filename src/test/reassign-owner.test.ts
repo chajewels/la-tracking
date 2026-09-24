@@ -7,13 +7,19 @@ import {
   expiredOnAward,
   hasLoyaltyHistory,
   httpStatusFor,
+  identityMatches,
   isClosedStatus,
   isDownpaymentPayment,
   layawayAwardPoint,
   lotExpiresOn,
+  normaliseEmail,
+  normaliseMobile,
+  normaliseName,
+  overrideDecision,
   priorityRefusal,
   withinGrace,
 } from "../../supabase/functions/_shared/reassign-owner-rules.ts";
+import { countLabel, matchedOnText, movedList } from "../lib/reassign-owner-labels";
 
 /**
  * Reassign Owner rules (CLAUDE.md "REASSIGN OWNER — NON-NEGOTIABLE").
@@ -142,6 +148,8 @@ describe("edge function outcomes", () => {
     expect(httpStatusFor("points_account_is_current_owner")).toBe(409);
     expect(httpStatusFor("already_earned")).toBe(409);
     expect(httpStatusFor("same_owner")).toBe(409);
+    expect(httpStatusFor("different_customer_details")).toBe(409);
+    expect(httpStatusFor("override_not_permitted")).toBe(403);
     expect(httpStatusFor("reason_required")).toBe(400);
     expect(httpStatusFor("something_new")).toBe(400);
   });
@@ -153,5 +161,82 @@ describe("edge function outcomes", () => {
     expect(classifyAwardResult(true, { skipped: true, reason: "not_enrolled" })).toBe("failed");
     expect(classifyAwardResult(false, { error: "boom" })).toBe("failed");
     expect(classifyAwardResult(true, null)).toBe("failed");
+  });
+});
+
+describe("identity match (R11) — same normalisation as find_customer_matches", () => {
+  it("names: case, surrounding space and inner spacing are ignored", () => {
+    expect(normaliseName("  Maria   Santos ")).toBe("maria santos");
+    expect(normaliseName("MARIA\tSANTOS")).toBe("maria santos");
+    expect(identityMatches({ full_name: "Maria  Santos" }, { full_name: " maria santos" })).toEqual(["full_name"]);
+    expect(identityMatches({ facebook_name: "Mia S" }, { facebook_name: "MIA   s" })).toEqual(["facebook_name"]);
+  });
+  it("mobile: last 10 digits, whatever the prefix (+63, 0, 00) or punctuation", () => {
+    expect(normaliseMobile("+63 917 123 4567")).toBe("9171234567");
+    expect(normaliseMobile("0917-123-4567")).toBe("9171234567");
+    expect(normaliseMobile("0063 917 123 4567")).toBe("9171234567");
+    const a = { mobile_number: "+63 917 123 4567" };
+    for (const b of ["09171234567", "0063-917-123-4567", "(917) 123 4567"]) {
+      expect(identityMatches(a, { mobile_number: b })).toEqual(["mobile"]);
+    }
+  });
+  it("mobile: fewer than 10 digits never matches, even when equal", () => {
+    expect(normaliseMobile("123 4567")).toBeNull();
+    expect(identityMatches({ mobile_number: "1234567" }, { mobile_number: "1234567" })).toEqual([]);
+    expect(identityMatches({ mobile_number: "09171234567" }, { mobile_number: "1234567" })).toEqual([]);
+  });
+  it("email: exact after trim, case-insensitive", () => {
+    expect(normaliseEmail("  Ana@Example.COM ")).toBe("ana@example.com");
+    expect(identityMatches({ email: "Ana@Example.com" }, { email: "ana@example.com " })).toEqual(["email"]);
+    expect(identityMatches({ email: "ana@example.com" }, { email: "ana2@example.com" })).toEqual([]);
+  });
+  it("empty or missing fields never match each other", () => {
+    expect(identityMatches({}, {})).toEqual([]);
+    expect(identityMatches(
+      { full_name: "", facebook_name: "   ", mobile_number: null, email: "" },
+      { full_name: "", facebook_name: "", mobile_number: "", email: "  " },
+    )).toEqual([]);
+    expect(identityMatches({ full_name: "Ana" }, { full_name: null })).toEqual([]);
+  });
+  it("reports every matching field, in RPC order", () => {
+    expect(identityMatches(
+      { full_name: "Ana Cruz", facebook_name: "ana.c", mobile_number: "09171234567", email: "a@x.com" },
+      { full_name: "ana cruz", facebook_name: "ANA.C", mobile_number: "+639171234567", email: "A@X.COM" },
+    )).toEqual(["full_name", "facebook_name", "mobile", "email"]);
+    expect(identityMatches(
+      { full_name: "Ana Cruz", email: "a@x.com" },
+      { full_name: "Bea Cruz", email: "a@x.com" },
+    )).toEqual(["email"]);
+  });
+});
+
+describe("wrong-customer override (R11)", () => {
+  it("only an explicit true with the permission is honoured", () => {
+    expect(overrideDecision(true, true)).toEqual({ allowUnmatched: true, error: null });
+    expect(overrideDecision(undefined, true)).toEqual({ allowUnmatched: false, error: null });
+    expect(overrideDecision(false, true)).toEqual({ allowUnmatched: false, error: null });
+    expect(overrideDecision("true", true)).toEqual({ allowUnmatched: false, error: null });
+  });
+  it("asking without the permission is refused, never silently downgraded", () => {
+    expect(overrideDecision(true, false)).toEqual({ allowUnmatched: false, error: "override_not_permitted" });
+    expect(overrideDecision(undefined, false)).toEqual({ allowUnmatched: false, error: null });
+  });
+});
+
+describe("dialog wording", () => {
+  it("pluralises every moved-rows line", () => {
+    expect(countLabel(1, "payment_submissions")).toBe("1 payment submission");
+    expect(countLabel(2, "payment_submissions")).toBe("2 payment submissions");
+    expect(countLabel(1, "csr_notifications")).toBe("1 CSR notification");
+    expect(countLabel(1, "checkout_quotes")).toBe("1 checkout quote");
+    expect(countLabel(3, "service_jobs")).toBe("3 service jobs");
+    expect(movedList({ payment_submissions: 1, extension_requests: 0, service_requests: 2, ship_to_address_detached: 1 }))
+      .toEqual(["1 payment submission", "2 service requests", "1 saved address (kept as a snapshot)"]);
+  });
+  it("names the matched details in plain words", () => {
+    expect(matchedOnText(["full_name", "mobile"])).toBe("Matched on: full name, mobile");
+    expect(matchedOnText(["facebook_name", "email"])).toBe("Matched on: Facebook name, email");
+    expect(matchedOnText([])).toBeNull();
+    expect(matchedOnText(undefined)).toBeNull();
   });
 });

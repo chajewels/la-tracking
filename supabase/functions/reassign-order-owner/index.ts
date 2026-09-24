@@ -2,7 +2,7 @@
 // with the loyalty catch-up (CLAUDE.md "REASSIGN OWNER — NON-NEGOTIABLE").
 //
 // Body: { kind: 'layaway'|'cash', order_id, new_customer_id,
-//         loyalty_jpy_amount?, reason, apply }
+//         loyalty_jpy_amount?, reason, apply, override? }
 //   apply=false → preview from reassign_order_owner_atomic; nothing written.
 //   apply=true  → the move (one transaction in SQL), then — only when the RPC
 //                 says the new owner qualifies — the catch-up award through
@@ -11,10 +11,14 @@
 //
 // Auth: a signed-in staff user only (no service-role path) + reassign_owner;
 // edit_loyalty_amount as well when the loyalty amount is being changed.
+// override:true (R11 — move an order to an account with NO matching detail,
+// i.e. an order put on the wrong customer) additionally needs
+// reassign_owner_unmatched; without it the request is refused 403
+// override_not_permitted, never silently downgraded to a strict check.
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
-import { classifyAwardResult, httpStatusFor, type OrderKind } from "../_shared/reassign-owner-rules.ts";
+import { classifyAwardResult, httpStatusFor, overrideDecision, type OrderKind } from "../_shared/reassign-owner-rules.ts";
 
 /** The parts of reassign_order_owner_atomic's jsonb this function reads. */
 interface RpcResult {
@@ -87,6 +91,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    // R11 override — only for a holder of reassign_owner_unmatched.
+    const override = overrideDecision(
+      body.override,
+      body.override === true && (await checkPermission(supabase, userId, "reassign_owner_unmatched")),
+    );
+    if (override.error) {
+      return jsonResponse({
+        error: override.error,
+        message: "Moving an order to a customer with different details needs the Reassign Owner — Different Customer permission.",
+      }, httpStatusFor(override.error));
+    }
+
     const { data, error } = await supabase.rpc("reassign_order_owner_atomic", {
       p_kind: kind,
       p_order_id: orderId,
@@ -95,6 +111,7 @@ Deno.serve(async (req) => {
       p_reason: reason,
       p_user_id: userId,
       p_apply: apply,
+      p_allow_unmatched: override.allowUnmatched,
     });
     if (error) {
       console.error("[reassign-order-owner] rpc failed:", error);

@@ -67,6 +67,7 @@ export type ActionKey =
   | 'delete_customer'
   | 'manage_team'
   | 'reassign_owner'
+  | 'reassign_owner_unmatched'
   | 'send_reminder'
   | 'review_submission'
   | 'view_audit_logs'
@@ -103,6 +104,7 @@ const ACTION_ROLES: Record<ActionKey, AppRole[]> = {
   delete_customer:       ['admin'],
   manage_team:           ['admin'],
   reassign_owner:        ['admin'],
+  reassign_owner_unmatched: ['admin'],
   send_reminder:         ['admin', 'staff', 'csr'],
   review_submission:     ['admin', 'finance'],
   view_audit_logs:       ['admin'],

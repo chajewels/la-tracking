@@ -1,5 +1,24 @@
 ## Recent Updates
 
+  2026-09-24 — Reassign Owner R11: identity match + wrong-customer
+  override (owner-confirmed). A reassign now needs the target account to
+  match the current owner on full name, Facebook name, mobile or email
+  (find_customer_matches' normalisation); otherwise it is refused
+  different_customer_details. Holders of the new permission
+  reassign_owner_unmatched (admin only by default) can override that ONE
+  check — explicit tick-box, written reason, audited as unmatched /
+  override_used; every other refusal still applies. New: migration
+  20260924150000_reassign_identity_match.sql (permission seed with DO
+  NOTHING; reassign_order_owner_atomic dropped and re-created with
+  p_allow_unmatched DEFAULT false; preview gains matched_on and
+  unmatched). Changed: reassign-order-owner (override body field, 403
+  override_not_permitted), the Hub dialog ("Matched on: …", red / amber
+  blocks, plural labels), Permission Matrix. find_customer_matches and
+  award-loyalty-points are unchanged. DEPLOY ORDER: (1) PR merged into
+  develop; (2) owner runs the migration; (3) develop → main release; (4)
+  Lovable deploys reassign-order-owner only. Between (2) and (4) the old
+  function keeps working with R11 enforced strictly (no override yet).
+
   2026-09-24 — Reassign Owner for layaway AND cash orders, with the loyalty
   catch-up (owner-approved; rules R1–R10 in CLAUDE.md "REASSIGN OWNER").
   New: migration 20260924130000_reassign_order_owner.sql (guard trigger

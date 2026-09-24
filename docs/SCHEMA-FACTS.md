@@ -1139,3 +1139,52 @@ Verified on a throwaway Supabase Postgres 17.6 replay of every migration plus
 stand-ins for the live-only tables: every refusal, both apply paths, the child
 moves, the cash address snapshot, the audit row, the guard trigger and both lot
 behaviours.
+
+### R11 identity match + wrong-customer override (added 2026-09-24)
+
+Migration `20260924150000_reassign_identity_match.sql` (owner runs it; md5
+guard on live `reassign_order_owner_atomic` d51393e67cc1f208457964a637bc3ca8 /
+23658 and on `find_customer_matches` e7f259b57c2a8d2f161c7189a19f4a3e / 2852,
+which it does NOT change).
+
+**New signature** — the 7-argument function is DROPPED and re-created with one
+more LAST parameter, so there is exactly one overload:
+
+    reassign_order_owner_atomic(p_kind text, p_order_id uuid,
+      p_new_customer_id uuid, p_loyalty_jpy_amount numeric, p_reason text,
+      p_user_id uuid, p_apply boolean, p_allow_unmatched boolean DEFAULT false)
+
+Same SECURITY DEFINER, `search_path = public`, EXECUTE for `service_role`
+only. A 7-argument NAMED call (the pre-R11 edge function) still resolves and
+gets R11 strictly.
+
+**The check** runs after the R1/R5 refusals and before
+`loyalty_amount_required`. It compares the CURRENT owner with the target on
+full name and Facebook name (`lower(regexp_replace(btrim(x), '\s+', ' ',
+'g'))`), mobile (last 10 digits, both sides >= 10 digits) and email
+(`lower(btrim(x))`); an empty field never matches. No match →
+`different_customer_details` unless `p_allow_unmatched` is true AND
+`has_permission(p_user_id, 'reassign_owner_unmatched')` — the RPC re-checks
+the permission even though the edge function already did. The override removes
+only that one refusal.
+
+**Output** — preview/result gain `matched_on` (jsonb array of `full_name`,
+`facebook_name`, `mobile`, `email`) and `unmatched` (boolean). The
+`audit_logs` row's `new_value_json` gains `matched_on`, `unmatched` and
+`override_used` (true only when the override actually carried a no-match move).
+
+**Permission `reassign_owner_unmatched`** — seeded admin = true; staff,
+finance, csr, live_agent = false; `ON CONFLICT (role, permission_key) DO
+NOTHING`, so a row already set in Settings is kept. Label in the Permission
+Matrix: "Reassign owner — different customer (wrong-customer override)".
+Fallback in `src/lib/role-permissions.ts`: `['admin']`.
+
+**Edge function** — body `override: true` → `p_allow_unmatched` only with the
+permission; asked for without it → 403 `override_not_permitted`.
+`different_customer_details` → 409.
+
+Verified on a throwaway Supabase Postgres 17.6 replay (same stand-ins): matched
+move, unmatched refused, unmatched refused for a caller without the permission
+even with `p_allow_unmatched`, unmatched allowed with the override (audit
+`override_used` true), the override on an R1-refused order still refused, and
+the 7-argument named call. A re-run of the file stops at its guard.
