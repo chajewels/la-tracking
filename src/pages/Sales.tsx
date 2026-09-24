@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, memo, type FC, type MutableRefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShoppingBag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import { ROUTES } from '@/constants/routes';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
@@ -19,6 +20,7 @@ const MemoWaivers = memo(Waivers);
 type SalesTabKey = 'cash' | 'layaway' | 'payments' | 'waivers';
 const VALID_TABS: SalesTabKey[] = ['cash', 'layaway', 'payments', 'waivers'];
 const DEFAULT_TAB: SalesTabKey = 'cash';
+const TAB_LABEL: Record<SalesTabKey, string> = { cash: 'Cash', layaway: 'Layaway', payments: 'Payments', waivers: 'Waivers' };
 
 interface SalesProps {
   embedded?: boolean;
@@ -79,21 +81,13 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
   return (
     <Wrapper>
-      <div className={embedded ? 'space-y-5' : 'p-4 sm:p-6 space-y-5'}>
+      <div className="space-y-5">
         {!embedded && (
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
-              <ShoppingBag className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
-                Sales
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Cash orders, layaway accounts, payments, and waivers
-              </p>
-            </div>
-          </div>
+          <PageHeaderBand
+            crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Sales', to: ROUTES.SALES }, { label: TAB_LABEL[tab] }]}
+            title="Sales"
+            subtitle="Cash orders, layaway accounts, payments, and waivers"
+          />
         )}
 
         <WorkspaceToolbar
@@ -121,6 +115,9 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
           onExport={handleExport}
           showExport={tab === 'cash' || tab === 'layaway'}
           splitButton={<WorkspaceSplitButton />}
+          // Wraps the action button onto its own line on phones instead of
+          // pushing it off-screen (pre-existing overflow at 375px).
+          className="flex-wrap"
         />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">

@@ -14,3 +14,14 @@ export const ACCOUNT_STATUS_TONE: Record<string, StatusTone> = {
   final_settlement: 'warning',
   reactivated: 'info',
 };
+
+/**
+ * cash_orders.status → tone. Same meaning-to-colour mapping as layaway:
+ * finished = gold, waiting = warning, lapsed = danger, void = muted.
+ */
+export const CASH_ORDER_STATUS_TONE: Record<string, StatusTone> = {
+  pending: 'warning',
+  completed: 'gold',
+  expired: 'danger',
+  cancelled: 'muted',
+};

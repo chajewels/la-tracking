@@ -268,7 +268,8 @@ export function buildCashOrderFixtures(): FixtureCashOrder[] {
   const rows: FixtureCashOrder[] = [];
   const statuses = ['pending', 'pending', 'completed', 'completed', 'cancelled'];
   for (let i = 0; i < 40; i++) {
-    const status = statuses[i % statuses.length];
+    // Every 10th order from #7 is expired, so all four real statuses appear.
+    const status = i % 10 === 7 ? 'expired' : statuses[i % statuses.length];
     const currency = i % 4 === 0 ? 'JPY' : 'PHP';
     const total = currency === 'JPY' ? 68_000 + i * 3_000 : 12_500 + i * 780.25;
     const paid = status === 'completed' ? total : status === 'pending' ? Math.round(total * ((i % 4) / 4) * 100) / 100 : 0;
@@ -350,6 +351,44 @@ export function buildPaymentFixtures(a: FixtureAccount) {
   if (rest > 0) out.push(row(2, rest, 33, 'bdo', { submitted_by_type: 'customer', submitted_by_name: a.customers.full_name }));
   if (Number(a.id.slice(-4)) % 4 === 1) {
     out.push(row(3, Math.round(rest * 50) / 100 || 1000, 20, 'cash', { voided_at: at(21).iso, void_reason: 'Duplicate entry' }));
+  }
+  return out;
+}
+
+/**
+ * cash_payments rows for a cash-order fixture (the shape CashOrderDetail's
+ * Payment History reads). Non-voided rows sum exactly to total_paid; every
+ * third paid order also carries a voided row.
+ */
+export function buildCashPaymentFixtures(o: FixtureCashOrder) {
+  if (o.total_paid <= 0) return [];
+  const first = o.status === 'completed' ? Math.round(o.total_paid * 0.5 * 100) / 100 : o.total_paid;
+  const second = Math.round((o.total_paid - first) * 100) / 100;
+  const base = new Date(`${o.order_date ?? o.created_at.slice(0, 10)}T02:00:00Z`);
+  const row = (n: number, amount: number, days: number, method: string, extra: Record<string, unknown> = {}) => {
+    const d = new Date(base.getTime() + days * 86_400_000);
+    return {
+      id: `${o.id}-cp-${n}`,
+      cash_order_id: o.id,
+      amount_paid: amount,
+      currency: o.currency,
+      date_paid: d.toISOString().slice(0, 10),
+      created_at: d.toISOString(),
+      payment_method: method,
+      reference_number: `${method.toUpperCase()}-${o.invoice_number}-${n}`,
+      remarks: null,
+      voided_at: null,
+      void_reason: null,
+      submitted_by_type: 'staff',
+      submitted_by_name: 'Fixture Staff',
+      ...extra,
+    };
+  };
+  const out = [row(1, first, 1, 'paypal')];
+  if (second > 0) out.push(row(2, second, 12, 'bdo', { submitted_by_type: 'customer', submitted_by_name: o.customers.full_name }));
+  if (Number(o.id.slice(-4)) % 3 === 0) {
+    const t = new Date(base.getTime() + 6 * 86_400_000).toISOString();
+    out.push(row(3, Math.round(first * 30) / 100, 5, 'cash', { voided_at: t, void_reason: 'Recorded against the wrong order' }));
   }
   return out;
 }

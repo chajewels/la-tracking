@@ -45,6 +45,8 @@ import StatusPill from '@/components/shared/StatusPill';
 import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import Monogram from '@/components/shared/Monogram';
+import { LedgerTimeline, LedgerTimelineItem } from '@/components/shared/LedgerTimeline';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
@@ -80,15 +82,6 @@ interface AccountItemRow {
   image_url: string | null;
   /** Web plan lines carry the variant; the photo is resolved from it. */
   variant_id?: string | null;
-}
-
-/** Customer initials for the header monogram — display only. */
-function monogram(name: string | null | undefined): string {
-  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'CJ';
-  const first = Array.from(parts[0])[0] ?? '';
-  const second = parts.length > 1 ? Array.from(parts[parts.length - 1])[0] ?? '' : '';
-  return (first + second).toUpperCase();
 }
 
 export default function AccountDetail() {
@@ -1101,12 +1094,7 @@ export default function AccountDetail() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <span
-            aria-hidden
-            className="flex h-14 w-14 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-full border border-gold-500/60 bg-gradient-to-br from-gold-500/25 via-gold-500/5 to-transparent font-deco text-2xl sm:text-[1.7rem] font-semibold text-gold-300 shadow-[inset_0_0_0_4px_hsl(var(--surface-1)),inset_0_0_0_5px_hsl(var(--gold-500)/0.35)]"
-          >
-            {monogram(account.customers?.full_name)}
-          </span>
+          <Monogram name={account.customers?.full_name} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               {editingInvoice ? (
@@ -2179,7 +2167,7 @@ export default function AccountDetail() {
             {(!payments || payments.length === 0) ? (
               <IllustratedState kind="scroll" text="No payments recorded yet" className="py-6" />
             ) : (
-              <ol className="relative space-y-1 pl-6 before:absolute before:left-[7px] before:top-3 before:bottom-3 before:w-px before:bg-gradient-to-b before:from-gold-500/60 before:via-gold-500/25 before:to-gold-500/5">
+              <LedgerTimeline>
                 {/* Bug #179: sort by date_paid (when the customer actually paid),
                     not by created_at (when staff entered the row). created_at is the
                     tiebreaker for same-day payments. Displayed newest first
@@ -2293,13 +2281,7 @@ export default function AccountDetail() {
                   const senderType = (p as any).submitted_by_type as string | null;
                   const senderName = (p as any).submitted_by_name as string | null;
                   return (
-                    <li key={p.id} className={`relative flex items-start justify-between gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-gold-500/[0.03] ${isVoided ? 'opacity-60' : ''}`}>
-                      <span
-                        aria-hidden
-                        className={`absolute -left-[22px] top-[1.15rem] h-3 w-3 rounded-full border-2 ring-4 ring-card ${
-                          isVoided ? 'border-muted-foreground/60 bg-card' : 'border-gold-300 bg-gold-500'
-                        }`}
-                      />
+                    <LedgerTimelineItem key={p.id} voided={isVoided} className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className={`text-sm font-medium text-card-foreground ${isVoided ? 'line-through' : ''}`}>
@@ -2380,10 +2362,10 @@ export default function AccountDetail() {
                           </Button>
                         )}
                       </div>
-                    </li>
+                    </LedgerTimelineItem>
                   );
                 })}
-              </ol>
+              </LedgerTimeline>
             )}
           </div>
         </div>

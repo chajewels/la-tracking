@@ -62,6 +62,7 @@ import {
   buildTimelineFixture,
   buildTierFixtures,
   buildPaymentFixtures,
+  buildCashPaymentFixtures,
 } from './fixtures';
 
 /**
@@ -106,6 +107,11 @@ export default function FixturePreview() {
     seed(['accounts'], accounts);
     seed(['accounts-light'], accounts);
     seed(['cash-orders'], cashOrders);
+    for (const o of cashOrders) {
+      seed(['cash-order', o.id], { ...o, customer_id: o.customers.id, loyalty_jpy_amount: null, expires_at: null, expired_at: null, completed_at: null, notes: null });
+      seed(['cash-payments', o.id], buildCashPaymentFixtures(o));
+      for (const k of ['cash-submissions', 'cash-order-notes', 'cash-order-items']) seed([k, o.id], []);
+    }
     seed(['customers'], buildCustomerFixtures(empty));
     seed(['dashboard-summary', 'ALL'], buildDashboardSummary(empty));
     seed(['monthly-analytics', getPHTToday()], buildMonthlyAnalytics(empty));
