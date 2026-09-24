@@ -1074,8 +1074,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       const body = await req.json().catch(() => ({}));
-      // Optional profile fields (2026-09-24). None is required: the current
-      // storefront sends only full_name. Trimmed; empty → null.
+      // The profile (2026-09-24): full_name and location are REQUIRED to create
+      // a customer; facebook_name, messenger_link and mobile_number are
+      // optional. Trimmed; empty → null.
       const optStr = (v: unknown): string | null => {
         const t = typeof v === "string" ? v.trim() : "";
         return t ? t : null;
@@ -1091,13 +1092,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         : rawLocation.toLowerCase() === "japan" ? "Japan"
         : rawLocation.toLowerCase() === "philippines" ? "Philippines"
         : rawLocation;
-      const fullName = givenName || who.email.split("@")[0];
+      // NO PROFILE, NO CUSTOMER (owner-approved 2026-09-24, step 4b). No
+      // customer holds this email (the link branches above did not return),
+      // and without a name and a location there is nothing to create one
+      // from. The storefront (cha-jewels-web #135) answers this by sending her
+      // to /account/complete-profile, which posts again WITH the profile.
+      // Nothing is created and nobody is notified. The email-prefix name that
+      // used to be invented here is gone: a customer is always named by what
+      // she typed.
+      if (!givenName || !location) {
+        return jsonResponse({ error: "profile_required" }, 422);
+      }
 
       // Duplicate-customer prevention (owner rules 2026-09-23). This branch
       // would CREATE a customer (no email match above), so a match on full
-      // name, Facebook name, mobile or email blocks it. The name checked is
-      // the one the customer typed — never the email-prefix fallback, which
-      // is not a name anybody gave us. A failed check never inserts.
+      // name, Facebook name, mobile or email blocks it. A failed check never
+      // inserts.
       const { data: dupMatches, error: dupErr } = await supabase.rpc("find_customer_matches", {
         p_full_name: givenName,
         p_facebook_name: facebookName,
@@ -1150,7 +1160,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // loyalty_enabled gate is honoured in one place.
       const { data: created, error: insErr } = await supabase
         .from("customers").insert({
-          full_name: fullName, email: who.email, auth_user_id: who.id,
+          full_name: givenName, email: who.email, auth_user_id: who.id,
           facebook_name: facebookName, messenger_link: messengerLink,
           mobile_number: mobileNumber, location,
         })
