@@ -300,6 +300,7 @@ export type Database = {
           refund_note: string | null
           refund_status: string | null
           remaining_balance: number
+          reservation_reminded_at: string | null
           ship_to_address_id: string | null
           ship_to_snapshot: Json | null
           shipped_at: string | null
@@ -361,6 +362,7 @@ export type Database = {
           refund_note?: string | null
           refund_status?: string | null
           remaining_balance: number
+          reservation_reminded_at?: string | null
           ship_to_address_id?: string | null
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
@@ -422,6 +424,7 @@ export type Database = {
           refund_note?: string | null
           refund_status?: string | null
           remaining_balance?: number
+          reservation_reminded_at?: string | null
           ship_to_address_id?: string | null
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
@@ -1766,6 +1769,7 @@ export type Database = {
           ready_confirmed_at: string | null
           ready_confirmed_by: string | null
           remaining_balance: number
+          reservation_reminded_at: string | null
           ship_to_snapshot: Json | null
           shipped_at: string | null
           shipping_fee: number
@@ -1822,6 +1826,7 @@ export type Database = {
           ready_confirmed_at?: string | null
           ready_confirmed_by?: string | null
           remaining_balance: number
+          reservation_reminded_at?: string | null
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
@@ -1878,6 +1883,7 @@ export type Database = {
           ready_confirmed_at?: string | null
           ready_confirmed_by?: string | null
           remaining_balance?: number
+          reservation_reminded_at?: string | null
           ship_to_snapshot?: Json | null
           shipped_at?: string | null
           shipping_fee?: number
