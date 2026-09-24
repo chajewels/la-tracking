@@ -5159,3 +5159,25 @@ cash_payments row (INVARIANT 1). The two genuine bells on live (18788,
 reproduces both md5s; assertions in
 docs/sql/20260924_loyalty_unsourced_needs_money_assertions.sql.
 Do not reintroduce: the loyalty basis alone never proves spend was earned.
+
+### SECURITY DEFINER writers executable by PUBLIC (2026-09-24)
+
+Found while chasing the security linter's 104 -> 105 during the reserve-first
+A2 apply (acceptance run finding 7). The +1 itself could not be named: A2's
+objects add no finding, and the linter's rows are visible only inside Lovable.
+The audit found real exposures instead. create_web_layaway_atomic,
+reactivate_web_layaway_atomic, unwaive_penalty_atomic, void_redemption_atomic
+and web_deposit_deadline_hours were SECURITY DEFINER, carried no caller check,
+and were executable by PUBLIC. So an anonymous PostgREST call could create a
+web plan, revive one, re-impose a waived penalty or void a redemption, skipping
+every edge function's auth. The four get_daily_* Finance reads were
+anon-readable too.
+
+Cause: DROP + CREATE FUNCTION starts from the default ACL (PUBLIC execute).
+20260918090000 / 20260918120000 re-created create_web_layaway_atomic without a
+REVOKE, and A1 carried that ACL forward. Fix: migration
+20260924140100_revoke_public_execute_on_definer_functions.sql. The five writers
+become service_role only (every caller is a service-role edge function or a
+definer function); get_daily_* become authenticated + service_role.
+Do not reintroduce: after any DROP + CREATE of a function, re-assert its
+REVOKE/GRANT in the same migration.
