@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { toLocationString, type LocationType } from '@/lib/countries';
+import { blankToNull, MATCH_FIELD_LABELS, type FindCustomerMatchesRpc } from '@/lib/customer-matches';
 
 interface AICommandModalProps {
   open: boolean;
@@ -301,6 +302,34 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         const locationType = coerceLocationType(p.location_type);
         const country = String((p as Record<string, unknown>).country ?? '').trim();
         const locationString = toLocationString(locationType, country) ?? 'philippines';
+        // Duplicate-customer prevention (owner rules 2026-09-23): check first;
+        // a match or a failed check means nothing is inserted.
+        const { data: found, error: checkErr } = await (supabase.rpc as unknown as FindCustomerMatchesRpc)(
+          'find_customer_matches',
+          {
+            p_full_name: blankToNull(String(p.full_name ?? '')),
+            p_facebook_name: blankToNull(p.facebook_name ? String(p.facebook_name) : null),
+            p_mobile: blankToNull(p.mobile_number ? String(p.mobile_number) : null),
+            p_email: blankToNull(p.email ? String(p.email) : null),
+          },
+        );
+        if (checkErr) {
+          pushAssistant(`Could not check for existing customers, so nothing was created: ${checkErr.message}`);
+          setPendingConfirm(null);
+          return;
+        }
+        if (found && found.length > 0) {
+          const lines = found.map((m) =>
+            `• ${m.customer_code ?? 'No code'} — ${m.full_name ?? '(no name)'} (matched: ${m.matched_on.map((f) => MATCH_FIELD_LABELS[f] ?? f).join(', ')})`,
+          );
+          pushAssistant(
+            `Customer NOT created — ${found.length === 1 ? 'an existing customer matches' : 'existing customers match'}:\n`
+            + `${lines.join('\n')}\n`
+            + 'Confirm the details with the customer and use the existing account.',
+          );
+          setPendingConfirm(null);
+          return;
+        }
         const { error } = await supabase
           .from('customers')
           .insert({

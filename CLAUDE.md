@@ -2276,7 +2276,16 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      country; customer_code via existing trigger) AND inserts a
      loyalty_members row at the Glimmer tier with all counters 0.
      Existing-customer emails continue the link-only path
-     unchanged. Profile fields are collected on PortalSetup.tsx
+     unchanged. DUPLICATE BLOCK (owner rules 2026-09-23): before
+     that create, find_customer_matches runs on full name, Facebook
+     name, mobile and email; any match returns 409 already_registered
+     ("You are already registered. Please contact Cha Jewels for your
+     account details."), creates nothing and raises staff bell
+     duplicate_signup_blocked. The email-link branch is her own record
+     and is never checked. Same rule on website POST /auth/customer and
+     on every Hub create path — no "create anyway". Full rules:
+     docs/SCHEMA-FACTS.md "Duplicate-customer prevention".
+     Profile fields are collected on PortalSetup.tsx
      and stashed in localStorage (key 'portal-setup-profile') so
      they survive the email-verification page reload.
 

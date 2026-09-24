@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +11,10 @@ import { useCreateCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { toast } from 'sonner';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, toLocationString } from '@/lib/countries';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import CustomerMatchList from '@/components/customers/CustomerMatchList';
+import { blankToNull, type CustomerMatch, type FindCustomerMatchesRpc } from '@/lib/customer-matches';
 
 interface NewCustomerDialogProps {
   onCreated?: (customer: DbCustomer) => void;
@@ -27,6 +32,8 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
     ? (v: boolean) => onOpenChange?.(v)
     : setInternalOpen;
   const createCustomer = useCreateCustomer();
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [fullName, setFullName] = useState(initialFullName ?? '');
   const [facebookName, setFacebookName] = useState('');
@@ -36,6 +43,13 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
   const [notes, setNotes] = useState('');
   const [locationType, setLocationType] = useState<LocationType>('japan');
   const [country, setCountry] = useState('');
+  // Duplicate-customer prevention (owner rules 2026-09-23). A match BLOCKS the
+  // create — there is no "create anyway". Staff confirm the details with the
+  // customer and use the existing account, or correct the form and submit
+  // again (which re-runs the check).
+  const [matches, setMatches] = useState<CustomerMatch[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [usingId, setUsingId] = useState<string | null>(null);
 
   // When opened with a fresh initialFullName, seed the field. Skipped while the
   // dialog is closed so the user's in-progress typing isn't clobbered.
@@ -44,6 +58,11 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       setFullName(initialFullName);
     }
   }, [isOpen, initialFullName]);
+
+  // A match list belongs to one attempt; never show it on a reopened dialog.
+  useEffect(() => {
+    if (!isOpen) setMatches([]);
+  }, [isOpen]);
 
   const resetForm = () => {
     setFullName('');
@@ -54,6 +73,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
     setNotes('');
     setLocationType('japan');
     setCountry('');
+    setMatches([]);
   };
 
   const handleLocationChange = (v: string) => {
@@ -73,6 +93,29 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       return;
     }
     const location = toLocationString(locationType, country) || undefined;
+
+    // Check BEFORE creating. A failed check never falls through to the create.
+    setChecking(true);
+    const { data: found, error: checkErr } = await (supabase.rpc as unknown as FindCustomerMatchesRpc)(
+      'find_customer_matches',
+      {
+        p_full_name: blankToNull(fullName),
+        p_facebook_name: blankToNull(facebookName),
+        p_mobile: blankToNull(mobileNumber),
+        p_email: blankToNull(email),
+      },
+    );
+    setChecking(false);
+    if (checkErr) {
+      toast.error(`Could not check for existing customers — nothing was created. ${checkErr.message}`);
+      return;
+    }
+    if (found && found.length > 0) {
+      setMatches(found);
+      return;
+    }
+    setMatches([]);
+
     try {
       const customer = await createCustomer.mutateAsync({
         full_name: fullName.trim(),
@@ -92,6 +135,55 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
     }
   };
 
+  const handleUseExisting = async (match: CustomerMatch) => {
+    setUsingId(match.customer_id);
+    try {
+      // Same columns the callers get from a create (select('*') = DbCustomer).
+      const { data: existing, error: loadErr } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('id', match.customer_id)
+        .single();
+      if (loadErr || !existing) throw new Error(loadErr?.message || 'Customer not found');
+
+      const { error: auditErr } = await supabase.from('audit_logs').insert({
+        entity_type: 'customer',
+        entity_id: match.customer_id,
+        action: 'duplicate_prevented',
+        performed_by_user_id: user?.id ?? null,
+        new_value_json: {
+          source: 'new_customer_dialog',
+          typed: {
+            full_name: blankToNull(fullName),
+            facebook_name: blankToNull(facebookName),
+            messenger_link: blankToNull(messengerLink),
+            mobile_number: blankToNull(mobileNumber),
+            email: blankToNull(email),
+            location: toLocationString(locationType, country),
+          },
+          matched_on: match.matched_on,
+          customer_code: match.customer_code,
+        },
+      });
+      if (auditErr) throw new Error(`Could not record the audit entry: ${auditErr.message}`);
+
+      toast.success(`Using existing customer ${existing.customer_code ?? existing.full_name}`);
+      resetForm();
+      setIsOpen(false);
+      if (onCreated) {
+        onCreated(existing as DbCustomer);
+      } else {
+        navigate(`/customers/${existing.id}`);
+      }
+    } catch (err) {
+      toast.error((err as Error)?.message || 'Failed to load the existing customer');
+    } finally {
+      setUsingId(null);
+    }
+  };
+
+  const busy = checking || createCustomer.isPending;
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {!isControlled && (
@@ -104,7 +196,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
           )}
         </DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display">New Customer</DialogTitle>
         </DialogHeader>
@@ -159,10 +251,18 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." rows={2} />
           </div>
+          {matches.length > 0 && (
+            <CustomerMatchList
+              matches={matches}
+              description="This customer was NOT created. Confirm the details with the customer and use the existing account. If the form is wrong, correct it and submit again to re-check."
+              onUse={handleUseExisting}
+              usingId={usingId}
+            />
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={createCustomer.isPending} className="gold-gradient text-primary-foreground font-medium">
-              {createCustomer.isPending ? 'Creating…' : 'Create Customer'}
+            <Button type="submit" disabled={busy || !!usingId} className="gold-gradient text-primary-foreground font-medium">
+              {checking ? 'Checking…' : createCustomer.isPending ? 'Creating…' : matches.length > 0 ? 'Re-check & Create' : 'Create Customer'}
             </Button>
           </div>
         </form>

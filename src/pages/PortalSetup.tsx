@@ -95,6 +95,12 @@ export default function PortalSetup() {
       if (res.status === 404) {
         setErrorMessage(pt('auth.errNoCustomer'));
         setState('error-no-customer');
+      } else if (res.status === 409 && result?.error === 'already_registered') {
+        // Duplicate-customer prevention (2026-09-23): the signup matched an
+        // existing customer on name, Facebook name, mobile or email. Staff
+        // were notified; the customer is told to contact us.
+        setErrorMessage(pt('auth.errDuplicateCustomer'));
+        setState('error-conflict');
       } else if (res.status === 409) {
         setErrorMessage(pt('auth.errConflictRegistered'));
         setState('error-conflict');

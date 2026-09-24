@@ -1019,3 +1019,49 @@ correctly keep a sequential scan (5.8 ms measured), `:170` is an unfiltered coun
 and `Monitoring.tsx:119` has no status filter so the `created_at DESC` column does
 not apply. Its value is the failure counts and any status that becomes rare — which
 is the case that matters. Do not "fix" those sequential scans with another index.
+
+## Duplicate-customer prevention — `find_customer_matches` (added 2026-09-24)
+
+OWNER RULES (locked 2026-09-23, verbatim):
+
+1. A customer is a duplicate if ANY of these match an existing (non-test) customer: full name, Facebook name, mobile number, email.
+   - full name / Facebook name: exact after lower-case, trim, collapse repeated spaces
+   - mobile: last 10 digits, only when the number has >= 10 digits
+   - email: exact, case-insensitive
+2. HUB: there is NO "create anyway". A match blocks the save. Staff must look at the matching customer(s), confirm the details with the customer, and USE the existing account.
+3. SIGNUP: a match on any of the four fields BLOCKS signup. The customer sees: "You are already registered. Please contact Cha Jewels for your account details." Staff get a notification.
+   EXCEPTION (unchanged existing behaviour): when the signup EMAIL matches an existing customer that has no login yet, the login is linked to that customer as today — that is her own record, not a duplicate. The duplicate check runs only on the branch that would CREATE a new customer.
+
+**The RPC.** `public.find_customer_matches(p_full_name text, p_facebook_name text,
+p_mobile text, p_email text, p_exclude_customer_id uuid DEFAULT NULL)` RETURNS TABLE
+`(customer_id uuid, customer_code text, full_name text, facebook_name text,
+mobile_number text, email text, location text, has_login boolean, matched_on text[])`.
+`matched_on` holds any of `full_name`, `facebook_name`, `mobile`, `email`; rows are
+ordered oldest customer first; `is_test` customers are never returned. STABLE
+SECURITY DEFINER. Staff (admin / finance / staff / csr), the service role and the SQL
+Editor may call it; a signed-in non-staff caller gets 42501. EXECUTE is revoked from
+PUBLIC and anon. Applied live by the owner on 2026-09-23; recorded in
+`supabase/migrations/20260924000000_find_customer_matches.sql` (md5 of
+`pg_get_functiondef` in its header). Normalisation note: `btrim()` strips SPACES only,
+so a leading tab survives as a space — the client mirrors in
+`src/lib/customer-matches.ts` copy that exactly.
+
+**Callers — every path that creates a customer from a person's typed details:**
+
+| Path | On match | On a failed check |
+|---|---|---|
+| `NewCustomerDialog` (Customers, New Account, New Cash Order, Page365 Review) | Not created. "Existing customer found" panel; each match needs "I confirmed these details with the customer" ticked before "Use this customer". Using one writes `audit_logs` (`entity_type 'customer'`, `action 'duplicate_prevented'`, `new_value_json` = typed fields + `matched_on`) and hands the full row to `onCreated`, or opens `/customers/:id` when there is no `onCreated` (Customers page). | Not created; error shown. |
+| `EditCustomerDialog` | Save blocked (`p_exclude_customer_id` = the customer being edited); same list, read-only. | Save blocked. |
+| `ImportCustomersDialog` | Row not inserted; listed with the matching customer code(s) and fields. Rows of the same file that match EACH OTHER are all held back — nothing in the file says which one is right. Other rows import as normal. No override. | Row marked failed, not inserted. |
+| `AICommandModal` CREATE_CUSTOMER | Not inserted; the chat lists code, name and matched fields and tells staff to use the existing account. | Not inserted. |
+| `setup-customer-account` (portal signup, create branch only) | 409 `{ error: "already_registered", message }` + `staff_notifications` `duplicate_signup_blocked`. | 500, no insert. |
+| `website` `POST /auth/customer` (create branch only) | Same 409 + same notification (`metadata.source = 'website_auth_customer'`). Checks the name the customer TYPED, never the email-prefix fallback. | 500, no insert. |
+
+`staff_notifications` type `duplicate_signup_blocked`: title "Signup blocked — existing
+customer"; body carries the signup email, name, Facebook name, mobile, location, auth user
+id and each matching customer code with its `matched_on`; `customer_id` = the first
+match; `metadata.matches` holds the full list.
+
+NOT routed through the RPC (unchanged, by decision): `bulk-import` (matches on
+`customer_code` only) and `shopify-webhook` (shopify_customer_id → email → exact phone,
+else create-and-flag `needs_review = true`).
