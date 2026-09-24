@@ -256,6 +256,9 @@ describe(`at ${width}px`, () => {
       renderAt("/customers", <Customers />);
       await waitFor(() => expect(shownIds()).toEqual(byName.slice(0, 50).map((c) => c.id)));
       expect(screen.getByText(/Page 1 of 2/)).toBeInTheDocument();
+      // The label sits on the pager's own opaque card surface, never on the
+      // bare background photo (owner visual check, PR #175).
+      expect(screen.getByText(/Page 1 of 2/).parentElement).toHaveClass("bg-card", "rounded-full");
       expect(button("Previous")).toBeDisabled();
       fireEvent.click(button("Next"));
       await waitFor(() => expect(shownIds()).toEqual(byName.slice(50).map((c) => c.id)));
