@@ -274,6 +274,7 @@ export default function CustomerDetail() {
   ];
   // Same entry point as the Cash Orders tab (Bug #284).
   const canCreateLayaway = can('create_account');
+  const canEditCustomer = can('edit_customer');
   const newLayawayHref = `/accounts/new?customer_id=${encodeURIComponent(customerId ?? '')}`;
 
   // Filter accounts: only include active/open invoices for consolidated message
@@ -497,11 +498,6 @@ export default function CustomerDetail() {
               {customer.messenger_link && (
                 <span className={factPill}><MessageCircle className="h-3 w-3 text-info" aria-hidden /> Messenger</span>
               )}
-              {customer.created_at && (
-                <span className={cn(factPill, 'tabular-nums')} title="When this customer record was created in the Hub">
-                  <Calendar className="h-3 w-3" aria-hidden /> In Hub since {new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}
-                </span>
-              )}
             </div>
             {/* Location */}
             <div className="flex items-center gap-2 mt-2">
@@ -634,7 +630,9 @@ export default function CustomerDetail() {
           </div>
         )}
 
-        {/* Contact & notes — the customer row the page already loaded. */}
+        {/* Contact & notes — the customer row the page already loaded. Shown
+            only to users who may edit customers (owner decision, PR #175). */}
+        {canEditCustomer && (
         <section aria-label="Contact details" className="rounded-2xl border border-gold-500/15 bg-card p-4 sm:p-5">
           <h2 className="font-deco text-xl font-semibold text-champagne pb-2 mb-3 hairline-b">Contact &amp; notes</h2>
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -664,6 +662,7 @@ export default function CustomerDetail() {
             </div>
           )}
         </section>
+        )}
 
         {/* Customer Portal Link */}
         <CustomerPortalShareMenu

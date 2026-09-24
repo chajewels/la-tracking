@@ -545,6 +545,22 @@ describe(`at ${width}px`, () => {
       expect(hrefs).not.toContain("/accounts/new?customer_id=c-1");
     });
 
+    it("Contact & notes card shows only with edit_customer (owner decision, PR #175)", async () => {
+      h.perms = new Set([...h.perms, "edit_customer"]);
+      await open();
+      expect(screen.getByRole("region", { name: "Contact details" })).toBeInTheDocument();
+    });
+
+    it("no edit_customer (e.g. finance) → no Contact & notes card; Edit Details itself is unchanged", async () => {
+      h.roles = ["finance"];
+      h.perms = new Set(["create_account", "create_cash_order"]);
+      await open();
+      expect(screen.queryByRole("region", { name: "Contact details" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Contact & notes")).not.toBeInTheDocument();
+      expect(button(/Edit Details/)).toBeInTheDocument();
+      expect(writes()).toEqual([]);
+    });
+
     it("Forfeit confirms, then invokes manual-forfeit for that account", async () => {
       await open();
       fireEvent.click(button(/Forfeit/));
