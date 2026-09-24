@@ -8,6 +8,7 @@ import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shar
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_shared/email-templates/layaway-payment-received.tsx";
 import * as React from "npm:react@18.3.1";
 import { customerReference } from "../_shared/order-reference.ts";
+import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -275,6 +276,36 @@ Deno.serve(async (req) => {
       .eq("submission_id", submission_id);
 
     const allocs = subAllocations || [];
+
+    // RESERVE-FIRST: the payments table is written ONLY here, so this is the
+    // last server-side stop for money against a web reservation staff have not
+    // confirmed. Every submit path already refuses one; this catches a
+    // submission that predates the guard, or one that slipped past it. Runs
+    // BEFORE the CAS flip, so a refused confirm leaves the submission pending.
+    if (action === "confirmed") {
+      const isCashSubmission = !!submission.cash_order_id;
+      const ids = isCashSubmission
+        ? [submission.cash_order_id]
+        : [...new Set([submission.account_id, ...allocs.map((a: { account_id?: string | null }) => a.account_id)]
+            .filter((x): x is string => !!x))];
+      const { data: orders, error: ordersErr } = ids.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from(isCashSubmission ? "cash_orders" : "layaway_accounts")
+            .select("id, invoice_number, web_reference, source_channel, ready_confirmed_at")
+            .in("id", ids);
+      if (ordersErr) {
+        return new Response(JSON.stringify({ error: "Could not check the order before confirming" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const reservation = firstUnconfirmedReservation(orders);
+      if (reservation) {
+        return new Response(JSON.stringify(staffNotReadyForPaymentBody(reservation)), {
+          status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
     let confirmedPaymentIds: string[] = [];
 
     // ── RESTORE PATH ──

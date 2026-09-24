@@ -14,6 +14,7 @@ import {
   Section,
   Text,
 } from 'npm:@react-email/components@0.0.22'
+import { COMPANY_NAME } from '../transactional-email-templates/brand.ts'
 
 /**
  * Sign-in link for chajewelsjp.com CUSTOMERS. Japanese first, then English,
@@ -66,7 +67,7 @@ export const StorefrontMagicLinkEmail = ({ confirmationUrl }: StorefrontMagicLin
           If you did not request this, you can ignore this email. Nothing changes on your account.
         </Text>
 
-        <Text style={footer}>Cha Jewels Co., Ltd. · 東京都葛飾区立石</Text>
+        <Text style={footer}>{`${COMPANY_NAME} · 東京都葛飾区立石`}</Text>
       </Container>
     </Body>
   </Html>

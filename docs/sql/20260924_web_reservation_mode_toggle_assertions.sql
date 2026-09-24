@@ -15,7 +15,9 @@
 --   E  the read agrees with the website reader: JSON true and "true" are On,
 --      JSON false, "false", "yes" and 1 are Off.
 --   F  a direct UPDATE or DELETE of the row — PostgREST or SQL Editor — is
---      refused. Another system_settings key can still be updated.
+--      refused. The UPDATE writes the OPPOSITE of the live value, whichever it
+--      is (an UPDATE to the value already stored is allowed by design and
+--      would prove nothing). Another system_settings key can still be updated.
 --   G  the read refuses a caller with neither admin nor manage_website_content.
 --
 -- WRITES NOTHING THAT SURVIVES. One transaction ending in ROLLBACK; no fixtures
@@ -140,9 +142,17 @@ BEGIN
   PERFORM set_config('app.allow_web_reservation_mode_change', '', true);
 
   -- ---------------------------------------------------------------- F
+  -- The direct UPDATE must write the OPPOSITE of the live value. The guard
+  -- only fires when the value changes, so writing the value already stored is
+  -- a legal no-op and proves nothing — the first version of this block wrote
+  -- JSON true, and on live the switch IS true (fixed 2026-09-24). The raw
+  -- value is compared too, so the attempt can never silently be a no-op again.
+  v_raw := to_jsonb(NOT v_start);
+  IF v_raw IS NOT DISTINCT FROM (SELECT value FROM public.system_settings WHERE id = v_id) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED — F setup: the direct write would not change the value (%)', v_raw; END IF;
   BEGIN
-    UPDATE public.system_settings SET value = 'true'::jsonb WHERE id = v_id;
-    RAISE EXCEPTION 'ASSERTION FAILED — F: direct UPDATE was allowed';
+    UPDATE public.system_settings SET value = v_raw WHERE id = v_id;
+    RAISE EXCEPTION 'ASSERTION FAILED — F: direct UPDATE to % was allowed', v_raw;
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM LIKE 'ASSERTION FAILED%' THEN RAISE; END IF;
   END;

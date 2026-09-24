@@ -5137,3 +5137,58 @@ Side effect of the reproduction: web_order_number_seq advanced (one number consu
 Root cause: new_order_discount on a layaway checked only total_paid = 0, never layaway_accounts.status, at all three layers (portal RedemptionForm, process-loyalty-redemption create, approve_redemption_atomic). Cash path already required status='pending'. A cancelled-before-payment layaway was fully redeemable; approval would insert a loyalty payment onto the closed account. catalog_reward also accepted any free-text invoice_number.
 Fix: closed-status guard for layaway (cancelled/forfeited/completed/final_settlement) at request time (form + create → 400) and approval time (RPC RAISE account_not_open → 409). Cash guard added to the RPC too (status must be pending). catalog_reward invoice, when supplied, must be the customer's own open order. Migration 20260912000000_redemption_closed_order_guard.sql.
 Not done (accepted): cancelling an account does not auto-cancel its pending redemptions — the approval guard rejects them and staff cancel with a reason.
+
+### "Loyalty spend could not be reversed" bell on unpaid web orders (2026-09-24)
+
+Symptom (owner acceptance run, finding 2): cancelling or declining a web
+reservation raised the staff bell "Loyalty spend could not be reversed — INV
+TEST-900046 was cancel, but it has no loyalty ledger row…". Live had three
+(TEST-900046/-047/-048), all ¥0 received with loyalty_jpy_amount 72,980.
+
+Root cause: revoke_loyalty_points' unsourced branch (Bug #271 follow-up,
+2026-09-14) fired on `total_paid > 0 OR loyalty_jpy_amount IS NOT NULL`. Every
+web order carries its loyalty basis from checkout, so any web order ending
+before payment matched. Loyalty is only ever earned on money received, so
+there was nothing to reverse.
+
+Fix: migration 20260924140000_loyalty_unsourced_needs_money.sql. The branch now
+needs money received: the total_paid cache OR a non-voided payments /
+cash_payments row (INVARIANT 1). The two genuine bells on live (18788,
+19634, both with money received) still fire. Patched from the live body
+(md5 f4b2834e… → 8f475dbf…, guarded); proven in a scratch cluster that
+reproduces both md5s; assertions in
+docs/sql/20260924_loyalty_unsourced_needs_money_assertions.sql.
+Do not reintroduce: the loyalty basis alone never proves spend was earned.
+
+### SECURITY DEFINER writers executable by PUBLIC (2026-09-24)
+
+Found while chasing the security linter's 104 -> 105 during the reserve-first
+A2 apply (acceptance run finding 7). The +1 itself could not be named: A2's
+objects add no finding, and the linter's rows are visible only inside Lovable.
+The audit found real exposures instead. create_web_layaway_atomic,
+reactivate_web_layaway_atomic, unwaive_penalty_atomic, void_redemption_atomic
+and web_deposit_deadline_hours were SECURITY DEFINER, carried no caller check,
+and were executable by PUBLIC. So an anonymous PostgREST call could create a
+web plan, revive one, re-impose a waived penalty or void a redemption, skipping
+every edge function's auth. The four get_daily_* Finance reads were
+anon-readable too.
+
+Cause: DROP + CREATE FUNCTION starts from the default ACL (PUBLIC execute).
+20260918090000 / 20260918120000 re-created create_web_layaway_atomic without a
+REVOKE, and A1 carried that ACL forward. Fix: migration
+20260924140100_revoke_public_execute_on_definer_functions.sql. The five writers
+become service_role only (every caller is a service-role edge function or a
+definer function); get_daily_* become authenticated + service_role.
+Do not reintroduce: after any DROP + CREATE of a function, re-assert its
+REVOKE/GRANT in the same migration.
+
+Follow-up, same day: the four get_daily_* reads keep the authenticated grant
+because the Finance page calls them from the browser. But portal customers are
+authenticated too, and these functions had no caller check. Migration
+20260924140200 gives each one an md5-guarded in-place check on view_finance,
+the /finance route's own key (uid NULL, i.e. service role, passes).
+usePrefetchHeavyPages now warms them only for users who hold view_finance.
+Call sites checked 2026-09-24: none of the five service-role-only functions is
+called from src/. Every call is an edge function using a service-role client
+(website, reactivate-web-layaway, unwaive-waiver, process-loyalty-redemption,
+confirm-web-order-ready).

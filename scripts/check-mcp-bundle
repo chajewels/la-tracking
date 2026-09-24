@@ -1,0 +1,35 @@
+#!/bin/sh
+# Refuses a supabase/functions/mcp/index.ts that a local build re-bundled
+# without VITE_SUPABASE_PROJECT_ID.
+#
+# WHY. vite.config.ts runs mcpPlugin() (@lovable.dev/mcp-js), which re-bundles
+# src/lib/mcp/index.ts into supabase/functions/mcp/index.ts on EVERY build and
+# dev start. src/lib/mcp/index.ts reads
+#   import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset"
+# so a build on a machine without that variable writes a bundle whose OAuth
+# issuer is https://project-ref-unset.supabase.co — and a routine `git add -A`
+# commits it. It happened in be6eddd9 and again in 5abacf9e (reserve-first A2);
+# Lovable's next WIP commit put the real ref back both times. Lovable deploys
+# from main, so a bad bundle reaching main would break the MCP server's auth.
+#
+# CI runs this BEFORE `npm run build` (the build rewrites the file). Run it by
+# hand before committing: scripts/check-mcp-bundle
+set -eu
+f="${1:-supabase/functions/mcp/index.ts}"
+[ -f "$f" ] || { echo "check-mcp-bundle: $f not found" >&2; exit 1; }
+fail=0
+if grep -q 'project-ref-unset' "$f"; then
+  echo "check-mcp-bundle: $f carries the 'project-ref-unset' fallback." >&2; fail=1
+fi
+if grep -q 'define_import_meta_env_default' "$f"; then
+  echo "check-mcp-bundle: $f was bundled with an empty import.meta.env." >&2; fail=1
+fi
+if ! grep -Eq '^var projectRef = "[a-z0-9]{20}";$' "$f"; then
+  echo "check-mcp-bundle: $f has no literal 20-character projectRef." >&2; fail=1
+fi
+if [ "$fail" -ne 0 ]; then
+  echo "Restore it: git checkout origin/main -- $f" >&2
+  echo "Then set VITE_SUPABASE_PROJECT_ID in .env so local builds bundle the real ref." >&2
+  exit 1
+fi
+echo "check-mcp-bundle: $f OK"
