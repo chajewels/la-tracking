@@ -1843,6 +1843,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   R8 A written reason is required for every reassign. Web orders are allowed.
   R9 If the move commits but the catch-up award fails: the move stands; insert a staff_notifications row type 'reassign_catch_up_failed' naming the invoice, both customers and the error.
   R10 Out of scope: changing the normal award's last_purchase_at = now(); any merge-customers tool.
+  R11 IDENTITY MATCH. A reassign is allowed only if the target account matches the CURRENT owner on at least one of: full name, Facebook name (both: lower-case, trim, collapse spaces), mobile (last 10 digits, only when >= 10 digits), email (exact, case-insensitive) — the same normalisation as find_customer_matches. No match → refused: code different_customer_details, message "Different customer details — this order can only move to another account of the same customer. Contact the owner."
+     Exception: a user holding the permission reassign_owner_unmatched may move an order with NO matching detail (an order put on the wrong customer), only by explicitly choosing the override and with the required written reason; it is logged as an unmatched reassign. The override bypasses ONLY R11 — every other refusal (R1 points-account rule, earned order, closed status, Shopify, split submissions, redemptions/store credit, test↔real, same owner, loyalty amount) still applies.
 
   ("Section F" in R5 is the 2026-09-24 investigation report; its markers are
   the ones listed in the same rule, all checked by reassign_order_owner_atomic.)
@@ -1882,6 +1884,19 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   seeded nothing; the function obeys whatever Settings holds. The
   src/lib/role-permissions.ts default for reassign_owner (['admin']) is a
   fallback table only and was not changed.
+
+  R11 MECHANICS (20260924140000_reassign_identity_match.sql): the RPC gained a
+  LAST parameter p_allow_unmatched boolean DEFAULT false (the 7-argument
+  function was dropped, not overloaded, so a named call is never ambiguous);
+  the edge function sends it only for body override:true AND
+  reassign_owner_unmatched, and answers 403 override_not_permitted when the
+  override is asked for without the permission. The RPC re-checks the
+  permission itself. Preview gains matched_on (text[]) and unmatched; the
+  audit row gains matched_on, unmatched and override_used.
+  reassign_owner_unmatched is seeded admin = true, everyone else false, ON
+  CONFLICT DO NOTHING. find_customer_matches is untouched — R11 repeats its
+  normalisation inline; the TS mirror is identityMatches() in
+  _shared/reassign-owner-rules.ts.
 
 ## WEB LAYAWAY — NON-NEGOTIABLE (added 2026-09-14, Phase 2 step 4)
 

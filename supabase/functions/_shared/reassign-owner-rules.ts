@@ -1,4 +1,4 @@
-// Reassign Owner — pure rules (CLAUDE.md "REASSIGN OWNER", R1–R10).
+// Reassign Owner — pure rules (CLAUDE.md "REASSIGN OWNER", R1–R11).
 //
 // reassign_order_owner_atomic (SQL) is AUTHORITATIVE: it makes every decision
 // the move depends on, under a row lock. This module mirrors those rules so
@@ -156,9 +156,62 @@ export function catchUpPurchaseDates(
   return { last_purchase_at: orderTs.toISOString(), prev_purchase_at: existingLast };
 }
 
+/** R11 — the identity fields compared between the current owner and the target. */
+export interface CustomerIdentity {
+  full_name?: string | null;
+  facebook_name?: string | null;
+  mobile_number?: string | null;
+  email?: string | null;
+}
+
+export type IdentityField = "full_name" | "facebook_name" | "mobile" | "email";
+
+/** Names: lower-case, trim, collapse whitespace; empty → null (never matches). */
+export function normaliseName(s: string | null | undefined): string | null {
+  const v = (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return v === "" ? null : v;
+}
+
+/** Mobile: last 10 digits, only when there are at least 10; otherwise null. */
+export function normaliseMobile(s: string | null | undefined): string | null {
+  const digits = (s ?? "").replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+/** Email: trimmed, case-insensitive; empty → null. */
+export function normaliseEmail(s: string | null | undefined): string | null {
+  const v = (s ?? "").trim().toLowerCase();
+  return v === "" ? null : v;
+}
+
+/** R11 — which details the target shares with the current owner, in the order
+ *  reassign_order_owner_atomic reports them. Same normalisation as
+ *  find_customer_matches. Empty = different customer. */
+export function identityMatches(current: CustomerIdentity, target: CustomerIdentity): IdentityField[] {
+  const out: IdentityField[] = [];
+  const same = (a: string | null, b: string | null) => a !== null && a === b;
+  if (same(normaliseName(current.full_name), normaliseName(target.full_name))) out.push("full_name");
+  if (same(normaliseName(current.facebook_name), normaliseName(target.facebook_name))) out.push("facebook_name");
+  if (same(normaliseMobile(current.mobile_number), normaliseMobile(target.mobile_number))) out.push("mobile");
+  if (same(normaliseEmail(current.email), normaliseEmail(target.email))) out.push("email");
+  return out;
+}
+
+/** R11 override — honoured only when asked for AND permitted. An override
+ *  asked for without the permission is a 403, never silently dropped. */
+export function overrideDecision(
+  requested: unknown,
+  permitted: boolean,
+): { allowUnmatched: boolean; error: "override_not_permitted" | null } {
+  if (requested !== true) return { allowUnmatched: false, error: null };
+  if (!permitted) return { allowUnmatched: false, error: "override_not_permitted" };
+  return { allowUnmatched: true, error: null };
+}
+
 /** Refusal codes that are a 409 (the order cannot move as asked). */
 export const REFUSAL_CODES = [
   "same_owner",
+  "different_customer_details",
   "status_closed",
   "test_boundary",
   "both_have_points",
@@ -174,7 +227,7 @@ export const REFUSAL_CODES = [
 
 export function httpStatusFor(code: string): number {
   if (code === "not_found") return 404;
-  if (code === "forbidden") return 403;
+  if (code === "forbidden" || code === "override_not_permitted") return 403;
   if ((REFUSAL_CODES as readonly string[]).includes(code)) return 409;
   return 400;
 }
