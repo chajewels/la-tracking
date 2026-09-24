@@ -1,5 +1,15 @@
 ## Recent Updates
 
+  2026-09-24 — website POST /auth/customer requires a profile to CREATE
+  a customer (step 4b). When no customer holds the signed-in email, an
+  empty full_name or location now returns 422 profile_required and
+  creates nothing; the email-prefix name fallback is removed, so a
+  customer is always named by what she typed. Linking by email is
+  unchanged and needs no profile. The duplicate check, 409
+  already_registered and staff bell are unchanged. DEPLOY ORDER: only
+  after the storefront release that handles 422 (cha-jewels-web #135,
+  live 2026-09-24). Edge function to deploy: website.
+
   2026-09-24 — Duplicate-customer prevention (owner rules 2026-09-23;
   full spec in docs/SCHEMA-FACTS.md "Duplicate-customer prevention").
   New RPC public.find_customer_matches (applied live by the owner,

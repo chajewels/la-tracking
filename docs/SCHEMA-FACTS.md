@@ -1055,7 +1055,7 @@ so a leading tab survives as a space — the client mirrors in
 | `ImportCustomersDialog` | Row not inserted; listed with the matching customer code(s) and fields. Rows of the same file that match EACH OTHER are all held back — nothing in the file says which one is right. Other rows import as normal. No override. | Row marked failed, not inserted. |
 | `AICommandModal` CREATE_CUSTOMER | Not inserted; the chat lists code, name and matched fields and tells staff to use the existing account. | Not inserted. |
 | `setup-customer-account` (portal signup, create branch only) | 409 `{ error: "already_registered", message }` + `staff_notifications` `duplicate_signup_blocked`. | 500, no insert. |
-| `website` `POST /auth/customer` (create branch only) | Same 409 + same notification (`metadata.source = 'website_auth_customer'`). Checks the name the customer TYPED, never the email-prefix fallback. | 500, no insert. |
+| `website` `POST /auth/customer` (create branch only) | Same 409 + same notification (`metadata.source = 'website_auth_customer'`). Before the check, a create needs a profile: empty `full_name` or `location` → 422 `profile_required`, nothing created, nothing notified (2026-09-24). The email-prefix name fallback is gone, so the name checked and the name stored are always the one the customer typed. | 500, no insert. |
 
 `staff_notifications` type `duplicate_signup_blocked`: title "Signup blocked — existing
 customer"; body carries the signup email, name, Facebook name, mobile, location, auth user
