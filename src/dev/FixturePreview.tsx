@@ -174,7 +174,11 @@ export default function FixturePreview() {
     seed(['cash-orders-light'], cashOrders.map((o) => ({ id: o.id, customer_id: o.customers.id, status: o.status })));
     seed(['customers-loyalty-tiers'], empty ? new Map() : buildCustomerTierMap());
     if (!empty) {
-      seed(['customer-detail', DEMO_CUSTOMER_ID], buildCustomerDetailFixture());
+      // &test_customer=1 flags the demo customer is_test, to show the TEST tag.
+      const detail = buildCustomerDetailFixture();
+      seed(['customer-detail', DEMO_CUSTOMER_ID], searchParams.get('test_customer') === '1'
+        ? { ...detail, customer: { ...detail.customer, is_test: true } }
+        : detail);
       seed(['cash-orders-by-customer', DEMO_CUSTOMER_ID], buildCustomerCashOrderFixtures());
     }
     seed(['dashboard-summary', 'ALL'], buildDashboardSummary(empty));
