@@ -50,6 +50,8 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
+import { loyaltyHintJpy } from '@/lib/loyalty-hint';
 import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
 import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
@@ -1505,6 +1507,18 @@ export default function CashOrderDetail() {
               <Settings className="h-4 w-4 mr-1.5" />
               Manage Invoice
             </Button>
+          )}
+          {can('reassign_owner') && (
+            <ReassignOwnerDialog
+              kind="cash"
+              orderId={order.id}
+              currentCustomerId={order.customer_id}
+              currentCustomerName={order.customers?.full_name || 'Unknown'}
+              invoiceNumber={order.invoice_number}
+              status={order.status}
+              loyaltyJpyAmount={order.loyalty_jpy_amount == null ? null : Number(order.loyalty_jpy_amount)}
+              suggestedLoyaltyJpy={loyaltyHintJpy(Number(order.total_amount), Number(order.shipping_fee || 0), order.currency)}
+            />
           )}
         </div>
 

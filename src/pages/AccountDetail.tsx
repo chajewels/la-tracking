@@ -8,6 +8,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
+import { loyaltyHintJpy } from '@/lib/loyalty-hint';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
@@ -1300,10 +1301,14 @@ export default function AccountDetail() {
             )}
             {can('reassign_owner') && (
             <ReassignOwnerDialog
-              accountId={account.id}
+              kind="layaway"
+              orderId={account.id}
               currentCustomerId={account.customer_id}
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
+              status={account.status}
+              loyaltyJpyAmount={account.loyalty_jpy_amount == null ? null : Number(account.loyalty_jpy_amount)}
+              suggestedLoyaltyJpy={loyaltyHintJpy(Number(account.total_amount), Number(account.shipping_fee || 0), currency)}
             />
             )}
             {paymentEligibleBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && !awaitingReservation && (
