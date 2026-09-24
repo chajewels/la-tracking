@@ -2,6 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Text } from 'npm:@react-email/components@0.0.22'
 import { formatJpy, type Lang } from '../storefront-email.ts'
+import { COMPANY_NAME } from '../transactional-email-templates/brand.ts'
 
 /**
  * Pieces shared by the storefront ORDER emails (confirmation, payment
@@ -49,7 +50,7 @@ export const WORDS = {
   walletName: { ja: '登録名義', en: 'Registered name' },
   nameNotice: { ja: '振込名義はご注文者名でお願いします。', en: 'Please transfer under the name on the order.' },
   viewOrder: { ja: 'ご注文を確認する', en: 'View your order' },
-  footer: { ja: 'Cha Jewels Co., Ltd. · 東京都葛飾区立石', en: 'Cha Jewels Co., Ltd. · Tateishi, Katsushika, Tokyo' },
+  footer: { ja: `${COMPANY_NAME} · 東京都葛飾区立石`, en: `${COMPANY_NAME} · Tateishi, Katsushika, Tokyo` },
   help: { ja: 'ご不明な点は、このメールにご返信ください。', en: 'Questions? Reply to this email.' },
 } as const
 
