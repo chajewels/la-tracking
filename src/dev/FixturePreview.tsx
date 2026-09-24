@@ -114,6 +114,9 @@ import { supabase } from '@/integrations/supabase/client';
  *   /__fixtures/<account-id>?view=account-detail
  *                                   → AccountDetail for a seeded account
  *                                     (summary tiles; empty schedule/payments)
+ *   /__fixtures?view=hub&roles=staff[,admin]
+ *                                   → the Hub signed in as that role mix (header +
+ *                                     sidebar footer role label)
  *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
  *                                     detail-page panels, DeadlinesCard
  *   /__fixtures?view=reservations-dashboard
@@ -204,7 +207,10 @@ export default function FixturePreview() {
     return null;
   });
 
-  if (view === 'hub') return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} /></AllowAll>;
+  if (view === 'hub') {
+    const roles = searchParams.get('roles')?.split(',').map((r) => r.trim()).filter(Boolean);
+    return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} roles={roles} /></AllowAll>;
+  }
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;

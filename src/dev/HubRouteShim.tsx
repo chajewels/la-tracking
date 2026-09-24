@@ -44,9 +44,14 @@ function UnseededPage() {
   );
 }
 
-export default function HubRouteShim({ at }: { at: string }) {
+export default function HubRouteShim({ at, roles }: { at: string; roles?: string[] }) {
+  // &roles=staff (or staff,admin) signs the harness in as that role mix, and
+  // names the user after it, so the header / sidebar role label can be checked.
+  const auth = roles && roles.length > 0
+    ? ({ ...FIXTURE_AUTH, roles, profile: { full_name: 'Fixture ' + roles.join(' + '), email: null } } as typeof FIXTURE_AUTH)
+    : FIXTURE_AUTH;
   return (
-    <AuthContext.Provider value={FIXTURE_AUTH}>
+    <AuthContext.Provider value={auth}>
     <UNSAFE_LocationContext.Provider value={null as never}>
       <UNSAFE_RouteContext.Provider value={{ outlet: null, matches: [], isDataRoute: false }}>
       <MemoryRouter initialEntries={[at]}>
