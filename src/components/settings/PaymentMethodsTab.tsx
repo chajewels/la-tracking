@@ -143,7 +143,7 @@ const clean = (v: string | null | undefined) => {
 
 /**
  * Mirrors the website function's completeness rule EXACTLY (see methodIsComplete
- * in supabase/functions/website/index.ts). If these two drift apart, an admin
+ * in supabase/functions/_shared/transfer-methods.ts). If these two drift apart, an admin
  * sees "live" on a method the storefront is silently dropping — so change them
  * together or not at all.
  */

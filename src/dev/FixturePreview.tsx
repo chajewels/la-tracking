@@ -48,6 +48,11 @@ import ProductDialog from '@/components/website/ProductDialog';
 import { emptyProduct, emptyVariant, type ProductForm } from '@/components/website/product-form';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { PermissionsContextForFixtures, usePermissions } from '@/contexts/PermissionsContext';
+import ReservationsAwaitingCard from '@/components/reservations/ReservationsAwaitingCard';
+import ReservationPanel from '@/components/reservations/ReservationPanel';
+import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import type { ReactNode } from 'react';
 import {
   buildAccountFixtures,
   buildCashOrderFixtures,
@@ -83,6 +88,14 @@ import {
  *   /__fixtures/<account-id>?view=account-detail
  *                                   → AccountDetail for a seeded account
  *                                     (summary tiles; empty schedule/payments)
+ *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
+ *                                     detail-page panels, DeadlinesCard
+ *   /__fixtures?view=reservations-dashboard
+ *                                   → Dashboard + sidebar "To confirm" pill
+ *   /__fixtures?view=reservations-cash
+ *                                   → CashOrdersList with reservations
+ *   (the three reservations views grant every permission — the UI is gated
+ *    on confirm_web_order_ready, and a fixture has no session)
  *   &empty=1                        → empty-state variant of any view
  */
 export default function FixturePreview() {
@@ -108,6 +121,9 @@ export default function FixturePreview() {
     seed(['dashboard-redemptions-kpi'], buildRedemptionsKpi(empty));
     seed(['needs-attention-schedule'], buildAttentionSchedule(empty));
     seed(['needs-attention-cash'], buildAttentionCash(empty));
+    // Reserve-first A2: the queue the sidebar pill and Dashboard card read.
+    seed(['web-reservations'], empty ? [] : buildReservationFixtures());
+    if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
       seed(['account', a.id], a);
@@ -117,6 +133,9 @@ export default function FixturePreview() {
   });
 
   if (view === 'cash') return <CashOrdersList />;
+  if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
+  if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
+  if (view === 'reservations-cash') return <AllowAll><CashOrdersList /></AllowAll>;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;
@@ -917,6 +936,55 @@ function TabsFixture() {
           </TabsContent>
         ))}
       </Tabs>
+    </div>
+  );
+}
+
+// ------------------------------------------------ reserve-first A2 fixtures
+const HOUR = 3_600_000;
+const ago = (h: number) => new Date(Date.now() - h * HOUR).toISOString();
+
+function buildReservationFixtures() {
+  return [
+    { kind: 'cash_order', id: 'fixture-rsv-cash-1', reference: 'CJ-W-000131', customer_name: 'Aiko Tanaka', customer_is_test: false, total_amount: 72_980, currency: 'JPY', plan_months: null, created_at: ago(30) },
+    { kind: 'layaway', id: 'fixture-rsv-lay-1', reference: 'CJ-W-000134', customer_name: 'Maria Consolación Villanueva-Dela Cruz', customer_is_test: false, total_amount: 126_000, currency: 'PHP', plan_months: 8, created_at: ago(7) },
+    { kind: 'cash_order', id: 'fixture-rsv-cash-2', reference: 'CJ-W-000136', customer_name: 'Test Customer', customer_is_test: true, total_amount: 18_500, currency: 'JPY', plan_months: null, created_at: ago(1) },
+  ];
+}
+
+function buildReservationCashRows() {
+  return buildReservationFixtures().filter(r => r.kind === 'cash_order').map((r) => ({
+    id: r.id, invoice_number: r.reference.replace('CJ-W-', ''), currency: r.currency, total_amount: r.total_amount,
+    total_paid: 0, remaining_balance: r.total_amount, status: 'pending', order_date: r.created_at.slice(0, 10),
+    item_description: 'Web order', created_at: r.created_at, source_channel: 'web', web_reference: r.reference,
+    payment_status: 'awaiting_confirmation', transfer_due_at: null, ready_confirmed_at: null,
+    customers: { id: `${r.id}-cust`, full_name: r.customer_name, messenger_link: null },
+  }));
+}
+
+/** Every permission granted — the reservation UI is gated, a fixture has no session. */
+function AllowAll({ children }: { children: ReactNode }) {
+  const base = usePermissions();
+  return (
+    <PermissionsContextForFixtures.Provider
+      value={{ ...base, can: () => true, canAccessPage: () => true, canSeeNav: () => true, loading: false }}
+    >
+      {children}
+    </PermissionsContextForFixtures.Provider>
+  );
+}
+
+function ReservationsFixture() {
+  const [cash, lay] = buildReservationFixtures();
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
+      <ReservationsAwaitingCard />
+      <h3 className="text-sm font-semibold text-muted-foreground">Cash order detail — top of page</h3>
+      <ReservationPanel entityType="cash_order" entityId={cash.id} reference={cash.reference} createdAt={cash.created_at} canAct />
+      <DeadlinesCard entityType="cash_order" entityId={cash.id} status="pending" transferDueAt={null} reference={cash.reference} sourceChannel="web" awaitingConfirmation canEdit />
+      <h3 className="text-sm font-semibold text-muted-foreground">Layaway detail — top of page (no permission)</h3>
+      <ReservationPanel entityType="layaway" entityId={lay.id} reference={lay.reference} createdAt={lay.created_at} canAct={false} />
+      <DeadlinesCard entityType="layaway" entityId={lay.id} status="active" transferDueAt={null} reference={lay.reference} sourceChannel="web" awaitingConfirmation canEdit />
     </div>
   );
 }

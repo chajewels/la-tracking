@@ -5,8 +5,10 @@ It is split into two parts:
 
 - **A1: SQL only.** Migration `20260923140000_reserve_first_a1.sql`, with the
   assertions in `docs/sql/20260923_reserve_first_a1_assertions.sql`.
-- **A2: edge functions and UI.** Not built yet. This file is the contract A2
-  builds against.
+- **A2: edge functions, emails, cron and Hub UI.** Built 2026-09-24 on
+  `feat/reserve-first-a2` — see "What A2 built" at the end. Migration
+  `20260924100000_reserve_first_a2.sql`, assertions in
+  `docs/sql/20260924_reserve_first_a2_assertions.sql`.
 
 ## The flow
 
@@ -120,24 +122,85 @@ These were checked 2026-09-23:
 - **Penalty engine.** Installment 1 of a reservation is at least a month away,
   and a reservation lives at most 72 hours unconfirmed.
 
-## What A2 still has to do
+## What A2 built (2026-09-24)
 
-- **Website edge function:**
-  - read the switch and pass `p_reserve`
-  - show "awaiting confirmation" on the order pages
-  - keep payment details hidden until `pending_transfer`
-  - refuse payment submissions on an unconfirmed reservation, in
-    `submit-cash-payment` / `submit-payment` or before them
-- **Hub:**
-  - an unconfirmed queue (indexes `idx_cash_orders_web_awaiting_ready` and
-    `idx_layaway_accounts_web_awaiting_ready`)
-  - Confirm and Can't supply buttons, gated on `confirm_web_order_ready`
-- **Emails:** confirmation-with-payment-details, declined, and auto-cancelled.
-- **Sweep scheduling:** a cron for the 72-hour sweep (Vault pattern).
-- **Decided in A2, not A1:** a cancelled reservation keeps
-  `payment_status = 'awaiting_confirmation'`. This is because
-  `terminate_web_order_atomic`'s cancel path never touches `payment_status`,
-  and that path has always behaved this way. The storefront shows payment
-  details only for `pending_transfer`, so the stale value is harmless. It is
-  still worth deciding in A2 whether a cancelled reservation should read
-  `cancelled`.
+The switch `system_settings.web_reservation_mode` is still **false**. With it
+false every customer-facing path is today's: `p_reserve` is not even sent, the
+same emails go out (`order-confirmation`, `layaway-plan-created` render
+byte-for-byte as before — proved by rendering both old and new), and the same
+responses come back. The website reads the switch per request and fails
+CLOSED (`readReservationMode`: only JSON `true` or the string `"true"` is on).
+
+**Website (`website` edge function).**
+
+- `/checkout/pay` passes `p_reserve: true` in reserve mode and sends
+  `order-reserved` (cash, customer's language) or `layaway-reserved` (English
+  only). The response carries `reservation_mode: true`,
+  `awaiting_confirmation: true`, `transfer_due_at: null`,
+  `transfer_methods: []` (and, for a layaway, `schedule: []` — it is re-dated
+  at confirmation).
+- `POST /checkout/quote` and `GET /checkout/quote/:id` withhold
+  `transfer_methods` in reserve mode (bank details are never shown before
+  confirmation); `transfer_available` is unchanged; `reservation_mode: true` is
+  added only in reserve mode.
+- `GET /orders`, `/orders/:id`, `/layaway`, `/layaway/:id` add
+  `awaiting_confirmation` and `ready_for_payment` to every order and plan (both
+  derived, `ready_confirmed_at` itself is stripped). Transfer methods are
+  withheld on any unconfirmed reservation.
+- `POST /layaway/:id/pay`, `submit-payment` and `submit-cash-payment` refuse an
+  unconfirmed reservation with 409 `not_ready_for_payment`. The rule checks the
+  channel first, so Hub plans (which also carry `ready_confirmed_at` NULL) are
+  never blocked.
+
+**Staff actions.** Both gated on `confirm_web_order_ready` at the edge function
+and again inside the RPCs where A1 does so.
+
+- `confirm-web-order-ready` → `confirm_web_order_ready_atomic`, then the
+  "ready — pay now" email: `order-confirmation` / `layaway-plan-created` with
+  `variant: 'ready'` (bank details, the new deadline, the re-dated schedule;
+  layaway English only). `preview: true` returns the deadline the customer will
+  get without writing — the Hub confirm dialog states it.
+- `decline-web-reservation` ("Can't supply", reason required) refuses anything
+  that is not an unconfirmed, live, unpaid web reservation — it is not a second
+  cancel door. Cash → `terminate_web_order_atomic('cancelled', …, 'staff')` +
+  `order-cancelled` with the reason; layaway →
+  `decline_web_layaway_reservation_atomic` + `layaway-declined` (English only).
+
+**Hourly `web-reservation-sweep`** (cron `23 * * * *`, Vault pattern):
+first the 72-hour auto-cancel (`expire_unconfirmed_web_reservations_atomic`)
+with `order-reservation-lapsed` / `layaway-reservation-lapsed` to each customer
+and a `web_reservation_auto_cancelled` bell row per order; then ONE email to
+sales@chajewelsjp.com (`web-reservations-awaiting`, internal) listing every
+reservation 24h+ unconfirmed and never chased. **Dedupe is a column**,
+`reservation_reminded_at` on both tables, stamped only after the send was
+accepted (or found suppressed) — a refused send is retried next hour.
+
+**Bell and report.** A web order or plan that arrives unconfirmed reads "New
+reservation — confirm the piece" (switch off: unchanged, because A1 stamps
+`ready_confirmed_at` and the trigger runs AFTER INSERT). `email_delivery_report`
+gains `web_layaways_placed`, `web_reservations_confirmed` (staff confirmations
+only — `ready_confirmed_by IS NOT NULL`) and `web_layaways_closed`.
+
+**Hub.** Reservation panel with Confirm / Can't supply at the top of
+CashOrderDetail and AccountDetail (record-payment is hidden on a reservation);
+DeadlinesCard reads "Awaiting confirmation — no payment deadline yet"; an
+"Awaiting confirmation" filter on both lists plus a "To confirm" badge per
+card; a "To confirm · N" pill at the top of the sidebar on every page; a
+"Reservations to confirm" Dashboard card, oldest first, with age, auto-cancel
+time and inline actions. All gated on `confirm_web_order_ready`, which now has
+a row in the Permission Matrix.
+
+**Decided in A2.** A cancelled reservation keeps
+`payment_status = 'awaiting_confirmation'`, as A1 left it. Every surface that
+could show payment details keys on `pending_transfer` AND on the reservation
+flag, and the website derives `awaiting_confirmation` only while the order is
+still live, so the stale value is never read as "awaiting".
+
+**Not in A2.**
+
+- The storefront (`chajewels/cha-jewels-web`) must read `reservation_mode` /
+  `awaiting_confirmation` / `ready_for_payment` to switch its copy. Until it
+  does, do not flip the switch.
+- `record-payment` / `record-multi-payment` (staff) are not guarded
+  server-side; the Hub hides the button on a reservation, and a confirmation
+  refuses (`payment_exists`) if one slipped through.

@@ -41,6 +41,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-VERCEL.md — Vercel storefront integration: `website` API contract, revalidation chain, the three secrets, go-live checklist
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
+- docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: the four tabs, the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
@@ -1165,6 +1166,7 @@ When completing a partially_paid month:
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
     loyalty-award-sweep:           00:35 UTC = 08:35 PHT ✅  — recovers missed loyalty awards; split out of daily-reconciliation 2026-09-16 (see below)
     auto-expire-cash-orders:       40 * * * * (hourly at :40) ✅  — the ONLY web/cash order expiry path since 2026-09-13; the SQL cron expire_transfer_orders() is gone
+    web-reservation-sweep:         23 * * * * (hourly at :23) ⏳ scheduled by migration 20260924100000 — reserve-first: 72h unconfirmed reservations auto-cancelled + one sales@ reminder at 24h (docs/RESERVE-FIRST.md)
     daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
     portal-token-check:            00:55 UTC = 08:55 PHT ✅  — portal links approaching expiry; Vault-backed, independent of the chain
     deactivate-expired-promotions: every hour            ✅

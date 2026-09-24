@@ -2,6 +2,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
+import { STOREFRONT_PREVIEWS } from '../_shared/email-templates/preview-registry.ts'
 
 // Renders all registered templates with their previewData.
 // Gated by LOVABLE_API_KEY — only the Go API calls this.
@@ -81,6 +82,25 @@ Deno.serve(async (req) => {
       results.push({
         templateName: name,
         displayName,
+        subject: '',
+        html: '',
+        status: 'render_failed',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  // Storefront emails (reserve-first A2): rendered for preview only — they are
+  // sent by their own callers, never from the registry. See preview-registry.ts.
+  for (const [name, entry] of Object.entries(STOREFRONT_PREVIEWS)) {
+    try {
+      const html = await renderAsync(React.createElement(entry.component, entry.previewData))
+      results.push({ templateName: name, displayName: entry.displayName, subject: entry.subject, html, status: 'ready' })
+    } catch (err) {
+      console.error('Failed to render storefront template for preview', { template: name, error: err })
+      results.push({
+        templateName: name,
+        displayName: entry.displayName,
         subject: '',
         html: '',
         status: 'render_failed',

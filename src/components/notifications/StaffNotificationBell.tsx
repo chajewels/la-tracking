@@ -50,6 +50,7 @@ function iconForType(type: string) {
     case 'penalty_applied':
       return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
     case 'account_forfeited':
+    case 'web_reservation_auto_cancelled':
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
     case 'submission_created':
     case 'submission_confirmed':
