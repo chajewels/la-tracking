@@ -63,11 +63,16 @@ none — never an error.
 
 ### GET /content/settings
 Every `website_settings` row with `public = true`, flattened to
-`{ key: value }` (values are the stored JSON). Ordered by key; non-public rows
-are never returned. Same `x-api-key` rule and same cache treatment as
-`/catalog/collections` — freshness comes from the `website_settings`
-revalidate trigger, which posts `{ "tag": "content" }` to the storefront's
-revalidate endpoint on every insert, update or delete.
+`{ key: value }` (values are the stored JSON), plus one derived key:
+`web_reservation_mode` (boolean) — read at request time from
+`system_settings.web_reservation_mode` via the same reader the checkout path
+uses (`readReservationMode`, fail-closed to false). It is never stored as a
+`website_settings` row, so there is exactly one switch. Ordered by key;
+non-public rows are never returned. Same `x-api-key` rule and same cache
+treatment as `/catalog/collections` — freshness for the stored keys comes from
+the `website_settings` revalidate trigger, which posts `{ "tag": "content" }`
+to the storefront's revalidate endpoint on every insert, update or delete
+(the derived key is always current per request).
 
 ### GET /content/posts?type=article|news
 Posts with `published = true` and `published_at <= today` (PHT), ordered by
