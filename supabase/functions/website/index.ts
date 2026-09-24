@@ -689,6 +689,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
     // Same x-api-key rule and the same (default) cache treatment as
     // /catalog/collections; freshness comes from the website_settings
     // revalidate trigger, not from a shorter cache window.
+    // web_reservation_mode is NOT a website_settings row: it is derived at
+    // request time from system_settings via the same reader the checkout gate
+    // uses (reservationModeOn → readReservationMode), so there is exactly one
+    // switch and the storefront can show "awaiting confirmation" copy without
+    // guessing.
     if (req.method === "GET" && segments[0] === "content" && segments[1] === "settings" && !segments[2]) {
       const { data, error } = await supabase
         .from("website_settings")
@@ -698,6 +703,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (error) throw error;
       const settings: Record<string, unknown> = {};
       for (const row of (data ?? []) as AnyRec[]) settings[String(row.key)] = row.value;
+      settings["web_reservation_mode"] = await reservationModeOn(supabase);
       return jsonResponse(scrub(settings));
     }
 
