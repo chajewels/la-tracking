@@ -93,6 +93,9 @@ const EXPECTED_LABELS: Record<string, string> = {
   loyalty_pre_expiry_warnings: 'Loyalty pre-expiry warnings',
   web_orders_placed: 'Web orders placed',
   web_orders_closed: 'Web orders cancelled or expired',
+  web_layaways_placed: 'Web layaways placed',
+  web_reservations_confirmed: 'Web reservations confirmed',
+  web_layaways_closed: 'Web layaways expired or declined',
 };
 
 export function EmailHealthCard() {

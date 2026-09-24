@@ -30,8 +30,16 @@ export function buildCustomerDirectoryFixtures(empty = false) {
     location: LOCATIONS[i % LOCATIONS.length],
     auth_user_id: null,
   }));
-  return [DEMO_CUSTOMER, ...base];
+  return [DEMO_CUSTOMER, MIXED_SCRIPT_CUSTOMER, ...base];
 }
+
+// A mixed Latin + Japanese name: the monogram must show "A", never a broken glyph.
+const MIXED_SCRIPT_CUSTOMER = {
+  id: 'fixture-cust-mixed-script', full_name: 'Angel ペイブ', customer_code: 'CJ-2026-00904',
+  facebook_name: null, messenger_link: null, mobile_number: null, email: null, notes: null,
+  location: 'Japan', auth_user_id: null, setup_link_sent_at: null, is_test: false,
+  created_at: '2026-04-02T03:00:00Z',
+};
 
 const DEMO_CUSTOMER = {
   id: DEMO_CUSTOMER_ID,
