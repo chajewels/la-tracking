@@ -1068,7 +1068,7 @@ else create-and-flag `needs_review = true`).
 
 ## Reassign Owner — guard trigger and two functions (added 2026-09-24)
 
-Migration `20260924090000_reassign_order_owner.sql` (applied by the owner in the
+Migration `20260924130000_reassign_order_owner.sql` (applied by the owner in the
 SQL Editor; rules R1–R10 in CLAUDE.md "REASSIGN OWNER").
 
 ### `trg_guard_order_customer_id` → `guard_order_customer_id_change()`

@@ -2,7 +2,7 @@
 
   2026-09-24 — Reassign Owner for layaway AND cash orders, with the loyalty
   catch-up (owner-approved; rules R1–R10 in CLAUDE.md "REASSIGN OWNER").
-  New: migration 20260924090000_reassign_order_owner.sql (guard trigger
+  New: migration 20260924130000_reassign_order_owner.sql (guard trigger
   trg_guard_order_customer_id on both order tables, insert_lot_catch_up,
   reassign_order_owner_atomic), edge function reassign-order-owner, shared
   rules _shared/reassign-owner-rules.ts (+ src/test/reassign-owner.test.ts in
