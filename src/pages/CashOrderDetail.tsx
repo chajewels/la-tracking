@@ -21,7 +21,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
-import StatusBadge from '@/components/customers/StatusBadge';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
+import { CASH_ORDER_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import Monogram from '@/components/shared/Monogram';
+import { LedgerTimeline, LedgerTimelineItem } from '@/components/shared/LedgerTimeline';
+import { ROUTES } from '@/constants/routes';
 import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
@@ -78,6 +84,10 @@ const REFUND_OPTIONS: { value: RefundStatus; label: string; helper: string }[] =
   { value: 'no_refund', label: 'No refund (forfeited)', helper: 'Nothing is returned and no store credit is issued.' },
 ];
 const REFUND_NOTE_MAX = 300;
+
+const CASH_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired',
+};
 
 interface CashOrderRow {
   id: string;
@@ -1003,7 +1013,11 @@ export default function CashOrderDetail() {
     return (
       <AppLayout>
         <div className="max-w-3xl animate-fade-in space-y-4">
-          <Skeleton className="h-14 rounded-xl" />
+          <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+            <LedgerIllustration kind="ledger" className="h-8 w-10" />
+            Opening the order…
+          </div>
+          <Skeleton className="h-32 rounded-2xl" />
           <Skeleton className="h-28 rounded-xl" />
           <Skeleton className="h-40 rounded-xl" />
         </div>
@@ -1015,19 +1029,24 @@ export default function CashOrderDetail() {
     return (
       <AppLayout>
         <div className="max-w-3xl animate-fade-in">
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Banknote className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">Cash order not found</p>
-            <Link to="/customers?tab=cash" className="inline-block mt-4">
-              <Button variant="outline" size="sm">Back to Cash Orders</Button>
-            </Link>
-          </div>
+          <IllustratedState
+            kind="gem"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text="Cash order not found — it may have been removed or the link is out of date."
+            action={
+              <Link to="/customers?tab=cash">
+                <Button variant="outline" size="sm">Back to Cash Orders</Button>
+              </Link>
+            }
+          />
         </div>
       </AppLayout>
     );
   }
 
   const currency = order.currency as Currency;
+  // % paid — the same expression the Order Timeline ring used (display only).
+  const paidPercent = Number(order.total_amount) > 0 ? Math.round((Number(order.total_paid) / Number(order.total_amount)) * 100) : 0;
 
   /** Columns added for web orders. types.ts is Supabase-generated and lags a
    *  schema change by a Lovable push, so read them through a narrow shape
@@ -1097,24 +1116,39 @@ export default function CashOrderDetail() {
   return (
     <AppLayout>
       <div className="animate-fade-in max-w-3xl space-y-6">
-        {/* Header */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-start gap-4">
-            <Link to="/customers?tab=cash">
-              <Button variant="ghost" size="icon" className="text-muted-foreground">
+        <PageHeaderBand
+          className="pb-3"
+          crumbs={[
+            { label: 'Hub', to: ROUTES.DASHBOARD },
+            { label: 'Sales', to: `${ROUTES.SALES}?tab=cash` },
+            { label: order.source_channel === 'web' ? `Order ${cashOrderRef(order)}` : `Cash order #${order.invoice_number}` },
+          ]}
+        />
+
+        {/* Header card (Hub visual refresh) — the AccountDetail pattern:
+            monogram, title, key facts as pills, % paid ring. All values the
+            page already had; the ring uses the same total_paid / total_amount
+            expression the Order Timeline card used before. */}
+        <div className="ledger-card relative overflow-hidden rounded-2xl border border-gold-500/20 bg-card/90 p-4 sm:p-6">
+          <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3 sm:gap-5">
+            <Link to="/customers?tab=cash" className="hidden sm:block">
+              <Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="Back to cash orders">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient shrink-0">
-                <Banknote className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display truncate">
+            <Monogram name={order.customers?.full_name} />
+            <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="font-deco text-[1.75rem] sm:text-[2.4rem] font-semibold leading-none tracking-tight text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
                     {order.source_channel === 'web' ? `Order ${cashOrderRef(order)}` : `Cash Order #${order.invoice_number}`}
                   </h1>
-                  <StatusBadge status={order.status} />
+                  <StatusPill
+                    size="md"
+                    label={(CASH_STATUS_LABEL[order.status] ?? order.status).toUpperCase()}
+                    tone={CASH_ORDER_STATUS_TONE[order.status] ?? 'muted'}
+                  />
+                  {awaitingReservation && <ToConfirmPill size="md" />}
                   {order.shipped_at && (
                     <Badge
                       variant="outline"
@@ -1140,23 +1174,30 @@ export default function CashOrderDetail() {
                     </Badge>
                   )}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {order.customers && (
                     <Link
                       to={`/customers/${order.customers.id}`}
-                      className="flex items-center gap-1 hover:text-primary transition-colors"
+                      className="mr-1 flex items-center gap-1 text-base text-card-foreground hover:text-primary transition-colors"
                     >
-                      <UserIcon className="h-3 w-3" />
+                      <UserIcon className="h-3.5 w-3.5" />
                       {order.customers.full_name}
                     </Link>
                   )}
                   {loyaltyTier?.current_tier_name && (
                     <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} />
                   )}
+                  <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-gold-500/25 bg-gold-500/[0.06] px-2.5 text-xs text-gold-300 tabular-nums">
+                    Total {formatCurrency(Number(order.total_amount), currency)}
+                  </span>
                   {order.order_date && (
-                    <span>Order date: {order.order_date}</span>
+                    <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground tabular-nums">
+                      Order date {order.order_date}
+                    </span>
                   )}
-                  <span className="font-semibold text-foreground/70">{currency}</span>
+                  <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground">
+                    {currency}
+                  </span>
                 </div>
                 {order.status === 'cancelled' && order.cancelled_at && (
                   <p className="mt-2 text-xs text-destructive">
@@ -1165,8 +1206,13 @@ export default function CashOrderDetail() {
                     {order.cancellation_reason ? ` — ${order.cancellation_reason}` : ''}
                   </p>
                 )}
-              </div>
             </div>
+            <div className="shrink-0">
+              <span className="sm:hidden"><ProgressRing percent={paidPercent} size={72} strokeWidth={6} label="paid" /></span>
+              <span className="hidden sm:inline-flex"><ProgressRing percent={paidPercent} size={104} strokeWidth={7} label="paid" /></span>
+            </div>
+          </div>
+          <div className="flex items-center justify-end border-t border-gold-500/15 pt-3">
             <Button
               variant="ghost"
               size="sm"
@@ -1178,6 +1224,7 @@ export default function CashOrderDetail() {
               <RefreshCcw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
+          </div>
           </div>
         </div>
 
@@ -1221,26 +1268,26 @@ export default function CashOrderDetail() {
               <div className={`grid gap-4 ${gridClass}`}>
                 <div className="text-center">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
-                  <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
+                  <p className="mt-1 whitespace-nowrap font-deco text-lg sm:text-[1.75rem] font-semibold leading-none text-card-foreground [font-variant-numeric:lining-nums_tabular-nums]">
                     {formatCurrency(Number(order.total_amount), currency)}
                   </p>
                 </div>
                 <div className="text-center border-l border-border">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Paid</p>
-                  <p className="mt-1 text-lg sm:text-xl font-bold text-success tabular-nums">
+                  <p className="mt-1 whitespace-nowrap font-deco text-lg sm:text-[1.75rem] font-semibold leading-none text-success [font-variant-numeric:lining-nums_tabular-nums]">
                     {formatCurrency(Number(order.total_paid), currency)}
                   </p>
                 </div>
                 <div className="text-center border-l border-border">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
-                  <p className="mt-1 text-lg sm:text-xl font-bold text-primary tabular-nums">
+                  <p className="mt-1 whitespace-nowrap font-deco text-lg sm:text-[1.75rem] font-semibold leading-none text-primary [font-variant-numeric:lining-nums_tabular-nums]">
                     {formatCurrency(Number(order.remaining_balance), currency)}
                   </p>
                 </div>
                 {hasLoyalty && (
                   <div className="text-center border-l border-border">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Loyalty Amount</p>
-                    <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
+                    <p className="mt-1 whitespace-nowrap font-deco text-lg sm:text-[1.75rem] font-semibold leading-none text-card-foreground [font-variant-numeric:lining-nums_tabular-nums]">
                       ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
                     </p>
                   </div>
@@ -1293,14 +1340,8 @@ export default function CashOrderDetail() {
               Statement
             </Button>
           </div>
-          <div className="flex flex-col sm:flex-row gap-6">
-            <div className="flex justify-center sm:block shrink-0">
-              <ProgressRing
-                percent={Number(order.total_amount) > 0 ? Math.round((Number(order.total_paid) / Number(order.total_amount)) * 100) : 0}
-                label="paid"
-              />
-            </div>
-            <div className="flex-1 min-w-0">
+          <div>
+            <div className="min-w-0">
               <CashOrderTimeline
                 currency={currency as Currency}
                 orderDate={order.order_date}
@@ -1581,33 +1622,32 @@ export default function CashOrderDetail() {
 
         {/* Payment history */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-card-foreground mb-3">Payment History</h3>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h3 className="font-deco text-xl font-semibold text-champagne">Payment History</h3>
+            {(payments || []).length > 0 && (
+              <span className="text-[11px] uppercase tracking-[0.12em] text-ink-muted">Newest first</span>
+            )}
+          </div>
           {paymentsLoading ? (
             <Skeleton className="h-20 rounded-lg" />
           ) : (payments || []).length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No payments yet</p>
+            <IllustratedState kind="scroll" text="No payments yet" className="py-6" />
           ) : (
             <div className="space-y-2">
-              {payments!.map(p => {
+              {/* Fetched oldest-first (created_at asc); shown newest first —
+                  a reversed copy for display, the query is unchanged. */}
+              <LedgerTimeline>
+              {[...payments!].reverse().map(p => {
                 const voided = !!p.voided_at;
                 return (
-                  <div
-                    key={p.id}
-                    className={`rounded-lg border p-3 ${
-                      voided ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-background'
-                    }`}
-                  >
+                  <LedgerTimelineItem key={p.id} voided={voided}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-sm font-bold tabular-nums ${voided ? 'line-through text-muted-foreground' : 'text-card-foreground'}`}>
+                          <span className={`font-deco text-xl font-semibold leading-none [font-variant-numeric:lining-nums_tabular-nums] ${voided ? 'line-through text-muted-foreground' : 'text-success'}`}>
                             {formatCurrency(Number(p.amount_paid), (p.currency || currency) as Currency)}
                           </span>
-                          {voided && (
-                            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/30">
-                              VOIDED
-                            </Badge>
-                          )}
+                          <StatusPill label={voided ? 'Voided' : 'Received'} tone={voided ? 'muted' : 'success'} />
                           {p.payment_method && (
                             <Badge variant="outline" className="text-[10px]">
                               {p.payment_method}
@@ -1677,9 +1717,10 @@ export default function CashOrderDetail() {
                         </Button>
                       )}
                     </div>
-                  </div>
+                  </LedgerTimelineItem>
                 );
               })}
+              </LedgerTimeline>
               {nonVoidedPayments.length > 0 && (
                 <p className="pt-1 text-[11px] text-muted-foreground">
                   {nonVoidedPayments.length} active · {(payments!.length - nonVoidedPayments.length)} voided

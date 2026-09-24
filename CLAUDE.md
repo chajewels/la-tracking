@@ -2152,9 +2152,26 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
 - Sub-item specific badge: badgeBySubKey (badgeKey → count)
 - Both visible simultaneously — Finance parent shows submissions + waivers total, Documentation sub-item shows the same count
 
-### Locked UI decisions
-- Parent "inside" indicator: subtle border-l-[#D4AF37]/40 when location.pathname === parentPath
-- Active sub-item: full gold accent (matches leaf active styling)
+### Locked UI decisions (updated — Hub visual refresh, approved by Cynthia, PR #165)
+- ONE active indicator: the sliding gold pill (`ActivePill` in AppSidebar.tsx) —
+  gold-500 tint + 1px gold inset ring + 2px gold bar on the left, gold-300 text.
+  It sits on exactly one row: the active leaf, OR the active sub-item when its
+  parent is expanded, OR the parent itself when its sub-menu is closed or the
+  sidebar is icon-only. It replaces both former styles (the parent "inside"
+  left border and the separate sub-item accent) — do not reintroduce them.
+- The pill GLIDES between rows. Every page mounts its own AppLayout, so the
+  sidebar remounts on each navigation and framer-motion `layoutId` cannot
+  animate across it; ActivePill records its last rect on unmount and the next
+  pill FLIPs from there (reduced motion: it simply appears). Never swap this
+  back to `layoutId` without first moving AppLayout to a shared layout route.
+- The expanded group is seeded from the route on the FIRST render (useState
+  initialiser), not only in the effect — a one-frame all-collapsed state let
+  whichever row slid under a stationary cursor steal the hover accordion.
+- Icon-only collapse (`collapsible="icon"`) is remembered per browser in
+  localStorage key `cj-hub-sidebar-open` (every access try/catch-guarded).
+  On the icon rail, badges become a dot and clicking a parent opens the
+  sidebar with that group expanded. Phones keep the slide-out drawer.
+- Section headers: Deco serif small caps + a trailing gold hairline.
 - No hover delay (immediate accordion switch) — can be revisited if jitter becomes an issue
 
 ## PAYMENT SUBMISSION FLOW (locked — 2026-04-13, restore added 2026-06-04, universal-submission redesign 2026-06-12)

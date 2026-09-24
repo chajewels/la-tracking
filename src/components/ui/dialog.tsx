@@ -29,10 +29,14 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    /** Opt-in: props for this dialog's own overlay (e.g. a higher z-index
+     *  when it must stack above a non-Radix modal). Omitted = unchanged. */
+    overlayProps?: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>;
+  }
+>(({ className, children, overlayProps, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay {...overlayProps} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(

@@ -22,7 +22,10 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({
+// Exported only so the DEV fixture harness (src/dev/HubRouteShim.tsx) can
+// render pages as a signed-in staff user; app code reads it through useAuth().
+// eslint-disable-next-line react-refresh/only-export-components
+export const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   roles: [],

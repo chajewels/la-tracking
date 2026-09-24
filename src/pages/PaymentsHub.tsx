@@ -18,6 +18,9 @@ import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type TabKey = 'submissions' | 'proofs' | 'waivers';
 
+const SUBTAB =
+  'rounded-none px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none';
+
 interface PaymentsHubProps {
   embedded?: boolean;
   searchValue?: string;
@@ -65,8 +68,8 @@ export default function PaymentsHub({ embedded = false, searchValue }: PaymentsH
       <div className={embedded ? 'space-y-5' : 'p-4 sm:p-6 space-y-5 max-w-6xl mx-auto'}>
         {!embedded && (
           <div>
-            <h1 className="text-2xl font-bold font-display text-foreground tracking-tight flex items-center gap-2">
-              <Wallet className="h-6 w-6 text-primary" />
+            <h1 className="font-deco text-3xl font-semibold tracking-tight text-champagne flex items-center gap-2">
+              <Wallet className="h-6 w-6 text-gold-300" />
               Financial Documentation
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -85,20 +88,15 @@ export default function PaymentsHub({ embedded = false, searchValue }: PaymentsH
         )}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
-            <TabsTrigger value="submissions">Submissions</TabsTrigger>
-            <TabsTrigger value="proofs">Proof of Payment</TabsTrigger>
-            <TabsTrigger value="waivers">
+          {/* Same underline strip as the Cash / Layaway status tabs, so the
+              four Sales tabs read as one design. */}
+          <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+            <TabsTrigger value="submissions" className={SUBTAB}>Submissions</TabsTrigger>
+            <TabsTrigger value="proofs" className={SUBTAB}>Proof of Payment</TabsTrigger>
+            <TabsTrigger value="waivers" className={SUBTAB}>
               Waivers
               {pendingWaivers > 0 && (
-                <span
-                  className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                  style={{
-                    background: 'rgba(245, 158, 11, 0.18)',
-                    color: '#B45309',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                  }}
-                >
+                <span className="ml-1.5 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning tabular-nums">
                   {pendingWaivers}
                 </span>
               )}

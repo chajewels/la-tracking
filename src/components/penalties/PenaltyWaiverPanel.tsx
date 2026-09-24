@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Shield, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Shield, Clock, CheckCircle, XCircle, Undo2 } from 'lucide-react';
+import { WAIVER_STATUS_LABEL } from '@/components/shared/status-tone';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -40,6 +41,8 @@ const statusConfig: Record<string, { icon: typeof Clock; label: string; classNam
   pending: { icon: Clock, label: 'Pending', className: 'bg-warning/10 text-warning border-warning/20' },
   approved: { icon: CheckCircle, label: 'Approved', className: 'bg-success/10 text-success border-success/20' },
   rejected: { icon: XCircle, label: 'Rejected', className: 'bg-destructive/10 text-destructive border-destructive/20' },
+  // Grace window passed, penalty reinstated by penalty-engine — closed, muted.
+  auto_unwaived: { icon: Undo2, label: WAIVER_STATUS_LABEL.auto_unwaived, className: 'bg-muted text-muted-foreground border-border' },
 };
 
 export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency, penalties }: PenaltyWaiverPanelProps) {

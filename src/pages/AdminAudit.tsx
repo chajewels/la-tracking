@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
+import { WAIVER_STATUS_LABEL } from '@/components/shared/status-tone';
 
 // ── Penalty Audit ──
 export function PenaltyAuditTab() {
@@ -91,8 +92,8 @@ export function PenaltyAuditTab() {
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {waiver ? (
-                      <Badge variant="outline" className={`text-[10px] ${waiver.status === 'approved' ? 'bg-success/10 text-success' : waiver.status === 'rejected' ? 'bg-destructive/10 text-destructive' : 'bg-warning/10 text-warning'}`}>
-                        {waiver.status}
+                      <Badge variant="outline" className={`text-[10px] ${waiver.status === 'approved' ? 'bg-success/10 text-success' : waiver.status === 'rejected' ? 'bg-destructive/10 text-destructive' : waiver.status === 'auto_unwaived' ? 'bg-muted text-muted-foreground' : 'bg-warning/10 text-warning'}`}>
+                        {waiver.status === 'auto_unwaived' ? WAIVER_STATUS_LABEL.auto_unwaived : waiver.status}
                       </Badge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
