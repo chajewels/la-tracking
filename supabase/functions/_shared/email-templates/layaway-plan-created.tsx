@@ -23,10 +23,21 @@ export interface LayawayPlanCreatedProps {
   transferDueAt: string
   region: 'JP' | 'OVERSEAS'
   planUrl: string | null
+  /**
+   * RESERVE-FIRST (A2). 'ready' is the email confirm-web-order-ready sends when
+   * staff confirm a layaway reservation: the deposit, where to send it, the new
+   * deadline and the schedule re-dated from the confirmation day. It is always
+   * sent with lang 'en' (owner decision: layaway emails are English only).
+   * Absent reads exactly as it always has.
+   */
+  variant?: 'placed' | 'ready'
 }
 
 export const layawayPlanCreatedSubject = (reference: string) =>
   `分割予約を承りました ${reference} / Layaway reserved — Cha Jewels ${reference}`
+
+export const layawayReadySubject = (reference: string) =>
+  `Your piece is confirmed — please send your deposit — Cha Jewels ${reference}`
 
 const COPY = {
   ja: {
@@ -47,8 +58,22 @@ const COPY = {
   },
 } as const
 
+/** The 'ready' variant: only the heading and the opening line differ. */
+const READY_COPY = {
+  ja: {
+    ...COPY.ja,
+    heading: 'お品物のご用意ができました',
+    intro: (ref: string) => `ご予約番号 ${ref} のお品物を確認いたしました。お支払いスケジュールは本日から始まります。`,
+  },
+  en: {
+    ...COPY.en,
+    heading: 'Your piece is confirmed',
+    intro: (ref: string) => `We have confirmed your piece under reference ${ref}. Your payment schedule starts from today.`,
+  },
+} as const
+
 const Block = ({ lang, p, primary }: { lang: Lang; p: LayawayPlanCreatedProps; primary: boolean }) => {
-  const c = COPY[lang]
+  const c = p.variant === 'ready' ? READY_COPY[lang] : COPY[lang]
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
@@ -76,7 +101,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: LayawayPlanCreatedProps; p
 export const LayawayPlanCreatedEmail = (p: LayawayPlanCreatedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{layawayPlanCreatedSubject(p.reference)}</Preview>
+    <Preview>{p.variant === 'ready' ? layawayReadySubject(p.reference) : layawayPlanCreatedSubject(p.reference)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

@@ -20,6 +20,7 @@ import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -53,6 +54,7 @@ interface CashOrderRow {
   web_reference: string | null;
   payment_status: string | null;
   transfer_due_at: string | null;
+  ready_confirmed_at: string | null;
 }
 
 // Display order for the status tabs. Only statuses PRESENT in the data get a
@@ -69,10 +71,11 @@ const statusLabel: Record<string, string> = {
 };
 
 // Where the order came from. 'web' is storefront checkout (Phase 2 step 2);
-// everything else is staff-entered or a marketplace sync.
-type ChannelFilter = 'all' | 'web' | 'hub';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
-const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
+// everything else is staff-entered or a marketplace sync. 'awaiting' (reserve-
+// first A2) is the web reservations nobody has confirmed yet.
+type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 const PAGE_SIZE = 50;
 
 function useCashOrders() {
@@ -82,7 +85,7 @@ function useCashOrders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders' as any)
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, customers(id, full_name, messenger_link)')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, ready_confirmed_at, customers(id, full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as CashOrderRow[];
@@ -155,7 +158,9 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       (o.web_reference || '').toLowerCase().includes(search);
     const matchesCurrency = filterCurrency === 'all' || o.currency === filterCurrency;
     const isWeb = o.source_channel === 'web';
-    const matchesChannel = filterChannel === 'all' || (filterChannel === 'web' ? isWeb : !isWeb);
+    const matchesChannel = filterChannel === 'all'
+      || (filterChannel === 'awaiting' ? isAwaitingConfirmation(o, 'cash_order')
+        : filterChannel === 'web' ? isWeb : !isWeb);
     const matchesTest = !hideTest || !isTestCashOrder(o);
     return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -399,6 +404,11 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                       </div>
                       <div className="flex items-center gap-1.5">
                         <StatusBadge status={order.status} />
+                        {isAwaitingConfirmation(order, 'cash_order') && (
+                          <span className="inline-flex items-center rounded-md border border-warning/40 bg-warning/15 px-1.5 py-0.5 text-[10px] font-bold text-warning">
+                            ⏳ To confirm
+                          </span>
+                        )}
                         {isTest && (
                           <span className="inline-flex items-center rounded-md border border-info/20 bg-info/10 px-1.5 py-0.5 text-[10px] font-bold text-info">
                             🧪 TEST

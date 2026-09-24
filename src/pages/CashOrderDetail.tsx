@@ -26,6 +26,8 @@ import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDia
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import ReservationPanel from '@/components/reservations/ReservationPanel';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
@@ -106,6 +108,8 @@ interface CashOrderRow {
   payment_method?: string | null;
   payment_status?: string | null;
   transfer_due_at?: string | null;
+  /** Reserve-first (A1/A2): NULL on a web order = a reservation staff have not confirmed. */
+  ready_confirmed_at?: string | null;
   order_type?: string | null;
   recipient_name?: string | null;
   recipient_phone?: string | null;
@@ -1033,7 +1037,11 @@ export default function CashOrderDetail() {
     transfer_due_at?: string | null;
     source_channel?: string | null;
   };
-  const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
+  // Reserve-first (A2): a web reservation nobody has confirmed takes no money
+  // — the customer has not been shown where to pay. submit-cash-payment refuses
+  // it (not_ready_for_payment); the page does not offer it.
+  const awaitingReservation = isAwaitingConfirmation(order, 'cash_order');
+  const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending' && !awaitingReservation;
   const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
   // Cancel dialog — web-order refund decision. Web-ness comes from the order row
   // (the preview's is_web only confirms it); money/stock figures come from the
@@ -1172,6 +1180,17 @@ export default function CashOrderDetail() {
             </Button>
           </div>
         </div>
+
+        {/* Reserve-first (A2): unconfirmed web reservation — Confirm / Can't supply. */}
+        {awaitingReservation && (
+          <ReservationPanel
+            entityType="cash_order"
+            entityId={order.id}
+            reference={order.web_reference ?? order.invoice_number}
+            createdAt={order.created_at}
+            canAct={can('confirm_web_order_ready')}
+          />
+        )}
 
         {/* Amount card */}
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">
@@ -1458,6 +1477,7 @@ export default function CashOrderDetail() {
           transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
           reference={orderWebFields.web_reference ?? null}
           sourceChannel={orderWebFields.source_channel ?? null}
+          awaitingConfirmation={awaitingReservation}
           canEdit={can('edit_account')}
         />
 

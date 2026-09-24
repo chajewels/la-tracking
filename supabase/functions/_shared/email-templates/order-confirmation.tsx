@@ -21,10 +21,20 @@ export interface OrderConfirmationProps {
   transferDueAt: string
   region: 'JP' | 'OVERSEAS'
   orderUrl: string | null
+  /**
+   * RESERVE-FIRST (A2). 'ready' is the email confirm-web-order-ready sends when
+   * staff confirm a reservation: the same items, methods and deadline, headed
+   * as "your piece is confirmed". Absent (every caller before A2) reads
+   * exactly as it always has.
+   */
+  variant?: 'placed' | 'ready'
 }
 
 export const orderConfirmationSubject = (reference: string) =>
   `ご注文ありがとうございます ${reference} / Your Cha Jewels order ${reference}`
+
+export const orderReadySubject = (reference: string) =>
+  `お支払いのご案内 ${reference} / Your Cha Jewels order ${reference} is ready for payment`
 
 const COPY = {
   ja: {
@@ -43,8 +53,22 @@ const COPY = {
   },
 } as const
 
+/** The 'ready' variant: only the heading and the opening line differ. */
+const READY_COPY = {
+  ja: {
+    ...COPY.ja,
+    heading: 'お品物のご用意ができました',
+    intro: (ref: string) => `ご注文番号 ${ref} のお品物を確認いたしました。下記のお振込先へ、期限までにお振込をお願いいたします。ご入金の確認後、発送の準備に入ります。`,
+  },
+  en: {
+    ...COPY.en,
+    heading: 'Your piece is confirmed',
+    intro: (ref: string) => `We have confirmed your piece for order ${ref}. Please transfer the total to one of the accounts below before the deadline. We prepare shipment once the transfer has arrived.`,
+  },
+} as const
+
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; primary: boolean }) => {
-  const c = COPY[lang]
+  const c = p.variant === 'ready' ? READY_COPY[lang] : COPY[lang]
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
@@ -68,7 +92,7 @@ export const OrderConfirmationEmail = (p: OrderConfirmationProps) => {
   return (
     <Html lang={p.lang} dir="ltr">
       <Head />
-      <Preview>{orderConfirmationSubject(p.reference)}</Preview>
+      <Preview>{p.variant === 'ready' ? orderReadySubject(p.reference) : orderConfirmationSubject(p.reference)}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>
