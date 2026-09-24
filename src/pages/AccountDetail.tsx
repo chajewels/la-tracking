@@ -43,6 +43,12 @@ import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, use
 import PaymentTimeline, { type TimelineInstallment } from '@/components/accounts/PaymentTimeline';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import ProgressRing from '@/components/shared/ProgressRing';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
+import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import Monogram from '@/components/shared/Monogram';
+import { LedgerTimeline, LedgerTimelineItem } from '@/components/shared/LedgerTimeline';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
@@ -1018,7 +1024,11 @@ export default function AccountDetail() {
     return (
       <AppLayout>
         <div className="space-y-6">
-          <Skeleton className="h-10 w-64" />
+          <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+            <LedgerIllustration kind="ledger" className="h-8 w-10" />
+            Opening the account ledger…
+          </div>
+          <Skeleton className="h-32 rounded-2xl" />
           <div className="grid grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
@@ -1030,9 +1040,7 @@ export default function AccountDetail() {
   if (!account) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Account not found</p>
-        </div>
+        <IllustratedState kind="gem" className="h-64" text="Account not found — it may have been removed or the link is out of date." />
       </AppLayout>
     );
   }
@@ -1077,14 +1085,27 @@ export default function AccountDetail() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Link to={ROUTES.ACCOUNTS}>
-            <Button variant="ghost" size="icon" className="text-muted-foreground">
+        <PageHeaderBand
+          className="pb-3"
+          crumbs={[
+            { label: 'Hub', to: ROUTES.DASHBOARD },
+            { label: 'Layaway accounts', to: ROUTES.ACCOUNTS },
+            { label: `INV #${account.invoice_number}` },
+          ]}
+        />
+
+        {/* Header card (Hub visual refresh): monogram, invoice, key facts as
+            pills, and the % paid ring — all values the page already has. */}
+        <div className="ledger-card relative overflow-hidden rounded-2xl border border-gold-500/20 bg-card/90 p-4 sm:p-6">
+        <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-3 sm:gap-5">
+          <Link to={ROUTES.ACCOUNTS} className="hidden sm:block">
+            <Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="Back to accounts">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div className="flex-1">
+          <Monogram name={account.customers?.full_name} />
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               {editingInvoice ? (
                 <div className="flex items-center gap-2">
@@ -1107,7 +1128,7 @@ export default function AccountDetail() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
+                  <h1 className="font-deco text-[1.75rem] sm:text-[2.6rem] font-semibold leading-none tracking-tight text-champagne [font-variant-numeric:lining-nums_tabular-nums]">INV #{account.invoice_number}</h1>
                   {can('edit_invoice') && !isLockedTest && (
                   <Button
                     size="icon"
@@ -1121,22 +1142,19 @@ export default function AccountDetail() {
                   )}
                 </div>
               )}
-              <Badge variant="outline" className={
-                effectiveStatus === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
-                effectiveStatus === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
-                effectiveStatus === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
-                effectiveStatus === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
-                effectiveStatus === 'grace_period' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 text-xs' :
-                effectiveStatus === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
-                effectiveStatus === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
-                'bg-success/10 text-success border-success/20 text-xs'
-              }>
-                {effectiveStatus === 'final_settlement' ? 'FINAL SETTLEMENT' :
-                 effectiveStatus === 'extension_active' ? 'EXTENSION ACTIVE' :
-                 effectiveStatus === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
-                 effectiveStatus === 'grace_period' ? 'GRACE PERIOD' :
-                 effectiveStatus.toUpperCase()}
-              </Badge>
+              <StatusPill
+                size="md"
+                tone={effectiveStatus === 'grace_period' ? 'warning' : (ACCOUNT_STATUS_TONE[effectiveStatus] ?? 'success')}
+                pulse={effectiveStatus === 'overdue'}
+                label={
+                  effectiveStatus === 'final_settlement' ? 'FINAL SETTLEMENT' :
+                  effectiveStatus === 'extension_active' ? 'EXTENSION ACTIVE' :
+                  effectiveStatus === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
+                  effectiveStatus === 'grace_period' ? 'GRACE PERIOD' :
+                  effectiveStatus.toUpperCase()
+                }
+              />
+              {awaitingReservation && <ToConfirmPill size="md" />}
               {account.shipped_at && (
                 <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
                   SHIPPED
@@ -1158,7 +1176,7 @@ export default function AccountDetail() {
               {/* Reserved by the customer on the storefront. Staff read the plan
                   by its CJ-W reference; the numeric invoice stays the Hub key. */}
               {webFields.source_channel === 'web' && (
-                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs whitespace-nowrap">
                   🌐 Web{webFields.web_reference ? ` · ${webFields.web_reference}` : ''}
                 </Badge>
               )}
@@ -1215,13 +1233,23 @@ export default function AccountDetail() {
                 </div>
               );
             })()}
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {account.customers?.full_name}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-base text-card-foreground">{account.customers?.full_name}</span>
               {loyaltyTier?.current_tier_name && (
-                <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} className="mx-2 align-middle" />
+                <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} className="align-middle" />
               )}
-              · {account.payment_plan_months}-Month Plan · {currency}
-            </p>
+              <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-gold-500/25 bg-gold-500/[0.06] px-2.5 text-xs text-gold-300">
+                {account.payment_plan_months}-Month Plan
+              </span>
+              <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground">
+                {currency}
+              </span>
+              {account.order_date && (
+                <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground tabular-nums">
+                  Ordered {new Date(account.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
             {penaltyCapOverride && (
               <div className="mt-1 flex items-center gap-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
@@ -1230,6 +1258,13 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
+          {/* % paid of total (incl. penalties + services) — summary.progressPercent, unchanged source */}
+          <div className="shrink-0">
+            <span className="sm:hidden"><ProgressRing percent={progress} size={72} strokeWidth={6} label="paid" /></span>
+            <span className="hidden sm:inline-flex"><ProgressRing percent={progress} size={104} strokeWidth={7} label="paid" /></span>
+          </div>
+        </div>
+        <div className="flex flex-col-reverse gap-3 border-t border-gold-500/15 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
           {!isLockedTest && (
           <div className="flex gap-2 flex-wrap">
@@ -1439,6 +1474,8 @@ export default function AccountDetail() {
           </div>
           )}
         </div>
+        </div>
+        </div>
 
         {/* Reserve-first (A2): unconfirmed web reservation — Confirm / Can't supply. */}
         {awaitingReservation && (
@@ -1567,14 +1604,6 @@ export default function AccountDetail() {
               </p>
             </div>
           )}
-          <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
-            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
-            {/* % paid of total (incl. penalties + services) — summary.progressPercent, unchanged source */}
-            <div className="flex justify-center pt-1">
-              <ProgressRing percent={progress} label="paid" />
-            </div>
-          </div>
           {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
             <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
               <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
@@ -2152,19 +2181,25 @@ export default function AccountDetail() {
 
           {/* Payment History */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            <h3 className="text-sm font-semibold text-card-foreground mb-4">Payment History</h3>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="font-deco text-xl font-semibold text-champagne">Payment History</h3>
+              {payments && payments.length > 0 && (
+                <span className="text-[11px] uppercase tracking-[0.12em] text-ink-muted">Newest first</span>
+              )}
+            </div>
             {(!payments || payments.length === 0) ? (
-              <p className="text-sm text-muted-foreground">No payments recorded yet</p>
+              <IllustratedState kind="scroll" text="No payments recorded yet" className="py-6" />
             ) : (
-              <div className="space-y-2">
+              <LedgerTimeline>
                 {/* Bug #179: sort by date_paid (when the customer actually paid),
                     not by created_at (when staff entered the row). created_at is the
-                    tiebreaker for same-day payments. */}
+                    tiebreaker for same-day payments. Displayed newest first
+                    (same keys, reversed direction — display only). */}
                 {[...payments].sort((a: any, b: any) => {
                   const dateA = a.date_paid ? new Date(a.date_paid).getTime() : new Date(a.created_at).getTime();
                   const dateB = b.date_paid ? new Date(b.date_paid).getTime() : new Date(b.created_at).getTime();
-                  if (dateA !== dateB) return dateA - dateB;
-                  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                  if (dateA !== dateB) return dateB - dateA;
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                 }).map((p) => {
                   const isVoided = !!(p as any).voided_at;
                   const isEditing = editingId === p.id;
@@ -2175,7 +2210,7 @@ export default function AccountDetail() {
                     const isSaving = editPayment.isPending || editPaymentAmount.isPending;
 
                     return (
-                      <div key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
+                      <li key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                           <div>
                             <label className="text-[10px] text-muted-foreground uppercase">Date</label>
@@ -2261,7 +2296,7 @@ export default function AccountDetail() {
                             <Save className="h-3 w-3 mr-1" /> Save
                           </Button>
                         </div>
-                      </div>
+                      </li>
                     );
                   }
 
@@ -2269,12 +2304,13 @@ export default function AccountDetail() {
                   const senderType = (p as any).submitted_by_type as string | null;
                   const senderName = (p as any).submitted_by_name as string | null;
                   return (
-                    <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs sm:text-sm text-card-foreground">
+                    <LedgerTimelineItem key={p.id} voided={isVoided} className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className={`text-sm font-medium text-card-foreground ${isVoided ? 'line-through' : ''}`}>
                             {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                           </p>
+                          <StatusPill label={isVoided ? 'Voided' : 'Received'} tone={isVoided ? 'muted' : 'success'} />
                           {isDpPayment && !isVoided && (
                             <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
                           )}
@@ -2307,8 +2343,8 @@ export default function AccountDetail() {
                           );
                         })()}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <p className={`font-deco text-lg sm:text-xl font-semibold leading-none [font-variant-numeric:lining-nums_tabular-nums] ${isVoided ? 'text-muted-foreground line-through' : 'text-success'}`}>
                           {isVoided ? '' : '+'}{formatCurrency(Number(p.amount_paid), p.currency as Currency)}
                         </p>
                         {!isVoided && (
@@ -2349,10 +2385,10 @@ export default function AccountDetail() {
                           </Button>
                         )}
                       </div>
-                    </div>
+                    </LedgerTimelineItem>
                   );
                 })}
-              </div>
+              </LedgerTimeline>
             )}
           </div>
         </div>

@@ -2,7 +2,7 @@ import { memo, useState, useMemo, useCallback, useRef, useEffect, type ReactNode
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Plus, Search, ChevronRight, ChevronLeft, Banknote } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronLeft } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,13 +12,18 @@ import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import StatusBadge from './StatusBadge';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
+import { CASH_ORDER_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ROUTES } from '@/constants/routes';
 import { transition, rowDelay } from '@/theme/motion';
 import SortMenu, { sortRows, type SortState } from '@/components/list-kit/SortMenu';
 import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
 import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
-import { EmptyState } from '@/components/shared/EmptyState';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 
@@ -136,6 +141,9 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   const [density, setDensity] = useDensity('cj-sales-list-density');
   const gridRef = useRef<HTMLDivElement>(null);
   useListKeyboardNav(gridRef);
+  // Desktop shows the page as a ledger table (the layaway list's treatment);
+  // phones keep the cards.
+  const isMobile = useIsMobile();
 
   const { data: orders, isLoading } = useCashOrders();
 
@@ -232,29 +240,119 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
 
   const canCreate = can('create_account') || isAdmin;
 
+  // Ledger table columns (desktop) — the same shared DataTable treatment as the
+  // layaway list. Same fields and the same "% paid" / date expressions the
+  // cards use; nothing is re-derived.
+  const orderDateLabel = (o: CashOrderRow) =>
+    o.order_date || Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(o.created_at));
+  const money = (n: number, c: Currency) => <span className="tabular-nums">{formatCurrency(n, c)}</span>;
+  const ledgerColumns: DataTableColumn<CashOrderRow>[] = [
+    {
+      key: 'ref',
+      header: 'Reference',
+      cellClassName: 'whitespace-nowrap',
+      cell: (o) => (
+        <span className="inline-flex items-center gap-2">
+          <span className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
+            {o.source_channel === 'web' ? '' : '#'}
+            <HighlightText text={cashOrderRef(o)} query={searchQuery} />
+          </span>
+          {isTestCashOrder(o) && (
+            <span className="inline-flex h-4 items-center rounded-md border border-info/20 bg-info/10 px-1.5 text-[9px] font-bold text-info">TEST</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'customer',
+      header: 'Customer',
+      cellClassName: 'max-w-[200px]',
+      cell: (o) => (
+        <span className="block truncate text-sm text-card-foreground">
+          <HighlightText text={o.customers?.full_name || 'Unknown'} query={searchQuery} />
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (o) => (
+        <span className="inline-flex flex-col items-start gap-1 whitespace-nowrap">
+          <StatusPill label={statusLabel[o.status] || o.status} tone={CASH_ORDER_STATUS_TONE[o.status] ?? 'muted'} />
+          {isAwaitingConfirmation(o, 'cash_order') && <ToConfirmPill />}
+        </span>
+      ),
+    },
+    {
+      key: 'progress',
+      header: 'Paid',
+      cell: (o) => {
+        const total = Number(o.total_amount);
+        const pct = total > 0 ? Math.round((Number(o.total_paid) / total) * 100) : 0;
+        return (
+          <span className="flex items-center gap-2" title={`${pct}% paid`}>
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
+            </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{pct}%</span>
+          </span>
+        );
+      },
+    },
+    { key: 'date', header: 'Date', align: 'right', cell: (o) => <span className="text-muted-foreground tabular-nums">{orderDateLabel(o)}</span> },
+    { key: 'total', header: 'Total', align: 'right', cell: (o) => money(Number(o.total_amount), o.currency) },
+    { key: 'paid', header: 'Received', align: 'right', cell: (o) => <span className="text-success">{money(Number(o.total_paid), o.currency)}</span> },
+    {
+      key: 'balance',
+      header: 'Balance',
+      align: 'right',
+      cell: (o) => <span className="font-semibold text-champagne">{money(Number(o.remaining_balance), o.currency)}</span>,
+    },
+    {
+      key: 'open',
+      header: '',
+      hideable: false,
+      align: 'right',
+      cellClassName: 'w-12',
+      cell: (o) => (
+        <Link to={`/cash-orders/${o.id}`} aria-label={`Open cash order ${cashOrderRef(o)}`} onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" tabIndex={-1}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </Link>
+      ),
+    },
+  ];
+  const ledgerRowProps = (o: CashOrderRow) => ({
+    'data-nav-card': true,
+    tabIndex: 0,
+    'aria-label': `Cash order ${cashOrderRef(o)}, ${o.customers?.full_name || 'Unknown'}`,
+    onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if ((e.target as HTMLElement).closest('button, a')) return;
+        e.preventDefault();
+        navigate(`/cash-orders/${o.id}`);
+      }
+    },
+  });
+
   return (
     <Wrapper>
       <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
-        {/* Header */}
+        {/* Header band (Hub visual refresh) */}
         {!embedded && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
-                <Banknote className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Cash Orders</h1>
-                <p className="text-sm text-muted-foreground">{filtered.length} total orders</p>
-              </div>
-            </div>
-            {canCreate && (
+          <PageHeaderBand
+            crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Sales', to: ROUTES.SALES }, { label: 'Cash orders' }]}
+            title="Cash Orders"
+            subtitle={`${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`}
+            actions={canCreate ? (
               <Link to="/cash-orders/new">
                 <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
                   <Plus className="h-4 w-4 mr-1.5" /> New Cash Order
                 </Button>
               </Link>
-            )}
-          </div>
+            ) : undefined}
+          />
         )}
 
         {/* Filters — single scrollable row on mobile (toolbar compaction) */}
@@ -343,14 +441,20 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
 
         {/* Content */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+              <LedgerIllustration kind="ledger" className="h-8 w-10" />
+              Opening the ledger…
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
+            </div>
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={Banknote}
-            title="No cash orders found"
-            description="Try clearing the search or filters, or record the first cash order."
+          <IllustratedState
+            kind="ledger"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text={searchRef.current || filterStatus !== 'all' ? 'No cash orders match — try clearing the search or filters.' : 'No cash orders yet — record the first one to get started.'}
             action={canCreate ? (
               <Link to="/cash-orders/new">
                 <Button size="sm" className="gold-gradient text-primary-foreground">
@@ -361,6 +465,21 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
           />
         ) : (
           <>
+            {!isMobile ? (
+              <div ref={gridRef}>
+                <DataTable
+                  variant="ledger"
+                  showToolbar={false}
+                  columns={ledgerColumns}
+                  rows={paged}
+                  rowKey={(o) => o.id}
+                  onRowClick={(o) => navigate(`/cash-orders/${o.id}`)}
+                  rowProps={ledgerRowProps}
+                  density={density}
+                  maxHeightClassName="max-h-[68vh]"
+                />
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" ref={gridRef}>
               {paged.map((order, cardIndex) => {
                 const currency = order.currency as Currency;
@@ -403,12 +522,8 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <StatusBadge status={order.status} />
-                        {isAwaitingConfirmation(order, 'cash_order') && (
-                          <span className="inline-flex items-center rounded-md border border-warning/40 bg-warning/15 px-1.5 py-0.5 text-[10px] font-bold text-warning">
-                            ⏳ To confirm
-                          </span>
-                        )}
+                        <StatusPill label={statusLabel[order.status] || order.status} tone={CASH_ORDER_STATUS_TONE[order.status] ?? 'muted'} />
+                        {isAwaitingConfirmation(order, 'cash_order') && <ToConfirmPill />}
                         {isTest && (
                           <span className="inline-flex items-center rounded-md border border-info/20 bg-info/10 px-1.5 py-0.5 text-[10px] font-bold text-info">
                             🧪 TEST
@@ -470,6 +585,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                 );
               })}
             </div>
+            )}
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 pt-2">
                 <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>

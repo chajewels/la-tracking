@@ -29,7 +29,7 @@ export default function ReservationPanel({
         <div className="flex min-w-0 items-start gap-3">
           <Hourglass className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-card-foreground">
+            <p className="font-deco text-lg font-semibold leading-tight text-champagne">
               Reservation — confirm the piece
             </p>
             <p className="text-xs text-muted-foreground">

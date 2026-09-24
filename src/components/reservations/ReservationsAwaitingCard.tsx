@@ -37,7 +37,7 @@ export default function ReservationsAwaitingCard() {
     <div id="reservations" ref={ref} className="scroll-mt-4 rounded-xl border-2 border-warning/60 bg-card p-4 sm:p-5">
       <div className="mb-3 flex items-center gap-2">
         <Hourglass className="h-5 w-5 text-warning" />
-        <h2 className="font-display text-base font-semibold text-card-foreground">
+        <h2 className="font-deco text-xl font-semibold text-champagne">
           Reservations to confirm
         </h2>
         <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-bold text-warning tabular-nums">

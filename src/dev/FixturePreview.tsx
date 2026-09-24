@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Route, Routes, useSearchParams } from 'react-router-dom';
 import AccountList from '@/pages/AccountList';
+import HubRouteShim from './HubRouteShim';
 import Dashboard from '@/pages/Dashboard';
 import AccountDetail from '@/pages/AccountDetail';
 import CashOrdersList from '@/components/customers/CashOrdersList';
@@ -65,6 +66,8 @@ import {
   buildCustomerFixtures,
   buildTimelineFixture,
   buildTierFixtures,
+  buildPaymentFixtures,
+  buildCashPaymentFixtures,
 } from './fixtures';
 
 /**
@@ -77,6 +80,11 @@ import {
  * production builds (see the import.meta.env.DEV guard in App.tsx).
  *
  *   /__fixtures                     → AccountList
+ *   /__fixtures?view=hub&at=/        → real shell + pages at real paths
+ *                                     (in-memory router; sidebar nav works;
+ *                                     every permission granted)
+ *     &reservations=1               → two layaway plans + two cash orders
+ *                                     become unconfirmed web reservations
  *   /__fixtures?view=cash           → CashOrdersList
  *   /__fixtures?view=dashboard      → Dashboard (full page, seeded)
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
@@ -103,11 +111,17 @@ export default function FixturePreview() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') ?? 'accounts';
   const empty = searchParams.get('empty') === '1';
+  // Hub shim only: &reservations=1 turns a few seeded orders into website
+  // reservations awaiting confirmation. Off (the default) mirrors the live
+  // web_reservation_mode switch being FALSE — the queue is empty.
+  const hubReservations = view === 'hub' && searchParams.get('reservations') === '1';
 
   // Seed once, before the components mount, so their queries hit fresh cache.
   useState(() => {
     const accounts = empty ? [] : buildAccountFixtures();
     const cashOrders = empty ? [] : buildCashOrderFixtures();
+    // Before any seed: several seeds copy these rows.
+    if (hubReservations) markHubReservations(accounts as unknown as Array<Record<string, unknown>>, cashOrders as unknown as Array<Record<string, unknown>>);
     const seed = (key: unknown[], data: unknown) => {
       queryClient.setQueryDefaults(key, { staleTime: Infinity, gcTime: Infinity, retry: false });
       queryClient.setQueryData(key, data);
@@ -115,6 +129,11 @@ export default function FixturePreview() {
     seed(['accounts'], accounts);
     seed(['accounts-light'], accounts);
     seed(['cash-orders'], cashOrders);
+    for (const o of cashOrders) {
+      seed(['cash-order', o.id], { ...o, customer_id: o.customers.id, loyalty_jpy_amount: null, expires_at: null, expired_at: null, completed_at: null, notes: null });
+      seed(['cash-payments', o.id], buildCashPaymentFixtures(o));
+      for (const k of ['cash-submissions', 'cash-order-notes', 'cash-order-items']) seed([k, o.id], []);
+    }
     seed(['customers'], buildCustomerFixtures(empty));
     seed(['dashboard-summary', 'ALL'], buildDashboardSummary(empty));
     seed(['monthly-analytics', getPHTToday()], buildMonthlyAnalytics(empty));
@@ -122,16 +141,23 @@ export default function FixturePreview() {
     seed(['needs-attention-schedule'], buildAttentionSchedule(empty));
     seed(['needs-attention-cash'], buildAttentionCash(empty));
     // Reserve-first A2: the queue the sidebar pill and Dashboard card read.
-    seed(['web-reservations'], empty ? [] : buildReservationFixtures());
+    seed(
+      ['web-reservations'],
+      empty ? []
+        : view === 'hub' ? (hubReservations ? hubReservationQueue(accounts, cashOrders) : [])
+        : buildReservationFixtures(),
+    );
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
       seed(['account', a.id], a);
-      for (const k of ['schedule', 'payments', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
+      for (const k of ['schedule', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
+      seed(['payments', a.id], buildPaymentFixtures(a));
     }
     return null;
   });
 
+  if (view === 'hub') return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} /></AllowAll>;
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
@@ -960,6 +986,43 @@ function buildReservationCashRows() {
     payment_status: 'awaiting_confirmation', transfer_due_at: null, ready_confirmed_at: null,
     customers: { id: `${r.id}-cust`, full_name: r.customer_name, messenger_link: null },
   }));
+}
+
+/** Hub shim: web reservations awaiting confirmation on real seeded rows, so the
+ *  list pills, detail panels, sidebar count and Dashboard card all agree. */
+const HUB_RESERVATION_ACCOUNTS = ['fixture-acct-0001', 'fixture-acct-0002'];
+const HUB_RESERVATION_CASH = ['fixture-cash-0006', 'fixture-cash-0001'];
+
+function markHubReservations(accounts: Array<Record<string, unknown>>, cash: Array<Record<string, unknown>>) {
+  const mark = (row: Record<string, unknown>, n: number, hoursAgo: number) => {
+    row.source_channel = 'web';
+    row.web_reference = `CJ-W-${String(140 + n).padStart(6, '0')}`;
+    row.ready_confirmed_at = null;
+    row.created_at = ago(hoursAgo);
+  };
+  accounts.filter(a => HUB_RESERVATION_ACCOUNTS.includes(String(a.id))).forEach((a, i) => mark(a, i, 6 + i * 20));
+  cash.filter(o => HUB_RESERVATION_CASH.includes(String(o.id))).forEach((o, i) => mark(o, 10 + i, 3 + i * 27));
+}
+
+interface HubReservationRow {
+  id: string;
+  web_reference?: string | null;
+  customers?: { full_name?: string | null } | null;
+  total_amount: number;
+  currency: string;
+  payment_plan_months?: number;
+  created_at: string;
+}
+
+function hubReservationQueue(accounts: HubReservationRow[], cash: HubReservationRow[]) {
+  const pick = (rows: HubReservationRow[], ids: string[], kind: 'cash_order' | 'layaway') =>
+    rows.filter(r => ids.includes(r.id)).map(r => ({
+      kind, id: r.id, reference: r.web_reference ?? r.id, customer_name: r.customers?.full_name ?? 'A website customer',
+      customer_is_test: false, total_amount: Number(r.total_amount), currency: r.currency,
+      plan_months: kind === 'layaway' ? r.payment_plan_months ?? null : null, created_at: r.created_at,
+    }));
+  return [...pick(cash, HUB_RESERVATION_CASH, 'cash_order'), ...pick(accounts, HUB_RESERVATION_ACCOUNTS, 'layaway')]
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
 /** Every permission granted — the reservation UI is gated, a fixture has no session. */

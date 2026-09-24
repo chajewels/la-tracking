@@ -13,7 +13,33 @@ import CommandPalette from '@/components/layout/CommandPalette';
 import PageTransition from '@/components/motion/PageTransition';
 import { usePrefetchHeavyPages } from '@/hooks/usePrefetchHeavyPages';
 
+// Desktop sidebar expanded / icon-only state, remembered per browser.
+// Storage can be unavailable (private mode, blocked site data) — every
+// access is guarded and the sidebar falls back to expanded.
+const SIDEBAR_OPEN_KEY = 'cj-hub-sidebar-open';
+
+function readSidebarOpen(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function writeSidebarOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(open));
+  } catch {
+    /* storage unavailable — state simply isn't remembered */
+  }
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+  const handleSidebarOpenChange = (open: boolean) => {
+    setSidebarOpen(open);
+    writeSidebarOpen(open);
+  };
   const { profile, roles, signOut } = useAuth();
   usePrefetchHeavyPages();
   const [aiOpen, setAiOpen] = useState(false);
@@ -60,7 +86,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       : 'User';
 
   return (
-    <SidebarProvider>
+    <SidebarProvider open={sidebarOpen} onOpenChange={handleSidebarOpenChange}>
       <div
         className="min-h-screen flex w-full text-white bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: "url('https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_4761.jpeg')" }}
