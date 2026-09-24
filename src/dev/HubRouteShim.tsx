@@ -5,6 +5,8 @@ import AccountList from '@/pages/AccountList';
 import AccountDetail from '@/pages/AccountDetail';
 import Sales from '@/pages/Sales';
 import CashOrderDetail from '@/pages/CashOrderDetail';
+import Customers from '@/pages/Customers';
+import CustomerDetail from '@/pages/CustomerDetail';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import IllustratedState from '@/components/shared/LedgerIllustration';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -56,6 +58,8 @@ export default function HubRouteShim({ at }: { at: string }) {
           <Route path="/accounts/:id" element={<AccountDetail />} />
           <Route path="/sales" element={<Sales />} />
           <Route path="/cash-orders/:id" element={<CashOrderDetail />} />
+          <Route path="/customers" element={<Customers />} />
+          <Route path="/customers/:customerId" element={<CustomerDetail />} />
           <Route path="*" element={<UnseededPage />} />
         </Routes>
       </MemoryRouter>
