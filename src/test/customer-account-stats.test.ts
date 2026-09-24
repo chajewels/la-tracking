@@ -41,6 +41,11 @@ describe("customer active/done counts", () => {
     expect(orderCountsLabel(tallyCustomerOrders(eight, []))).toBe("1 active · 7 done");
   });
 
+  it("Analyn Tigley's case: 1 active + 1 completed layaway is '1 active · 1 done', not '2 active'", () => {
+    const two = [{ status: "active", remaining_balance: 8839 }, { status: "completed", remaining_balance: 0 }];
+    expect(orderCountsLabel(tallyCustomerOrders(two, []))).toBe("1 active · 1 done");
+  });
+
   it("labels the edges", () => {
     expect(orderCountsLabel({ active: 0, completed: 0 })).toBe("No accounts");
     expect(orderCountsLabel(tallyCustomerOrders([{ status: "cancelled", remaining_balance: 1 }], [{ status: "expired" }]))).toBe("No accounts");
