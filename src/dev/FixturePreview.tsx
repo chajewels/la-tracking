@@ -82,6 +82,13 @@ import {
   submissionCacheEntries,
 } from './sales-fixtures';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  buildCustomerCashOrderFixtures,
+  buildCustomerDetailFixture,
+  buildCustomerDirectoryFixtures,
+  buildCustomerTierMap,
+  DEMO_CUSTOMER_ID,
+} from './customer-fixtures';
 
 /**
  * DEV-only preview harness (/__fixtures) used for Playwright screenshot
@@ -102,6 +109,9 @@ import { supabase } from '@/integrations/supabase/client';
  *                                   → Sales → Payments / Waivers, seeded from
  *                                     sales-fixtures.ts (proof thumbnails are
  *                                     drawn locally — no storage session)
+ *   /__fixtures?view=hub&at=/customers  → Customers directory (Phase 3)
+ *   /__fixtures?view=hub&at=/customers/fixture-cust-demo[?tab=cash]
+ *                                   → a fully populated customer page
  *   /__fixtures?view=cash           → CashOrdersList
  *   /__fixtures?view=dashboard      → Dashboard (full page, seeded)
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
@@ -155,7 +165,15 @@ export default function FixturePreview() {
       seed(['cash-payments', o.id], buildCashPaymentFixtures(o));
       for (const k of ['cash-submissions', 'cash-order-notes', 'cash-order-items']) seed([k, o.id], []);
     }
-    seed(['customers'], buildCustomerFixtures(empty));
+    // Customers (Phase 3): the directory, its lookups, and one full customer
+    // page at /customers/fixture-cust-demo (hub view).
+    seed(['customers'], buildCustomerDirectoryFixtures(empty));
+    seed(['cash-orders-light'], cashOrders.map((o) => ({ id: o.id, customer_id: o.customers.id, status: o.status })));
+    seed(['customers-loyalty-tiers'], empty ? new Map() : buildCustomerTierMap());
+    if (!empty) {
+      seed(['customer-detail', DEMO_CUSTOMER_ID], buildCustomerDetailFixture());
+      seed(['cash-orders-by-customer', DEMO_CUSTOMER_ID], buildCustomerCashOrderFixtures());
+    }
     seed(['dashboard-summary', 'ALL'], buildDashboardSummary(empty));
     seed(['monthly-analytics', getPHTToday()], buildMonthlyAnalytics(empty));
     seed(['dashboard-redemptions-kpi'], buildRedemptionsKpi(empty));
