@@ -87,6 +87,13 @@ interface DataTableProps<T> {
    * outside the scroll box are not mounted). Ignored with renderExpanded.
    */
   virtualizeAbove?: number;
+  /**
+   * Controlled row expansion (several rows open at once). When given, the
+   * chevron calls onToggleExpanded and the table reads expandedKeys instead
+   * of its internal one-row-at-a-time state.
+   */
+  expandedKeys?: ReadonlySet<string>;
+  onToggleExpanded?: (row: T) => void;
 }
 
 interface TableSort {
@@ -114,6 +121,8 @@ export default function DataTable<T>({
   density: densityProp,
   maxHeightClassName = 'max-h-[70vh]',
   virtualizeAbove,
+  expandedKeys,
+  onToggleExpanded,
 }: DataTableProps<T>) {
   const ledger = variant === 'ledger';
   const reducedMotion = useReducedMotion();
@@ -201,7 +210,11 @@ export default function DataTable<T>({
     : processedRows.map((row, index) => ({ row, index }));
 
   const activeFilterCount = Object.values(columnFilters).filter(v => v.trim()).length;
-  const cellPad = density === 'compact' ? 'py-1.5 px-3' : 'py-3 px-4';
+  // Ledger rows run a notch tighter horizontally so the Sales tables fit a
+  // 1280px screen beside the sidebar without sideways scrolling.
+  const cellPad = ledger
+    ? (density === 'compact' ? 'py-1.5 px-2.5' : 'py-3 px-3')
+    : (density === 'compact' ? 'py-1.5 px-3' : 'py-3 px-4');
   const colSpan = visibleColumns.length + (renderExpanded ? 1 : 0);
 
   return (
@@ -298,7 +311,7 @@ export default function DataTable<T>({
                     key={col.key}
                     className={cn(
                       'whitespace-nowrap',
-                      ledger && 'h-10 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted',
+                      ledger && 'h-10 px-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted',
                       col.align === 'right' && 'text-right',
                       col.headClassName,
                     )}
@@ -367,7 +380,7 @@ export default function DataTable<T>({
               {padTop > 0 && <tr aria-hidden style={{ height: padTop }} />}
               {renderedRows.map(({ row, index }) => {
                 const key = rowKey(row);
-                const isExpanded = expanded === key;
+                const isExpanded = expandedKeys ? expandedKeys.has(key) : expanded === key;
                 const extra = rowProps?.(row);
                 return (
                   <Fragment key={key}>
@@ -390,7 +403,7 @@ export default function DataTable<T>({
                             type="button"
                             aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
                             aria-expanded={isExpanded}
-                            onClick={() => setExpanded(isExpanded ? null : key)}
+                            onClick={() => (onToggleExpanded ? onToggleExpanded(row) : setExpanded(isExpanded ? null : key))}
                             className="inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <motion.span animate={{ rotate: isExpanded ? 90 : 0 }} transition={transition.micro} className="inline-flex">

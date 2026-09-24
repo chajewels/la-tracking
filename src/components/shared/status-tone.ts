@@ -25,3 +25,43 @@ export const CASH_ORDER_STATUS_TONE: Record<string, StatusTone> = {
   expired: 'danger',
   cancelled: 'muted',
 };
+
+/**
+ * payment_submissions.status → tone (Sales → Payments). Waiting on staff =
+ * info / warning, done = success, refused = danger, withdrawn = muted.
+ */
+export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
+  submitted: 'info',
+  under_review: 'warning',
+  needs_clarification: 'warning',
+  confirmed: 'success',
+  rejected: 'danger',
+  cancelled: 'muted',
+};
+
+/**
+ * penalty_waiver_requests.status (enum waiver_status) → tone and label.
+ * auto_unwaived = the grace window passed and penalty-engine reinstated the
+ * penalty; it is closed, not waiting on anyone, so it reads muted — never
+ * as "Pending", which was the old fallback for a status the UI didn't know.
+ */
+export const WAIVER_STATUS_TONE: Record<string, StatusTone> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  auto_unwaived: 'muted',
+};
+
+export const WAIVER_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  auto_unwaived: 'Auto-unwaived',
+};
+
+/** penalty_fees.status → tone, as shown beside a waiver request. */
+export const PENALTY_STATUS_TONE: Record<string, StatusTone> = {
+  unpaid: 'danger',
+  paid: 'success',
+  waived: 'muted',
+};

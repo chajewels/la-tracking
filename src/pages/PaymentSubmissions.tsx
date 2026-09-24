@@ -23,8 +23,8 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription,
 } from '@/components/ui/alert-dialog';
 import {
-  AlertTriangle, Check, CheckCircle, Clock, CreditCard, Eye, ExternalLink,
-  Filter, Image as ImageIcon, Loader2, MessageSquare, Pencil, RotateCcw, Search, Send, X, XCircle, FileText,
+  AlertTriangle, Check, ChevronRight, CreditCard, ExternalLink,
+  Filter, Image as ImageIcon, Loader2, MessageSquare, Pencil, RotateCcw, X, XCircle, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
@@ -36,6 +36,13 @@ import {
   computeWaterfall, getRowStatus, isRowPaid, getRowRemaining,
   type ScheduleViewRow, type WaterfallResult,
 } from '@/lib/business-rules';
+import StatusPill from '@/components/shared/StatusPill';
+import { SUBMISSION_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification' | 'cancelled';
 
@@ -76,7 +83,7 @@ interface SubmissionAllocation {
 /** Renders a proof-of-payment image via a short-lived signed URL.
  *  The payment-proofs bucket is PRIVATE — all reads must go through
  *  Storage's signed-URL API (RLS-gated by the SELECT policy). */
-function ProofImage({ url, className }: { url: string; className?: string }) {
+function ProofImage({ url, className, compact = false }: { url: string; className?: string; compact?: boolean }) {
   const [imgError, setImgError] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
@@ -92,6 +99,13 @@ function ProofImage({ url, className }: { url: string; className?: string }) {
   }, [url]);
 
   if (imgError) {
+    if (compact) {
+      return (
+        <span title="Proof unavailable" className="flex h-full w-full items-center justify-center text-muted-foreground">
+          <ImageIcon className="h-4 w-4" />
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
         <ImageIcon className="h-3.5 w-3.5" /> Proof unavailable
@@ -99,6 +113,7 @@ function ProofImage({ url, className }: { url: string; className?: string }) {
     );
   }
   if (!src) {
+    if (compact) return <span aria-label="Loading proof…" className="block h-full w-full animate-pulse bg-muted/60" />;
     return <span className="text-xs text-muted-foreground">Loading proof…</span>;
   }
   return (
@@ -107,13 +122,25 @@ function ProofImage({ url, className }: { url: string; className?: string }) {
   );
 }
 
-const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  submitted: { label: 'Submitted', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Send className="h-3 w-3" /> },
-  under_review: { label: 'Under Review', color: 'bg-warning/10 text-warning border-warning/20', icon: <Eye className="h-3 w-3" /> },
-  confirmed: { label: 'Confirmed', color: 'bg-success/10 text-success border-success/20', icon: <CheckCircle className="h-3 w-3" /> },
-  rejected: { label: 'Rejected', color: 'bg-destructive/10 text-destructive border-destructive/20', icon: <XCircle className="h-3 w-3" /> },
-  needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
+// Labels are unchanged; colour now comes from the shared StatusPill tones
+// (SUBMISSION_STATUS_TONE). Unknown statuses fall back to Submitted, as before.
+const statusConfig: Record<string, { label: string }> = {
+  submitted: { label: 'Submitted' },
+  under_review: { label: 'Under Review' },
+  confirmed: { label: 'Confirmed' },
+  rejected: { label: 'Rejected' },
+  needs_clarification: { label: 'Needs Clarification' },
 };
+const statusTone = (status: string) => SUBMISSION_STATUS_TONE[statusConfig[status] ? status : 'submitted'] ?? 'info';
+
+/** A proof is present when proof_url is a non-blank string (unchanged rule). */
+const hasProof = (url: string | null): url is string => !!url && url.trim().length > 0;
+const isPdf = (url: string) => /\.pdf$/i.test(url);
+const proofFileName = (url: string) => decodeURIComponent(url.split('/').pop() || 'proof.pdf').split('?')[0];
+
+/** Surface shared by the three hand-rolled review modals (they layer above
+ *  each other at z 9998/9999, so they are not Radix dialogs). */
+const MODAL_PANEL = 'ui-dialog-panel fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-md border border-gold-500/20 rounded-xl p-6 bg-background text-foreground';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ActionDialogModal
@@ -129,7 +156,7 @@ interface ActionDialogModalProps {
   confirmScheduleRows: ScheduleViewRow[];
   confirmPartialRow: { scheduleId: string; row: ScheduleViewRow; shortfall: number } | null;
   isPending: boolean;
-  setProofDialog: (url: string | null) => void;
+  setProofDialog: (url: string | null, trigger?: HTMLElement | null) => void;
   onCancel: () => void;
   onSubmit: (notes: string) => void;
 }
@@ -159,16 +186,26 @@ const ActionDialogModal = memo(function ActionDialogModal({
         onClick={onCancel}
       />
       <div
-        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto border border-border rounded-xl p-6 shadow-xl"
-        style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="submission-action-title"
+        className={cn(MODAL_PANEL, 'max-h-[85vh] overflow-y-auto')}
+        style={{ zIndex: 9999, pointerEvents: 'auto' }}
       >
-        <div className="flex flex-col space-y-1.5 mb-4">
-          <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
-            {actionDialog.action === 'confirmed' ? '✅ Confirm Payment' :
-             actionDialog.action === 'rejected' ? '❌ Reject Submission' :
-             actionDialog.action === 'restore' ? '🔄 Restore Submission' :
-             '💬 Request Clarification'}
-          </h2>
+        <DecoDialogHeader
+          className="mb-4"
+          icon={actionDialog.action === 'confirmed' ? <Check /> :
+                actionDialog.action === 'rejected' ? <XCircle /> :
+                actionDialog.action === 'restore' ? <RotateCcw /> :
+                <MessageSquare />}
+          title={
+          <h2 id="submission-action-title" className={decoTitleClass}>
+            {actionDialog.action === 'confirmed' ? 'Confirm Payment' :
+             actionDialog.action === 'rejected' ? 'Reject Submission' :
+             actionDialog.action === 'restore' ? 'Restore Submission' :
+             'Request Clarification'}
+          </h2>}
+          description={
           <p className="text-sm text-muted-foreground">
             {actionDialog.action === 'confirmed'
               ? `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
@@ -177,14 +214,14 @@ const ActionDialogModal = memo(function ActionDialogModal({
               : actionDialog.action === 'restore'
               ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
               : 'Send a message to the customer requesting more information.'}
-          </p>
-        </div>
+          </p>}
+        />
 
         <div className="space-y-3">
           {/* Proof preview — always shown regardless of status */}
           {(actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
-            <div className="rounded-md border border-border bg-muted/20 p-2.5 space-y-1.5">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Proof of Payment</p>
+            <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 space-y-1.5">
+              <p className="label-caps text-[10px] text-ink-muted">Proof of Payment</p>
               {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
                 <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
                   <FileText className="h-4 w-4 text-primary shrink-0" />
@@ -203,7 +240,8 @@ const ActionDialogModal = memo(function ActionDialogModal({
                 <>
                   <button
                     type="button"
-                    onClick={() => setProofDialog(actionDialog.sub.proof_url!)}
+                    aria-label="Proof of payment — view full size"
+                    onClick={(e) => setProofDialog(actionDialog.sub.proof_url!, e.currentTarget)}
                     className="block w-full text-left">
                     <ProofImage
                       url={actionDialog.sub.proof_url}
@@ -235,8 +273,8 @@ const ActionDialogModal = memo(function ActionDialogModal({
             }
             if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
               return (
-                <div className="rounded-md border border-border bg-muted/30 p-2.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
+                <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5">
+                  <p className="label-caps text-[10px] text-ink-muted mb-1.5">Allocation breakdown</p>
                   {confirmWaterfall.allocations.map((alloc) => {
                     const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
                     if (!row) return null;
@@ -251,9 +289,9 @@ const ActionDialogModal = memo(function ActionDialogModal({
                         <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
                         <span className="text-muted-foreground">→</span>
                         {isPaidAfter ? (
-                          <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                          <StatusPill label="Paid" tone="success" />
                         ) : (
-                          <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                          <StatusPill label="Partial" tone="warning" />
                         )}
                       </div>
                     );
@@ -311,7 +349,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           </div>
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-4">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end mt-5 pt-4 hairline-t">
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button
             variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
@@ -336,12 +374,15 @@ const InlineAmountEdit = memo(function InlineAmountEdit({
   currency,
   canEdit,
   userId,
+  compact = false,
 }: {
   submissionId: string;
   amount: number;
   currency: string;
   canEdit: boolean;
   userId: string | null;
+  /** Table cell size (right-aligned, body-size figures). Display only. */
+  compact?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -413,7 +454,7 @@ const InlineAmountEdit = memo(function InlineAmountEdit({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
-          className="h-7 w-32 text-lg font-bold tabular-nums px-2"
+          className={cn('h-7 w-32 tabular-nums px-2', compact ? 'text-sm font-semibold' : 'text-lg font-bold')}
           autoFocus
           disabled={pending}
         />
@@ -428,8 +469,8 @@ const InlineAmountEdit = memo(function InlineAmountEdit({
   }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <p className="text-lg font-bold font-display text-foreground tabular-nums">
+    <div className={cn('flex items-center gap-1.5', compact && 'justify-end')}>
+      <p className={cn('text-foreground tabular-nums whitespace-nowrap', compact ? 'text-sm font-semibold' : 'text-lg font-bold font-display')}>
         {formatCurrency(amount, currency as 'PHP' | 'JPY')}
       </p>
       {canEdit && (
@@ -511,6 +552,132 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   );
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Presentation pieces shared by the phone card and the desktop row detail.
+// Lifted verbatim from the former card body (Hub visual refresh, Phase 2B) so
+// both layouts render the SAME markup and call the SAME handlers — there is
+// no second implementation of proof viewing, split breakdown or notes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Proof of payment: PDF link, or image preview + View / full size / Download. */
+function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-cover' }: {
+  url: string | null;
+  onExpand: (url: string, trigger?: HTMLElement | null) => void;
+  imageClassName?: string;
+}) {
+  if (!hasProof(url)) {
+    return <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>;
+  }
+  return (
+    <div className="space-y-1.5">
+      <p className="label-caps text-[10px] text-ink-muted">Proof of Payment</p>
+      {isPdf(url) ? (
+        <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
+          <FileText className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-xs text-foreground truncate flex-1" title={url.split('/').pop()}>
+            {proofFileName(url)}
+          </span>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
+            View Proof
+          </a>
+        </div>
+      ) : (
+        <>
+          <button onClick={(e) => onExpand(url, e.currentTarget)} className="block w-full text-left">
+            <ProofImage url={url}
+              className={cn(imageClassName, 'rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in')} />
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => window.open(url, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
+              <ImageIcon className="h-3 w-3" /> View Proof
+            </button>
+            <button onClick={(e) => onExpand(url, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+              View full size
+            </button>
+            <a href={url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+              Download
+            </a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Split submission: the per-invoice breakdown behind its toggle. */
+function SplitBreakdown({ sub, allocs, currency, open, onToggle }: {
+  sub: SubmissionRow;
+  allocs: SubmissionAllocation[];
+  currency: 'PHP' | 'JPY';
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={onToggle}
+        className="text-[10px] text-primary font-medium hover:underline flex items-center gap-1"
+      >
+        {open ? '▼' : '▶'} View allocation breakdown ({allocs.length} invoices)
+      </button>
+      {open && (
+        <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/10 space-y-1">
+          {allocs.map((alloc) => (
+            <div key={alloc.id} className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">#{alloc.invoice_number}</span>
+              <span className="font-medium text-foreground tabular-nums">
+                {formatCurrency(alloc.allocated_amount, currency)}
+              </span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-primary/10">
+            <span className="font-semibold text-foreground">Total</span>
+            <span className="font-bold text-primary tabular-nums">
+              {formatCurrency(sub.submitted_amount, currency)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const fmtStamp = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+/** Row-size submitted time; the full stamp is the tooltip. */
+const fmtShortStamp = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const fmtPaymentDate = (d: string) =>
+  new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+/** Sender, customer notes, the customer-edit warning and the staff note. */
+function SubmissionNotes({ sub, isPending }: { sub: SubmissionRow; isPending: boolean }) {
+  return (
+    <>
+      {sub.sender_name && (
+        <p className="text-sm text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
+      )}
+      {sub.notes && (
+        <p className="text-sm text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
+      )}
+      {sub.customer_edited_at && isPending && (
+        <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
+          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+          <p className="text-xs text-warning font-medium">
+            Customer edited this submission on {fmtStamp(sub.customer_edited_at)} — re-check the proof.
+          </p>
+        </div>
+      )}
+      {sub.reviewer_notes && (
+        <div className="p-2.5 rounded-lg bg-muted/30 border border-[hsl(var(--border))]">
+          <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Staff Note:</p>
+          <p className="text-xs text-foreground">{sub.reviewer_notes}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 interface PaymentSubmissionsProps {
   embedded?: boolean;
   searchValue?: string;
@@ -563,7 +730,15 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
   }, [searchValue]);
 
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
-  const [proofDialog, setProofDialog] = useState<string | null>(null);
+  const [proofDialog, setProofDialogState] = useState<string | null>(null);
+  // Whatever opened the preview gets focus back when it closes — including
+  // the image inside the Confirm dialog. Passed explicitly because Safari
+  // does not focus a button on click, so activeElement can't be trusted.
+  const proofReturnFocus = useRef<HTMLElement | null>(null);
+  const setProofDialog = useCallback((url: string | null, trigger?: HTMLElement | null) => {
+    if (url) proofReturnFocus.current = trigger ?? (document.activeElement as HTMLElement | null);
+    setProofDialogState(url);
+  }, []);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
   // Staff attach/replace-proof dialog (proof-only; supports layaway + cash subs)
@@ -906,36 +1081,339 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
 
   const pendingCount = (submissions || []).filter(s => ['submitted', 'under_review'].includes(s.status)).length;
 
+  // Hub visual refresh: desktop = ledger table (several rows can be open at
+  // once), phones = the cards. Same rows, same handlers, same permission gates.
+  const isMobile = useIsMobile();
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
+  const toggleRow = useCallback((sub: SubmissionRow) => {
+    setOpenRows(prev => {
+      const next = new Set(prev);
+      if (next.has(sub.id)) next.delete(sub.id); else next.add(sub.id);
+      return next;
+    });
+  }, []);
+
+  /** Per-row facts, computed exactly as the card always computed them. */
+  const describe = (sub: SubmissionRow) => {
+    const isCash = !!sub.cash_order_id;
+    const currency = (
+      (isCash ? sub.cash_orders?.currency : sub.layaway_accounts?.currency) || 'PHP'
+    ) as 'PHP' | 'JPY';
+    const invoiceNumber = isCash
+      ? sub.cash_orders?.invoice_number
+      : sub.layaway_accounts?.invoice_number;
+    const customerName = isCash
+      ? (sub.cash_orders?.customers?.full_name || sub.customers?.full_name)
+      : sub.customers?.full_name;
+    const isPending = ['submitted', 'under_review'].includes(sub.status);
+    const isSplit = sub.submission_type === 'split';
+    const allocs = getAllocsForSubmission(sub.id);
+    const dupMatch = isPending ? (submissions || [])
+      .filter(o =>
+        o.id !== sub.id &&
+        ['submitted', 'under_review'].includes(o.status) &&
+        Math.abs(Number(o.submitted_amount) - Number(sub.submitted_amount)) < 1 &&
+        ((sub.account_id && o.account_id === sub.account_id) ||
+         (sub.cash_order_id && o.cash_order_id === sub.cash_order_id)),
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+      : null;
+    const dupMinutesAgo = dupMatch
+      ? Math.max(1, Math.round((Date.now() - new Date(dupMatch.created_at).getTime()) / 60000))
+      : 0;
+    const dupTitle = dupMatch
+      ? `Matches submission by ${dupMatch.sender_name ?? 'unknown'}, submitted ${dupMinutesAgo} minute${dupMinutesAgo === 1 ? '' : 's'} ago`
+      : '';
+    const invoiceLabel = isSplit && allocs.length > 1 ? `${allocs.length} invoices` : `#${invoiceNumber || '—'}`;
+    const detailHref = isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`;
+    return { isCash, currency, invoiceNumber, customerName, isPending, isSplit, allocs, dupMatch, dupTitle, invoiceLabel, detailHref };
+  };
+
+  /** Confirm / Reject / Clarify / Attach / Restore — the card's exact gates. */
+  const renderActions = (sub: SubmissionRow, isPending: boolean, layout: 'row' | 'card') => {
+    const row = layout === 'row';
+    const btn = row ? 'h-7 gap-1 px-2.5 text-xs' : 'gap-1.5 text-xs';
+    return (
+      <>
+        {isPending && canModerate && (
+          <>
+            {canConfirm && (
+              <Button size="sm" variant="default" className={btn}
+                disabled={!hasProof(sub.proof_url)}
+                title={!hasProof(sub.proof_url) ? 'Proof of payment required to confirm' : undefined}
+                onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+                <Check className="h-3.5 w-3.5" /> Confirm
+              </Button>
+            )}
+            {canReject && (
+              <Button size="sm" variant="outline" className={btn} onClick={() => setActionDialog({ sub, action: 'rejected' })}>
+                <XCircle className="h-3.5 w-3.5" /> Reject
+              </Button>
+            )}
+            {canReview && (row ? (
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-gold-300"
+                aria-label="Clarify" title="Request clarification"
+                onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
+                <MessageSquare className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" className={btn} onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
+                <MessageSquare className="h-3.5 w-3.5" /> Clarify
+              </Button>
+            ))}
+            {row ? (
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-gold-300"
+                aria-label="Attach / Replace proof" title="Attach / Replace proof"
+                onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
+                <ImageIcon className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" className={btn} onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
+                <ImageIcon className="h-3.5 w-3.5" /> Attach / Replace proof
+              </Button>
+            )}
+          </>
+        )}
+        {isPending && !canModerate && (
+          <StatusPill label="Pending Confirmation" tone="warning" />
+        )}
+        {sub.status === 'rejected' && canReject && (
+          <Button size="sm" variant="outline" className={btn} onClick={() => setActionDialog({ sub, action: 'restore' })}>
+            <RotateCcw className="h-3.5 w-3.5" /> Restore
+          </Button>
+        )}
+      </>
+    );
+  };
+
+  // Desktop ledger columns. Sized so the table fits a 1280px screen beside the
+  // expanded sidebar; long names and references truncate with a tooltip.
+  const tight = 'px-2';
+  const columns: DataTableColumn<SubmissionRow>[] = [
+    {
+      key: 'customer',
+      header: 'Customer',
+      headClassName: tight,
+      cellClassName: cn(tight, 'max-w-[150px]'),
+      cell: (sub) => {
+        const d = describe(sub);
+        return (
+          <span className="block min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="truncate text-sm font-medium text-card-foreground" title={d.customerName || undefined}>{d.customerName || '—'}</span>
+              {(sub.notes || sub.reviewer_notes) && (
+                <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Has notes" />
+              )}
+            </span>
+            <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
+              <span className="font-deco text-[13px] font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">{d.invoiceLabel}</span>
+              {d.isCash && <span className="rounded border border-gold-500/30 bg-gold-500/10 px-1 text-[9px] font-semibold uppercase tracking-wide text-gold-300">Cash</span>}
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      key: 'payment',
+      header: 'Payment',
+      headClassName: tight,
+      cellClassName: cn(tight, 'max-w-[160px]'),
+      cell: (sub) => (
+        <span className="flex flex-col items-start gap-0.5 min-w-0">
+          <InlinePaymentMethodSelect
+            submissionId={sub.id}
+            currentMethod={sub.payment_method}
+            availableMethods={paymentMethodOptions}
+          />
+          <span className="block max-w-full truncate font-mono text-[11px] text-muted-foreground" title={sub.reference_number || undefined}>
+            {sub.reference_number || '—'}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: 'proof',
+      header: 'Proof',
+      headClassName: tight,
+      cellClassName: tight,
+      cell: (sub) => {
+        const url = sub.proof_url;
+        if (!hasProof(url)) return <StatusPill label="No proof" tone="danger" />;
+        if (isPdf(url)) {
+          return (
+            <a href={url} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
+              className="flex h-10 w-10 items-center justify-center rounded border border-gold-500/25 bg-gold-500/5 text-gold-300 hover:border-gold-500/60">
+              <FileText className="h-4 w-4" />
+            </a>
+          );
+        }
+        return (
+          <button type="button" onClick={(e) => setProofDialog(url, e.currentTarget)} aria-label="Proof of payment — view full size" title="View full size"
+            className="block h-10 w-10 overflow-hidden rounded border border-gold-500/25 hover:border-gold-500/60 cursor-zoom-in">
+            <ProofImage url={url} compact className="h-full w-full object-cover" />
+          </button>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      headClassName: tight,
+      cellClassName: tight,
+      cell: (sub) => {
+        const d = describe(sub);
+        return (
+          <span className="flex flex-col items-start gap-1">
+            <span className="flex flex-wrap items-center gap-1">
+              <StatusPill label={(statusConfig[sub.status] || statusConfig.submitted).label} tone={statusTone(sub.status)} />
+              {d.isSplit && <StatusPill label="Split" tone="gold" />}
+            </span>
+            {d.dupMatch && <span title={d.dupTitle}><StatusPill label="Possible duplicate" tone="warning" /></span>}
+            {sub.customer_edited_at && d.isPending && (
+              <span title={`Customer edited this submission on ${fmtStamp(sub.customer_edited_at)} — re-check the proof.`}>
+                <StatusPill label="Edited" tone="warning" />
+              </span>
+            )}
+            <span className="text-[11px] text-muted-foreground whitespace-nowrap" title={`Submitted ${fmtStamp(sub.created_at)}`}>{fmtShortStamp(sub.created_at)}</span>
+          </span>
+        );
+      },
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      headClassName: tight,
+      cellClassName: tight,
+      cell: (sub) => {
+        const d = describe(sub);
+        return (
+          <span className="flex flex-col items-end gap-0.5">
+            <InlineAmountEdit
+              compact
+              submissionId={sub.id}
+              amount={Number(sub.submitted_amount)}
+              currency={d.currency}
+              userId={session?.user?.id ?? null}
+              canEdit={canConfirm && !d.isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
+            />
+            <span className="text-[11px] text-muted-foreground whitespace-nowrap" title={`Payment date ${fmtPaymentDate(sub.payment_date)}`}>
+              Paid {new Date(sub.payment_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: '',
+      hideable: false,
+      align: 'right',
+      headClassName: tight,
+      cellClassName: cn(tight, 'w-px'),
+      cell: (sub) => {
+        const d = describe(sub);
+        return (
+          <span className="inline-flex items-center justify-end gap-1">
+            {renderActions(sub, d.isPending, 'row')}
+            <Link to={d.detailHref} aria-label={d.isCash ? 'Open cash order' : 'Open account'} title={d.isCash ? 'Cash Order' : 'Account'}>
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary" tabIndex={-1}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </span>
+        );
+      },
+    },
+  ];
+
+  /** Row detail (desktop): everything the card showed that the row summarises. */
+  const renderDetail = (sub: SubmissionRow) => {
+    const d = describe(sub);
+    return (
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+        <div className="space-y-2.5 min-w-0">
+          <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2 text-sm">
+            <div className="min-w-0">
+              <dt className="label-caps text-[10px] text-ink-muted">Customer</dt>
+              <dd className="text-foreground font-medium break-words">{d.customerName || '—'}</dd>
+            </div>
+            <div>
+              <dt className="label-caps text-[10px] text-ink-muted">Invoice</dt>
+              <dd className="text-foreground font-medium">{d.invoiceLabel}</dd>
+            </div>
+            <div>
+              <dt className="label-caps text-[10px] text-ink-muted">Payment Date</dt>
+              <dd className="text-foreground">{fmtPaymentDate(sub.payment_date)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="label-caps text-[10px] text-ink-muted">Reference</dt>
+              <dd className="text-foreground font-mono text-xs break-all">{sub.reference_number || '—'}</dd>
+            </div>
+          </dl>
+          {d.isSplit && d.allocs.length > 0 && (
+            <SplitBreakdown sub={sub} allocs={d.allocs} currency={d.currency}
+              open={expandedAllocs === sub.id}
+              onToggle={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)} />
+          )}
+          <SubmissionNotes sub={sub} isPending={d.isPending} />
+        </div>
+        <div className="min-w-0">
+          {hasProof(sub.proof_url) ? (
+            <div className="space-y-1.5">
+              <p className="label-caps text-[10px] text-ink-muted">Proof of Payment</p>
+              <div className="flex items-center gap-2 rounded border border-gold-500/20 bg-gold-500/5 p-2">
+                <FileText className="h-4 w-4 text-gold-300 shrink-0" />
+                <span className="text-xs text-foreground truncate flex-1" title={sub.proof_url.split('/').pop()}>{proofFileName(sub.proof_url)}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {isPdf(sub.proof_url) ? (
+                  <a href={sub.proof_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">View Proof</a>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
+                      <ImageIcon className="h-3 w-3" /> View Proof
+                    </button>
+                    <button onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                      View full size
+                    </button>
+                    <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                      Download
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
+  const selectTrigger = 'h-9 w-full sm:w-auto sm:min-w-[170px] rounded-lg border-border bg-card text-xs font-medium [&>span]:flex-1 [&>span]:text-left';
 
   return (
     <Wrapper>
-      <div className={embedded ? 'space-y-6' : 'p-4 sm:p-6 space-y-6 max-w-6xl mx-auto'}>
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className={embedded ? 'space-y-5' : 'p-4 sm:p-6 space-y-6 max-w-6xl mx-auto'}>
+        {/* Header — on the Sales page the band above already names the screen,
+            so the embedded view opens straight onto its toolbar. */}
+        {!embedded && (
           <div>
-            <h1 className="text-2xl font-bold font-display text-foreground tracking-tight">
-              Payment Submissions
-</h1>
+            <h1 className="font-deco text-3xl font-semibold tracking-tight text-champagne">Payment Submissions</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Review and process customer payment submissions from the portal.
             </p>
           </div>
-          <div className="flex items-center gap-3 self-start">
-            {pendingCount > 0 && (
-              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-sm px-3 py-1">
-                {pendingCount} pending review
-              </Badge>
-            )}
-            <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
-          </div>
-        </div>
+        )}
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-2">
+        {/* Filters + queue state — the same toolbar row as Cash / Layaway. */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
           {!embedded && <SubmissionsSearchBar onSearch={handleSearch} />}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectTrigger className={selectTrigger} aria-label="Status filter">
               <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
@@ -948,7 +1426,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             </SelectContent>
           </Select>
           <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as 'all' | 'layaway' | 'cash')}>
-            <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectTrigger className={selectTrigger} aria-label="Type filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -957,290 +1435,127 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               <SelectItem value="cash">Cash Orders</SelectItem>
             </SelectContent>
           </Select>
+          <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+            {pendingCount > 0 && (
+              <StatusPill label={`${pendingCount} pending review`} tone="warning" size="md" />
+            )}
+            <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
+          </div>
         </div>
 
         {/* Submissions List */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+              <LedgerIllustration kind="scroll" className="h-8 w-10" />
+              Opening the ledger…
+            </div>
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => <div key={i} className="h-14 rounded-lg skeleton-shimmer bg-muted/40" />)}
+            </div>
           </div>
         ) : filtered.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center">
-              <Send className="h-12 w-12 text-muted-foreground/20 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold font-display text-foreground mb-1">No Submissions</h3>
-              <p className="text-sm text-muted-foreground">
-                {statusFilter === 'pending' ? 'No pending submissions to review.' : 'No submissions match your filters.'}
-              </p>
-            </CardContent>
-          </Card>
+          <IllustratedState
+            kind="scroll"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text={statusFilter === 'pending' ? 'No pending submissions to review.' : 'No submissions match your filters.'}
+          />
+        ) : !isMobile ? (
+          <DataTable
+            variant="ledger"
+            showToolbar={false}
+            columns={columns}
+            rows={filtered}
+            rowKey={(sub) => sub.id}
+            renderExpanded={renderDetail}
+            expandedKeys={openRows}
+            onToggleExpanded={toggleRow}
+            rowProps={(sub) => ({
+              'aria-label': `${describe(sub).customerName || 'Submission'}, ${describe(sub).invoiceLabel}`,
+              className: cn('align-top', ['submitted', 'under_review'].includes(sub.status) && 'bg-gold-500/[0.015]'),
+            })}
+            maxHeightClassName="max-h-[72vh]"
+          />
         ) : (
           <div className="space-y-3">
             {filtered.map((sub) => {
-              const cfg = statusConfig[sub.status] || statusConfig.submitted;
-              const isCash = !!sub.cash_order_id;
-              const currency = (
-                (isCash ? sub.cash_orders?.currency : sub.layaway_accounts?.currency) || 'PHP'
-              ) as 'PHP' | 'JPY';
-              const invoiceNumber = isCash
-                ? sub.cash_orders?.invoice_number
-                : sub.layaway_accounts?.invoice_number;
-              const customerName = isCash
-                ? (sub.cash_orders?.customers?.full_name || sub.customers?.full_name)
-                : sub.customers?.full_name;
-              const isPending = ['submitted', 'under_review'].includes(sub.status);
-              const isSplit = sub.submission_type === 'split';
-              const allocs = getAllocsForSubmission(sub.id);
-              const dupMatch = isPending ? (submissions || [])
-                .filter(o =>
-                  o.id !== sub.id &&
-                  ['submitted', 'under_review'].includes(o.status) &&
-                  Math.abs(Number(o.submitted_amount) - Number(sub.submitted_amount)) < 1 &&
-                  ((sub.account_id && o.account_id === sub.account_id) ||
-                   (sub.cash_order_id && o.cash_order_id === sub.cash_order_id)),
-                )
-                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-                : null;
-              const dupMinutesAgo = dupMatch
-                ? Math.max(1, Math.round((Date.now() - new Date(dupMatch.created_at).getTime()) / 60000))
-                : 0;
-
-
+              const d = describe(sub);
               return (
-                <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
-                  <CardContent className="p-4 sm:p-5">
-                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      {/* Left: Details */}
-                      <div className="flex-1 min-w-0 space-y-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <InlineAmountEdit
-                                submissionId={sub.id}
-                                amount={Number(sub.submitted_amount)}
-                                currency={currency}
-                                userId={session?.user?.id ?? null}
-                                canEdit={canConfirm && !isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
-                              />
-                              {isSplit && (
-                                <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/20">
-                                  Split
-                                </Badge>
-                              )}
-                              {isCash && (
-                                <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-500 border-amber-500/30">
-                                  💵 CASH ORDER
-                                </Badge>
-                              )}
-                              {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
-                                <span
-                                  title="Proof attached"
-                                  className="inline-flex items-center text-sm leading-none text-emerald-500">
-                                  📎
-                                </span>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[9px] bg-destructive/10 text-destructive border-destructive/30"
-                                  title="No proof of payment attached">
-                                  No proof
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-base font-medium text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                              <span>via</span>
-                              <InlinePaymentMethodSelect
-                                submissionId={sub.id}
-                                currentMethod={sub.payment_method}
-                                availableMethods={paymentMethodOptions}
-                              />
-                              <span>·</span>
-                              <span>{new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                            </div>
-                          </div>
-                          <Badge variant="outline" className={`text-[10px] gap-1 shrink-0 ${cfg.color}`}>
-                            {cfg.icon} {cfg.label}
-                          </Badge>
-                          {dupMatch && (
-                            <span
-                              title={`Matches submission by ${dupMatch.sender_name ?? 'unknown'}, submitted ${dupMinutesAgo} minute${dupMinutesAgo === 1 ? '' : 's'} ago`}
-                              className="rounded-full px-2 py-0.5 text-xs ml-2 shrink-0"
-                              style={{
-                                background: 'rgba(245,158,11,0.18)',
-                                color: '#B45309',
-                                border: '1px solid rgba(245,158,11,0.35)',
-                              }}
-                            >
-                              🔁 Possible duplicate
-                            </span>
-                          )}
-
+                <Card key={sub.id} className={cn('shadow-sm border-gold-500/15', d.isPending && 'ring-1 ring-primary/10')}>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <InlineAmountEdit
+                            submissionId={sub.id}
+                            amount={Number(sub.submitted_amount)}
+                            currency={d.currency}
+                            userId={session?.user?.id ?? null}
+                            canEdit={canConfirm && !d.isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
+                          />
+                          {d.isSplit && <StatusPill label="Split" tone="gold" />}
+                          {d.isCash && <StatusPill label="Cash order" tone="gold" />}
+                          {hasProof(sub.proof_url)
+                            ? <span title="Proof attached" className="inline-flex items-center text-sm leading-none text-success">📎</span>
+                            : <span title="No proof of payment attached"><StatusPill label="No proof" tone="danger" /></span>}
                         </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Customer</p>
-                            <p className="text-foreground font-semibold text-base truncate">{customerName || '—'}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Invoice</p>
-                            <p className="text-foreground font-semibold text-base">
-                              {isSplit && allocs.length > 1
-                                ? `${allocs.length} invoices`
-                                : `#${invoiceNumber || '—'}`}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Payment Date</p>
-                            <p className="text-foreground font-medium">{new Date(sub.payment_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Reference</p>
-                            <p className="text-foreground font-mono text-xs">{sub.reference_number || '—'}</p>
-                          </div>
+                        <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span>via</span>
+                          <InlinePaymentMethodSelect
+                            submissionId={sub.id}
+                            currentMethod={sub.payment_method}
+                            availableMethods={paymentMethodOptions}
+                          />
+                          <span>·</span>
+                          <span>{fmtStamp(sub.created_at)}</span>
                         </div>
-
-                        {/* Split Allocation Breakdown */}
-                        {isSplit && allocs.length > 0 && (
-                          <div className="space-y-1">
-                            <button
-                              onClick={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)}
-                              className="text-[10px] text-primary font-medium hover:underline flex items-center gap-1"
-                            >
-                              {expandedAllocs === sub.id ? '▼' : '▶'} View allocation breakdown ({allocs.length} invoices)
-                            </button>
-                            {expandedAllocs === sub.id && (
-                              <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/10 space-y-1">
-                                {allocs.map((alloc) => (
-                                  <div key={alloc.id} className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">#{alloc.invoice_number}</span>
-                                    <span className="font-medium text-foreground tabular-nums">
-                                      {formatCurrency(alloc.allocated_amount, currency)}
-                                    </span>
-                                  </div>
-                                ))}
-                                <div className="flex items-center justify-between text-xs pt-1 border-t border-primary/10">
-                                  <span className="font-semibold text-foreground">Total</span>
-                                  <span className="font-bold text-primary tabular-nums">
-                                    {formatCurrency(sub.submitted_amount, currency)}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {sub.sender_name && (
-                          <p className="text-sm text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
-                        )}
-                        {sub.notes && (
-                          <p className="text-sm text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
-                        )}
-                        {sub.customer_edited_at && isPending && (
-                          <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
-                            <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
-                            <p className="text-xs text-warning font-medium">
-                              ⚠️ Customer edited this submission on {new Date(sub.customer_edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} — re-check the proof.
-                            </p>
-                          </div>
-                        )}
-
-                        {sub.reviewer_notes && (
-                          <div className="p-2.5 rounded-lg bg-muted/30 border border-[hsl(var(--border))]">
-                            <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Staff Note:</p>
-                            <p className="text-xs text-foreground">{sub.reviewer_notes}</p>
-                          </div>
-                        )}
-
                       </div>
+                      <StatusPill label={(statusConfig[sub.status] || statusConfig.submitted).label} tone={statusTone(sub.status)} />
+                    </div>
+                    {d.dupMatch && (
+                      <span title={d.dupTitle} className="inline-block"><StatusPill label="Possible duplicate" tone="warning" /></span>
+                    )}
 
-                      {/* Middle: Actions */}
-                      <div className="flex flex-row flex-wrap lg:flex-col gap-1.5 shrink-0 lg:w-40">
-                        {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
-                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
-                            <ImageIcon className="h-3.5 w-3.5" /> Expand
-                          </Button>
-                        )}
-                        {isPending && canModerate && (
-                          <>
-                            {canConfirm && (
-                              <Button size="sm" variant="default" className="gap-1.5 text-xs"
-                                disabled={!sub.proof_url || sub.proof_url.trim().length === 0}
-                                title={(!sub.proof_url || sub.proof_url.trim().length === 0) ? 'Proof of payment required to confirm' : undefined}
-                                onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
-                                <Check className="h-3.5 w-3.5" /> Confirm
-                              </Button>
-                            )}
-                            {canReject && (
-                              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
-                                <XCircle className="h-3.5 w-3.5" /> Reject
-                              </Button>
-                            )}
-                            {canReview && (
-                              <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
-                                <MessageSquare className="h-3.5 w-3.5" /> Clarify
-                              </Button>
-                            )}
-                            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
-                              <ImageIcon className="h-3.5 w-3.5" /> Attach / Replace proof
-                            </Button>
-                          </>
-                        )}
-                        {isPending && !canModerate && (
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
-                            <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
-                          </Badge>
-                        )}
-                        {sub.status === 'rejected' && canReject && (
-                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'restore' })}>
-                            <RotateCcw className="h-3.5 w-3.5" /> Restore
-                          </Button>
-                        )}
-                        <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
-                          <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
-                            <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
-                          </Button>
-                        </Link>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="label-caps text-[10px] text-ink-muted">Customer</p>
+                        <p className="text-foreground font-semibold truncate" title={d.customerName || undefined}>{d.customerName || '—'}</p>
                       </div>
-                      {/* Right: Proof */}
-                      <div className="w-full lg:w-80 shrink-0">
-                        {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
-                          <div className="space-y-1.5">
-                            <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
-                            {sub.proof_url.match(/\.pdf$/i) ? (
-                              <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
-                                <FileText className="h-4 w-4 text-primary shrink-0" />
-                                <span className="text-xs text-foreground truncate flex-1" title={sub.proof_url.split('/').pop()}>
-                                  {decodeURIComponent(sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
-                                </span>
-                                <a href={sub.proof_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
-                                  View Proof
-                                </a>
-                              </div>
-                            ) : (
-                              <>
-                                <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
-                                  <ProofImage url={sub.proof_url}
-                                    className="w-full max-h-72 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
-                                </button>
-                                <div className="flex flex-wrap gap-2">
-                                  <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
-                                    <ImageIcon className="h-3 w-3" /> View Proof
-                                  </button>
-                                  <button onClick={() => setProofDialog(sub.proof_url!)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
-                                    View full size
-                                  </button>
-                                  <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
-                                    Download
-                                  </a>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
-                        )}
+                      <div>
+                        <p className="label-caps text-[10px] text-ink-muted">Invoice</p>
+                        <p className="font-deco text-base font-semibold text-champagne">{d.invoiceLabel}</p>
                       </div>
+                      <div>
+                        <p className="label-caps text-[10px] text-ink-muted">Payment Date</p>
+                        <p className="text-foreground font-medium">{fmtPaymentDate(sub.payment_date)}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="label-caps text-[10px] text-ink-muted">Reference</p>
+                        <p className="text-foreground font-mono text-xs break-all">{sub.reference_number || '—'}</p>
+                      </div>
+                    </div>
+
+                    {d.isSplit && d.allocs.length > 0 && (
+                      <SplitBreakdown sub={sub} allocs={d.allocs} currency={d.currency}
+                        open={expandedAllocs === sub.id}
+                        onToggle={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)} />
+                    )}
+                    <SubmissionNotes sub={sub} isPending={d.isPending} />
+
+                    <ProofPanel url={sub.proof_url} onExpand={setProofDialog} imageClassName="w-full max-h-56 object-cover" />
+
+                    <div className="flex flex-wrap gap-1.5 pt-3 hairline-t">
+                      {hasProof(sub.proof_url) && !isPdf(sub.proof_url) && (
+                        <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)}>
+                          <ImageIcon className="h-3.5 w-3.5" /> Expand
+                        </Button>
+                      )}
+                      {renderActions(sub, d.isPending, 'card')}
+                      <Link to={d.detailHref}>
+                        <Button size="sm" variant="ghost" className="gap-1.5 text-xs">
+                          <ExternalLink className="h-3.5 w-3.5" /> {d.isCash ? 'Cash Order' : 'Account'}
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
@@ -1275,11 +1590,15 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       {/* Staff Attach / Replace proof dialog (proof-only) */}
       <Dialog open={!!attachProofSub} onOpenChange={(open) => { if (!open) { setAttachProofSub(null); setAttachFile(null); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Attach / Replace proof of payment</DialogTitle>
-            <DialogDescription>
-              Upload an image or PDF. This attaches proof to the submission so it can be confirmed.
-            </DialogDescription>
+          <DialogHeader className="space-y-0">
+            <DecoDialogHeader
+              icon={<ImageIcon />}
+              title={<DialogTitle className={decoTitleClass}>Attach / Replace proof of payment</DialogTitle>}
+              description={
+                <DialogDescription>
+                  Upload an image or PDF. This attaches proof to the submission so it can be confirmed.
+                </DialogDescription>}
+            />
           </DialogHeader>
           <div className="py-2">
             <Input
@@ -1309,15 +1628,19 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             style={{ zIndex: 9998, pointerEvents: 'auto' }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="underpayment-title"
+            className={MODAL_PANEL}
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
           >
-            <h2 className="font-display flex items-center gap-2 text-lg font-semibold mb-1">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Underpayment Detected
-            </h2>
+            <DecoDialogHeader
+              className="mb-4"
+              icon={<AlertTriangle className="text-warning" />}
+              title={<h2 id="underpayment-title" className={decoTitleClass}>Underpayment Detected</h2>}
+            />
             <div className="space-y-3 mb-4">
-              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+              <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Month</span>
                   <span className="font-medium text-foreground">
@@ -1440,17 +1763,24 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             style={{ zIndex: 9998, pointerEvents: 'auto' }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="overpayment-title"
+            className={MODAL_PANEL}
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
           >
-            <h2 className="text-lg font-semibold font-display mb-1">⬆️ Overpayment Detected</h2>
+            <DecoDialogHeader
+              className="mb-4"
+              icon={<CreditCard />}
+              title={<h2 id="overpayment-title" className={decoTitleClass}>Overpayment Detected</h2>}
+            />
             <div className="space-y-3 mb-4">
               {overpaymentModal.row && (
                 <p className="text-sm text-muted-foreground">
                   Month {overpaymentModal.row.installment_number} — {new Date(overpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </p>
               )}
-              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+              <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Total due</span>
                   <span className="font-medium text-foreground tabular-nums">
@@ -1464,8 +1794,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                   </span>
                 </div>
                 <div className="flex justify-between text-sm pt-1.5 border-t border-border">
-                  <span className="text-blue-500 font-medium">Surplus</span>
-                  <span className="font-bold text-blue-500 tabular-nums">
+                  <span className="text-info font-medium">Surplus</span>
+                  <span className="font-bold text-info tabular-nums">
                     {formatCurrency(overpaymentModal.surplus, overpaymentModal.currency)}
                   </span>
                 </div>
@@ -1526,10 +1856,23 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       )}
 
       {/* Proof Preview Dialog */}
+      {/* Stacks ABOVE the hand-rolled review modals (z 9998 / 9999), so an
+          image clicked inside Confirm opens in front of it. Outside clicks
+          close on the overlay's own click — not on pointer-down — so the
+          click never falls through to the Confirm backdrop and closes it. */}
       <Dialog open={!!proofDialog} onOpenChange={(open) => !open && setProofDialog(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-display">Proof of Payment</DialogTitle>
+        <DialogContent
+          className="max-w-lg z-[10001]"
+          overlayProps={{ className: 'z-[10000]', onClick: () => setProofDialog(null) }}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            const el = proofReturnFocus.current;
+            proofReturnFocus.current = null;
+            if (el && el.isConnected) { e.preventDefault(); el.focus(); }
+          }}
+        >
+          <DialogHeader className="space-y-0">
+            <DecoDialogHeader icon={<FileText />} title={<DialogTitle className={decoTitleClass}>Proof of Payment</DialogTitle>} />
           </DialogHeader>
           {proofDialog && (
             <div className="mt-2 space-y-2">
