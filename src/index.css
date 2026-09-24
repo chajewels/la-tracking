@@ -384,6 +384,82 @@
     50% { box-shadow: inset 0 0 12px 0 hsl(270 60% 55% / 0.08); }
   }
 
+  /*
+   * ── Hub visual refresh (Phase 1) ────────────────────────────────────
+   * Ledger KPI card: gold top edge + a pointer-following spotlight. The
+   * spotlight only exists under (hover: hover) and (pointer: fine) —
+   * touch devices never render it. --spot-x / --spot-y are set by
+   * StatCard's pointermove handler.
+   */
+  .ledger-card {
+    position: relative;
+    isolation: isolate;
+  }
+  .ledger-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(var(--gold-500)) 18%, hsl(var(--gold-300)) 50%, hsl(var(--gold-500)) 82%, transparent);
+    z-index: 1;
+  }
+  .ledger-card[data-tone="danger"]::before {
+    background: linear-gradient(90deg, transparent, hsl(var(--danger)) 20%, hsl(var(--danger)) 80%, transparent);
+  }
+  .ledger-spotlight {
+    display: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .ledger-spotlight {
+      display: block;
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 0;
+      background: radial-gradient(260px circle at var(--spot-x, 50%) var(--spot-y, 0%), hsl(var(--gold-300) / 0.10), transparent 70%);
+      transition: opacity var(--ui-motion-standard, 0.2s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+    }
+    .ledger-card:hover .ledger-spotlight { opacity: 1; }
+  }
+
+  /* Ledger table rows (DataTable variant="ledger"): a 2px gold rail on the
+     first cell of the hovered / keyboard-focused row. Opacity-only. */
+  .ledger-row > td:first-child { position: relative; }
+  .ledger-row > td:first-child::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: hsl(var(--gold-500));
+    opacity: 0;
+    transition: opacity var(--ui-motion-micro, 0.12s) var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1));
+  }
+  .ledger-row:focus-visible > td:first-child::before { opacity: 1; }
+  @media (hover: hover) and (pointer: fine) {
+    .ledger-row:hover > td:first-child::before { opacity: 1; }
+  }
+
+  /* Status pill dot — the overdue variant breathes gently. Static under
+     reduced motion (the animation is only declared for no-preference). */
+  @media (prefers-reduced-motion: no-preference) {
+    .status-dot-pulse::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 9999px;
+      background: currentColor;
+      animation: status-dot-ping 2.4s var(--ui-motion-ease, cubic-bezier(0.22,1,0.36,1)) infinite;
+    }
+  }
+  @keyframes status-dot-ping {
+    0% { transform: scale(1); opacity: 0.55; }
+    70%, 100% { transform: scale(2.6); opacity: 0; }
+  }
+
   /* Progress bar gold gradient */
   .progress-gold > div {
     background: linear-gradient(90deg, hsl(var(--gold-dark)), hsl(var(--gold-500)), hsl(var(--gold-300)));

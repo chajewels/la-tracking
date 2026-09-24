@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Route, Routes, useSearchParams } from 'react-router-dom';
 import AccountList from '@/pages/AccountList';
+import HubRouteShim from './HubRouteShim';
 import Dashboard from '@/pages/Dashboard';
 import AccountDetail from '@/pages/AccountDetail';
 import CashOrdersList from '@/components/customers/CashOrdersList';
@@ -60,6 +61,7 @@ import {
   buildCustomerFixtures,
   buildTimelineFixture,
   buildTierFixtures,
+  buildPaymentFixtures,
 } from './fixtures';
 
 /**
@@ -72,6 +74,8 @@ import {
  * production builds (see the import.meta.env.DEV guard in App.tsx).
  *
  *   /__fixtures                     → AccountList
+ *   /__fixtures?view=hub&at=/        → real shell + pages at real paths
+ *                                     (in-memory router; sidebar nav works)
  *   /__fixtures?view=cash           → CashOrdersList
  *   /__fixtures?view=dashboard      → Dashboard (full page, seeded)
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
@@ -111,11 +115,13 @@ export default function FixturePreview() {
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
       seed(['account', a.id], a);
-      for (const k of ['schedule', 'payments', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
+      for (const k of ['schedule', 'penalties', 'account-services', 'account-notes']) seed([k, a.id], []);
+      seed(['payments', a.id], buildPaymentFixtures(a));
     }
     return null;
   });
 
+  if (view === 'hub') return <HubRouteShim at={searchParams.get('at') ?? '/'} />;
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;

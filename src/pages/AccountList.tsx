@@ -27,7 +27,12 @@ import BulkActionBar from '@/components/list-kit/BulkActionBar';
 import VirtualCardGrid from '@/components/list-kit/VirtualCardGrid';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import AccountQuickView, { type QuickViewAccount } from '@/components/accounts/AccountQuickView';
-import { EmptyState } from '@/components/shared/EmptyState';
+import StatusPill from '@/components/shared/StatusPill';
+import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from '@/components/ui/use-toast';
 
 const statusStyles: Record<string, string> = {
@@ -167,6 +172,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const listContainerRef = useRef<HTMLDivElement>(null);
   useListKeyboardNav(listContainerRef);
   const navigate = useNavigate();
+  // Desktop shows each open folder as a ledger table; phones keep the cards.
+  const isMobile = useIsMobile();
   const { data: accounts, isLoading } = useAccounts();
 
   useEffect(() => {
@@ -381,9 +388,11 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
-              {statusLabel[account.status] || account.status}
-            </Badge>
+            <StatusPill
+              label={statusLabel[account.status] || account.status}
+              tone={ACCOUNT_STATUS_TONE[account.status] ?? 'muted'}
+              pulse={account.status === 'overdue'}
+            />
             {isTestInvoice(account.invoice_number) && (
               <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
                 🧪 TEST
@@ -460,29 +469,158 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     );
   };
 
+  // Ledger table columns (desktop). Same fields and the same per-row
+  // "% paid" display expression the cards use — nothing is re-derived.
+  type Row = typeof filtered[number];
+  const money = (n: number, c: string) => (
+    <span className="tabular-nums">{formatCurrency(n, c as Currency)}</span>
+  );
+  const ledgerColumns: DataTableColumn<Row>[] = [
+    {
+      key: 'select',
+      header: '',
+      hideable: false,
+      headClassName: 'w-10',
+      cellClassName: 'w-10',
+      cell: (a) => (
+        <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+          <Checkbox
+            checked={selectedIds.has(a.id)}
+            onCheckedChange={() => toggleSelected(a.id)}
+            aria-label={`Select account ${a.invoice_number}`}
+            className="h-4 w-4"
+          />
+        </span>
+      ),
+    },
+    {
+      key: 'invoice',
+      header: 'Invoice',
+      cell: (a) => (
+        <span className="inline-flex items-center gap-2">
+          <span className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
+            {isWebOrder(a) ? '' : '#'}
+            <HighlightText text={cashOrderRef(a)} query={searchQuery} />
+          </span>
+          {isTestInvoice(a.invoice_number) && (
+            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-info/10 text-info border-info/20 font-bold">TEST</Badge>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'customer',
+      header: 'Customer',
+      cellClassName: 'max-w-[240px]',
+      cell: (a) => (
+        <span className="block truncate text-sm text-card-foreground">
+          <HighlightText text={a.customers?.full_name || 'Unknown'} query={searchQuery} />
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (a) => (
+        <StatusPill
+          label={statusLabel[a.status] || a.status}
+          tone={ACCOUNT_STATUS_TONE[a.status] ?? 'muted'}
+          pulse={a.status === 'overdue'}
+        />
+      ),
+    },
+    {
+      key: 'progress',
+      header: 'Paid',
+      cell: (a) => {
+        const total = Number(a.total_amount);
+        const pct = total > 0 ? Math.round((Number(a.total_paid) / total) * 100) : 0;
+        return (
+          <span className="flex items-center gap-2" title={`${pct}% paid · ${a.payment_plan_months}mo plan`}>
+            <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
+            </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{pct}%</span>
+          </span>
+        );
+      },
+    },
+    { key: 'plan', header: 'Plan', align: 'right', cell: (a) => <span className="text-muted-foreground tabular-nums">{a.payment_plan_months}mo</span> },
+    { key: 'total', header: 'Total', align: 'right', cell: (a) => money(Number(a.total_amount), a.currency) },
+    { key: 'paid', header: 'Received', align: 'right', cell: (a) => <span className="text-success">{money(Number(a.total_paid), a.currency)}</span> },
+    {
+      key: 'balance',
+      header: 'Balance',
+      align: 'right',
+      cell: (a) => <span className="font-semibold text-champagne">{money(Number(a.remaining_balance), a.currency)}</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      hideable: false,
+      align: 'right',
+      cellClassName: 'w-24',
+      cell: (a) => (
+        <span className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-gold-300"
+            onClick={() => setQuickView(a as QuickViewAccount)}
+            aria-label={`Quick view of account ${a.invoice_number}`}
+            title="Quick view"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          {a.customers?.messenger_link && (
+            <a href={a.customers.messenger_link} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" tabIndex={-1}>
+                <MessageCircle className="h-3.5 w-3.5" />
+              </Button>
+            </a>
+          )}
+          <Link to={`/accounts/${a.id}`} aria-label={`Open account ${a.invoice_number}`}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" tabIndex={-1}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </Link>
+        </span>
+      ),
+    },
+  ];
+  const ledgerRowProps = (a: Row) => ({
+    'data-nav-card': true,
+    tabIndex: 0,
+    'aria-label': `Account ${a.invoice_number}, ${a.customers?.full_name || 'Unknown'}. Press Enter for quick view.`,
+    className: selectedIds.has(a.id) ? 'bg-gold-500/[0.06]' : undefined,
+    onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if ((e.target as HTMLElement).closest('button, a, [role="checkbox"]')) return;
+        e.preventDefault();
+        setQuickView(a as QuickViewAccount);
+      }
+    },
+  });
+
   const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
   return (
     <Wrapper>
       <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
-        {/* Header */}
+        {/* Header band (Hub visual refresh) */}
         {!embedded && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
-                <FileText className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Layaway Accounts</h1>
-                <p className="text-sm text-muted-foreground">{filtered.length} total accounts</p>
-              </div>
-            </div>
-            <Link to={ROUTES.NEW_ACCOUNT}>
-              <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
-                <Plus className="h-4 w-4 mr-1.5" /> New Account
-              </Button>
-            </Link>
-          </div>
+          <PageHeaderBand
+            crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Sales', to: ROUTES.SALES }, { label: 'Layaway accounts' }]}
+            title="Layaway Accounts"
+            subtitle={`${filtered.length} ${filtered.length === 1 ? 'account' : 'accounts'}`}
+            actions={
+              <Link to={ROUTES.NEW_ACCOUNT}>
+                <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
+                  <Plus className="h-4 w-4 mr-1.5" /> New Account
+                </Button>
+              </Link>
+            }
+          />
         )}
 
         {/* Filters (search + currency + test) — single scrollable row on
@@ -559,14 +697,20 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
 
         {/* Loading */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+              <LedgerIllustration kind="ledger" className="h-8 w-10" />
+              Opening the ledger…
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
+            </div>
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={FileText}
-            title="No accounts found"
-            description={searchRef.current || filterStatus !== 'all' ? 'Try clearing the search or filters.' : 'Create the first layaway account to get started.'}
+          <IllustratedState
+            kind="ledger"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text={searchRef.current || filterStatus !== 'all' ? 'No accounts match — try clearing the search or filters.' : 'No layaway accounts yet — create the first one to get started.'}
             action={!embedded ? (
               <Link to={ROUTES.NEW_ACCOUNT}>
                 <Button size="sm" className="gold-gradient text-primary-foreground">
@@ -601,30 +745,45 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
                 folderAccounts.forEach(a => subtotals.set(a.currency, (subtotals.get(a.currency) ?? 0) + Number(a.remaining_balance)));
 
                 return (
-                  <div key={s} className="rounded-xl border border-border bg-card overflow-hidden">
+                  <div key={s} className="rounded-xl border border-gold-500/15 bg-card overflow-hidden">
                     <button
                       onClick={() => setOpenState(prev => ({ ...prev, [s]: !open }))}
                       className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex items-center gap-2.5 shrink-0">
                         {open
                           ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                           : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${statusDot[s] || 'bg-muted-foreground'}`} />
-                        <span className="text-sm font-semibold text-card-foreground truncate">{statusLabel[s] || s}</span>
+                        <span className={`relative h-2.5 w-2.5 rounded-full shrink-0 ${statusDot[s] || 'bg-muted-foreground'} ${s === 'overdue' ? 'status-dot-pulse text-danger' : ''}`} />
+                        <span className="font-deco text-lg font-semibold text-champagne truncate">{statusLabel[s] || s}</span>
                         <Badge variant="outline" className="text-[10px] shrink-0 bg-primary/10 text-primary border-primary/20">
                           {folderAccounts.length}
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-2 text-xs font-semibold text-card-foreground tabular-nums shrink-0">
+                      <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 text-[11px] sm:text-xs font-semibold text-card-foreground tabular-nums">
                         {subtotals.has('PHP') && <span>{formatCurrency(subtotals.get('PHP')!, 'PHP')}</span>}
                         {subtotals.has('JPY') && <span>{formatCurrency(subtotals.get('JPY')!, 'JPY')}</span>}
                       </div>
                     </button>
 
                     {open && (
-                      <div className="p-3 sm:p-4 border-t border-border">
-                        {useVirtual ? (
+                      <div className="p-3 sm:p-4 border-t border-gold-500/15">
+                        {!isMobile ? (
+                          /* Desktop: ledger table. Windowed past 60 rows
+                             (render-layer only — the fetch is unchanged). */
+                          <DataTable
+                            variant="ledger"
+                            showToolbar={false}
+                            columns={ledgerColumns}
+                            rows={visible}
+                            rowKey={(a) => a.id}
+                            onRowClick={(a) => navigate(`/accounts/${a.id}`)}
+                            rowProps={ledgerRowProps}
+                            density={density}
+                            virtualizeAbove={VIRTUAL_THRESHOLD}
+                            maxHeightClassName="max-h-[68vh]"
+                          />
+                        ) : useVirtual ? (
                           /* Large reveal: render-layer virtualization only —
                              the underlying fetch is still the full table. */
                           <VirtualCardGrid

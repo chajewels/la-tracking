@@ -309,3 +309,47 @@ export function buildQuickViewFixture() {
     ],
   };
 }
+
+/**
+ * Payment rows for an account fixture (the `payments` table shape the
+ * AccountDetail Payment History reads). Non-voided rows sum exactly to the
+ * account's total_paid; every 4th account also carries a voided row so the
+ * voided presentation is exercised.
+ */
+export function buildPaymentFixtures(a: FixtureAccount) {
+  if (a.total_paid <= 0) return [];
+  const dp = Math.round(a.total_paid * 0.6 * 100) / 100;
+  const rest = Math.round((a.total_paid - dp) * 100) / 100;
+  const base = new Date(`${a.order_date}T03:00:00Z`);
+  const at = (days: number) => {
+    const d = new Date(base.getTime() + days * 86_400_000);
+    return { date: d.toISOString().slice(0, 10), iso: d.toISOString() };
+  };
+  const row = (n: number, amount: number, days: number, method: string, extra: Record<string, unknown> = {}) => {
+    const t = at(days);
+    return {
+      id: `${a.id}-pay-${n}`,
+      account_id: a.id,
+      amount_paid: amount,
+      currency: a.currency,
+      date_paid: t.date,
+      created_at: t.iso,
+      payment_method: method,
+      reference_number: null,
+      remarks: null,
+      voided_at: null,
+      void_reason: null,
+      submitted_by_type: 'staff',
+      submitted_by_name: 'Fixture Staff',
+      ...extra,
+    };
+  };
+  const out = [
+    row(1, dp, 2, 'gcash', { reference_number: `DP-${a.invoice_number}`, remarks: 'Downpayment' }),
+  ];
+  if (rest > 0) out.push(row(2, rest, 33, 'bdo', { submitted_by_type: 'customer', submitted_by_name: a.customers.full_name }));
+  if (Number(a.id.slice(-4)) % 4 === 1) {
+    out.push(row(3, Math.round(rest * 50) / 100 || 1000, 20, 'cash', { voided_at: at(21).iso, void_reason: 'Duplicate entry' }));
+  }
+  return out;
+}

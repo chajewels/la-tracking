@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronDown, ChevronRight, Columns3, Download, Filter, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
+import DensityToggle, { useDensity, type Density } from '@/components/list-kit/DensityToggle';
 import { transition } from '@/theme/motion';
 import { downloadCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
@@ -66,6 +67,26 @@ interface DataTableProps<T> {
   note?: string;
   emptyState?: ReactNode;
   className?: string;
+  /**
+   * Hub visual refresh: 'ledger' = blurred sticky header on a bare <table>
+   * (so the header genuinely sticks inside the scroll box), a gold rail on
+   * the hovered / focused row, uppercase tracked headings. 'default' keeps
+   * the original look for existing consumers.
+   */
+  variant?: 'default' | 'ledger';
+  /** Set false to hide the built-in toolbar (search / columns / CSV). */
+  showToolbar?: boolean;
+  /** Extra props per row, e.g. data-* hooks, tabIndex, onKeyDown, aria-label. */
+  rowProps?: (row: T) => HTMLAttributes<HTMLTableRowElement> & Record<`data-${string}`, string | boolean | undefined>;
+  /** Controlled density (overrides the internal persisted toggle). */
+  density?: Density;
+  /** Scroll-box height cap when stickyHeader is on. */
+  maxHeightClassName?: string;
+  /**
+   * Render-layer windowing once more than this many rows are shown (rows
+   * outside the scroll box are not mounted). Ignored with renderExpanded.
+   */
+  virtualizeAbove?: number;
 }
 
 interface TableSort {
@@ -87,7 +108,14 @@ export default function DataTable<T>({
   note,
   emptyState,
   className,
+  variant = 'default',
+  showToolbar = true,
+  rowProps,
+  density: densityProp,
+  maxHeightClassName = 'max-h-[70vh]',
+  virtualizeAbove,
 }: DataTableProps<T>) {
+  const ledger = variant === 'ledger';
   const reducedMotion = useReducedMotion();
   const [sort, setSort] = useState<TableSort | null>(null);
   const [searchInput, setSearchInput] = useState('');
@@ -95,7 +123,9 @@ export default function DataTable<T>({
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [density, setDensity] = useDensity(densityKey ?? 'cj-data-table-density');
+  const [storedDensity, setDensity] = useDensity(densityKey ?? 'cj-data-table-density');
+  const density = densityProp ?? storedDensity;
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Global search debounce: 250ms.
   useEffect(() => {
@@ -155,6 +185,21 @@ export default function DataTable<T>({
     );
   };
 
+  const shouldVirtualize =
+    !!virtualizeAbove && !renderExpanded && stickyHeader && processedRows.length > virtualizeAbove;
+  const virtualizer = useVirtualizer({
+    count: shouldVirtualize ? processedRows.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => (density === 'compact' ? 37 : 49),
+    overscan: 12,
+  });
+  const virtualItems = shouldVirtualize ? virtualizer.getVirtualItems() : [];
+  const padTop = virtualItems.length ? virtualItems[0].start : 0;
+  const padBottom = virtualItems.length ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end : 0;
+  const renderedRows = shouldVirtualize
+    ? virtualItems.map(v => ({ row: processedRows[v.index], index: v.index }))
+    : processedRows.map((row, index) => ({ row, index }));
+
   const activeFilterCount = Object.values(columnFilters).filter(v => v.trim()).length;
   const cellPad = density === 'compact' ? 'py-1.5 px-3' : 'py-3 px-4';
   const colSpan = visibleColumns.length + (renderExpanded ? 1 : 0);
@@ -162,6 +207,7 @@ export default function DataTable<T>({
   return (
     <div className={cn('space-y-3', className)}>
       {/* Toolbar */}
+      {showToolbar && (
       <div className="flex flex-wrap items-center gap-2">
         {toolbar}
         {searchText && (
@@ -223,13 +269,26 @@ export default function DataTable<T>({
           )}
         </div>
       </div>
+      )}
 
       {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
 
       {/* Table */}
-      <div className={cn('rounded-lg border border-border bg-card', stickyHeader ? 'overflow-auto max-h-[70vh]' : 'overflow-hidden')}>
-        <Table>
-          <TableHeader className={cn(stickyHeader && 'sticky top-0 z-10 bg-card')}>
+      <div
+        ref={scrollRef}
+        className={cn(
+          'rounded-lg border',
+          ledger ? 'border-gold-500/15 bg-card/70' : 'border-border bg-card',
+          stickyHeader ? cn('overflow-auto', maxHeightClassName) : 'overflow-hidden',
+        )}
+      >
+        <TableShell ledger={ledger}>
+          <TableHeader
+            className={cn(
+              stickyHeader && 'sticky top-0 z-10',
+              stickyHeader && (ledger ? 'bg-surface-1/70 backdrop-blur-md' : 'bg-card'),
+            )}
+          >
             <TableRow className="hover:bg-transparent">
               {renderExpanded && <TableHead className="w-8" aria-label="Expand" />}
               {visibleColumns.map(col => {
@@ -237,7 +296,12 @@ export default function DataTable<T>({
                 return (
                   <TableHead
                     key={col.key}
-                    className={cn('whitespace-nowrap', col.align === 'right' && 'text-right', col.headClassName)}
+                    className={cn(
+                      'whitespace-nowrap',
+                      ledger && 'h-10 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted',
+                      col.align === 'right' && 'text-right',
+                      col.headClassName,
+                    )}
                     aria-sort={sorted ? (sorted === 'asc' ? 'ascending' : 'descending') : undefined}
                   >
                     <span className={cn('inline-flex items-center gap-1', col.align === 'right' && 'flex-row-reverse')}>
@@ -299,13 +363,25 @@ export default function DataTable<T>({
                 </TableCell>
               </TableRow>
             ) : (
-              processedRows.map(row => {
+              <>
+              {padTop > 0 && <tr aria-hidden style={{ height: padTop }} />}
+              {renderedRows.map(({ row, index }) => {
                 const key = rowKey(row);
                 const isExpanded = expanded === key;
+                const extra = rowProps?.(row);
                 return (
                   <Fragment key={key}>
                     <TableRow
-                      className={cn(onRowClick && 'cursor-pointer', 'hover:bg-muted/40')}
+                      {...extra}
+                      ref={shouldVirtualize ? virtualizer.measureElement : undefined}
+                      data-index={shouldVirtualize ? index : undefined}
+                      className={cn(
+                        onRowClick && 'cursor-pointer',
+                        ledger
+                          ? 'ledger-row border-border/60 hover:bg-gold-500/[0.04] focus-visible:bg-gold-500/[0.06] focus-visible:outline-none'
+                          : 'hover:bg-muted/40',
+                        extra?.className,
+                      )}
                       onClick={() => onRowClick?.(row)}
                     >
                       {renderExpanded && (
@@ -352,11 +428,24 @@ export default function DataTable<T>({
                     )}
                   </Fragment>
                 );
-              })
+              })}
+              {padBottom > 0 && <tr aria-hidden style={{ height: padBottom }} />}
+              </>
             )}
           </TableBody>
-        </Table>
+        </TableShell>
       </div>
     </div>
   );
+}
+
+/**
+ * The ledger variant renders a bare <table>: ui/table's <Table> wraps its
+ * table in its own overflow-auto div, which becomes the sticky containing
+ * block and stops the header sticking inside our scroll box. The default
+ * variant keeps <Table> so existing consumers are byte-for-byte unchanged.
+ */
+function TableShell({ ledger, children }: { ledger: boolean; children: ReactNode }) {
+  if (ledger) return <table className="w-full caption-bottom text-sm">{children}</table>;
+  return <Table>{children}</Table>;
 }

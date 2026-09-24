@@ -6,6 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
+import { StatCardAppearance } from '@/components/dashboard/StatCardAppearance';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
@@ -210,24 +212,14 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
+      <StatCardAppearance.Provider value="ledger">
       <div className="animate-fade-in space-y-8">
-        {/* Section 1 — Welcome Banner */}
-        <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 p-6 sm:p-8">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
-          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-14 w-14 rounded-full object-contain shadow-lg shrink-0" />
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
-                  Cha Jewels Hub Dashboard
-                </h1>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {greeting}, {profile?.full_name?.split(' ')[0] || 'there'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Section 1 — Page header band (Hub visual refresh) */}
+        <PageHeaderBand
+          crumbs={[{ label: 'Hub' }, { label: 'Dashboard' }]}
+          title="Dashboard"
+          subtitle={`${greeting}, ${profile?.full_name?.split(' ')[0] || 'there'}`}
+        />
 
         {/* Email delivery — renders only when customer emails are being refused or not attempted */}
         <EmailHealthBanner />
@@ -235,7 +227,7 @@ export default function Dashboard() {
 
         {/* Section 1b — KPI Strip (Phase 3): headline figures with trends */}
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">At a Glance</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">At a Glance</h2>
           <KpiStrip
             summaryLoading={summaryLoading}
             activeLayaways={summary?.active_layaways}
@@ -257,7 +249,7 @@ export default function Dashboard() {
 
         {/* Section 2 — Key Metrics (counts only) */}
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Key Metrics</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(2)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
@@ -313,7 +305,7 @@ export default function Dashboard() {
 
         {/* Section 4 — Layaway Accounts */}
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-1">Layaway Accounts</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-1 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Layaway Accounts</h2>
           <p className="text-xs text-muted-foreground mb-3">By plan tier</p>
 
           {/* 5 fixed plan tiles */}
@@ -331,11 +323,11 @@ export default function Dashboard() {
                       : 'bg-card border-border hover:border-primary/30'
                   }`}
                 >
-                  <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-muted leading-tight">
                     {tier} months
                   </p>
-                  <p className={`mt-1.5 text-xl sm:text-2xl font-bold font-display tabular-nums ${
-                    isZero ? 'text-muted-foreground/50' : 'text-card-foreground'
+                  <p className={`mt-1.5 font-deco text-4xl font-semibold leading-none [font-variant-numeric:lining-nums_tabular-nums] ${
+                    isZero ? 'text-muted-foreground/50' : 'text-champagne'
                   }`}>
                     {count}
                   </p>
@@ -411,7 +403,7 @@ export default function Dashboard() {
 
         {/* Section 5 — Cash Orders (counts only — revenue cards moved to Finance) */}
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Cash Orders</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(2)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
@@ -455,7 +447,7 @@ export default function Dashboard() {
 
         {/* Section 7 — Overdue & Due Soon (count-only) */}
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Overdue &amp; Due Soon</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Overdue &amp; Due Soon</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
@@ -495,7 +487,7 @@ export default function Dashboard() {
         {/* Section 8 — Regional Overview (count-only on Dashboard) */}
         {needsGeo && (
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Regional Overview</h2>
           <GeoBreakdown accounts={accounts || []} customers={customers || []} countOnly />
         </div>
         )}
@@ -518,7 +510,7 @@ export default function Dashboard() {
         {/* Section 10 — AI & Predictions */}
         {can('view_ai_risk') && (
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI &amp; Predictions</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">AI &amp; Predictions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <LatePaymentRiskPanel />
             <CompletionProbabilityPanel />
@@ -530,7 +522,7 @@ export default function Dashboard() {
         {/* Sections 11 + 12 — Operations Panel + Live Collection Tracker (count-only) */}
         {(can('view_operations_panel') || can('view_live_collection')) && (
         <div>
-          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations &amp; Activity</h2>
+          <h2 className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Operations &amp; Activity</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {can('view_operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} countOnly />}
             {can('view_live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} countOnly />}
@@ -542,7 +534,7 @@ export default function Dashboard() {
         {isAdmin && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest">Account Audit</h2>
+              <h2 className="font-deco text-xl font-semibold tracking-wide text-gold-300">Account Audit</h2>
               <button
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50"
                 disabled={auditLoading}
@@ -662,7 +654,7 @@ export default function Dashboard() {
                   {/* Visual divider before per-account section */}
                   {driftFindings !== null && (
                     <div className="border-t border-border pt-3">
-                      <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Per-Account Health</p>
+                      <p className="flex items-center gap-3 font-deco text-xl font-semibold tracking-wide text-gold-300 mb-3 after:h-px after:flex-1 after:bg-gradient-to-r after:from-gold-500/30 after:to-transparent">Per-Account Health</p>
                     </div>
                   )}
 
@@ -755,6 +747,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      </StatCardAppearance.Provider>
     </AppLayout>
   );
 }

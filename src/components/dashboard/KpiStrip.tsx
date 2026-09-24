@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { FileText, Banknote, AlertTriangle, Gift } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { ROUTES } from '@/constants/routes';
@@ -92,8 +93,14 @@ export default function KpiStrip({
 
   if (summaryLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+          <LedgerIllustration kind="gem" className="h-8 w-10" />
+          Gathering today's figures…
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+        </div>
       </div>
     );
   }

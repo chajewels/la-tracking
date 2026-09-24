@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { LucideIcon } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { ArrowDownRight, ArrowUpRight, LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { animate, useReducedMotion } from 'framer-motion';
 import { countUpTransition } from '@/theme/motion';
 import Sparkline from '@/components/dashboard/Sparkline';
+import { StatCardAppearance } from '@/components/dashboard/StatCardAppearance';
 
 interface StatCardProps {
   title: string;
@@ -26,6 +27,31 @@ interface StatCardProps {
   countUpValue?: number;
   /** Formats intermediate count-up frames; default rounds + localizes. */
   formatValue?: (n: number) => string;
+}
+
+
+const ledgerValueStyles = {
+  default: 'text-champagne',
+  gold: 'text-gold-300',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger: 'text-danger',
+};
+
+const ledgerIconStyles = {
+  default: 'border-border text-muted-foreground',
+  gold: 'border-gold-500/40 text-gold-300',
+  success: 'border-success/40 text-success',
+  warning: 'border-warning/40 text-warning',
+  danger: 'border-danger/40 text-danger',
+};
+
+/** Pointer spotlight position — mouse only; touch/pen never set it. */
+function trackSpotlight(e: PointerEvent<HTMLDivElement>) {
+  if (e.pointerType !== 'mouse') return;
+  const r = e.currentTarget.getBoundingClientRect();
+  e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
+  e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
 }
 
 const defaultCountFormat = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -85,6 +111,60 @@ export default function StatCard({ title, value, subtitle, icon: Icon, trend, va
   }, []);
 
   const displayValue = countFrame ?? value;
+  const appearance = useContext(StatCardAppearance);
+
+  if (appearance === 'ledger') {
+    return (
+      <div
+        className={`ledger-card group relative overflow-hidden rounded-xl border border-gold-500/15 bg-card/95 p-5 card-hover ${
+          href ? 'cursor-pointer' : ''
+        }${staggerIndex !== undefined ? ' animate-fade-in' : ''}`}
+        data-tone={variant === 'danger' ? 'danger' : undefined}
+        style={staggerIndex !== undefined ? { animationDelay: `${staggerIndex * 80}ms` } : undefined}
+        onPointerMove={trackSpotlight}
+        onClick={href ? () => navigate(href) : undefined}
+        role={href ? 'link' : undefined}
+      >
+        <span className="ledger-spotlight" aria-hidden />
+        <div className="relative z-[1]">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-muted leading-tight">{title}</p>
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${ledgerIconStyles[variant]}`}>
+              <Icon className="h-4 w-4" />
+            </span>
+          </div>
+          <p
+            className={`mt-2 font-deco text-[2.5rem] sm:text-[2.75rem] font-semibold leading-none tracking-tight [font-variant-numeric:lining-nums_tabular-nums] ${ledgerValueStyles[variant]}`}
+          >
+            {displayValue}
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {subtitle && <p className="text-xs text-muted-foreground truncate">{subtitle}</p>}
+              {trend && (
+                <span
+                  className={`inline-flex items-center gap-0.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+                    trend.positive ? 'border-success/25 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'
+                  }`}
+                >
+                  {trend.positive ? <ArrowUpRight className="h-3 w-3" aria-hidden /> : <ArrowDownRight className="h-3 w-3" aria-hidden />}
+                  {trend.value}
+                </span>
+              )}
+            </div>
+            {sparkline && sparkline.points.length >= 2 && (
+              <span className="shrink-0"><Sparkline points={sparkline.points} label={sparkline.label} width={104} height={34} /></span>
+            )}
+          </div>
+        </div>
+        {href && (
+          <div className="absolute bottom-2 right-3 z-[1] text-[9px] text-muted-foreground/0 group-hover:text-muted-foreground/60 transition-colors">
+            View →
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

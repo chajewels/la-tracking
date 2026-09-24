@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { ROUTES } from "@/constants/routes";
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -13,8 +13,9 @@ import {
   BarChart3,
   Sparkles,
   ScrollText,
-  ChevronDown,
   ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
   HelpCircle,
   Wrench,
   ShoppingBag,
@@ -31,7 +32,9 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
+import { animate, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { transition } from '@/theme/motion';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
 import { PortalTokenPill } from '@/components/system/PortalTokenIndicator';
 import {
@@ -45,6 +48,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 
 export type SubMenuItem = {
@@ -196,6 +200,62 @@ export function isCategory(item: CategoryHeader | MenuItem): item is CategoryHea
   return (item as CategoryHeader).type === 'category';
 }
 
+/**
+ * The sliding gold "active" pill. Every page mounts its own AppLayout, so the
+ * sidebar REMOUNTS on each navigation and framer-motion's layoutId has no
+ * previous element to animate from. Instead each pill records where it was
+ * when it unmounts, and the next one to mount within a moment glides from
+ * that spot to its own (a FLIP: translate + scale back to identity). Tab
+ * changes inside one page mount a new pill too, so the same path covers them.
+ * Reduced motion: no animation — the pill simply appears on its row.
+ */
+let lastPill: { rect: DOMRect; at: number } | null = null;
+const PILL_HANDOFF_MS = 1500;
+
+function ActivePill() {
+  const ref = useRef<HTMLSpanElement>(null);
+  const reduceMotion = useReducedMotion();
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const to = el.getBoundingClientRect();
+    const from = lastPill;
+    const moved = from && (Math.abs(from.rect.top - to.top) > 1 || Math.abs(from.rect.left - to.left) > 1 || Math.abs(from.rect.width - to.width) > 1);
+    let controls: { stop: () => void } | undefined;
+    if (from && moved && !reduceMotion && performance.now() - from.at < PILL_HANDOFF_MS && to.width > 0 && to.height > 0) {
+      const dx = from.rect.left - to.left;
+      const dy = from.rect.top - to.top;
+      const sx = from.rect.width / to.width;
+      const sy = from.rect.height / to.height;
+      // Paint the first frame at the old spot synchronously — otherwise the
+      // pill flashes on its new row for one frame before the glide starts.
+      el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+      controls = animate(
+        el,
+        { x: [dx, 0], y: [dy, 0], scaleX: [sx, 1], scaleY: [sy, 1] },
+        transition.spatial,
+      );
+    }
+    return () => {
+      controls?.stop();
+      // Still attached here: React runs these cleanups before removing the DOM.
+      lastPill = { rect: el.getBoundingClientRect(), at: performance.now() };
+    };
+    // Mount-only: the glide happens once, when this row becomes active.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <span
+      ref={ref}
+      aria-hidden
+      style={{ transformOrigin: '0 0' }}
+      className="absolute inset-0 rounded-md bg-gold-500/[0.13] shadow-[inset_0_0_0_1px_hsl(var(--gold-500)/0.35)] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-gold-500 group-data-[collapsible=icon]:before:hidden"
+    />
+  );
+}
+
 export default function AppSidebar({ updateAvailable = false }: { updateAvailable?: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -226,7 +286,17 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     services_requests: openServiceRequests ?? 0,
   };
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const { state, isMobile, setOpen, toggleSidebar } = useSidebar();
+  // Seeded from the current route on the FIRST render (not only in the
+  // effect below): each page mounts its own AppLayout, so the sidebar
+  // remounts on every navigation, and a one-frame "all collapsed" state let
+  // whichever row slid under a stationary cursor grab the hover accordion.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const match = sidebarItems.find(
+      (m): m is MenuItem => !isCategory(m) && !!m.parentPath && location.pathname === m.parentPath,
+    );
+    return match ? { [match.label]: true } : {};
+  });
 
   useEffect(() => {
     const match = sidebarItems.find(
@@ -262,8 +332,38 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     })
     .filter(item => isCategory(item) || !(item as MenuItem).children || ((item as MenuItem).children!.length > 0));
 
+  const collapsed = state === 'collapsed' && !isMobile;
+
+  // Which row carries the sliding gold pill. A parent carries it only when
+  // its sub-menu is closed (or the rail is icon-only); otherwise the active
+  // child does. See ActivePill for how it glides between rows.
+  const isChildActiveFor = (item: MenuItem, child: SubMenuItem) =>
+    child.path
+      ? location.pathname === child.path
+      : location.pathname === item.parentPath &&
+        (searchParams.get('tab') === child.tab ||
+          (!searchParams.get('tab') && child.tab === item.children![0].tab));
+
+  const CountBadge = ({ n, small = false }: { n: number; small?: boolean }) => (
+    <span
+      className={cn(
+        'relative z-10 ml-auto inline-flex items-center justify-center rounded-full border border-warning/35 bg-warning/15 font-semibold text-warning tabular-nums group-data-[collapsible=icon]:hidden',
+        small ? 'min-w-[1.1rem] px-1.5 py-0.5 text-[9px]' : 'min-w-[1.25rem] px-1.5 py-0.5 text-[10px]',
+      )}
+    >
+      {n}
+    </span>
+  );
+
+  /** Icon-rail badge: a dot on the icon's corner instead of the count. */
+  const RailDot = ({ show }: { show: boolean }) =>
+    show ? (
+      <span aria-hidden className="absolute right-1 top-1 z-10 hidden h-1.5 w-1.5 rounded-full bg-warning group-data-[collapsible=icon]:block" />
+    ) : null;
+
   return (
     <Sidebar
+      collapsible="icon"
       className="text-white"
       style={{
         background: 'hsl(var(--sidebar-background))',
@@ -271,122 +371,140 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       }}
     >
       <SidebarHeader
-        className="px-5 py-5"
+        className="px-4 py-4 group-data-[collapsible=icon]:px-2"
         style={{
           background: 'hsl(var(--surface-0))',
           borderBottom: '1px solid hsl(var(--gold-500) / 0.1)',
         }}
       >
-        <div className="flex items-center gap-3">
-          <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-9 w-9 rounded-full object-contain shrink-0" />
-          <h1 className="font-display text-lg tracking-wide text-gold-500">
-            Cha Jewels Hub
-          </h1>
+        <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+          <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-9 w-9 rounded-full object-contain shrink-0 ring-1 ring-gold-500/40 group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8" />
+          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <h1 className="font-deco text-xl font-semibold leading-none tracking-wide text-gold-300">
+              Cha Jewels
+            </h1>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-ink-muted">Hub</p>
+          </div>
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar (Ctrl/⌘ B)"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-gold-500/10 hover:text-gold-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:hidden"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          )}
         </div>
+        {collapsed && (
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label="Expand sidebar"
+            title="Expand sidebar (Ctrl/⌘ B)"
+            className="mx-auto mt-2 flex h-8 w-8 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-gold-500/10 hover:text-gold-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+        )}
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-4" style={{ background: 'hsl(var(--sidebar-background))' }}>
-        <SidebarMenu>
+      <SidebarContent className="px-3 py-3 group-data-[collapsible=icon]:px-2" style={{ background: 'hsl(var(--sidebar-background))' }}>
+        <SidebarMenu className="gap-0.5">
           {visibleItems.map((item) => {
-            // Category header — non-interactive label
+            // Section header — deco small caps with a trailing gold hairline;
+            // on the icon rail it collapses to a short divider.
             if (isCategory(item)) {
               return (
-                <div
-                  key={`cat-${item.label}`}
-                  className="mt-3 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-white/30 select-none"
-                >
-                  {item.label}
-                </div>
+                <li key={`cat-${item.label}`} className="list-none select-none" role="presentation">
+                  <div className="mt-4 mb-1.5 flex items-center gap-2 px-3 group-data-[collapsible=icon]:hidden">
+                    <span className="font-deco text-[13px] font-semibold uppercase tracking-[0.18em] text-gold-500/80">
+                      {item.label}
+                    </span>
+                    <span aria-hidden className="h-px flex-1 bg-gradient-to-r from-gold-500/30 to-transparent" />
+                  </div>
+                  <div aria-hidden className="mx-auto my-2.5 hidden h-px w-6 bg-gold-500/30 group-data-[collapsible=icon]:block" />
+                </li>
               );
             }
 
             const Icon = item.icon;
 
-            // Leaf item (no children) — unchanged from previous behavior
+            // Leaf item (no children)
             if (!item.children) {
               const isActive = location.pathname === item.path;
+              const badge = badgeCountByPath[item.path!] ?? 0;
               return (
                 <SidebarMenuItem key={item.label} onMouseEnter={() => setExpanded({})}>
                   <SidebarMenuButton
+                    tooltip={item.label}
                     onClick={() => navigate(item.path!)}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
+                      'relative h-10 rounded-md pl-3 pr-3 text-sm transition-colors duration-200 ease-out cursor-pointer hover:bg-transparent',
                       isActive
-                        ? 'border-l-2 border-l-primary bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary'
-                        : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
+                        ? 'font-medium text-gold-300 hover:text-gold-300'
+                        : 'text-white/55 hover:bg-gold-500/[0.06] hover:text-white/90'
                     )}
                   >
-                    <Icon
-                      className={cn(
-                        'h-4 w-4 flex-shrink-0',
-                        isActive ? 'opacity-100 text-primary' : 'opacity-60'
-                      )}
-                    />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    {(badgeCountByPath[item.path!] ?? 0) > 0 && (
-                      <span
-                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          background: 'rgba(245, 158, 11, 0.18)',
-                          color: '#F59E0B',
-                          border: '1px solid rgba(245, 158, 11, 0.35)',
-                        }}
-                      >
-                        {badgeCountByPath[item.path!]}
-                      </span>
-                    )}
+                    {isActive && <ActivePill />}
+                    <Icon className={cn('relative z-10 h-4 w-4 flex-shrink-0', isActive ? 'text-gold-300' : 'opacity-60')} />
+                    <span className="relative z-10 flex-1 text-left">{item.label}</span>
+                    {badge > 0 && <CountBadge n={badge} />}
+                    <RailDot show={badge > 0} />
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );
             }
 
             // Parent item with children — collapsible
-            const isOnParent = location.pathname === item.parentPath;
-            const isExpanded = !!expanded[item.label];
+            const isOnParent = location.pathname === item.parentPath
+              || item.children.some(c => c.path && location.pathname === c.path);
+            const isExpanded = !collapsed && !!expanded[item.label];
             const parentBadge = badgeCountByPath[item.parentPath!] ?? 0;
-            const Chevron = isExpanded ? ChevronDown : ChevronRight;
+            const parentCarriesPill = isOnParent && !isExpanded;
 
             return (
-              <SidebarMenuItem key={item.label} onMouseEnter={() => setExpanded({ [item.label]: true })}>
+              <SidebarMenuItem key={item.label} onMouseEnter={() => { if (!collapsed) setExpanded({ [item.label]: true }); }}>
                 <SidebarMenuButton
-                  onClick={() => setExpanded(prev => prev[item.label] ? {} : { [item.label]: true })}
+                  tooltip={item.label}
+                  aria-expanded={isExpanded}
+                  onClick={() => {
+                    if (collapsed) {
+                      // Icon rail: open the full sidebar with this group expanded.
+                      setOpen(true);
+                      setExpanded({ [item.label]: true });
+                      return;
+                    }
+                    setExpanded(prev => prev[item.label] ? {} : { [item.label]: true });
+                  }}
                   className={cn(
-                    'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
-                    isOnParent
-                      ? 'border-l border-l-primary/40 bg-primary/[0.04] text-white/80 hover:bg-primary/[0.08]'
-                      : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
+                    'relative h-10 rounded-md pl-3 pr-3 text-sm transition-colors duration-200 ease-out cursor-pointer hover:bg-transparent',
+                    parentCarriesPill
+                      ? 'font-medium text-gold-300 hover:text-gold-300'
+                      : isOnParent
+                        ? 'text-white/85 hover:bg-gold-500/[0.06]'
+                        : 'text-white/55 hover:bg-gold-500/[0.06] hover:text-white/90'
                   )}
                 >
-                  <Icon
+                  {parentCarriesPill && <ActivePill />}
+                  <Icon className={cn('relative z-10 h-4 w-4', isOnParent ? 'text-gold-300' : 'opacity-60')} />
+                  <span className="relative z-10 flex-1 text-left">{item.label}</span>
+                  {parentBadge > 0 && <CountBadge n={parentBadge} />}
+                  <RailDot show={parentBadge > 0} />
+                  <ChevronRight
                     className={cn(
-                      'h-4 w-4',
-                      isOnParent ? 'opacity-80 text-primary/70' : 'opacity-60'
+                      'relative z-10 h-3.5 w-3.5 opacity-60 transition-transform duration-200 group-data-[collapsible=icon]:hidden',
+                      isExpanded && 'rotate-90',
                     )}
                   />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {parentBadge > 0 && (
-                    <span
-                      className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                      style={{
-                        background: 'rgba(245, 158, 11, 0.18)',
-                        color: '#F59E0B',
-                        border: '1px solid rgba(245, 158, 11, 0.35)',
-                      }}
-                    >
-                      {parentBadge}
-                    </span>
-                  )}
-                  <Chevron className="h-3.5 w-3.5 opacity-60" />
                 </SidebarMenuButton>
 
                 {isExpanded && (
-                  <SidebarMenuSub className="border-l border-l-primary/15 ml-4 pl-2 mt-0.5 mb-1">
+                  <SidebarMenuSub className="ml-[1.35rem] mt-0.5 mb-1 border-l border-l-gold-500/20 pl-2">
                     {item.children.map((child) => {
-                      const isChildActive = child.path
-                        ? location.pathname === child.path
-                        : (location.pathname === item.parentPath &&
-                          (searchParams.get('tab') === child.tab ||
-                            (!searchParams.get('tab') && child.tab === item.children![0].tab)));
+                      const isChildActive = isChildActiveFor(item, child);
                       const subBadge = child.badgeKey ? (badgeBySubKey[child.badgeKey] ?? 0) : 0;
                       const target = child.path ?? `${item.parentPath}?tab=${child.tab}`;
                       return (
@@ -394,26 +512,16 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
                           <SidebarMenuSubButton
                             asChild
                             className={cn(
-                              'h-8 rounded-md pl-3 pr-2 text-xs transition-all duration-200 ease-out',
+                              'relative h-8 rounded-md pl-3 pr-2 text-xs transition-colors duration-200 ease-out hover:bg-transparent',
                               isChildActive
-                                ? 'bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary'
-                                : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
+                                ? 'font-medium text-gold-300 hover:text-gold-300'
+                                : 'text-white/55 hover:bg-gold-500/[0.06] hover:text-white/90'
                             )}
                           >
-                            <Link to={target} className="flex w-full items-center gap-2">
-                              <span className="flex-1">{child.label}</span>
-                              {subBadge > 0 && (
-                                <span
-                                  className="ml-auto inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                                  style={{
-                                    background: 'rgba(245, 158, 11, 0.18)',
-                                    color: '#F59E0B',
-                                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                                  }}
-                                >
-                                  {subBadge}
-                                </span>
-                              )}
+                            <Link to={target} aria-current={isChildActive ? 'page' : undefined} className="flex w-full items-center gap-2">
+                              {isChildActive && <ActivePill />}
+                              <span className="relative z-10 flex-1">{child.label}</span>
+                              {subBadge > 0 && <CountBadge n={subBadge} small />}
                             </Link>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
@@ -428,18 +536,18 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       </SidebarContent>
 
       <SidebarFooter
-        className="p-4"
+        className="p-4 group-data-[collapsible=icon]:p-2"
         style={{
           background: 'hsl(var(--sidebar-background))',
           borderTop: '1px solid hsl(var(--gold-500) / 0.1)',
         }}
       >
-        <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-xs font-bold text-black">
+        <div className="mb-3 flex items-center gap-3 group-data-[collapsible=icon]:mb-1 group-data-[collapsible=icon]:justify-center">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full gold-gradient font-deco text-sm font-bold text-black group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8" title={profile?.full_name || 'Cha Jewels'}>
             {initials}
           </div>
 
-          <div className="min-w-0 flex-1 leading-tight">
+          <div className="min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
             <div className="truncate text-sm font-medium text-white/80">
               {profile?.full_name || 'Cha Jewels'}
             </div>
@@ -449,23 +557,27 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
 
         <button
           onClick={signOut}
+          aria-label="Logout"
+          title="Logout"
           className="flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm text-white/40 transition-colors duration-200 hover:text-white/80"
         >
           <LogOut className="h-4 w-4" />
-          Logout
+          <span className="group-data-[collapsible=icon]:hidden">Logout</span>
         </button>
 
-        {updateAvailable ? (
-          <p className="mt-1 text-center text-[10px] text-amber-400 select-none">
-            v {__APP_VERSION__} · update pending
-          </p>
-        ) : (
-          <p className="mt-1 text-center text-[10px] text-muted-foreground select-none">
-            v {__APP_VERSION__}
-          </p>
-        )}
-        <EmailHealthPill />
-        <PortalTokenPill />
+        <div className="group-data-[collapsible=icon]:hidden">
+          {updateAvailable ? (
+            <p className="mt-1 text-center text-[10px] text-amber-400 select-none">
+              v {__APP_VERSION__} · update pending
+            </p>
+          ) : (
+            <p className="mt-1 text-center text-[10px] text-muted-foreground select-none">
+              v {__APP_VERSION__}
+            </p>
+          )}
+          <EmailHealthPill />
+          <PortalTokenPill />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );
