@@ -5,6 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
+import { reservationKindLabel } from '../web-reservation-rules.ts'
 import { INTERNAL_SITE_NAME as SITE_NAME, INTERNAL_FOOTER as FOOTER_LINE } from './brand.ts'
 
 /**
@@ -50,7 +51,7 @@ const WebReservationsAwaitingEmail = ({ reservations = [] }: Props) => {
             <Section key={r.reference} style={card}>
               <Text style={cardTitle}>
                 <Link href={r.hubUrl} style={link}>{r.reference}</Link>
-                {' · '}{r.kind === 'layaway' ? 'Layaway' : 'Paid in full'}
+                {' · '}{reservationKindLabel(r.kind)}
               </Text>
               <Text style={cardLine}>{r.customerName} · {r.amount}</Text>
               <Text style={cardLine}>Waiting {r.ageHours}h · auto-cancels {r.autoCancelAt}</Text>

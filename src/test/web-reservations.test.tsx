@@ -157,6 +157,7 @@ describe("the Hub twin agrees with the edge rules", () => {
     expect(hub.RESERVATION_REMIND_HOURS).toBe(edge.RESERVATION_REMIND_HOURS);
     expect(hub.RESERVATION_LIVE_STATUS).toEqual(edge.RESERVATION_LIVE_STATUS);
     for (const h of [24, 72, 48, 0, null]) expect(hub.deadlineHoursLabel(h)).toBe(edge.deadlineHoursLabel(h));
+    for (const k of ["cash_order", "layaway"] as const) expect(hub.reservationKindLabel(k)).toBe(edge.reservationKindLabel(k));
   });
 });
 
@@ -223,6 +224,14 @@ describe("ReservationsAwaitingCard", () => {
     expect(refs).toEqual(["CJ-W-000001", "CJ-W-000002"]);
     expect(screen.getAllByRole("button", { name: /^confirm$/i })).toHaveLength(2);
     expect(screen.getByText(/over 8 months/)).toBeInTheDocument();
+  });
+
+  it("labels the plan type, never a payment state — no reservation reads as paid", () => {
+    reservations = [row("000001", "2026-09-23T00:00:00Z"), row("000002", "2026-09-24T00:00:00Z", "layaway")];
+    render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
+    expect(screen.getByText("Full payment")).toBeInTheDocument();
+    expect(screen.getByText("Layaway")).toBeInTheDocument();
+    expect(screen.queryByText(/paid in full/i)).not.toBeInTheDocument();
   });
 });
 
