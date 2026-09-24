@@ -69,6 +69,15 @@ import {
   buildPaymentFixtures,
   buildCashPaymentFixtures,
 } from './fixtures';
+import {
+  buildProofIndexFixtures,
+  buildSubmissionAllocationFixtures,
+  buildWaiverFixtures,
+  PAYMENT_METHOD_FIXTURES,
+  stubProofStorage,
+  submissionCacheEntries,
+} from './sales-fixtures';
+import { supabase } from '@/integrations/supabase/client';
 
 /**
  * DEV-only preview harness (/__fixtures) used for Playwright screenshot
@@ -85,6 +94,10 @@ import {
  *                                     every permission granted)
  *     &reservations=1               → two layaway plans + two cash orders
  *                                     become unconfirmed web reservations
+ *   /__fixtures?view=hub&at=/sales?tab=payments  (or tab=waivers)
+ *                                   → Sales → Payments / Waivers, seeded from
+ *                                     sales-fixtures.ts (proof thumbnails are
+ *                                     drawn locally — no storage session)
  *   /__fixtures?view=cash           → CashOrdersList
  *   /__fixtures?view=dashboard      → Dashboard (full page, seeded)
  *   /__fixtures?view=attention      → NeedsAttentionPanel (perm-gated on the
@@ -148,6 +161,21 @@ export default function FixturePreview() {
         : buildReservationFixtures(),
     );
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
+    // Sales → Payments / Waivers (Phase 2B). Same keys the real pages read.
+    stubProofStorage(supabase.storage as never);
+    const subs = submissionCacheEntries();
+    for (const [filter, rows] of Object.entries(subs)) {
+      const shown = empty ? [] : rows;
+      seed(['payment-submissions', filter], shown);
+      seed(['submission-allocations', shown.map((r) => r.id)], empty ? [] : buildSubmissionAllocationFixtures());
+    }
+    seed(['payment-methods-active'], PAYMENT_METHOD_FIXTURES);
+    seed(['pending-submission-count'], empty ? 0 : subs.pending.length);
+    seed(['submission-proofs-all'], empty ? [] : buildProofIndexFixtures());
+    const waivers = empty ? [] : buildWaiverFixtures();
+    seed(['waivers-page', 'pending'], waivers.filter((w) => w.status === 'pending'));
+    seed(['waivers-page', 'all'], waivers);
+    seed(['waiver-request-pending-count'], waivers.filter((w) => w.status === 'pending').length);
     for (const a of accounts) {
       seed(['account-quickview', a.id], buildQuickViewFixture());
       seed(['account', a.id], a);

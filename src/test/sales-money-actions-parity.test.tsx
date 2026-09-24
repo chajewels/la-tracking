@@ -94,7 +94,10 @@ vi.mock("@/hooks/use-auto-refresh", () => ({
   useAutoRefresh: () => ({ lastRefreshedAt: null, refreshing: false, refresh: () => {} }),
 }));
 
-import PaymentSubmissions from "@/pages/PaymentSubmissions";
+import type { FC } from "react";
+import PaymentSubmissionsImpl from "@/pages/PaymentSubmissions";
+// memo() widens the inferred props to `object`; PaymentsHub re-points it the same way.
+const PaymentSubmissions = PaymentSubmissionsImpl as FC<{ embedded?: boolean; searchValue?: string }>;
 import Waivers from "@/pages/Waivers";
 
 // ------------------------------------------------------------------ fixtures
@@ -296,7 +299,7 @@ describe(`at ${width}px`, () => {
       for (const c of h.calls.filter((x) => x.kind === "storage.sign")) {
         expect(c).toEqual({ kind: "storage.sign", target: "payment-proofs", payload: { path: "a-1/maria.jpg", ttl: 3600 } });
       }
-      fireEvent.click(screen.getAllByRole("button", { name: /View full size|Expand|Proof of payment/i })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: /View full size|^Expand$|Proof of payment/i })[0]);
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Proof of Payment")).toBeInTheDocument();
       expect(within(dialog).getByRole("link", { name: /Open in new tab/ })).toHaveAttribute("href", sub({}).proof_url);

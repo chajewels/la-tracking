@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Scale, CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,13 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import StatusPill from '@/components/shared/StatusPill';
+import { PENALTY_STATUS_TONE, WAIVER_STATUS_TONE } from '@/components/shared/status-tone';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 interface WaiverRow {
   id: string;
@@ -269,144 +276,241 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
     }
   };
 
+  // Hub visual refresh (Phase 2B): desktop = ledger table of account groups
+  // (click a row to open its penalties, several at once — as before); phones
+  // = cards with a stacked penalty list. Same buttons, same gates.
+  const isMobile = useIsMobile();
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const expandedKeys = expandedGroups as ReadonlySet<string>;
+
+  /** Approve / Reject / View Account — shown only while the group has pending
+   *  waivers; Approve / Reject additionally need manage_waivers (unchanged). */
+  const renderGroupActions = (group: WaiverGroup, pendingCount: number) => pendingCount > 0 && (
+    <div className="flex items-center justify-end gap-1">
+      {can('manage_waivers') && (
+        <>
+          <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs border-success/30 text-success hover:bg-success/10"
+            onClick={e => { e.stopPropagation(); openActionDialog(group, 'approve'); }}>
+            Approve
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs border-destructive/30 text-destructive hover:bg-destructive/10"
+            onClick={e => { e.stopPropagation(); openActionDialog(group, 'reject'); }}>
+            Reject
+          </Button>
+        </>
+      )}
+      <Link to={`/accounts/${group.accountId}`} onClick={e => e.stopPropagation()}>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-gold-300" title="View Account">
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+      </Link>
+    </div>
+  );
+
+  const waiverPill = (w: WaiverRow) => {
+    const config = statusConfig[w.status as keyof typeof statusConfig] || statusConfig.pending;
+    const tone = WAIVER_STATUS_TONE[w.status in statusConfig ? w.status : 'pending'] ?? 'warning';
+    return <StatusPill label={config.label} tone={tone} />;
+  };
+  const penaltyPill = (w: WaiverRow) => {
+    const st = w.penalty_fees?.status || 'unknown';
+    return <StatusPill label={st.charAt(0).toUpperCase() + st.slice(1)} tone={PENALTY_STATUS_TONE[st] ?? 'danger'} />;
+  };
+  const unwaiveButton = (w: WaiverRow, group: WaiverGroup) => w.penalty_fees?.status === 'waived' && (
+    <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1 border-warning/30 text-warning hover:bg-warning/10"
+      onClick={e => { e.stopPropagation(); setUnwaiveTarget({ waiver: w, group }); }}>
+      <Undo2 className="h-3 w-3" /> Unwaive
+    </Button>
+  );
+
+  /** The penalties inside a group (desktop: ledger sub-table). */
+  const renderBreakdown = (group: WaiverGroup) => (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="hairline-b">
+            {['Stage', 'Cycle', 'Date Applied', 'Amount', 'Penalty Status', 'Waiver Status', 'Reason', 'Requested', 'Actions'].map((h, i) => (
+              <th key={h} className={cn('px-3 py-2 text-[10px] font-medium uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap', i === 3 || i === 8 ? 'text-right' : 'text-left')}>
+                {h === 'Actions' ? <span className="sr-only">Actions</span> : h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/60">
+          {group.waivers.map(w => {
+            const pen = w.penalty_fees;
+            return (
+              <tr key={w.id}>
+                <td className="px-3 py-2 text-card-foreground">{pen?.penalty_stage || '—'}</td>
+                <td className="px-3 py-2 text-card-foreground">{pen?.penalty_cycle || '—'}</td>
+                <td className="px-3 py-2 text-muted-foreground text-xs whitespace-nowrap">{pen?.penalty_date ? fmtDay(pen.penalty_date) : '—'}</td>
+                <td className="px-3 py-2 text-right font-semibold text-danger tabular-nums whitespace-nowrap">{formatCurrency(Number(w.penalty_amount), group.currency)}</td>
+                <td className="px-3 py-2">{penaltyPill(w)}</td>
+                <td className="px-3 py-2">{waiverPill(w)}</td>
+                <td className="px-3 py-2 max-w-[220px]">
+                  <p className="text-xs text-card-foreground truncate" title={w.reason}>{w.reason}</p>
+                </td>
+                <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                  {new Date(w.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </td>
+                <td className="px-3 py-2 text-right">{unwaiveButton(w, group)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const columns: DataTableColumn<WaiverGroup>[] = [
+    {
+      key: 'invoice',
+      header: 'Invoice',
+      cellClassName: 'whitespace-nowrap',
+      cell: g => (
+        <span className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">#{g.invoiceNumber}</span>
+      ),
+    },
+    {
+      key: 'customer',
+      header: 'Customer',
+      cellClassName: 'max-w-[260px]',
+      cell: g => <span className="block truncate text-sm text-card-foreground" title={g.customerName}>{g.customerName}</span>,
+    },
+    {
+      key: 'penalties',
+      header: 'Penalties',
+      cellClassName: 'whitespace-nowrap',
+      cell: g => <span className="text-xs text-muted-foreground">{g.waivers.length} penalt{g.waivers.length === 1 ? 'y' : 'ies'}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: g => {
+        const pending = g.waivers.filter(w => w.status === 'pending').length;
+        return pending > 0
+          ? <StatusPill label={`${pending} pending`} tone="warning" />
+          : <StatusPill label="Reviewed" tone="muted" />;
+      },
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      cell: g => <span className="font-semibold text-danger">{formatCurrency(g.totalAmount, g.currency)}</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      hideable: false,
+      align: 'right',
+      cellClassName: 'w-px',
+      cell: g => renderGroupActions(g, g.waivers.filter(w => w.status === 'pending').length),
+    },
+  ];
+
   const content = (
     <>
-      <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
+      <div className={embedded ? 'space-y-5' : 'animate-fade-in space-y-6'}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           {!embedded && (
             <div>
-              <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Operations</p>
-              <h1 className="text-2xl font-bold text-foreground font-display">Waiver Requests</h1>
+              <p className="label-caps text-[11px] text-gold-300 mb-1">Operations</p>
+              <h1 className="font-deco text-3xl font-semibold tracking-tight text-champagne">Waiver Requests</h1>
               <p className="text-sm text-muted-foreground mt-1">Review and action pending penalty waiver requests with selective penalty control</p>
             </div>
           )}
-          <div className="flex gap-2">
-            <Button variant={filter === 'pending' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('pending')}>
-              <Clock className="h-3.5 w-3.5 mr-1.5" /> Pending
-            </Button>
-            <Button variant={filter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('all')}>
-              All Requests
-            </Button>
+          {/* Same segmented control as the Cash / Layaway filters. */}
+          <div className="flex w-fit gap-1 rounded-lg border border-border p-1 bg-card">
+            {([['pending', 'Pending'], ['all', 'All Requests']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap',
+                  filter === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {value === 'pending' && <Clock className="h-3.5 w-3.5" />} {label}
+              </button>
+            ))}
           </div>
         </div>
 
         {isLoading ? (
-          <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
-        ) : groups.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Scale className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm font-medium text-card-foreground">
-              {filter === 'pending' ? 'No pending waiver requests' : 'No waiver requests found'}
-            </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+              <LedgerIllustration kind="ledger" className="h-8 w-10" />
+              Opening the ledger…
+            </div>
+            <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
           </div>
+        ) : groups.length === 0 ? (
+          <IllustratedState
+            kind="ledger"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text={filter === 'pending' ? 'No pending waiver requests' : 'No waiver requests found'}
+          />
+        ) : !isMobile ? (
+          <DataTable
+            variant="ledger"
+            showToolbar={false}
+            columns={columns}
+            rows={groups}
+            rowKey={g => g.accountId}
+            onRowClick={g => toggleGroup(g.accountId)}
+            renderExpanded={renderBreakdown}
+            expandedKeys={expandedKeys}
+            onToggleExpanded={g => toggleGroup(g.accountId)}
+            maxHeightClassName="max-h-[72vh]"
+          />
         ) : (
           <div className="space-y-3">
             {groups.map(group => {
               const isExpanded = expandedGroups.has(group.accountId);
               const pendingCount = group.waivers.filter(w => w.status === 'pending').length;
               return (
-                <div key={group.accountId} className="rounded-xl border border-border bg-card overflow-hidden">
-                  {/* Group Header */}
+                <div key={group.accountId} className="rounded-xl border border-gold-500/15 bg-card overflow-hidden">
                   <div
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/20 transition-colors"
+                    className="flex items-start gap-3 px-4 py-3 cursor-pointer"
                     onClick={() => toggleGroup(group.accountId)}
                   >
-                    <div className="flex items-center gap-3">
-                      {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-card-foreground">#{group.invoiceNumber}</span>
-                          <span className="text-sm text-card-foreground">{group.customerName}</span>
-                          <Badge variant="outline" className="text-[10px]">{group.waivers.length} penalt{group.waivers.length === 1 ? 'y' : 'ies'}</Badge>
-                        </div>
+                    {isExpanded ? <ChevronUp className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-deco text-lg font-semibold text-champagne">#{group.invoiceNumber}</span>
+                        <span className="text-sm font-semibold text-danger tabular-nums whitespace-nowrap">{formatCurrency(group.totalAmount, group.currency)}</span>
+                      </div>
+                      <p className="truncate text-sm text-card-foreground" title={group.customerName}>{group.customerName}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">{group.waivers.length} penalt{group.waivers.length === 1 ? 'y' : 'ies'}</span>
+                        {pendingCount > 0 ? <StatusPill label={`${pendingCount} pending`} tone="warning" /> : <StatusPill label="Reviewed" tone="muted" />}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-destructive tabular-nums">
-                        {formatCurrency(group.totalAmount, group.currency)}
-                      </span>
-                      {pendingCount > 0 && (
-                        <div className="flex gap-1">
-                          {can('manage_waivers') && (
-                            <>
-                              <Button variant="outline" size="sm" className="h-7 text-xs border-success/30 text-success hover:bg-success/10"
-                                onClick={e => { e.stopPropagation(); openActionDialog(group, 'approve'); }}>
-                                Approve
-                              </Button>
-                              <Button variant="outline" size="sm" className="h-7 text-xs border-destructive/30 text-destructive hover:bg-destructive/10"
-                                onClick={e => { e.stopPropagation(); openActionDialog(group, 'reject'); }}>
-                                Reject
-                              </Button>
-                            </>
-                          )}
-                          <Link to={`/accounts/${group.accountId}`} onClick={e => e.stopPropagation()}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="View Account">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                          </Link>
-                        </div>
-                      )}
-                    </div>
                   </div>
-
-                  {/* Expanded Penalty Breakdown */}
+                  {pendingCount > 0 && <div className="px-4 pb-3">{renderGroupActions(group, pendingCount)}</div>}
                   {isExpanded && (
-                    <div className="border-t border-border">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-muted/30">
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Stage</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Cycle</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Date Applied</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Amount</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Penalty Status</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Waiver Status</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Reason</th>
-                            <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Requested</th>
-                            <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {group.waivers.map(w => {
-                            const pen = w.penalty_fees;
-                            const config = statusConfig[w.status as keyof typeof statusConfig] || statusConfig.pending;
-                            const StatusIcon = config.icon;
-                            return (
-                              <tr key={w.id} className="hover:bg-muted/10">
-                                <td className="px-4 py-2 text-card-foreground">{pen?.penalty_stage || '—'}</td>
-                                <td className="px-4 py-2 text-card-foreground">{pen?.penalty_cycle || '—'}</td>
-                                <td className="px-4 py-2 text-muted-foreground text-xs">{pen?.penalty_date ? new Date(pen.penalty_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                                <td className="px-4 py-2 font-semibold text-destructive tabular-nums">{formatCurrency(Number(w.penalty_amount), group.currency)}</td>
-                                <td className="px-4 py-2">
-                                  <Badge variant="outline" className={`text-[10px] ${pen?.status === 'waived' ? 'bg-muted text-muted-foreground' : pen?.status === 'paid' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
-                                    {pen?.status || 'unknown'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-2">
-                                  <Badge variant="outline" className={`text-[10px] ${config.className}`}>
-                                    <StatusIcon className="h-3 w-3 mr-1" />{config.label}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-2 max-w-[180px]">
-                                  <p className="text-xs text-card-foreground truncate" title={w.reason}>{w.reason}</p>
-                                </td>
-                                <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                                  {new Date(w.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </td>
-                                <td className="px-4 py-2 text-right">
-                                  {pen?.status === 'waived' && (
-                                    <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1 border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
-                                      onClick={e => { e.stopPropagation(); setUnwaiveTarget({ waiver: w, group }); }}>
-                                      <Undo2 className="h-3 w-3" /> Unwaive
-                                    </Button>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <ul className="hairline-t divide-y divide-border/60">
+                      {group.waivers.map(w => {
+                        const pen = w.penalty_fees;
+                        return (
+                          <li key={w.id} className="px-4 py-3 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-card-foreground">{pen?.penalty_stage || '—'} · Cycle {pen?.penalty_cycle || '—'}</span>
+                              <span className="font-semibold text-danger tabular-nums">{formatCurrency(Number(w.penalty_amount), group.currency)}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">{penaltyPill(w)}{waiverPill(w)}</div>
+                            <p className="text-xs text-muted-foreground">
+                              Applied {pen?.penalty_date ? fmtDay(pen.penalty_date) : '—'} · requested {new Date(w.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                            <p className="text-xs text-card-foreground break-words">{w.reason}</p>
+                            {unwaiveButton(w, group)}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
               );
@@ -417,16 +521,21 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
 
       {/* Selective Approve/Reject Dialog */}
       <Dialog open={!!actionDialog} onOpenChange={open => { if (!open) { setActionDialog(null); setSelectedWaiverIds(new Set()); } }}>
-        <DialogContent className="bg-card border-border max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-display text-card-foreground">
-              {actionDialog?.action === 'approve' ? 'Approve Selected Penalties' : 'Reject Selected Waivers'}
-            </DialogTitle>
-            <DialogDescription>
-              {actionDialog?.action === 'approve'
-                ? 'Select which penalties to waive. Only selected penalties will be removed.'
-                : 'Select which waiver requests to reject.'}
-            </DialogDescription>
+        <DialogContent className="bg-background border-gold-500/20 max-w-lg">
+          <DialogHeader className="space-y-0">
+            <DecoDialogHeader
+              icon={actionDialog?.action === 'approve' ? <CheckCircle /> : <XCircle />}
+              title={
+                <DialogTitle className={decoTitleClass}>
+                  {actionDialog?.action === 'approve' ? 'Approve Selected Penalties' : 'Reject Selected Waivers'}
+                </DialogTitle>}
+              description={
+                <DialogDescription>
+                  {actionDialog?.action === 'approve'
+                    ? 'Select which penalties to waive. Only selected penalties will be removed.'
+                    : 'Select which waiver requests to reject.'}
+                </DialogDescription>}
+            />
           </DialogHeader>
           {actionDialog && (
             <div className="space-y-3">
@@ -441,7 +550,7 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
               </div>
 
               {/* Penalty selection checkboxes */}
-              <div className="rounded-lg border border-border divide-y divide-border max-h-60 overflow-y-auto">
+              <div className="rounded-lg border border-gold-500/15 divide-y divide-border/60 max-h-60 overflow-y-auto">
                 {actionDialog.group.waivers
                   .filter(w => w.status === 'pending')
                   .map(w => {
@@ -467,7 +576,7 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
                             Applied {pen?.penalty_date ? new Date(pen.penalty_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
                           </span>
                         </div>
-                        <span className="text-xs font-bold text-destructive tabular-nums">
+                        <span className="text-xs font-bold text-danger tabular-nums whitespace-nowrap">
                           {formatCurrency(Number(w.penalty_amount), actionDialog.group.currency)}
                         </span>
                       </label>
@@ -476,11 +585,11 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
               </div>
 
               {/* Summary */}
-              <div className="rounded-lg bg-muted/50 p-3 flex items-center justify-between">
+              <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-3 flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
                   {selectedWaiverIds.size} of {actionDialog.group.waivers.filter(w => w.status === 'pending').length} selected
                 </span>
-                <span className="text-sm font-bold text-card-foreground">
+                <span className="text-sm font-bold text-card-foreground tabular-nums whitespace-nowrap">
                   {actionDialog.action === 'approve' ? 'Waive' : 'Reject'}: {formatCurrency(selectedTotal, actionDialog.group.currency)}
                 </span>
               </div>
@@ -520,23 +629,27 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
 
       {/* Unwaive Confirmation Dialog */}
       <Dialog open={!!unwaiveTarget} onOpenChange={open => { if (!open) setUnwaiveTarget(null); }}>
-        <DialogContent className="bg-card border-border max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-display text-card-foreground">Unwaive Penalty</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to unwaive this penalty? The account balance will be restored.
-            </DialogDescription>
+        <DialogContent className="bg-background border-gold-500/20 max-w-sm">
+          <DialogHeader className="space-y-0">
+            <DecoDialogHeader
+              icon={<Undo2 />}
+              title={<DialogTitle className={decoTitleClass}>Unwaive Penalty</DialogTitle>}
+              description={
+                <DialogDescription>
+                  Are you sure you want to unwaive this penalty? The account balance will be restored.
+                </DialogDescription>}
+            />
           </DialogHeader>
           {unwaiveTarget && (
-            <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1">
+            <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-3 text-xs space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-mono font-medium text-card-foreground">#{unwaiveTarget.group.invoiceNumber}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Penalty</span><span className="text-card-foreground">{unwaiveTarget.waiver.penalty_fees?.penalty_stage} · Cycle {unwaiveTarget.waiver.penalty_fees?.penalty_cycle}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold text-destructive tabular-nums">{formatCurrency(Number(unwaiveTarget.waiver.penalty_amount), unwaiveTarget.group.currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold text-danger tabular-nums">{formatCurrency(Number(unwaiveTarget.waiver.penalty_amount), unwaiveTarget.group.currency)}</span></div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setUnwaiveTarget(null)} disabled={unwaiving}>Cancel</Button>
-            <Button onClick={handleUnwaive} disabled={unwaiving} className="bg-amber-500 text-white hover:bg-amber-600">
+            <Button onClick={handleUnwaive} disabled={unwaiving} className="bg-warning text-warning-foreground hover:bg-warning/90">
               {unwaiving ? 'Processing…' : 'Confirm Unwaive'}
             </Button>
           </DialogFooter>

@@ -268,7 +268,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       header: 'Customer',
       cellClassName: 'max-w-[200px]',
       cell: (o) => (
-        <span className="block truncate text-sm text-card-foreground">
+        <span className="block truncate text-sm text-card-foreground" title={o.customers?.full_name || 'Unknown'}>
           <HighlightText text={o.customers?.full_name || 'Unknown'} query={searchQuery} />
         </span>
       ),

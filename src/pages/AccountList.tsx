@@ -520,9 +520,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     {
       key: 'customer',
       header: 'Customer',
-      cellClassName: 'max-w-[200px]',
+      cellClassName: 'max-w-[160px]',
       cell: (a) => (
-        <span className="block truncate text-sm text-card-foreground">
+        <span className="block truncate text-sm text-card-foreground" title={a.customers?.full_name || 'Unknown'}>
           <HighlightText text={a.customers?.full_name || 'Unknown'} query={searchQuery} />
         </span>
       ),
@@ -549,7 +549,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
         const pct = total > 0 ? Math.round((Number(a.total_paid) / total) * 100) : 0;
         return (
           <span className="flex items-center gap-2" title={`${pct}% paid · ${a.payment_plan_months}mo plan`}>
-            <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
+            <span className="h-1 w-10 overflow-hidden rounded-full bg-muted">
               <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
             </span>
             <span className="text-[11px] tabular-nums text-muted-foreground">{pct}%</span>

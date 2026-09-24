@@ -25,3 +25,30 @@ export const CASH_ORDER_STATUS_TONE: Record<string, StatusTone> = {
   expired: 'danger',
   cancelled: 'muted',
 };
+
+/**
+ * payment_submissions.status → tone (Sales → Payments). Waiting on staff =
+ * info / warning, done = success, refused = danger, withdrawn = muted.
+ */
+export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
+  submitted: 'info',
+  under_review: 'warning',
+  needs_clarification: 'warning',
+  confirmed: 'success',
+  rejected: 'danger',
+  cancelled: 'muted',
+};
+
+/** penalty_waiver_requests.status → tone (Sales → Waivers). */
+export const WAIVER_STATUS_TONE: Record<string, StatusTone> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+};
+
+/** penalty_fees.status → tone, as shown beside a waiver request. */
+export const PENALTY_STATUS_TONE: Record<string, StatusTone> = {
+  unpaid: 'danger',
+  paid: 'success',
+  waived: 'muted',
+};
