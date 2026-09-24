@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { callUntypedRpc } from '@/lib/untyped-rpc';
 
 /**
  * Email delivery health (added 2026-09-13 after the silent nine-day
@@ -41,11 +41,9 @@ export function useEmailHealth(hours = 24, enabled = true) {
     refetchInterval: 10 * 60_000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      // Cast: the RPC lands in the auto-generated types on Lovable's next push.
-      const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
-      const { data, error } = await rpc('email_delivery_report', { p_hours: hours });
-      if (error) throw error;
-      return data as EmailDeliveryReport;
+      // Untyped until the RPC lands in the generated types; called as a method
+      // (see callUntypedRpc — a detached rpc() throws before any request).
+      return callUntypedRpc<EmailDeliveryReport>('email_delivery_report', { p_hours: hours });
     },
   });
 }

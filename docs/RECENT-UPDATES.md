@@ -8,7 +8,7 @@
   reassign_owner_unmatched (admin only by default) can override that ONE
   check — explicit tick-box, written reason, audited as unmatched /
   override_used; every other refusal still applies. New: migration
-  20260924140000_reassign_identity_match.sql (permission seed with DO
+  20260924150000_reassign_identity_match.sql (permission seed with DO
   NOTHING; reassign_order_owner_atomic dropped and re-created with
   p_allow_unmatched DEFAULT false; preview gains matched_on and
   unmatched). Changed: reassign-order-owner (override body field, 403

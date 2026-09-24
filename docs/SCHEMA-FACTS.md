@@ -1142,7 +1142,7 @@ behaviours.
 
 ### R11 identity match + wrong-customer override (added 2026-09-24)
 
-Migration `20260924140000_reassign_identity_match.sql` (owner runs it; md5
+Migration `20260924150000_reassign_identity_match.sql` (owner runs it; md5
 guard on live `reassign_order_owner_atomic` d51393e67cc1f208457964a637bc3ca8 /
 23658 and on `find_customer_matches` e7f259b57c2a8d2f161c7189a19f4a3e / 2852,
 which it does NOT change).

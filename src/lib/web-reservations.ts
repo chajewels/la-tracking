@@ -55,6 +55,16 @@ export function deadlineHoursLabel(hours: number | null | undefined): string {
   return `${h} hours${h === 24 ? ' (first order)' : h === 72 ? ' (returning customer)' : ''}`;
 }
 
+/**
+ * The plan-type label on a reservation: "Full payment" or "Layaway". It names
+ * how the customer will pay, never whether they have — a reservation has no
+ * money on it by definition, and "Paid in full" read as paid (owner acceptance
+ * run, 2026-09-24).
+ */
+export function reservationKindLabel(kind: ReservationKind): string {
+  return kind === 'layaway' ? 'Layaway' : 'Full payment';
+}
+
 /** "5h", "1d 3h" — how long a reservation has been waiting. */
 export function formatReservationAge(createdAt: string | null | undefined, now: Date = new Date()): string {
   const h = reservationAgeHours(createdAt, now);

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { callUntypedRpc } from '@/lib/untyped-rpc';
 
 /**
  * Portal token expiry (added 2026-09-15, after 447 of 632 active tokens were
@@ -65,11 +65,9 @@ export function usePortalTokenHealth(days = 60, enabled = true) {
     refetchInterval: 10 * 60_000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      // Cast: the RPC lands in the auto-generated types on Lovable's next push.
-      const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
-      const { data, error } = await rpc('portal_token_expiry_report', { p_days: days });
-      if (error) throw error;
-      return data as PortalTokenReport;
+      // Untyped until the RPC lands in the generated types; called as a method
+      // (see callUntypedRpc — a detached rpc() throws before any request).
+      return callUntypedRpc<PortalTokenReport>('portal_token_expiry_report', { p_days: days });
     },
   });
 }
@@ -81,10 +79,7 @@ export function usePortalTokenList(days = 60, enabled = true) {
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
-      const { data, error } = await rpc('portal_tokens_expiring_list', { p_days: days });
-      if (error) throw error;
-      return (data ?? []) as PortalTokenRow[];
+      return (await callUntypedRpc<PortalTokenRow[] | null>('portal_tokens_expiring_list', { p_days: days })) ?? [];
     },
   });
 }

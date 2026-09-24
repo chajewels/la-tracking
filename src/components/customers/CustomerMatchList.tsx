@@ -27,7 +27,7 @@ export default function CustomerMatchList({ matches, description, onUse, usingId
     const hit = key !== null && hits.includes(key);
     return (
       <div className="min-w-0">
-        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+        <dt className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</dt>
         <dd className={cn('text-xs break-words', hit ? 'font-semibold text-warning' : 'text-foreground')}>
           {value || '—'}
           {hit && <span className="sr-only"> (matched)</span>}
@@ -39,14 +39,14 @@ export default function CustomerMatchList({ matches, description, onUse, usingId
   return (
     <Alert className="border-warning/50 bg-warning/5" role="alert">
       <AlertTriangle className="h-4 w-4 text-warning" />
-      <AlertTitle>Existing customer found</AlertTitle>
+      <AlertTitle className="font-deco text-xl font-semibold leading-tight text-champagne">Existing customer found</AlertTitle>
       <AlertDescription>
-        <p className="text-xs text-muted-foreground mb-3">{description}</p>
+        <p className="text-xs text-muted-foreground mb-3 pb-3 hairline-b">{description}</p>
         <ul className="space-y-3">
           {matches.map((m) => (
-            <li key={m.customer_id} className="rounded-md border border-border bg-card p-3 space-y-2">
+            <li key={m.customer_id} className="rounded-lg border border-gold-500/20 bg-card p-3 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs">{m.customer_code || 'No code'}</span>
+                <span className="font-mono text-xs text-gold-300">{m.customer_code || 'No code'}</span>
                 {m.has_login
                   ? <Badge variant="outline" className="text-[10px]">Has portal login</Badge>
                   : <Badge variant="outline" className="text-[10px] text-muted-foreground">No login</Badge>}
