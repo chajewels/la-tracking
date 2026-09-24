@@ -3,6 +3,9 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save, ChevronRight, Mail, Phone, Facebook, StickyNote } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
+import { useCustomerCashOrders } from '@/hooks/useCustomerCashOrders';
+import { orderCountsLabel, tallyCustomerOrders } from '@/lib/customer-account-stats';
+import TestTag from '@/components/shared/TestTag';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import Monogram from '@/components/shared/Monogram';
 import StatusPill from '@/components/shared/StatusPill';
@@ -66,6 +69,8 @@ export default function CustomerDetail() {
     setSearchParams(searchParams, { replace: true });
   }, [searchParams, setSearchParams]);
   const { data, isLoading } = useCustomerAccounts(customerId);
+  // Same query (and cache entry) as the Cash Orders tab — feeds the header badge.
+  const { data: customerCashOrders } = useCustomerCashOrders(customerId);
   const [copied, setCopied] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
   const [locationType, setLocationType] = useState<LocationType>('japan');
@@ -488,11 +493,13 @@ export default function CustomerDetail() {
           <div className="flex-1 min-w-0">
             <h1 className="font-deco text-[1.75rem] sm:text-[2.6rem] font-semibold leading-[1.05] tracking-tight text-champagne break-words">{customer.full_name}</h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {customer.is_test && <TestTag className="py-1 text-xs" />}
               {customer.customer_code && (
                 <span className={cn(factPill, 'border-gold-500/25 bg-gold-500/[0.06] font-mono text-gold-300')}>{customer.customer_code}</span>
               )}
-              <span className={factPill}>
-                {accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length} active account{accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length !== 1 ? 's' : ''}
+              {/* Same active/done rule as the directory row (layaways + cash orders). */}
+              <span className={factPill} data-testid="customer-order-counts">
+                {orderCountsLabel(tallyCustomerOrders(accounts.map(a => a.account), customerCashOrders ?? []))}
               </span>
               {customer.facebook_name && <span className={cn(factPill, 'max-w-full truncate')} title={`@${customer.facebook_name}`}>@{customer.facebook_name}</span>}
               {customer.messenger_link && (

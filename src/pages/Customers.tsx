@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useCustomers, useAccountsLight, useCashOrdersLight } from '@/hooks/use-supabase-data';
+import { buildAccountStatsMap, customerCountLabel } from '@/lib/customer-account-stats';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -194,33 +195,12 @@ export default function Customers() {
     if (firstNonEmpty) setActiveLetter(firstNonEmpty);
   }, [grouped, activeLetter]);
 
-  // Account stats lookup
-  const accountStats = useMemo(() => {
-    const map = new Map<string, { active: number; completed: number }>();
-    for (const a of accounts || []) {
-      if (a.status === 'cancelled') continue;
-      const stats = map.get(a.customer_id) || { active: 0, completed: 0 };
-      if (a.status === 'completed' || Number(a.remaining_balance) <= 0) {
-        stats.completed++;
-      } else if (!['forfeited', 'final_forfeited'].includes(a.status)) {
-        stats.active++;
-      }
-      map.set(a.customer_id, stats);
-    }
-    // NEW — parallel cash_orders aggregation (cash orders are first-class accounts)
-    for (const co of (cashOrders ?? [])) {
-      if (co.status === 'cancelled' || co.status === 'expired') continue;
-      const stats = map.get(co.customer_id) || { active: 0, completed: 0 };
-      if (co.status === 'completed') {
-        stats.completed++;
-      } else {
-        // co.status === 'pending'
-        stats.active++;
-      }
-      map.set(co.customer_id, stats);
-    }
-    return map;
-  }, [accounts, cashOrders]);
+  // Account stats lookup — the shared active/done rule (also the customer
+  // page header badge): src/lib/customer-account-stats.ts
+  const accountStats = useMemo(
+    () => buildAccountStatsMap(accounts ?? [], cashOrders ?? []),
+    [accounts, cashOrders],
+  );
 
   const handleLetterSelect = useCallback((letter: string | null) => {
     setActiveLetter(letter);
@@ -267,7 +247,7 @@ export default function Customers() {
         <PageHeaderBand
           crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Customers' }]}
           title="Customers"
-          subtitle={isLoading ? 'Customer directory' : `Customer directory · ${sorted.length} ${sorted.length === 1 ? 'customer' : 'customers'}`}
+          subtitle={isLoading ? 'Customer directory' : `Customer directory · ${customerCountLabel(sorted)}`}
         />
 
         <div className="w-full mt-5 space-y-5">
@@ -352,7 +332,7 @@ export default function Customers() {
                     </div>
                     <div aria-hidden className="h-px flex-1 bg-gradient-to-r from-gold-500/50 via-gold-500/20 to-transparent" />
                     <span className="text-xs text-muted-foreground font-medium">
-                      {(group?.length ?? 0)} customer{(group?.length ?? 0) !== 1 ? 's' : ''}
+                      {customerCountLabel(group ?? [])}
                     </span>
                   </div>
                   {(group?.length ?? 0) > 0 ? (
@@ -390,7 +370,7 @@ export default function Customers() {
                 </Button>
                 <span className="text-sm tabular-nums text-muted-foreground">
                   Page {page + 1} of {totalPages}
-                  <span className="hidden sm:inline"> · {displayed.length} customer{displayed.length !== 1 ? 's' : ''}</span>
+                  <span className="hidden sm:inline"> · {customerCountLabel(displayed)}</span>
                 </span>
                 <Button
                   variant="outline"

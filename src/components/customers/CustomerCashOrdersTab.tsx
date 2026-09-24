@@ -1,12 +1,10 @@
 import { memo, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
-import { supabase } from '@/integrations/supabase/client';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
@@ -14,45 +12,16 @@ import StatusPill from '@/components/shared/StatusPill';
 import { CASH_ORDER_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useCustomerCashOrders, type CashOrderRow } from '@/hooks/useCustomerCashOrders';
 
 // Same labels the old StatusBadge showed.
 const statusLabel: Record<string, string> = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired' };
 const orderDateLabel = (o: CashOrderRow) =>
   o.order_date || Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(o.created_at));
 
-interface CashOrderRow {
-  id: string;
-  invoice_number: string;
-  source_channel?: string | null;
-  web_reference?: string | null;
-  currency: Currency;
-  total_amount: number;
-  total_paid: number;
-  remaining_balance: number;
-  status: string;
-  order_date: string | null;
-  item_description: string | null;
-  created_at: string;
-}
 
 const PAGE_SIZE = 20;
 
-function useCustomerCashOrders(customerId: string | undefined) {
-  return useQuery({
-    queryKey: ['cash-orders-by-customer', customerId],
-    enabled: !!customerId,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('cash_orders')
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference')
-        .eq('customer_id', customerId!)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return ((data || []) as unknown as CashOrderRow[]);
-    },
-  });
-}
 
 export default memo(function CustomerCashOrdersTab({ customerId }: { customerId: string }) {
   const navigate = useNavigate();

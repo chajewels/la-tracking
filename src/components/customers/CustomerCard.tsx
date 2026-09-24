@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import TestTag from '@/components/shared/TestTag';
 import { Link } from 'react-router-dom';
 import { Pencil, MessageCircle, ChevronRight, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, comp
                 {c.full_name}
               </span>
               {tierName && <LoyaltyTierBadge tierName={tierName} className="shrink-0" />}
+              {c.is_test && <TestTag />}
             </p>
             {c.facebook_name && (
               <p className="text-xs text-muted-foreground truncate" title={`@${c.facebook_name}`}>@{c.facebook_name}</p>
