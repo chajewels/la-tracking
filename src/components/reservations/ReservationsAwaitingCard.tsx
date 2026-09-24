@@ -4,7 +4,7 @@ import { Hourglass } from 'lucide-react';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
 import {
-  RESERVATION_REMIND_HOURS, formatReservationAge, reservationAgeHours, reservationAutoCancelAt,
+  RESERVATION_REMIND_HOURS, formatReservationAge, reservationAgeHours, reservationAutoCancelAt, reservationKindLabel,
 } from '@/lib/web-reservations';
 import { useWebReservations } from '@/hooks/use-supabase-data';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -62,7 +62,7 @@ export default function ReservationsAwaitingCard() {
                     {r.reference}
                   </Link>
                   <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {r.kind === 'layaway' ? 'Layaway' : 'Paid in full'}
+                    {reservationKindLabel(r.kind)}
                   </span>
                   {r.customer_is_test && (
                     <span className="rounded-md border border-info/20 bg-info/10 px-1.5 py-0.5 text-[10px] font-bold text-info">🧪 TEST</span>

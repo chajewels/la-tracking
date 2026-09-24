@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { executiveDashboardQueryOptions } from '@/hooks/useExecutiveDashboard';
 import { dashboardSummaryQueryOptions } from '@/hooks/use-supabase-data';
 import {
@@ -41,6 +42,7 @@ let hasPrefetched = false;
 export function usePrefetchHeavyPages() {
   const queryClient = useQueryClient();
   const { session, user } = useAuth();
+  const { can } = usePermissions();
 
   useEffect(() => {
     if (hasPrefetched || !session) return;
@@ -54,10 +56,14 @@ export function usePrefetchHeavyPages() {
       // Finance (visible to all authenticated users — see gate note above)
       queryClient.prefetchQuery(dashboardSummaryQueryOptions('ALL'));
       queryClient.prefetchQuery(forecastScheduleQueryOptions());
-      queryClient.prefetchQuery(dailyLayawayQueryOptions('ALL'));
-      queryClient.prefetchQuery(dailyLayawayLastMonthQueryOptions('ALL'));
-      queryClient.prefetchQuery(dailyCashOrdersQueryOptions());
-      queryClient.prefetchQuery(dailyCashOrdersLastMonthQueryOptions());
+      // The four daily-sales RPCs refuse callers without view_finance
+      // (migration 20260924140200), so only warm them for users who hold it.
+      if (can('view_finance')) {
+        queryClient.prefetchQuery(dailyLayawayQueryOptions('ALL'));
+        queryClient.prefetchQuery(dailyLayawayLastMonthQueryOptions('ALL'));
+        queryClient.prefetchQuery(dailyCashOrdersQueryOptions());
+        queryClient.prefetchQuery(dailyCashOrdersLastMonthQueryOptions());
+      }
       queryClient.prefetchQuery(collectionAnalyticsQueryOptions('ALL'));
       queryClient.prefetchQuery(staffPerformanceQueryOptions());
       queryClient.prefetchQuery(topOutstandingCustomersQueryOptions());
@@ -69,5 +75,5 @@ export function usePrefetchHeavyPages() {
     } else {
       setTimeout(run, 2500);
     }
-  }, [session, user, queryClient]);
+  }, [session, user, queryClient, can]);
 }
