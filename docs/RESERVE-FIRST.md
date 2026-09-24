@@ -229,6 +229,24 @@ still live, so the stale value is never read as "awaiting".
 - The storefront (`chajewels/cha-jewels-web`) must read `reservation_mode` /
   `awaiting_confirmation` / `ready_for_payment` to switch its copy. Until it
   does, do not flip the switch.
-- `record-payment` / `record-multi-payment` (staff) are not guarded
-  server-side; the Hub hides the button on a reservation, and a confirmation
-  refuses (`payment_exists`) if one slipped through.
+- ~~`record-payment` / `record-multi-payment` (staff) are not guarded
+  server-side.~~ Closed 2026-09-24: see "Staff payment guard" below.
+
+## Staff payment guard (2026-09-24)
+
+Every staff payment path now refuses an unconfirmed web reservation on the
+server with **409 `not_ready_for_payment`** (`{error, reference, message}`),
+not only by hiding the Hub button:
+
+- `record-payment` — before any preview or write.
+- `record-multi-payment` — one reservation in the batch refuses the whole
+  batch, before any write.
+- `review-payment-submission`, `confirmed` action — the only writer of
+  `payments` / `cash_payments`. It checks the submission's order(s) BEFORE the
+  status flip, so a refused confirm leaves the submission pending.
+- Cash orders: `submit-cash-payment` already refused for every role (A2).
+
+The rule is `firstUnconfirmedReservation()` /
+`staffNotReadyForPaymentBody()` in `_shared/web-reservation-rules.ts`: web
+channel AND `ready_confirmed_at IS NULL`, so a Hub plan is never blocked.
+Tests: `src/test/web-reservations.test.tsx` "staff payment guard".

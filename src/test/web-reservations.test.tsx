@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -158,6 +159,51 @@ describe("the Hub twin agrees with the edge rules", () => {
     expect(hub.RESERVATION_LIVE_STATUS).toEqual(edge.RESERVATION_LIVE_STATUS);
     for (const h of [24, 72, 48, 0, null]) expect(hub.deadlineHoursLabel(h)).toBe(edge.deadlineHoursLabel(h));
     for (const k of ["cash_order", "layaway"] as const) expect(hub.reservationKindLabel(k)).toBe(edge.reservationKindLabel(k));
+  });
+});
+
+describe("staff payment guard (every staff payment path refuses an unconfirmed reservation)", () => {
+  it("finds the first unconfirmed web row and never a Hub row", () => {
+    const hubPlan = { id: "h", source_channel: "hub_manual", ready_confirmed_at: null, invoice_number: "19001" };
+    const confirmed = web({ id: "c", ready_confirmed_at: "2026-09-24T01:00:00Z" });
+    const reservation = web({ id: "r", invoice_number: "900050", web_reference: "CJ-W-000050" });
+    expect(edge.firstUnconfirmedReservation([hubPlan, confirmed])).toBeNull();
+    expect(edge.firstUnconfirmedReservation([hubPlan, reservation, confirmed])).toBe(reservation);
+    expect(edge.firstUnconfirmedReservation(null)).toBeNull();
+    expect(edge.firstUnconfirmedReservation([null, undefined])).toBeNull();
+  });
+
+  it("answers not_ready_for_payment naming the customer's reference", () => {
+    const body = edge.staffNotReadyForPaymentBody({ invoice_number: "900050", web_reference: "CJ-W-000050" });
+    expect(body.error).toBe("not_ready_for_payment");
+    expect(body.reference).toBe("CJ-W-000050");
+    expect(body.message).toMatch(/^CJ-W-000050 is still a reservation\. Confirm the piece/);
+    expect(edge.staffNotReadyForPaymentBody(null).message).toMatch(/^This web order is still a reservation/);
+  });
+
+  // The functions run under Deno and cannot be imported here, so the wiring is
+  // asserted on their CODE (comment lines stripped — a comment mentioning the
+  // guard must not satisfy this).
+  const code = (f: string) => readFileSync(f, "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  it.each([
+    ["supabase/functions/record-payment/index.ts", /firstUnconfirmedReservation\(\[account\]\)/],
+    ["supabase/functions/record-multi-payment/index.ts", /firstUnconfirmedReservation\(accounts\)/],
+    ["supabase/functions/review-payment-submission/index.ts", /firstUnconfirmedReservation\(orders\)/],
+  ])("%s refuses with a 409 before any write", (file, call) => {
+    const src = code(file);
+    expect(src).toMatch(call);
+    expect(src).toMatch(/staffNotReadyForPaymentBody\([a-z]+\)\), \{\s*status: 409/);
+  });
+
+  it("review-payment-submission checks before it flips the submission to confirmed", () => {
+    const src = code("supabase/functions/review-payment-submission/index.ts");
+    expect(src.indexOf("firstUnconfirmedReservation(orders)")).toBeGreaterThan(-1);
+    expect(src.indexOf("firstUnconfirmedReservation(orders)")).toBeLessThan(src.indexOf('.update({ status: "confirmed"'));
+  });
+
+  it("the customer and cash paths still carry their own guard", () => {
+    expect(code("supabase/functions/submit-payment/index.ts")).toMatch(/isUnconfirmedReservation\(acct\)/);
+    expect(code("supabase/functions/submit-cash-payment/index.ts")).toMatch(/isUnconfirmedReservation\(cashOrder\)/);
   });
 });
 

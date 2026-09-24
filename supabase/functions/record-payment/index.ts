@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateSingleAmount } from "../_shared/payment-validation.ts";
+import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,6 +72,16 @@ Deno.serve(async (req) => {
     if (accErr || !account) {
       return new Response(JSON.stringify({ error: "Account not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // RESERVE-FIRST: no payment, and no preview of one, against a web plan
+    // staff have not confirmed. The Hub hides the button; this is the rule.
+    // Hub plans are never matched — the channel is checked first.
+    if (firstUnconfirmedReservation([account])) {
+      return new Response(JSON.stringify(staffNotReadyForPaymentBody(account)), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

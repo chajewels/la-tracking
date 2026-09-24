@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAllocations } from "../_shared/payment-validation.ts";
+import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -113,6 +114,16 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "One or more accounts not found or don't belong to this customer" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // RESERVE-FIRST: one unconfirmed web plan in the batch refuses the whole
+    // batch, before any write — a split payment is all or nothing.
+    const reservation = firstUnconfirmedReservation(accounts);
+    if (reservation) {
+      return new Response(JSON.stringify(staffNotReadyForPaymentBody(reservation)), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── F04: validate the whole batch BEFORE any write ──

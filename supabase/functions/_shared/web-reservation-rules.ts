@@ -142,3 +142,30 @@ export function deadlineHoursLabel(hours: number | null | undefined): string {
 export function reservationKindLabel(kind: ReservationKind): string {
   return kind === "layaway" ? "Layaway" : "Full payment";
 }
+
+/**
+ * STAFF PAYMENT GUARD (2026-09-24, owner acceptance run finding 4). The Hub
+ * hides "Record payment" on a reservation, but hiding a button is not a rule:
+ * record-payment, record-multi-payment and the confirm branch of
+ * review-payment-submission must refuse on the server too. Each passes the
+ * order rows it has already read; the first unconfirmed reservation among
+ * them, or null. Hub rows are never matched (the channel is checked first).
+ */
+export function firstUnconfirmedReservation<T extends ReservationRow>(
+  rows: ReadonlyArray<T | null | undefined> | null | undefined,
+): T | null {
+  for (const r of rows ?? []) if (r && isUnconfirmedReservation(r)) return r;
+  return null;
+}
+
+/** The 409 body every staff payment path returns — one code, one wording. */
+export function staffNotReadyForPaymentBody(
+  row: { invoice_number?: string | null; web_reference?: string | null } | null | undefined,
+) {
+  const ref = row?.web_reference || row?.invoice_number || null;
+  return {
+    error: NOT_READY_FOR_PAYMENT,
+    reference: ref,
+    message: `${ref ? `${ref} is` : "This web order is"} still a reservation. Confirm the piece before recording a payment.`,
+  };
+}
