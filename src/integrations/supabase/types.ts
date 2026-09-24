@@ -7061,6 +7061,7 @@ export type Database = {
       }
       reassign_order_owner_atomic: {
         Args: {
+          p_allow_unmatched?: boolean
           p_apply: boolean
           p_kind: string
           p_loyalty_jpy_amount: number
