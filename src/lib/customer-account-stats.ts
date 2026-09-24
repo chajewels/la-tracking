@@ -60,3 +60,14 @@ export function orderCountsLabel({ active, completed }: OrderCounts): string {
   if (completed > 0) parts.push(`${completed} done`);
   return parts.length ? parts.join(' · ') : 'No accounts';
 }
+
+/**
+ * "903 customers (1 test)" — the directory's count. Test customers stay in the
+ * directory (findable) but the label says how many of them are tests, so the
+ * figure reconciles with the Dashboard, which excludes them.
+ */
+export function customerCountLabel(list: ReadonlyArray<{ is_test?: boolean | null }>): string {
+  const n = list.length;
+  const tests = list.filter((c) => c.is_test === true).length;
+  return `${n} customer${n === 1 ? '' : 's'}${tests > 0 ? ` (${tests} test)` : ''}`;
+}

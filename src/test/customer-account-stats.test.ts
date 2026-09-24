@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildAccountStatsMap, classifyCashOrder, classifyLayaway, orderCountsLabel, tallyCustomerOrders,
+  buildAccountStatsMap, classifyCashOrder, customerCountLabel, classifyLayaway, orderCountsLabel, tallyCustomerOrders,
 } from "@/lib/customer-account-stats";
 
 // One active/done rule for the directory row AND the customer page header
@@ -50,5 +50,15 @@ describe("customer active/done counts", () => {
 
   it("a customer with only uncounted orders gets no directory entry (the row shows 'No accounts')", () => {
     expect(buildAccountStatsMap([{ customer_id: "x", status: "cancelled", remaining_balance: 5 }], []).has("x")).toBe(false);
+  });
+});
+
+describe("directory count label", () => {
+  it("says how many of the customers are tests", () => {
+    const list = [...Array.from({ length: 902 }, () => ({ is_test: false })), { is_test: true }];
+    expect(customerCountLabel(list)).toBe("903 customers (1 test)");
+    expect(customerCountLabel(list.slice(0, 902))).toBe("902 customers");
+    expect(customerCountLabel([{ is_test: true }])).toBe("1 customer (1 test)");
+    expect(customerCountLabel([])).toBe("0 customers");
   });
 });

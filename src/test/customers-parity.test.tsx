@@ -228,6 +228,16 @@ describe(`at ${width}px`, () => {
       };
     });
 
+    it("a test customer stays findable, carries a TEST tag, and the count says how many are tests", async () => {
+      h.tables.customers = directory.map((c) => (c.id === "c-99" ? { ...c, is_test: true } : { ...c, is_test: false }));
+      renderAt("/customers", <Customers />);
+      await waitFor(() => expect(shownIds()).toHaveLength(50));
+      expect(screen.getByText(/Customer directory · 61 customers \(1 test\)/)).toBeInTheDocument();
+      fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "Villa" } });
+      await waitFor(() => expect(shownIds()).toEqual(["c-99"]));
+      expect(screen.getAllByText("🧪 TEST")).toHaveLength(1);
+    });
+
     it("reads exactly the same four queries, and search / filter / group / page read nothing more", async () => {
       renderAt("/customers", <Customers />);
       await waitFor(() => expect(shownIds()).toHaveLength(50));
@@ -488,6 +498,17 @@ describe(`at ${width}px`, () => {
         { kind: "rpc", target: "check_customer_email_conflict", payload: { p_customer_id: "c-1" } },
       ]);
       expect(writes()).toEqual([]);
+    });
+
+    it("a test customer's page carries the TEST tag; a real one does not", async () => {
+      await open();
+      expect(screen.queryByText("🧪 TEST")).not.toBeInTheDocument();
+    });
+
+    it("the TEST tag shows on a test customer's page header", async () => {
+      h.tables = { ...detailTables(), customers: [{ ...maria, is_test: true }] };
+      await open();
+      expect(await screen.findByText("🧪 TEST")).toBeInTheDocument();
     });
 
     it("header badge uses the directory's active/done rule, cash orders included", async () => {

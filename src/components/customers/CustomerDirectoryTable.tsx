@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, MapPin, MessageCircle, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
+import TestTag from '@/components/shared/TestTag';
 import StatusPill from '@/components/shared/StatusPill';
 import Monogram from '@/components/shared/Monogram';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
@@ -62,6 +63,7 @@ export default memo(function CustomerDirectoryTable({ customers, accountStats, t
                   {c.full_name}
                 </Link>
                 {tier && <LoyaltyTierBadge tierName={tier} className="shrink-0" />}
+                {c.is_test && <TestTag />}
               </span>
               {c.facebook_name && (
                 <span className="block truncate text-[11px] text-muted-foreground" title={`@${c.facebook_name}`}>@{c.facebook_name}</span>

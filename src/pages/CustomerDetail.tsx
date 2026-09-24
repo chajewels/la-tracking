@@ -5,6 +5,7 @@ import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTri
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import { useCustomerCashOrders } from '@/hooks/useCustomerCashOrders';
 import { orderCountsLabel, tallyCustomerOrders } from '@/lib/customer-account-stats';
+import TestTag from '@/components/shared/TestTag';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import Monogram from '@/components/shared/Monogram';
 import StatusPill from '@/components/shared/StatusPill';
@@ -492,6 +493,7 @@ export default function CustomerDetail() {
           <div className="flex-1 min-w-0">
             <h1 className="font-deco text-[1.75rem] sm:text-[2.6rem] font-semibold leading-[1.05] tracking-tight text-champagne break-words">{customer.full_name}</h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {customer.is_test && <TestTag className="py-1 text-xs" />}
               {customer.customer_code && (
                 <span className={cn(factPill, 'border-gold-500/25 bg-gold-500/[0.06] font-mono text-gold-300')}>{customer.customer_code}</span>
               )}

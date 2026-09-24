@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useCustomers, useAccountsLight, useCashOrdersLight } from '@/hooks/use-supabase-data';
-import { buildAccountStatsMap } from '@/lib/customer-account-stats';
+import { buildAccountStatsMap, customerCountLabel } from '@/lib/customer-account-stats';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -247,7 +247,7 @@ export default function Customers() {
         <PageHeaderBand
           crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Customers' }]}
           title="Customers"
-          subtitle={isLoading ? 'Customer directory' : `Customer directory · ${sorted.length} ${sorted.length === 1 ? 'customer' : 'customers'}`}
+          subtitle={isLoading ? 'Customer directory' : `Customer directory · ${customerCountLabel(sorted)}`}
         />
 
         <div className="w-full mt-5 space-y-5">
@@ -332,7 +332,7 @@ export default function Customers() {
                     </div>
                     <div aria-hidden className="h-px flex-1 bg-gradient-to-r from-gold-500/50 via-gold-500/20 to-transparent" />
                     <span className="text-xs text-muted-foreground font-medium">
-                      {(group?.length ?? 0)} customer{(group?.length ?? 0) !== 1 ? 's' : ''}
+                      {customerCountLabel(group ?? [])}
                     </span>
                   </div>
                   {(group?.length ?? 0) > 0 ? (
@@ -370,7 +370,7 @@ export default function Customers() {
                 </Button>
                 <span className="text-sm tabular-nums text-muted-foreground">
                   Page {page + 1} of {totalPages}
-                  <span className="hidden sm:inline"> · {displayed.length} customer{displayed.length !== 1 ? 's' : ''}</span>
+                  <span className="hidden sm:inline"> · {customerCountLabel(displayed)}</span>
                 </span>
                 <Button
                   variant="outline"
