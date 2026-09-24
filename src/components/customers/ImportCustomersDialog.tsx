@@ -9,6 +9,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { toLocationString, type LocationType } from '@/lib/countries';
+import {
+  blankToNull, MATCH_FIELD_LABELS, normalizeMatchEmail, normalizeMatchMobile, normalizeMatchName,
+  type CustomerMatchField, type FindCustomerMatchesRpc,
+} from '@/lib/customer-matches';
 
 type Step = 'upload' | 'preview' | 'importing' | 'done';
 
@@ -24,8 +28,11 @@ interface ParsedRow {
 }
 
 interface ValidatedRow extends ParsedRow {
-  status: 'valid' | 'error' | 'imported' | 'failed';
+  // 'duplicate' = matched an existing customer or another row of this file, so
+  // it was NOT inserted (owner rules 2026-09-23 — no override).
+  status: 'valid' | 'error' | 'imported' | 'failed' | 'duplicate';
   errors: string[];
+  duplicateOf?: string[];
 }
 
 interface ImportCustomersDialogProps {
@@ -92,6 +99,36 @@ function validateRow(row: ParsedRow): string[] {
   return errs;
 }
 
+const fieldList = (fields: CustomerMatchField[]) => fields.map(f => MATCH_FIELD_LABELS[f] ?? f).join(', ');
+
+/**
+ * Rows of the same file that match each other on any duplicate field. Both
+ * sides of a match are held back: nothing in the file says which one is right.
+ * Same normalisation as public.find_customer_matches.
+ */
+function inFileDuplicates(rows: ValidatedRow[]): Map<number, string[]> {
+  const keys = rows.map(r => ({
+    full_name: normalizeMatchName(r.full_name),
+    facebook_name: normalizeMatchName(r.facebook_name),
+    mobile: normalizeMatchMobile(r.mobile_number),
+    email: normalizeMatchEmail(r.email),
+  }));
+  const out = new Map<number, string[]>();
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = 0; j < rows.length; j++) {
+      if (i === j) continue;
+      const hits = (Object.keys(keys[i]) as CustomerMatchField[])
+        .filter(f => keys[i][f] !== null && keys[i][f] === keys[j][f]);
+      if (hits.length > 0) {
+        const list = out.get(i) ?? [];
+        list.push(`Row ${rows[j].rowNum} in this file (${fieldList(hits)})`);
+        out.set(i, list);
+      }
+    }
+  }
+  return out;
+}
+
 export default function ImportCustomersDialog({ open, onOpenChange }: ImportCustomersDialogProps) {
   const qc = useQueryClient();
   const [step, setStep] = useState<Step>('upload');
@@ -156,6 +193,7 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
   const errorCount = validated.filter(r => r.status === 'error').length;
   const importedCount = validated.filter(r => r.status === 'imported').length;
   const failedCount = validated.filter(r => r.status === 'failed').length;
+  const duplicateCount = validated.filter(r => r.status === 'duplicate').length;
 
   const handleImport = useCallback(async () => {
     const toImport = validated.filter(r => r.status === 'valid');
@@ -165,9 +203,46 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
     setImportProgress(0);
     const updated: ValidatedRow[] = [...validated];
 
+    // Rows of this file that duplicate each other are never inserted.
+    const validIdx = updated.map((r, i) => (r.status === 'valid' ? i : -1)).filter(i => i >= 0);
+    const inFile = inFileDuplicates(validIdx.map(i => updated[i]));
+    validIdx.forEach((rowIdx, k) => {
+      const dup = inFile.get(k);
+      if (dup) updated[rowIdx] = { ...updated[rowIdx], status: 'duplicate', errors: [], duplicateOf: dup };
+    });
+
     for (let i = 0; i < updated.length; i++) {
       const row = updated[i];
       if (row.status !== 'valid') continue;
+
+      // Check against existing customers BEFORE inserting. A failed check is
+      // a failed row — it never falls through to the insert.
+      const { data: found, error: checkErr } = await (supabase.rpc as unknown as FindCustomerMatchesRpc)(
+        'find_customer_matches',
+        {
+          p_full_name: blankToNull(row.full_name),
+          p_facebook_name: blankToNull(row.facebook_name),
+          p_mobile: blankToNull(row.mobile_number),
+          p_email: blankToNull(row.email),
+        },
+      );
+      if (checkErr) {
+        updated[i] = { ...row, status: 'failed', errors: [`Duplicate check failed, not imported: ${checkErr.message}`] };
+        setImportProgress(Math.round(((i + 1) / updated.length) * 100));
+        setValidated([...updated]);
+        continue;
+      }
+      if (found && found.length > 0) {
+        updated[i] = {
+          ...row,
+          status: 'duplicate',
+          errors: [],
+          duplicateOf: found.map(m => `${m.customer_code ?? 'No code'} — ${m.full_name ?? '(no name)'} (${fieldList(m.matched_on)})`),
+        };
+        setImportProgress(Math.round(((i + 1) / updated.length) * 100));
+        setValidated([...updated]);
+        continue;
+      }
 
       const lt = (row.location_type.trim().toLowerCase() || 'philippines') as LocationType;
       const location = toLocationString(lt, '') ?? null;
@@ -197,11 +272,13 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
     setStep('done');
     qc.invalidateQueries({ queryKey: ['customers'] });
     const success = updated.filter(r => r.status === 'imported').length;
-    toast.success(`${success} customer${success !== 1 ? 's' : ''} imported`);
+    const dups = updated.filter(r => r.status === 'duplicate').length;
+    toast.success(`${success} customer${success !== 1 ? 's' : ''} imported`
+      + (dups > 0 ? ` — ${dups} not imported (existing customer)` : ''));
   }, [validated, qc]);
 
   const downloadErrors = () => {
-    const errorRows = validated.filter(r => r.status === 'error' || r.status === 'failed');
+    const errorRows = validated.filter(r => r.status === 'error' || r.status === 'failed' || r.status === 'duplicate');
     downloadCSV(
       'customer-import-errors.csv',
       ['Row #', ...CSV_HEADERS, 'Errors'],
@@ -209,7 +286,7 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
         String(r.rowNum),
         r.full_name, r.facebook_name, r.messenger_link, r.mobile_number,
         r.email, r.location_type, r.notes,
-        r.errors.join('; '),
+        r.status === 'duplicate' ? `Not imported — matches: ${(r.duplicateOf ?? []).join('; ')}` : r.errors.join('; '),
       ]),
     );
   };
@@ -345,6 +422,14 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
                   </span>
                 </div>
               )}
+              {duplicateCount > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 px-4 py-3">
+                  <XCircle className="h-5 w-5 text-warning" />
+                  <span className="text-sm font-medium text-warning">
+                    {duplicateCount} not imported — existing customer
+                  </span>
+                </div>
+              )}
               {failedCount > 0 && (
                 <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
                   <XCircle className="h-5 w-5 text-destructive" />
@@ -378,8 +463,39 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
               </div>
             )}
 
+            {duplicateCount > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  These rows match an existing customer (or another row in this file) and were NOT imported.
+                  Confirm the details with the customer and use the existing account.
+                </p>
+                <div className="overflow-x-auto rounded-md border border-border max-h-56 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-card">
+                      <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border bg-muted/30">
+                        <th className="py-2 px-2">#</th>
+                        <th className="py-2 px-2">Full Name</th>
+                        <th className="py-2 px-2">Matches</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {validated.filter(r => r.status === 'duplicate').map((row, idx) => (
+                        <tr key={idx} className="border-b border-border/50 align-top">
+                          <td className="py-1.5 px-2 text-muted-foreground">{row.rowNum}</td>
+                          <td className="py-1.5 px-2">{row.full_name}</td>
+                          <td className="py-1.5 px-2">
+                            {(row.duplicateOf ?? []).map((d, k) => <div key={k}>{d}</div>)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             <DialogFooter className="gap-2">
-              {(errorCount > 0 || failedCount > 0) && (
+              {(errorCount > 0 || failedCount > 0 || duplicateCount > 0) && (
                 <Button variant="outline" onClick={downloadErrors} className="gap-1.5">
                   <FileText className="h-3.5 w-3.5" /> Download Error Report
                 </Button>

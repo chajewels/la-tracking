@@ -171,6 +171,7 @@ export const portalEn = {
     errSessionLost: 'Authentication session lost. Please sign in again.',
     errNoCustomer: 'We couldn’t find a customer record for this email. Please contact Cha Jewels for help.',
     errConflictRegistered: 'This email is already registered for portal access. Please contact support to set up your account.',
+    errDuplicateCustomer: 'You are already registered. Please contact Cha Jewels for your account details.',
     errLinkFailed: 'Failed to link your account. Please try again or contact support.',
     errLinkTimeout: 'Account linking timed out. Please try again — if this keeps happening, contact Cha Jewels for help.',
     errNetwork: 'Network error. Please check your connection and try again.',

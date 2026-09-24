@@ -1074,13 +1074,86 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       const body = await req.json().catch(() => ({}));
-      const fullName = String((body as AnyRec)?.full_name ?? "").trim() || who.email.split("@")[0];
+      // Optional profile fields (2026-09-24). None is required: the current
+      // storefront sends only full_name. Trimmed; empty → null.
+      const optStr = (v: unknown): string | null => {
+        const t = typeof v === "string" ? v.trim() : "";
+        return t ? t : null;
+      };
+      const givenName = optStr((body as AnyRec)?.full_name);
+      const facebookName = optStr((body as AnyRec)?.facebook_name);
+      const messengerLink = optStr((body as AnyRec)?.messenger_link);
+      const mobileNumber = optStr((body as AnyRec)?.mobile_number);
+      // Stored exactly like the Hub (src/lib/countries.ts toLocationString):
+      // 'Japan', 'Philippines', or the country name.
+      const rawLocation = optStr((body as AnyRec)?.location);
+      const location = rawLocation === null ? null
+        : rawLocation.toLowerCase() === "japan" ? "Japan"
+        : rawLocation.toLowerCase() === "philippines" ? "Philippines"
+        : rawLocation;
+      const fullName = givenName || who.email.split("@")[0];
+
+      // Duplicate-customer prevention (owner rules 2026-09-23). This branch
+      // would CREATE a customer (no email match above), so a match on full
+      // name, Facebook name, mobile or email blocks it. The name checked is
+      // the one the customer typed — never the email-prefix fallback, which
+      // is not a name anybody gave us. A failed check never inserts.
+      const { data: dupMatches, error: dupErr } = await supabase.rpc("find_customer_matches", {
+        p_full_name: givenName,
+        p_facebook_name: facebookName,
+        p_mobile: mobileNumber,
+        p_email: who.email,
+      });
+      if (dupErr) {
+        console.error("[website] /auth/customer duplicate check failed:", dupErr);
+        return jsonResponse({ error: "duplicate_check_failed" }, 500);
+      }
+      const dups = (dupMatches ?? []) as Array<{ customer_id: string; customer_code: string | null; matched_on: string[] }>;
+      if (dups.length > 0) {
+        try {
+          const { error: notifyErr } = await supabase.from("staff_notifications").insert({
+            type: "duplicate_signup_blocked",
+            title: "Signup blocked — existing customer",
+            body: `Website signup blocked: ${givenName ?? "(no name given)"} <${who.email}>`
+              + `, Facebook: ${facebookName ?? "—"}, mobile: ${mobileNumber ?? "—"}`
+              + `, location: ${location ?? "—"}, auth user ${who.id}. Matches: `
+              + dups.map((d) => `${d.customer_code ?? "no code"} (${d.matched_on.join(", ")})`).join("; "),
+            customer_id: dups[0].customer_id,
+            metadata: {
+              source: "website_auth_customer",
+              auth_user_id: who.id,
+              email: who.email,
+              full_name: givenName,
+              facebook_name: facebookName,
+              mobile_number: mobileNumber,
+              location,
+              matches: dups.map((d) => ({
+                customer_id: d.customer_id,
+                customer_code: d.customer_code,
+                matched_on: d.matched_on,
+              })),
+            },
+          });
+          if (notifyErr) console.warn("[website] duplicate_signup_blocked notification failed (non-blocking):", notifyErr);
+        } catch (notifyBlockErr) {
+          console.warn("[website] duplicate_signup_blocked notification failed (non-blocking):", notifyBlockErr);
+        }
+        return jsonResponse({
+          error: "already_registered",
+          message: "You are already registered. Please contact Cha Jewels for your account details.",
+        }, 409);
+      }
+
       // customer_code comes from the existing BEFORE INSERT trigger.
       // NOTE: unlike setup-customer-account, this does NOT auto-enrol in
       // loyalty — enrolment stays with join-loyalty-program so the
       // loyalty_enabled gate is honoured in one place.
       const { data: created, error: insErr } = await supabase
-        .from("customers").insert({ full_name: fullName, email: who.email, auth_user_id: who.id })
+        .from("customers").insert({
+          full_name: fullName, email: who.email, auth_user_id: who.id,
+          facebook_name: facebookName, messenger_link: messengerLink,
+          mobile_number: mobileNumber, location,
+        })
         .select(CUSTOMER_FIELDS).maybeSingle();
       if (insErr) throw insErr;
       return jsonResponse(scrub({ customer: created, created: true }));
