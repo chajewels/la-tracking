@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Trash2, Lock } from 'lucide-react';
+import { Trash2, Lock, UserPen } from 'lucide-react';
+import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -128,11 +129,11 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-display">Edit Customer</DialogTitle>
+          <DialogHeader className="text-left">
+            <DecoDialogHeader icon={<UserPen />} title={<DialogTitle className={decoTitleClass}>Edit Customer</DialogTitle>} />
           </DialogHeader>
           <form onSubmit={saveEdit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Full Name *</Label>
                 <Input value={editForm.full_name} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} />
@@ -154,7 +155,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Location</Label>
                 <Select value={editForm.locationType} onValueChange={handleLocationChange}>
@@ -174,7 +175,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Facebook Name</Label>
                 <Input value={editForm.facebook_name} onChange={e => setEditForm(f => ({ ...f, facebook_name: e.target.value }))} />
@@ -184,7 +185,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
                 <Input value={editForm.messenger_link} onChange={e => setEditForm(f => ({ ...f, messenger_link: e.target.value }))} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Mobile Number</Label>
                 <Input value={editForm.mobile_number} onChange={e => setEditForm(f => ({ ...f, mobile_number: e.target.value }))} />
@@ -204,7 +205,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
                 description="Not saved. These changes would make this customer match another existing customer. Confirm the details with the customer and correct the fields; the same person must not have two accounts."
               />
             )}
-            <div className="flex justify-between pt-2">
+            <div className="flex flex-wrap justify-between gap-3 pt-4 hairline-t">
               {canDeleteCustomer ? (
                 <Button type="button" variant="destructive" size="sm"
                   onClick={() => setDeleteConfirmOpen(true)}

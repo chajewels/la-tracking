@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { parseLocation, LocationType } from '@/lib/countries';
-import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
+import { LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
+import PageHeaderBand from '@/components/layout/PageHeaderBand';
+import CustomerDirectoryTable from '@/components/customers/CustomerDirectoryTable';
+import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ROUTES } from '@/constants/routes';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
 
@@ -47,6 +52,8 @@ export default function Customers() {
   });
   const { roles } = useAuth();
   const { can } = usePermissions();
+  // Desktop shows the directory as the Sales ledger table; phones keep cards.
+  const isMobile = useIsMobile();
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
@@ -228,7 +235,14 @@ export default function Customers() {
     }
   }, [viewMode]);
 
-  const renderCards = (list: typeof sorted) => (
+  const renderCards = (list: typeof sorted) => !isMobile ? (
+    <CustomerDirectoryTable
+      customers={list}
+      accountStats={accountStats}
+      tierMap={loyaltyTierMap}
+      onEdit={openEdit}
+    />
+  ) : (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {list.map(c => {
         const stats = accountStats.get(c.id) || { active: 0, completed: 0 };
@@ -249,20 +263,12 @@ export default function Customers() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-5">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
-              <Users className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers</h1>
-              <p className="text-sm text-muted-foreground">
-                Customer directory
-              </p>
-            </div>
-          </div>
-        </div>
+        {/* Header band (Hub visual refresh) */}
+        <PageHeaderBand
+          crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Customers' }]}
+          title="Customers"
+          subtitle={isLoading ? 'Customer directory' : `Customer directory · ${sorted.length} ${sorted.length === 1 ? 'customer' : 'customers'}`}
+        />
 
         <div className="w-full mt-5 space-y-5">
 
@@ -271,12 +277,15 @@ export default function Customers() {
           onSearchChange={setSearch}
           searchPlaceholder="Search customers..."
           showExport={false}
+          // Let the search box shrink beside the split button on a phone
+          // (an <input> will not go below its intrinsic width otherwise).
+          className="[&>div:first-child]:min-w-0 [&_input]:min-w-0"
           splitButton={<WorkspaceSplitButton />}
         />
 
         {/* View Toggle */}
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-card border border-border">
+          <div className="flex w-fit items-center gap-1 p-1 rounded-lg bg-card border border-gold-500/15">
             {([
               { mode: 'all' as ViewMode, icon: LayoutGrid, label: 'All' },
               { mode: 'filter' as ViewMode, icon: ListFilter, label: 'A–Z Filter' },
@@ -287,10 +296,11 @@ export default function Customers() {
                 variant="ghost"
                 size="sm"
                 onClick={() => { setViewMode(mode); setActiveLetter(null); }}
+                aria-pressed={viewMode === mode}
                 className={cn(
-                  'h-8 px-3 text-xs gap-1.5 rounded-md transition-all',
+                  'h-8 px-3 text-xs gap-1.5 rounded-md transition-colors',
                   viewMode === mode
-                    ? 'gold-gradient text-primary-foreground shadow-sm'
+                    ? 'bg-gold-500/15 text-gold-300 shadow-[inset_0_0_0_1px_hsl(var(--gold-500)/0.45)] hover:bg-gold-500/20 hover:text-gold-300'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -312,8 +322,20 @@ export default function Customers() {
 
         {/* Content */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+              <LedgerIllustration kind="ledger" className="h-8 w-10" />
+              Opening the directory…
+            </div>
+            {isMobile ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-12 rounded-md" />)}
+              </div>
+            )}
           </div>
         ) : viewMode === 'grouped' && grouped && !search.trim() ? (
           /* Grouped view — only the active letter group is mounted
@@ -325,10 +347,10 @@ export default function Customers() {
               return (
                 <div key={activeLetter} className="scroll-mt-24">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-primary-foreground font-bold text-sm">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gold-500/60 bg-gold-500/10 font-deco text-xl font-semibold text-gold-300">
                       {activeLetter}
                     </div>
-                    <div className="h-px flex-1 bg-border" />
+                    <div aria-hidden className="h-px flex-1 bg-gradient-to-r from-gold-500/50 via-gold-500/20 to-transparent" />
                     <span className="text-xs text-muted-foreground font-medium">
                       {(group?.length ?? 0)} customer{(group?.length ?? 0) !== 1 ? 's' : ''}
                     </span>
@@ -336,23 +358,20 @@ export default function Customers() {
                   {(group?.length ?? 0) > 0 ? (
                     renderCards(group!)
                   ) : (
-                    <p className="text-muted-foreground py-4 text-center">
-                      No customers in this group.
-                    </p>
+                    <IllustratedState kind="gem" text="No customers in this group." />
                   )}
                 </div>
               );
             })()}
           </div>
         ) : displayed.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center animate-fade-in">
-            <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">
-              {activeLetter
-                ? `No customers under "${activeLetter}"`
-                : 'No customers found'}
-            </p>
-          </div>
+          <IllustratedState
+            kind="ledger"
+            className="rounded-xl border border-gold-500/15 bg-card py-12"
+            text={activeLetter
+              ? `No customers under "${activeLetter}"`
+              : 'No customers found'}
+          />
         ) : (
           <>
             {renderCards(paged)}

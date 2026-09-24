@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Pencil, MessageCircle, ChevronRight, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
+import Monogram from '@/components/shared/Monogram';
+import { CustomerOrderPills } from '@/components/customers/CustomerDirectoryTable';
 
 interface CustomerCardProps {
   customer: any;
@@ -12,70 +14,59 @@ interface CustomerCardProps {
   onEdit: (c: any) => void;
 }
 
+// Phones (and the directory below the desktop breakpoint). The edit pencil is
+// always shown on touch screens; only a fine pointer gets the hover reveal.
 const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, completedCount, tierName, onEdit }: CustomerCardProps) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4 sm:p-5 card-hover group animate-fade-in">
-      <div className="flex items-start justify-between mb-3">
-        <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0">
-            {c.full_name.charAt(0).toUpperCase()}
-          </div>
+    <div className="rounded-xl border border-gold-500/15 bg-card p-4 sm:p-5 card-hover group">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1 min-w-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Monogram name={c.full_name} size="sm" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-card-foreground truncate group-hover:text-primary transition-colors">
-              <span className="align-middle">{c.full_name}</span>
-              {tierName && <LoyaltyTierBadge tierName={tierName} className="ml-2 align-middle" />}
+            <p className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold text-card-foreground transition-colors [@media(hover:hover)_and_(pointer:fine)]:group-hover:text-gold-300" title={c.full_name}>
+                {c.full_name}
+              </span>
+              {tierName && <LoyaltyTierBadge tierName={tierName} className="shrink-0" />}
             </p>
             {c.facebook_name && (
-              <p className="text-xs text-muted-foreground truncate">@{c.facebook_name}</p>
+              <p className="text-xs text-muted-foreground truncate" title={`@${c.facebook_name}`}>@{c.facebook_name}</p>
             )}
           </div>
         </Link>
         <Button
           variant="ghost" size="icon"
-          className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+          className="h-8 w-8 text-muted-foreground hover:text-gold-300 shrink-0 transition-opacity [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 focus-visible:opacity-100"
           onClick={() => onEdit(c)}
+          aria-label={`Edit ${c.full_name}`}
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
+      <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground mb-3">
         {c.location && (
-          <span className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" /> {c.location}
+          <span className="flex min-w-0 items-center gap-1">
+            <MapPin className="h-3 w-3 shrink-0" aria-hidden /> <span className="truncate">{c.location}</span>
           </span>
         )}
         {c.customer_code && (
-          <span className="font-mono">{c.customer_code}</span>
+          <span className="font-mono shrink-0">{c.customer_code}</span>
         )}
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-border">
-        <div className="flex items-center gap-3 text-xs">
-          {activeCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success font-medium">
-              {activeCount} active
-            </span>
-          )}
-          {completedCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-              {completedCount} done
-            </span>
-          )}
-          {activeCount === 0 && completedCount === 0 && (
-            <span className="text-muted-foreground">No accounts</span>
-          )}
-        </div>
+      <div className="flex items-center justify-between gap-2 pt-3 hairline-t">
+        <CustomerOrderPills activeCount={activeCount} completedCount={completedCount} />
         <div className="flex items-center gap-1">
           {c.messenger_link && (
-            <a href={c.messenger_link} target="_blank" rel="noopener noreferrer">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+            <a href={c.messenger_link} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info" tabIndex={-1}>
                 <MessageCircle className="h-3.5 w-3.5" />
               </Button>
             </a>
           )}
-          <Link to={`/customers/${c.id}`}>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+          <Link to={`/customers/${c.id}`} aria-label={`Open ${c.full_name}`}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" tabIndex={-1}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </Link>

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { UserPlus } from 'lucide-react';
+import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
 import { useCreateCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { toast } from 'sonner';
 import CountrySelect from '@/components/customers/CountrySelect';
@@ -197,15 +198,15 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
         </DialogTrigger>
       )}
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="font-display">New Customer</DialogTitle>
+        <DialogHeader className="text-left">
+          <DecoDialogHeader icon={<UserPlus />} title={<DialogTitle className={decoTitleClass}>New Customer</DialogTitle>} />
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Full Name *</Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Maria Santos" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Location</Label>
               <Select value={locationType} onValueChange={handleLocationChange}>
@@ -227,7 +228,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Facebook Name</Label>
               <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} placeholder="Facebook display name" />
@@ -237,7 +238,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
               <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Mobile Number</Label>
               <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 xxx xxx xxxx" />
@@ -259,7 +260,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
               usingId={usingId}
             />
           )}
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex justify-end gap-3 pt-4 hairline-t">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={busy || !!usingId} className="gold-gradient text-primary-foreground font-medium">
               {checking ? 'Checking…' : createCustomer.isPending ? 'Creating…' : matches.length > 0 ? 'Re-check & Create' : 'Create Customer'}
