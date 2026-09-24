@@ -6904,6 +6904,15 @@ export type Database = {
         }
         Returns: string
       }
+      insert_lot_catch_up: {
+        Args: {
+          p_amount: number
+          p_invoice: string
+          p_member_id: string
+          p_order_date: string
+        }
+        Returns: string
+      }
       insert_payment_submission_guarded: {
         Args: {
           p_account_id: string
@@ -7049,6 +7058,18 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      reassign_order_owner_atomic: {
+        Args: {
+          p_apply: boolean
+          p_kind: string
+          p_loyalty_jpy_amount: number
+          p_new_customer_id: string
+          p_order_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       reconcile_failing_accounts: {
         Args: never
