@@ -7,6 +7,12 @@ import { LayawayPlanCreatedEmail, layawayPlanCreatedSubject } from "../_shared/e
 import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.tsx";
 import * as React from "npm:react@18.3.1";
 import { resolveItemImages } from "../_shared/item-images.ts";
+import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
+import { sendLayawayReservedEmail, sendOrderReservedEmail } from "../_shared/reservation-emails.ts";
+import {
+  NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
+  type ReservationKind,
+} from "../_shared/web-reservation-rules.ts";
 
 /**
  * Public website API (server-to-server).
@@ -261,7 +267,9 @@ const ORDER_FIELDS =
   "tracking_number, shipped_at, " +
   // Cancelled orders stay in the customer's history with the reason and the
   // refund decision; a lapse carries expired_at.
-  "cancellation_reason, refund_status, refund_note, expired_at, source_channel";
+  "cancellation_reason, refund_status, refund_note, expired_at, source_channel, " +
+  // Read for the reservation flags only — withReservationFlags strips it.
+  "ready_confirmed_at";
 
 /**
  * create_web_order_atomic reports failures in its payload rather than throwing,
@@ -322,7 +330,9 @@ const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
   "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
   "order_date, end_date, transfer_due_at, expired_at, " +
-  "created_at, completed_at, tracking_number, shipped_at, source_channel";
+  "created_at, completed_at, tracking_number, shipped_at, source_channel, " +
+  // Read for the reservation flags only — withReservationFlags strips it.
+  "ready_confirmed_at";
 
 /**
  * Today in PHT (CLAUDE.md TIMEZONE STANDARD). The schedule is anchored to it at
@@ -356,128 +366,37 @@ async function shippingFor(supabase: any, country: string, subtotalJpy: number):
   return row ? Number(row.fee_jpy) : null;
 }
 
-const METHOD_FIELDS =
-  "id, region, method_type, label_ja, label_en, bank_name, bank_branch, account_type, " +
-  "account_number, account_holder, wallet_number, wallet_name, note_ja, note_en, sort_order";
-
-const txt = (v: unknown): string | null => {
-  const s = String(v ?? "").trim();
-  return s === "" ? null : s;
-};
-
-/**
- * Which set of accounts a currency is paid into. This is what `transfer_region`
- * on the wire has always meant — "which accounts is this paid into" — so it is
- * derived from the currency, exactly like the methods sent beside it. Deriving
- * it from the shipping address instead is what let a response carry a yen-only
- * Rakuten account under a peso plan (fixed 2026-09-15).
- *
- * There is deliberately no regionForCountry() companion any more. Every call
- * site the old one had was either the bank lookup or this label that describes
- * it; shipping goes through shippingFor(), which reads shipping_rates by
- * country directly and never consulted a region. Keeping a country->region
- * helper alive would only invite the two questions to be confused again.
- */
-function regionForCurrency(currency: string): "JP" | "OVERSEAS" {
-  return String(currency ?? "").trim().toUpperCase() === "PHP" ? "OVERSEAS" : "JP";
-}
-
-/**
- * Is this row actually usable by a customer? Completeness is per method type,
- * because a half-filled method is worse than none — it looks like an account
- * and the money goes nowhere:
- *   bank         — bank name + account number + holder (branch/type are extra)
- *   gcash, maya  — wallet number + wallet name
- *   other        — a label, plus at least one detail to act on
- * This rule is mirrored in the Hub editor's status badge. If the two ever
- * disagree, an admin sees "live" while checkout hides the method, so they must
- * be changed together.
- */
-function methodIsComplete(row: AnyRec): boolean {
-  switch (String(row.method_type)) {
-    case "bank":
-      return !!(txt(row.bank_name) && txt(row.account_number) && txt(row.account_holder));
-    case "gcash":
-    case "maya":
-      return !!(txt(row.wallet_number) && txt(row.wallet_name));
-    case "other":
-      return !!(
-        (txt(row.label_ja) || txt(row.label_en)) &&
-        (txt(row.note_ja) || txt(row.note_en) || txt(row.account_number) || txt(row.wallet_number))
-      );
-    default:
-      return false;
-  }
-}
-
-const DEFAULT_LABELS: Record<string, { ja: string; en: string }> = {
-  bank: { ja: "銀行振込", en: "Bank transfer" },
-  gcash: { ja: "GCash", en: "GCash" },
-  maya: { ja: "Maya", en: "Maya" },
-  other: { ja: "お支払い方法", en: "Payment method" },
-};
-
-/**
- * Active, complete transfer methods for a SETTLEMENT CURRENCY, in the admin's
- * order, read at request time — a correction made in the Hub is live on the
- * next page load with no deploy.
- *
- * Keyed on currency, not on the shipping country (changed 2026-09-15). The
- * account a customer pays into has to be able to RECEIVE what they chose to pay
- * in: Rakuten takes yen, Metrobank takes pesos, and a Japan-resident customer
- * settling a plan in pesos must be shown the peso account. Selecting by
- * destination showed them Rakuten and left the plan unpayable.
- *
- * Returns [] when no active, complete method accepts that currency. That empty
- * array is what makes checkout refuse the currency rather than print an account
- * the money cannot reach: the old free-text design could not tell a real
- * account from a placeholder paragraph, so it had no way to know.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function transferMethods(supabase: any, currency: string): Promise<AnyRec[]> {
-  const cur = String(currency ?? "").trim().toUpperCase() === "PHP" ? "PHP" : "JPY";
-  const { data, error } = await supabase
-    .from("transfer_payment_methods")
-    .select(METHOD_FIELDS)
-    .eq("currency", cur)
-    .eq("is_active", true)
-    // created_at breaks sort_order ties so the order never shuffles between reads.
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-
-  return ((data ?? []) as AnyRec[]).filter(methodIsComplete).map((row) => {
-    const type = String(row.method_type);
-    const fallback = DEFAULT_LABELS[type] ?? DEFAULT_LABELS.other;
-    const bankName = txt(row.bank_name);
-    const wallet = txt(row.wallet_number);
-    return {
-      id: row.id,
-      method_type: type,
-      label_ja: txt(row.label_ja) ?? fallback.ja,
-      label_en: txt(row.label_en) ?? fallback.en,
-      // Only the block this method actually uses is sent; the storefront renders
-      // whichever is present rather than guessing from the type.
-      bank: bankName
-        ? {
-          name: bankName,
-          branch: txt(row.bank_branch),
-          account_type: txt(row.account_type),
-          account_number: txt(row.account_number),
-          account_holder: txt(row.account_holder),
-        }
-        : null,
-      wallet: wallet ? { number: wallet, name: txt(row.wallet_name) } : null,
-      note_ja: txt(row.note_ja),
-      note_en: txt(row.note_en),
-    };
-  });
-}
-
 /** Cheap yes/no for the checkout gate — same completeness rule, no details returned. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function transferAvailable(supabase: any, currency: string): Promise<boolean> {
   return (await transferMethods(supabase, currency)).length > 0;
+}
+
+/**
+ * RESERVE-FIRST (A2). Is checkout creating reservations? Read per request from
+ * system_settings.web_reservation_mode, FAIL-CLOSED to today's flow: a read
+ * error, a missing row or any value but true means off (readReservationMode).
+ * With it off, nothing below changes: p_reserve is not even sent.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function reservationModeOn(supabase: any): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("system_settings").select("value").eq("key", "web_reservation_mode").maybeSingle();
+  if (error) {
+    console.warn("[website] web_reservation_mode read failed — treating as off:", error.message ?? error);
+    return false;
+  }
+  return readReservationMode((data as AnyRec | null)?.value);
+}
+
+/**
+ * The two reservation flags on an order or plan the customer reads, and
+ * ready_confirmed_at itself taken back out: the storefront needs the answer,
+ * not the column.
+ */
+function withReservationFlags(row: AnyRec, kind: ReservationKind): AnyRec {
+  const { ready_confirmed_at: _ready, ...rest } = row;
+  return { ...rest, ...reservationFlags(row, kind) };
 }
 
 // The client type every helper in this file already takes (supabase: any) —
@@ -1487,6 +1406,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Keyed on the settlement currency the customer chose, not on where the
       // parcel goes: the account has to be able to receive what they pay in.
       const quoteMethods = await transferMethods(supabase, settlement);
+      // RESERVE-FIRST (A2): no bank details before staff confirm the piece
+      // (owner decision 2026-09-23). transfer_available still reports whether
+      // the currency CAN be paid, so checkout is not refused for nothing.
+      const reserveQuote = await reservationModeOn(supabase);
 
       // The same function the creation RPCs default from. null when it cannot
       // be read — the storefront then omits the number instead of guessing.
@@ -1541,8 +1464,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Methods are region-scoped here, not filtered in the browser: the
         // other region's account details never reach the page at all.
         transfer_region: regionForCurrency(settlement),
-        transfer_methods: quoteMethods,
+        transfer_methods: reserveQuote ? [] : quoteMethods,
         transfer_available: quoteMethods.length > 0,
+        ...(reserveQuote ? { reservation_mode: true } : {}),
         order_type: orderType,
         expires_at: quote?.expires_at,
         // HOW LONG THEY WILL HAVE TO SEND THE DEPOSIT — 24 hours on a first
@@ -1646,6 +1570,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       const methods = await transferMethods(supabase, settlement);
+      // RESERVE-FIRST (A2): as POST /checkout/quote — no bank details yet.
+      const reserveQuote = await reservationModeOn(supabase);
 
       let depositDeadlineHours: number | null = null;
       {
@@ -1679,8 +1605,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         layaway: layawayOut,
         requires_manual_quote: shippingJpy === null,
         transfer_region: regionForCurrency(settlement),
-        transfer_methods: methods,
+        transfer_methods: reserveQuote ? [] : methods,
         transfer_available: methods.length > 0,
+        ...(reserveQuote ? { reservation_mode: true } : {}),
         order_type: row.order_type ?? "SELF",
         expires_at: row.expires_at,
         deposit_deadline_hours: depositDeadlineHours,
@@ -1703,6 +1630,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // The language the storefront was in. Stored on the order so every
       // later email about it (payment received, expired) reads the same.
       const lang = pickLang(body.lang);
+      // RESERVE-FIRST (A2): read once, used for both kinds. Off (the default,
+      // and on any read failure) is today's flow exactly — p_reserve is not
+      // sent, and the same emails and response go out as before.
+      const reserve = await reservationModeOn(supabase);
 
       // Everything that matters — re-price, stock decrement, order, items,
       // quote consumption — happens inside this one transaction.
@@ -1754,6 +1685,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           p_order_date: phtToday(),
           p_agreement_version: agreementVersion,
           p_agreement_signed_at: agreementSignedAt,
+          ...(reserve ? { p_reserve: true } : {}),
         });
         if (layErr) throw layErr;
         const plan = (lay ?? {}) as AnyRec;
@@ -1761,6 +1693,31 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           const status = CHECKOUT_ERROR_STATUS[String(plan.error)] ?? 400;
           console.warn("website layaway refused", requestId, String(plan.error));
           return jsonResponse({ ...plan, request_id: requestId }, status);
+        }
+
+        // RESERVE-FIRST (A2). The piece is held; staff have not confirmed it.
+        // "We have your layaway request" — English only, no bank details, no
+        // deadline, no schedule (it is re-dated to the confirmation day). The
+        // deposit email with the payment details is sent by
+        // confirm-web-order-ready.
+        if (reserve) {
+          await sendLayawayReservedEmail(supabase, String(plan.account_id));
+          const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
+          return jsonResponse(scrub({
+            mode: "layaway",
+            reservation_mode: true,
+            awaiting_confirmation: true,
+            account_id: plan.account_id,
+            web_reference: plan.web_reference,
+            currency,
+            total: plan.total,
+            deposit: plan.deposit,
+            term_months: plan.term_months,
+            schedule: [],
+            transfer_due_at: null,
+            transfer_region: regionForCurrency(currency),
+            transfer_methods: [],
+          }));
         }
 
         const currency = String(plan.currency ?? "JPY") as "JPY" | "PHP";
@@ -1816,6 +1773,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         p_quote_id: quoteId,
         p_method: "transfer",
         p_lang: lang,
+        ...(reserve ? { p_reserve: true } : {}),
       });
       if (error) throw error;
       const result = (data ?? {}) as AnyRec;
@@ -1823,6 +1781,23 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         const status = CHECKOUT_ERROR_STATUS[String(result.error)] ?? 400;
         console.warn("website checkout refused", requestId, String(result.error));
         return jsonResponse({ ...result, request_id: requestId }, status);
+      }
+
+      // RESERVE-FIRST (A2). "We have your order" in the customer's language —
+      // no bank details, no deadline. The payment email is sent by
+      // confirm-web-order-ready once staff confirm the piece.
+      if (reserve) {
+        await sendOrderReservedEmail(supabase, String(result.order_id));
+        return jsonResponse(scrub({
+          reservation_mode: true,
+          awaiting_confirmation: true,
+          order_id: result.order_id,
+          web_reference: result.web_reference,
+          total_jpy: result.total_jpy,
+          transfer_due_at: null,
+          transfer_region: regionForCurrency("JPY"),
+          transfer_methods: [],
+        }));
       }
 
       // Currency comes from the order that was just written, not from the
@@ -1925,7 +1900,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return jsonResponse(scrub(data ?? []));
+      return jsonResponse(scrub(((data ?? []) as unknown as AnyRec[]).map((o) => withReservationFlags(o, "cash_order"))));
     }
 
     // GET /orders/:id — one of this customer's orders, with its lines.
@@ -1970,7 +1945,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       return jsonResponse(scrub({
         order: {
-          ...(order as AnyRec),
+          // awaiting_confirmation / ready_for_payment (reserve-first A2).
+          ...withReservationFlags(order as AnyRec, "cash_order"),
           ship_to_snapshot: undefined,
           ship_to_address: shipToAddress(
             (order as AnyRec).ship_to_snapshot,
@@ -1979,8 +1955,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         },
         items: lines,
         transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
-        // Methods are only actionable while the transfer is outstanding.
-        transfer_methods: (order as AnyRec).payment_status === "pending_transfer"
+        // Methods are only actionable while the transfer is outstanding — and
+        // never before staff confirm the piece (reserve-first A2; a reservation
+        // reads payment_status awaiting_confirmation, so this is belt and braces).
+        transfer_methods: (order as AnyRec).payment_status === "pending_transfer" && !isUnconfirmedReservation(order as AnyRec)
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
@@ -2000,7 +1978,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return jsonResponse(scrub(data ?? []));
+      return jsonResponse(scrub(((data ?? []) as unknown as AnyRec[]).map((a) => withReservationFlags(a, "layaway"))));
     }
 
     // GET /layaway/:id — one plan, with its schedule, lines and payments.
@@ -2055,7 +2033,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       return jsonResponse(scrub({
         plan: {
-          ...(plan as AnyRec),
+          // awaiting_confirmation / ready_for_payment (reserve-first A2).
+          ...withReservationFlags(plan as AnyRec, "layaway"),
           quote: undefined,
           ship_to_snapshot: undefined,
           ship_to_address: shipToAddress(
@@ -2075,8 +2054,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         transfer_region: regionForCurrency(String((plan as AnyRec).currency ?? "JPY")),
         // Methods stay actionable for the life of the plan: every instalment is
         // paid the same way the deposit was — and in the plan's currency, which
-        // is fixed at creation and never changes.
-        transfer_methods: await transferMethods(supabase, String((plan as AnyRec).currency ?? "JPY")),
+        // is fixed at creation and never changes. EXCEPT before staff confirm a
+        // web reservation (reserve-first A2): no bank details until then.
+        transfer_methods: isUnconfirmedReservation(plan as AnyRec)
+          ? []
+          : await transferMethods(supabase, String((plan as AnyRec).currency ?? "JPY")),
       }));
     }
 
@@ -2105,12 +2087,18 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: plan } = await supabase
         .from("layaway_accounts")
-        .select("id, status, invoice_number, web_reference, total_paid, remaining_balance")
+        .select("id, status, invoice_number, web_reference, total_paid, remaining_balance, source_channel, ready_confirmed_at")
         .eq("id", segments[1]).eq("customer_id", customer.id)
         .eq("source_channel", "web").maybeSingle();
       if (!plan) return notFound();
       if (!["active", "overdue", "extension_active", "reactivated"].includes(String(plan.status))) {
         return jsonResponse({ error: "plan_not_live", status: plan.status }, 409);
+      }
+      // RESERVE-FIRST (A2): no money against a piece staff have not confirmed.
+      // The customer has not been shown where to pay, so a submission here is
+      // a mistake or a guess — refuse it rather than book it.
+      if (isUnconfirmedReservation(plan as AnyRec)) {
+        return jsonResponse({ error: NOT_READY_FOR_PAYMENT }, 409);
       }
       // INVARIANT 4: never accept more than the account still owes.
       if (amount > Number(plan.remaining_balance ?? 0)) {

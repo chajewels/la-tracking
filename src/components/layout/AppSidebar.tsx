@@ -21,6 +21,7 @@ import {
   ShoppingBag,
   BookOpen,
   Globe,
+  Hourglass,
 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +34,7 @@ import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
 import { animate, useReducedMotion } from 'framer-motion';
+import { useWebReservations } from '@/hooks/use-supabase-data';
 import { cn } from '@/lib/utils';
 import { transition } from '@/theme/motion';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
@@ -270,6 +272,12 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
   const { count: openServiceRequests } = useServiceRequestCount();
+  // Reserve-first (A2): web reservations nobody has confirmed. Shown on every
+  // page, above the menu, to whoever can act on them — the bell alone is too
+  // easy to miss for a customer who has been told nothing yet.
+  const canConfirmReservations = can('confirm_web_order_ready');
+  const { data: reservations } = useWebReservations(canConfirmReservations);
+  const reservationCount = canConfirmReservations ? (reservations?.length ?? 0) : 0;
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
@@ -411,6 +419,37 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-3 group-data-[collapsible=icon]:px-2" style={{ background: 'hsl(var(--sidebar-background))' }}>
+        {/* Reserve-first (A2): web reservations to confirm, above the menu for
+            whoever can act on them. Restyled to the sidebar system (serif
+            label, warning tone, gold hairline below); on the icon rail it is
+            the hourglass with a count badge, a tooltip and the same label. */}
+        {reservationCount > 0 && (
+          <div className="mb-1">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip={`To confirm · ${reservationCount}`}
+                  onClick={() => navigate(`${ROUTES.DASHBOARD}#reservations`)}
+                  aria-label={`${reservationCount} web reservation${reservationCount === 1 ? '' : 's'} to confirm`}
+                  className="relative h-11 cursor-pointer rounded-md border border-warning/40 bg-warning/10 pl-3 pr-2 text-warning hover:bg-warning/20 hover:text-warning group-data-[collapsible=icon]:border-warning/50"
+                >
+                  <Hourglass className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 text-left font-deco text-[15px] font-semibold tracking-wide">To confirm</span>
+                  <span className="inline-flex min-w-[1.4rem] items-center justify-center rounded-full border border-warning/40 bg-warning/20 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums group-data-[collapsible=icon]:hidden">
+                    {reservationCount}
+                  </span>
+                  <span
+                    aria-hidden
+                    className="absolute right-0.5 top-0.5 hidden h-3.5 min-w-[0.875rem] items-center justify-center rounded-full bg-warning px-0.5 text-[8px] font-bold leading-none text-surface-0 tabular-nums group-data-[collapsible=icon]:flex"
+                  >
+                    {reservationCount > 99 ? '99+' : reservationCount}
+                  </span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <div aria-hidden className="mx-1 mt-3 mb-1 h-px bg-gradient-to-r from-gold-500/40 via-gold-500/15 to-transparent group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:w-6 group-data-[collapsible=icon]:bg-gold-500/30" />
+          </div>
+        )}
         <SidebarMenu className="gap-0.5">
           {visibleItems.map((item) => {
             // Section header — deco small caps with a trailing gold hairline;

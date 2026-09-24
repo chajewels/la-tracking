@@ -31,6 +31,8 @@ import {
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import ReservationPanel from '@/components/reservations/ReservationPanel';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
@@ -41,7 +43,7 @@ import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, use
 import PaymentTimeline, { type TimelineInstallment } from '@/components/accounts/PaymentTimeline';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import ProgressRing from '@/components/shared/ProgressRing';
-import StatusPill from '@/components/shared/StatusPill';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
 import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
@@ -747,7 +749,15 @@ export default function AccountDetail() {
     transfer_due_at?: string | null;
     /** Only expire_web_layaway_atomic writes this — see DeadlinesCard. */
     expired_at?: string | null;
+    /** Reserve-first: NULL on a WEB plan = a reservation staff have not confirmed. */
+    ready_confirmed_at?: string | null;
   } | undefined ?? {};
+
+  /** Reserve-first (A2): an unconfirmed web reservation takes no payment and
+   *  has no deadline until staff confirm the piece. Hub plans also carry
+   *  ready_confirmed_at NULL; isAwaitingConfirmation checks the channel first. */
+  const awaitingReservation = isAwaitingConfirmation(
+    { ...webFields, status: (account as { status?: string } | undefined)?.status ?? null }, 'layaway');
 
   /** Web plans follow the web lifecycle: expiry or the normal overdue path. The
    *  database refuses to delete one; the page must not offer to. */
@@ -1144,6 +1154,7 @@ export default function AccountDetail() {
                   effectiveStatus.toUpperCase()
                 }
               />
+              {awaitingReservation && <ToConfirmPill size="md" />}
               {account.shipped_at && (
                 <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
                   SHIPPED
@@ -1165,7 +1176,7 @@ export default function AccountDetail() {
               {/* Reserved by the customer on the storefront. Staff read the plan
                   by its CJ-W reference; the numeric invoice stays the Hub key. */}
               {webFields.source_channel === 'web' && (
-                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs whitespace-nowrap">
                   🌐 Web{webFields.web_reference ? ` · ${webFields.web_reference}` : ''}
                 </Badge>
               )}
@@ -1295,7 +1306,7 @@ export default function AccountDetail() {
               invoiceNumber={account.invoice_number}
             />
             )}
-            {paymentEligibleBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
+            {paymentEligibleBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && !awaitingReservation && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -1466,6 +1477,17 @@ export default function AccountDetail() {
         </div>
         </div>
 
+        {/* Reserve-first (A2): unconfirmed web reservation — Confirm / Can't supply. */}
+        {awaitingReservation && (
+          <ReservationPanel
+            entityType="layaway"
+            entityId={account.id}
+            reference={webFields.web_reference ?? account.invoice_number}
+            createdAt={account.created_at}
+            canAct={canPerm('confirm_web_order_ready')}
+          />
+        )}
+
         {/* The deposit deadline. A field staff set and move while the plan is
             live, never a computed rule. */}
         <DeadlinesCard
@@ -1478,6 +1500,7 @@ export default function AccountDetail() {
           depositPaid={Number(account.total_paid ?? 0) > 0}
           expiredAt={webFields.expired_at ?? null}
           createdAt={account.created_at ?? null}
+          awaitingConfirmation={awaitingReservation}
           canEdit={canPerm('edit_account')}
         />
 

@@ -16,7 +16,7 @@ export interface AccountWithCustomer extends DbAccount {
 }
 
 // ── Scoped invalidation for better performance ──
-const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'customers'] as const;
+const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'customers', 'web-reservations'] as const;
 const PAYMENT_KEYS = ['payments', 'schedule', 'collections-upcoming-schedule', 'weekly-collections', 'aging-buckets', 'overdue-schedule', 'collections-forecast-6m', 'forecast-drilldown', 'operations-action-items', 'penalty-cap-audit'] as const;
 const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-followup-alerts', 'csr-notifications-penalty'] as const;
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
@@ -694,6 +694,143 @@ export function useReviveWebCashOrder() {
       qc.invalidateQueries({ queryKey: ['cash-orders'] });
       qc.invalidateQueries({ queryKey: ['website-products'] });
     },
+  });
+}
+
+// ── Reserve-first (A2, 2026-09-24): web reservations awaiting staff ──
+
+export interface WebReservation {
+  kind: 'cash_order' | 'layaway';
+  id: string;
+  reference: string;
+  customer_name: string;
+  customer_is_test: boolean;
+  total_amount: number;
+  currency: 'JPY' | 'PHP';
+  plan_months: number | null;
+  created_at: string;
+}
+
+/**
+ * Every WEB reservation staff have not confirmed, oldest first — the queue the
+ * sidebar badge counts and the Dashboard card lists. Same predicate as A1's
+ * partial indexes (idx_*_web_awaiting_ready): web, ready_confirmed_at NULL,
+ * still pending (cash) / active (layaway). 'web-reservations' is in CORE_KEYS,
+ * so realtime changes on cash_orders / layaway_accounts refresh it.
+ */
+export function useWebReservations(enabled = true) {
+  return useQuery({
+    queryKey: ['web-reservations'],
+    enabled,
+    staleTime: STALE_SHORT,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    queryFn: async (): Promise<WebReservation[]> => {
+      const [cash, lay] = await Promise.all([
+        supabase.from('cash_orders' as any)
+          .select('id, web_reference, invoice_number, total_amount, currency, created_at, customers(full_name, is_test)')
+          .eq('source_channel', 'web').eq('status', 'pending').is('ready_confirmed_at', null)
+          .order('created_at', { ascending: true }).limit(200),
+        supabase.from('layaway_accounts' as any)
+          .select('id, web_reference, invoice_number, total_amount, currency, payment_plan_months, created_at, customers(full_name, is_test)')
+          .eq('source_channel', 'web').eq('status', 'active').is('ready_confirmed_at', null)
+          .order('created_at', { ascending: true }).limit(200),
+      ]);
+      if (cash.error) throw cash.error;
+      if (lay.error) throw lay.error;
+      const shape = (rows: any[], kind: WebReservation['kind']): WebReservation[] => rows.map((r) => ({
+        kind,
+        id: r.id,
+        reference: r.web_reference ?? r.invoice_number ?? '?',
+        customer_name: r.customers?.full_name ?? 'A website customer',
+        customer_is_test: r.customers?.is_test === true,
+        total_amount: Number(r.total_amount ?? 0),
+        currency: r.currency === 'PHP' ? 'PHP' : 'JPY',
+        plan_months: kind === 'layaway' ? Number(r.payment_plan_months ?? 0) || null : null,
+        created_at: r.created_at,
+      }));
+      return [...shape((cash.data ?? []) as any[], 'cash_order'), ...shape((lay.data ?? []) as any[], 'layaway')]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    },
+  });
+}
+
+/** An edge-function error body as { code, message } — the code drives the staff wording. */
+async function readFunctionError(error: any, fallback: string): Promise<{ code: string; message: string; body: any }> {
+  let body: any = null;
+  try {
+    if (error && 'context' in error && error.context?.body) {
+      body = await new Response(error.context.body).json();
+    } else if (error?.context && typeof error.context.json === 'function') {
+      body = await error.context.json();
+    }
+  } catch { /* fall back to the generic message */ }
+  const code = String(body?.error ?? '');
+  return { code, message: String(body?.message ?? '') || code || error?.message || fallback, body };
+}
+
+function invalidateReservation(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of ['web-reservations', 'cash-order', 'cash-orders', 'account', 'accounts', 'website-products', 'staff-notifications']) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+/** What the customer will get if staff confirm now — writes nothing. */
+export function usePreviewWebOrderReady(entityType: 'cash_order' | 'layaway', entityId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['web-reservation-preview', entityType, entityId],
+    enabled: enabled && !!entityId,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('confirm-web-order-ready', {
+        body: { entity_type: entityType, entity_id: entityId, preview: true },
+      });
+      if (error) {
+        const e = await readFunctionError(error, 'Could not read the deadline');
+        throw Object.assign(new Error(e.message), { code: e.code });
+      }
+      return data as { preview: true; awaiting_confirmation: boolean; deadline_hours: number | null; transfer_due_at: string | null };
+    },
+  });
+}
+
+export function useConfirmWebOrderReady() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { entity_type: 'cash_order' | 'layaway'; entity_id: string; note?: string }) => {
+      const { data, error } = await supabase.functions.invoke('confirm-web-order-ready', { body: payload });
+      if (error) {
+        const e = await readFunctionError(error, 'Could not confirm the reservation');
+        throw Object.assign(new Error(e.message), { code: e.code, status: e.body?.status ?? null });
+      }
+      if (data?.error) throw Object.assign(new Error(String(data.error)), { code: String(data.error), status: data.status ?? null });
+      return data as {
+        ok: true;
+        web_reference: string | null;
+        transfer_due_at: string;
+        deadline_hours: number;
+        schedule_rows_reanchored?: number;
+        email?: { sent: boolean; reason?: string };
+      };
+    },
+    onSuccess: () => invalidateReservation(qc),
+  });
+}
+
+export function useDeclineWebReservation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { entity_type: 'cash_order' | 'layaway'; entity_id: string; reason: string }) => {
+      const { data, error } = await supabase.functions.invoke('decline-web-reservation', { body: payload });
+      if (error) {
+        const e = await readFunctionError(error, 'Could not decline the reservation');
+        throw Object.assign(new Error(e.message), { code: e.code, status: e.body?.status ?? null });
+      }
+      if (data?.error) throw Object.assign(new Error(String(data.error)), { code: String(data.error), status: data.status ?? null });
+      return data as { ok?: boolean; success?: boolean; email?: { sent: boolean; reason?: string } };
+    },
+    onSuccess: () => invalidateReservation(qc),
   });
 }
 

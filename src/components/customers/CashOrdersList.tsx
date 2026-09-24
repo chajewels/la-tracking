@@ -12,7 +12,7 @@ import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import StatusPill from '@/components/shared/StatusPill';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
 import { CASH_ORDER_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
@@ -25,6 +25,7 @@ import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
 import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -58,6 +59,7 @@ interface CashOrderRow {
   web_reference: string | null;
   payment_status: string | null;
   transfer_due_at: string | null;
+  ready_confirmed_at: string | null;
 }
 
 // Display order for the status tabs. Only statuses PRESENT in the data get a
@@ -74,10 +76,11 @@ const statusLabel: Record<string, string> = {
 };
 
 // Where the order came from. 'web' is storefront checkout (Phase 2 step 2);
-// everything else is staff-entered or a marketplace sync.
-type ChannelFilter = 'all' | 'web' | 'hub';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
-const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
+// everything else is staff-entered or a marketplace sync. 'awaiting' (reserve-
+// first A2) is the web reservations nobody has confirmed yet.
+type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 const PAGE_SIZE = 50;
 
 function useCashOrders() {
@@ -87,7 +90,7 @@ function useCashOrders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders' as any)
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, customers(id, full_name, messenger_link)')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, ready_confirmed_at, customers(id, full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as CashOrderRow[];
@@ -163,7 +166,9 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       (o.web_reference || '').toLowerCase().includes(search);
     const matchesCurrency = filterCurrency === 'all' || o.currency === filterCurrency;
     const isWeb = o.source_channel === 'web';
-    const matchesChannel = filterChannel === 'all' || (filterChannel === 'web' ? isWeb : !isWeb);
+    const matchesChannel = filterChannel === 'all'
+      || (filterChannel === 'awaiting' ? isAwaitingConfirmation(o, 'cash_order')
+        : filterChannel === 'web' ? isWeb : !isWeb);
     const matchesTest = !hideTest || !isTestCashOrder(o);
     return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,6 +250,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     {
       key: 'ref',
       header: 'Reference',
+      cellClassName: 'whitespace-nowrap',
       cell: (o) => (
         <span className="inline-flex items-center gap-2">
           <span className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
@@ -260,7 +266,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     {
       key: 'customer',
       header: 'Customer',
-      cellClassName: 'max-w-[240px]',
+      cellClassName: 'max-w-[200px]',
       cell: (o) => (
         <span className="block truncate text-sm text-card-foreground">
           <HighlightText text={o.customers?.full_name || 'Unknown'} query={searchQuery} />
@@ -271,7 +277,10 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       key: 'status',
       header: 'Status',
       cell: (o) => (
-        <StatusPill label={statusLabel[o.status] || o.status} tone={CASH_ORDER_STATUS_TONE[o.status] ?? 'muted'} />
+        <span className="inline-flex flex-col items-start gap-1 whitespace-nowrap">
+          <StatusPill label={statusLabel[o.status] || o.status} tone={CASH_ORDER_STATUS_TONE[o.status] ?? 'muted'} />
+          {isAwaitingConfirmation(o, 'cash_order') && <ToConfirmPill />}
+        </span>
       ),
     },
     {
@@ -282,7 +291,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
         const pct = total > 0 ? Math.round((Number(o.total_paid) / total) * 100) : 0;
         return (
           <span className="flex items-center gap-2" title={`${pct}% paid`}>
-            <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
               <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
             </span>
             <span className="text-[11px] tabular-nums text-muted-foreground">{pct}%</span>
@@ -514,6 +523,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                       </div>
                       <div className="flex items-center gap-1.5">
                         <StatusPill label={statusLabel[order.status] || order.status} tone={CASH_ORDER_STATUS_TONE[order.status] ?? 'muted'} />
+                        {isAwaitingConfirmation(order, 'cash_order') && <ToConfirmPill />}
                         {isTest && (
                           <span className="inline-flex items-center rounded-md border border-info/20 bg-info/10 px-1.5 py-0.5 text-[10px] font-bold text-info">
                             🧪 TEST

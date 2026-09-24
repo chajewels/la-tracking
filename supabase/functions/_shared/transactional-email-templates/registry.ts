@@ -48,6 +48,7 @@ import { template as loyaltyRedeem } from './loyalty-redeem.tsx'
 import { template as loyaltyRedemptionVoided } from './loyalty-redemption-voided.tsx'
 import { template as loyaltyBroadcast } from './loyalty-broadcast.tsx'
 import { template as newsletterCampaign } from './newsletter-campaign.tsx'
+import { template as webReservationsAwaiting } from './web-reservations-awaiting.tsx'
 import { PortalSetupInviteEmail } from './portal-setup-invite.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
@@ -81,6 +82,8 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'loyalty-redemption-voided': loyaltyRedemptionVoided,
   'loyalty-broadcast': loyaltyBroadcast,
   'newsletter-campaign': newsletterCampaign,
+  // Reserve-first (A2): internal, to sales@ — see web-reservation-sweep.
+  'web-reservations-awaiting': webReservationsAwaiting,
   'portal-setup-invite': {
     audience: 'customer',
     component: PortalSetupInviteEmail,

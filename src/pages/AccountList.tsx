@@ -27,12 +27,13 @@ import BulkActionBar from '@/components/list-kit/BulkActionBar';
 import VirtualCardGrid from '@/components/list-kit/VirtualCardGrid';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import AccountQuickView, { type QuickViewAccount } from '@/components/accounts/AccountQuickView';
-import StatusPill from '@/components/shared/StatusPill';
+import StatusPill, { ToConfirmPill } from '@/components/shared/StatusPill';
 import { ACCOUNT_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { toast } from '@/components/ui/use-toast';
 
 const statusStyles: Record<string, string> = {
@@ -91,19 +92,25 @@ const isTestInvoice = (inv: string | null | undefined) => (inv || '').startsWith
  * no filter, and the CJ-W reference was not even searchable — only the invoice
  * number was, which is not the string the customer or the notification quotes.
  */
-type ChannelFilter = 'all' | 'web' | 'hub';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
-const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM' };
+// 'awaiting' (reserve-first A2): web reservations nobody has confirmed yet —
+// the same option, and the same words, as the cash order list.
+type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 
 type AccountRefFields = {
   invoice_number: string;
   web_reference?: string | null;
   source_channel?: string | null;
+  ready_confirmed_at?: string | null;
+  status?: string | null;
   customers?: { full_name?: string | null } | null;
 };
 
 const matchesAccountChannel = (a: AccountRefFields, f: ChannelFilter) =>
-  f === 'all' || (f === 'web' ? isWebOrder(a) : !isWebOrder(a));
+  f === 'all'
+  || (f === 'awaiting' ? isAwaitingConfirmation(a, 'layaway')
+    : f === 'web' ? isWebOrder(a) : !isWebOrder(a));
 
 /** Invoice number, customer name, OR the CJ-W reference the customer quotes. */
 const matchesAccountSearch = (a: AccountRefFields, q: string) => {
@@ -393,6 +400,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
               tone={ACCOUNT_STATUS_TONE[account.status] ?? 'muted'}
               pulse={account.status === 'overdue'}
             />
+            {isAwaitingConfirmation(account as AccountRefFields, 'layaway') && <ToConfirmPill />}
             {isTestInvoice(account.invoice_number) && (
               <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
                 🧪 TEST
@@ -496,6 +504,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     {
       key: 'invoice',
       header: 'Invoice',
+      cellClassName: 'whitespace-nowrap',
       cell: (a) => (
         <span className="inline-flex items-center gap-2">
           <span className="font-deco text-base font-semibold text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
@@ -511,7 +520,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     {
       key: 'customer',
       header: 'Customer',
-      cellClassName: 'max-w-[240px]',
+      cellClassName: 'max-w-[200px]',
       cell: (a) => (
         <span className="block truncate text-sm text-card-foreground">
           <HighlightText text={a.customers?.full_name || 'Unknown'} query={searchQuery} />
@@ -522,11 +531,14 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
       key: 'status',
       header: 'Status',
       cell: (a) => (
-        <StatusPill
-          label={statusLabel[a.status] || a.status}
-          tone={ACCOUNT_STATUS_TONE[a.status] ?? 'muted'}
-          pulse={a.status === 'overdue'}
-        />
+        <span className="inline-flex flex-col items-start gap-1 whitespace-nowrap">
+          <StatusPill
+            label={statusLabel[a.status] || a.status}
+            tone={ACCOUNT_STATUS_TONE[a.status] ?? 'muted'}
+            pulse={a.status === 'overdue'}
+          />
+          {isAwaitingConfirmation(a as AccountRefFields, 'layaway') && <ToConfirmPill />}
+        </span>
       ),
     },
     {
@@ -537,7 +549,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
         const pct = total > 0 ? Math.round((Number(a.total_paid) / total) * 100) : 0;
         return (
           <span className="flex items-center gap-2" title={`${pct}% paid · ${a.payment_plan_months}mo plan`}>
-            <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
               <span className="block h-full rounded-full gold-gradient" style={{ width: `${Math.min(pct, 100)}%` }} />
             </span>
             <span className="text-[11px] tabular-nums text-muted-foreground">{pct}%</span>

@@ -3,6 +3,7 @@ import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
+import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,13 +125,25 @@ Deno.serve(async (req) => {
     for (const aid of accountIds) {
       const { data: acct } = await supabase
         .from("layaway_accounts")
-        .select("id, customer_id")
+        .select("id, customer_id, source_channel, ready_confirmed_at")
         .eq("id", aid)
         .eq("customer_id", customerId)
         .maybeSingle();
       if (!acct) {
         return new Response(JSON.stringify({ error: "Account not found or access denied" }), {
           status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // RESERVE-FIRST (A2): no payment against a web layaway staff have not
+      // confirmed. Hub plans carry ready_confirmed_at NULL too, so the rule
+      // checks the channel first — it never blocks a Hub plan.
+      if (isUnconfirmedReservation(acct)) {
+        return new Response(JSON.stringify({
+          error: NOT_READY_FOR_PAYMENT,
+          message: "This plan is still a reservation. We will email you the payment details once your piece is confirmed.",
+        }), {
+          status: 409,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

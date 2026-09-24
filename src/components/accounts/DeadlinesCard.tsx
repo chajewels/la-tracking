@@ -104,6 +104,13 @@ export interface DeadlinesCardProps {
    * proposed and staff pick the date.
    */
   createdAt?: string | null;
+  /**
+   * RESERVE-FIRST (A2): a web reservation staff have not confirmed. There is
+   * no deadline yet — it starts when someone presses Confirm — so the card
+   * says so instead of "not set", and offers no Change (set_account_deadlines
+   * refuses one with `not_ready` anyway).
+   */
+  awaitingConfirmation?: boolean;
   canEdit: boolean;
 }
 
@@ -113,7 +120,8 @@ const LIVE_STATUSES: Record<'layaway' | 'cash_order', string[]> = {
 };
 
 export default function DeadlinesCard({
-  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, expiredAt, createdAt, canEdit,
+  entityType, entityId, status, transferDueAt, reference, sourceChannel, depositPaid, expiredAt, createdAt,
+  awaitingConfirmation = false, canEdit,
 }: DeadlinesCardProps) {
   const [open, setOpen] = useState(false);
   const [transfer, setTransfer] = useState('');
@@ -129,7 +137,7 @@ export default function DeadlinesCard({
   const isWeb = sourceChannel === 'web';
   // The deadline is spent once the deposit is in — see the header.
   const depositLocked = entityType === 'layaway' && depositPaid === true;
-  const canChange = canEdit && isLive && !depositLocked;
+  const canChange = canEdit && isLive && !depositLocked && !awaitingConfirmation;
 
   // REACTIVATION IS THE EXCEPTION, AND ONLY WHERE IT APPLIES (owner decision
   // 2026-09-15). A web layaway that LAPSED — expiry wrote `cancelled` and
@@ -148,8 +156,9 @@ export default function DeadlinesCard({
       ? 'The hourly job cancels the order and returns the stock unless the transfer is confirmed.'
       : 'The hourly job cancels the order unless the transfer is confirmed. It holds no website stock, so nothing goes back on sale.';
 
-  // Nothing set and nothing settable: no card rather than an empty one.
-  if (!transferDueAt && !canChange && !canRevive) return null;
+  // Nothing set and nothing settable: no card rather than an empty one —
+  // except a reservation, whose missing deadline is the point.
+  if (!transferDueAt && !canChange && !canRevive && !awaitingConfirmation) return null;
 
   function openDialog() {
     setTransfer(toPhtInputValue(transferDueAt));
@@ -239,10 +248,16 @@ export default function DeadlinesCard({
               <p className="text-sm font-medium text-card-foreground">Deadline</p>
               {reference && <span className="font-mono text-xs text-muted-foreground">{reference}</span>}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {entityType === 'layaway' ? 'Deposit due' : 'Transfer due'}:{' '}
-              {transferDueAt ? formatPHTDisplay(transferDueAt) : 'not set'}
-            </p>
+            {awaitingConfirmation ? (
+              <p className="text-xs font-medium text-warning">
+                Awaiting confirmation — no payment deadline yet. It starts when the piece is confirmed.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {entityType === 'layaway' ? 'Deposit due' : 'Transfer due'}:{' '}
+                {transferDueAt ? formatPHTDisplay(transferDueAt) : 'not set'}
+              </p>
+            )}
             {overdue && isLive && !depositLocked && (
               <p className={`text-xs ${isWeb ? 'text-destructive' : 'text-muted-foreground'}`}>
                 Past the deadline. {consequence}

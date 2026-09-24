@@ -44,3 +44,13 @@ export default function StatusPill({ label, tone, pulse = false, size = 'sm', cl
     </span>
   );
 }
+
+/**
+ * Reserve-first (A2): a website reservation staff must confirm or decline.
+ * Warning tone with the breathing dot — it needs action, like Overdue — and
+ * static under reduced motion. Callers decide visibility with
+ * isAwaitingConfirmation() from lib/web-reservations; this is display only.
+ */
+export function ToConfirmPill({ size = 'sm', className }: { size?: 'sm' | 'md'; className?: string }) {
+  return <StatusPill label="To confirm" tone="warning" pulse size={size} className={className} />;
+}

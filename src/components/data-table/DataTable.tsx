@@ -402,7 +402,14 @@ export default function DataTable<T>({
                       {visibleColumns.map(col => (
                         <TableCell
                           key={col.key}
-                          className={cn('text-xs', cellPad, col.align === 'right' && 'text-right tabular-nums', col.cellClassName)}
+                          className={cn(
+                            'text-xs',
+                            cellPad,
+                            col.align === 'right' && 'text-right tabular-nums',
+                            // Ledger: money / dates never break across lines.
+                            ledger && col.align === 'right' && 'whitespace-nowrap',
+                            col.cellClassName,
+                          )}
                         >
                           {col.cell(row)}
                         </TableCell>

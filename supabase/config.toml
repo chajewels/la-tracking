@@ -35,6 +35,12 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.revive-web-cash-order]
     verify_jwt = true
+  [functions.confirm-web-order-ready]
+    verify_jwt = true
+  [functions.decline-web-reservation]
+    verify_jwt = true
+  [functions.web-reservation-sweep]
+    verify_jwt = true
   [functions.parse-import-docs]
     verify_jwt = true
   [functions.penalty-engine]

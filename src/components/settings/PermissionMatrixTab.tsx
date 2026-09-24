@@ -42,6 +42,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_cash_orders', label: 'View Cash Orders', section: 'Cash Orders' },
       { key: 'create_cash_order', label: 'Create Cash Order' },
       { key: 'cancel_cash_order', label: 'Cancel Cash Order' },
+      { key: 'confirm_web_order_ready', label: "Confirm / Can't Supply Web Reservations", section: 'Web Reservations' },
       { key: 'void_cash_payment', label: 'Void Cash Payment', section: 'Cash Payments' },
       { key: 'restore_cash_payment', label: 'Restore Cash Payment' },
       { key: 'submit_cash_payment_staff', label: 'Submit Cash Payment (Staff Direct Entry)' },
