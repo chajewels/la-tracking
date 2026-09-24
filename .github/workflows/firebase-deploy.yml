@@ -80,8 +80,11 @@ jobs:
       #   the reserve-first rules: what counts as an unconfirmed reservation
       #     (a Hub plan read as one would have its portal payments refused),
       #     the fail-closed switch, and the deadline the confirm dialog states.
+      #   the Reassign Owner rules: which accounts count as a points account
+      #     (an order must never leave one), the award point and grace window
+      #     that decide a catch-up, and the expiry that must never shorten a lot.
       - name: Website and template tests
-        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx
+        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx src/test/reassign-owner.test.ts
 
       - name: Build app
         run: npm run build

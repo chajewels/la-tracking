@@ -53,6 +53,7 @@ import { PermissionsContextForFixtures, usePermissions } from '@/contexts/Permis
 import ReservationsAwaitingCard from '@/components/reservations/ReservationsAwaitingCard';
 import ReservationPanel from '@/components/reservations/ReservationPanel';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import ReassignOwnerFixture from './ReassignOwnerFixture';
 import type { ReactNode } from 'react';
 import {
   buildAccountFixtures,
@@ -106,6 +107,7 @@ import { supabase } from '@/integrations/supabase/client';
  *   /__fixtures?view=product-dialog → Website Catalog ProductDialog (long form)
  *   /__fixtures?view=datatable      → DataTable with expandable rows
  *   /__fixtures?view=tabs           → Tabs primitive (sliding indicator)
+ *   /__fixtures?view=reassign-owner → ReassignOwnerDialog (layaway catch-up, cash born expired, refused)
  *   /__fixtures/<account-id>?view=account-detail
  *                                   → AccountDetail for a seeded account
  *                                     (summary tiles; empty schedule/payments)
@@ -193,6 +195,7 @@ export default function FixturePreview() {
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;
+  if (view === 'reassign-owner') return <AllowAll><ReassignOwnerFixture /></AllowAll>;
   if (view === 'account-detail') {
     return (
       <Routes>

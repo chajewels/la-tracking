@@ -1065,3 +1065,77 @@ match; `metadata.matches` holds the full list.
 NOT routed through the RPC (unchanged, by decision): `bulk-import` (matches on
 `customer_code` only) and `shopify-webhook` (shopify_customer_id → email → exact phone,
 else create-and-flag `needs_review = true`).
+
+## Reassign Owner — guard trigger and two functions (added 2026-09-24)
+
+Migration `20260924090000_reassign_order_owner.sql` (applied by the owner in the
+SQL Editor; rules R1–R10 in CLAUDE.md "REASSIGN OWNER").
+
+### `trg_guard_order_customer_id` → `guard_order_customer_id_change()`
+
+`BEFORE UPDATE OF customer_id` on BOTH `layaway_accounts` and `cash_orders`.
+Raises (42501) when `NEW.customer_id IS DISTINCT FROM OLD.customer_id` and
+`auth.uid() IS NOT NULL`. So a signed-in user — any role, including admin — can
+no longer change an order's owner through PostgREST; only a service-role caller
+(the reassign RPC via its edge function) or the SQL Editor can. Writing the
+same owner back, and edits to every other column, pass. It retired the old
+browser `.update({ customer_id })` in ReassignOwnerDialog, which moved the order
+and left its submissions, requests and loyalty history with the old customer.
+Sorts before `trg_test_invoice_prefix_*`, which also fires on customer_id.
+
+### `insert_lot_catch_up(p_member_id uuid, p_invoice text, p_amount int, p_order_date date) → uuid`
+
+A new name, not an overload. Built from the LIVE `insert_lot_and_extend`
+(md5 `68dd571baaec085daf1c8312877b1948`, length 1627, captured 2026-09-24
+06:44:04 UTC — the body recorded in `20260917070050` reproduces it exactly on a
+clean Postgres 17 replay). Differences:
+
+- `expires_at` = PHT midnight of `order_date + 180` (not `earned_at + 180`).
+- Other lots of the member (`order_earn`/`admin_adjust`/`birthday_bonus`,
+  `remaining_amount > 0`, `expired_at IS NULL` — the live eligibility set) are
+  only EXTENDED: `GREATEST(expires_at, new expiry)`, and a lot with NULL
+  `expires_at` is never touched. The live function sets them outright to
+  `earned_at + 180` — which SHORTENS a lot expiring later and gives a
+  never-expiring lot a date (observed on the replay; normal award path, left
+  as is).
+- Born expired (`order_date + 180 <=` PHT today): inserted with
+  `remaining_amount = 0`, `expired_at = now()`. See CLAUDE.md for why a live lot
+  with a past date would be wrong.
+- `earned_at = now()`; notes `catch-up after reassign` (+ `born expired`).
+
+SECURITY DEFINER, `search_path = public`, EXECUTE for `service_role` only.
+Only caller: award-loyalty-points when the body carries `catch_up`.
+
+### `reassign_order_owner_atomic(p_kind, p_order_id, p_new_customer_id, p_loyalty_jpy_amount, p_reason, p_user_id, p_apply) → jsonb`
+
+SECURITY DEFINER, `search_path = public`, EXECUTE for `service_role` only.
+Locks the order `FOR UPDATE`. Repeats `has_permission(p_user_id,
+'reassign_owner')` (and `'edit_loyalty_amount'` when the amount changes)
+because `trg_guard_loyalty_jpy_amount` does not fire for a service-role caller.
+
+Hard errors (`ok:false`): `invalid_kind`, `reason_required`, `forbidden`,
+`not_found` (order or customer), `same_owner`. Refusals, collected in check
+order into `refusals[]` so the preview can show every one: `status_closed`,
+`test_boundary`, `both_have_points` / `points_account_is_current_owner`,
+`already_earned` (claim with or without transaction_id, earned row by id or
+invoice, bonus row on the invoice, any `order_earn`/`promo_bonus` lot on the
+invoice in any state), `shopify_order` (`SH-` invoice, `source_channel ILIKE
+'shopify%'`, or `shopify_order_id`), `split_submission` (any submission touching
+the order whose account_id / cash_order_id / allocations span more than one
+order, any status), `loyalty_redemption` (non-cancelled, by id or invoice),
+`store_credit` (a transaction on the order or a lot sourced from it),
+`loyalty_amount_required`, `loyalty_permission_required`. With `p_apply = true`
+the first refusal is returned as `error` and nothing is written.
+
+The preview carries both sides (enrolled, tier, points, spend, has_points),
+the loyalty amount (stored / proposed / effective), the award point and its
+source, the catch-up decision (`eligible`, `reason` ∈ eligible | not_enrolled |
+not_at_award_point | paid_before_enrollment, `grace_days`, `expected_points`
+computed with the award's own ratchet and requalify arithmetic and no promo,
+`below_minimum`, `expired_on_award`, `lot_expires_on`, `loyalty_enabled`) and
+the child-row counts. The catch-up award itself is NOT made in SQL.
+
+Verified on a throwaway Supabase Postgres 17.6 replay of every migration plus
+stand-ins for the live-only tables: every refusal, both apply paths, the child
+moves, the cash address snapshot, the audit row, the guard trigger and both lot
+behaviours.

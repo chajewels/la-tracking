@@ -1,5 +1,21 @@
 ## Recent Updates
 
+  2026-09-24 — Reassign Owner for layaway AND cash orders, with the loyalty
+  catch-up (owner-approved; rules R1–R10 in CLAUDE.md "REASSIGN OWNER").
+  New: migration 20260924090000_reassign_order_owner.sql (guard trigger
+  trg_guard_order_customer_id on both order tables, insert_lot_catch_up,
+  reassign_order_owner_atomic), edge function reassign-order-owner, shared
+  rules _shared/reassign-owner-rules.ts (+ src/test/reassign-owner.test.ts in
+  CI). Changed: award-loyalty-points accepts catch_up (service role only;
+  unchanged without it). The Hub dialog now serves both order kinds, previews
+  before it moves anything, and no longer writes customer_id from the browser.
+  DEPLOY ORDER: (1) PR merged into develop; (2) owner runs the migration in the
+  SQL Editor; (3) develop → main release; (4) one Lovable prompt deploys
+  reassign-order-owner (new) and award-loyalty-points (changed). Reassign
+  Owner is UNAVAILABLE from (2) until (4): once the guard trigger is live it
+  refuses the old dialog's browser write (intended), and the new dialog's
+  function is not deployed until (4). Nothing is written in that window.
+
   2026-09-24 — website POST /auth/customer requires a profile to CREATE
   a customer (step 4b). When no customer holds the signed-in email, an
   empty full_name or location now returns 422 profile_required and

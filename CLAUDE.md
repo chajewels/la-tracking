@@ -1817,6 +1817,72 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   Unpaid, never-completed orders (typos, duplicates with ₱0/¥0 received) can
   still be deleted by admin as before.
 
+## REASSIGN OWNER — NON-NEGOTIABLE (added 2026-09-24, owner-approved)
+
+  Moving a layaway plan or cash order to another customer. ONE writer:
+  reassign_order_owner_atomic (SQL, service_role only) behind the
+  reassign-order-owner edge function (requireAuth, no service-role path;
+  requirePermission('reassign_owner')). The Hub's ReassignOwnerDialog is the
+  only UI, on AccountDetail and CashOrderDetail. A signed-in user can no longer
+  write customer_id on either order table at all — trg_guard_order_customer_id
+  raises whenever auth.uid() IS NOT NULL — so the old browser .update() is
+  retired for good. Preview (apply:false) writes nothing. Full mechanics:
+  docs/SCHEMA-FACTS.md "Reassign Owner".
+
+  R1 PRIORITY — FIRST CHECK. An account "has points" if its loyalty_members row has total_points_earned > 0 OR cumulative_spend_jpy > 0 OR spend_baseline_jpy > 0 (any loyalty history).
+     - current owner has points → REFUSE (points_account_is_current_owner): the order never leaves a points account.
+     - both have points → REFUSE (both_have_points): manual handling by the owner.
+     - target has points, current has none → allowed.
+     - neither has points → allowed.
+  R2 Cash orders behave exactly like layaway.
+  R3 Permission: requirePermission('reassign_owner') server-side (live role_permissions/overrides). Setting or changing the loyalty amount inside the reassign additionally requires 'edit_loyalty_amount'.
+  R4 The loyalty product amount (excluding shipping and service fees) must be set (> 0) before a reassign completes — always, for every reassign. The dialog collects it if empty.
+  R5 Also refuse (with a plain-words reason): order already earned by ANY member (all markers from your section F, including an in-flight claim with transaction_id IS NULL, earned rows, order_earn/promo_bonus lots on the invoice incl. consumed/expired/revoked, bonus rows on the invoice); Shopify orders (SH- invoices or Shopify-sourced); split payment submissions covering more than one order; any non-cancelled loyalty redemption on the order; any store credit applied to or issued from the order; status closed (layaway: cancelled, forfeited, final_forfeited; cash: cancelled, expired); crossing is_test in either direction; same owner; not found.
+  R6 Catch-up award for the NEW owner when: new owner is enrolled AND award point >= new owner's enrolled_at − grace days (system_settings.loyalty_enrollment_grace_days, default 3). Award point: layaway = earliest non-voided payments.created_at for the account matching the DP rule (reference_number LIKE 'DP-%' OR remarks ILIKE '%down%'), excluding LOYALTY-% rows; fallback = updated_at of the confirmed DP submission; never date_paid. Cash = completed_at; fallback = created_at of the payment that made it fully paid. Orders not yet at their award point: no catch-up (they earn normally later).
+  R7 Catch-up specifics: current tier multiplier (ratchet as today), NO promo; emails/notifications as usual; member.last_purchase_at = GREATEST(existing, order_date) and prev_purchase_at shifts only if that value changes; the new lot expires_at = order_date + 180 days; the member's OTHER live lots are only ever extended: GREATEST(expires_at, order_date + 180 days) — never shortened. If order_date + 180 days is already past, still award (spend counts toward tier) — the points are born expired; the preview must say so.
+  R8 A written reason is required for every reassign. Web orders are allowed.
+  R9 If the move commits but the catch-up award fails: the move stands; insert a staff_notifications row type 'reassign_catch_up_failed' naming the invoice, both customers and the error.
+  R10 Out of scope: changing the normal award's last_purchase_at = now(); any merge-customers tool.
+
+  ("Section F" in R5 is the 2026-09-24 investigation report; its markers are
+  the ones listed in the same rule, all checked by reassign_order_owner_atomic.)
+
+  HOW "BORN EXPIRED" IS WRITTEN. Nothing in the Hub expires a lot by its
+  date (expiry is the member-level 180-day inactivity sweep), and FIFO spends
+  the SOONEST expiry first — so a live lot with a past expires_at would be the
+  first thing a redemption consumed. insert_lot_catch_up therefore writes such
+  a lot already expired (remaining 0, expired_at now()), and award-loyalty-
+  points writes the earned row, a matching 'expired' row (−points) and
+  total_points_expired += points, leaving remaining_points unchanged. Counter,
+  live lots and ledger net stay equal (loyalty_integrity_report 1 and 2), and
+  the spend still counts toward the tier.
+
+  THE CATCH-UP IS A SEPARATE CALL, AFTER THE MOVE COMMITS. The edge function
+  calls award-loyalty-points with the service key and body
+  { account_id | cash_order_id, catch_up: { order_date } }; catch_up from any
+  other caller is refused 403. Without catch_up award-loyalty-points behaves
+  exactly as before. The award's own claim (loyalty_award_claims) keeps it
+  idempotent. A skip for below_minimum or loyalty_disabled is an expected
+  outcome, not a failure; anything else that is not awarded:true rings R9's
+  bell.
+
+  CHILD ROWS THAT MOVE WITH THE ORDER: payment_submissions (portal_token
+  cleared — it was the old owner's link), extension_requests (portal_token
+  cleared), service_jobs (invoice + account_type), service_requests, the
+  order's checkout_quotes row, csr_notifications. A cash order's
+  ship_to_address_id points into the OLD owner's address book, so it is
+  snapshotted via address_snapshot() when the order has no snapshot yet, and
+  then set to NULL. One audit_logs row (entity_type 'layaway_account' |
+  'cash_order', action 'reassign_owner') carries both customers, the reason,
+  the moved counts, the loyalty amount before/after, the award point and the
+  catch-up decision.
+
+  PERMISSIONS: role_permissions for reassign_owner already exist live (admin,
+  staff = true; finance, csr = false; 4 user overrides = false). This work
+  seeded nothing; the function obeys whatever Settings holds. The
+  src/lib/role-permissions.ts default for reassign_owner (['admin']) is a
+  fallback table only and was not changed.
+
 ## WEB LAYAWAY — NON-NEGOTIABLE (added 2026-09-14, Phase 2 step 4)
 
   A web layaway is a `layaway_accounts` row with `source_channel = 'web'` —

@@ -206,3 +206,5 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.sync-store-credit-to-shopify]
     verify_jwt = false
+  [functions.reassign-order-owner]
+    verify_jwt = true
