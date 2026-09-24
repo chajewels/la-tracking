@@ -14,6 +14,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import * as React from "npm:react@18.3.1";
 import { sendStorefrontEmail } from "../_shared/storefront-email.ts";
 import { LevelRestoredEmail, levelRestoredSubject } from "../_shared/email-templates/loyalty-level.tsx";
+import { catchUpPurchaseDates, expiredOnAward } from "../_shared/reassign-owner-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,13 +73,29 @@ Deno.serve(async (req) => {
     const gate = createLoyaltyEmailGate(supabase);
 
     const body = await req.json().catch(() => ({}));
-    const { account_id, cash_order_id } = body as {
+    const { account_id, cash_order_id, catch_up } = body as {
       account_id?: string;
       cash_order_id?: string;
+      catch_up?: { order_date?: string };
     };
 
     if (!account_id && !cash_order_id) {
       return json({ skipped: true, reason: "missing_source" });
+    }
+
+    // Catch-up after Reassign Owner (CLAUDE.md "REASSIGN OWNER", R6/R7). Only
+    // reassign-order-owner sends it, with the service key. Without catch_up
+    // this function behaves exactly as before.
+    let catchUp: { order_date: string; bornExpired: boolean } | null = null;
+    if (catch_up !== undefined) {
+      if (!isServiceRole(token)) {
+        return json({ error: "catch_up requires a service-role caller" }, 403);
+      }
+      const od = catch_up?.order_date;
+      if (typeof od !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(od)) {
+        return json({ error: "catch_up.order_date must be YYYY-MM-DD" }, 400);
+      }
+      catchUp = { order_date: od, bornExpired: expiredOnAward(od) };
     }
 
     // 1b. Server-side loyalty_enabled gate (go-live toggle).
@@ -315,6 +332,7 @@ Deno.serve(async (req) => {
 
       if (tierOk && underCap) activePromo = candidate;
     }
+    if (catchUp) activePromo = null; // R7: a catch-up never earns a promo
 
     // 7. Calculate points
     // earned tx = baseUnits × 100 × effectiveMultiplier (post-upgrade if the
@@ -366,7 +384,7 @@ Deno.serve(async (req) => {
       spend_amount_jpy: loyaltyJpy,
       invoice_number: invoiceNumber,
       tier_at_time: effectiveTierName,
-      notes: null,
+      notes: catchUp ? "catch-up after reassign" : null,
     };
     if (sourceKind === "layaway") earnedTxRow.account_id = account_id;
     else earnedTxRow.cash_order_id = cash_order_id;
@@ -387,6 +405,26 @@ Deno.serve(async (req) => {
         p_source_kind: claimKind, p_source_id: claimId, p_transaction_id: earnedTxId,
       });
       if (confirmErr) console.warn("[award-loyalty-points] confirm_loyalty_award_claim failed (non-blocking):", confirmErr);
+    }
+
+    // 8b. R7 born expired — the earned points expire in the same breath, so
+    //     the ledger carries the matching 'expired' row (counter = lots =
+    //     ledger net). loyalty-sheet-reconcile mirrors it to the sheet.
+    if (catchUp?.bornExpired) {
+      const expiredTxRow: Record<string, unknown> = {
+        member_id: member.id,
+        transaction_type: "expired",
+        points_amount: -points,
+        invoice_number: invoiceNumber,
+        tier_at_time: effectiveTierName,
+        notes: "catch-up after reassign: points born expired (order date + 180 days already past)",
+      };
+      if (sourceKind === "layaway") expiredTxRow.account_id = account_id;
+      else expiredTxRow.cash_order_id = cash_order_id;
+      const { error: expiredErr } = await supabase.from("loyalty_transactions").insert(expiredTxRow);
+      if (expiredErr) {
+        console.error("[award-loyalty-points] born-expired tx insert failed (manual reconcile needed):", expiredErr);
+      }
     }
 
     // 9. Insert bonus transaction if any bonus applies
@@ -429,7 +467,10 @@ Deno.serve(async (req) => {
     //     resolved earlier in step 5b for ratchet-up multiplier; reuse them).
     const totalAdded = points + bonusTxPoints;
     const newTotalEarned = Number(member.total_points_earned ?? 0) + totalAdded;
-    const newRemaining = Number(member.remaining_points ?? 0) + totalAdded;
+    // R7 born expired: the points are earned and expire at once, so the
+    // spendable balance does not move (the lot is written already expired).
+    const bornExpiredPoints = catchUp?.bornExpired ? points : 0;
+    const newRemaining = Number(member.remaining_points ?? 0) + totalAdded - bornExpiredPoints;
 
     // 12. Update loyalty_member
     const memberUpdate: Record<string, unknown> = {
@@ -440,6 +481,17 @@ Deno.serve(async (req) => {
       last_purchase_at: new Date().toISOString(),
       pre_expiry_warned_at: null,
     };
+    if (catchUp) {
+      // R7: last_purchase_at = GREATEST(existing, order_date); prev shifts only if it changes.
+      delete memberUpdate.prev_purchase_at;
+      delete memberUpdate.last_purchase_at;
+      Object.assign(memberUpdate, catchUpPurchaseDates(member.last_purchase_at, catchUp.order_date));
+      if (bornExpiredPoints > 0) {
+        const { data: exp } = await supabase
+          .from("loyalty_members").select("total_points_expired").eq("id", member.id).single();
+        memberUpdate.total_points_expired = Number(exp?.total_points_expired ?? 0) + bornExpiredPoints;
+      }
+    }
     if (tierUpgraded) {
       memberUpdate.earned_tier_id = newTierRow!.id;
       memberUpdate.current_tier_id = newTierRow!.id;
@@ -473,15 +525,22 @@ Deno.serve(async (req) => {
       // RPC computes expires_at = earned_at + 12 months for order_earn and
       // handles the rolling extension on prior lots (AREA 2 lines 6195-6204).
       try {
-        const { data: lotId, error: lotErr } = await supabase.rpc("insert_lot_and_extend", {
-          p_member_id: member.id,
-          p_source_type: "order_earn",
-          p_source_reference: invoiceNumber,
-          p_amount: points,
-          p_earned_at: earnedAt,
-          p_expires_at: null,
-          p_notes: null,
-        });
+        const { data: lotId, error: lotErr } = catchUp
+          ? await supabase.rpc("insert_lot_catch_up", {
+            p_member_id: member.id,
+            p_invoice: invoiceNumber,
+            p_amount: points,
+            p_order_date: catchUp.order_date,
+          })
+          : await supabase.rpc("insert_lot_and_extend", {
+            p_member_id: member.id,
+            p_source_type: "order_earn",
+            p_source_reference: invoiceNumber,
+            p_amount: points,
+            p_earned_at: earnedAt,
+            p_expires_at: null,
+            p_notes: null,
+          });
         if (lotErr) {
           console.error(
             "[award-loyalty-points] order_earn lot shadow write failed",
@@ -949,7 +1008,8 @@ Deno.serve(async (req) => {
           cash_order_id: cash_order_id ?? null,
           note_text:
             `Loyalty: +${points} pts awarded${bonusTxPoints ? ` (+${bonusTxPoints} bonus)` : ""} — balance ${newRemaining}` +
-            (tierUpgraded ? ` — tier upgraded ${oldTierName} → ${newTierName}` : ""),
+            (tierUpgraded ? ` — tier upgraded ${oldTierName} → ${newTierName}` : "") +
+            (catchUp ? ` — catch-up after reassign${catchUp.bornExpired ? " (points born expired: order date + 180 days already past)" : ""}` : ""),
           created_by_user_id: null,
           created_by_name: "System (Loyalty)",
         });
