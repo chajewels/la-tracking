@@ -10,6 +10,16 @@ It is split into two parts:
   `20260924100000_reserve_first_a2.sql`, assertions in
   `docs/sql/20260924_reserve_first_a2_assertions.sql`.
 
+## Current state (2026-09-24): the switch is ON
+
+`web_reservation_mode` is JSON `true` on live — every web checkout creates a
+reservation. The storefront reads the flags (cha-jewels-web #138, released by
+#140), so customers see reservation copy and no payment details until staff
+confirm. The live row still carries `updated_at` 2026-09-23 08:22 UTC and no
+`updated_by_user_id`: it was switched on before the Hub toggle existed, so there
+is no audit row for that change. Every change from now on goes through the Hub
+card and is audited.
+
 ## The switch — Hub only, admin only (2026-09-24)
 
 `system_settings.web_reservation_mode` is changed from **Website → Settings →
@@ -41,7 +51,7 @@ Reserve-first checkout** and from nowhere else. Migration
 ## The flow
 
 1. **Checkout creates a reservation.** The website edge function reads
-   `system_settings.web_reservation_mode`, which is seeded `false`. When the
+   `system_settings.web_reservation_mode` (seeded `false`, ON since 2026-09-23). When the
    switch is `true`, the edge function passes `p_reserve => true` to
    `create_web_order_atomic` or `create_web_layaway_atomic`. A reservation:
    - holds the stock, so the piece reads Sold
@@ -152,7 +162,7 @@ These were checked 2026-09-23:
 
 ## What A2 built (2026-09-24)
 
-The switch `system_settings.web_reservation_mode` shipped **false** (it is now changed from the Hub — see "The switch" above). With it
+The switch `system_settings.web_reservation_mode` shipped **false** (it is now ON and changed from the Hub — see "Current state" and "The switch" above). With it
 false every customer-facing path is today's: `p_reserve` is not even sent, the
 same emails go out (`order-confirmation`, `layaway-plan-created` render
 byte-for-byte as before — proved by rendering both old and new), and the same
@@ -226,9 +236,10 @@ still live, so the stale value is never read as "awaiting".
 
 **Not in A2.**
 
-- The storefront (`chajewels/cha-jewels-web`) must read `reservation_mode` /
-  `awaiting_confirmation` / `ready_for_payment` to switch its copy. Until it
-  does, do not flip the switch.
+- ~~The storefront must read `reservation_mode` / `awaiting_confirmation` /
+  `ready_for_payment` before the switch goes on.~~ Shipped:
+  cha-jewels-web #138 (storefront A3, merged 2026-09-24 06:28 UTC), released
+  to its `main` by #140 (06:29 UTC).
 - ~~`record-payment` / `record-multi-payment` (staff) are not guarded
   server-side.~~ Closed 2026-09-24: see "Staff payment guard" below.
 
