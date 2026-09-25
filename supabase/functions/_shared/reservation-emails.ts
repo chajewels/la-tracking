@@ -72,6 +72,8 @@ async function loadOrder(supabase: Db, orderId: string) {
     order: order as AnyRec,
     items,
     reference: String((order as AnyRec).web_reference ?? (order as AnyRec).invoice_number ?? ""),
+    // shipping_fee and total_amount are in this currency (pesos on a peso order).
+    currency: (String((order as AnyRec).currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
     lang: pickLang((order as AnyRec).customer_lang),
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
@@ -120,6 +122,7 @@ export function sendOrderReservedEmail(supabase: Db, orderId: string): Promise<R
         items: o.items,
         shippingJpy: Number(o.order.shipping_fee ?? 0),
         totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
         orderUrl: storefrontOrderUrl(orderId),
       }),
     });
@@ -173,6 +176,7 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string): Promise<Rese
         items: o.items,
         shippingJpy: Number(o.order.shipping_fee ?? 0),
         totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
         methods: methods as unknown as OrderEmailMethod[],
         transferDueAt: String(o.order.transfer_due_at ?? ""),
         region: regionForCurrency(currency),
@@ -256,6 +260,7 @@ export function sendOrderCantSupplyEmail(supabase: Db, orderId: string, reason: 
         items: o.items,
         shippingJpy: Number(o.order.shipping_fee ?? 0),
         totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
         reason,
         refundStatus: null,
         refundNote: null,
@@ -309,6 +314,7 @@ export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): 
         items: o.items,
         shippingJpy: Number(o.order.shipping_fee ?? 0),
         totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
         shopUrl: shopUrl(),
       }),
     });

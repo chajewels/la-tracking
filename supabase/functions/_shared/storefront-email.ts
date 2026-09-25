@@ -65,6 +65,15 @@ export function formatMoney(n: number | string | null | undefined, currency: 'JP
   return `${currency === 'PHP' ? '\u20b1' : '\u00a5'}${v.toLocaleString('en-US')}`
 }
 
+/**
+ * Money on a web ORDER email, in the order's own currency. Yen keeps
+ * formatJpy, so a yen email is exactly what it was before peso full payment
+ * (2026-09-25); pesos use formatMoney's ₱, as the layaway emails already do.
+ */
+export function orderMoney(n: number, currency: 'JPY' | 'PHP' | undefined): string {
+  return currency === 'PHP' ? formatMoney(n, 'PHP') : formatJpy(n)
+}
+
 /** Owner-readable address? The only exception to the test gate. */
 export function ownerReadable(email: string): boolean {
   const e = email.trim().toLowerCase()

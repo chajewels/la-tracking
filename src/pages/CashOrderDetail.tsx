@@ -38,6 +38,7 @@ import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
 import { getConversionRate } from '@/lib/currency-converter';
+import { itemsSubtotalInOrderCurrency } from '@/lib/web-settlement';
 import { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
 import ProgressRing from '@/components/shared/ProgressRing';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
@@ -571,7 +572,15 @@ export default function CashOrderDetail() {
 
   // Items subtotal (line items are stored in JPY) → order currency.
   const manageItemsSubtotalJpy = (orderItems ?? []).reduce((s, li) => s + (Number(li.line_total_jpy) || Number(li.unit_price_jpy) * Number(li.quantity)), 0);
-  const manageItemsSubtotalAcct = order?.currency === 'PHP' ? Math.round(manageItemsSubtotalJpy * getConversionRate()) : manageItemsSubtotalJpy;
+  // A web peso order converts at the rate the customer was charged
+  // (cash_orders.fx_rate_used), never this browser's staff rate; a
+  // Hub-arranged peso order has no stored rate and keeps today's behaviour.
+  // fx_rate_used is newer than the generated types, hence the cast.
+  const manageItemsSubtotalAcct = itemsSubtotalInOrderCurrency(
+    manageItemsSubtotalJpy,
+    order as { currency?: string | null; fx_rate_used?: number | string | null } | null | undefined,
+    getConversionRate,
+  );
   const manageDiscountAmount = manageDiscountMode === 'percent'
     ? Math.round(manageItemsSubtotalAcct * (parseFloat(manageDiscountInput) || 0) / 100)
     : Math.round(parseFloat(manageDiscountInput) || 0);

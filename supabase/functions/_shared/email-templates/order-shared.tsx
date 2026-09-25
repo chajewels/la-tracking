@@ -1,7 +1,7 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 import { Text } from 'npm:@react-email/components@0.0.22'
-import { formatJpy, type Lang } from '../storefront-email.ts'
+import { formatJpy, orderMoney, type Lang } from '../storefront-email.ts'
 import { COMPANY_NAME } from '../transactional-email-templates/brand.ts'
 
 /**
@@ -92,17 +92,30 @@ export const Panel = ({ gutter, box, children }: { gutter: React.CSSProperties; 
   </table>
 )
 
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang }) => (
+/** The currency a web order settles in. Yen when absent — every order before 2026-09-25. */
+export type OrderCurrency = 'JPY' | 'PHP'
+
+/**
+ * Items, shipping, total.
+ *
+ * `shippingJpy` / `totalJpy` keep their names for the callers' sake but carry
+ * the order's own figures — cash_orders.shipping_fee / total_amount, which are
+ * in the order's currency. Item lines are always YEN (cash_order_items, the
+ * price of record), so on a PESO order they are listed WITHOUT a price and only
+ * shipping and total are shown, in ₱ (owner decision D1, 2026-09-25 — the
+ * peso-layaway precedent). Two currencies never share one receipt.
+ */
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
-      <Row key={idx} k={`${itemTitle(i, lang)}${i.qty > 1 ? ` × ${i.qty}` : ''}`} v={formatJpy(i.line_total_jpy)} />
+      <Row key={idx} k={`${itemTitle(i, lang)}${i.qty > 1 ? ` × ${i.qty}` : ''}`} v={currency === 'PHP' ? '' : formatJpy(i.line_total_jpy)} />
     ))}
     <Row
       k={WORDS.shipping[lang]}
-      v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : formatJpy(shippingJpy)}
+      v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : orderMoney(shippingJpy, currency)}
     />
-    <Row k={WORDS.total[lang]} v={formatJpy(totalJpy)} emphasis />
+    <Row k={WORDS.total[lang]} v={orderMoney(totalJpy, currency)} emphasis />
   </Panel>
 )
 

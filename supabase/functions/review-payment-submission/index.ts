@@ -656,6 +656,7 @@ Deno.serve(async (req) => {
               shippingJpy: Number((cashOrder as any).shipping_fee ?? 0),
               totalJpy: Number((cashOrder as any).total_amount ?? newTotalPaid),
               amountReceivedJpy: Number(submittedAmount),
+              currency: String(cashOrder.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
               orderUrl: storefrontOrderUrl(String(cashOrder.id)),
             }),
           });

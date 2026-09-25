@@ -146,7 +146,8 @@
   CURRENCY is the customer's choice at checkout. Yen plans store yen. Peso
   plans convert at the stored `fx_rate`: shipping is converted and the
   subtotal is the remainder, so the parts always sum to the settlement total
-  exactly. Web orders paid in full remain JPY-only.
+  exactly. Web orders paid in full may settle in pesos too since 2026-09-25
+  (docs/CASH-ORDERS.md "WEB ORDERS IN PESOS").
 
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.

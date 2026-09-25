@@ -146,3 +146,53 @@
   - Cosmetic: "Pay by [date]" in Sheet header when
     expires_at is set
 
+
+## WEB ORDERS IN PESOS (added 2026-09-25, owner-approved plan H1)
+
+  A website FULL-PAYMENT order may settle in yen or pesos — the customer's
+  choice at checkout, default yen, on the English and Japanese sites alike.
+  Before 2026-09-25 create_web_order_atomic hard-coded 'JPY' and the website
+  refused a peso full-payment quote (currency_not_supported_for_full).
+
+  Yen is the price of record:
+  - cash_order_items.unit_price_jpy / line_total_jpy stay YEN on every order.
+  - cash_orders.loyalty_jpy_amount = the quote's YEN product subtotal
+    (checkout_quotes.subtotal_jpy) on every order. Points never move with FX;
+    a peso order earns exactly what the same yen order earns.
+  - total_amount / remaining_balance / shipping_fee / total_paid are in the
+    order's currency, like every cash order.
+
+  The conversion (create_web_order_atomic, migration
+  20260925120000_peso_full_payment):
+  - rate = checkout_quotes.fx_rate — the fx_rates.jpy_php row captured at
+    QUOTE time (30-minute quote life), never today's rate and never
+    system_settings.php_jpy_rate (that stays the staff/reporting rate);
+  - total_amount = round(total_jpy × rate), shipping_fee =
+    round(shipping_jpy × rate) — Postgres half-up to a whole peso; the items
+    are the remainder, so the parts sum;
+  - the rate and its date are stored in cash_orders.fx_rate_used /
+    fx_rate_date (CHECK cash_orders_fx_rate_only_on_php: a rate only ever sits
+    on a PHP row). NULL for yen orders and for Hub-arranged peso orders.
+  - PHP quote without a rate → {error:'fx_rate_missing'} (503).
+
+  The quote the customer sees must equal the stored order to the peso. The
+  website computes the peso full-payment figures with the integer half-up in
+  supabase/functions/_shared/settlement.ts, NOT Math.round(jpy × rate): on an
+  exact .5 the float product can land just below it (¥100,000 × 0.308345 is
+  30834.499999999996 in floats; Postgres stores ₱30,835). The layaway path
+  keeps its own arithmetic (layaway_quote), unchanged.
+
+  Everything downstream already keys on cash_orders.currency: transfer
+  methods and region (PHP → the Philippine accounts), the reserve-first
+  confirm, the 72h expiry, payment recording (INVARIANT 4 compares like with
+  like), store credit on cancellation (minted in PHP, pays PHP orders only).
+  The order emails print ₱ for shipping and total and list items WITHOUT a
+  per-line price on a peso order (owner decision D1 — two currencies never
+  share one receipt); yen emails are unchanged.
+
+  Hub: Manage Invoice converts a web peso order's yen items subtotal at
+  fx_rate_used (src/lib/web-settlement.ts itemsSubtotalInOrderCurrency), not
+  the per-browser getConversionRate(); Hub-arranged peso orders keep the old
+  behaviour. Reports still convert PHP to yen at php_jpy_rate, as for peso
+  layaway plans, so a peso web order's reported yen can differ slightly from
+  its catalog yen price — accepted.
