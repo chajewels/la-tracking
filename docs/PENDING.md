@@ -905,6 +905,28 @@ they need five items when they need three.
 Copy fix on both pages, and it should wait for the grouping decision above:
 there is no point publishing a ladder whose base rule has no mechanism.
 
+## PAGE365 INVENTORY FETCH — PR 2 to PR 4 (filed 2026-09-27)
+
+PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PAGE365-IMPORT.md
+"INVENTORY". Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` §4-§5.
+
+- **PR 2 — invoice import → record-only.** `system_settings.page365_stock_mode`
+  (`invoice` | `inventory_sync`); `page365_apply_stock` claims and matches but skips the
+  decrement in `inventory_sync` (md5-guarded in-place patch from live
+  `pg_get_functiondef`, drift audit first — Bug #280 rule); widen `stock_state` CHECK with
+  `page365_master`, `absorbed`; cut-over `held → absorbed`. Then the inventory apply stops
+  excluding held variants. Invoice fetch fixes: photo from `/products/<pid>` in position
+  order and drop the catalogue scan (F1: pages are cumulative, never empty); first-word
+  SKU everywhere instead of `naturalSku` (F2: misses ≥ 48 real codes).
+- **PR 3 — 30-min schedule.** pg_cron + Vault key → `page365-inventory-fetch` with a
+  JWT-claims service-role path; auto-apply **decreases only**, gated by
+  `page365_inventory_auto_apply`; bells `page365_inventory_run_failed` /
+  `page365_inventory_rises_pending`.
+- **PR 4 — "Create draft product"** from a new Page365 code (and from an unmatched invoice
+  line): staff pick metals/origin/condition; photos copied the same way.
+- Open question the acceptance test settles: does an UNPAID Page365 invoice already reduce
+  `available`? (§5.9 step 2.)
+
 ## PAGE365 STOCK — WHAT 20260926120000 DELIBERATELY DID NOT BUILD (filed 2026-09-26)
 
 Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:

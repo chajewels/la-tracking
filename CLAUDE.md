@@ -1502,6 +1502,20 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     flagged rehold_failed, never raised) on revive/reactivation. Orders with no
     ledger rows never move stock. Resolving a flag needs a note and never moves
     stock. Never write page365_stock_lines or its stock by hand.
+  - INVENTORY FETCH (2026-09-27; docs/PAGE365-IMPORT.md "INVENTORY"): staff
+    read the whole Page365 catalogue (page365-inventory-fetch, chunked,
+    resumable, <= 4 req/s) and apply ticked rows. TARGET = max(0, Page365
+    available - page365_web_holds) — a website-reserved piece is never put
+    back on sale. Match per VARIANT on the code (first word; multi-variant
+    listings use variant names), exact, never fuzzy. Decreases pre-ticked;
+    increases need a tick and are sent as increases. page365_inventory_apply is
+    COMPARE-AND-SET (stock_qty = seen at fetch, else changed_since_fetch), only
+    on a 'ready' run (a partial/failed read — outage, count drop > 20 % —
+    applies nothing). Until PR 2, variants with a #195 'held' line are
+    EXCLUDED. New codes listed, prices reported, Hub-only flagged — never
+    created, repriced or zeroed. Photos: every photo of a matched product, one
+    row per (variant, page365_photo_id), staff photos never touched. Customer
+    reviews are never stored.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 
