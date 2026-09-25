@@ -200,6 +200,16 @@ export default function FixturePreview() {
       seed(['email-health', 24], { status: 'ok', last_sent_at: now, generated_at: now });
       seed(['portal-token-health', 60], { status: 'ok', expiring_in_window: 0, expiring_in_window_with_live_plan: 0, generated_at: now });
     }
+    // Page365 stock (2026-09-26): the four-line acceptance invoice — matched,
+    // sold on the website, no code, resize. Hub view: /website?tab=page365-stock,
+    // /page365/review/fixture-p365-draft, and the first cash order's page.
+    if (!empty) {
+      const p365 = buildPage365StockFixtures(cashOrders[0]?.id ?? 'fixture-cash');
+      seed(['page365-stock-flags', false], p365.lines.filter((l) => l.flag));
+      seed(['page365-stock-flags', true], p365.lines.filter((l) => l.flag));
+      seed(['page365-stock-lines', 'cash', cashOrders[0]?.id], p365.lines);
+      seed(['page365-draft', 'fixture-p365-draft'], p365.draft);
+    }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
       const admin = searchParams.get('role') !== 'staff';
@@ -1144,4 +1154,45 @@ function ReservationsFixture() {
       <DeadlinesCard entityType="layaway" entityId={lay.id} status="active" transferDueAt={null} reference={lay.reference} sourceChannel="web" awaitingConfirmation canEdit />
     </div>
   );
+}
+
+/** Page365 stock fixtures: the owner's four-line acceptance invoice. */
+function buildPage365StockFixtures(cashOrderId: string) {
+  const base = {
+    page365_no: 900001, cash_order_id: cashOrderId, account_id: null, website_product_id: null,
+    held_at: null, released_at: null, resolved_at: null, resolution_note: null,
+    created_at: '2026-09-26T02:00:00Z', cash_orders: { invoice_number: '19901' }, layaway_accounts: null,
+  };
+  const lines = [
+    { ...base, id: 'p365-l1', line_no: 1, line_name: 'ZT9001 Test ring K18', first_word: 'ZT9001', quantity: 1,
+      match_result: 'matched', stock_state: 'held', flag: null, stock_seen: 2, held_at: '2026-09-26T02:00:00Z' },
+    { ...base, id: 'p365-l2', line_no: 2, line_name: 'ZT9002 Test earrings', first_word: 'ZT9002', quantity: 1,
+      match_result: 'matched', stock_state: 'none', flag: 'insufficient_stock', stock_seen: 0 },
+    { ...base, id: 'p365-l3', line_no: 3, line_name: 'Necklace test pearl 45cm', first_word: 'NECKLACE', quantity: 1,
+      match_result: 'unmatched', stock_state: 'none', flag: 'unmatched', stock_seen: null },
+    { ...base, id: 'p365-l4', line_no: 4, line_name: 'Resize # 12', first_word: 'RESIZE', quantity: 1,
+      match_result: 'not_a_product', stock_state: 'none', flag: null, stock_seen: null },
+  ];
+  const at = '2026-09-26T01:58:00Z';
+  const item = (name: string, kind: 'product' | 'service', price: number, stock_match: unknown) => ({
+    kind, name, sku: null, quantity: 1, unit_price_jpy: price, line_total_jpy: price, note: null,
+    photo_url: null, source_photo_url: null, photo_note: null, stock_match,
+  });
+  const draft = {
+    id: 'fixture-p365-draft', page365_no: 900001, page365_slug: 'fixture', expires_at: '2099-01-01T00:00:00Z', consumed_at: null,
+    payload: {
+      page365_no: 900001, page365_slug: 'fixture', currency: 'JPY',
+      customer: { name: 'Test Customer', phone: null, address: null, structural_address: null },
+      items: [
+        item('ZT9001 Test ring K18', 'product', 30000, { first_word: 'ZT9001', result: 'matched', stock_qty: 2, checked_at: at }),
+        item('ZT9002 Test earrings', 'product', 20000, { first_word: 'ZT9002', result: 'matched', stock_qty: 0, checked_at: at }),
+        item('Necklace test pearl 45cm', 'product', 10000, { first_word: 'NECKLACE', result: 'unmatched', stock_qty: null, checked_at: at }),
+        item('Resize # 12', 'service', 3000, { first_word: 'RESIZE', result: 'service', stock_qty: null, checked_at: at }),
+      ],
+      shipping_jpy: 0, subtotal_jpy: 63000, discount_jpy: 0, total_jpy: 63000,
+      fx: { php_jpy_rate: 0.39, source: 'system_settings.php_jpy_rate', read_at: at },
+      page365_stage: 'pending', page365_created_at: at, page365_expires_on: null, fetched_at: at, photo_failures: [],
+    },
+  };
+  return { lines, draft };
 }

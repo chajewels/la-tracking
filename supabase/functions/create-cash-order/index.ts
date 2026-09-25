@@ -1,6 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { writeOrderExtras, type OrderExtras } from "../_shared/order-extras.ts";
+import {
+  applyPage365Stock,
+  checkPage365Draft,
+  normaliseServiceLineNos,
+  type Page365StockResult,
+} from "../_shared/page365-stock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +71,10 @@ Deno.serve(async (req) => {
       shipping_fee,
       page365_no,
       page365_slug,
+      // Page365 stock (2026-09-26): the draft the lines come from, and the
+      // draft positions the CSR marked as a service. See _shared/page365-stock.ts.
+      page365_draft_id,
+      page365_service_lines,
     } = body;
 
     if (!customer_id || !invoice_number || !currency || total_amount == null || !expires_at) {
@@ -144,6 +154,20 @@ Deno.serve(async (req) => {
             : { source: "layaway_account", id: p365Layaway!.id },
         }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
+
+    // 5c. A Page365 import names its draft: stock is taken from the draft's own
+    // lines, never from what the browser sends. Checked before anything is written.
+    let page365DraftId: string | null = null;
+    if (page365_no != null) {
+      const draftCheck = await checkPage365Draft(supabase, page365_no, page365_draft_id);
+      if (!draftCheck.ok) {
+        return new Response(JSON.stringify({ error: draftCheck.error }), {
+          status: draftCheck.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      page365DraftId = draftCheck.draftId;
     }
 
     // 6. Loyalty-only product amount in JPY — manually entered by
@@ -247,6 +271,27 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 9c. Page365 stock: claim each invoice line, then take website stock for
+    // the lines that match (owner rule D1 — at import, never at fetch). A line
+    // that does not match, or whose piece is already reserved/sold on the
+    // website, is FLAGGED and the order still stands. Only a request or
+    // database error lands here, and it rolls the order back like extras do.
+    let page365Stock: Page365StockResult | null = null;
+    if (page365DraftId) {
+      try {
+        page365Stock = await applyPage365Stock(
+          supabase, "cash", cashOrder.id, page365DraftId,
+          normaliseServiceLineNos(page365_service_lines), user.id,
+        );
+      } catch (e) {
+        await supabase.from("cash_orders").delete().eq("id", cashOrder.id);
+        return new Response(JSON.stringify({ error: (e as Error).message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // 10. Audit log
     await supabase.from("audit_logs").insert({
       entity_type: "cash_order",
@@ -257,7 +302,7 @@ Deno.serve(async (req) => {
     });
 
     // 11. Return created record
-    return new Response(JSON.stringify({ cash_order: cashOrder, extras: extrasResult }), {
+    return new Response(JSON.stringify({ cash_order: cashOrder, extras: extrasResult, page365_stock: page365Stock }), {
       status: 201,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

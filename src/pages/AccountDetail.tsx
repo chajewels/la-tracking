@@ -60,6 +60,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
@@ -1653,6 +1654,10 @@ export default function AccountDetail() {
             </div>
           </div>
         )}
+
+        {/* Page365 stock — what the import did to website stock, per line.
+            Renders nothing for orders without ledger rows. */}
+        <Page365StockPanel kind="layaway" orderId={account.id} />
 
         {/* Financial Breakdown — recorded discount / shipping (account currency).
             Lists the recorded values + the authoritative total; no reconciliation

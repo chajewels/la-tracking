@@ -1240,3 +1240,36 @@ NULL on yen orders and on Hub-arranged peso orders (those were priced at
 `cash_orders_fx_rate_only_on_php`: a rate only ever sits on a `currency = 'PHP'`
 row, > 0. Never returned to customers. Mechanics: docs/CASH-ORDERS.md
 "WEB ORDERS IN PESOS".
+
+## `page365_stock_lines` — Page365 → website stock ledger (added 2026-09-26)
+
+Migration `20260926120000_page365_stock_sync.sql`. Rules: docs/PAGE365-IMPORT.md "STOCK".
+
+One row per Page365 invoice line, ever: `UNIQUE (page365_no, line_no)` is the
+idempotency key (`line_no` = 1-based position in `page365_drafts.payload->items`;
+Page365 line ids are not read). `cash_order_id` / `account_id` (at most one set,
+both `ON DELETE SET NULL` — a deleted order leaves its lines, released). The
+match: `first_word`, `match_result` (`pending | matched | not_a_product |
+unmatched | ambiguous_sku | no_variant | ambiguous_variant`),
+`website_product_id`, `variant_id`. Stock: `stock_state` `none` (never took) |
+`held` (the Hub took website stock) | `released` (given back), `stock_seen`
+(stock_qty before the reduction), `held_at`, `released_at`. Staff: `flag`
+(`unmatched | ambiguous_sku | no_variant | ambiguous_variant |
+insufficient_stock | rehold_failed`), open while `resolved_at IS NULL`;
+`resolved_by`, `resolution_note`.
+
+RLS: staff (`is_staff`) SELECT only. No INSERT/UPDATE/DELETE grant to
+`authenticated` — every write is a SECURITY DEFINER function:
+
+| Function | Caller | Does |
+|---|---|---|
+| `page365_first_word(text) → text` | anyone signed in | IMMUTABLE; the code rule. Twin: `firstWord()` in `_shared/page365-stock.ts` |
+| `page365_match_line(text) → table` | `page365-fetch-order` (preview), staff | read-only, SECURITY INVOKER |
+| `page365_apply_stock(kind, order_id, draft_id, service_line_nos int[], actor) → jsonb` | service role only | claim each line, then the conditional decrement; flags + bell + audit `page365_stock_applied` |
+| `page365_stock_follow_order()` | triggers `trg_page365_stock_follow_{cash,layaway}` (AFTER UPDATE OF status) and `…_delete` (AFTER DELETE) | release on dead/delete, re-take on revive; audit `page365_stock_released` / `page365_stock_reheld` |
+| `resolve_page365_stock_flag(line_id, note) → jsonb` | `manage_website_catalog` | note required; never moves stock; audit `page365_stock_flag_resolved` |
+
+`staff_notifications.type = 'page365_stock_flag'`: `account_id` is set only for
+a layaway (the bell treats `account_id` as a layaway id); `metadata` carries
+`page365_no`, `order_kind`, `order_id`, `cash_order_id` (cash), `reason`
+(`import` | `rehold_failed`) and, on import, the flagged `lines`.

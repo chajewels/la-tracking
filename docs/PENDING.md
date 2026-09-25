@@ -904,3 +904,19 @@ they need five items when they need three.
 
 Copy fix on both pages, and it should wait for the grouping decision above:
 there is no point publishing a ladder whose base rule has no mechanism.
+
+## PAGE365 STOCK — WHAT 20260926120000 DELIBERATELY DID NOT BUILD (filed 2026-09-26)
+
+Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
+
+- **Page365-side cancellations are not detected (D2).** There is no webhook, and the
+  `?sig=` is never stored, so the Hub cannot re-read an invoice. Staff cancel the Hub
+  order and the trigger returns the stock. Possible later: IF the Drive CSV mirror
+  (`PAGE365_MIRROR_FOLDER_ID`, read by `get-page365-order`) carries a status column —
+  unconfirmed — a nightly REPORT-ONLY list of Hub orders whose invoice shows cancelled
+  there. Never an automatic cancel (reconcile-store-credit precedent).
+- **No backfill.** Page365 orders imported before 2026-09-26 have no ledger rows and
+  never move stock, even when cancelled. Their pieces were never taken, so this is
+  correct, not a gap.
+- **Flags are resolved by hand, with a note.** Nothing auto-adjusts Page365's stock or
+  picks a size for an `ambiguous_variant` line.

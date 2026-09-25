@@ -45,6 +45,11 @@ product_variants: [{ id, size, stone, price_jpy, price_php, stock_qty,
 down_payment_jpy?, down_payment_php?, down_payment_pct?,
 product_media: [{ url, alt }] }], category_slugs: string[] }`
 
+- `stock_qty` is the Hub's one stock figure. Besides website orders and staff
+  edits, a **Page365 invoice imported into the Hub** reduces it (and a cancelled
+  or expired import gives it back) — 2026-09-26, docs/PAGE365-IMPORT.md
+  "STOCK". No field or shape changed; the storefront keeps reading `stock_qty`
+  and is revalidated by the same catalogue trigger.
 - `price_php` is derived per request from the latest `fx_rates` row
   (`PHP = JPY × rate`), rounded **half-up to a whole peso** with the same
   integer maths the peso checkout stores (2026-09-25; before, a float round

@@ -83,6 +83,8 @@ function iconForType(type: string) {
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
     case 'service_request_created':
       return <Wrench className="h-3.5 w-3.5 text-sky-400" />;
+    case 'page365_stock_flag':
+      return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     default:
       return <CheckCircle className="h-3.5 w-3.5 text-muted-foreground" />;
   }
@@ -187,6 +189,12 @@ export default function StaffNotificationBell() {
       const params = new URLSearchParams({ tab: 'audience' });
       if (inquiryId) params.set('inquiry', inquiryId);
       navigate(`${ROUTES.WEBSITE}?${params.toString()}#contact-inquiries`);
+      return;
+    }
+    // A Page365 stock flag is dealt with on Website → Page365 stock (resolve
+    // with a note), not on the order, so this comes before the account branch.
+    if (n.type === 'page365_stock_flag') {
+      navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
       return;
     }
     if (n.account_id) {

@@ -39,8 +39,10 @@
 
   ITEM NOTES ARE DISPLAYED, NEVER APPLIED. "Layaway (May) 8M / DP on 09/20 /
   Resize # 16" is free text a human wrote. The CSR reads it and sets the term;
-  nothing parses it into fields. Page365 stock is not a stock source, and
-  `origin` is never auto-set.
+  nothing parses it into fields. Page365's OWN stock is not a stock source (the
+  Hub never reads it), and `origin` is never auto-set. The reverse direction —
+  a Page365 import REDUCING the website's stock — is the STOCK section below
+  (added 2026-09-26).
 
   PHOTOS ARE COPIED, NEVER HOTLINKED — `promotions/page365/<no>/<n>.<ext>`,
   into `{cash_order,layaway_account}_items.image_url`. An order outlives the
@@ -111,3 +113,90 @@
   rolls the order back. Every extra field is optional and a caller that sends
   none behaves exactly as before.
 
+
+## STOCK — a Page365 import reduces website stock, once (added 2026-09-26)
+
+  Owner-approved plan: ~/Code/reference/page365-stock-investigation.md (D1–D7).
+  Migration `20260926120000_page365_stock_sync.sql`; edge helper
+  `supabase/functions/_shared/page365-stock.ts`; Hub words
+  `src/lib/page365-stock.ts`. Local SQL tests:
+  `docs/sql/20260926_page365_stock_sync_local_{stub,tests}.sql`.
+
+  MATCHING IS THE FIRST WORD, EXACTLY. The product code is the first
+  whitespace-delimited word of the Page365 line (`page365_first_word`: leading
+  blanks incl. U+3000 and NBSP ignored, upper-cased). It must equal exactly ONE
+  `website_products.sku` (compared the same way; a code with a space inside
+  never matches) and that product must have exactly ONE variant. Anything else
+  is a FLAG — `unmatched` (no product code, e.g. "Necklace …"),
+  `ambiguous_sku` (several products), `no_variant`, `ambiguous_variant`
+  (several sizes, D6) — and no stock moves. Nothing is guessed, nothing is
+  fuzzy. A line the parser marked a service (resize) or the CSR booked as a
+  service is SKIPPED (`not_a_product`), never flagged. Product status is not
+  looked at: draft and archived products are reduced too (D7).
+
+  STOCK IS TAKEN AT IMPORT, NEVER AT FETCH (D1). `page365-fetch-order` only
+  PREVIEWS: it stores `stock_match` on each draft item (`page365_match_line`,
+  read-only) and the review screen shows a chip per line — "Will take stock",
+  "Will flag · …", "Service — skipped", or "Stock not checked" for drafts
+  fetched before this shipped. `create-cash-order` / `create-layaway-account`
+  take the stock when `page365_no` is present, AFTER the order and its lines
+  are written, by calling `page365_apply_stock` (service role only).
+
+  THE LINES COME FROM THE STORED DRAFT, NOT THE BROWSER. The request carries
+  `page365_draft_id` (required whenever `page365_no` is sent — 400 without it,
+  409 if the draft is gone or is for another invoice) and
+  `page365_service_lines` (1-based draft positions booked as a service). Names
+  and quantities are Page365's own; editing a line on the review screen, or
+  removing it, does not change what is taken. `line_no` = position in the draft.
+
+  NEVER TWICE. Every line is CLAIMED in `page365_stock_lines`
+  (UNIQUE `page365_no, line_no`, `INSERT … ON CONFLICT DO NOTHING`) BEFORE any
+  stock moves, and only the call that claimed it may move stock — a retry, a
+  second tab or two concurrent calls take once (proven with two live sessions:
+  5 → 3, the other call saw `already_claimed`). The one re-claim: a line whose
+  order was DELETED (unpaid only; the delete already gave the stock back) may
+  be claimed again by a fresh import of the same invoice — so net, still once.
+
+  THE WEBSITE'S OWN DECREMENT, NEVER BELOW ZERO. `UPDATE … SET stock_qty =
+  stock_qty - q WHERE id = v AND stock_qty >= q` after locking the variant row,
+  exactly like `create_web_order_atomic`. Zero rows (the piece is reserved or
+  sold on the website) → no reduction, the line is flagged
+  `insufficient_stock` with the stock seen, and the ORDER IS STILL CREATED.
+  The website reservation is never overridden (D5 logic); staff adjust
+  Page365's own stock. Business outcomes never raise; only a bad request or a
+  database error does, and the creating function then deletes the order it
+  just wrote (the RPC's own transaction already rolled back, so nothing is held).
+
+  GIVING IT BACK IS A TRIGGER, SO EVERY WRITER IS COVERED.
+  `page365_stock_follow_order` (AFTER UPDATE OF status, AFTER DELETE, on both
+  order tables): into a dead status (cash: cancelled, expired — D3, the hourly
+  `auto-expire-cash-orders`; layaway: cancelled, forfeited, final_forfeited —
+  D4, manual AND automatic forfeit) or a delete → every `held` line becomes
+  `released` and its stock comes back, summed per variant, once (`stock_state`
+  is the guard). Out of a dead status (cash revive, reactivation, extension) →
+  each released line is taken again if still in stock, otherwise flagged
+  `rehold_failed`; it NEVER raises and never blocks the status change (D5).
+  AFTER triggers, so a refused delete (paid order) or any BEFORE guard that
+  refuses moves nothing. Only ledger rows move stock: every hand-typed order,
+  and every Page365 order imported before this shipped, has none and is
+  untouched. `auto-forfeit-settlement` stays LOCKED — nothing in it changed.
+
+  PAGE365-SIDE CANCELLATIONS (D2): there is no signal from Page365 (the `?sig=`
+  is never stored, so the invoice cannot be re-read). Staff cancel the Hub
+  order; the trigger returns the stock.
+
+  FLAGS REACH STAFF THREE WAYS. A bell `staff_notifications` row
+  `page365_stock_flag` (one per import with any flag, and one per revive that
+  could not re-take) — it opens Website → Page365 stock. The Website workspace
+  tab **Page365 stock** (`manage_website_catalog`) lists open flags with the
+  invoice, line, reason and stock seen; RESOLVE requires a note, is audited
+  (`page365_stock_flag_resolved`) and NEVER moves stock
+  (`resolve_page365_stock_flag`, same permission, checked in SQL). The order
+  pages (CashOrderDetail / AccountDetail) show a "Website stock" panel per line:
+  Stock taken / Flagged · reason / Stock returned / Service — skipped.
+
+  THE STOREFRONT NEEDS NO CHANGE. A reduction is a plain UPDATE on
+  `website_product_variants`, which fires `notify_website_revalidate` like any
+  catalogue edit (docs/WEBSITE-VERCEL.md). Website orders keep their own
+  stock paths (gated `source_channel = 'web'`); Page365 lines keep
+  `variant_id` NULL on the items tables, so those paths never see them.
