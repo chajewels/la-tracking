@@ -60,6 +60,7 @@ import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import Page365StockPanel from '@/components/page365/Page365StockPanel';
 
 // Shape of cancel-cash-order's preview response (preview:true writes nothing).
 interface CancelPreview {
@@ -1601,6 +1602,10 @@ export default function CashOrderDetail() {
             <p className="text-sm text-card-foreground">{order.item_description}</p>
           </div>
         ) : null}
+
+        {/* Page365 stock — what the import did to website stock, per line.
+            Renders nothing for orders without ledger rows. */}
+        <Page365StockPanel kind="cash" orderId={order.id} />
 
         {/* Financial Breakdown — recorded discount / shipping (order currency).
             Lists the recorded values + the authoritative total; no reconciliation

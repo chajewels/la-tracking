@@ -7,6 +7,8 @@ import Sales from '@/pages/Sales';
 import CashOrderDetail from '@/pages/CashOrderDetail';
 import Customers from '@/pages/Customers';
 import CustomerDetail from '@/pages/CustomerDetail';
+import Website from '@/pages/Website';
+import Page365Review from '@/pages/Page365Review';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import IllustratedState from '@/components/shared/LedgerIllustration';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -65,6 +67,8 @@ export default function HubRouteShim({ at, roles }: { at: string; roles?: string
           <Route path="/cash-orders/:id" element={<CashOrderDetail />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
+          <Route path="/website" element={<Website />} />
+          <Route path="/page365/review/:draftId" element={<Page365Review />} />
           <Route path="*" element={<UnseededPage />} />
         </Routes>
       </MemoryRouter>

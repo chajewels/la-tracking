@@ -132,6 +132,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       // opens it and the page renders only that key's cards.
       { label: 'Audience', tab: 'audience', permFilter: (can) => can('manage_website_catalog') || can('manage_website_content') },
       { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
+      { label: 'Page365 stock', tab: 'page365-stock', permFilter: (can) => can('manage_website_catalog') },
     ],
   },
 

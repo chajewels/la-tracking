@@ -17,6 +17,7 @@ import { formatCurrency, generateScheduleDates } from '@/lib/calculations';
 import { getPHTToday } from '@/lib/date-utils';
 import type { Currency } from '@/lib/types';
 import type { DbCustomer } from '@/hooks/use-supabase-data';
+import { CHIP_CLASS, importSummary, previewChip, type Page365StockMatch } from '@/lib/page365-stock';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The draft, exactly as page365-fetch-order returns it. Money is ALWAYS yen
@@ -39,6 +40,11 @@ interface DraftItem {
   /** What the fetch function tried and what answered, for the tooltip. Older
    *  drafts predate the field, so treat undefined as "nothing recorded". */
   photo_note?: string | null;
+  /** 1-based position in the draft as fetched. Stock is taken from the DRAFT's
+   *  line at this position, so it survives the CSR removing rows above it. */
+  lineNo: number;
+  /** Read-only stock preview written at fetch time. Older drafts predate it. */
+  stock_match?: Page365StockMatch | null;
 }
 
 interface DraftPayload {
@@ -203,7 +209,7 @@ export default function Page365Review() {
   useEffect(() => {
     if (!draft || seeded.current) return;
     seeded.current = true;
-    setItems(draft.items.map((i, idx) => ({ ...i, rowId: `p365-${idx}` })));
+    setItems(draft.items.map((i, idx) => ({ ...i, rowId: `p365-${idx}`, lineNo: idx + 1 })));
     setShipping(String(draft.shipping_jpy ?? 0));
     // The invoice's own discount, in yen. Currency is still JPY at seed time,
     // so a later switch to PHP converts it through switchCurrency at the
@@ -440,6 +446,11 @@ export default function Page365Review() {
       shipping_fee: Number(shipping) || 0,
       page365_no: draft.page365_no,
       page365_slug: draft.page365_slug,
+      // Website stock is taken from the stored draft's own lines (owner rule
+      // D1); the browser only names the draft and the lines it booked as a
+      // service, which are skipped.
+      page365_draft_id: draftRow.id,
+      page365_service_lines: items.filter((i) => i.kind === 'service').map((i) => i.lineNo),
       is_trade: isTrade,
       ...(loyaltyJpyAmount ? { loyalty_jpy_amount: loyaltyJpyAmount } : {}),
     };
@@ -460,7 +471,10 @@ export default function Page365Review() {
     try {
       const { data, error } = await supabase.functions.invoke(fn, { body });
       if (error) throw new Error(await readFnError(error, 'Could not create the order'));
-      const payload = data as { error?: string; cash_order?: { id: string }; account?: { id: string } };
+      const payload = data as {
+        error?: string; cash_order?: { id: string }; account?: { id: string };
+        page365_stock?: { held: number; flagged: number } | null;
+      };
       if (payload?.error) throw new Error(payload.error);
 
       const newId = orderType === 'cash' ? payload?.cash_order?.id : payload?.account?.id;
@@ -477,7 +491,13 @@ export default function Page365Review() {
         ) => Promise<unknown>)('consume_page365_draft', { p_draft_id: draftRow.id });
       } catch { /* the order stands regardless */ }
 
-      toast.success(`Imported Page365 invoice ${draft.page365_no}`);
+      const stockLine = importSummary(payload?.page365_stock);
+      toast.success(`Imported Page365 invoice ${draft.page365_no}`, stockLine ? { description: stockLine } : undefined);
+      if ((payload?.page365_stock?.flagged ?? 0) > 0) {
+        toast.warning('Some lines did not reduce website stock', {
+          description: 'They are listed under Website → Page365 stock and on the order page.',
+        });
+      }
       navigate(orderType === 'cash' ? `/cash-orders/${newId}` : `/accounts/${newId}`);
     } catch (e) {
       // Nothing partial: both edge functions roll their own writes back, so a
@@ -620,6 +640,10 @@ export default function Page365Review() {
             <h2 className="font-display text-base text-card-foreground">Items</h2>
             <p className="text-xs text-muted-foreground">Line prices stay in yen — the columns and the loyalty basis are yen.</p>
           </div>
+          <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-px" />
+            Website stock follows the Page365 invoice as fetched: each line’s first word is its product code, and stock is taken only when you import. Editing a name or quantity here does not change what is taken; marking a line Service skips it.
+          </p>
 
           {items.map((it, idx) => (
             <div key={it.rowId} className="rounded-lg border border-border bg-background p-3 space-y-2">
@@ -685,7 +709,7 @@ export default function Page365Review() {
               </div>
 
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Button
                     size="sm"
                     variant={it.kind === 'product' ? 'default' : 'outline'}
@@ -705,6 +729,18 @@ export default function Page365Review() {
                   {it.kind === 'service' && (
                     <span className="text-[11px] text-muted-foreground">excluded from loyalty</span>
                   )}
+                  {(() => {
+                    const chip = previewChip(it.stock_match, draft?.items[it.lineNo - 1]?.quantity ?? it.quantity, it.kind);
+                    return (
+                      <span
+                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${CHIP_CLASS[chip.tone]}`}
+                        title="Website stock, checked when the link was fetched. Nothing is taken until you import."
+                        data-testid={`p365-stock-chip-${it.lineNo}`}
+                      >
+                        {chip.label}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive"
                   onClick={() => setItems((p) => p.filter((_, i) => i !== idx))}>

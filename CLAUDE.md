@@ -42,7 +42,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
-- docs/WEBSITE-WORKSPACE.md — the /website workspace: the four tabs, the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: the five tabs (Page365 stock added 2026-09-26), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
 - Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
   and a pointer): docs/CRON-AND-EDGE-AUTH.md, docs/LOYALTY-RULES.md,
   docs/WEB-LAYAWAY.md, docs/PAGE365-IMPORT.md, docs/MIGRATIONS.md,
@@ -1471,8 +1471,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     currency-converter.ts getConversionRate() server-side or for a stored figure.
   - A RESIZE FEE IS A SERVICE (account_services), never a product line, never
     in loyalty_jpy_amount.
-  - ITEM NOTES ARE DISPLAYED, NEVER APPLIED. Page365 stock is not a stock
-    source; origin is never auto-set.
+  - ITEM NOTES ARE DISPLAYED, NEVER APPLIED. Page365's OWN stock is never read;
+    origin is never auto-set.
   - PHOTOS ARE COPIED, NEVER HOTLINKED; a photo that cannot be copied is null.
   - The double-import guard is uq_*_page365_no + 409 already_imported;
     consume_page365_draft is a courtesy. One invoice_number across BOTH order
@@ -1488,6 +1488,20 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     permissioned on create_cash_order OR create_account.
   - LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (_shared/order-extras.ts);
     a failure rolls the order back.
+  - STOCK (2026-09-26; docs/PAGE365-IMPORT.md "STOCK"): an import REDUCES
+    website stock. Match = the line's FIRST WORD (page365_first_word) equal to
+    exactly ONE website_products.sku with exactly ONE variant; anything else is
+    a FLAG, never a guess. Service/resize lines are skipped. Taken at IMPORT
+    (page365_apply_stock, service role) from the STORED DRAFT's lines — never at
+    fetch (fetch only previews), never from the browser. Each line is CLAIMED in
+    page365_stock_lines before stock moves; only the claimer moves stock —
+    never twice. Same conditional decrement as checkout (stock_qty >= q); short
+    → flag insufficient_stock, the order still stands, the website reservation
+    is never overridden. Stock comes back via trigger page365_stock_follow_order
+    on cancel / expire / forfeit / final forfeit / delete, and is re-taken (or
+    flagged rehold_failed, never raised) on revive/reactivation. Orders with no
+    ledger rows never move stock. Resolving a flag needs a note and never moves
+    stock. Never write page365_stock_lines or its stock by hand.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 
