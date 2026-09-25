@@ -3457,9 +3457,11 @@ export type Database = {
         Row: {
           applied_at: string | null
           applied_by: string | null
+          back_in_page365: boolean
           category: string
           code: string | null
           created_at: string
+          hide_snapshot: Json | null
           hub_price_jpy: number | null
           hub_sku: string | null
           id: string
@@ -3491,9 +3493,11 @@ export type Database = {
         Insert: {
           applied_at?: string | null
           applied_by?: string | null
+          back_in_page365?: boolean
           category?: string
           code?: string | null
           created_at?: string
+          hide_snapshot?: Json | null
           hub_price_jpy?: number | null
           hub_sku?: string | null
           id?: string
@@ -3525,9 +3529,11 @@ export type Database = {
         Update: {
           applied_at?: string | null
           applied_by?: string | null
+          back_in_page365?: boolean
           category?: string
           code?: string | null
           created_at?: string
+          hide_snapshot?: Json | null
           hub_price_jpy?: number | null
           hub_sku?: string | null
           id?: string
@@ -3652,50 +3658,163 @@ export type Database = {
           },
         ]
       }
+      page365_inventory_reader: {
+        Row: {
+          id: boolean
+          lease_holder: string | null
+          lease_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          lease_holder?: string | null
+          lease_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          lease_holder?: string | null
+          lease_until?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       page365_inventory_runs: {
         Row: {
+          auto_applied: number
+          auto_apply_at: string | null
+          auto_apply_changed: number
+          auto_apply_skipped: number
+          auto_apply_state: string | null
+          auto_increased: number
           chunks_started: number
           created_at: string
           error: string | null
           finished_at: string | null
+          hidden_count: number
+          hide_notified_at: string | null
           id: string
+          kind: string
+          lease_holder: string | null
+          lease_until: string | null
+          listed_total: number
+          notified_at: string | null
           page365_count: number | null
           previous_count: number | null
           products_total: number
+          pruned_at: string | null
           source: string
           started_by: string | null
           status: string
           updated_at: string
         }
         Insert: {
+          auto_applied?: number
+          auto_apply_at?: string | null
+          auto_apply_changed?: number
+          auto_apply_skipped?: number
+          auto_apply_state?: string | null
+          auto_increased?: number
           chunks_started?: number
           created_at?: string
           error?: string | null
           finished_at?: string | null
+          hidden_count?: number
+          hide_notified_at?: string | null
           id?: string
+          kind?: string
+          lease_holder?: string | null
+          lease_until?: string | null
+          listed_total?: number
+          notified_at?: string | null
           page365_count?: number | null
           previous_count?: number | null
           products_total?: number
+          pruned_at?: string | null
           source?: string
           started_by?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
+          auto_applied?: number
+          auto_apply_at?: string | null
+          auto_apply_changed?: number
+          auto_apply_skipped?: number
+          auto_apply_state?: string | null
+          auto_increased?: number
           chunks_started?: number
           created_at?: string
           error?: string | null
           finished_at?: string | null
+          hidden_count?: number
+          hide_notified_at?: string | null
           id?: string
+          kind?: string
+          lease_holder?: string | null
+          lease_until?: string | null
+          listed_total?: number
+          notified_at?: string | null
           page365_count?: number | null
           previous_count?: number | null
           products_total?: number
+          pruned_at?: string | null
           source?: string
           started_by?: string | null
           status?: string
           updated_at?: string
         }
         Relationships: []
+      }
+      page365_product_presence: {
+        Row: {
+          code: string
+          first_seen_at: string
+          first_seen_run_id: string | null
+          hidden_at: string | null
+          hidden_by: string | null
+          hidden_run_id: string | null
+          hidden_source: string | null
+          last_seen_at: string
+          last_seen_run_id: string | null
+          updated_at: string
+          website_product_id: string
+        }
+        Insert: {
+          code: string
+          first_seen_at: string
+          first_seen_run_id?: string | null
+          hidden_at?: string | null
+          hidden_by?: string | null
+          hidden_run_id?: string | null
+          hidden_source?: string | null
+          last_seen_at: string
+          last_seen_run_id?: string | null
+          updated_at?: string
+          website_product_id: string
+        }
+        Update: {
+          code?: string
+          first_seen_at?: string
+          first_seen_run_id?: string | null
+          hidden_at?: string | null
+          hidden_by?: string | null
+          hidden_run_id?: string | null
+          hidden_source?: string | null
+          last_seen_at?: string
+          last_seen_run_id?: string | null
+          updated_at?: string
+          website_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_product_presence_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: true
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       page365_stock_lines: {
         Row: {
@@ -7236,6 +7355,7 @@ export type Database = {
           total_jpy: number
         }[]
       }
+      get_page365_inventory_auto_apply: { Args: never; Returns: Json }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -7441,6 +7561,10 @@ export type Database = {
         }
         Returns: Json
       }
+      page365_inventory_auto_apply_run: {
+        Args: { p_run_id: string }
+        Returns: Json
+      }
       page365_inventory_claim: {
         Args: { p_limit: number; p_run_id: string }
         Returns: {
@@ -7454,6 +7578,37 @@ export type Database = {
         Returns: Json
       }
       page365_inventory_finish: { Args: { p_run_id: string }; Returns: Json }
+      page365_inventory_follow: { Args: { p_run_id: string }; Returns: Json }
+      page365_inventory_hide: {
+        Args: { p_item_ids: string[]; p_run_id: string }
+        Returns: Json
+      }
+      page365_inventory_hide_item: {
+        Args: {
+          p_actor: string
+          p_item_id: string
+          p_run_id: string
+          p_source: string
+        }
+        Returns: Json
+      }
+      page365_inventory_lease: {
+        Args: { p_holder: string; p_run_id: string; p_seconds: number }
+        Returns: boolean
+      }
+      page365_inventory_next_kind: { Args: never; Returns: string }
+      page365_inventory_plan_quick: {
+        Args: { p_run_id: string }
+        Returns: Json
+      }
+      page365_inventory_reader_lease: {
+        Args: { p_holder: string; p_seconds: number }
+        Returns: boolean
+      }
+      page365_inventory_reader_release: {
+        Args: { p_holder: string }
+        Returns: undefined
+      }
       page365_inventory_record_photo: {
         Args: {
           p_actor: string
@@ -7465,6 +7620,18 @@ export type Database = {
           p_version: string
         }
         Returns: string
+      }
+      page365_inventory_refresh_product: {
+        Args: { p_detail: Json; p_error: string; p_product_row_id: string }
+        Returns: Json
+      }
+      page365_inventory_release: {
+        Args: { p_holder: string; p_run_id: string }
+        Returns: undefined
+      }
+      page365_inventory_retention: {
+        Args: { p_keep_days?: number }
+        Returns: Json
       }
       page365_inventory_store_product: {
         Args: { p_detail: Json; p_error: string; p_product_row_id: string }
@@ -7645,6 +7812,10 @@ export type Database = {
           p_transfer_due_at: string
           p_user_id?: string
         }
+        Returns: Json
+      }
+      set_page365_inventory_auto_apply: {
+        Args: { p_enabled: boolean; p_expected?: boolean }
         Returns: Json
       }
       set_web_reservation_mode: {
