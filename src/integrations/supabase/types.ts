@@ -7242,6 +7242,15 @@ export type Database = {
         Args: { p_customer_id: string; p_exclude_order?: string }
         Returns: number
       }
+      website_down_payments: {
+        Args: { p_prices_jpy: number[]; p_rate: number }
+        Returns: {
+          down_payment_jpy: number
+          down_payment_pct: number
+          down_payment_php: number
+          price_jpy: number
+        }[]
+      }
     }
     Enums: {
       account_currency: "PHP" | "JPY"
