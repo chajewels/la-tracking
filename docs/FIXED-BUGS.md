@@ -1937,6 +1937,69 @@ Lovable IDE. (Bug #156, 2026-05-25)
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
 
+### Portal share menu email-conflict check rejected for staff/CSR (2026-09-25)
+**Symptom.** Roughly 24 failures a day, and no warning ever reached anyone. Every
+time a staff or CSR user opened a customer page, `CustomerPortalShareMenu` called
+`check_customer_email_conflict` on mount and the call was refused. Nothing showed.
+Staff sent portal setup links against conflicting emails with a clean-looking
+screen in front of them.
+
+**Cause, three layers deep.**
+1. The gate *inside the function body* admitted `admin` and `finance` only, so
+   every staff and CSR call raised `42501`. This is the one that mattered.
+2. The client swallowed it: `if (!error) { … } else { console.warn(…) }`
+   (`CustomerPortalShareMenu.tsx:106-113` on the pre-fix tree). A refused check
+   and a clean check were indistinguishable on screen — both rendered no banner.
+   A console line in a staff member's devtools is not a warning.
+3. Even on a successful call, only `staff_conflict` had a banner
+   (`:315-321`). `customer_conflict` and `orphan_auth` were returned by the
+   function and rendered by nothing — the 26 live `orphan_auth` customers were
+   invisible by construction.
+   The body also matched with an `ILIKE` wildcard; it is an exact `lower()`
+   comparison now.
+
+**Fix.** The SQL was applied live via the SQL Editor by the owner on 2026-09-25
+and verified there. It is recorded as
+`supabase/migrations/20260925030000_check_customer_email_conflict_staff_gate.sql`
+— a record-only migration per the FUNCTION CHANGES START FROM LIVE rule, with a
+`to_regprocedure` guard at the top and a grants-and-body proof block at the
+bottom, so replaying it is a no-op and a drifted body stops it. The gate now
+admits admin / finance / staff / csr, and a NULL `auth.uid()` (SQL Editor,
+service role) still passes.
+
+Frontend: the `as any` on the RPC call is gone (`types.ts` has declared
+`check_customer_email_conflict` since the Reassign Owner deploy); the result is
+normalised through `normaliseConflict`, so anything outside the three known
+strings reads as "no conflict" rather than a truthy value rendering an empty
+banner — the parity test's fake client returns `[]` for an unset RPC, which is
+exactly that case. All three conflicts now have a banner, and each one's sentence
+lives in a single `CONFLICT_MESSAGES` map that both the banner and the confirm
+dialog read, so the two cannot drift apart. A new `conflictCheckFailed` state
+renders a muted banner — *"Couldn't check this email for conflicts. Reload the
+page before sending the setup link."* — because "we could not ask" must never
+look like "we asked and it is fine". The `console.warn` stays.
+
+Sending is still never blocked. Any of the three conflicts retitles the confirm
+dialog to "Send setup link anyway?" with that case's sentence and a "Send Anyway"
+button; staff keep the decision.
+
+**Live verification (owner, 2026-09-25):** 26 unlinked customers return
+`orphan_auth`, 588 return NULL. Return values are now exactly
+`NULL | staff_conflict | customer_conflict | orphan_auth`.
+
+**Worth recording:** the repo baseline shows `EXECUTE` **revoked** from
+`authenticated` for this function, and live has always had `authenticated=X`.
+The baseline was wrong about live, not the other way round — the migration
+re-asserts live's grants rather than the baseline's. Another instance of the rule
+that the repo is a record of the database's functions and not their definition.
+
+**Tests.** `src/test/customers-parity.test.tsx` keeps the existing mount-call
+expectation and adds four: `customer_conflict` and `orphan_auth` each show their
+banner, a refused RPC shows the "Couldn't check" banner and no conflict banner,
+and `null` shows none of them. The fake client had no way to return an RPC error
+at all — `h.rpcError` was added for it, which is why this silent branch went
+untested for as long as it did.
+
 ### #299 — Automatic forfeits kept a web layaway's pieces; a refused reactivation still un-cancelled the schedule; the discount columns were in no migration (2026-09-23)
 Follow-up to #298, owner-approved the same day.
 
