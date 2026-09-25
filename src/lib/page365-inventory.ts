@@ -18,10 +18,16 @@
  *   new         code not in the Hub: listed only
  *   price       Page365 price differs from the Hub price: reported only
  *   photos      matched products with Page365 photos not yet copied: pre-ticked
+ *   hides       PR 3b: a synced product missing from 2 complete reads in a row
+ *               (seen before, still published): "Hide on website" (stock 0 +
+ *               unpublish) — pre-ticked, applied by page365_inventory_hide
+ *   backIn      PR 3b: a product the Hub hid that Page365 lists again:
+ *               "re-publish?" — never pre-ticked, never automatic
  */
 
 export type InventoryCategory =
-  | 'pending' | 'decrease' | 'increase' | 'no_change' | 'excluded' | 'flagged' | 'new' | 'hub_only' | 'not_synced';
+  | 'pending' | 'decrease' | 'increase' | 'no_change' | 'excluded' | 'flagged' | 'new' | 'hub_only' | 'not_synced'
+  | 'hide';
 
 export type InventoryRunStatus = 'fetching' | 'ready' | 'partial' | 'failed';
 
@@ -46,6 +52,8 @@ export interface InventoryRun {
   auto_apply_changed?: number | null;
   auto_apply_skipped?: number | null;
   auto_apply_at?: string | null;
+  /** PR 3b — absent until migration 20261001100000 is applied. */
+  hidden_count?: number | null;
 }
 
 export interface InventoryItem {
@@ -77,6 +85,8 @@ export interface InventoryItem {
   missing_runs: number | null;
   status: 'review' | 'applied' | 'changed_since_fetch' | 'failed';
   result_note: string | null;
+  /** PR 3b: a matched row whose product the Hub hid and which is still a draft. */
+  back_in_page365?: boolean;
 }
 
 export interface InventoryGroups {
@@ -88,6 +98,9 @@ export interface InventoryGroups {
   newInPage365: InventoryItem[];
   priceDiffs: InventoryItem[];
   photos: InventoryItem[];
+  /** PR 3b */
+  hides: InventoryItem[];
+  backIn: InventoryItem[];
   noChange: number;
 }
 
@@ -96,7 +109,8 @@ const byCode = (a: InventoryItem, b: InventoryItem) =>
 
 export function groupItems(items: InventoryItem[]): InventoryGroups {
   const g: InventoryGroups = {
-    decreases: [], increases: [], excluded: [], notSynced: [], flagged: [], newInPage365: [], priceDiffs: [], photos: [], noChange: 0,
+    decreases: [], increases: [], excluded: [], notSynced: [], flagged: [], newInPage365: [], priceDiffs: [], photos: [],
+    hides: [], backIn: [], noChange: 0,
   };
   for (const it of items) {
     if (it.category === 'decrease') g.decreases.push(it);
@@ -106,11 +120,14 @@ export function groupItems(items: InventoryItem[]): InventoryGroups {
     else if (it.category === 'flagged' || it.category === 'hub_only') g.flagged.push(it);
     else if (it.category === 'new') g.newInPage365.push(it);
     else if (it.category === 'no_change') g.noChange++;
+    else if (it.category === 'hide') g.hides.push(it);
     if (it.category === 'not_synced') continue;
+    // A product back in Page365 also keeps its stock row (usually an increase).
+    if (it.back_in_page365 && it.match_result === 'matched' && it.website_product_id) g.backIn.push(it);
     if (it.match_result === 'matched' && it.price_differs) g.priceDiffs.push(it);
     if (it.match_result === 'matched' && it.photos_to_copy > 0) g.photos.push(it);
   }
-  for (const k of ['decreases', 'increases', 'excluded', 'notSynced', 'flagged', 'newInPage365', 'priceDiffs', 'photos'] as const) {
+  for (const k of ['decreases', 'increases', 'excluded', 'notSynced', 'flagged', 'newInPage365', 'priceDiffs', 'photos', 'hides', 'backIn'] as const) {
     g[k].sort(byCode);
   }
   return g;
@@ -120,17 +137,33 @@ export function groupItems(items: InventoryItem[]): InventoryGroups {
 export const stockTickable = (it: InventoryItem) =>
   it.status === 'review' && (it.category === 'decrease' || it.category === 'increase');
 
+/** PR 3b: only "Hide on website" rows still under review can be ticked. */
+export const hideTickable = (it: InventoryItem) => it.status === 'review' && it.category === 'hide';
+
 /** The owner rule: decreases start ticked, increases never do; photos start
- *  ticked (every photo of every matched product is copied). */
-export function defaultSelection(items: InventoryItem[]): { stock: Set<string>; photos: Set<string> } {
+ *  ticked (every photo of every matched product is copied). PR 3b: hides start
+ *  ticked; re-publish NEVER does (it is not even part of this selection). */
+export function defaultSelection(items: InventoryItem[]): { stock: Set<string>; photos: Set<string>; hides: Set<string> } {
   const stock = new Set<string>();
   const photos = new Set<string>();
+  const hides = new Set<string>();
   for (const it of items) {
     if (it.category === 'not_synced') continue;
     if (it.category === 'decrease' && it.status === 'review') stock.add(it.id);
+    if (hideTickable(it)) hides.add(it.id);
     if (it.match_result === 'matched' && it.photos_to_copy > 0) photos.add(it.id);
   }
-  return { stock, photos };
+  return { stock, photos, hides };
+}
+
+/** PR 3b: the ticked "Back in Page365" rows as the product ids
+ *  website_publish_products takes (one per product). */
+export function republishProductIds(items: InventoryItem[], ticked: Set<string>): string[] {
+  const out = new Set<string>();
+  for (const it of items) {
+    if (ticked.has(it.id) && it.back_in_page365 && it.website_product_id) out.add(it.website_product_id);
+  }
+  return [...out];
 }
 
 /** Split the ticks into the two lists page365_inventory_apply takes. An
@@ -153,8 +186,17 @@ export const MATCH_REASON: Record<string, string> = {
   ambiguous_sku: 'Two Hub products share this code',
   no_variant: 'The Hub product has no variant',
   ambiguous_variant: 'The Hub product has several sizes/stones — never guessed',
-  hub_only: 'In the Hub but not on Page365 — never zeroed automatically',
+  hub_only: 'In the Hub but not on Page365',
 };
+
+/** PR 3b: why a Hub-only row is NOT a "Hide on website" row, in words. */
+export function hubOnlyReason(it: Pick<InventoryItem, 'missing_runs'>): string {
+  const n = it.missing_runs ?? 0;
+  const row = n ? ` · missing in ${n} complete fetch${n > 1 ? 'es' : ''} in a row` : '';
+  return n >= 2
+    ? `In the Hub but not on Page365${row}. Not hidden: never seen on Page365 under this code, or not published`
+    : `In the Hub but not on Page365${row}. Hidden after 2 complete fetches in a row if it was on Page365 before`;
+}
 
 export const APPLY_REFUSAL: Record<string, string> = {
   forbidden: 'You need the Website catalog permission to apply stock.',
@@ -178,6 +220,12 @@ export const SKIP_REASON: Record<string, string> = {
   // PR 3 — notes page365_inventory_auto_apply_run leaves on a row
   auto_applied: 'applied automatically (scheduled fetch)',
   not_a_decrease: 'not a decrease; left for staff',
+  // PR 3b — notes page365_inventory_hide_item leaves on a row
+  hidden: 'hidden on the website',
+  auto_hidden: 'hidden automatically (scheduled fetch)',
+  not_a_hide: 'not a hide row',
+  never_seen: 'never seen on Page365 under this code',
+  product_gone: 'the Hub product no longer exists',
 };
 
 export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): string {
@@ -195,13 +243,18 @@ export const runSourceLabel = (run: Pick<InventoryRun, 'source'>): string =>
 
 /** PR 3: what the automatic decreases did on a scheduled run, in words. Manual
  *  runs never auto-apply: they say so. */
-export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'auto_apply_state' | 'auto_applied'>): string {
+/** PR 3b: "2 products hidden on the website". */
+export const hiddenText = (n: number): string => `${n} product${n === 1 ? '' : 's'} hidden on the website`;
+
+export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'auto_apply_state' | 'auto_applied' | 'hidden_count'>): string {
   if (run.source !== 'schedule') return 'Manual fetch — nothing applied automatically';
   if (run.status === 'fetching') return 'Reading Page365…';
   switch (run.auto_apply_state) {
     case 'applied': {
       const n = run.auto_applied ?? 0;
-      return n === 0 ? 'No decreases to apply' : `${n} decrease${n === 1 ? '' : 's'} applied automatically`;
+      const h = run.hidden_count ?? 0;
+      const dec = n === 0 ? 'No decreases to apply' : `${n} decrease${n === 1 ? '' : 's'} applied automatically`;
+      return h > 0 ? `${dec} · ${hiddenText(h)}` : dec;
     }
     case 'off': return 'Automatic decreases off — nothing applied';
     case 'not_ready': return 'Incomplete read — nothing applied';
@@ -227,3 +280,12 @@ export function autoApplyRefusal(code: string): string {
  *  schedule) holds the run's lease — wait, and do not count it as a stall. */
 export const FETCH_BUSY_WAIT_MS = 3_000;
 export const FETCH_BUSY_MAX_WAITS = 200;
+
+/** PR 3b: the Catalog note on a product the Hub hid because Page365 stopped
+ *  listing it. Only while it is still a draft — once staff publish it again
+ *  (or archive it) the note no longer describes it. The date is the PHT day. */
+export function hiddenByPage365Note(status: string | null | undefined, hiddenAt: string | null | undefined): string | null {
+  if (status !== 'draft' || !hiddenAt) return null;
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(hiddenAt));
+  return `Hidden — no longer on Page365 (${day})`;
+}

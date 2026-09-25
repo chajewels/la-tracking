@@ -87,6 +87,7 @@ function iconForType(type: string) {
     case 'page365_inventory_run_failed':
       return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     case 'page365_inventory_auto_applied':
+    case 'page365_inventory_hidden':
       return <CheckCircle className="h-3.5 w-3.5 text-success" />;
     default:
       return <CheckCircle className="h-3.5 w-3.5 text-muted-foreground" />;
@@ -196,7 +197,8 @@ export default function StaffNotificationBell() {
     }
     // A Page365 stock flag is dealt with on Website → Page365 stock (resolve
     // with a note), not on the order, so this comes before the account branch.
-    if (n.type === 'page365_stock_flag' || n.type === 'page365_inventory_run_failed' || n.type === 'page365_inventory_auto_applied') {
+    if (n.type === 'page365_stock_flag' || n.type === 'page365_inventory_run_failed' || n.type === 'page365_inventory_auto_applied'
+        || n.type === 'page365_inventory_hidden') {
       navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
       return;
     }
