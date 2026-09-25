@@ -3595,6 +3595,9 @@ export type Database = {
           fetched_at: string | null
           full_price_jpy: number | null
           id: string
+          list_category: string | null
+          list_category_id: number | null
+          list_description: string | null
           list_name: string
           name: string | null
           page365_product_id: number
@@ -3610,6 +3613,9 @@ export type Database = {
           fetched_at?: string | null
           full_price_jpy?: number | null
           id?: string
+          list_category?: string | null
+          list_category_id?: number | null
+          list_description?: string | null
           list_name: string
           name?: string | null
           page365_product_id: number
@@ -3625,6 +3631,9 @@ export type Database = {
           fetched_at?: string | null
           full_price_jpy?: number | null
           id?: string
+          list_category?: string | null
+          list_category_id?: number | null
+          list_description?: string | null
           list_name?: string
           name?: string | null
           page365_product_id?: number
@@ -6496,12 +6505,16 @@ export type Database = {
           description_en: string | null
           description_ja: string | null
           id: string
+          item_kind: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
           metals: string[]
           name: string
           name_ja: string | null
           origin: string
+          page365_category: string | null
+          page365_product_id: number | null
           page365_sync_disabled: boolean
+          page365_variant_id: number | null
           sku: string
           slug: string
           status: Database["public"]["Enums"]["website_product_status"]
@@ -6515,12 +6528,16 @@ export type Database = {
           description_en?: string | null
           description_ja?: string | null
           id?: string
+          item_kind?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           metals?: string[]
           name: string
           name_ja?: string | null
           origin?: string
+          page365_category?: string | null
+          page365_product_id?: number | null
           page365_sync_disabled?: boolean
+          page365_variant_id?: number | null
           sku: string
           slug: string
           status?: Database["public"]["Enums"]["website_product_status"]
@@ -6534,12 +6551,16 @@ export type Database = {
           description_en?: string | null
           description_ja?: string | null
           id?: string
+          item_kind?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
           metals?: string[]
           name?: string
           name_ja?: string | null
           origin?: string
+          page365_category?: string | null
+          page365_product_id?: number | null
           page365_sync_disabled?: boolean
+          page365_variant_id?: number | null
           sku?: string
           slug?: string
           status?: Database["public"]["Enums"]["website_product_status"]
@@ -7406,6 +7427,11 @@ export type Database = {
         }
         Returns: Json
       }
+      page365_category_for: {
+        Args: { p_page365_category: string }
+        Returns: string
+      }
+      page365_clean_description: { Args: { p_text: string }; Returns: string }
       page365_first_word: { Args: { p_name: string }; Returns: string }
       page365_inventory_apply: {
         Args: {
@@ -7422,6 +7448,10 @@ export type Database = {
           o_id: string
           o_page365_product_id: number
         }[]
+      }
+      page365_inventory_create_drafts: {
+        Args: { p_item_ids: string[]; p_run_id: string }
+        Returns: Json
       }
       page365_inventory_finish: { Args: { p_run_id: string }; Returns: Json }
       page365_inventory_record_photo: {
@@ -7451,6 +7481,7 @@ export type Database = {
           o_variant_id: string
         }[]
       }
+      page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
@@ -7687,6 +7718,14 @@ export type Database = {
           down_payment_php: number
           price_jpy: number
         }[]
+      }
+      website_product_publish_missing: {
+        Args: { p_product_id: string }
+        Returns: string[]
+      }
+      website_publish_products: {
+        Args: { p_product_ids: string[] }
+        Returns: Json
       }
     }
     Enums: {
