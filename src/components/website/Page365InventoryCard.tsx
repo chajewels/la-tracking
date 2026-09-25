@@ -14,11 +14,15 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   APPLY_REFUSAL, FETCH_BUSY_MAX_WAITS, FETCH_BUSY_WAIT_MS, MATCH_REASON, SKIP_REASON, autoApplyText, defaultSelection,
-  groupItems, runSourceLabel, runStatusText, splitStockSelection, stockTickable, type InventoryItem, type InventoryRun,
+  groupItems, hideTickable, hubOnlyReason, republishProductIds, runSourceLabel, runStatusText, splitStockSelection,
+  stockTickable, type InventoryItem, type InventoryRun,
 } from "@/lib/page365-inventory";
 import {
-  applyInventory, continueFetch, copyPhotos, itemsTable, runsTable, startFetch, type ApplyResult,
+  applyInventory, continueFetch, copyPhotos, hideOnWebsite, itemsTable, runsTable, startFetch, type ApplyResult,
+  type HideResult,
 } from "@/lib/page365-inventory-api";
+import { publishProducts } from "@/lib/page365-drafts-api";
+import { PUBLISH_REFUSAL, missingText, type PublishResult } from "@/lib/page365-drafts";
 import { Page365NewProductsPanel } from "@/components/website/Page365NewProductsPanel";
 
 /**
@@ -37,6 +41,12 @@ import { Page365NewProductsPanel } from "@/components/website/Page365NewProducts
  * staff "Fetch" joins it and takes turns with the schedule (a { busy } answer
  * waits). Its decreases may already be applied automatically (row badge
  * "Auto-applied"); increases, drafts, prices and photos still wait here.
+ *
+ * PR 3b: "Hide on website" — a synced product missing from 2 complete reads
+ * in a row (and seen on Page365 before) — starts ticked; Apply sets its stock
+ * to 0 and unpublishes it (page365_inventory_hide, compare-and-set). "Back in
+ * Page365 — re-publish?" is never ticked for you: re-publishing goes through
+ * the Catalog publish (website_publish_products) with its usual checks.
  */
 
 const yen = (n: number | null | undefined) => (n == null ? "—" : `¥${Math.round(n).toLocaleString("en-US")}`);
@@ -49,6 +59,8 @@ const nameOf = (it: InventoryItem) => it.variant_name ? `${it.page365_name} — 
 
 interface Outcome {
   stock: ApplyResult | null;
+  hides: HideResult | null;
+  republish: PublishResult | null;
   photos: {
     copied: number; replaced: number; already: number; notSynced: number;
     failed: { item_id: string; photo_id: number; reason: string }[];
@@ -76,6 +88,12 @@ function RowStatus({ it }: { it: InventoryItem }) {
   if (it.status === "applied" && it.result_note === "auto_applied") {
     return <Badge className="bg-success/15 text-success text-[10px]" title={SKIP_REASON.auto_applied}>Auto-applied</Badge>;
   }
+  if (it.status === "applied" && it.result_note === "auto_hidden") {
+    return <Badge className="bg-success/15 text-success text-[10px]" title={SKIP_REASON.auto_hidden}>Auto-hidden</Badge>;
+  }
+  if (it.status === "applied" && it.result_note === "hidden") {
+    return <Badge className="bg-success/15 text-success text-[10px]">Hidden</Badge>;
+  }
   if (it.status === "applied") return <Badge className="bg-success/15 text-success text-[10px]">Applied</Badge>;
   if (it.status === "changed_since_fetch") return <Badge variant="outline" className="text-[10px] text-warning">Changed since fetch</Badge>;
   if (it.status === "failed") return <Badge variant="outline" className="text-[10px] text-destructive" title={it.result_note ?? ""}>Failed</Badge>;
@@ -89,6 +107,8 @@ export function Page365InventoryCard() {
   const [fetchProgress, setFetchProgress] = useState<{ done: number; total: number } | null>(null);
   const [stockTicks, setStockTicks] = useState<Set<string>>(new Set());
   const [photoTicks, setPhotoTicks] = useState<Set<string>>(new Set());
+  const [hideTicks, setHideTicks] = useState<Set<string>>(new Set());
+  const [republishTicks, setRepublishTicks] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const seededFor = useRef<string | null>(null);
@@ -130,6 +150,8 @@ export function Page365InventoryCard() {
     const d = defaultSelection(items.data);
     setStockTicks(d.stock);
     setPhotoTicks(d.photos);
+    setHideTicks(d.hides);
+    setRepublishTicks(new Set());
   }, [run, items.data]);
 
   const refresh = useCallback(async () => {
@@ -182,18 +204,31 @@ export function Page365InventoryCard() {
 
   const { decreaseIds, increaseIds } = splitStockSelection(rows, stockTicks);
   const photoIds = groups.photos.filter(it => photoTicks.has(it.id)).map(it => it.id);
-  const selectedCount = decreaseIds.length + increaseIds.length + photoIds.length;
+  const hideIds = groups.hides.filter(it => hideTicks.has(it.id) && hideTickable(it)).map(it => it.id);
+  const republishIds = republishProductIds(groups.backIn, republishTicks);
+  const selectedCount = decreaseIds.length + increaseIds.length + photoIds.length + hideIds.length + republishIds.length;
 
   const doApply = async () => {
     if (!run) return;
     setConfirmOpen(false);
     setBusy("applying");
-    const result: Outcome = { stock: null, photos: null };
+    const result: Outcome = { stock: null, hides: null, republish: null, photos: null };
     try {
       if (decreaseIds.length + increaseIds.length > 0) {
         const r = await applyInventory(run.id, decreaseIds, increaseIds);
         if (!r.ok) throw new Error(APPLY_REFUSAL[r.reason ?? ""] ?? `Could not apply (${r.reason}).`);
         result.stock = r;
+      }
+      if (hideIds.length > 0) {
+        const r = await hideOnWebsite(run.id, hideIds);
+        if (!r.ok) throw new Error(APPLY_REFUSAL[r.reason ?? ""] ?? `Could not hide (${r.reason}).`);
+        result.hides = r;
+      }
+      // After the stock rows, so a ticked increase is in place before it goes live.
+      if (republishIds.length > 0) {
+        const r = await publishProducts(republishIds);
+        if (!r.ok) throw new Error(PUBLISH_REFUSAL[r.reason ?? ""] ?? `Could not re-publish (${r.reason}).`);
+        result.republish = r;
       }
       if (photoIds.length > 0) {
         const acc = { copied: 0, replaced: 0, already: 0, notSynced: 0, failed: [] as { item_id: string; photo_id: number; reason: string }[] };
@@ -214,6 +249,7 @@ export function Page365InventoryCard() {
     } finally {
       setBusy(null);
       await qc.invalidateQueries({ queryKey: ["page365-inventory-items"] });
+      if (result.hides || result.republish) await qc.invalidateQueries({ queryKey: ["website-products"] });
     }
   };
 
@@ -344,6 +380,62 @@ export function Page365InventoryCard() {
             <Section title="Increases" hint="Tick to apply. A rise can mean a website sale not yet entered in Page365." count={groups.increases.length} tone="warn">
               {stockTable(groups.increases)}
             </Section>
+            <Section
+              title="Hide on website"
+              hint="Pre-ticked. On Page365 before, now missing from 2 complete fetches in a row — Page365 hides sold pieces. Apply sets website stock to 0 and unpublishes it (Catalog → draft). Skipped if it changed since the fetch."
+              count={groups.hides.length}
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" /><TableHead>Code</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">Missing in</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">Hub now → proposed</TableHead><TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groups.hides.map(it => (
+                    <TableRow key={it.id} data-testid="p365-inv-hide-row">
+                      {tickCell(it, hideTicks, setHideTicks, hideTickable(it))}
+                      <TableCell className="font-medium">{label(it)}</TableCell>
+                      <TableCell className="text-right tabular-nums whitespace-nowrap">{it.missing_runs ?? "—"} fetches</TableCell>
+                      <TableCell className="text-right tabular-nums whitespace-nowrap">
+                        {it.seen_stock ?? "—"} → <span className="font-semibold">0, unpublished</span>
+                      </TableCell>
+                      <TableCell><RowStatus it={it} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Section>
+            <Section
+              title="Back in Page365 — re-publish?"
+              hint="The Hub hid these when Page365 stopped listing them; Page365 lists them again. Never re-published by itself. Tick to publish again — tick its increase above too, or it goes back with 0 in stock."
+              count={groups.backIn.length}
+              tone="warn"
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" /><TableHead>Code</TableHead><TableHead className="min-w-[14rem]">Page365 name</TableHead>
+                    <TableHead className="text-right">Page365</TableHead><TableHead className="text-right whitespace-nowrap">Hub now → proposed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groups.backIn.map(it => (
+                    <TableRow key={it.id} data-testid="p365-inv-back-row">
+                      {tickCell(it, republishTicks, setRepublishTicks, true)}
+                      <TableCell className="font-medium">{label(it)}</TableCell>
+                      <TableCell className="max-w-[22rem] truncate text-xs" title={nameOf(it)}>{nameOf(it)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{it.page365_available ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums whitespace-nowrap">
+                        {it.seen_stock ?? "—"} → <span className="font-semibold">{it.proposed_stock ?? "—"}</span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Section>
             <Section title="Not synced" hint="Switched to “Don’t sync with Page365” in Catalog. Always skipped: never proposed, never applied, photos never copied." count={groups.notSynced.length} tone="muted">
               <Table>
                 <TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Name</TableHead><TableHead className="text-right">Page365</TableHead><TableHead className="text-right">Hub now</TableHead></TableRow></TableHeader>
@@ -383,8 +475,7 @@ export function Page365InventoryCard() {
                       <TableCell className="font-medium">{label(it)}</TableCell>
                       <TableCell className="max-w-[22rem] truncate text-xs">{it.kind === "hub_only" ? "(Hub product)" : nameOf(it)}</TableCell>
                       <TableCell className="text-xs">
-                        {MATCH_REASON[it.match_result] ?? it.match_result}
-                        {it.kind === "hub_only" && it.missing_runs ? ` · missing in ${it.missing_runs} fetch${it.missing_runs > 1 ? "es" : ""} in a row` : ""}
+                        {it.kind === "hub_only" ? hubOnlyReason(it) : (MATCH_REASON[it.match_result] ?? it.match_result)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -443,7 +534,10 @@ export function Page365InventoryCard() {
             {canApply && (
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
                 <p className="text-xs text-muted-foreground">
-                  {decreaseIds.length} decrease(s), {increaseIds.length} increase(s), photos for {photoIds.length} product(s) selected.
+                  {decreaseIds.length} decrease(s), {increaseIds.length} increase(s),{" "}
+                  {hideIds.length > 0 && <>{hideIds.length} to hide, </>}
+                  {republishIds.length > 0 && <>{republishIds.length} to re-publish, </>}
+                  photos for {photoIds.length} product(s) selected.
                 </p>
                 <Button
                   className="gold-gradient text-primary-foreground"
@@ -463,6 +557,25 @@ export function Page365InventoryCard() {
                     Stock: <b>{outcome.stock.applied ?? 0}</b> applied · <b>{outcome.stock.changed_since_fetch ?? 0}</b> skipped
                     because stock changed since the fetch · <b>{outcome.stock.skipped ?? 0}</b> skipped · <b>{outcome.stock.failed ?? 0}</b> failed.
                     Each applied row is in the audit log.
+                  </p>
+                )}
+                {outcome.hides && (
+                  <p>
+                    Hidden on the website: <b>{outcome.hides.hidden ?? 0}</b> · <b>{outcome.hides.changed_since_fetch ?? 0}</b> skipped
+                    because they changed since the fetch · <b>{outcome.hides.skipped ?? 0}</b> skipped
+                    {(outcome.hides.skipped_items ?? []).length > 0 &&
+                      ` (${(outcome.hides.skipped_items ?? []).slice(0, 3).map(x => SKIP_REASON[x.reason] ?? x.reason).join("; ")})`}
+                    {" "}· <b>{outcome.hides.failed ?? 0}</b> failed. Each hidden product is in the audit log.
+                  </p>
+                )}
+                {outcome.republish && (
+                  <p>
+                    Re-published: <b>{outcome.republish.published ?? 0}</b>
+                    {(outcome.republish.blocked_items ?? []).length > 0 && (
+                      <> · not published, still needs: {(outcome.republish.blocked_items ?? [])
+                        .map(b => `${b.sku} (${missingText(b.missing)})`).join("; ")}</>
+                    )}
+                    {(outcome.republish.skipped ?? 0) > 0 && <> · <b>{outcome.republish.skipped}</b> skipped (not a draft any more)</>}.
                   </p>
                 )}
                 {outcome.photos && (
@@ -485,8 +598,10 @@ export function Page365InventoryCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply to the website?</AlertDialogTitle>
             <AlertDialogDescription>
-              {decreaseIds.length} decrease(s) and {increaseIds.length} increase(s) to website stock, and photos for{" "}
-              {photoIds.length} product(s). A row whose stock changed since the fetch is skipped, not overwritten.
+              {decreaseIds.length} decrease(s) and {increaseIds.length} increase(s) to website stock,{" "}
+              {hideIds.length > 0 && <>{hideIds.length} product(s) hidden (stock 0, unpublished), </>}
+              {republishIds.length > 0 && <>{republishIds.length} product(s) re-published, </>}
+              and photos for {photoIds.length} product(s). A row that changed since the fetch is skipped, not overwritten.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

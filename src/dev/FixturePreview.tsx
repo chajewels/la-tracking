@@ -220,19 +220,26 @@ export default function FixturePreview() {
       const items = sched
         ? inv.items.map((it) => (it.id === 'i2' ? { ...it, status: 'applied', result_note: 'auto_applied' } : it))
         : inv.items;
-      seed(['page365-inventory-run'], run);
-      seed(['page365-inventory-items', inv.run.id], items);
+      // PR 3b (2026-10-01): with &sched=1 the scheduled run also hid ZT9301.
+      const runWithHides = sched ? { ...run, hidden_count: 1 } : run;
+      const itemsWithHides = sched
+        ? items.map((it) => (it.id === 'i16' ? { ...it, status: 'applied', result_note: 'auto_hidden' } : it))
+        : items;
+      seed(['page365-inventory-run'], runWithHides);
+      seed(['page365-inventory-items', inv.run.id], itemsWithHides);
       seed(['page365-inventory-auto-apply'], {
         found: true, enabled: searchParams.get('auto') === '1', updated_at: '2026-09-30T01:15:00Z',
         updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo', can_change: true,
       });
-      seed(['page365-inventory-run-history'], buildPage365RunHistory(run, sched));
+      seed(['page365-inventory-run-history'], buildPage365RunHistory(runWithHides, sched));
       // PR 4 (2026-09-28): the Page365 category of each "new" listing, and a
       // catalog with two Page365 drafts (one ready, one missing origin and
       // category) and a Hub-made product — Website → Catalog, hub view.
       // PR 2: N4020 switched to "Don't sync with Page365" is in the same list.
       seed(['page365-inventory-list-categories', inv.run.id], inv.listCategories);
-      seed(['website-products'], [...buildCatalogDraftFixtures(), ...buildCatalogSyncFixtures()]);
+      seed(['website-products'], [...buildCatalogDraftFixtures(), ...buildCatalogSyncFixtures(), ...buildCatalogHiddenFixtures()]);
+      // PR 3b: the draft the Hub hid because Page365 stopped listing it.
+      seed(['page365-hidden-products'], new Map([['fixture-wp-zt9300', '2026-10-01T02:05:00Z']]));
       seed(['website-categories'], [{ id: 'cat-rings', slug: 'rings', name: 'Rings', name_ja: null, published: true, sort_order: 0 }]);
       seed(['website-collections'], []);
       seed(['website-fx-rate'], { date: '2026-09-28', jpy_php: 0.37 });
@@ -1216,7 +1223,17 @@ function buildPage365InventoryFixtures(partial: boolean) {
     row('i13', 'R7009', 'R7009 Ring K18 [Preloved]', { category: 'new', status: 'applied', result_note: 'draft_created', website_product_id: 'wp-r7009', page365_available: 1, page365_price_jpy: 60000, inventory_product_id: 'ip13' }),
     { ...base, id: 'i10', kind: 'hub_only', page365_product_id: null, page365_variant_id: null, page365_name: null, code: null, hub_sku: 'ZT9200',
       page365_price_jpy: null, hub_price_jpy: null, page365_available: null, match_result: 'hub_only', category: 'hub_only',
-      seen_stock: null, proposed_stock: null, missing_runs: 2 },
+      seen_stock: null, proposed_stock: null, missing_runs: 1 },
+    // PR 3b: seen on Page365 before, gone from 2 complete reads -> "Hide on website".
+    { ...base, id: 'i15', kind: 'hub_only', page365_product_id: null, page365_variant_id: null, page365_name: null, code: null, hub_sku: 'ZT9300',
+      page365_price_jpy: null, hub_price_jpy: null, page365_available: null, match_result: 'hub_only', category: 'hide',
+      website_product_id: 'fixture-wp-zt9300', variant_id: null, seen_stock: 1, proposed_stock: 0, missing_runs: 2 },
+    { ...base, id: 'i16', kind: 'hub_only', page365_product_id: null, page365_variant_id: null, page365_name: null, code: null, hub_sku: 'ZT9301',
+      page365_price_jpy: null, hub_price_jpy: null, page365_available: null, match_result: 'hub_only', category: 'hide',
+      website_product_id: 'fixture-wp-zt9301', variant_id: null, seen_stock: 2, proposed_stock: 0, missing_runs: 3 },
+    // PR 3b: the Hub hid it; Page365 lists it again -> "Back in Page365 — re-publish?".
+    row('i17', 'R8100', 'R8100 Ring K18 Diamond 0.5ct', { category: 'increase', page365_available: 1, seen_stock: 0, proposed_stock: 1,
+      website_product_id: 'fixture-wp-r8100', back_in_page365: true }),
   ];
   const listCategories = new Map<string, string | null>([
     ['ip11', 'Rings MIJ'], ['ip12', 'SUPPLIER LISTINGS - PEARLS'], ['ip13', 'Rings MIJ'],
@@ -1298,6 +1315,18 @@ function buildPage365StockFixtures(cashOrderId: string) {
     },
   };
   return { lines, draft };
+}
+
+/** PR 3b catalogue fixture: a draft the Hub hid because Page365 stopped listing it. */
+function buildCatalogHiddenFixtures() {
+  return [{
+    id: 'fixture-wp-zt9300', sku: 'ZT9300', slug: 'zt9300', name: 'ZT9300 Ring K18 (sold on Page365)', name_ja: null, karat: null,
+    metals: ['K18'], weight_g: null, condition: 'New', origin: 'JAPAN', brand: null, description_en: null, description_ja: null,
+    status: 'draft', created_at: '2026-09-20T00:00:00Z', page365_sync_disabled: false, page365_product_id: null,
+    website_product_variants: [{ id: 'fixture-wp-zt9300-v', size: null, stone: null, price_jpy: 50000, cost_basis: null,
+      stock_qty: 0, sort: 0, website_product_media: [] }],
+    website_collection_products: [], website_category_products: [{ category_id: 'cat-rings' }],
+  }];
 }
 
 /** PR 2 catalogue fixtures: one product switched to "Don't sync with Page365". */

@@ -244,7 +244,8 @@ Matching is #195's `page365_match_line`, unchanged: exact code, one product, one
 | `not_synced` | the product is switched to "Don't sync with Page365" (PR 2) | own group; never proposed, applied or given photos |
 | `flagged` | `no_code`, `duplicate_in_page365`, `ambiguous_sku`, `no_variant`, `ambiguous_variant` | shown with the reason |
 | `new` | code not in the Hub | listed only — nothing created |
-| `hub_only` | active/draft Hub product whose code is absent from a **complete** read | flagged with the count of consecutive runs; never zeroed |
+| `hub_only` | active/draft Hub product whose code is absent from a **complete** read | flagged with the count of consecutive runs; becomes `hide` only under the PR 3b rule (see HIDE-FOLLOW) |
+| `hide` (PR 3b) | a Hub-only product SEEN on Page365 before, missing from 2 complete reads in a row, still published, not switched off | own group "Hide on website", pre-ticked; stock 0 + unpublished on apply |
 
 Price differences (`price_differs`, plus Page365's compare-at `full_price`) are reported
 only. **Web holds** (`page365_web_holds`) = quantity on web cash orders still `pending`
@@ -500,3 +501,83 @@ each new run.
 with confirm dialog, last change and who, last scheduled run time/status/what was applied, run
 history of the last 10 runs with source Scheduled/Manual). The inventory card shows the run's
 source, polls while a scheduled read is in progress, and marks auto-applied rows.
+
+## HIDE-FOLLOW — hidden in Page365 → hidden on the website (added 2026-10-01, PR 3b)
+
+Migration `20261001100000_page365_hide_follow.sql` (owner runs it after the release is on
+main; **no edge function deploy** — it hangs off `page365_inventory_finish` and
+`page365_inventory_auto_apply_run`, which `page365-inventory-fetch` already calls). Local SQL
+tests: `docs/sql/20261001_page365_hide_follow_local_{stub,tests}.sql` (95 checks; the PR 3
+suite still passes on top). Unit and pins: `src/test/page365-hide-follow.test.tsx`.
+
+**Owner rule (approved 2026-09-26).** Page365 hides sold pieces, so they vanish from its
+public catalogue. When a synced Hub product is MISSING from **2 COMPLETE reads in a row**, the
+Hub sets its website stock to 0 AND unpublishes it.
+- Only a product that was **seen** — matched on its code in an earlier complete read — and
+  then went missing. A Hub-only product (never matched) is NEVER hidden. A product whose SKU
+  code was changed in the Hub since it was seen counts as never seen under the new code.
+- Never a product switched to "Don't sync with Page365" (at the read, and again LIVE at
+  apply). Never a product that is not published (`active`) — staff unpublished it already.
+- Never from a partial/failed read. "In a row" counts complete reads only: finish's
+  `missing_runs` chains over READY runs, so a partial read in between neither counts nor
+  breaks the row.
+- Scheduled reads hide by themselves ONLY while `page365_inventory_auto_apply` is on — the
+  same gate as the decreases (ready, inside its 30-minute window, not superseded). A manual
+  read (or a scheduled one with the switch off) shows the rows **pre-ticked** in "Hide on
+  website"; "Apply selected" applies them.
+- Compare-and-set: only if the product is still `active` and every variant's stock equals
+  the read's snapshot (`hide_snapshot`); otherwise `changed_since_fetch`, reported.
+- **Never re-published automatically.** A hidden product Page365 lists again is flagged
+  `back_in_page365` → group "Back in Page365 — re-publish?", never pre-ticked. Re-publishing
+  goes through `website_publish_products` (the Catalog bulk Publish) with its usual checks.
+  Its stock row is proposed as an increase (0 → available), which is never automatic either:
+  tick it too, or the piece goes back with 0 in stock.
+- Orders and reservations are never touched (a pending web order that is later cancelled
+  returns its piece to a draft product — invisible on the website).
+- To keep a piece on the website that Page365 hides, switch it to "Don't sync with Page365".
+  Re-publishing it while Page365 still lacks it gets it hidden again on the next complete read.
+
+**Unpublished = `draft`.** `website_products.status` is the enum `website_product_status`
+(`draft | active | archived`). `draft` is the Hub's own unpublished state and exactly what
+Catalog's bulk Publish turns back into `active`. `archived` means retired and is dropped from
+Page365 matching altogether (finish's Hub-only list skips it), so a piece coming back could
+never be flagged.
+
+**Seen — `page365_product_presence`.** One row per Hub product matched in a READY run: the
+code it was matched on, first/last seen (the read's start), and the hide mark (`hidden_at`,
+`hidden_run_id`, `hidden_by` NULL = schedule, `hidden_source`). Backfilled by the migration
+from the complete runs still kept (retention keeps 14 days). Written only by
+`page365_inventory_follow` and `page365_inventory_hide_item`.
+
+**The proposal — `page365_inventory_follow(run)`**, from trigger `trg_page365_inventory_follow`
+(AFTER UPDATE OF status ON `page365_inventory_runs`, WHEN fetching → ready), i.e. inside
+finish's own transaction; finish's body is unchanged. It (a) flags back-in-Page365 rows,
+(b) clears the hide mark of a product seen again that is no longer a draft, (c) records seen,
+(d) turns `hub_only` rows into `hide` when missing_runs ≥ 2 AND seen on the same code before
+this read AND `active` AND not switched off. It never writes stock or status. If it fails,
+the read still completes with no proposals and an `audit_logs` row
+`page365_inventory_follow_failed` says why.
+
+**The writer — `page365_inventory_hide_item(item, run, actor, source)`** (service role
+only): refuses `sync_disabled` (live) / `never_seen` (row stays under review with the note),
+compare-and-set, then every variant `stock_qty = 0`, product `status = 'draft'`, presence
+`hidden_at`, item `applied` (`result_note` `hidden` | `auto_hidden`), one `audit_logs` row
+`page365_inventory_hidden` (entity `website_product`, old `{status: active, variant_stock}`,
+new `{status: draft, stock_qty: 0, run_id, missing_runs, last_seen_at, …}`).
+- Staff: `page365_inventory_hide(run, item_ids)` — `manage_website_catalog`; the same run
+  refusals as `page365_inventory_apply` (not ready / older than 24 h / superseded); one run
+  audit `page365_inventory_hide` per call.
+- Schedule: `page365_inventory_auto_apply_run` (PR 3 body, md5-guarded) hides after the
+  decreases, inside the `applied` gate. Run audit `page365_inventory_auto_apply` gains
+  `hidden`, `hide_changed_since_fetch`, `hide_skipped`, `hide_failed`, `hidden_codes`.
+- Bells: ONE per run that hid anything, `page365_inventory_hidden` (opens Website → Page365
+  stock). A scheduled run that hid and also decreased rings this one bell (it mentions the
+  decreases); `page365_inventory_auto_applied` rings only when nothing was hidden. Staff
+  hides ring on the first Apply that hid something in that run (`hide_notified_at`).
+- `page365_inventory_runs.hidden_count` = products hidden from the run (both paths).
+
+**Hub UI.** Review card: "Hide on website" (pre-ticked; "Hidden"/"Auto-hidden" badges) and
+"Back in Page365 — re-publish?" (tick to re-publish; applied after the stock rows). Hub-only
+flagged rows explain why they are not hidden. Schedule card: a "Hidden" column in the run
+history, and the automatic text says "N products hidden on the website". Catalog: a draft the
+Hub hid shows "Hidden — no longer on Page365 (YYYY-MM-DD)" (PHT day) under its status.

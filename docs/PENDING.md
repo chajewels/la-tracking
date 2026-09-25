@@ -920,6 +920,12 @@ PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PA
   `page365_inventory_rises_pending` bell (the owner's final rules name only failed/applied).
   Watch after go-live: a Page365 outage rings once per 30-min run — if that is too noisy,
   ring only on the first failure after a ready run.
+- **PR 3b — hidden in Page365 → hidden on the website**: BUILT 2026-10-01 (migration
+  20261001100000; docs/PAGE365-IMPORT.md "HIDE-FOLLOW"). Watch after go-live: the first
+  complete read after the migration may propose hides for pieces already missing twice (the
+  migration backfills "seen" from the kept runs — its verification query (5) previews them).
+  Not built: re-publishing from the bell, and a "keep on website" exception other than the
+  "Don't sync with Page365" switch.
 - **PR 4 — "Create drafts"** from new Page365 codes: BUILT 2026-09-28 (docs/PAGE365-IMPORT.md
   "DRAFTS"). Still open: drafts from an unmatched INVOICE line, and a Hub-editable
   Page365-category → website-category map (today: jewelry-type first word, one Hub match).
