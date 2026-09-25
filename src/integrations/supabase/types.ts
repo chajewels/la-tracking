@@ -275,6 +275,8 @@ export type Database = {
           discount_value: number | null
           expired_at: string | null
           expires_at: string | null
+          fx_rate_date: string | null
+          fx_rate_used: number | null
           gift_note: string | null
           id: string
           invoice_number: string
@@ -337,6 +339,8 @@ export type Database = {
           discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
+          fx_rate_date?: string | null
+          fx_rate_used?: number | null
           gift_note?: string | null
           id?: string
           invoice_number: string
@@ -399,6 +403,8 @@ export type Database = {
           discount_value?: number | null
           expired_at?: string | null
           expires_at?: string | null
+          fx_rate_date?: string | null
+          fx_rate_used?: number | null
           gift_note?: string | null
           id?: string
           invoice_number?: string
