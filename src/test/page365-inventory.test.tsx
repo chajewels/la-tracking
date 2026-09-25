@@ -168,9 +168,9 @@ describe("review selection", () => {
     expect(g.photos.map(i => i.id)).toEqual(["dec"]);
     expect(g.noChange).toBe(1);
   });
-  it("decreases are pre-ticked; increases are not", () => {
+  it("decreases and (PR 3c) increases are pre-ticked", () => {
     const d = defaultSelection(rows);
-    expect([...d.stock]).toEqual(["dec"]);
+    expect([...d.stock]).toEqual(["dec", "inc"]);
     expect([...d.photos]).toEqual(["dec"]);
   });
   it("an increase is sent only as an increase; excluded and flagged are never sent", () => {
@@ -246,11 +246,16 @@ vi.mock("@/lib/page365-inventory-api", () => {
     { id: "b", code: "R7828", category: "increase", page365_name: "R7828 Ring", page365_available: 1, seen_stock: 0, proposed_stock: 1 },
     { id: "c", code: "ZI9104", category: "excluded", page365_name: "ZI9104 Ring", page365_available: 0, seen_stock: 1, proposed_stock: 0, invoice_holds: 1 },
   ];
-  const q = (data: unknown) => {
+  // .eq filters rows that carry the column (PR 3c: New in Page365 asks for
+  // category 'new' of the full run; a run without a kind predates PR 3c).
+  const q = (data: Record<string, unknown>[]) => {
+    const filters: [string, unknown][] = [];
+    const out = () => ({ data: data.filter(r => filters.every(([k, v]) => !(k in r) || r[k] === v)), error: null });
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "order", "eq"]) chain[m] = () => chain;
-    chain.limit = async () => ({ data, error: null });
-    chain.range = async () => ({ data, error: null });
+    for (const m of ["select", "order"]) chain[m] = () => chain;
+    chain.eq = (k: string, v: unknown) => { filters.push([k, v]); return chain; };
+    chain.limit = async () => out();
+    chain.range = async () => out();
     return chain;
   };
   return {
@@ -264,7 +269,7 @@ vi.mock("@/lib/page365-inventory-api", () => {
 });
 
 describe("Page365InventoryCard", () => {
-  it("pre-ticks decreases, leaves increases unticked, shows excluded rows without a box", async () => {
+  it("pre-ticks decreases and (PR 3c) increases, shows excluded rows without a box", async () => {
     const { Page365InventoryCard } = await import("@/components/website/Page365InventoryCard");
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -274,11 +279,11 @@ describe("Page365InventoryCard", () => {
     const dec = await screen.findByRole("checkbox", { name: "Select N4020" });
     expect(dec.getAttribute("data-state")).toBe("checked");
     const inc = screen.getByRole("checkbox", { name: "Select R7828" });
-    expect(inc.getAttribute("data-state")).toBe("unchecked");
+    expect(inc.getAttribute("data-state")).toBe("checked");
     const excludedHeading = screen.getByText(/Excluded — Page365 invoice hold/);
     const section = excludedHeading.closest("section")!;
     expect(within(section).getByText("ZI9104")).toBeTruthy();
     expect(within(section).queryByRole("checkbox")).toBeNull();
-    expect(screen.getByText(/1 decrease\(s\), 0 increase\(s\)/)).toBeTruthy();
+    expect(screen.getByText(/1 decrease\(s\), 1 increase\(s\)/)).toBeTruthy();
   });
 });

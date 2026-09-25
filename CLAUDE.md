@@ -1546,9 +1546,10 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     OFF; changed ONLY by set_page365_inventory_auto_apply — manage_website_
     catalog, audited; a guard trigger refuses SQL/PostgREST writes; never flip
     it in a migration) lets page365_inventory_auto_apply_run apply DECREASES
-    ONLY from a SCHEDULED run that is 'ready', inside its 30-min window and not
-    superseded — same target, compare-and-set, never a switched-off product.
-    Increases, drafts, prices and photos NEVER apply automatically. A partial
+    AND INCREASES (PR 3c) from a SCHEDULED run that is 'ready', inside its
+    30-min window and not superseded — same target, compare-and-set, never a
+    switched-off product. Drafts, prices, photos and re-publishing NEVER apply
+    automatically. A partial
     or failed read applies nothing. One reader at a time: every chunk takes the
     run's lease (page365_inventory_lease); the schedule skips a manual fetch.
     At most one bell per scheduled run. Retention (14 days) never touches
@@ -1562,6 +1563,15 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     page365_inventory_auto_apply_run under the same switch; else pre-ticked for
     staff. NEVER re-published automatically ("Back in Page365" is a flag).
     Orders untouched; audited per product and per run; one bell per run.
+  - QUICK FETCH (2026-10-02, PR 3c; docs/PAGE365-IMPORT.md "QUICK FETCH"):
+    scheduled reads and the default button are QUICK — the list plus pages of
+    listings that can hold a Hub product (page365_inventory_plan_quick; rest
+    'listed'); the first scheduled read after 02:00 PHT is FULL
+    (page365_inventory_next_kind), as is staff "Full fetch". New in Page365 =
+    latest full run; Create drafts re-reads each listing fresh (edge action
+    refresh; SQL refuses a row not read in 15 min). A quick read never counts a
+    switched-off product as missing. Never read with a second reader
+    (page365_inventory_reader lease).
   - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
     item_kind (jewelry default | watch | other). CHECK
     website_products_metals_jewelry requires >= 1 stamp for jewelry only;

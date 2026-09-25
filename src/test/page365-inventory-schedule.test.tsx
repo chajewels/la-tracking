@@ -65,7 +65,10 @@ describe("review-screen words (PR 3)", () => {
   });
   it("says what the automatic decreases did", () => {
     expect(autoApplyText(run({ auto_apply_state: "applied", auto_applied: 3 }))).toBe("3 decreases applied automatically");
-    expect(autoApplyText(run({ auto_apply_state: "applied", auto_applied: 0 }))).toBe("No decreases to apply");
+    expect(autoApplyText(run({ auto_apply_state: "applied", auto_applied: 0 }))).toBe("No stock changes to apply");
+    // PR 3c: increases are applied too, and counted apart.
+    expect(autoApplyText(run({ auto_apply_state: "applied", auto_applied: 3, auto_increased: 1 })))
+      .toBe("2 decreases · 1 increase applied automatically");
     expect(autoApplyText(run({ auto_apply_state: "off" }))).toMatch(/off — nothing applied/);
     expect(autoApplyText(run({ status: "partial", auto_apply_state: "not_ready" }))).toMatch(/Incomplete read — nothing applied/);
     expect(autoApplyText(run({ source: "manual" }))).toMatch(/Manual fetch — nothing applied automatically/);
@@ -209,11 +212,11 @@ describe("Page365InventoryScheduleCard", () => {
     const rows = await screen.findAllByTestId("p365-run-history-row");
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText("Scheduled")).toBeTruthy();
-    expect(within(rows[0]).getByText(/Automatic decreases off — nothing applied/)).toBeTruthy();
+    expect(within(rows[0]).getByText(/Automatic updates off — nothing applied/)).toBeTruthy();
     expect(within(rows[1]).getByText("Manual")).toBeTruthy();
     expect(screen.getByTestId("p365-last-scheduled").textContent).toMatch(/Last scheduled fetch/);
 
-    fireEvent.click(screen.getByRole("switch", { name: "Automatic decreases every 30 minutes" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Automatic updates every 30 minutes" }));
     expect(setAutoApply).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
     await vi.waitFor(() => expect(setAutoApply).toHaveBeenCalledWith(true, false));

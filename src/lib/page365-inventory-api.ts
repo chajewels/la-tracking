@@ -13,6 +13,7 @@ const untyped = supabase as unknown as { from: (table: string) => any };
 
 export const runsTable = () => untyped.from('page365_inventory_runs');
 export const itemsTable = () => untyped.from('page365_inventory_items');
+export const productsTable = () => untyped.from('page365_inventory_products');
 
 export interface ApplyResult {
   ok: boolean;
@@ -40,11 +41,17 @@ export interface FetchProgress {
   resumed?: boolean;
   /** PR 3: another reader (the scheduled fetch) holds the run's lease. */
   busy?: boolean;
-  run: { status: string; error: string | null; products_total: number; source?: string } | null;
+  run: { status: string; error: string | null; products_total: number; source?: string; kind?: FetchKind } | null;
   fetched: number;
   error: number;
   open: number;
+  /** PR 3c: quick runs — on the list, page not opened. */
+  listed?: number;
 }
+
+/** PR 3c: quick = the list plus Hub products' pages (the default); full =
+ *  every product page ("Full fetch", and nightly on the schedule). */
+export type FetchKind = 'quick' | 'full';
 
 async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke(fn, { body });
@@ -61,7 +68,8 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> 
   return data as T;
 }
 
-export const startFetch = () => invoke<FetchProgress>('page365-inventory-fetch', { action: 'start' });
+export const startFetch = (kind: FetchKind = 'quick') =>
+  invoke<FetchProgress>('page365-inventory-fetch', { action: 'start', kind });
 export const continueFetch = (runId: string) =>
   invoke<FetchProgress>('page365-inventory-fetch', { action: 'continue', run_id: runId });
 
@@ -78,7 +86,21 @@ export interface PhotoResult {
 export const copyPhotos = (runId: string, itemIds: string[], skip: string[]) =>
   invoke<PhotoResult>('page365-inventory-photos', { run_id: runId, item_ids: itemIds, skip });
 
-/** PR 3 — the "Automatic decreases every 30 minutes" switch. Both RPCs ship in
+/** PR 3c — Create drafts reads its ticked listings FRESH first. Call until
+ *  remaining is 0; `skip` = listing rows that already failed this press. */
+export interface RefreshResult {
+  busy: boolean;
+  refreshed: number;
+  gone: number;
+  failed: { product_row_id: string; page365_product_id: number; reason: string }[];
+  remaining: number;
+}
+
+export const refreshForDrafts = (runId: string, itemIds: string[], skip: string[]) =>
+  invoke<RefreshResult>('page365-inventory-fetch', { action: 'refresh', run_id: runId, item_ids: itemIds, skip });
+
+/** PR 3 — the automatic switch ("Automatic updates every 30 minutes" since
+ *  PR 3c: decreases, increases, hiding). Both RPCs ship in
  *  migration 20260930100000_page365_inventory_schedule and are not in
  *  types.ts until Lovable regenerates it — hence the cast. */
 export interface AutoApplyState {

@@ -1358,6 +1358,32 @@ Migration `20261001100000_page365_hide_follow.sql`. Rules: docs/PAGE365-IMPORT.m
 - Bell type `page365_inventory_hidden`; audit actions `page365_inventory_hidden` (per
   product), `page365_inventory_hide` (per staff call), `page365_inventory_follow_failed`.
 
+## Page365 quick fetch — run kind, listed products, reader lease (added 2026-10-02)
+
+Migration `20261002100000_page365_quick_fetch.sql`. Rules: docs/PAGE365-IMPORT.md "QUICK FETCH".
+
+- `page365_inventory_runs.kind text NOT NULL DEFAULT 'full'` CHECK `quick | full` (every run
+  before PR 3c is full; the edge function always sets it), `listed_total integer` (quick runs:
+  listings not opened), `auto_increased integer` (increases among `auto_applied`).
+  `products_total` = pages to open (quick) / every listing (full); `page365_count` = the LIST
+  count in both — the shrink guard's basis.
+- `page365_inventory_products.status` CHECK adds `listed` (quick runs: on the list, page not
+  opened; never claimed, never open, never an error).
+- `page365_inventory_reader` (one row, `id boolean PK CHECK (id)`, `lease_holder`,
+  `lease_until`): the Create-drafts refresh's lease. RLS on, service role only.
+- `system_settings.page365_inventory_full_hour_pht` (JSON number, default 2 = 02:00 PHT =
+  03:00 JST): the nightly full read's hour. The auto-apply switch's DESCRIPTION was updated;
+  its value was never written.
+- New, service role only: `page365_inventory_plan_quick(uuid)`, `page365_inventory_next_kind()`,
+  `page365_inventory_refresh_product(uuid,jsonb,text)`, `page365_inventory_reader_lease(text,integer)`,
+  `page365_inventory_reader_release(text)`.
+- Redefined from their live bodies (md5 before → after): `page365_inventory_finish`
+  `9d0be949…` → `6bf16430…`; `page365_inventory_auto_apply_run` `21eb5605…` → `d9d251fb…`;
+  `page365_inventory_create_drafts` `8e30c58f…` → `9ae1eb47…`. Pinned unchanged: claim,
+  store_product, apply, lease, retention, follow, hide_item.
+- New item notes: `gone_from_page365` (fresh read: listing/variant left Page365). New
+  create_drafts reasons: `not_full_fetch`, `not_fresh`, `gone_from_page365`.
+
 ## Page365 drafts — source columns and publish rules (added 2026-09-28)
 
 Migration `20260929100000_page365_inventory_drafts.sql`. Rules: docs/PAGE365-IMPORT.md "DRAFTS".

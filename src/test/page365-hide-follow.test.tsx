@@ -70,7 +70,9 @@ describe("review-screen logic (PR 3b)", () => {
     const d = defaultSelection(rows);
     expect([...d.hides]).toEqual(["h1"]);
     expect(d.stock.has("d1")).toBe(true);
-    expect(d.stock.has("b1")).toBe(false);
+    // PR 3c: the increase of a product back in Page365 starts ticked too;
+    // re-publishing it never does.
+    expect(d.stock.has("b1")).toBe(true);
     expect(hideTickable(rows[0])).toBe(true);
     expect(hideTickable(rows[1])).toBe(false);
     expect(hideTickable(rows[2])).toBe(false);
@@ -90,9 +92,9 @@ describe("review-screen logic (PR 3b)", () => {
   it("says how many were hidden on a scheduled run", () => {
     const run = (over: Partial<InventoryRun>) =>
       ({ source: "schedule", status: "ready", auto_apply_state: "applied", auto_applied: 0, ...over }) as InventoryRun;
-    expect(autoApplyText(run({ hidden_count: 2 }))).toBe("No decreases to apply · 2 products hidden on the website");
+    expect(autoApplyText(run({ hidden_count: 2 }))).toBe("No stock changes to apply · 2 products hidden on the website");
     expect(autoApplyText(run({ auto_applied: 1, hidden_count: 1 }))).toBe("1 decrease applied automatically · 1 product hidden on the website");
-    expect(autoApplyText(run({ hidden_count: 0 }))).toBe("No decreases to apply");
+    expect(autoApplyText(run({ hidden_count: 0 }))).toBe("No stock changes to apply");
     expect(SKIP_REASON.auto_hidden).toMatch(/automatically/);
     expect(SKIP_REASON.never_seen).toBeTruthy();
   });

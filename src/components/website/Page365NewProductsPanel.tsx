@@ -15,13 +15,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { InventoryItem, InventoryRun } from "@/lib/page365-inventory";
+import { FETCH_BUSY_MAX_WAITS, FETCH_BUSY_WAIT_MS, newAsOfText, type InventoryItem, type InventoryRun } from "@/lib/page365-inventory";
 import {
   CREATE_REFUSAL, NEEDS_LABEL, NO_CATEGORY, categoryOptions, countNewRows, defaultNewFilters, draftable, filterNewRows,
-  isDrafted, parseYen, pruneTicks, reasonText, selectAllShown, type CreateDraftsResult, type NewFilters, type NewRow,
+  isDrafted, markNotListed, parseYen, pruneTicks, reasonText, selectAllShown, type CreateDraftsResult, type NewFilters,
+  type NewRow,
 } from "@/lib/page365-drafts";
 import { createDrafts, listCategories } from "@/lib/page365-drafts-api";
-import { copyPhotos } from "@/lib/page365-inventory-api";
+import { copyPhotos, refreshForDrafts } from "@/lib/page365-inventory-api";
 
 /**
  * "New in Page365" — codes Page365 has and the Hub does not. Staff filter the
@@ -31,6 +32,13 @@ import { copyPhotos } from "@/lib/page365-inventory-api";
  *
  * The rules are in page365_inventory_create_drafts (SQL); this panel filters,
  * ticks and reports. Photos go through the PR 1 copier, in Page365's order.
+ *
+ * PR 3c: the rows come from the latest FULL fetch — quantities are "as of"
+ * it (the "In stock only" filter uses them). A row whose listing is not on the
+ * latest fetch's list is shown greyed and cannot be ticked. "Create drafts"
+ * first re-reads every ticked listing FRESH from Page365 (edge action
+ * refresh), so a draft always gets the current quantity, variants and every
+ * photo; SQL refuses a row not read in the last 15 minutes.
  */
 
 const yen = (n: number | null | undefined) => (n == null ? "—" : `¥${Math.round(n).toLocaleString("en-US")}`);
@@ -39,19 +47,24 @@ const productLink = (id: string) => `/website?tab=catalog&product=${id}`;
 export const DRAFTS_VIEW_LINK = "/website?tab=catalog&view=page365-drafts";
 
 interface PhotoTally { copied: number; failed: number }
+interface FreshTally { refreshed: number; gone: number; failed: number }
 
-export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
+export function Page365NewProductsPanel({ run, items, canCreate, onChanged, listedIds = null, listedAt = null }: {
   run: InventoryRun;
   items: InventoryItem[];
   canCreate: boolean;
   onChanged: () => Promise<void> | void;
+  /** PR 3c: product ids on the latest fetch's list; null = the list IS this run. */
+  listedIds?: Set<number> | null;
+  listedAt?: string | null;
 }) {
   const [filters, setFilters] = useState<NewFilters>(defaultNewFilters);
   const [minText, setMinText] = useState("");
   const [maxText, setMaxText] = useState("");
   const [ticks, setTicks] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "creating" | "photos">(null);
+  const [busy, setBusy] = useState<null | "reading" | "creating" | "photos">(null);
+  const [fresh, setFresh] = useState<FreshTally | null>(null);
   const [result, setResult] = useState<CreateDraftsResult | null>(null);
   const [photos, setPhotos] = useState<PhotoTally | null>(null);
 
@@ -61,10 +74,11 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
     staleTime: 5 * 60_000,
   });
 
-  const rows: NewRow[] = useMemo(() => items.map(it => {
+  const rows: NewRow[] = useMemo(() => markNotListed(items.map(it => {
     const pid = (it as NewRow).inventory_product_id ?? null;
     return { ...it, page365_category: pid ? cats.data?.get(pid) ?? null : null };
-  }), [items, cats.data]);
+  }), listedIds), [items, cats.data, listedIds]);
+  const notListed = rows.filter(r => r.not_listed).length;
   const shown = useMemo(() => filterNewRows(rows, filters), [rows, filters]);
   const counts = useMemo(() => countNewRows(rows), [rows]);
   const options = useMemo(() => categoryOptions(rows), [rows]);
@@ -83,11 +97,33 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
 
   const doCreate = async () => {
     setConfirmOpen(false);
-    setBusy("creating");
+    setBusy("reading");
     setResult(null);
     setPhotos(null);
+    setFresh(null);
     try {
-      const r = await createDrafts(run.id, [...ticks]);
+      // PR 3c: read every ticked listing FRESH first (<= 4 requests/s, one
+      // reader at a time — a scheduled read in progress goes first).
+      const ids = [...ticks];
+      const tally: FreshTally = { refreshed: 0, gone: 0, failed: 0 };
+      const skip: string[] = [];
+      let waits = 0;
+      for (let guard = 0; guard < 200; guard++) {
+        const f = await refreshForDrafts(run.id, ids, skip);
+        if (f.busy) {
+          if (++waits > FETCH_BUSY_MAX_WAITS) throw new Error("Page365 is being read by the scheduled fetch. Try again in a few minutes.");
+          await new Promise(res => setTimeout(res, FETCH_BUSY_WAIT_MS));
+          continue;
+        }
+        tally.refreshed += f.refreshed;
+        tally.gone += f.gone;
+        tally.failed += f.failed.length;
+        skip.push(...f.failed.map(x => x.product_row_id));
+        setFresh({ ...tally });
+        if (f.remaining === 0 || f.refreshed + f.gone + f.failed.length === 0) break;
+      }
+      setBusy("creating");
+      const r = await createDrafts(run.id, ids);
       if (!r.ok) throw new Error(CREATE_REFUSAL[r.reason ?? ""] ?? `Could not create drafts (${r.reason}).`);
       setResult(r);
       setTicks(new Set());
@@ -116,6 +152,13 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-muted-foreground" data-testid="new-as-of">
+        {newAsOfText(run)}.{" "}
+        {notListed > 0 && listedAt
+          ? <>{notListed} no longer on Page365’s list as of {listedAt} — greyed out. </>
+          : null}
+        Create drafts reads each ticked listing fresh from Page365 first.
+      </p>
       <p className="text-xs text-muted-foreground" data-testid="new-counts">
         <b className="text-card-foreground">{counts.total}</b> new · <b className="text-card-foreground">{counts.inStock}</b> in stock ·{" "}
         <b className="text-card-foreground">{counts.soldOut}</b> sold out
@@ -173,7 +216,7 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
           onClick={() => setConfirmOpen(true)}
         >
           {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-1.5 h-4 w-4" />}
-          Create drafts ({ticks.size})
+          {busy === "reading" ? "Reading Page365…" : `Create drafts (${ticks.size})`}
         </Button>
       </div>
 
@@ -198,7 +241,7 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
                 </TableCell>
               </TableRow>
             ) : shown.map(it => (
-              <TableRow key={it.id}>
+              <TableRow key={it.id} className={it.not_listed ? "opacity-50" : undefined} data-testid="new-row">
                 <TableCell className="w-8">
                   <Checkbox
                     aria-label={`Select ${it.code ?? ""}`}
@@ -221,6 +264,8 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
                     </Link>
                   ) : it.result_note ? (
                     <span className="text-[11px] text-muted-foreground">{reasonText(it.result_note)}</span>
+                  ) : it.not_listed ? (
+                    <span className="text-[11px] text-muted-foreground">not on the latest Page365 list</span>
                   ) : null}
                 </TableCell>
               </TableRow>
@@ -231,6 +276,13 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
 
       {result && (
         <div className="space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs" role="status">
+          {fresh && (
+            <p data-testid="new-fresh">
+              Read fresh from Page365: <b>{fresh.refreshed}</b>
+              {fresh.gone > 0 && <> · <b>{fresh.gone}</b> no longer on Page365</>}
+              {fresh.failed > 0 && <> · <b>{fresh.failed}</b> could not be read (skipped)</>}.
+            </p>
+          )}
           <p>
             <b>{result.created ?? 0}</b> draft(s) created · <b>{result.skipped ?? 0}</b> skipped
             {(result.skipped_items ?? []).some(s => s.reason === "code_exists") && " (code already in the Hub)"} ·{" "}
@@ -273,8 +325,8 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged }: {
           <AlertDialogHeader>
             <AlertDialogTitle>Create {ticks.size} draft product(s)?</AlertDialogTitle>
             <AlertDialogDescription>
-              Each becomes a Hub website product with status DRAFT: code, name, yen price, stock and every photo from
-              Page365. Origin is left for you to set; category only where Page365's category clearly matches one.
+              Each listing is read fresh from Page365 first, then becomes a Hub website product with status DRAFT:
+              code, name, yen price, the current stock and every photo from Page365. Origin is left for you to set; category only where Page365's category clearly matches one.
               Nothing appears on the website until you publish it in Catalog. A code already in the Hub is skipped.
               {tickedSold > 0 && ` ${tickedSold} of them are sold out on Page365 and will be created with 0 stock.`}
             </AlertDialogDescription>

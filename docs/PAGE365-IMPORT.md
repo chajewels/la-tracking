@@ -424,6 +424,11 @@ catalogue path covers every listed piece; filed in docs/PENDING.md.
 
 ## SCHEDULE — automatic fetch every 30 minutes, decreases only (added 2026-09-30, PR 3 of 4)
 
+> **Changed by PR 3c (2026-10-02, section QUICK FETCH below):** the scheduled read now applies
+> INCREASES too, most scheduled reads are QUICK (the list + Hub products' pages), and one FULL
+> read runs nightly at 02:00 PHT (03:00 JST). The switch is "Automatic updates every 30
+> minutes (decreases, increases, hiding)". Everything else in this section still holds.
+
 Migration `20260930100000_page365_inventory_schedule.sql` (owner runs it AFTER the release
 is on main and `page365-inventory-fetch` is redeployed). Local SQL tests:
 `docs/sql/20260930_page365_inventory_schedule_local_{stub,tests}.sql` (107 checks). Unit and
@@ -530,8 +535,9 @@ Hub sets its website stock to 0 AND unpublishes it.
 - **Never re-published automatically.** A hidden product Page365 lists again is flagged
   `back_in_page365` → group "Back in Page365 — re-publish?", never pre-ticked. Re-publishing
   goes through `website_publish_products` (the Catalog bulk Publish) with its usual checks.
-  Its stock row is proposed as an increase (0 → available), which is never automatic either:
-  tick it too, or the piece goes back with 0 in stock.
+  Its stock row is proposed as an increase (0 → available). PR 3b: never automatic. Since
+  PR 3c the increase IS automatic on a scheduled read with the switch on (and pre-ticked on a
+  manual one) — the stock follows Page365, the product stays a draft until staff re-publish.
 - Orders and reservations are never touched (a pending web order that is later cancelled
   returns its piece to a draft product — invisible on the website).
 - To keep a piece on the website that Page365 hides, switch it to "Don't sync with Page365".
@@ -581,3 +587,98 @@ new `{status: draft, stock_qty: 0, run_id, missing_runs, last_seen_at, …}`).
 flagged rows explain why they are not hidden. Schedule card: a "Hidden" column in the run
 history, and the automatic text says "N products hidden on the website". Catalog: a draft the
 Hub hid shows "Hidden — no longer on Page365 (YYYY-MM-DD)" (PHT day) under its status.
+
+## QUICK FETCH — quick reads, a nightly full read, automatic increases (added 2026-10-02, PR 3c)
+
+Migration `20261002100000_page365_quick_fetch.sql` (owner runs it after the release is on
+main, BEFORE `page365-inventory-fetch` is redeployed). Local SQL tests:
+`docs/sql/20261002_page365_quick_fetch_local_tests.sql` (92 checks; the PR 3 and PR 3b suites
+pass on top — their "increases never automatic" checks were updated to the new rule). Unit
+and pins: `src/test/page365-quick-fetch.test.tsx`.
+
+**Owner decisions (final, 2026-09-26).**
+1. **Automatic increases.** Staff confirm every website sale in Page365, so Page365 is the full
+   truth. With the switch ON, a scheduled read applies increases as well as decreases and
+   hides. Unchanged safety: target = Page365 available − unconfirmed website holds (− unpaid
+   invoice holds while `page365_hold_unpaid_invoices`); compare-and-set; never below zero;
+   "Don't sync with Page365" products never touched (read live); partial/failed runs change
+   nothing; the 30-minute window and the superseded check. STILL MANUAL: Create drafts, photo
+   copies, price differences, re-publishing hidden products. On the review screen increases
+   are pre-ticked like decreases (still sent only in the increase list).
+2. **Quick reads.** Every scheduled 30-minute read, and the default "Fetch Page365 inventory"
+   button, read the catalogue LIST (two requests — it is cumulative) and open a product page
+   ONLY for listings that can hold a Hub product.
+3. **Full reads** open every page: once a night on the schedule, and the secondary "Full fetch"
+   button. They feed "New in Page365".
+4. **Create drafts reads each ticked listing FRESH** (quantity, variants, all photos).
+
+**Which pages a quick read opens — `page365_inventory_plan_quick(run)`** (service role, called
+by the edge function right after the list is queued). A Hub code is `page365_first_word(sku)`
+of a product that is not `archived` and not switched off. A listing's page is opened when
+(a) the first word of its LIST name is a Hub code, or (b) an earlier kept read found a Hub code
+on one of its variants (multi-variant listings put the codes on the variants: E1053 / E2057),
+or (c) a Hub product was drafted from it (`website_products.page365_product_id`). Every other
+listing becomes `page365_inventory_products.status = 'listed'` (seen on the list, page not
+opened — never claimed, never open, never an error). `runs.products_total` = pages to open,
+`runs.listed_total` = listed-only, `runs.page365_count` = the LIST count. If the plan fails,
+the run is switched to `full` and reads everything (the safe side).
+
+**What stays the same for a quick read.** The shrink guard compares the LIST count
+(`page365_count`) with the previous ready run's, as before. "Missing" for hide-follow: a Hub
+product whose code is absent from the read is Hub-only exactly as in a full read — its listing
+would have been opened by (a)/(b)/(c) if it were on the list. A quick read is complete (ready)
+only if the list read is complete AND every opened page was read; a page error makes it
+partial and nothing is applied or counted, as before. Presence (`page365_product_presence`) is
+recorded from the matched rows of the read. The one change in `page365_inventory_finish`: a
+quick read leaves products switched to "Don't sync" out of the Hub-only list (it never opened
+their pages, so it cannot say they are missing). Known limit: a Hub code that moves onto a
+variant of a listing never read before and whose list name starts with another code is not
+seen by quick reads until the next full read; if its old listing is gone meanwhile, hide-follow
+may hide it, and the full read then flags it "Back in Page365 — re-publish?".
+
+**The nightly full read — `page365_inventory_next_kind()`.** The first SCHEDULED read that
+starts at or after `system_settings.page365_inventory_full_hour_pht` (default `2` = 02:00 PHT =
+03:00 JST) each day is `full`; so is the next one if that read failed outright. A staff "Full
+fetch" does not replace it. The pg_cron job is unchanged (`page365-inventory-schedule`, every
+5 minutes); a full read of ~570 pages takes two or three ticks, well inside its 30-minute
+window. The hour is in PHT (the canonical timezone), not Asia/Tokyo.
+
+**Automatic increases — `page365_inventory_auto_apply_run`** (PR 3b body, md5-guarded): rows
+with `category IN ('decrease','increase')`, direction checked (`not_a_stock_change`
+otherwise), `UPDATE … WHERE stock_qty = seen_stock AND stock_qty <> proposed`. Audit rows carry
+`direction` = decrease | increase. `runs.auto_increased` counts the increases among
+`auto_applied`. The one bell per run: `page365_inventory_auto_applied`, title "Page365 stock
+updated automatically", body "N decrease(s) and M increase(s) … Down: … Up: …"; the hidden
+bell mentions both counts. A product back in Page365 that the Hub hid gets its increase
+automatically but stays a draft (never re-published by itself).
+
+**New in Page365 and Create drafts.** The review list shows New in Page365 from the latest
+READY FULL run, labelled "Quantities as of the full fetch of <time> PHT"; "In stock only" uses
+those quantities. A row whose listing is missing from the latest read's list (any kind) is
+greyed out and cannot be ticked. `page365_inventory_create_drafts` (PR 4 body, md5-guarded)
+now: refuses a run that is not `full` (`not_full_fetch`); counts as superseded only by a newer
+ready FULL run (quick runs every 30 minutes do not supersede it); allows 48 h (one nightly
+read may fail); skips a row whose listing was not read in the last 15 minutes (`not_fresh`) or
+is gone (`gone_from_page365`). The Hub's "Create drafts" first calls the edge action
+`refresh` in a loop: it re-reads each ticked listing (≤ 40 per call, ≤ 4 req/s) through
+`page365_inventory_refresh_product`, which updates the listing (name, prices, photos,
+`fetched_at`) and its NEW rows under review (quantity, price, names, code) in place, marks new
+rows whose variant or listing (HTTP 404) left Page365 `gone_from_page365`, and never touches a
+stock row. Then the drafts are created, and the photo copier copies the fresh gallery.
+
+**One reader.** A refresh takes `page365_inventory_reader` (a one-row lease,
+`page365_inventory_reader_lease`) only while no run lease is held; a chunk reader takes its
+run lease first and then backs off (`busy`) while the reader lease is held — so the two never
+read at once. The browser waits and retries on `busy`.
+
+**Hub UI.** Inventory card: "Fetch Page365 inventory" = quick (default), secondary "Full
+fetch"; the last-fetch line says quick/full, how long, and for quick reads "N products listed,
+M page(s) read"; increases pre-ticked; New in Page365 from the latest full read with its "as
+of" label. Schedule card: "Automatic updates every 30 minutes (decreases, increases, hiding)";
+run history columns Kind (Quick/Full) and Took (duration); the automatic text counts decreases
+and increases apart.
+
+**Expected quick-read time.** 2 list requests (~1–3 s) + one page per Hub listing at 4
+requests/s + one store call each. With H Hub listings: ≈ 3 s + H/4 s (e.g. 60 → ~20 s, 150 →
+~40 s). Count H with verification (6) of the migration.
+
