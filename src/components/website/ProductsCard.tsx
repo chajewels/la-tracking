@@ -67,7 +67,9 @@ export default function ProductsCard() {
         .from("website_products" as any)
         .select(
           "id, sku, slug, name, name_ja, karat, metals, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
-          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort)), " +
+          "page365_sync_disabled, " +
+          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, " +
+          "website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
           "website_collection_products(collection_id), website_category_products(category_id)"
         )
         .order("created_at", { ascending: false });
@@ -121,7 +123,10 @@ export default function ProductsCard() {
         sort: Number(v.sort ?? 0),
         media: ((v.website_product_media ?? []) as any[])
           .sort((a, b) => Number(a.sort) - Number(b.sort))
-          .map((m) => ({ id: m.id, url: m.url, alt: m.alt, sort: Number(m.sort ?? 0) })),
+          .map((m) => ({
+            id: m.id, url: m.url, alt: m.alt, sort: Number(m.sort ?? 0),
+            page365_photo_id: m.page365_photo_id ?? null, page365_photo_version: m.page365_photo_version ?? null,
+          })),
       }));
     setForm({
       id: p.id,
@@ -140,6 +145,7 @@ export default function ProductsCard() {
       description_ja: p.description_ja ?? "",
       savedEn: p.description_en ?? "",
       status: p.status ?? "draft",
+      page365SyncDisabled: p.page365_sync_disabled === true,
       collectionIds: ((p.website_collection_products ?? []) as any[]).map((c) => c.collection_id),
       categoryIds: ((p.website_category_products ?? []) as any[]).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
@@ -257,6 +263,7 @@ export default function ProductsCard() {
         description_en: en || null,
         description_ja: ja || null,
         status: f.status,
+        page365_sync_disabled: f.page365SyncDisabled,
       };
 
       let productId = f.id;
@@ -304,6 +311,10 @@ export default function ProductsCard() {
           const { error: insMediaErr } = await supabase.from("website_product_media" as any)
             .insert(v.media.map((m, idx) => ({
               variant_id: variantId, url: m.url, alt: m.alt?.trim() || null, sort: idx,
+              // Keep a copied Page365 photo's identity, or the next fetch
+              // would copy it again (duplicate photo).
+              page365_photo_id: m.page365_photo_id ?? null,
+              page365_photo_version: m.page365_photo_version ?? null,
             })));
           if (insMediaErr) throw insMediaErr;
         }
@@ -469,7 +480,14 @@ export default function ProductsCard() {
                       {p.name}
                       {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.sku}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {p.sku}
+                      {p.page365_sync_disabled && (
+                        <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground" title="Don't sync with Page365">
+                          Not synced
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell>{metalsLabel(p.metals, p.karat)}</TableCell>
                     <TableCell>
                       {p.condition === "Preloved"

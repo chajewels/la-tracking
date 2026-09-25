@@ -35,10 +35,11 @@ import { Page365InventoryCard } from "@/components/website/Page365InventoryCard"
  *   catalog          → manage_website_catalog  (the shop)
  *   content, settings → manage_website_content  (the words on the site)
  *   audience         → EITHER, with each card on its own key — see canAudience
- *   page365-stock    → manage_website_catalog  (Page365 lines that did not
- *                      reduce website stock — docs/PAGE365-IMPORT.md "STOCK"),
- *                      and the Page365 inventory fetch/review/apply
- *                      (docs/PAGE365-IMPORT.md "INVENTORY")
+ *   page365-stock    → manage_website_catalog  (imported Page365 lines that
+ *                      did not match one website product — docs/PAGE365-IMPORT.md
+ *                      "STOCK"), and the Page365 inventory fetch/review/apply,
+ *                      which since PR 2 is the only thing that moves website
+ *                      stock from Page365 (docs/PAGE365-IMPORT.md "INVENTORY")
  */
 export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];

@@ -1488,34 +1488,44 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     permissioned on create_cash_order OR create_account.
   - LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (_shared/order-extras.ts);
     a failure rolls the order back.
-  - STOCK (2026-09-26; docs/PAGE365-IMPORT.md "STOCK"): an import REDUCES
-    website stock. Match = the line's FIRST WORD (page365_first_word) equal to
-    exactly ONE website_products.sku with exactly ONE variant; anything else is
-    a FLAG, never a guess. Service/resize lines are skipped. Taken at IMPORT
-    (page365_apply_stock, service role) from the STORED DRAFT's lines — never at
-    fetch (fetch only previews), never from the browser. Each line is CLAIMED in
-    page365_stock_lines before stock moves; only the claimer moves stock —
-    never twice. Same conditional decrement as checkout (stock_qty >= q); short
-    → flag insufficient_stock, the order still stands, the website reservation
-    is never overridden. Stock comes back via trigger page365_stock_follow_order
-    on cancel / expire / forfeit / final forfeit / delete, and is re-taken (or
-    flagged rehold_failed, never raised) on revive/reactivation. Orders with no
-    ledger rows never move stock. Resolving a flag needs a note and never moves
-    stock. Never write page365_stock_lines or its stock by hand.
+  - STOCK (2026-09-26; updated 2026-09-28 PR 2; docs/PAGE365-IMPORT.md "STOCK"
+    and "PR 2"): PAGE365 IS THE STOCK MASTER. With system_settings.
+    page365_stock_mode = 'inventory_sync' (live) an import NEVER changes website
+    stock: page365_apply_stock (service role, lines from the STORED DRAFT, never
+    the browser) CLAIMS each line in page365_stock_lines, matches it (FIRST WORD
+    = exactly ONE website_products.sku with exactly ONE variant; else a FLAG,
+    never a guess; service/resize skipped) and records it as 'page365_master'.
+    'invoice' mode = the #195 decrement (claim, stock_qty >= q, held/released
+    via trigger page365_stock_follow_order) — the ROLLBACK only. Former held
+    lines are 'absorbed': cancel / expire / forfeit / delete of such an order
+    returns NOTHING. Never edit page365_stock_follow_order's body (absorbed and
+    page365_master rely on it acting only on held/released). Resolving a flag
+    needs a note and never moves stock. Never write page365_stock_lines or its
+    stock by hand.
+  - "DON'T SYNC WITH PAGE365" (2026-09-28): website_products.
+    page365_sync_disabled, switched in Catalog by manage_website_catalog only
+    (audited). A switched-off product is ALWAYS skipped: fetch category
+    'not_synced', never proposed, never applied (apply reads the switch LIVE),
+    photos never copied, and an invoice import never moves its stock in either
+    mode. Never set it in a migration.
   - INVENTORY FETCH (2026-09-27; docs/PAGE365-IMPORT.md "INVENTORY"): staff
     read the whole Page365 catalogue (page365-inventory-fetch, chunked,
     resumable, <= 4 req/s) and apply ticked rows. TARGET = max(0, Page365
-    available - page365_web_holds) — a website-reserved piece is never put
-    back on sale. Match per VARIANT on the code (first word; multi-variant
-    listings use variant names), exact, never fuzzy. Decreases pre-ticked;
-    increases need a tick and are sent as increases. page365_inventory_apply is
-    COMPARE-AND-SET (stock_qty = seen at fetch, else changed_since_fetch), only
-    on a 'ready' run (a partial/failed read — outage, count drop > 20 % —
-    applies nothing). Until PR 2, variants with a #195 'held' line are
-    EXCLUDED. New codes listed, prices reported, Hub-only flagged — never
-    created, repriced or zeroed. Photos: every photo of a matched product, one
-    row per (variant, page365_photo_id), staff photos never touched. Customer
-    reviews are never stored.
+    available - page365_web_holds - page365_invoice_holds) — a website-reserved
+    piece is never put back on sale; unpaid imported Page365 invoices are held
+    off while page365_hold_unpaid_invoices is true (open question: does an
+    unpaid Page365 invoice lower `available`? — safe either way). Match per
+    VARIANT on the code (first word; multi-variant listings use variant names),
+    exact, never fuzzy. Decreases pre-ticked; increases need a tick and are sent
+    as increases. page365_inventory_apply is COMPARE-AND-SET (stock_qty = seen
+    at fetch, else changed_since_fetch), only on a 'ready' run (a partial/failed
+    read — outage, count drop > 20 % — applies nothing). #195 'held' variants
+    are EXCLUDED only in 'invoice' mode. New codes listed, prices reported,
+    Hub-only flagged — never created, repriced or zeroed. Photos: every photo of
+    a matched product, one row per (variant, page365_photo_id), staff photos
+    never touched; the Catalog save must carry page365_photo_id through (else
+    duplicates). An invoice line keeps ONE main photo and reuses the catalogue's
+    stored copy when there is one. Customer reviews are never stored.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

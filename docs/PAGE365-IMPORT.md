@@ -116,6 +116,10 @@
 
 ## STOCK — a Page365 import reduces website stock, once (added 2026-09-26)
 
+  > **Since PR 2 (2026-09-28) this is the `invoice` mode only — the rollback.** The live
+  > mode is `inventory_sync`: an import still claims, matches and flags every line exactly
+  > as below, but never changes website stock. See "PR 2 — PAGE365 IS THE STOCK MASTER".
+
   Owner-approved plan: ~/Code/reference/page365-stock-investigation.md (D1–D7).
   Migration `20260926120000_page365_stock_sync.sql`; edge helper
   `supabase/functions/_shared/page365-stock.ts`; Hub words
@@ -236,7 +240,8 @@ Matching is #195's `page365_match_line`, unchanged: exact code, one product, one
 | `decrease` | `max(0, available − web holds) < stock_qty` | pre-ticked |
 | `increase` | … `> stock_qty` | tick required; sent in the *increase* list |
 | `no_change` | equal | counted only |
-| `excluded` | the variant has a #195 `page365_stock_lines.stock_state = 'held'` line | shown, never tickable (until PR 2) |
+| `excluded` | the variant has a #195 `page365_stock_lines.stock_state = 'held'` line — **only in `invoice` mode** (PR 2) | shown, never tickable |
+| `not_synced` | the product is switched to "Don't sync with Page365" (PR 2) | own group; never proposed, applied or given photos |
 | `flagged` | `no_code`, `duplicate_in_page365`, `ambiguous_sku`, `no_variant`, `ambiguous_variant` | shown with the reason |
 | `new` | code not in the Hub | listed only — nothing created |
 | `hub_only` | active/draft Hub product whose code is absent from a **complete** read | flagged with the count of consecutive runs; never zeroed |
@@ -274,6 +279,69 @@ Page365 hotlink) keep their rows and their `sort`; Page365 photos go after them.
 photo Page365 later drops is reported (`photos_removed`), never deleted. Unique index
 `(variant_id, page365_photo_id)` makes a duplicate impossible. A fetch alone copies nothing.
 
-**Still #195's job until PR 2:** invoice imports keep taking stock; that is why held
-variants are excluded here. PR 2 switches imports to ledger-only (`inventory_sync`),
-PR 3 adds the 30-min schedule (decreases only), PR 4 "Create draft" — docs/PENDING.md.
+**PR 2 (2026-09-28)** switched invoice imports to record-only (`inventory_sync`) — next
+section. PR 3 adds the 30-min schedule (decreases only), PR 4 "Create draft" —
+docs/PENDING.md.
+
+## PR 2 — PAGE365 IS THE STOCK MASTER (added 2026-09-28)
+
+Migration `20260928100000_page365_inventory_pr2.sql` (owner runs it). Local SQL tests:
+`docs/sql/20260928_page365_inventory_pr2_local_{stub,seed_held,tests}.sql` (66 checks;
+PR 1's 75 still pass in `invoice` mode). Unit/pins: `src/test/page365-inventory-pr2.test.tsx`.
+
+**The mode.** `system_settings.page365_stock_mode`: `inventory_sync` (seeded) | `invoice`
+(the #195 behaviour, the rollback). Only an explicit `invoice` brings the decrement back.
+In `inventory_sync`, `page365_apply_stock` claims every line, matches it, flags
+`unmatched / ambiguous_* / no_variant` exactly as before, and records a matched line as
+`stock_state = 'page365_master'` (variant and `stock_seen` recorded) **without touching
+website stock**. `insufficient_stock` no longer arises. The result carries `mode`,
+`recorded`, `sync_off`; the bell for flagged lines says "did not match one website product".
+
+**Cut-over.** Every `held` line became `absorbed` (audit `page365_stock_absorbed`, one row
+per line): its piece is inside Page365's own number now. `page365_stock_follow_order` is
+UNCHANGED (md5-asserted) and only ever releases `held` and re-takes `released`, so
+cancelling / expiring / forfeiting / deleting an order whose lines are `absorbed` or
+`page365_master` returns nothing, and reviving it takes nothing. `released` lines were left
+as they are: reviving such an order still re-takes its piece exactly as under #195 (a
+bounded, staff-reviewed flap; the next fetch proposes the correction). Re-running the file
+never re-flips the settings and absorbs only while the mode is `inventory_sync`. Rollback:
+set the mode to `invoice` — new imports decrement again; absorbed lines stay absorbed.
+
+**"Don't sync with Page365".** `website_products.page365_sync_disabled` (default false),
+switched in Catalog → product → "Don't sync with Page365". Only `manage_website_catalog`
+may flip it (`trg_page365_sync_switch`, 42501 otherwise); every flip is audited
+(`page365_sync_switched`). Switched on: the fetch puts the product's rows (and its Hub-only
+row) in `not_synced` — never proposed, never a price difference, no photos counted;
+`page365_inventory_apply` refuses it (`sync_disabled`, read LIVE from the product, so a
+switch flipped after a fetch still protects it); `page365_inventory_record_photo` refuses
+it; `page365-inventory-photos` skips it before any download; an invoice import records the
+match with `stock_state = 'none'` in EITHER mode. The migration switches nothing on — the
+owner switches N4020 (a sample) in the UI.
+
+**The fetch.** No `excluded` category outside `invoice` mode. The proposal is now
+`max(0, available − web holds − unpaid invoice holds)`, where the last term
+(`page365_invoice_holds`) = quantity on `page365_master` / `absorbed` lines whose Hub order
+is live and unpaid (cash `pending`; layaway `active/overdue` with `total_paid = 0`),
+subtracted while `system_settings.page365_hold_unpaid_invoices` is not `false` (seeded
+`true`). It exists because it is **not yet confirmed whether an unpaid Page365 invoice
+lowers Page365's `available`**. If it does not, this keeps a piece sold on an unpaid invoice
+off the website; if it does, the piece is subtracted twice while unpaid — a one-off piece
+reads 0 either way, a multi-piece listing shows one too few until the order is paid. Never
+an oversell. Once the owner's test shows Page365 counts unpaid invoices, set the key to
+`false`. Review column "Invoice holds".
+
+**Invoice fetch fixes (`page365-fetch-order`).**
+- F1: the webstore list is cumulative ("load more"), never empty — the old page walk
+  re-downloaded ever-larger pages until its 20 s budget ran out. A line without a product
+  id now reads the list the PR 1 way (`readCatalogueList`: page 1 for the count, page
+  ceil(count/16) for everything, once per fetch), finds exactly one listing with the line's
+  code (`findListing`, never a prefix, never a guess between two), then its product page.
+- F2: the code is the first word (`firstWord`) — the regex missed R13R6, E8JS, 12M17, …
+- Photos: an order line keeps ONE photo, the main one (`photos[0]` in Page365's display
+  order, `mainGalleryPhoto`). A line that matched a website variant whose gallery is
+  already copied reuses that stored copy — nothing downloaded, no second file. The full
+  gallery belongs to the catalogue product. Catalog's product save now carries each copied
+  photo's `page365_photo_id / _version` through its delete-and-reinsert of media rows —
+  before PR 2 a save stripped them and the next copy duplicated every Page365 photo.
+- The draft carries `stock_mode`; the review chips say "Matched · CODE — stock follows the
+  Page365 inventory fetch" (or "Not synced with Page365") instead of "Will take stock".

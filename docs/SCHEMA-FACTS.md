@@ -1252,7 +1252,9 @@ both `ON DELETE SET NULL` — a deleted order leaves its lines, released). The
 match: `first_word`, `match_result` (`pending | matched | not_a_product |
 unmatched | ambiguous_sku | no_variant | ambiguous_variant`),
 `website_product_id`, `variant_id`. Stock: `stock_state` `none` (never took) |
-`held` (the Hub took website stock) | `released` (given back), `stock_seen`
+`held` (the Hub took website stock) | `released` (given back) | `page365_master`
+(PR 2: matched and recorded, no stock moved) | `absorbed` (PR 2 cut-over: was held;
+its piece is inside Page365's count, nothing is ever given back), `stock_seen`
 (stock_qty before the reduction), `held_at`, `released_at`. Staff: `flag`
 (`unmatched | ambiguous_sku | no_variant | ambiguous_variant |
 insufficient_stock | rehold_failed`), open while `resolved_at IS NULL`;
@@ -1302,3 +1304,28 @@ Migration `20260927100000_page365_inventory_fetch.sql`. Rules: docs/PAGE365-IMPO
 - New `audit_logs` entity types: `website_product_variant` (actions
   `page365_inventory_applied`, `page365_photo_copied`) and `page365_inventory_run`
   (`page365_inventory_apply`).
+
+## Page365 inventory PR 2 — switch, mode, unpaid-invoice holds (added 2026-09-28)
+
+Migration `20260928100000_page365_inventory_pr2.sql`. Rules: docs/PAGE365-IMPORT.md "PR 2".
+
+- `website_products.page365_sync_disabled boolean NOT NULL DEFAULT false` — "Don't sync with
+  Page365". Guard + audit trigger `trg_page365_sync_switch` →
+  `page365_sync_switch_guard()` (BEFORE INSERT OR UPDATE OF the column; a signed-in user
+  without `manage_website_catalog` gets 42501; audit `website_product` /
+  `page365_sync_switched`). Any staff can still write the rest of the row (RLS unchanged).
+- `system_settings.page365_stock_mode` (`inventory_sync` seeded | `invoice`) and
+  `page365_hold_unpaid_invoices` (`true` seeded). Both read with `value #>> '{}'`; seeded
+  only when absent.
+- `page365_stock_lines.stock_state` CHECK now `none | held | released | page365_master |
+  absorbed` (named `page365_stock_lines_stock_state_check`).
+- `page365_inventory_items.category` CHECK adds `not_synced` (named
+  `page365_inventory_items_category_check`). `invoice_holds` now means #195 held lines in
+  `invoice` mode, else unpaid imported invoice quantity.
+- `page365_invoice_holds(uuid) → integer` — service role only.
+- Redefined from their live bodies (md5 of `prosrc` guarded before and proven after):
+  `page365_apply_stock`, `page365_inventory_finish`, `page365_inventory_apply`,
+  `page365_inventory_record_photo`. `page365_stock_follow_order` asserted unchanged.
+- NEVER re-run 20260926120000 or 20260927100000 after this file: their CREATE OR REPLACE
+  would silently put the pre-PR 2 bodies back. (Re-running PR 2 afterwards repairs it —
+  its guard accepts the "before" bodies.)

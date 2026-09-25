@@ -10,6 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { MultiPick } from "@/components/website/MultiPick";
 import {
@@ -328,6 +329,26 @@ export default function ProductDialog({
                   <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Owner decision 2026-09-25. Enforced on the server too:
+                page365_inventory_apply / _record_photo and page365_apply_stock
+                read this column live; only manage_website_catalog may change it. */}
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border px-3 py-2.5">
+              <div className="min-w-0 space-y-0.5">
+                <Label htmlFor={`${formId}-page365-sync`}>Don’t sync with Page365</Label>
+                <p className="text-xs text-muted-foreground">
+                  On: the Page365 inventory fetch always skips this piece. Its website stock and photos are never
+                  changed from Page365, and a Page365 invoice import never moves its stock. For samples and pieces
+                  managed by hand.
+                </p>
+              </div>
+              <Switch
+                id={`${formId}-page365-sync`}
+                checked={form.page365SyncDisabled}
+                onCheckedChange={(v) => setForm((f) => ({ ...f, page365SyncDisabled: v }))}
+                data-testid="product-page365-sync-switch"
+              />
             </div>
           </div>
 

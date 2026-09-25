@@ -38,7 +38,12 @@
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
-import { previewPage365Stock, type Page365StockMatch } from "../_shared/page365-stock.ts";
+import {
+  firstWord, previewPage365Stock, readStockMode, type Page365StockMatch,
+} from "../_shared/page365-stock.ts";
+import {
+  STOREFRONT_ORIGIN, USER_AGENT, findListing, mainGalleryPhoto, readCatalogueList,
+} from "../_shared/page365-inventory.ts";
 
 /** The only hosts a link may point at. A URL anywhere else is refused. */
 const ALLOWED_HOSTS = ["chajewelsjapan.com", "www.chajewelsjapan.com"];
@@ -55,15 +60,20 @@ const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
  *  product_id the invoice line already carries, so look there before giving up.
  *  Two steps, in order, each bounded — a slow or unreachable webstore must
  *  never hold an import open:
- *    a) the product endpoint, by product_id      (one request, 6s)
- *    b) the paged product list, matched by SKU   (60 pages / 20s, shared)
+ *    a) the product endpoint, by product_id: the MAIN photo, i.e. the first of
+ *       photos[] in Page365's display order (the PR 1 reader, orderPhotos)
+ *    b) no product id: the catalogue list, read ONCE per fetch the PR 1 way
+ *       (F1, 2026-09-28): the list is cumulative ("load more" — page N holds the
+ *       first 16*N products and never runs out), so one request for the count
+ *       and one for page ceil(count/16) is the whole catalogue. The old walk
+ *       assumed disjoint pages ending in an empty one, re-downloaded ever
+ *       larger pages and ran into its 20 s budget. The line's code (first
+ *       word, F2) must match exactly ONE listing; then (a) on that product.
  *  NEITHER IS TRUSTED BLINDLY. Every response must parse as JSON and yield a
- *  usable URL through pickPhotoUrl, or the step is recorded as failed and the
- *  photo stays null. A guessed URL is never stored. */
-const WEBSTORE_ORIGIN = "https://www.chajewelsjapan.com";
+ *  usable URL, or the step is recorded as failed and the photo stays null. A
+ *  guessed URL is never stored. */
 const PHOTO_LOOKUP_TIMEOUT_MS = 6_000;
-const PHOTO_SCAN_MAX_PAGES = 60;
-const PHOTO_SCAN_BUDGET_MS = 20_000;
+const CATALOGUE_TIMEOUT_MS = 12_000;
 
 /** Yen is integral. Totals must reconcile to the yen, not "about". */
 const RECONCILE_TOLERANCE_JPY = 1;
@@ -84,9 +94,11 @@ interface DraftItem {
    *  rather than reporting "it is still blank". */
   photo_note: string | null;
   /** Read-only stock preview (migration 20260926120000_page365_stock_sync):
-   *  what the line's first word matches in the website catalogue and the stock
-   *  seen at fetch time. NOTHING is taken here — stock moves only when the
-   *  invoice is imported as a Hub order (owner rule D1). Null = not checked
+   *  what the line's first word matches in the website catalogue, the stock
+   *  seen at fetch time, and (PR 2) the matched variant and its "Don't sync
+   *  with Page365" switch. NOTHING is taken here. Since PR 2
+   *  (page365_stock_mode inventory_sync) the import itself only records the
+   *  match too; stock follows the Page365 inventory fetch. Null = not checked
    *  (the matcher was unavailable); the review screen says so. */
   stock_match: Page365StockMatch | null;
 }
@@ -101,13 +113,10 @@ function isServiceLine(name: string): boolean {
 }
 
 /** Page365 item names lead with the product code: "EM378 Diamond Earrings".
- *  That leading token is the natural SKU and is how staff recognise the piece;
- *  there is no sku field in the JSON. Returns null rather than guessing when
- *  the name does not start with something code-shaped. */
-function naturalSku(name: string): string | null {
-  const m = name.trim().match(/^([A-Z]{1,4}-?\d{1,6}[A-Z]?)\b/);
-  return m ? m[1] : null;
-}
+ *  The code is the FIRST WORD, upper-cased — the same rule as the stock match
+ *  (SQL page365_first_word) and the inventory fetch (F2, 2026-09-28). The old
+ *  code-shaped regex missed real codes such as R13R6, E8JS and 12M17. */
+const naturalSku = (name: string): string | null => firstWord(name);
 
 function toNumber(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -175,12 +184,12 @@ function pickPhotoUrl(...sources: Record<string, unknown>[]): string | null {
  *  failure comes back as prose because that prose is what the CSR is shown. */
 type JsonResult = { ok: true; json: unknown } | { ok: false; why: string };
 
-async function getJson(url: string): Promise<JsonResult> {
+async function getJson(url: string, timeoutMs = PHOTO_LOOKUP_TIMEOUT_MS): Promise<JsonResult> {
   try {
     const res = await fetchWithRetryOnRateLimit(url, {
       method: "GET",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(PHOTO_LOOKUP_TIMEOUT_MS),
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return { ok: false, why: `HTTP ${res.status}` };
     const text = await res.text();
@@ -194,7 +203,7 @@ async function getJson(url: string): Promise<JsonResult> {
     }
   } catch (e) {
     const name = (e as Error)?.name;
-    return { ok: false, why: name === "TimeoutError" ? `no answer within ${PHOTO_LOOKUP_TIMEOUT_MS / 1000}s` : String((e as Error)?.message ?? e) };
+    return { ok: false, why: name === "TimeoutError" ? `no answer within ${timeoutMs / 1000}s` : String((e as Error)?.message ?? e) };
   }
 }
 
@@ -213,27 +222,15 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-/** The list endpoint's envelope is not documented, so accept the shapes it
- *  could plausibly use rather than assuming one and reporting "no photo". */
-function asProductArray(json: unknown): Record<string, unknown>[] {
-  if (Array.isArray(json)) return json.filter(isObj);
-  if (isObj(json)) {
-    for (const k of ["products", "data", "items", "results"]) {
-      const v = json[k];
-      if (Array.isArray(v)) return v.filter(isObj);
-    }
-  }
-  return [];
-}
-
-/** A product name leads with its code ("R1056 Ring K18 …"), so the SKU must
- *  match at a WORD BOUNDARY — otherwise R105 would claim R1056's photo. */
-function skuMatches(productName: string, sku: string): boolean {
-  const n = productName.trim().toLowerCase();
-  const s = sku.trim().toLowerCase();
-  if (!s || !n.startsWith(s)) return false;
-  const next = n.charAt(s.length);
-  return next === "" || !/[a-z0-9]/.test(next);
+/** The MAIN photo of a /products/<id> response (shared mainGalleryPhoto: the
+ *  first of photos[] in Page365's display order), else the loose key search. An
+ *  order line records what was sold, so it keeps this ONE photo; the full
+ *  gallery belongs to the catalogue product (Website -> Page365 stock). */
+function mainPhotoOf(json: unknown): string | null {
+  const hit = mainGalleryPhoto(json);
+  if (hit) return hit;
+  const body = isObj(json) && isObj(json["product"]) ? json["product"] : json;
+  return isObj(body) ? pickPhotoUrl(body) : null;
 }
 
 function extFromUrl(url: string, contentType: string | null): string {
@@ -411,6 +408,9 @@ Deno.serve(async (req) => {
     // flagged, before anything is taken. Never blocks the fetch.
     const stockPreview = await previewPage365Stock(supabase, items);
     stockPreview.forEach((m, n) => { items[n].stock_match = m; });
+    // inventory_sync (PR 2): the import records these lines and never moves
+    // website stock; the review screen words its chips from this.
+    const stockMode = await readStockMode(supabase);
 
     const shippingJpy = Math.round(toNumber(raw["price_shipping"]) ?? 0);
     const subtotalJpy = Math.round(toNumber(raw["price_subtotal"]) ?? items.reduce((s, i) => s + i.line_total_jpy, 0));
@@ -459,84 +459,76 @@ Deno.serve(async (req) => {
     // picture is cosmetic, and is not worth refusing an otherwise sound import.
     const photoFailures: string[] = [];
 
+    // ── No duplicate files: reuse the catalogue's own copy ──────────────────
+    // A line that matched a website variant whose Page365 gallery is already
+    // copied (Website -> Page365 stock) takes that stored main photo. Nothing is
+    // downloaded or uploaded again.
+    const reuseVariants = [...new Set(items
+      .map((it) => (it.kind === "product" && it.stock_match?.result === "matched" ? it.stock_match.variant_id : null))
+      .filter((v): v is string => !!v))];
+    if (reuseVariants.length) {
+      const { data: media } = await supabase.from("website_product_media")
+        .select("variant_id, url, sort").in("variant_id", reuseVariants)
+        .not("page365_photo_id", "is", null).order("sort", { ascending: true });
+      const mainOf = new Map<string, string>();
+      for (const m of (media ?? []) as { variant_id: string; url: string }[]) {
+        if (!mainOf.has(m.variant_id)) mainOf.set(m.variant_id, m.url);
+      }
+      for (const it of items) {
+        const hit = it.stock_match?.variant_id ? mainOf.get(it.stock_match.variant_id) : undefined;
+        if (it.kind === "product" && hit) {
+          it.photo_url = hit;
+          it.photo_note = "main photo reused from the website catalogue (no second copy)";
+        }
+      }
+    }
+
     // ── Fallback: ask the webstore for the photos the invoice did not carry ──
-    // Bounded and shared: `scanDeadline` and `pageCache` span every line, so a
-    // four-line order cannot spend four times the budget, and a page fetched
-    // for line 1 is reused by line 3.
-    const scanDeadline = Date.now() + PHOTO_SCAN_BUDGET_MS;
-    const pageCache = new Map<number, Record<string, unknown>[]>();
-    let scanExhausted: string | null = null;
+    // The catalogue list is read at most once per fetch and shared by every line.
+    let catalogue: ReturnType<typeof readCatalogueList> | null = null;
+    const getCatalogue = (url: string) => getJson(url, CATALOGUE_TIMEOUT_MS);
 
     for (let n = 0; n < items.length; n++) {
-      if (items[n].source_photo_url || items[n].kind !== "product") continue;
+      if (items[n].photo_url || items[n].source_photo_url || items[n].kind !== "product") continue;
 
       const tried: string[] = [];
       const sku = items[n].sku;
-      const pid = productIds[n];
+      let pid = productIds[n];
 
-      // (a) Straight at the product, by the id the invoice line carries.
+      // (b) first when there is no product id: find it by the code, exactly.
+      if (!pid) {
+        tried.push("the Page365 line carried no product id");
+        if (!sku) {
+          tried.push("no code could be read from the line name, so the catalogue could not be searched");
+        } else {
+          catalogue ??= readCatalogueList(getCatalogue);
+          const list = await catalogue;
+          if (!list.ok) {
+            tried.push(`catalogue could not be read (${list.why})`);
+          } else {
+            const hit = findListing(list.items, sku);
+            if ("why" in hit) tried.push(hit.why);
+            else pid = String(hit.id);
+          }
+        }
+      }
+
+      // (a) The product page: its main photo.
       if (pid) {
-        const r = await getJson(`${WEBSTORE_ORIGIN}/products/${encodeURIComponent(pid)}`);
+        const r = await getJson(`${STOREFRONT_ORIGIN}/products/${encodeURIComponent(pid)}`);
         if (!r.ok) {
           tried.push(`product ${pid}: ${r.why}`);
         } else {
-          const body = isObj(r.json) && isObj(r.json["product"]) ? r.json["product"] : r.json;
-          const hit = isObj(body) ? pickPhotoUrl(body) : null;
+          const hit = mainPhotoOf(r.json);
           if (hit) {
             items[n].source_photo_url = hit;
-            items[n].photo_note = `photo found on the webstore product page (${pid})`;
+            items[n].photo_note = productIds[n]
+              ? `photo found on the webstore product page (${pid})`
+              : `photo found by the code ${sku} on the webstore catalogue (product ${pid})`;
             continue;
           }
           tried.push(`product ${pid}: returned JSON with no usable photo field`);
         }
-      } else {
-        tried.push("the Page365 line carried no product id, so the product page could not be tried");
-      }
-
-      // (b) Walk the catalogue looking for a name that starts with this SKU.
-      if (!sku) {
-        tried.push("no SKU could be read from the line name, so the catalogue could not be searched");
-      } else if (scanExhausted) {
-        tried.push(`catalogue search skipped (${scanExhausted})`);
-      } else {
-        let found: string | null = null;
-        let page = 1;
-        for (; page <= PHOTO_SCAN_MAX_PAGES; page++) {
-          if (Date.now() > scanDeadline) {
-            scanExhausted = `search budget of ${PHOTO_SCAN_BUDGET_MS / 1000}s spent`;
-            break;
-          }
-          let list = pageCache.get(page);
-          if (!list) {
-            const r = await getJson(`${WEBSTORE_ORIGIN}/products?page=${page}`);
-            if (!r.ok) {
-              scanExhausted = `page ${page}: ${r.why}`;
-              break;
-            }
-            list = asProductArray(r.json);
-            pageCache.set(page, list);
-          }
-          // An empty page is the end of the catalogue, not a failure.
-          if (list.length === 0) {
-            scanExhausted = `catalogue ends at page ${page - 1}`;
-            break;
-          }
-          const match = list.find((prod) => skuMatches(String(prod["name"] ?? ""), sku));
-          if (match) {
-            found = pickPhotoUrl(match);
-            if (!found) tried.push(`catalogue page ${page} matched ${sku} but the product had no usable photo field`);
-            break;
-          }
-        }
-        if (found) {
-          items[n].source_photo_url = found;
-          items[n].photo_note = `photo found by searching the webstore catalogue for ${sku} (page ${page})`;
-          continue;
-        }
-        if (!found && !scanExhausted && page > PHOTO_SCAN_MAX_PAGES) {
-          scanExhausted = `${PHOTO_SCAN_MAX_PAGES} pages searched without a match`;
-        }
-        if (scanExhausted) tried.push(`catalogue search stopped: ${scanExhausted}`);
       }
 
       // Nothing worked. Record exactly what was attempted and why each failed —
@@ -547,7 +539,7 @@ Deno.serve(async (req) => {
 
     for (let n = 0; n < items.length; n++) {
       const src = items[n].source_photo_url;
-      if (!src) continue;
+      if (!src || items[n].photo_url) continue;
       try {
         const imgRes = await fetchWithRetryOnRateLimit(src, { method: "GET" });
         if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
@@ -614,6 +606,7 @@ Deno.serve(async (req) => {
       shipping_option: raw["shipping_option"] ?? null,
       fetched_at: new Date().toISOString(),
       photo_failures: photoFailures,
+      stock_mode: stockMode,
     };
 
     const { data: draftRow, error: draftErr } = await supabase

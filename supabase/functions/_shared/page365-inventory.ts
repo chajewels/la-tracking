@@ -207,6 +207,53 @@ export function parseProductDetail(json: unknown, expectedId: number): Page365De
   };
 }
 
+/** The MAIN photo of a /products/<id> response: the first of photos[] in
+ *  Page365's display order. Null when there is no gallery the strict reader
+ *  accepts (the caller may then fall back to a looser search). */
+export function mainGalleryPhoto(json: unknown): string | null {
+  const body = isObj(json) && isObj(json["product"]) ? json["product"] : json;
+  if (!isObj(body)) return null;
+  try {
+    return orderPhotos(body["photos"])[0]?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type GetJson = (url: string) => Promise<{ ok: true; json: unknown } | { ok: false; why: string }>;
+
+/**
+ * The whole catalogue list in at most TWO requests: page 1 for the count, then
+ * page ceil(count/16) — the list is cumulative, so that page is everything.
+ * Strict: a list that is not complete is an error, never a partial search.
+ * (F1, 2026-09-28: page365-fetch-order used to walk pages 1..60 expecting an
+ * empty page at the end, which never comes, and ran into its 20 s budget.)
+ */
+export async function readCatalogueList(get: GetJson): Promise<{ ok: true; items: ListItem[] } | { ok: false; why: string }> {
+  const first = await get(`${STOREFRONT_ORIGIN}/products?page=1`);
+  if (!first.ok) return { ok: false, why: `catalogue count: ${first.why}` };
+  try {
+    const { count } = parseListEnvelope(first.json);
+    const page = lastListPage(count);
+    const full = page === 1 ? first : await get(`${STOREFRONT_ORIGIN}/products?page=${page}`);
+    if (!full.ok) return { ok: false, why: `catalogue page ${page}: ${full.why}` };
+    return { ok: true, items: checkCompleteList(parseListEnvelope(full.json)) };
+  } catch (e) {
+    return { ok: false, why: (e as Error).message };
+  }
+}
+
+/** Exactly one listing whose code (first word, F2) is `code`; otherwise why
+ *  not. Never a prefix match, never a guess between two. */
+export function findListing(items: ListItem[], code: string): { id: number } | { why: string } {
+  const want = firstWord(code);
+  const hits = items.filter(it => want !== null && firstWord(it.name) === want);
+  if (hits.length === 1) return { id: hits[0].id };
+  return hits.length === 0
+    ? { why: `no webstore listing has the code ${code}` }
+    : { why: `${hits.length} webstore listings share the code ${code}, so none was guessed` };
+}
+
 /** Where a copied photo lives: promotions/website/page365/<pid>/<photo>-<version>.<ext>.
  *  Deterministic, so a second copy of the same version is recognised. */
 export function photoStoragePath(page365ProductId: number, photo: Pick<Page365Photo, "id" | "version" | "url">,
