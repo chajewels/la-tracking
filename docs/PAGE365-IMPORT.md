@@ -280,8 +280,8 @@ photo Page365 later drops is reported (`photos_removed`), never deleted. Unique 
 `(variant_id, page365_photo_id)` makes a duplicate impossible. A fetch alone copies nothing.
 
 **PR 2 (2026-09-28)** switched invoice imports to record-only (`inventory_sync`) — next
-section. PR 3 adds the 30-min schedule (decreases only), PR 4 "Create drafts" —
-section DRAFTS below.
+section. PR 3 adds the 30-min schedule (decreases only) — section SCHEDULE below;
+PR 4 "Create drafts" — section DRAFTS below.
 
 ## PR 2 — PAGE365 IS THE STOCK MASTER (added 2026-09-28)
 
@@ -420,3 +420,83 @@ Other), Add category, Publish. `?view=page365-drafts` shows only Page365 drafts;
 
 **Not built.** Drafts from unmatched INVOICE lines (planned alongside PR 4 in §5.1) — the
 catalogue path covers every listed piece; filed in docs/PENDING.md.
+
+## SCHEDULE — automatic fetch every 30 minutes, decreases only (added 2026-09-30, PR 3 of 4)
+
+Migration `20260930100000_page365_inventory_schedule.sql` (owner runs it AFTER the release
+is on main and `page365-inventory-fetch` is redeployed). Local SQL tests:
+`docs/sql/20260930_page365_inventory_schedule_local_{stub,tests}.sql` (107 checks). Unit and
+pins: `src/test/page365-inventory-schedule.test.tsx`.
+
+**Owner rules (final, 2026-09-26).**
+- The scheduled fetch runs every 30 minutes and AUTOMATICALLY applies **decreases only**.
+  Increases, new products (Create drafts), price differences and photo copies are NEVER
+  automatic — they wait on the review screen for staff.
+- Same safety as manual: target = Page365 available − website holds (− unpaid invoice holds
+  while `page365_hold_unpaid_invoices`); compare-and-set; never below zero; products switched
+  to "Don't sync with Page365" always skipped (read live); a partial run (read errors, or the
+  catalogue shrank > 20 %) applies NOTHING; a run past its 30-minute window, or superseded by a
+  newer ready run, applies nothing.
+- The switch: Hub → Website → Page365 stock → "Automatic decreases every 30 minutes",
+  `system_settings.page365_inventory_auto_apply`, default OFF. Only `manage_website_catalog`
+  changes it (`set_page365_inventory_auto_apply`, one `audit_logs` row
+  `set_page365_inventory_auto_apply` per change); `trg_guard_page365_inventory_auto_apply`
+  refuses every other write (SQL Editor included). The migration never turns it on.
+- Politeness: ≤ 4 requests/s to Page365, one reader at a time, never overlapping a manual
+  fetch.
+
+**How a tick works.** pg_cron job `page365-inventory-schedule`, `2-59/5 * * * *`, POSTs
+`{action:"schedule"}` to `page365-inventory-fetch` with the Vault service key
+(`email_queue_service_role_key`, CRON AUTH RULE). The function accepts the service role ONLY
+for that action (JWT claims, `requireAuth(req, {allowServiceRole:true})`); signed-in staff get
+403 for it. Each tick (`scheduleDecision`, `_shared/page365-inventory.ts`):
+1. closes any scheduled run that ended but was not closed yet (a staff "Join" finished it, or
+   it was marked abandoned) — `page365_inventory_auto_apply_run`, idempotent;
+2. **skip** if a MANUAL fetch is reading (fresh within 10 min): it is staff's to finish;
+3. **resume** the scheduled run still reading;
+4. **wait** if the last scheduled run began < 27 min ago (so a new read begins every 30 min);
+5. **start**: retention first (`page365_inventory_retention(14)`), then the same two-request
+   list read as a manual fetch, `source = 'schedule'`, `started_by NULL`.
+It then reads chunks for up to ~100 s (one rate limiter for the whole invocation, ≤ 4 req/s);
+a ~570-product catalogue takes two ticks. When the run ends, the closer runs.
+
+**One reader — the lease.** Every chunk (manual `continue` and scheduled) first takes
+`page365_inventory_lease(run, holder, 120 s)`; the claim/read/store happens under it and it is
+released after. A caller that finds it taken gets `{busy: true}`: the browser waits 3 s and
+tries again (not counted as a stall); the tick waits 2 s. A crashed holder's lease lapses by
+itself. A staff "Fetch" during a scheduled read resumes that run ("Join scheduled fetch"), so
+the two take turns rather than read twice.
+
+**The closer — `page365_inventory_auto_apply_run(run)`** (service role only; the ONLY
+automatic stock writer). Once per scheduled run (`auto_apply_at`), it records
+`auto_apply_state`:
+`not_ready` (partial/failed — nothing) · `off` (switch off — nothing) · `window_passed`
+(now > created_at + 30 min — nothing) · `superseded` (a newer ready run — nothing) ·
+`applied`. Only `applied` writes stock, and only rows with `category = 'decrease'`,
+`status = 'review'`, `proposed < seen`, the product not switched off (live), no #195 hold in
+`invoice` mode, and `UPDATE … WHERE stock_qty = seen_stock AND stock_qty > proposed` — a
+website sale since the read is `changed_since_fetch`, never overwritten. Applied rows:
+`status applied`, `applied_by NULL`, `result_note 'auto_applied'` (the review shows
+"Auto-applied"). Skipped rows keep `status review` with a note. Audit: one
+`page365_inventory_auto_applied` per row (entity `website_product_variant`, `source:
+'schedule'`, performed_by NULL) and one `page365_inventory_auto_apply` per run while the
+switch is on. Bells, at most one per run: `page365_inventory_run_failed` (partial/failed
+scheduled read) or `page365_inventory_auto_applied` (≥ 1 decrease, codes listed); both open
+Website → Page365 stock. A Page365 outage therefore rings once per 30-minute run.
+
+**Manual apply is unchanged.** Staff can still tick increases (and any decrease the closer
+skipped) on a scheduled run, within its 24 h, until a newer ready run supersedes it. Because a
+scheduled run finishes every 30 minutes, a review left open longer is superseded — fetch or
+open the newest run.
+
+**Retention — `page365_inventory_retention(p_keep_days default 14, floor 7)`.** Runs older than
+the window, never a fetching run and never the latest ready run: nothing applied → the run and
+all its rows are deleted; something applied (stock or a draft) → the run row, every applied
+item and the product rows they point at are KEPT, the rest (unapplied items, other products,
+chunk log) deleted once (`pruned_at`). `audit_logs` is never touched. Called by the tick before
+each new run.
+
+**Hub UI.** Website → Page365 stock: new card "Automatic decreases every 30 minutes" (switch
+with confirm dialog, last change and who, last scheduled run time/status/what was applied, run
+history of the last 10 runs with source Scheduled/Manual). The inventory card shows the run's
+source, polls while a scheduled read is in progress, and marks auto-applied rows.

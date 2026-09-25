@@ -913,11 +913,13 @@ PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PA
 - **PR 2 — BUILT 2026-09-28** (migration 20260928100000; docs/PAGE365-IMPORT.md "PR 2").
   Invoice import record-only (`page365_stock_mode = inventory_sync`), held → absorbed,
   "Don't sync with Page365" switch, F1/F2, unpaid-invoice holds.
-- **PR 3 — 30-min schedule.** pg_cron + Vault key → `page365-inventory-fetch` with a
-  JWT-claims service-role path; auto-apply **decreases only**, gated by
-  `page365_inventory_auto_apply`; bells `page365_inventory_run_failed` /
-  `page365_inventory_rises_pending`. Must skip `not_synced` rows exactly like manual apply
-  (apply already refuses them server-side).
+- **PR 3 — BUILT 2026-09-30** (migration 20260930100000; docs/PAGE365-IMPORT.md "SCHEDULE").
+  Every-30-min fetch, auto-apply decreases only behind `page365_inventory_auto_apply`
+  (default OFF), lease, retention 14 days. Bells `page365_inventory_run_failed` /
+  `page365_inventory_auto_applied` (one per run, owner rule). NOT built from the plan: a
+  `page365_inventory_rises_pending` bell (the owner's final rules name only failed/applied).
+  Watch after go-live: a Page365 outage rings once per 30-min run — if that is too noisy,
+  ring only on the first failure after a ready run.
 - **PR 4 — "Create drafts"** from new Page365 codes: BUILT 2026-09-28 (docs/PAGE365-IMPORT.md
   "DRAFTS"). Still open: drafts from an unmatched INVOICE line, and a Hub-editable
   Page365-category → website-category map (today: jewelry-type first word, one Hub match).

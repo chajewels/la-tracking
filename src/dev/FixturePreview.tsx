@@ -213,8 +213,20 @@ export default function FixturePreview() {
       // review group — Website → Page365 stock, hub view. &inv=partial shows
       // an incomplete read (nothing tickable).
       const inv = buildPage365InventoryFixtures(searchParams.get('inv') === 'partial');
-      seed(['page365-inventory-run'], inv.run);
-      seed(['page365-inventory-items', inv.run.id], inv.items);
+      // PR 3 (2026-09-30): &sched=1 makes the latest run a SCHEDULED one whose
+      // decrease E1053 was applied automatically; &auto=1 shows the switch ON.
+      const sched = searchParams.get('sched') === '1';
+      const run = sched ? { ...inv.run, source: 'schedule', auto_apply_state: 'applied', auto_applied: 1 } : { ...inv.run, source: 'manual' };
+      const items = sched
+        ? inv.items.map((it) => (it.id === 'i2' ? { ...it, status: 'applied', result_note: 'auto_applied' } : it))
+        : inv.items;
+      seed(['page365-inventory-run'], run);
+      seed(['page365-inventory-items', inv.run.id], items);
+      seed(['page365-inventory-auto-apply'], {
+        found: true, enabled: searchParams.get('auto') === '1', updated_at: '2026-09-30T01:15:00Z',
+        updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo', can_change: true,
+      });
+      seed(['page365-inventory-run-history'], buildPage365RunHistory(run, sched));
       // PR 4 (2026-09-28): the Page365 category of each "new" listing, and a
       // catalog with two Page365 drafts (one ready, one missing origin and
       // category) and a Hub-made product — Website → Catalog, hub view.
@@ -1210,6 +1222,21 @@ function buildPage365InventoryFixtures(partial: boolean) {
     ['ip11', 'Rings MIJ'], ['ip12', 'SUPPLIER LISTINGS - PEARLS'], ['ip13', 'Rings MIJ'],
   ]);
   return { run, items: items.map((it) => ({ inventory_product_id: null, ...it })), listCategories };
+}
+
+/** PR 3: the last few runs as the schedule card lists them. */
+function buildPage365RunHistory(latest: Record<string, unknown>, sched: boolean) {
+  const r = (id: string, source: string, status: string, created_at: string, over: Record<string, unknown> = {}) => ({
+    id, source, status, error: null, page365_count: 572, products_total: 572, created_at, finished_at: created_at,
+    auto_apply_state: source === 'schedule' ? (sched ? 'applied' : 'off') : null, auto_applied: 0, ...over,
+  });
+  return [
+    { ...latest },
+    r('h2', 'schedule', 'partial', '2026-09-27T00:32:00Z', { error: '1 product(s) could not be read', auto_apply_state: 'not_ready' }),
+    r('h3', 'schedule', 'ready', '2026-09-27T00:02:00Z', sched ? { auto_applied: 2 } : {}),
+    r('h4', 'manual', 'ready', '2026-09-26T23:40:00Z'),
+    r('h5', 'schedule', 'failed', '2026-09-26T23:32:00Z', { error: 'list page 1: HTTP 502', auto_apply_state: 'not_ready' }),
+  ];
 }
 
 /** Catalog with Page365 drafts (PR 4): one ready to publish, one missing origin + category. */

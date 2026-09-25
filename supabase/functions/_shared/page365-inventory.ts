@@ -318,3 +318,31 @@ export function createRateLimiter(perSecond: number, concurrency: number,
     }
   };
 }
+
+/**
+ * PR 3 — what one scheduled tick (every 5 minutes) does, given the run that
+ * is reading now (if any) and when the last SCHEDULED run began:
+ *   skip    a staff (manual) fetch is reading — never overlap it
+ *   resume  the scheduled run is still reading — read more of it
+ *   wait    the last scheduled run began less than everyMs ago
+ *   start   begin a new scheduled run (an abandoned reader is closed by start)
+ */
+export type ScheduleAct =
+  | { act: "skip"; reason: "manual_fetch_in_progress" }
+  | { act: "resume" }
+  | { act: "wait"; reason: "not_due" }
+  | { act: "start" };
+
+export function scheduleDecision(
+  open: { source: string; updated_at: string } | null,
+  lastScheduledAt: string | null,
+  now: number,
+  abandonedAfterMs: number,
+  everyMs: number,
+): ScheduleAct {
+  if (open && now - new Date(open.updated_at).getTime() < abandonedAfterMs) {
+    return open.source === "schedule" ? { act: "resume" } : { act: "skip", reason: "manual_fetch_in_progress" };
+  }
+  if (lastScheduledAt && now - new Date(lastScheduledAt).getTime() < everyMs) return { act: "wait", reason: "not_due" };
+  return { act: "start" };
+}

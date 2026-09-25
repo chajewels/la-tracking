@@ -1300,10 +1300,37 @@ Migration `20260927100000_page365_inventory_fetch.sql`. Rules: docs/PAGE365-IMPO
   `page365_web_holds` (service role only).
 - `website_product_media.page365_photo_id bigint`, `page365_photo_version text`; unique
   `(variant_id, page365_photo_id) WHERE page365_photo_id IS NOT NULL`. NULL = staff photo.
-- `system_settings.page365_inventory_auto_apply` seeded `false` — unused until PR 3.
+- `system_settings.page365_inventory_auto_apply` seeded `false`; since PR 3 (20260930100000) the
+  guarded switch for automatic decreases (see "Page365 inventory schedule" below).
 - New `audit_logs` entity types: `website_product_variant` (actions
   `page365_inventory_applied`, `page365_photo_copied`) and `page365_inventory_run`
   (`page365_inventory_apply`).
+
+## Page365 inventory schedule — run columns, switch, closer (added 2026-09-30)
+
+Migration `20260930100000_page365_inventory_schedule.sql`. Rules: docs/PAGE365-IMPORT.md "SCHEDULE".
+
+- `page365_inventory_runs` new columns: `lease_holder text`, `lease_until timestamptz` (one
+  reader per run), `auto_apply_state` (CHECK `applied | off | not_ready | window_passed |
+  superseded`, NULL on manual runs), `auto_applied / auto_apply_changed / auto_apply_skipped
+  integer`, `auto_apply_at` (closed once), `notified_at` (the one bell), `pruned_at`
+  (retention). Index `(source, created_at DESC)`. `source` was already `manual | schedule`.
+- `system_settings.page365_inventory_auto_apply` — JSON true/false; written ONLY by
+  `set_page365_inventory_auto_apply(boolean, boolean)` (authenticated, `manage_website_catalog`
+  inside, audit `system_setting` / `set_page365_inventory_auto_apply`); read by
+  `get_page365_inventory_auto_apply()`; `trg_guard_page365_inventory_auto_apply` (BEFORE UPDATE
+  OR DELETE on system_settings) refuses any other change unless `app.allow_page365_auto_apply_change`
+  = on (set only inside the RPC).
+- Service role only: `page365_inventory_lease(uuid, text, integer)`,
+  `page365_inventory_release(uuid, text)`, `page365_inventory_auto_apply_run(uuid)`,
+  `page365_inventory_retention(integer)`.
+- New `audit_logs` actions: `page365_inventory_auto_applied` (entity `website_product_variant`,
+  performed_by NULL), `page365_inventory_auto_apply` (entity `page365_inventory_run`),
+  `set_page365_inventory_auto_apply` (entity `system_setting`).
+- New `staff_notifications.type`: `page365_inventory_run_failed`, `page365_inventory_auto_applied`
+  (metadata `run_id`, plus `applied` / `codes` or `status` / `error`).
+- pg_cron `page365-inventory-schedule` `2-59/5 * * * *` → `page365-inventory-fetch`
+  `{action:"schedule"}`, Vault key `email_queue_service_role_key`.
 
 ## Page365 drafts — source columns and publish rules (added 2026-09-28)
 
