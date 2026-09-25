@@ -1,7 +1,7 @@
 /**
  * Page365 "Create drafts" and Catalog bulk publish — review-screen logic.
  *
- * The rules are in SQL (migration 20260928100000_page365_inventory_drafts.sql):
+ * The rules are in SQL (migration 20260929100000_page365_inventory_drafts.sql):
  * page365_inventory_create_drafts decides what is created, skipped or failed,
  * and website_publish_products decides what may go live. This file only
  * filters the "New in Page365" list, counts it, and words the outcomes.
@@ -129,8 +129,9 @@ export const DRAFT_REASON: Record<string, string> = {
   not_new: 'no longer new',
   not_in_run: 'not part of this fetch',
   no_price: 'no price on Page365',
-  no_metal: 'no metal stamp (K18, PT900 …) in the Page365 name or description',
+  no_metal: 'jewelry with no metal stamp (K18, PT900 …) in the Page365 name or description',
   code_is_a_word: 'the Page365 name does not start with a product code',
+  sync_disabled: 'switched to “Don’t sync with Page365” — never created',
 };
 
 export const NEEDS_LABEL: Record<string, string> = {
@@ -165,7 +166,7 @@ export const PUBLISH_REFUSAL: Record<string, string> = {
  * draft still needs BEFORE they press Publish. The server decides.
  */
 export function publishMissing(p: {
-  origin?: string | null; brand?: string | null; metals?: unknown;
+  origin?: string | null; brand?: string | null; metals?: unknown; item_kind?: string | null;
   website_category_products?: unknown[] | null;
   website_product_variants?: { price_jpy?: number | null }[] | null;
 }): string[] {
@@ -173,7 +174,8 @@ export function publishMissing(p: {
   if (!p.origin || p.origin === 'UNKNOWN') out.push('origin');
   if (p.origin === 'BRAND' && !(p.brand ?? '').trim()) out.push('brand');
   if (!(p.website_category_products ?? []).length) out.push('category');
-  if (!Array.isArray(p.metals) || p.metals.length === 0) out.push('metal');
+  // A metal stamp is required only for jewelry (owner decision 2026-09-28).
+  if ((p.item_kind ?? 'jewelry') === 'jewelry' && (!Array.isArray(p.metals) || p.metals.length === 0)) out.push('metal');
   const vs = p.website_product_variants ?? [];
   if (!vs.length || vs.some(v => !(Number(v.price_jpy ?? 0) > 0))) out.push('price');
   return out;

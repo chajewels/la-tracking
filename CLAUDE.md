@@ -1536,7 +1536,16 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     only if clean. Idempotent (code exists / already drafted / sku UNIQUE).
     NOTHING GOES LIVE until published: website_publish_products (Catalog bulk
     Publish) refuses a product missing origin, category, brand (Branded), metal
-    or price, and trg_page365_draft_publish_guard backs it for Page365 drafts.
+    (jewelry only) or price, and trg_page365_draft_publish_guard backs it for
+    Page365 drafts. A code whose Hub product is switched to "Don't sync with
+    Page365" is NEVER drafted (sync_disabled, read live).
+  - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
+    item_kind (jewelry default | watch | other). CHECK
+    website_products_metals_jewelry requires >= 1 stamp for jewelry only;
+    watches and other items are created and published without one. Never
+    re-add an every-product stamp rule (website_products_metals_nonempty is
+    retired). A Page365 listing is a watch only if Page365 itself prints the
+    whole word "watch(es)" in its name or category.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

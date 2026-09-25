@@ -349,7 +349,7 @@ an oversell. Once the owner's test shows Page365 counts unpaid invoices, set the
 ## DRAFTS — "Create drafts" from new Page365 codes, and Catalog bulk Publish (added 2026-09-28, PR 4 of 4)
 
 Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` (PR 4, owner-approved).
-Migration `20260928100000_page365_inventory_drafts.sql` (owner runs it, AFTER PR 1 and PR 2's
+Migration `20260929100000_page365_inventory_drafts.sql` (owner runs it, AFTER PR 1 and PR 2's
 migrations). Hub: **Website → Page365 stock → New in Page365** (`Page365NewProductsPanel.tsx`)
 and **Website → Catalog** bulk bar (`CatalogBulkBar.tsx`). Behaviour tests:
 `docs/sql/20260928_page365_inventory_drafts_local_{stub,tests}.sql`; unit/pins:
@@ -379,7 +379,13 @@ reviews). Runs fetched before this release have no categories: fetch again.
 - Price = Page365's yen price for that variant; stock = Page365 available (a new variant
   has no website holds, so this IS max(0, available − holds)).
 - Metals: whole words equal to a Hub stamp, as printed in the name/description (K18, PT900,
-  …; "0.750ct" is not 750). None printed → **failed `no_metal`** (the column requires one).
+  …; "0.750ct" is not 750). **A stamp is required only for jewelry** (owner decision
+  2026-09-28, `website_products.item_kind`). A listing whose name or Page365 category
+  carries the whole word "watch"/"watches" is drafted as `item_kind = watch` and needs
+  none; anything else is jewelry, and jewelry with no stamp printed → **failed `no_metal`**.
+- "Don't sync with Page365" (PR 2): a code whose Hub product is switched off is never
+  drafted — `sync_disabled`, whether the fetch saw the switch (`not_synced`) or it was
+  switched on since (read live).
 - Category: only when the Page365 category's first word is a jewelry type (Rings MIJ,
   Necklace MIJ, …) AND exactly one Hub category has that slug/name (singular or plural).
   "SUPPLIER LISTINGS - …", "- BRANDED PRELOVED" → left unset, flagged **needs category**.
@@ -398,7 +404,8 @@ reviews). Runs fetched before this release have no categories: fetch again.
   per call.
 
 **Publishing** (`website_publish_products`, Catalog → select → Publish). Drafts only; each
-product missing origin, category, a brand name (origin BRAND), a metal stamp or a price stays
+product missing origin, category, a brand name (origin BRAND), a metal stamp (jewelry only —
+watches and other items need none) or a price stays
 a draft and is listed with what is missing (`website_product_publish_missing` is the one
 definition). Japanese is generated first for drafts that have none. Audited
 (`website_product_published`). `trg_page365_draft_publish_guard` refuses a Page365 draft

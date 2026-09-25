@@ -3,7 +3,8 @@
 -- the Hub does not, and bulk "Publish" in Catalog (PR 4 of 4).
 --
 -- OWNER RUNS THIS in the SQL Editor, as-is, after the release PR is on main
--- and AFTER 20260927100000_page365_inventory_fetch (PR 1) and PR 2's migration.
+-- and AFTER 20260927100000_page365_inventory_fetch (PR 1) and
+-- 20260928100000_page365_inventory_pr2 (PR 2 — both already live).
 -- One transaction. It is INERT until someone presses "Create drafts" or
 -- "Publish": nothing below touches an existing product, variant or photo.
 --
@@ -31,8 +32,21 @@
 --     anything else stay uncategorised and are flagged "needs category";
 --     publishing is refused until staff set one.
 --   * METAL STAMPS only as Page365 printed them (a whole word equal to one of
---     the Hub's stamps: K18, PT900, ...). None printed -> not created (the
---     column requires one), reported as failed with the reason.
+--     the Hub's stamps: K18, PT900, ...). A JEWELRY draft with none printed is
+--     not created (failed 'no_metal'). A listing Page365 itself calls a watch
+--     (the whole word "watch"/"watches" in its name or category) is drafted as
+--     item_kind 'watch' and needs no stamp.
+--   * METAL STAMP REQUIRED ONLY FOR JEWELRY (owner decision 2026-09-28). New
+--     column website_products.item_kind ('jewelry' default | 'watch' | 'other').
+--     The old CHECK website_products_metals_nonempty (every product >= 1
+--     stamp) is replaced by website_products_metals_jewelry (jewelry >= 1
+--     stamp; watches and other items may have none). Every existing product is
+--     'jewelry', so nothing already live changes. The karat bridge
+--     (sync_website_product_metals) no longer refills metals from karat for a
+--     non-jewelry item, and clears karat when there is no stamp — started from
+--     its live body, md5-guarded before and proven after (Bug #280).
+--   * "DON'T SYNC WITH PAGE365" (PR 2): a code whose Hub product is switched
+--     off is never drafted and never synced — skipped 'sync_disabled'.
 --   * DESCRIPTION only if Page365's text is clean (no links, e-mail, phone,
 --     @handles, HTML, or banned gold wording); otherwise left empty. Customer
 --     reviews are never read: the text comes from the catalogue LIST, which
@@ -41,15 +55,16 @@
 --     copier (page365-inventory-photos -> page365_inventory_record_photo) copies
 --     every photo in Page365's order, first = main, deduplicated per photo id.
 --   * BULK PUBLISH (website_publish_products) refuses any product missing
---     origin, category, a brand name (origin BRAND), a metal stamp or a price,
---     and names what is missing. A trigger backs this for Page365 drafts, so
---     the product dialog cannot publish one around it.
+--     origin, category, a brand name (origin BRAND), a metal stamp (JEWELRY
+--     only) or a price, and names what is missing. A trigger backs this for
+--     Page365 drafts, so the product dialog cannot publish one around it.
 --
 -- Guards: every dependency is checked first; the whole transaction aborts with
 -- NOTHING changed if the live schema is not what this was written against.
--- md5 guards (section 0b) pin the PR 1 function BODIES this relies on.
---   >>> PROVISIONAL: computed against PR 1 as merged (#197). They are
---   >>> regenerated against the post-PR 2 bodies before this PR leaves draft.
+-- md5 guards (section 0b) pin the live function BODIES this relies on — the
+-- post-PR 2 bodies of page365_inventory_finish / _apply / _record_photo
+-- (20260928100000) — and the body of sync_website_product_metals this file
+-- redefines (20260912142545, or this file's own body on a re-run).
 -- Re-running the file is safe (IF NOT EXISTS / CREATE OR REPLACE / DROP IF
 -- EXISTS on objects this file owns).
 -- ===========================================================================
@@ -103,6 +118,30 @@ BEGIN
     RAISE EXCEPTION 'page365_inventory_drafts: missing column(s): %', array_to_string(v_cols, ', ');
   END IF;
 
+  -- PR 2 must be live: the "Don't sync with Page365" switch is honoured here.
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+                  AND table_name = 'website_products' AND column_name = 'page365_sync_disabled') THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: website_products.page365_sync_disabled missing (run PR 2, 20260928100000, first)';
+  END IF;
+  -- The metal-stamp rule this file relaxes for non-jewelry items.
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+                  AND table_name = 'website_products' AND column_name = 'karat')
+     OR to_regprocedure('public.sync_website_product_metals()') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgname = 'trg_website_products_metals'
+                     AND t.tgrelid = 'public.website_products'::regclass) THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: karat / sync_website_product_metals / trg_website_products_metals missing';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = 'public.website_products'::regclass
+              AND k.conname = 'website_products_metals_nonempty'
+              AND pg_get_constraintdef(k.oid) NOT ILIKE '%cardinality(metals) >= 1%') THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: website_products_metals_nonempty is not the CHECK (cardinality(metals) >= 1) this replaces';
+  END IF;
+  SELECT count(*) INTO v_n FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'website_products' AND column_name = 'item_kind' AND data_type <> 'text';
+  IF v_n > 0 THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: website_products.item_kind exists with a different type';
+  END IF;
+
   IF to_regprocedure('public.page365_first_word(text)') IS NULL
      OR to_regprocedure('public.has_permission(uuid,text)') IS NULL
      OR to_regprocedure('public.page365_inventory_record_photo(uuid,bigint,text,text,text,integer,uuid)') IS NULL
@@ -154,22 +193,27 @@ END
 $pre$;
 
 -- ---------------------------------------------------------------------------
--- 0b. md5 guards on the PR 1 bodies whose behaviour this relies on
---     (md5 of pg_proc.prosrc — the text between the dollar quotes, which is
---     what was written and does not depend on the server's formatting):
---       page365_inventory_finish       unmatched code -> category 'new'
---       page365_inventory_apply        refuses category 'new' (not a stock change)
---       page365_inventory_record_photo copies onto any MATCHED item of a ready run
---     >>> PROVISIONAL — regenerate after PR 2 is merged (PR 2 changes finish
---     >>> and apply). A mismatch means the body is not the one this file was
---     >>> checked against: stop, nothing is written.
+-- 0b. md5 guards (md5 of pg_proc.prosrc — the text between the dollar quotes,
+--     which is what was written and does not depend on the server's
+--     formatting). Behaviour relied on, as of PR 2 (20260928100000):
+--       page365_inventory_finish       unmatched code -> 'new'; a switched-off
+--                                      product -> 'not_synced', never 'new'
+--       page365_inventory_apply        refuses 'new' (not a stock change) and
+--                                      any switched-off product
+--       page365_inventory_record_photo copies onto a MATCHED item of a ready
+--                                      run, never a switched-off product
+--     and the body this file redefines (section 2b):
+--       sync_website_product_metals    live = 20260912142545 (dad410b2…), or
+--                                      this file's body on a re-run
+--     A mismatch means live is not what this file was checked against: stop,
+--     nothing is written.
 -- ---------------------------------------------------------------------------
 DO $md5$
 DECLARE
   v_expect CONSTANT jsonb := jsonb_build_object(
-    'page365_inventory_finish(uuid)',                                    '725c035cb7785957c6e72c5c4fcc8ece',
-    'page365_inventory_apply(uuid,uuid[],uuid[])',                       '57c3077bc1cdc43b9d8f13114be73b18',
-    'page365_inventory_record_photo(uuid,bigint,text,text,text,integer,uuid)', '9ae3317140d44dae7f626996bb8c63c7');
+    'page365_inventory_finish(uuid)',                                    '9d0be9494288800686e2d6a90edb3304',
+    'page365_inventory_apply(uuid,uuid[],uuid[])',                       'e65757c2f32b597b2a55047d77783df3',
+    'page365_inventory_record_photo(uuid,bigint,text,text,text,integer,uuid)', 'c8f94536cf40167fe43a24967a6eefe9');
   v_fn  text;
   v_got text;
 BEGIN
@@ -180,6 +224,11 @@ BEGIN
         v_fn, coalesce(v_got, 'missing'), v_expect->>v_fn;
     END IF;
   END LOOP;
+  SELECT md5(p.prosrc) INTO v_got FROM pg_proc p WHERE p.oid = to_regprocedure('public.sync_website_product_metals()');
+  IF v_got IS DISTINCT FROM 'dad410b20a7e5b352627f219f5351550' AND v_got IS DISTINCT FROM '9e648e37e6c4079e0ee9cd3e9a68a829' THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: public.sync_website_product_metals() body md5 is %, expected dad410b20a7e5b352627f219f5351550 (live since 20260912142545) or 9e648e37e6c4079e0ee9cd3e9a68a829 (a re-run) — not the body this file was checked against',
+      coalesce(v_got, 'missing');
+  END IF;
 END
 $md5$;
 
@@ -211,6 +260,57 @@ COMMENT ON COLUMN public.website_products.page365_product_id IS
   'Page365 listing this product was drafted from (page365_inventory_create_drafts). Publishing such a product requires origin and a category (trg_page365_draft_publish_guard).';
 COMMENT ON COLUMN public.website_products.page365_category IS
   'Page365 category name when drafted, kept for staff reference only. The website category is the website_category_products row.';
+
+-- ---------------------------------------------------------------------------
+-- 2b. A metal stamp is required ONLY for jewelry (owner decision 2026-09-28).
+--     Existing rows all become 'jewelry' (the default), so every live product
+--     keeps the rule it has today.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.website_products
+  ADD COLUMN IF NOT EXISTS item_kind text NOT NULL DEFAULT 'jewelry';
+ALTER TABLE public.website_products DROP CONSTRAINT IF EXISTS website_products_item_kind_check;
+ALTER TABLE public.website_products
+  ADD CONSTRAINT website_products_item_kind_check CHECK (item_kind IN ('jewelry', 'watch', 'other'));
+COMMENT ON COLUMN public.website_products.item_kind IS
+  'What the piece is (2026-09-28): jewelry (default) | watch | other. A metal stamp (metals, >= 1) is required ONLY for jewelry (CHECK website_products_metals_jewelry); watches and other items may carry none, and publish checks follow the same rule (website_product_publish_missing).';
+
+ALTER TABLE public.website_products DROP CONSTRAINT IF EXISTS website_products_metals_nonempty;
+ALTER TABLE public.website_products DROP CONSTRAINT IF EXISTS website_products_metals_jewelry;
+ALTER TABLE public.website_products
+  ADD CONSTRAINT website_products_metals_jewelry CHECK (item_kind <> 'jewelry' OR cardinality(metals) >= 1);
+COMMENT ON COLUMN public.website_products.metals IS
+  'Metal stamps on the piece, in the order staff entered them; at least one for JEWELRY (item_kind), optional for watches and other items. Values: K24, K18, 750, 18K, K14, K10, PT1000, PT950, PT900, PT850, PM, PM900, SILVER925 — displayed exactly as the stamp, never merged. karat mirrors metals[1] (NULL when there is no stamp).';
+
+-- The karat bridge, from its live body (20260912142545). Changes: the refill
+-- from karat applies to jewelry only, and karat is cleared when there is no
+-- stamp — otherwise a watch could never drop a stamp it once had.
+CREATE OR REPLACE FUNCTION public.sync_website_product_metals()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF (NEW.metals IS NULL OR cardinality(NEW.metals) = 0) AND coalesce(NEW.item_kind, 'jewelry') = 'jewelry' THEN
+    IF NEW.karat IS NOT NULL THEN
+      NEW.metals := ARRAY[NEW.karat::text];
+    END IF;
+  END IF;
+  IF cardinality(NEW.metals) >= 1 THEN
+    NEW.karat := NEW.metals[1]::public.website_product_karat;
+  ELSE
+    NEW.karat := NULL;
+  END IF;
+  RETURN NEW;
+END $function$;
+
+DO $proof_metals$
+BEGIN
+  IF (SELECT md5(p.prosrc) FROM pg_proc p WHERE p.oid = to_regprocedure('public.sync_website_product_metals()'))
+     IS DISTINCT FROM '9e648e37e6c4079e0ee9cd3e9a68a829' THEN
+    RAISE EXCEPTION 'page365_inventory_drafts: sync_website_product_metals did not land as written; rolled back';
+  END IF;
+END
+$proof_metals$;
 
 -- ---------------------------------------------------------------------------
 -- 3. Helpers. Pure, deterministic; nothing is inferred beyond what they say.
@@ -314,6 +414,7 @@ DECLARE
   v_vid      uuid;
   v_existing uuid;
   v_needs    text[];
+  v_kind     text;
   v_created  jsonb := '[]'::jsonb;
   v_skipped  jsonb := '[]'::jsonb;
   v_failed   jsonb := '[]'::jsonb;
@@ -351,6 +452,22 @@ BEGIN
     IF v_it.result_note = 'draft_created' THEN
       v_skipped := v_skipped || jsonb_build_object('item_id', v_id, 'code', v_it.code, 'reason', 'already_created',
                                                    'product_id', v_it.website_product_id);
+      CONTINUE;
+    END IF;
+    -- "Don't sync with Page365" (PR 2): a code whose Hub product is switched
+    -- off is never drafted — whether the fetch already saw the switch
+    -- (category not_synced) or it was switched on since.
+    SELECT wp.id INTO v_existing FROM public.website_products wp
+     WHERE wp.page365_sync_disabled
+       AND (public.page365_first_word(wp.sku) = v_it.code
+         OR (wp.page365_product_id = v_it.page365_product_id AND wp.page365_variant_id = v_it.page365_variant_id))
+     ORDER BY wp.created_at LIMIT 1;
+    IF v_it.category = 'not_synced' OR v_existing IS NOT NULL THEN
+      v_skipped := v_skipped || jsonb_build_object('item_id', v_id, 'code', v_it.code, 'reason', 'sync_disabled',
+                                                   'product_id', coalesce(v_existing, v_it.website_product_id));
+      IF v_it.status = 'review' THEN
+        UPDATE public.page365_inventory_items SET result_note = 'sync_disabled' WHERE id = v_id;
+      END IF;
       CONTINUE;
     END IF;
     IF v_it.kind <> 'page365' OR v_it.category <> 'new' OR v_it.match_result <> 'unmatched' OR v_it.status <> 'review'
@@ -391,11 +508,17 @@ BEGIN
     v_cond  := CASE WHEN v_name ~* '\[\s*pre-?loved\s*\]' OR coalesce(v_prod.list_category, '') ~* 'pre-?loved'
                     THEN 'Preloved' ELSE 'New' END;
     v_cat   := public.page365_category_for(v_prod.list_category);
+    -- Only what Page365 printed: the whole word "watch"/"watches" in the name
+    -- or the Page365 category makes a watch (no stamp required). Anything
+    -- else is jewelry. Staff can change it in the product dialog.
+    v_kind  := CASE WHEN (v_name || ' ' || coalesce(v_it.page365_name, '') || ' ' || coalesce(v_prod.list_category, ''))
+                         ~* '\mwatch(es)?\M' THEN 'watch' ELSE 'jewelry' END;
 
     -- A listing whose name starts with a word, not a code ("Necklace K18 …"):
     -- the first-word rule would make "NECKLACE" the sku. Never.
-    IF regexp_replace(lower(v_it.code), 's$', '') IN ('ring','necklace','pendant','bracelet','earring','bangle','anklet',
-                                                      'brooch','charm','chain','pearl','set','new','preloved')
+    IF regexp_replace(regexp_replace(lower(v_it.code), 'es$', ''), 's$', '')
+         IN ('ring','necklace','pendant','bracelet','earring','bangle','anklet',
+             'brooch','charm','chain','pearl','set','new','preloved','watch')
        OR upper(v_it.code) = ANY (ARRAY['K24','K18','750','18K','K14','K10','PT1000','PT950','PT900','PT850','PM','PM900','SILVER925']) THEN
       v_failed := v_failed || jsonb_build_object('item_id', v_id, 'code', v_it.code, 'reason', 'code_is_a_word');
       CONTINUE;
@@ -404,7 +527,7 @@ BEGIN
       v_failed := v_failed || jsonb_build_object('item_id', v_id, 'code', v_it.code, 'reason', 'no_price');
       CONTINUE;
     END IF;
-    IF cardinality(v_metals) = 0 THEN
+    IF cardinality(v_metals) = 0 AND v_kind = 'jewelry' THEN
       v_failed := v_failed || jsonb_build_object('item_id', v_id, 'code', v_it.code, 'reason', 'no_metal');
       CONTINUE;
     END IF;
@@ -417,9 +540,9 @@ BEGIN
     END IF;
 
     BEGIN
-      INSERT INTO public.website_products (sku, slug, name, status, origin, condition, metals, description_en,
+      INSERT INTO public.website_products (sku, slug, name, status, origin, condition, metals, item_kind, description_en,
                                            page365_product_id, page365_variant_id, page365_category)
-      VALUES (v_it.code, v_slug, v_name, 'draft', 'UNKNOWN', v_cond, v_metals, v_desc,
+      VALUES (v_it.code, v_slug, v_name, 'draft', 'UNKNOWN', v_cond, v_metals, v_kind, v_desc,
               v_it.page365_product_id, v_it.page365_variant_id, v_prod.list_category)
       RETURNING id INTO v_pid;
 
@@ -446,7 +569,7 @@ BEGIN
       INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id)
       VALUES ('website_product', v_pid, 'page365_draft_created',
               jsonb_build_object('run_id', p_run_id, 'item_id', v_id, 'sku', v_it.code, 'name', v_name,
-                                 'price_jpy', v_price, 'stock_qty', v_stock, 'metals', to_jsonb(v_metals),
+                                 'price_jpy', v_price, 'stock_qty', v_stock, 'metals', to_jsonb(v_metals), 'item_kind', v_kind,
                                  'condition', v_cond, 'category_id', v_cat, 'page365_category', v_prod.list_category,
                                  'description_copied', v_desc IS NOT NULL, 'photos', jsonb_array_length(v_prod.photos),
                                  'page365_product_id', v_it.page365_product_id, 'page365_variant_id', v_it.page365_variant_id,
@@ -491,7 +614,8 @@ AS $fn$
     CASE WHEN wp.origin IS NULL OR wp.origin = 'UNKNOWN' THEN 'origin' END,
     CASE WHEN wp.origin = 'BRAND' AND coalesce(btrim(wp.brand), '') = '' THEN 'brand' END,
     CASE WHEN NOT EXISTS (SELECT 1 FROM public.website_category_products c WHERE c.product_id = wp.id) THEN 'category' END,
-    CASE WHEN cardinality(wp.metals) = 0 THEN 'metal' END,
+    -- A metal stamp is required only for jewelry (owner decision 2026-09-28).
+    CASE WHEN wp.item_kind = 'jewelry' AND cardinality(wp.metals) = 0 THEN 'metal' END,
     CASE WHEN NOT EXISTS (SELECT 1 FROM public.website_product_variants v WHERE v.product_id = wp.id)
               OR EXISTS (SELECT 1 FROM public.website_product_variants v WHERE v.product_id = wp.id AND coalesce(v.price_jpy, 0) <= 0)
          THEN 'price' END
@@ -583,7 +707,7 @@ BEGIN
     CASE WHEN NEW.origin IS NULL OR NEW.origin = 'UNKNOWN' THEN 'origin' END,
     CASE WHEN NEW.origin = 'BRAND' AND coalesce(btrim(NEW.brand), '') = '' THEN 'brand' END,
     CASE WHEN NOT EXISTS (SELECT 1 FROM public.website_category_products c WHERE c.product_id = NEW.id) THEN 'category' END,
-    CASE WHEN cardinality(NEW.metals) = 0 THEN 'metal' END,
+    CASE WHEN NEW.item_kind = 'jewelry' AND cardinality(NEW.metals) = 0 THEN 'metal' END,
     CASE WHEN NOT EXISTS (SELECT 1 FROM public.website_product_variants v WHERE v.product_id = NEW.id)
               OR EXISTS (SELECT 1 FROM public.website_product_variants v WHERE v.product_id = NEW.id AND coalesce(v.price_jpy, 0) <= 0)
          THEN 'price' END
@@ -635,6 +759,15 @@ BEGIN
      OR public.page365_category_for('- BRANDED PRELOVED') IS NOT NULL THEN
     RAISE EXCEPTION 'page365_inventory_drafts self-check: page365_category_for maps a non-type category';
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.website_products'::regclass
+              AND conname = 'website_products_metals_nonempty')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.website_products'::regclass
+                     AND conname = 'website_products_metals_jewelry') THEN
+    RAISE EXCEPTION 'page365_inventory_drafts self-check: the metal rule is not jewelry-only';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.website_products WHERE item_kind = 'jewelry' AND cardinality(metals) = 0) THEN
+    RAISE EXCEPTION 'page365_inventory_drafts self-check: a jewelry product has no metal stamp';
+  END IF;
   IF to_regclass('public.uq_website_products_page365_source') IS NULL THEN
     RAISE EXCEPTION 'page365_inventory_drafts self-check: source uniqueness index missing';
   END IF;
@@ -678,6 +811,20 @@ COMMIT;
 --  WHERE p.run_id = (SELECT id FROM public.page365_inventory_runs ORDER BY created_at DESC LIMIT 1)
 --  GROUP BY 1, 3 ORDER BY 2 DESC;
 --     (Empty until a fetch runs on the redeployed page365-inventory-fetch.)
+--
+-- (6) The metal rule; expect: f | t | t | 0 | 0
+-- SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'website_products_metals_nonempty') AS old_rule,
+--        EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'website_products_metals_jewelry')  AS jewelry_rule,
+--        EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'website_products_item_kind_check') AS kind_check,
+--        (SELECT count(*) FROM public.website_products WHERE item_kind <> 'jewelry')            AS non_jewelry,
+--        (SELECT count(*) FROM public.website_products WHERE item_kind = 'jewelry' AND cardinality(metals) = 0) AS jewelry_without_stamp;
+--
+-- (7) Bodies; expect sync_website_product_metals = 9e648e37e6c4079e0ee9cd3e9a68a829 and the three
+--     PR 2 bodies unchanged: finish 9d0be9494288800686e2d6a90edb3304,
+--     apply e65757c2f32b597b2a55047d77783df3, record_photo c8f94536cf40167fe43a24967a6eefe9
+-- SELECT proname, md5(prosrc) FROM pg_proc
+--  WHERE proname IN ('sync_website_product_metals','page365_inventory_finish','page365_inventory_apply',
+--                    'page365_inventory_record_photo') ORDER BY 1;
 --
 -- (5) Existing products are untouched: every product live before this file is
 --     Hub-made; expect: 0

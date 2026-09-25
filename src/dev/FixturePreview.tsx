@@ -1288,5 +1288,7 @@ function buildCatalogSyncFixtures() {
   return [
     product('fixture-wp-n4020', 'N4020', 'Necklace Tiffany & Co. 750 Open Teardrop (sample)', true, 1),
     product('fixture-wp-r7828', 'R7828', 'Ring 750YG/WG 19.0g Diamond 2.70ct', false, 1),
+    // Owner decision 2026-09-28: a watch needs no metal stamp.
+    { ...product('fixture-wp-w9001', 'W9001', 'Rolex Datejust 36mm Steel', false, 1), item_kind: 'watch', metals: [] },
   ];
 }

@@ -23,7 +23,7 @@ import {
 } from "@/lib/website-catalog-import";
 import {
   type MediaRow, type ProductForm, type VariantRow, TEMPLATE_PATH,
-  emptyProduct, emptyVariant, metalsLabel, slugify, yen,
+  ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, slugify, yen,
 } from "@/components/website/product-form";
 
 /**
@@ -165,6 +165,7 @@ export default function ProductsCard() {
       name: p.name ?? "",
       name_ja: p.name_ja ?? "",
       savedName: p.name ?? "",
+      itemKind: itemKindFrom(p.item_kind),
       metals: (Array.isArray(p.metals) && p.metals.length ? p.metals : p.karat ? [p.karat] : [])
         .filter((m: string): m is MetalValue => (METAL_VALUES as readonly string[]).includes(m)),
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
@@ -246,7 +247,8 @@ export default function ProductsCard() {
   const save = useMutation({
     mutationFn: async (f: ProductForm) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
-      if (!f.metals.length) throw new Error("Pick at least one metal stamp.");
+      // Jewelry only (owner decision 2026-09-28; DB CHECK website_products_metals_jewelry).
+      if (metalRequired(f.itemKind) && !f.metals.length) throw new Error("Pick at least one metal stamp — required for jewelry.");
       if (!f.variants.length) throw new Error("Add at least one variant.");
       if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
@@ -287,6 +289,7 @@ export default function ProductsCard() {
         slug,
         name,
         name_ja: nameJa || null,
+        item_kind: f.itemKind,
         metals: f.metals,
         weight_g: f.weight_g,
         condition: f.condition,
@@ -564,7 +567,14 @@ export default function ProductsCard() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell>{metalsLabel(p.metals, p.karat)}</TableCell>
+                    <TableCell>
+                      {metalsLabel(p.metals, p.karat)}
+                      {itemKindFrom(p.item_kind) !== "jewelry" && (
+                        <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground">
+                          {ITEM_KIND_LABEL[itemKindFrom(p.item_kind)]}
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {p.condition === "Preloved"
                         ? <Badge variant="secondary">Preloved</Badge>

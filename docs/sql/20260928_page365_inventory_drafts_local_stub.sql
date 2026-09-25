@@ -2,7 +2,7 @@
 -- Page365 inventory drafts — LOCAL test stub (2026-09-28). NEVER RUN THIS ON LIVE.
 --
 -- Runs AFTER the #195 and PR 1 stubs + migrations, and adds only what
--- migration 20260928100000_page365_inventory_drafts.sql reads on top of them:
+-- migration 20260929100000_page365_inventory_drafts.sql reads on top of them:
 -- the product columns a draft writes (slug, origin, brand, condition, metals,
 -- descriptions) with the live CHECKs and the live gold-terminology trigger,
 -- and the website category tables. Same opt-in guard as the other stubs.
@@ -13,9 +13,11 @@
 --   $P supabase/migrations/20260926120000_page365_stock_sync.sql
 --   $P docs/sql/20260927_page365_inventory_fetch_local_stub.sql
 --   $P supabase/migrations/20260927100000_page365_inventory_fetch.sql
+--   $P docs/sql/20260928_page365_inventory_pr2_local_stub.sql
+--   $P supabase/migrations/20260928100000_page365_inventory_pr2.sql
 --   $P docs/sql/20260928_page365_inventory_drafts_local_stub.sql
---   $P supabase/migrations/20260928100000_page365_inventory_drafts.sql
---   $P supabase/migrations/20260928100000_page365_inventory_drafts.sql   # re-run is safe
+--   $P supabase/migrations/20260929100000_page365_inventory_drafts.sql
+--   $P supabase/migrations/20260929100000_page365_inventory_drafts.sql   # re-run is safe
 --   $P docs/sql/20260928_page365_inventory_drafts_local_tests.sql
 -- ============================================================================
 DO $guard$
@@ -57,6 +59,41 @@ DO $$ BEGIN
   ALTER TABLE public.website_products ADD CONSTRAINT website_products_metals_values CHECK (
     metals <@ ARRAY['K24','K18','750','18K','K14','K10','PT1000','PT950','PT900','PT850','PM','PM900','SILVER925']::text[]);
 EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$;
+
+-- The live karat bridge, verbatim (20260912142545): the enum, the column and
+-- sync_website_product_metals() as live has them, so the migration's md5
+-- guard and its redefinition run against the real body.
+DO $$ BEGIN
+  CREATE TYPE public.website_product_karat AS ENUM
+    ('K24','K18','750','18K','K14','K10','PT1000','PT950','PT900','PT850','PM','PM900','SILVER925');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE public.website_products ADD COLUMN IF NOT EXISTS karat public.website_product_karat;
+DO $$ BEGIN
+  IF to_regprocedure('public.sync_website_product_metals()') IS NULL THEN
+    EXECUTE $def$
+CREATE FUNCTION public.sync_website_product_metals()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.metals IS NULL OR cardinality(NEW.metals) = 0 THEN
+    IF NEW.karat IS NOT NULL THEN
+      NEW.metals := ARRAY[NEW.karat::text];
+    END IF;
+  END IF;
+  IF cardinality(NEW.metals) >= 1 THEN
+    NEW.karat := NEW.metals[1]::public.website_product_karat;
+  END IF;
+  RETURN NEW;
+END $function$;
+$def$;
+  END IF;
+END $$;
+DROP TRIGGER IF EXISTS trg_website_products_metals ON public.website_products;
+CREATE TRIGGER trg_website_products_metals
+  BEFORE INSERT OR UPDATE ON public.website_products
+  FOR EACH ROW EXECUTE FUNCTION public.sync_website_product_metals();
 
 -- The live terminology trigger, verbatim (20260911190000).
 CREATE OR REPLACE FUNCTION public.reject_forbidden_gold_terms()

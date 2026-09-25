@@ -18,7 +18,8 @@ import { publishProducts } from "@/lib/page365-drafts-api";
  * Catalog bulk actions on the selected products: set origin, add a category,
  * and PUBLISH. Publishing goes through website_publish_products, which refuses
  * any product still missing origin, category, a brand name (Branded), a metal
- * stamp or a price and names what is missing. Before publishing, a draft whose
+ * stamp (jewelry only — watches and other items need none) or a price and
+ * names what is missing. Before publishing, a draft whose
  * Japanese was never generated is translated (English is the source; failures
  * never block — Regenerate retries).
  */

@@ -2,7 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { CreateDraftsResult, PublishResult } from '@/lib/page365-drafts';
 
 /**
- * RPCs and columns from migration 20260928100000_page365_inventory_drafts are
+ * RPCs and columns from migration 20260929100000_page365_inventory_drafts are
  * not in src/integrations/supabase/types.ts until Lovable regenerates it.
  * types.ts is never hand-edited (CLAUDE.md, GENERATED FILES), so the untyped
  * access lives here.
