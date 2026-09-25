@@ -164,13 +164,14 @@ describe("yen full payment is unchanged", () => {
     expect(body).toMatch(/'total_jpy', v_quote\.total_jpy,/);
   });
 
-  it("the website quote converts only a PESO full payment with the integer helper", () => {
+  it("the website quote converts pesos with the integer helper (full payment; layaway since H3)", () => {
     const src = code(WEBSITE);
     expect(src).toMatch(/if \(mode === "full" && fxRate !== null\) \{[\s\S]{0,400}settleFullPaymentInPhp\(total, shipping, fxRate\)/);
     // GET /checkout/quote/:id re-derives the same figures from the saved quote.
     expect(src).toMatch(/if \(String\(row\.mode \?\? "full"\) === "full" && fxRate !== null\) \{\s+\(\{ total: totalSettle, shipping: shippingSettle, subtotal: subtotalSettle \} =\s+settleFullPaymentInPhp\(totalJpy, shippingJpy, fxRate\)\);/);
-    // A yen quote never reads a rate, so toSettle is the identity for it.
-    expect(src).toMatch(/const toSettle = \(jpy: number\) => \(fxRate === null \? jpy : Math\.round\(jpy \* fxRate\)\);/);
+    // A yen quote never reads a rate, so toSettle is the identity for it; a
+    // peso layaway uses the exact half-up since H3 (2026-09-25, hub-down-payments.test.ts).
+    expect(src).toMatch(/const toSettle = \(jpy: number\) => \(fxRate === null \? jpy : jpyToPhpHalfUp\(jpy, fxRate\)\);/);
     expect(src).toMatch(/if \(settlement === "PHP"\) \{\s+const fx = await latestFx\(supabase\);\s+if \(!fx\) return jsonResponse\(\{ error: "fx_unavailable" \}, 503\);/);
   });
 

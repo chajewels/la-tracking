@@ -42,7 +42,7 @@ them to `PRODUCT_FIELDS`.
 | `GET /catalog/collections` | The seven jewelry types | Ordered by name. Bilingual: `name_en` / `name_ja` / `description_en` / `description_ja` (`name` and `description` remain as English aliases). |
 | `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. Same bilingual fields as the list. |
 | `GET /fx` | `{ jpy_php, as_of }` | 404 when `fx_rates` is empty. |
-| `POST /layaway/quote` | Term pricing | Body `{ price, term_months?, currency? }`. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
+| `POST /layaway/quote` | Term pricing | Preferred body `{ price_jpy, term_months?, currency? }` (2026-09-25): a **yen** price quoted in either currency — for PHP the Hub converts (half-up) and quotes in pesos against `min_amount_php`; no rate → 503 `fx_unavailable`; the answer adds `price_jpy`, `fx_rate`, `fx_as_of`. Legacy body `{ price, term_months?, currency? }` (price read in `currency`) unchanged. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |
 | `POST /claims/:code/checkout` | — | **501 not_implemented.** Phase 2. |
 | `POST /loyalty/join` | Failure fallback | Failure fallback only — records a storefront enrollment that did NOT complete in `loyalty_signups` and raises staff bell `loyalty_join_failed`. It never enrolls. Real storefront enrollment calls `join-loyalty-program` directly with the customer JWT and `source` = `storefront_checkout` \| `storefront_join`. |
@@ -230,8 +230,19 @@ it; Vault-backed auth per the CRON AUTH RULE).
 The `website` function derives the peso figure **per request**:
 
 ```
-price_php = round(price_jpy × jpy_php)
+price_php = round(price_jpy × jpy_php)      -- half-up to a whole peso, integer-exact
 ```
+
+Since 2026-09-25 (H-DP) this is `jpyToPhpHalfUp` (`_shared/settlement.ts`), the
+same integer arithmetic a peso checkout stores, so a catalog peso price cannot
+land ₱1 low on an exact .5. Each variant also carries the **down payment** for
+the piece alone — `down_payment_jpy` / `down_payment_php` / `down_payment_pct`
+— from one `website_down_payments` call per catalog request. That SQL function
+calls `layaway_quote` itself (yen: on `price_jpy`; pesos: on `price_php`,
+convert first then 30%, both half-up), so the "reserve with" figure a customer
+sees is the deposit a peso plan would store for that piece at ₱0 shipping. A
+figure the Hub cannot produce is omitted, never estimated
+(`supabase/contracts/api.md` "Product shape").
 
 There is no stored peso column — `price_php` and `description_tl` were dropped
 from `website_products` in migration `20260908121000`. Never reintroduce a

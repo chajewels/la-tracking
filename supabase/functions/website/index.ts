@@ -8,7 +8,8 @@ import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.t
 import * as React from "npm:react@18.3.1";
 import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
-import { settleFullPaymentInPhp } from "../_shared/settlement.ts";
+import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
+import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
 import { sendLayawayReservedEmail, sendOrderReservedEmail } from "../_shared/reservation-emails.ts";
 import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
@@ -226,8 +227,9 @@ function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null 
     const media = (v.product_media as AnyRec[] | undefined) ?? [];
     media.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
     delete v.sort;
-    const jpy = Number(v.price_jpy ?? 0);
-    v.price_php = fx && Number.isFinite(jpy) ? Math.round(jpy * fx.jpy_php) : null;
+    // Exact half-up (H-DP): the conversion a peso checkout stores, to the
+    // peso. Down payments are added per request by attachDownPayments.
+    v.price_php = variantPricePhp(v.price_jpy ?? 0, fx);
   }
   return product;
 }
@@ -570,6 +572,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .filter((p): p is AnyRec => !!p && p.status === "active")
         .map((p) => shapeProduct(p, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
@@ -619,6 +622,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = rows
         .map((r) => shapeProduct(r.product, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
 
       return jsonResponse(scrub({ ...(category as AnyRec), products }));
@@ -636,7 +640,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (error) throw error;
       if (!data) return notFound();
       const fx = await latestFx(supabase);
-      return jsonResponse(scrub(shapeProduct(data as AnyRec, fx)));
+      const product = shapeProduct(data as AnyRec, fx);
+      await attachDownPayments(supabase, [product], fx);
+      return jsonResponse(scrub(product));
     }
 
     // GET /catalog/products?featured=1&limit=8 | ?fields=slug,updated_at&limit=5000
@@ -669,6 +675,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = (data ?? [])
         .map((p) => shapeProduct(p as AnyRec, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
       return jsonResponse(scrub(products));
     }
@@ -801,23 +808,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
     // POST /layaway/quote
     if (req.method === "POST" && segments[0] === "layaway" && segments[1] === "quote") {
+      // { price_jpy, term_months, currency } (H-DP): a YEN price quoted in
+      // either currency — the Hub converts, the storefront never does. The
+      // legacy { price, currency } shape is unchanged. See planLayawayQuote.
       const body = await req.json().catch(() => ({}));
-      const price = Number(body?.price);
-      const term = Number(body?.term_months);
-      const currency = String(body?.currency ?? "JPY").toUpperCase();
-      if (!Number.isFinite(price) || price < 0) {
-        return jsonResponse({ error: "invalid_price" }, 400);
-      }
-      if (!["JPY", "PHP"].includes(currency)) {
-        return jsonResponse({ error: "invalid_currency" }, 400);
-      }
-      const { data, error } = await supabase.rpc("layaway_quote", {
-        p_price: Math.round(price),
-        p_term_months: Number.isFinite(term) ? Math.round(term) : 3,
-        p_currency: currency,
-      });
+      const plan = await planLayawayQuote(body, () => latestFx(supabase));
+      if ("error" in plan) return jsonResponse({ error: plan.error }, plan.status);
+      const { data, error } = await supabase.rpc("layaway_quote", plan.args);
       if (error) throw error;
-      return jsonResponse(scrub(data));
+      return jsonResponse(scrub(plan.extra ? { ...(data as AnyRec), ...plan.extra } : data));
     }
 
     // GET /claims/:code
@@ -1335,7 +1334,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Shipping is converted and the subtotal is the remainder, so the parts
       // always sum to the total exactly — converting each and adding can differ
       // by one peso.
-      const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
+      // Exact half-up (H3, 2026-09-25): the peso layaway quote now uses the
+      // same integer arithmetic as create_web_layaway_atomic's
+      // round(total_jpy * fx_rate), so it cannot land ₱1 low on an exact .5.
+      const toSettle = (jpy: number) => (fxRate === null ? jpy : jpyToPhpHalfUp(jpy, fxRate));
       let totalSettle: number;
       let shippingSettle: number | null;
       let subtotalSettle: number;
@@ -1347,7 +1349,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ({ total: totalSettle, shipping: shippingSettle, subtotal: subtotalSettle } =
           settleFullPaymentInPhp(total, shipping, fxRate));
       } else {
-        // Layaway (either currency) and yen full payment: unchanged.
+        // Layaway (either currency; pesos exact half-up since H3) and yen full payment.
         totalSettle = toSettle(total);
         shippingSettle = shipping === null ? null : toSettle(shipping);
         subtotalSettle = totalSettle - (shippingSettle ?? 0);
@@ -1562,9 +1564,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       // Same arithmetic as the POST: shipping is converted and the subtotal is
       // the remainder, so the parts sum to the total exactly. A peso FULL
-      // payment uses the integer half-up the order will be stored with; a
-      // layaway (and anything in yen) is unchanged.
-      const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
+      // payment uses the integer half-up the order will be stored with, and
+      // since H3 (2026-09-25) so does a peso layaway — the same arithmetic as
+      // create_web_layaway_atomic's round(total_jpy * fx_rate). Yen unchanged.
+      const toSettle = (jpy: number) => (fxRate === null ? jpy : jpyToPhpHalfUp(jpy, fxRate));
       let totalSettle: number;
       let shippingSettle: number | null;
       let subtotalSettle: number;
