@@ -3421,6 +3421,107 @@ export type Database = {
         }
         Relationships: []
       }
+      page365_stock_lines: {
+        Row: {
+          account_id: string | null
+          cash_order_id: string | null
+          created_at: string
+          first_word: string | null
+          flag: string | null
+          held_at: string | null
+          id: string
+          line_name: string
+          line_no: number
+          match_result: string
+          page365_no: number
+          quantity: number
+          released_at: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          stock_seen: number | null
+          stock_state: string
+          updated_at: string
+          variant_id: string | null
+          website_product_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          first_word?: string | null
+          flag?: string | null
+          held_at?: string | null
+          id?: string
+          line_name: string
+          line_no: number
+          match_result: string
+          page365_no: number
+          quantity: number
+          released_at?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          stock_seen?: number | null
+          stock_state?: string
+          updated_at?: string
+          variant_id?: string | null
+          website_product_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          first_word?: string | null
+          flag?: string | null
+          held_at?: string | null
+          id?: string
+          line_name?: string
+          line_no?: number
+          match_result?: string
+          page365_no?: number
+          quantity?: number
+          released_at?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          stock_seen?: number | null
+          stock_state?: string
+          updated_at?: string
+          variant_id?: string | null
+          website_product_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_stock_lines_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_stock_lines_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_stock_lines_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_stock_lines_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pancake_events: {
         Row: {
           attempts: number
@@ -7019,6 +7120,27 @@ export type Database = {
         Args: { p_amount: number; p_currency: string }
         Returns: string
       }
+      page365_apply_stock: {
+        Args: {
+          p_actor?: string
+          p_draft_id: string
+          p_order_id: string
+          p_order_kind: string
+          p_service_line_nos?: number[]
+        }
+        Returns: Json
+      }
+      page365_first_word: { Args: { p_name: string }; Returns: string }
+      page365_match_line: {
+        Args: { p_name: string }
+        Returns: {
+          o_first_word: string
+          o_match_result: string
+          o_product_id: string
+          o_stock_qty: number
+          o_variant_id: string
+        }[]
+      }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
@@ -7118,6 +7240,10 @@ export type Database = {
       }
       replace_customer_addresses: {
         Args: { p_addresses: Json; p_customer_id: string }
+        Returns: Json
+      }
+      resolve_page365_stock_flag: {
+        Args: { p_line_id: string; p_note: string }
         Returns: Json
       }
       restore_lots_for_redemption: {
