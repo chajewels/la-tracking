@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { callUntypedRpc } from '@/lib/untyped-rpc';
 
 /**
  * The page365_inventory_* tables and RPCs ship in migration
@@ -103,3 +104,32 @@ export const getAutoApply = async () =>
   (await switchRpc('get_page365_inventory_auto_apply')) as unknown as AutoApplyState;
 export const setAutoApply = (enabled: boolean, expected: boolean | null) =>
   switchRpc('set_page365_inventory_auto_apply', { p_enabled: enabled, p_expected: expected });
+
+/** PR 3b — "Hide on website" rows (stock 0 + unpublish, compare-and-set).
+ *  The RPC ships in migration 20261001100000_page365_hide_follow and is not in
+ *  types.ts until Lovable regenerates it. Always called as a method (callUntypedRpc). */
+export interface HideResult {
+  ok: boolean;
+  reason?: string;
+  hidden?: number;
+  changed_since_fetch?: number;
+  skipped?: number;
+  failed?: number;
+  skipped_items?: { id: string; reason: string }[];
+  failed_items?: { id: string; reason: string }[];
+}
+
+export async function hideOnWebsite(runId: string, itemIds: string[]): Promise<HideResult> {
+  const data = await callUntypedRpc<HideResult | null>('page365_inventory_hide', { p_run_id: runId, p_item_ids: itemIds });
+  return data ?? { ok: false, reason: 'no_response' };
+}
+
+/** PR 3b — which products the Hub hid because Page365 stopped listing them
+ *  (page365_product_presence.hidden_at). Catalog shows the note on drafts. */
+export async function fetchHiddenByPage365(): Promise<Map<string, string>> {
+  const { data, error } = await untyped.from('page365_product_presence')
+    .select('website_product_id, hidden_at').not('hidden_at', 'is', null);
+  if (error) throw error;
+  return new Map(((data ?? []) as { website_product_id: string; hidden_at: string }[])
+    .map(r => [r.website_product_id, r.hidden_at]));
+}

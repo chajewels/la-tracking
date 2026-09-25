@@ -1521,8 +1521,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     as increases. page365_inventory_apply is COMPARE-AND-SET (stock_qty = seen
     at fetch, else changed_since_fetch), only on a 'ready' run (a partial/failed
     read — outage, count drop > 20 % — applies nothing). #195 'held' variants
-    are EXCLUDED only in 'invoice' mode. Prices reported, Hub-only flagged —
-    never repriced or zeroed. New codes are created ONLY by a staff "Create
+    are EXCLUDED only in 'invoice' mode. Prices reported, never repriced;
+    Hub-only flagged, zeroed ONLY by HIDE-FOLLOW below. New codes are created ONLY by a staff "Create
     drafts" (see DRAFTS). Photos: every photo of
     a matched product, one row per (variant, page365_photo_id), staff photos
     never touched; the Catalog save must carry page365_photo_id through (else
@@ -1553,6 +1553,15 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     run's lease (page365_inventory_lease); the schedule skips a manual fetch.
     At most one bell per scheduled run. Retention (14 days) never touches
     audit_logs and keeps applied items.
+  - HIDE-FOLLOW (2026-10-01, PR 3b; docs/PAGE365-IMPORT.md "HIDE-FOLLOW"): a
+    product SEEN on Page365 (page365_product_presence, same code, complete
+    reads only) and then missing from 2 COMPLETE reads in a row -> stock 0 +
+    status 'draft' (page365_inventory_hide_item, compare-and-set). Never a
+    never-seen/Hub-only product, a switched-off one (read live) or an
+    unpublished one; never from a partial read. Automatic only through
+    page365_inventory_auto_apply_run under the same switch; else pre-ticked for
+    staff. NEVER re-published automatically ("Back in Page365" is a flag).
+    Orders untouched; audited per product and per run; one bell per run.
   - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
     item_kind (jewelry default | watch | other). CHECK
     website_products_metals_jewelry requires >= 1 stamp for jewelry only;

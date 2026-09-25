@@ -1332,6 +1332,32 @@ Migration `20260930100000_page365_inventory_schedule.sql`. Rules: docs/PAGE365-I
 - pg_cron `page365-inventory-schedule` `2-59/5 * * * *` → `page365-inventory-fetch`
   `{action:"schedule"}`, Vault key `email_queue_service_role_key`.
 
+## Page365 hide-follow — presence, hide rows, run counts (added 2026-10-01)
+
+Migration `20261001100000_page365_hide_follow.sql`. Rules: docs/PAGE365-IMPORT.md "HIDE-FOLLOW".
+
+- `page365_product_presence` (PK `website_product_id` → `website_products` ON DELETE CASCADE):
+  `code`, `first_seen_at/_run_id`, `last_seen_at/_run_id`, `hidden_at`, `hidden_run_id`,
+  `hidden_by` (NULL = schedule), `hidden_source` (`manual | schedule`), `updated_at`. Run ids
+  are NOT foreign keys (retention prunes runs). RLS: SELECT for `manage_website_catalog`;
+  written only by `page365_inventory_follow` / `page365_inventory_hide_item`. Kept out of
+  `website_products` on purpose: `trg_website_products_revalidate` fires on every update of
+  that table, and a last-seen stamp per product every 30 minutes would revalidate the
+  storefront hundreds of times a run.
+- `page365_inventory_items.hide_snapshot jsonb` (`{variant_id: stock_qty}` at the read) and
+  `back_in_page365 boolean NOT NULL DEFAULT false`. Category CHECK
+  `page365_inventory_items_category_check` adds `hide`.
+- `page365_inventory_runs.hidden_count integer NOT NULL DEFAULT 0`, `hide_notified_at`.
+- Trigger `trg_page365_inventory_follow` (AFTER UPDATE OF status, WHEN fetching → ready) →
+  `page365_inventory_follow_trg()` → `page365_inventory_follow(uuid)` (service role).
+- `page365_inventory_hide_item(uuid,uuid,uuid,text)` service role only;
+  `page365_inventory_hide(uuid,uuid[])` authenticated + `manage_website_catalog`.
+- Redefined from its live body (md5 `f742ccfd…` → `21eb5605…`):
+  `page365_inventory_auto_apply_run`. Pinned unchanged: `page365_inventory_finish`,
+  `page365_inventory_apply`, `page365_inventory_retention`, `website_publish_products`.
+- Bell type `page365_inventory_hidden`; audit actions `page365_inventory_hidden` (per
+  product), `page365_inventory_hide` (per staff call), `page365_inventory_follow_failed`.
+
 ## Page365 drafts — source columns and publish rules (added 2026-09-28)
 
 Migration `20260929100000_page365_inventory_drafts.sql`. Rules: docs/PAGE365-IMPORT.md "DRAFTS".

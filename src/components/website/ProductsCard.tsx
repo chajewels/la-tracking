@@ -12,6 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { CatalogBulkBar } from "@/components/website/CatalogBulkBar";
 import { missingText, publishMissing } from "@/lib/page365-drafts";
+import { hiddenByPage365Note } from "@/lib/page365-inventory";
+import { fetchHiddenByPage365 } from "@/lib/page365-inventory-api";
 import { Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
@@ -86,6 +88,15 @@ export default function ProductsCard() {
   });
 
   const categories = useQuery({ queryKey: CATEGORIES_QUERY_KEY, queryFn: fetchCategories });
+
+  // PR 3b: products the Hub hid because Page365 stopped listing them. Before
+  // the migration the table is absent: the query fails and no note shows.
+  const hiddenByPage365 = useQuery({
+    queryKey: ["page365-hidden-products"],
+    queryFn: fetchHiddenByPage365,
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const fx = useQuery({
     queryKey: ["website-fx-rate"],
@@ -596,6 +607,11 @@ export default function ProductsCard() {
                       <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
                       {p.status === "draft" && publishMissing(p).length > 0 && (
                         <div className="mt-0.5 text-[10px] text-warning">{missingText(publishMissing(p))}</div>
+                      )}
+                      {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id)) && (
+                        <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="catalog-hidden-by-page365">
+                          {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id))}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
