@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  APPLY_REFUSAL, MATCH_REASON, SKIP_REASON, defaultSelection, groupItems, runStatusText, splitStockSelection,
-  stockTickable, type InventoryItem, type InventoryRun,
+  APPLY_REFUSAL, FETCH_BUSY_MAX_WAITS, FETCH_BUSY_WAIT_MS, MATCH_REASON, SKIP_REASON, autoApplyText, defaultSelection,
+  groupItems, runSourceLabel, runStatusText, splitStockSelection, stockTickable, type InventoryItem, type InventoryRun,
 } from "@/lib/page365-inventory";
 import {
   applyInventory, continueFetch, copyPhotos, itemsTable, runsTable, startFetch, type ApplyResult,
@@ -31,6 +31,12 @@ import { Page365NewProductsPanel } from "@/components/website/Page365NewProducts
  * since the fetch. Decreases start ticked; increases never do. Products
  * switched to "Don't sync with Page365" sit in their own group and are never
  * proposed, applied or given photos (checked again on the server).
+ *
+ * PR 3: the latest run may be a SCHEDULED one (every 30 minutes). While it
+ * reads, this card polls instead of offering Resume as if it were stuck; a
+ * staff "Fetch" joins it and takes turns with the schedule (a { busy } answer
+ * waits). Its decreases may already be applied automatically (row badge
+ * "Auto-applied"); increases, drafts, prices and photos still wait here.
  */
 
 const yen = (n: number | null | undefined) => (n == null ? "—" : `¥${Math.round(n).toLocaleString("en-US")}`);
@@ -67,6 +73,9 @@ function Section({ title, hint, count, tone = "default", children }: {
 }
 
 function RowStatus({ it }: { it: InventoryItem }) {
+  if (it.status === "applied" && it.result_note === "auto_applied") {
+    return <Badge className="bg-success/15 text-success text-[10px]" title={SKIP_REASON.auto_applied}>Auto-applied</Badge>;
+  }
   if (it.status === "applied") return <Badge className="bg-success/15 text-success text-[10px]">Applied</Badge>;
   if (it.status === "changed_since_fetch") return <Badge variant="outline" className="text-[10px] text-warning">Changed since fetch</Badge>;
   if (it.status === "failed") return <Badge variant="outline" className="text-[10px] text-destructive" title={it.result_note ?? ""}>Failed</Badge>;
@@ -91,6 +100,8 @@ export function Page365InventoryCard() {
       if (error) throw error;
       return ((data ?? [])[0] ?? null) as InventoryRun | null;
     },
+    // A scheduled read finishes on its own: poll while it does (PR 3).
+    refetchInterval: q => ((q.state.data as InventoryRun | null)?.status === "fetching" ? 15_000 : false),
   });
   const run = latestRun.data ?? null;
 
@@ -133,11 +144,20 @@ export function Page365InventoryCard() {
       let p = resume && run ? await continueFetch(run.id) : await startFetch();
       const runId = p.run_id;
       let idle = 0;
+      let waits = 0;
       while (p.run?.status === "fetching") {
         const total = p.run.products_total || p.fetched + p.error + p.open;
         setFetchProgress({ done: p.fetched + p.error, total });
         const before = p.fetched + p.error;
         p = await continueFetch(runId);
+        if (p.busy) {
+          // The scheduled fetch is reading this run right now: take turns.
+          if (++waits > FETCH_BUSY_MAX_WAITS) {
+            throw new Error("The scheduled fetch is still reading Page365. It finishes on its own — this page updates when it does.");
+          }
+          await new Promise(r => setTimeout(r, FETCH_BUSY_WAIT_MS));
+          continue;
+        }
         idle = p.fetched + p.error === before ? idle + 1 : 0;
         if (idle > 20) throw new Error("The fetch stopped making progress. Press Resume to try again.");
         if (idle > 0) await new Promise(r => setTimeout(r, 1500));
@@ -256,16 +276,19 @@ export function Page365InventoryCard() {
             </p>
             {run && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Last fetch {phtTime(run.created_at)} · {run.page365_count ?? "?"} products ·{" "}
+                Last fetch {phtTime(run.created_at)} ({runSourceLabel(run).toLowerCase()}) · {run.page365_count ?? "?"} products ·{" "}
                 <span className={run.status === "ready" ? "text-success" : run.status === "fetching" ? "" : "text-warning"}>
                   {runStatusText(run)}
                 </span>
+                {run.source === "schedule" && run.status !== "fetching" && <> · {autoApplyText(run)}</>}
               </p>
             )}
           </div>
           <div className="flex gap-2">
             {run?.status === "fetching" && busy === null && (
-              <Button size="sm" variant="outline" onClick={() => runFetch(true)}>Resume fetch</Button>
+              <Button size="sm" variant="outline" onClick={() => runFetch(true)}>
+                {run.source === "schedule" ? "Join scheduled fetch" : "Resume fetch"}
+              </Button>
             )}
             <Button
               size="sm"
@@ -296,8 +319,12 @@ export function Page365InventoryCard() {
         ) : !run ? (
           <p className="text-sm text-muted-foreground">No fetch yet. Press “Fetch Page365 inventory”.</p>
         ) : run.status === "fetching" ? (
-          <p className="text-sm text-muted-foreground">
-            {busy ? "Reading Page365…" : "A fetch was interrupted. Press “Resume fetch” to finish reading it."}
+          <p className="text-sm text-muted-foreground" data-testid="p365-inv-fetching-note">
+            {busy
+              ? "Reading Page365…"
+              : run.source === "schedule"
+                ? "A scheduled fetch is reading Page365. It finishes on its own and this page updates when it does."
+                : "A fetch was interrupted. Press “Resume fetch” to finish reading it."}
           </p>
         ) : items.isLoading ? (
           <div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>

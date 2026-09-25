@@ -20,6 +20,7 @@ import { SettingsCard } from "@/components/website/SettingsCard";
 import { ReservationModeCard } from "@/components/website/ReservationModeCard";
 import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
+import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on five tabs.
@@ -151,6 +152,7 @@ export default function Website() {
 
           {canCatalog && (
             <TabsContent value="page365-stock" className="mt-5 space-y-6" tabIndex={-1}>
+              <Page365InventoryScheduleCard />
               <Page365InventoryCard />
               <Page365StockCard />
             </TabsContent>

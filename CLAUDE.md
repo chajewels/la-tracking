@@ -932,7 +932,8 @@ When completing a partially_paid month:
   (00:45) is independent and writes only fx_rates; `website` derives price_php
   at read time and NEVER stores a peso price. auto-expire-cash-orders (:40
   hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
-  hourly. process-email-queue has NO cron — silence means nothing is calling it,
+  hourly. page365-inventory-schedule runs every 5 min (2-59/5) and touches no
+  account data (docs/PAGE365-IMPORT.md "SCHEDULE"). process-email-queue has NO cron — silence means nothing is calling it,
   not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
 
   CRON AUTH RULE: a pg_cron job calling a service-role-gated function MUST read
@@ -1539,6 +1540,19 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     (jewelry only) or price, and trg_page365_draft_publish_guard backs it for
     Page365 drafts. A code whose Hub product is switched to "Don't sync with
     Page365" is NEVER drafted (sync_disabled, read live).
+  - SCHEDULE (2026-09-30, PR 3; docs/PAGE365-IMPORT.md "SCHEDULE"): pg_cron
+    page365-inventory-schedule (Vault key) reads Page365 every 30 min whatever
+    the switch says. system_settings.page365_inventory_auto_apply (default
+    OFF; changed ONLY by set_page365_inventory_auto_apply — manage_website_
+    catalog, audited; a guard trigger refuses SQL/PostgREST writes; never flip
+    it in a migration) lets page365_inventory_auto_apply_run apply DECREASES
+    ONLY from a SCHEDULED run that is 'ready', inside its 30-min window and not
+    superseded — same target, compare-and-set, never a switched-off product.
+    Increases, drafts, prices and photos NEVER apply automatically. A partial
+    or failed read applies nothing. One reader at a time: every chunk takes the
+    run's lease (page365_inventory_lease); the schedule skips a manual fetch.
+    At most one bell per scheduled run. Retention (14 days) never touches
+    audit_logs and keeps applied items.
   - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
     item_kind (jewelry default | watch | other). CHECK
     website_products_metals_jewelry requires >= 1 stamp for jewelry only;
