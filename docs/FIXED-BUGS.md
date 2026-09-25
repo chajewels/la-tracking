@@ -5255,3 +5255,36 @@ Call sites checked 2026-09-24: none of the five service-role-only functions is
 called from src/. Every call is an edge function using a service-role client
 (website, reactivate-web-layaway, unwaive-waiver, process-loyalty-redemption,
 confirm-web-order-ready).
+
+### Website Settings fields accept one keystroke at a time (2026-09-25)
+
+On Hub Website → Settings, typing into Tagline (English and Japanese),
+Announcement (English and Japanese) or any Follow-us / Loyalty-groups link
+kept exactly one character and then dropped focus, so each further character
+needed another click. Deleting behaved the same way. Contact email, the
+announcement link and the Ends date were unaffected.
+
+Cause: `src/components/website/SettingsCard.tsx` defined `BilingualField`,
+`SocialList` and `SectionSave` inside `SettingsCard`'s own render and used them
+as JSX elements. Each keystroke calls `patch()` → `setDraft`, `SettingsCard`
+re-renders and creates a new function for each of them. React saw a new
+component type in the same slot, so it unmounted the field being typed in and
+mounted a fresh one, and focus fell to `<body>`. The value survived because it
+lives in `draft`, which is why one character stuck each time. Introduced with
+the tab itself: commit 7b6a7397 "feat(website): site settings editor over
+website_settings", PR #133 (released in #134, 2026-09-21).
+
+Fix: the three are now plain render functions (`renderSectionSave`,
+`renderBilingualField`, `renderSocialList`), called as functions
+(`{renderBilingualField({ id: "footer.tagline", label: "Tagline", rows: 2 })}`).
+None of them uses hooks, so calling them directly is legal, and their markup
+mounts in place and keeps its DOM nodes across renders. Frontend only.
+
+Regression test: `src/test/website-settings-typing.test.tsx` types a word into
+each affected field one character at a time and asserts that the same node
+stays in the document, keeps focus and holds the full text. Contact email is
+the control. On the pre-fix file the five affected fields fail and the control
+passes.
+Do not reintroduce: never define a component inside another component's render
+and use it as `<Nested />`. Hoist it to module scope, or call it as a function
+when it closes over the parent's state.
