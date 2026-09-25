@@ -742,3 +742,5 @@ Test accounts are now excluded from all KPIs/alerts via order-level `is_test = f
   outstanding. Reuses the existing accountIsCompleted helper; cash orders use a
   parallel cashOrderIsCompleted check. Search and the Status/Sort selects sit
   above the tabs and apply to both. Tab labels carry live counts.
+
+- Customers directory Portal column (2026-09-25, owner request): the desktop table has a "Portal" column after Accounts, and the phone cards show the same pill beside the account pills: "Migrated" (auth_user_id set) or "Token-based" (null), the labels the customer page already uses. Display only: the query, search, A-Z filter, grouping and pagination are unchanged.

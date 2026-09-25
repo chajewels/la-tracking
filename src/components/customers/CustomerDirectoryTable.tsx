@@ -24,6 +24,15 @@ export function CustomerOrderPills({ activeCount, completedCount }: { activeCoun
   );
 }
 
+/**
+ * Portal sign-in state, with the labels the customer page uses
+ * (CustomerPortalShareMenu): "Migrated" when the customer has an auth account,
+ * "Token-based" otherwise. Display only.
+ */
+export function CustomerPortalPill({ authUserId }: { authUserId: string | null | undefined }) {
+  return authUserId ? <StatusPill label="Migrated" tone="info" /> : <StatusPill label="Token-based" tone="muted" />;
+}
+
 interface CustomerDirectoryTableProps {
   customers: DbCustomer[];
   accountStats: Map<string, { active: number; completed: number }>;
@@ -97,6 +106,12 @@ export default memo(function CustomerDirectoryTable({ customers, accountStats, t
       key: 'accounts',
       header: 'Accounts',
       cell: (c) => <CustomerOrderPills activeCount={stats(c.id).active} completedCount={stats(c.id).completed} />,
+    },
+    {
+      key: 'portal',
+      header: 'Portal',
+      cellClassName: 'whitespace-nowrap',
+      cell: (c) => <CustomerPortalPill authUserId={c.auth_user_id} />,
     },
     {
       key: 'actions',

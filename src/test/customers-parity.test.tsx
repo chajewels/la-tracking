@@ -244,6 +244,33 @@ describe(`at ${width}px`, () => {
       expect(screen.getAllByText("🧪 TEST")).toHaveLength(1);
     });
 
+    it("a customer with a portal auth account shows Migrated (table on desktop, card on phone)", async () => {
+      h.tables.customers = directory.map((c) => (c.id === "c-99" ? { ...c, auth_user_id: "u-99" } : { ...c, auth_user_id: null }));
+      renderAt("/customers", <Customers />);
+      await waitFor(() => expect(shownIds()).toHaveLength(50));
+      fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "Villa" } });
+      await waitFor(() => expect(shownIds()).toEqual(["c-99"]));
+      expect(screen.getByText("Migrated")).toBeInTheDocument();
+      expect(screen.queryByText("Token-based")).not.toBeInTheDocument();
+    });
+
+    it("a customer without a portal auth account shows Token-based", async () => {
+      h.tables.customers = directory.map((c) => ({ ...c, auth_user_id: null }));
+      renderAt("/customers", <Customers />);
+      await waitFor(() => expect(shownIds()).toHaveLength(50));
+      fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "Villa" } });
+      await waitFor(() => expect(shownIds()).toEqual(["c-99"]));
+      expect(screen.getByText("Token-based")).toBeInTheDocument();
+      expect(screen.queryByText("Migrated")).not.toBeInTheDocument();
+    });
+
+    it.runIf(width === 1280)("the table header shows Portal right after Accounts", async () => {
+      renderAt("/customers", <Customers />);
+      await waitFor(() => expect(shownIds()).toHaveLength(50));
+      const headers = screen.getAllByRole("columnheader").map((th) => th.textContent?.trim() ?? "");
+      expect(headers.slice(0, 5)).toEqual(["Customer", "Code", "Location", "Accounts", "Portal"]);
+    });
+
     it("reads exactly the same four queries, and search / filter / group / page read nothing more", async () => {
       renderAt("/customers", <Customers />);
       await waitFor(() => expect(shownIds()).toHaveLength(50));
