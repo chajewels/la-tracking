@@ -215,9 +215,15 @@ export default function FixturePreview() {
       const inv = buildPage365InventoryFixtures(searchParams.get('inv') === 'partial');
       seed(['page365-inventory-run'], inv.run);
       seed(['page365-inventory-items', inv.run.id], inv.items);
-      // PR 2: Website → Catalog, N4020 switched to "Don't sync with Page365"
-      // (open it to see the switch) next to an ordinary synced piece.
-      seed(['website-products'], buildCatalogSyncFixtures());
+      // PR 4 (2026-09-28): the Page365 category of each "new" listing, and a
+      // catalog with two Page365 drafts (one ready, one missing origin and
+      // category) and a Hub-made product — Website → Catalog, hub view.
+      // PR 2: N4020 switched to "Don't sync with Page365" is in the same list.
+      seed(['page365-inventory-list-categories', inv.run.id], inv.listCategories);
+      seed(['website-products'], [...buildCatalogDraftFixtures(), ...buildCatalogSyncFixtures()]);
+      seed(['website-categories'], [{ id: 'cat-rings', slug: 'rings', name: 'Rings', name_ja: null, published: true, sort_order: 0 }]);
+      seed(['website-collections'], []);
+      seed(['website-fx-rate'], { date: '2026-09-28', jpy_php: 0.37 });
     }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
@@ -1193,11 +1199,37 @@ function buildPage365InventoryFixtures(partial: boolean) {
     row('i7', 'R0001', 'R0001 duplicate listing', { category: 'flagged', match_result: 'duplicate_in_page365', website_product_id: null, variant_id: null, hub_sku: null, seen_stock: null, proposed_stock: null }),
     row('i8', 'E1053X', 'E1053X Earrings (two sizes in the Hub)', { category: 'flagged', match_result: 'ambiguous_variant', variant_id: null, seen_stock: null, proposed_stock: null }),
     row('i9', 'NL22', 'NL22 Necklace new piece', { category: 'new', match_result: 'unmatched', website_product_id: null, variant_id: null, hub_sku: null, hub_price_jpy: null, seen_stock: null, proposed_stock: null, page365_available: 1, page365_price_jpy: 39980 }),
+    row('i11', 'R7001', 'R7001 Ring K18 2.1g Diamond 0.3ct [New]', { category: 'new', match_result: 'unmatched', website_product_id: null, variant_id: null, hub_sku: null, hub_price_jpy: null, seen_stock: null, proposed_stock: null, page365_available: 2, page365_price_jpy: 50000, inventory_product_id: 'ip11' }),
+    row('i12', 'N7002', 'N7002 Necklace PT900 Pearl 45cm', { category: 'new', match_result: 'unmatched', website_product_id: null, variant_id: null, hub_sku: null, hub_price_jpy: null, seen_stock: null, proposed_stock: null, page365_available: 0, page365_price_jpy: 30000, inventory_product_id: 'ip12' }),
+    row('i13', 'R7009', 'R7009 Ring K18 [Preloved]', { category: 'new', status: 'applied', result_note: 'draft_created', website_product_id: 'wp-r7009', page365_available: 1, page365_price_jpy: 60000, inventory_product_id: 'ip13' }),
     { ...base, id: 'i10', kind: 'hub_only', page365_product_id: null, page365_variant_id: null, page365_name: null, code: null, hub_sku: 'ZT9200',
       page365_price_jpy: null, hub_price_jpy: null, page365_available: null, match_result: 'hub_only', category: 'hub_only',
       seen_stock: null, proposed_stock: null, missing_runs: 2 },
   ];
-  return { run, items };
+  const listCategories = new Map<string, string | null>([
+    ['ip11', 'Rings MIJ'], ['ip12', 'SUPPLIER LISTINGS - PEARLS'], ['ip13', 'Rings MIJ'],
+  ]);
+  return { run, items: items.map((it) => ({ inventory_product_id: null, ...it })), listCategories };
+}
+
+/** Catalog with Page365 drafts (PR 4): one ready to publish, one missing origin + category. */
+function buildCatalogDraftFixtures() {
+  const variant = (id: string, price: number, stock: number) => ([{
+    id, size: null, stone: null, price_jpy: price, cost_basis: null, stock_qty: stock, sort: 0,
+    website_product_media: [{ id: `${id}-m1`, url: '/placeholder.svg', alt: null, sort: 0, page365_photo_id: 501, page365_photo_version: '17' }],
+  }]);
+  const base = { name_ja: null, karat: null, weight_g: null, condition: 'New', brand: null, description_en: null,
+    description_ja: null, created_at: '2026-09-28T01:00:00Z', website_collection_products: [] };
+  return [
+    { ...base, id: 'wp-r7009', sku: 'R7009', slug: 'r7009-ring', name: 'R7009 Ring K18 [Preloved]', metals: ['K18'], origin: 'JAPAN',
+      status: 'draft', page365_product_id: 9009, website_product_variants: variant('v1', 60000, 1),
+      website_category_products: [{ category_id: 'cat-rings' }] },
+    { ...base, id: 'wp-n7002', sku: 'N7002', slug: 'n7002-necklace', name: 'N7002 Necklace PT900 Pearl 45cm', metals: ['PT900'], origin: 'UNKNOWN',
+      status: 'draft', page365_product_id: 9002, website_product_variants: variant('v2', 30000, 0), website_category_products: [] },
+    { ...base, id: 'wp-hub', sku: 'N4020', slug: 'n4020', name: 'N4020 Necklace', metals: ['750'], origin: 'BRAND', brand: 'Tiffany & Co.',
+      status: 'active', page365_product_id: null, website_product_variants: variant('v3', 72980, 1),
+      website_category_products: [{ category_id: 'cat-rings' }] },
+  ];
 }
 
 /** Page365 stock fixtures: the owner's four-line acceptance invoice. */
@@ -1256,5 +1288,7 @@ function buildCatalogSyncFixtures() {
   return [
     product('fixture-wp-n4020', 'N4020', 'Necklace Tiffany & Co. 750 Open Teardrop (sample)', true, 1),
     product('fixture-wp-r7828', 'R7828', 'Ring 750YG/WG 19.0g Diamond 2.70ct', false, 1),
+    // Owner decision 2026-09-28: a watch needs no metal stamp.
+    { ...product('fixture-wp-w9001', 'W9001', 'Rolex Datejust 36mm Steel', false, 1), item_kind: 'watch', metals: [] },
   ];
 }

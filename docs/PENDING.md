@@ -918,13 +918,9 @@ PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PA
   `page365_inventory_auto_apply`; bells `page365_inventory_run_failed` /
   `page365_inventory_rises_pending`. Must skip `not_synced` rows exactly like manual apply
   (apply already refuses them server-side).
-- **PR 4 — review screen that scales, plus "Create draft product".**
-  - Filters on the review screen: **in-stock-only by default** (Page365 available > 0 or
-    Hub stock > 0), **search** (code / name), **category** (Page365 category), **price
-    range**, **select-all-shown** (ticks only the rows the filters show, never hidden ones),
-    and **counts** per group that follow the filters.
-  - "Create draft product" from a new Page365 code (and from an unmatched invoice line):
-    staff pick metals/origin/condition; photos copied the same way.
+- **PR 4 — "Create drafts"** from new Page365 codes: BUILT 2026-09-28 (docs/PAGE365-IMPORT.md
+  "DRAFTS"). Still open: drafts from an unmatched INVOICE line, and a Hub-editable
+  Page365-category → website-category map (today: jewelry-type first word, one Hub match).
 - **Open question (owner acceptance test):** does an UNPAID Page365 invoice already reduce
   `available`? Until answered, `page365_hold_unpaid_invoices = true` subtracts unpaid
   imported invoices (safe either way). If yes → set it `false`.
