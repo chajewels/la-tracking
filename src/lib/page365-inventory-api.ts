@@ -37,7 +37,9 @@ export async function applyInventory(runId: string, decreaseIds: string[], incre
 export interface FetchProgress {
   run_id: string;
   resumed?: boolean;
-  run: { status: string; error: string | null; products_total: number } | null;
+  /** PR 3: another reader (the scheduled fetch) holds the run's lease. */
+  busy?: boolean;
+  run: { status: string; error: string | null; products_total: number; source?: string } | null;
   fetched: number;
   error: number;
   open: number;
@@ -74,3 +76,30 @@ export interface PhotoResult {
 
 export const copyPhotos = (runId: string, itemIds: string[], skip: string[]) =>
   invoke<PhotoResult>('page365-inventory-photos', { run_id: runId, item_ids: itemIds, skip });
+
+/** PR 3 — the "Automatic decreases every 30 minutes" switch. Both RPCs ship in
+ *  migration 20260930100000_page365_inventory_schedule and are not in
+ *  types.ts until Lovable regenerates it — hence the cast. */
+export interface AutoApplyState {
+  found: boolean;
+  enabled: boolean;
+  updated_at: string | null;
+  updated_by_user_id: string | null;
+  updated_by_name: string | null;
+  can_change: boolean;
+}
+
+async function switchRpc(name: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data, error } = await (supabase.rpc as unknown as (
+    fn: string, args?: Record<string, unknown>,
+  ) => Promise<{ data: Record<string, unknown> | null; error: { message: string; code?: string } | null }>)(name, args);
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  const out = data ?? {};
+  if (typeof out.error === 'string') throw Object.assign(new Error(out.error), { code: out.error });
+  return out;
+}
+
+export const getAutoApply = async () =>
+  (await switchRpc('get_page365_inventory_auto_apply')) as unknown as AutoApplyState;
+export const setAutoApply = (enabled: boolean, expected: boolean | null) =>
+  switchRpc('set_page365_inventory_auto_apply', { p_enabled: enabled, p_expected: expected });

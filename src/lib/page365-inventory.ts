@@ -25,14 +25,27 @@ export type InventoryCategory =
 
 export type InventoryRunStatus = 'fetching' | 'ready' | 'partial' | 'failed';
 
+export type InventoryRunSource = 'manual' | 'schedule';
+
+/** PR 3: what closing a SCHEDULED run did (NULL on manual runs / still open). */
+export type AutoApplyState = 'applied' | 'off' | 'not_ready' | 'window_passed' | 'superseded';
+
 export interface InventoryRun {
   id: string;
+  /** Absent only on a row read before PR 1's column existed (never in practice). */
+  source?: InventoryRunSource;
   status: InventoryRunStatus;
   page365_count: number | null;
   products_total: number;
   error: string | null;
   created_at: string;
   finished_at: string | null;
+  /** PR 3 columns — absent until migration 20260930100000 is applied. */
+  auto_apply_state?: AutoApplyState | null;
+  auto_applied?: number | null;
+  auto_apply_changed?: number | null;
+  auto_apply_skipped?: number | null;
+  auto_apply_at?: string | null;
 }
 
 export interface InventoryItem {
@@ -162,6 +175,9 @@ export const SKIP_REASON: Record<string, string> = {
   sync_disabled: 'switched to “Don’t sync with Page365”',
   not_a_stock_change: 'not a stock change',
   direction_mismatch: 'an increase must be ticked as an increase',
+  // PR 3 — notes page365_inventory_auto_apply_run leaves on a row
+  auto_applied: 'applied automatically (scheduled fetch)',
+  not_a_decrease: 'not a decrease; left for staff',
 };
 
 export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): string {
@@ -172,3 +188,42 @@ export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): stri
     case 'failed': return `Failed (${run.error ?? 'Page365 could not be read'}) — nothing was changed`;
   }
 }
+
+/** PR 3: "Scheduled" / "Manual" for the run history and the last-fetch line. */
+export const runSourceLabel = (run: Pick<InventoryRun, 'source'>): string =>
+  run.source === 'schedule' ? 'Scheduled' : 'Manual';
+
+/** PR 3: what the automatic decreases did on a scheduled run, in words. Manual
+ *  runs never auto-apply: they say so. */
+export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'auto_apply_state' | 'auto_applied'>): string {
+  if (run.source !== 'schedule') return 'Manual fetch — nothing applied automatically';
+  if (run.status === 'fetching') return 'Reading Page365…';
+  switch (run.auto_apply_state) {
+    case 'applied': {
+      const n = run.auto_applied ?? 0;
+      return n === 0 ? 'No decreases to apply' : `${n} decrease${n === 1 ? '' : 's'} applied automatically`;
+    }
+    case 'off': return 'Automatic decreases off — nothing applied';
+    case 'not_ready': return 'Incomplete read — nothing applied';
+    case 'window_passed': return 'Finished too late (over 30 minutes) — nothing applied';
+    case 'superseded': return 'A newer fetch existed — nothing applied';
+    default: return 'Not closed yet';
+  }
+}
+
+/** PR 3: the scheduled fetch refuses nothing to staff — but the switch RPC
+ *  can. Words for its refusals. */
+export function autoApplyRefusal(code: string): string {
+  switch (code) {
+    case 'permission_denied': return 'You need the Website catalog permission to change automatic decreases.';
+    case 'user_identity_required': return 'Your session has expired. Sign in again.';
+    case 'stale': return 'Someone else changed this a moment ago. The card now shows the current state.';
+    case 'setting_missing': return 'The switch is missing from system settings. Ask Claude Code to check the PR 3 migration.';
+    default: return code || 'Could not change automatic decreases.';
+  }
+}
+
+/** PR 3: while the browser reads, a { busy } answer means another reader (the
+ *  schedule) holds the run's lease — wait, and do not count it as a stall. */
+export const FETCH_BUSY_WAIT_MS = 3_000;
+export const FETCH_BUSY_MAX_WAITS = 200;

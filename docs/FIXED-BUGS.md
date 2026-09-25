@@ -5288,3 +5288,52 @@ passes.
 Do not reintroduce: never define a component inside another component's render
 and use it as `<Nested />`. Hoist it to module scope, or call it as a function
 when it closes over the parent's state.
+
+### supabase.rpc detached from its client: "Cannot read properties of undefined (reading 'rest')" (2026-09-24, again 2026-09-26)
+
+Shipped twice with the same cause.
+
+1. Sidebar pills (fixed in commit 6f0ba5d0, 2026-09-24). "Email status
+   unknown" and "Portal link status unknown" never showed a real status, from
+   #50 (2026-09-13) and #69 (2026-09-15) onward. The Monitoring → Portal Links
+   worklist hook had the same defect. That commit added
+   `src/lib/untyped-rpc.ts` (`callUntypedRpc`) but no entry here, so the next
+   feature did not know about it.
+2. Page365 "Create drafts" and Catalog bulk "Publish" (fixed 2026-09-26).
+   Both failed with a toast reading "Cannot read properties of undefined
+   (reading 'rest')". Introduced in b1cc7117 (PR 4, #199, released in #202).
+   Create drafts made no drafts. Publish wrote the Japanese translations first
+   and then published nothing.
+
+Cause: the code stored the method in a variable, e.g.
+`const rpc = supabase.rpc as unknown as <T>(…) => …` in
+`src/lib/page365-drafts-api.ts`, then called `rpc(…)`. supabase-js's
+`rpc()` is a method whose body is `return this.rest.rpc(…)`. Called through a
+variable in an ES module, `this` is `undefined`, so it throws before any
+request goes out. This is not a permissions, database or deploy problem, and
+nothing reaches PostgREST. `(supabase.rpc as X)(…)` is fine, because after the
+cast is erased it is still a member call. `.bind(supabase)` also works, but do
+not use it.
+
+Why tests missed it: `src/test/page365-drafts.test.tsx` mocks the whole
+`@/lib/page365-drafts-api` module, so the real client call never ran.
+
+Fix: `createDrafts` and `publishProducts` call `callUntypedRpc`. Staff see the
+same error text as before: the thrown PostgREST error carries `.message`, which
+both toasts read. Frontend only.
+
+Tests (both in the CI targeted list):
+- `src/test/create-drafts-rpc.test.ts` runs the REAL module against the REAL
+  supabase-js client and fakes only `fetch`. It asserts that both functions
+  reach `/rest/v1/rpc/…` and that a PostgREST error keeps its message. On the
+  pre-fix file all four tests fail with the 'rest' error.
+- `src/test/no-detached-rpc.test.ts` is the guard. It scans every .ts/.tsx
+  file in `src/` and fails on `supabase.rpc` / `client.rpc` stored in a
+  variable, bound, put in an object, or destructured. It allows direct calls
+  and `(supabase.rpc as X)(…)`. On the pre-fix tree it names
+  `src/lib/page365-drafts-api.ts:10`.
+
+Do not reintroduce: never detach `supabase.rpc`. Call it on the client, or use
+`callUntypedRpc` for an RPC that is not yet in the generated types. A new API
+module also needs at least one test that exercises the real client with only
+the network faked, not a `vi.mock` of the module itself.
