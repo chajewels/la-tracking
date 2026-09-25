@@ -1442,9 +1442,17 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     pesos too (2026-09-25): create_web_order_atomic converts total and shipping
     once at the quote's fx_rate, half-up to a whole peso, and stores it in
     cash_orders.fx_rate_used / fx_rate_date; item lines and loyalty_jpy_amount
-    stay YEN. The website's peso full-payment quote must use the integer
-    half-up in _shared/settlement.ts (twin: src/lib/web-settlement.ts), never
-    Math.round on floats. Mechanics: docs/CASH-ORDERS.md "WEB ORDERS IN PESOS".
+    stay YEN. EVERY peso figure the `website` function produces (catalog
+    price_php, full-payment and layaway checkout quotes, /layaway/quote) uses
+    the integer half-up in _shared/settlement.ts (twin: src/lib/web-settlement.ts),
+    never Math.round on floats. Mechanics: docs/CASH-ORDERS.md "WEB ORDERS IN PESOS".
+  - DISPLAYED DOWN PAYMENTS COME FROM THE HUB (2026-09-25): the storefront never
+    computes or converts money. Catalog down_payment_jpy/_php/_pct come from
+    website_down_payments (which calls layaway_quote — never a TypeScript copy
+    of the deposit rule), for the piece alone; a figure the Hub cannot produce
+    is OMITTED, never estimated. /layaway/quote takes { price_jpy, currency }
+    and converts in the Hub; peso term minimums are min_amount_php. Full text:
+    docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS".
   - Web layaways are NEVER hard-deleted (trg_prevent_web_layaway_delete).
 
 ## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
