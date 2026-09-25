@@ -6501,6 +6501,7 @@ export type Database = {
           name: string
           name_ja: string | null
           origin: string
+          page365_sync_disabled: boolean
           sku: string
           slug: string
           status: Database["public"]["Enums"]["website_product_status"]
@@ -6519,6 +6520,7 @@ export type Database = {
           name: string
           name_ja?: string | null
           origin?: string
+          page365_sync_disabled?: boolean
           sku: string
           slug: string
           status?: Database["public"]["Enums"]["website_product_status"]
@@ -6537,6 +6539,7 @@ export type Database = {
           name?: string
           name_ja?: string | null
           origin?: string
+          page365_sync_disabled?: boolean
           sku?: string
           slug?: string
           status?: Database["public"]["Enums"]["website_product_status"]
@@ -7437,6 +7440,7 @@ export type Database = {
         Args: { p_detail: Json; p_error: string; p_product_row_id: string }
         Returns: string
       }
+      page365_invoice_holds: { Args: { p_variant_id: string }; Returns: number }
       page365_match_line: {
         Args: { p_name: string }
         Returns: {
