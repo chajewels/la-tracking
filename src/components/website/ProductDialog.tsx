@@ -17,7 +17,8 @@ import {
   CONDITION_VALUES, ConditionValue, METAL_VALUES, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 import {
-  type ProductForm, type Status, type VariantRow, emptyVariant, slugify,
+  ITEM_KINDS, ITEM_KIND_LABEL, type ItemKind, type ProductForm, type Status, type VariantRow, emptyVariant,
+  metalRequired, slugify,
 } from "@/components/website/product-form";
 
 /**
@@ -114,9 +115,29 @@ export default function ProductDialog({
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label>Type of item</Label>
+              <RadioGroup
+                value={form.itemKind}
+                onValueChange={(v) => setForm((f) => ({ ...f, itemKind: v as ItemKind }))}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+                data-testid="product-item-kind"
+              >
+                {ITEM_KINDS.map((k) => (
+                  <label key={k} className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem value={k} id={`item-kind-${k}`} />
+                    {ITEM_KIND_LABEL[k]}
+                  </label>
+                ))}
+              </RadioGroup>
+              <p className="text-xs text-muted-foreground">
+                A metal stamp is required only for jewelry. Watches and other items can be saved and published without one.
+              </p>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Metal stamps</Label>
+                <Label>Metal stamps{metalRequired(form.itemKind) ? "" : " (optional)"}</Label>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Metal stamps">
                   {METAL_VALUES.map((m) => {
                     const idx = form.metals.indexOf(m);
@@ -142,7 +163,9 @@ export default function ProductDialog({
                 <p className="text-[11px] text-muted-foreground">
                   {form.metals.length
                     ? <>Shown as <span className="text-foreground">{form.metals.join(" / ")}</span> — the order you pick is the order shown.</>
-                    : "Pick at least one. Exactly as stamped: 750 stays 750, it is not K18."}
+                    : metalRequired(form.itemKind)
+                      ? "Pick at least one. Exactly as stamped: 750 stays 750, it is not K18."
+                      : "Optional for this item. If it carries a stamp, pick it exactly as stamped."}
                 </p>
               </div>
               <div className="space-y-1.5">

@@ -19,6 +19,7 @@ import {
 import {
   applyInventory, continueFetch, copyPhotos, itemsTable, runsTable, startFetch, type ApplyResult,
 } from "@/lib/page365-inventory-api";
+import { Page365NewProductsPanel } from "@/components/website/Page365NewProductsPanel";
 
 /**
  * Website → Page365 stock → Page365 inventory. Staff read the whole Page365
@@ -363,21 +364,17 @@ export function Page365InventoryCard() {
                 </TableBody>
               </Table>
             </Section>
-            <Section title="New in Page365" hint="Codes the Hub does not have. Listed only; nothing is created." count={groups.newInPage365.length} tone="muted">
-              <Table>
-                <TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Page365 name</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {groups.newInPage365.map(it => (
-                    <TableRow key={it.id}>
-                      <TableCell className="font-medium">{label(it)}</TableCell>
-                      <TableCell className="max-w-[22rem] truncate text-xs">{nameOf(it)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{it.page365_available}</TableCell>
-                      <TableCell className="text-right tabular-nums">{yen(it.page365_price_jpy)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Section>
+            {groups.newInPage365.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <h3 className="font-display text-sm text-card-foreground">New in Page365</h3>
+                  <p className="w-full text-xs text-muted-foreground sm:w-auto">
+                    Codes the Hub does not have. Tick and “Create drafts” — drafts never appear on the website until published in Catalog.
+                  </p>
+                </div>
+                <Page365NewProductsPanel run={run} items={groups.newInPage365} canCreate={canApply} onChanged={refresh} />
+              </section>
+            )}
             <Section title="Price differences" hint="Reported only. The website price changes by hand in Catalog." count={groups.priceDiffs.length} tone="muted">
               <Table>
                 <TableHeader><TableRow><TableHead>Code</TableHead><TableHead className="text-right">Page365</TableHead><TableHead className="text-right">Hub</TableHead></TableRow></TableHeader>

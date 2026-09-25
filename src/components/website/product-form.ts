@@ -18,6 +18,19 @@ export const TEMPLATE_PATH = "/templates/cha-jewels-product-upload-template.xlsx
 export type Status = "draft" | "active" | "archived";
 
 /**
+ * What the piece is (website_products.item_kind). A metal stamp is required
+ * ONLY for jewelry (owner decision 2026-09-28; DB CHECK
+ * website_products_metals_jewelry). Watches and other items may have none.
+ */
+export const ITEM_KINDS = ["jewelry", "watch", "other"] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+export const ITEM_KIND_LABEL: Record<ItemKind, string> = { jewelry: "Jewelry", watch: "Watch", other: "Other (not jewelry)" };
+export const itemKindFrom = (v: unknown): ItemKind =>
+  (ITEM_KINDS as readonly string[]).includes(v as string) ? (v as ItemKind) : "jewelry";
+/** The one client-side twin of the DB rule. */
+export const metalRequired = (kind: ItemKind) => kind === "jewelry";
+
+/**
  * Metals are shown exactly as stamped (METAL_VALUES is the single source of
  * truth, shared with the importer). A piece can carry several — PT900/K18 —
  * in the order staff pick them. Nothing is merged: 750 is 750, not K18.
@@ -58,7 +71,9 @@ export interface ProductForm {
   name_ja: string;
   /** English name as last saved — the Japanese name only refreshes when it changes. */
   savedName: string;
-  /** Stamps in the order picked; at least one to save. */
+  /** jewelry | watch | other. Decides whether a metal stamp is required. */
+  itemKind: ItemKind;
+  /** Stamps in the order picked; at least one to save JEWELRY, optional otherwise. */
   metals: MetalValue[];
   weight_g: number | null;
   condition: ConditionValue;
@@ -85,7 +100,7 @@ export const emptyVariant = (sort: number): VariantRow => ({
 });
 
 export const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", name_ja: "", savedName: "", metals: ["K18"], weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", savedName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
   status: "draft", page365SyncDisabled: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],

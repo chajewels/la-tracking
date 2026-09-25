@@ -1520,12 +1520,32 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     as increases. page365_inventory_apply is COMPARE-AND-SET (stock_qty = seen
     at fetch, else changed_since_fetch), only on a 'ready' run (a partial/failed
     read — outage, count drop > 20 % — applies nothing). #195 'held' variants
-    are EXCLUDED only in 'invoice' mode. New codes listed, prices reported,
-    Hub-only flagged — never created, repriced or zeroed. Photos: every photo of
+    are EXCLUDED only in 'invoice' mode. Prices reported, Hub-only flagged —
+    never repriced or zeroed. New codes are created ONLY by a staff "Create
+    drafts" (see DRAFTS). Photos: every photo of
     a matched product, one row per (variant, page365_photo_id), staff photos
     never touched; the Catalog save must carry page365_photo_id through (else
     duplicates). An invoice line keeps ONE main photo and reuses the catalogue's
     stored copy when there is one. Customer reviews are never stored.
+  - DRAFTS (2026-09-28; docs/PAGE365-IMPORT.md "DRAFTS"): "Create drafts" on
+    ticked New-in-Page365 rows (sold pieces hidden by default) runs
+    page365_inventory_create_drafts — one Hub product per new CODE (one variant
+    each), status DRAFT, origin UNKNOWN (never guessed), sku = code, yen price
+    and stock from the fetch, category only from a jewelry-type Page365
+    category matching ONE Hub category, metals only as printed, description
+    only if clean. Idempotent (code exists / already drafted / sku UNIQUE).
+    NOTHING GOES LIVE until published: website_publish_products (Catalog bulk
+    Publish) refuses a product missing origin, category, brand (Branded), metal
+    (jewelry only) or price, and trg_page365_draft_publish_guard backs it for
+    Page365 drafts. A code whose Hub product is switched to "Don't sync with
+    Page365" is NEVER drafted (sync_disabled, read live).
+  - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
+    item_kind (jewelry default | watch | other). CHECK
+    website_products_metals_jewelry requires >= 1 stamp for jewelry only;
+    watches and other items are created and published without one. Never
+    re-add an every-product stamp rule (website_products_metals_nonempty is
+    retired). A Page365 listing is a watch only if Page365 itself prints the
+    whole word "watch(es)" in its name or category.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

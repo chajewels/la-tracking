@@ -1305,6 +1305,37 @@ Migration `20260927100000_page365_inventory_fetch.sql`. Rules: docs/PAGE365-IMPO
   `page365_inventory_applied`, `page365_photo_copied`) and `page365_inventory_run`
   (`page365_inventory_apply`).
 
+## Page365 drafts — source columns and publish rules (added 2026-09-28)
+
+Migration `20260929100000_page365_inventory_drafts.sql`. Rules: docs/PAGE365-IMPORT.md "DRAFTS".
+
+- `page365_inventory_products.list_category_id bigint`, `list_category text`,
+  `list_description text` — from the catalogue LIST at fetch start (no reviews there).
+- `website_products.page365_product_id bigint`, `page365_variant_id bigint`,
+  `page365_category text`; unique `(page365_product_id, page365_variant_id) WHERE
+  page365_product_id IS NOT NULL`. NULL = made in the Hub.
+- Functions: `page365_inventory_create_drafts(uuid, uuid[])` and
+  `website_publish_products(uuid[])` (authenticated, permission-checked inside);
+  `website_product_publish_missing(uuid)` (authenticated + service role);
+  `page365_category_for / _metals_from_text / _clean_description` (service role only).
+- Trigger `trg_page365_draft_publish_guard` BEFORE INSERT OR UPDATE OF status ON
+  website_products — Page365 drafts only.
+- `website_products.item_kind text NOT NULL DEFAULT 'jewelry'`, CHECK
+  `website_products_item_kind_check` (`jewelry | watch | other`). **A metal stamp is required
+  ONLY for jewelry** (owner decision 2026-09-28): CHECK `website_products_metals_nonempty`
+  (every product) was REPLACED by `website_products_metals_jewelry`
+  (`item_kind <> 'jewelry' OR cardinality(metals) >= 1`); `website_products_metals_values`
+  (the stamp list) is unchanged. The publish check (`website_product_publish_missing`) and
+  the draft guard ask for `metal` only on jewelry. `sync_website_product_metals()` (the
+  karat bridge, redefined from its live 20260912142545 body, md5-guarded) refills `metals`
+  from `karat` for jewelry only and sets `karat` NULL when there is no stamp. The
+  spreadsheet importer stays jewelry-only (it needs a jewelry type and a weight): watches
+  are created in the product dialog or by Create drafts (a Page365 listing whose name or
+  category carries the whole word "watch"/"watches" is drafted as `watch`).
+- "Don't sync with Page365" (PR 2): `page365_inventory_create_drafts` skips a code whose
+  Hub product has `page365_sync_disabled` (`sync_disabled`, read live), so a switched-off
+  code is never created or synced.
+
 ## Page365 inventory PR 2 — switch, mode, unpaid-invoice holds (added 2026-09-28)
 
 Migration `20260928100000_page365_inventory_pr2.sql`. Rules: docs/PAGE365-IMPORT.md "PR 2".
