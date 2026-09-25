@@ -296,7 +296,12 @@ vi.mock("@/lib/page365-drafts-api", () => ({
   listCategories: async () => new Map([["ip-a", "Rings MIJ"], ["ip-b", "SUPPLIER LISTINGS - PEARLS"]]),
   publishProducts: vi.fn(),
 }));
-vi.mock("@/lib/page365-inventory-api", () => ({ copyPhotos: vi.fn() }));
+// PR 3c: every ticked listing is read fresh before the drafts are created.
+const refreshForDrafts = vi.fn(async () => ({ busy: false, refreshed: 2, gone: 0, failed: [], remaining: 0 }));
+vi.mock("@/lib/page365-inventory-api", () => ({
+  copyPhotos: vi.fn(),
+  refreshForDrafts: (...a: unknown[]) => (refreshForDrafts as unknown as (...x: unknown[]) => unknown)(...a),
+}));
 
 describe("Page365NewProductsPanel", () => {
   const run: InventoryRun = { id: "run1", status: "ready", page365_count: 3, products_total: 3, error: null,
@@ -321,6 +326,10 @@ describe("Page365NewProductsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create drafts \(2\)/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Create drafts" }));
     await waitFor(() => expect(createDrafts).toHaveBeenCalledWith("run1", ["a", "c"]));
+    expect(refreshForDrafts).toHaveBeenCalledWith("run1", ["a", "c"], []);
+    expect(refreshForDrafts.mock.invocationCallOrder[0]).toBeLessThan(createDrafts.mock.invocationCallOrder[0]);
+    expect(screen.getByTestId("new-fresh").textContent).toMatch(/Read fresh from Page365: 2/);
+    expect(screen.getByTestId("new-as-of").textContent).toMatch(/Quantities as of the full fetch of 2026-09-28/);
     expect(await screen.findByText(/Skipped E7003: code already in the Hub/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "R7001" }).getAttribute("href")).toBe("/website?tab=catalog&product=p1");
 

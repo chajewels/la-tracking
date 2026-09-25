@@ -14,8 +14,9 @@
 -- compare-and-set skip, stock 0 + draft, audit per product and per run, one
 -- bell per run, second press no-op, superseded refused; switch ON -> the
 -- scheduled read hides by itself, one combined bell, run records the count;
--- back in Page365 flagged, never re-published automatically (increase not
--- applied either), hide mark cleared once staff re-publish; orders untouched.
+-- back in Page365 flagged, never re-published automatically (PR 3b: increase
+-- not applied either; PR 3c: the increase applies, the product stays a draft),
+-- hide mark cleared once staff re-publish; orders untouched.
 -- ============================================================================
 \set ON_ERROR_STOP 1
 CREATE OR REPLACE FUNCTION pg_temp.eq(label text, got anyelement, want anyelement) RETURNS void LANGUAGE plpgsql AS $$
@@ -259,7 +260,9 @@ SELECT pg_temp.eq('E: ZH1 proposed as an increase 0 -> 1', (SELECT category || '
   FROM public.page365_inventory_items WHERE id = (pg_temp.item((SELECT id FROM r WHERE k='E'), 'ZH1')).id), 'increase 0->1');
 SELECT pg_temp.eq('E: ZH2 (never hidden) not flagged', (pg_temp.item((SELECT id FROM r WHERE k='E'), 'ZH2')).back_in_page365, false);
 SELECT pg_temp.eq('E: auto close applies', public.page365_inventory_auto_apply_run((SELECT id FROM r WHERE k='E'))->>'state', 'applied');
-SELECT pg_temp.eq('E: NOT re-published, stock NOT raised', pg_temp.st('ZH1') || '/' || pg_temp.stock('ZH1'), 'draft/0');
+-- PR 3c (owner decision 2026-09-26): increases apply automatically too, so the
+-- stock follows Page365 — but the product is NEVER re-published by itself.
+SELECT pg_temp.eq('E: NOT re-published (stock follows Page365 since PR 3c)', pg_temp.st('ZH1') || '/' || pg_temp.stock('ZH1'), 'draft/1');
 SELECT pg_temp.eq('E: hide mark kept while a draft', (SELECT hidden_at IS NOT NULL FROM public.page365_product_presence WHERE website_product_id = pg_temp.pid('ZH1')), true);
 
 -- Staff re-publish ZH1 (the Catalog bulk Publish), then the next read clears the mark.

@@ -7,7 +7,8 @@
 -- Covers: the switch (seeded off, left off by the migration, guarded against
 -- direct writes, changed only by manage_website_catalog through the RPC,
 -- audited, stale-click refusal); switch OFF -> a scheduled run applies
--- nothing; switch ON -> decreases applied, increases never, a product switched
+-- nothing; switch ON -> decreases applied (and, since PR 3c, increases too —
+-- owner decision 2026-09-26; this file was updated for it), a product switched
 -- to "Don't sync with Page365" (before or after the fetch) skipped,
 -- compare-and-set skip when stock moved, audit per row and per run, exactly
 -- one bell, idempotent close; a partial run applies nothing and raises one
@@ -122,7 +123,7 @@ SELECT pg_temp.eq('audit old -> new', (SELECT (old_value_json->>'enabled') || '-
 SELECT pg_temp.eq('value stored as JSON true', (SELECT value FROM public.system_settings WHERE key = 'page365_inventory_auto_apply'), 'true'::jsonb);
 SELECT set_config('test.uid', '', false);
 
--- 3. Switch ON: decreases only ------------------------------------------------
+-- 3. Switch ON: decreases (PR 3: only; PR 3c: and increases) ------------------
 INSERT INTO r VALUES ('on', pg_temp.run('schedule', pg_temp.catalogue(2, 5, 1, 4, 1)));
 -- After the fetch: 3003 is switched to "Don't sync with Page365", and a website
 -- sale moves 3005 (6 -> 7 here, any move counts).
@@ -132,39 +133,40 @@ SELECT set_config('test.uid', '', false);
 UPDATE public.website_product_variants SET stock_qty = 7 WHERE product_id = (SELECT id FROM public.website_products WHERE sku = 'ZS3005');
 CREATE TEMP TABLE res AS SELECT public.page365_inventory_auto_apply_run((SELECT id FROM r WHERE k='on')) AS j;
 SELECT pg_temp.eq('on: state applied', (SELECT j->>'state' FROM res), 'applied');
-SELECT pg_temp.eq('on: exactly one applied', (SELECT (j->>'applied')::int FROM res), 1);
+SELECT pg_temp.eq('on: two applied (PR 3c: the increase too)', (SELECT (j->>'applied')::int FROM res), 2);
 SELECT pg_temp.eq('on: decrease 3001 applied 5 -> 2', pg_temp.stock('ZS3001'), 2);
 SELECT pg_temp.eq('on: row marked auto-applied', (SELECT status || '/' || result_note FROM public.page365_inventory_items
                   WHERE id = (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3001')).id), 'applied/auto_applied');
 SELECT pg_temp.eq('on: auto rows have no staff user', (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3001')).applied_by, NULL::uuid);
-SELECT pg_temp.eq('on: increase 3002 NEVER applied', pg_temp.stock('ZS3002'), 2);
-SELECT pg_temp.eq('on: increase still waits for staff', (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3002')).status, 'review');
+SELECT pg_temp.eq('on: increase 3002 applied 2 -> 5 (PR 3c)', pg_temp.stock('ZS3002'), 5);
+SELECT pg_temp.eq('on: increase row auto-applied (PR 3c)', (SELECT status || '/' || result_note FROM public.page365_inventory_items
+                  WHERE id = (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3002')).id), 'applied/auto_applied');
 SELECT pg_temp.eq('on: switched-off 3003 untouched', pg_temp.stock('ZS3003'), 3);
 SELECT pg_temp.eq('on: switched-off 3003 note', (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3003')).result_note, 'sync_disabled');
 SELECT pg_temp.eq('on: switched-off 3003 stays under review', (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3003')).status, 'review');
 SELECT pg_temp.eq('on: moved 3005 not overwritten', pg_temp.stock('ZS3005'), 7);
 SELECT pg_temp.eq('on: moved 3005 changed_since_fetch', (pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3005')).status, 'changed_since_fetch');
 SELECT pg_temp.eq('on: 3004 unchanged', pg_temp.stock('ZS3004'), 4);
-SELECT pg_temp.eq('on: one audit per applied row', pg_temp.audits('page365_inventory_auto_applied'), 1::bigint);
+SELECT pg_temp.eq('on: one audit per applied row', pg_temp.audits('page365_inventory_auto_applied'), 2::bigint);
 SELECT pg_temp.eq('on: audit row is the 3001 variant, 5 -> 2',
   (SELECT (old_value_json->>'stock_qty') || '->' || (new_value_json->>'stock_qty') || ' ' || (new_value_json->>'source')
-     FROM public.audit_logs WHERE action = 'page365_inventory_auto_applied'), '5->2 schedule');
+     FROM public.audit_logs WHERE action = 'page365_inventory_auto_applied' AND new_value_json->>'direction' = 'decrease'), '5->2 schedule');
 SELECT pg_temp.eq('on: one run audit', pg_temp.audits('page365_inventory_auto_apply'), 1::bigint);
 SELECT pg_temp.eq('on: one bell', pg_temp.bells('page365_inventory_auto_applied'), 1::bigint);
 SELECT pg_temp.eq('on: bell names the code', (SELECT body LIKE '%ZS3001%' FROM public.staff_notifications WHERE type = 'page365_inventory_auto_applied'), true);
 SELECT pg_temp.eq('on: run records 1 applied / 1 changed / 1 skipped',
   (SELECT auto_apply_state || '/' || auto_applied || '/' || auto_apply_changed || '/' || auto_apply_skipped
-     FROM public.page365_inventory_runs WHERE id = (SELECT id FROM r WHERE k='on')), 'applied/1/1/1');
+     FROM public.page365_inventory_runs WHERE id = (SELECT id FROM r WHERE k='on')), 'applied/2/1/1');
 SELECT pg_temp.eq('on: second close is a no-op', (public.page365_inventory_auto_apply_run((SELECT id FROM r WHERE k='on'))->>'already')::boolean, true);
 SELECT pg_temp.eq('on: still one bell', pg_temp.bells('page365_inventory_auto_applied'), 1::bigint);
-SELECT pg_temp.eq('on: still one applied audit', pg_temp.audits('page365_inventory_auto_applied'), 1::bigint);
--- Staff can still apply the increase by hand from the scheduled run.
+SELECT pg_temp.eq('on: still two applied audits', pg_temp.audits('page365_inventory_auto_applied'), 2::bigint);
+-- PR 3c: the increase is already applied; a staff tick on it is a no-op.
 SELECT set_config('test.uid', '99999999-0000-0000-0000-000000000002', false);
-SELECT pg_temp.eq('staff applies the increase by hand',
+SELECT pg_temp.eq('staff tick on the auto-applied increase is skipped',
   (public.page365_inventory_apply((SELECT id FROM r WHERE k='on'), '{}'::uuid[],
-      ARRAY[(pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3002')).id])->>'applied')::int, 1);
+      ARRAY[(pg_temp.item((SELECT id FROM r WHERE k='on'), 'ZS3002')).id])->'skipped_items'->0->>'reason'), 'already_applied');
 SELECT set_config('test.uid', '', false);
-SELECT pg_temp.eq('manual increase landed 2 -> 5', pg_temp.stock('ZS3002'), 5);
+SELECT pg_temp.eq('increase stays 5', pg_temp.stock('ZS3002'), 5);
 
 -- 4. Switched off BEFORE the fetch: not_synced, never applied ------------------
 --    Page365 now: 3001 has 1 (2 -> 1), 3003 has 0 (would be 3 -> 0).

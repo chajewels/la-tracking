@@ -9,7 +9,9 @@
  * takes. It decides nothing about stock.
  *
  *   decreases   pre-ticked (owner rule)
- *   increases   never pre-ticked: a staff tick is required
+ *   increases   pre-ticked too since PR 3c (owner decision 2026-09-26: staff
+ *               confirm every website sale in Page365, so Page365 is the full
+ *               truth); still sent ONLY in the increase list
  *   notSynced   the product is switched to "Don't sync with Page365": always
  *               skipped — shown, never proposed, never tickable, no photos
  *   excluded    a #195 invoice hold on the variant — only while
@@ -33,6 +35,9 @@ export type InventoryRunStatus = 'fetching' | 'ready' | 'partial' | 'failed';
 
 export type InventoryRunSource = 'manual' | 'schedule';
 
+/** PR 3c: quick = the list plus Hub products' pages; full = every page. */
+export type InventoryRunKind = 'quick' | 'full';
+
 /** PR 3: what closing a SCHEDULED run did (NULL on manual runs / still open). */
 export type AutoApplyState = 'applied' | 'off' | 'not_ready' | 'window_passed' | 'superseded';
 
@@ -54,6 +59,11 @@ export interface InventoryRun {
   auto_apply_at?: string | null;
   /** PR 3b — absent until migration 20261001100000 is applied. */
   hidden_count?: number | null;
+  /** PR 3c — absent until migration 20261002100000 is applied (then every
+   *  earlier run is 'full'). */
+  kind?: InventoryRunKind;
+  listed_total?: number | null;
+  auto_increased?: number | null;
 }
 
 export interface InventoryItem {
@@ -140,16 +150,17 @@ export const stockTickable = (it: InventoryItem) =>
 /** PR 3b: only "Hide on website" rows still under review can be ticked. */
 export const hideTickable = (it: InventoryItem) => it.status === 'review' && it.category === 'hide';
 
-/** The owner rule: decreases start ticked, increases never do; photos start
- *  ticked (every photo of every matched product is copied). PR 3b: hides start
- *  ticked; re-publish NEVER does (it is not even part of this selection). */
+/** The owner rule: decreases start ticked, and since PR 3c increases do too;
+ *  photos start ticked (every photo of every matched product is copied).
+ *  PR 3b: hides start ticked; re-publish NEVER does (it is not even part of
+ *  this selection). */
 export function defaultSelection(items: InventoryItem[]): { stock: Set<string>; photos: Set<string>; hides: Set<string> } {
   const stock = new Set<string>();
   const photos = new Set<string>();
   const hides = new Set<string>();
   for (const it of items) {
     if (it.category === 'not_synced') continue;
-    if (it.category === 'decrease' && it.status === 'review') stock.add(it.id);
+    if (stockTickable(it)) stock.add(it.id);
     if (hideTickable(it)) hides.add(it.id);
     if (it.match_result === 'matched' && it.photos_to_copy > 0) photos.add(it.id);
   }
@@ -241,22 +252,50 @@ export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): stri
 export const runSourceLabel = (run: Pick<InventoryRun, 'source'>): string =>
   run.source === 'schedule' ? 'Scheduled' : 'Manual';
 
-/** PR 3: what the automatic decreases did on a scheduled run, in words. Manual
- *  runs never auto-apply: they say so. */
+/** PR 3c: "Quick" / "Full". A run without a kind predates PR 3c: full. */
+export const runKindLabel = (run: Pick<InventoryRun, 'kind'>): string =>
+  run.kind === 'quick' ? 'Quick' : 'Full';
+
+/** PR 3c: how long a read took ("42 s", "3 min 5 s"); "—" while reading. */
+export function runDuration(run: Pick<InventoryRun, 'created_at' | 'finished_at'>): string {
+  if (!run.finished_at) return '—';
+  const s = Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.created_at).getTime()) / 1000));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
+}
+
+/** PR 3c: when the nightly full read happens (system_settings
+ *  page365_inventory_full_hour_pht, default 2 = 02:00 PHT = 03:00 JST). */
+export const NIGHTLY_FULL_TEXT = '02:00 PHT (03:00 JST)';
+
+/** PR 3c: the "as of" label on New in Page365 — its quantities come from the
+ *  latest FULL fetch. */
+export const newAsOfText = (fullRun: Pick<InventoryRun, 'created_at'>): string =>
+  `Quantities as of the full fetch of ${new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(fullRun.created_at))} PHT`;
+
 /** PR 3b: "2 products hidden on the website". */
 export const hiddenText = (n: number): string => `${n} product${n === 1 ? '' : 's'} hidden on the website`;
 
-export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'auto_apply_state' | 'auto_applied' | 'hidden_count'>): string {
+/** PR 3 (PR 3c: with increases): what the automatic updates did on a
+ *  scheduled run, in words. Manual runs never auto-apply: they say so. */
+export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'auto_apply_state' | 'auto_applied' | 'hidden_count'
+  | 'auto_increased'>): string {
   if (run.source !== 'schedule') return 'Manual fetch — nothing applied automatically';
   if (run.status === 'fetching') return 'Reading Page365…';
   switch (run.auto_apply_state) {
     case 'applied': {
       const n = run.auto_applied ?? 0;
+      const up = Math.min(n, run.auto_increased ?? 0);
+      const down = n - up;
       const h = run.hidden_count ?? 0;
-      const dec = n === 0 ? 'No decreases to apply' : `${n} decrease${n === 1 ? '' : 's'} applied automatically`;
-      return h > 0 ? `${dec} · ${hiddenText(h)}` : dec;
+      const parts: string[] = [];
+      if (down > 0) parts.push(`${down} decrease${down === 1 ? '' : 's'}`);
+      if (up > 0) parts.push(`${up} increase${up === 1 ? '' : 's'}`);
+      const stock = parts.length === 0 ? 'No stock changes to apply' : `${parts.join(' · ')} applied automatically`;
+      return h > 0 ? `${stock} · ${hiddenText(h)}` : stock;
     }
-    case 'off': return 'Automatic decreases off — nothing applied';
+    case 'off': return 'Automatic updates off — nothing applied';
     case 'not_ready': return 'Incomplete read — nothing applied';
     case 'window_passed': return 'Finished too late (over 30 minutes) — nothing applied';
     case 'superseded': return 'A newer fetch existed — nothing applied';
@@ -268,11 +307,11 @@ export function autoApplyText(run: Pick<InventoryRun, 'source' | 'status' | 'aut
  *  can. Words for its refusals. */
 export function autoApplyRefusal(code: string): string {
   switch (code) {
-    case 'permission_denied': return 'You need the Website catalog permission to change automatic decreases.';
+    case 'permission_denied': return 'You need the Website catalog permission to change automatic updates.';
     case 'user_identity_required': return 'Your session has expired. Sign in again.';
     case 'stale': return 'Someone else changed this a moment ago. The card now shows the current state.';
     case 'setting_missing': return 'The switch is missing from system settings. Ask Claude Code to check the PR 3 migration.';
-    default: return code || 'Could not change automatic decreases.';
+    default: return code || 'Could not change automatic updates.';
   }
 }
 
