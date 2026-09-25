@@ -196,6 +196,10 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.page365-fetch-order]
     verify_jwt = true
+  [functions.page365-inventory-fetch]
+    verify_jwt = true
+  [functions.page365-inventory-photos]
+    verify_jwt = true
   [functions.campaign-queue]
     verify_jwt = true
   [functions.process-newsletter-campaigns]

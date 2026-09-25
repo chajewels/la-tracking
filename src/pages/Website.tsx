@@ -19,6 +19,7 @@ import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard"
 import { SettingsCard } from "@/components/website/SettingsCard";
 import { ReservationModeCard } from "@/components/website/ReservationModeCard";
 import { Page365StockCard } from "@/components/website/Page365StockCard";
+import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on five tabs.
@@ -35,7 +36,9 @@ import { Page365StockCard } from "@/components/website/Page365StockCard";
  *   content, settings → manage_website_content  (the words on the site)
  *   audience         → EITHER, with each card on its own key — see canAudience
  *   page365-stock    → manage_website_catalog  (Page365 lines that did not
- *                      reduce website stock — docs/PAGE365-IMPORT.md "STOCK")
+ *                      reduce website stock — docs/PAGE365-IMPORT.md "STOCK"),
+ *                      and the Page365 inventory fetch/review/apply
+ *                      (docs/PAGE365-IMPORT.md "INVENTORY")
  */
 export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];
@@ -147,6 +150,7 @@ export default function Website() {
 
           {canCatalog && (
             <TabsContent value="page365-stock" className="mt-5 space-y-6" tabIndex={-1}>
+              <Page365InventoryCard />
               <Page365StockCard />
             </TabsContent>
           )}

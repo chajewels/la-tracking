@@ -15,7 +15,7 @@ Added 2026-09-21.
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
 | Settings | `settings` | ReservationModeCard, SettingsCard | `manage_website_content` (the reserve-first switch itself: **admin only**) |
-| Page365 stock | `page365-stock` | Page365StockCard | `manage_website_catalog` — Page365 lines that did not reduce website stock; resolve with a note (added 2026-09-26, docs/PAGE365-IMPORT.md "STOCK") |
+| Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK") |
 
 **Audience is the one tab that is not a single key's.** Three of its cards
 belong to `manage_website_catalog` — who subscribed, who wrote in — and

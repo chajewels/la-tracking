@@ -200,3 +200,80 @@
   catalogue edit (docs/WEBSITE-VERCEL.md). Website orders keep their own
   stock paths (gated `source_channel = 'web'`); Page365 lines keep
   `variant_id` NULL on the items tables, so those paths never see them.
+
+## INVENTORY — Page365 catalogue → website stock and photos (added 2026-09-27, PR 1 of 4)
+
+Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` (owner approved every
+recommendation). Migration `20260927100000_page365_inventory_fetch.sql` (owner runs it),
+edge functions `page365-inventory-fetch` and `page365-inventory-photos`, Hub card
+**Website → Page365 stock → Page365 inventory** (`Page365InventoryCard.tsx`). Behaviour
+tests: `docs/sql/20260927_page365_inventory_fetch_local_{stub,tests}.sql`; unit/pins:
+`src/test/page365-inventory.test.tsx`.
+
+**Reading.** The storefront answers JSON. `GET /products?page=N` is a *cumulative* list
+(page N = first 16·N products), so the fetch reads page 1 for `count`, then page
+`ceil(count/16)` for everything, and refuses a list whose length ≠ count or that repeats
+an id. Then one `GET /products/<id>` per product, ≤ 4 requests/s
+(`createRateLimiter(4, 4)`), 8 s timeout, 40 products per `continue` call. The browser
+loops `continue` until the run leaves `fetching`; a closed tab leaves a run the next
+**Resume fetch** (or a new Fetch after 10 min idle) picks up. A claim older than 3 min is
+taken again; a failed product is retried once. One `fetching` run at a time (unique index).
+
+**Strict parse, no reviews.** `parseProductDetail` keeps only `name, price, full_price,
+photos, variants`; a missing or non-integer `available`, no variants, or a photo not on
+`https://assets.page365.net` is an error for that product, never a guessed value.
+`page365_inventory_store_product` re-checks the variants and copies whitelisted keys only.
+The `review` block (customer names and words) never leaves the parser.
+
+**Code = per variant.** One variant → first word of the product name; 2+ variants →
+first word of each variant name (listing E1053 carries pieces E1053 **and** E2057).
+Matching is #195's `page365_match_line`, unchanged: exact code, one product, one variant.
+
+**The proposal** (`page365_inventory_finish`, all rows at one moment):
+
+| category | meaning | on the review screen |
+|---|---|---|
+| `decrease` | `max(0, available − web holds) < stock_qty` | pre-ticked |
+| `increase` | … `> stock_qty` | tick required; sent in the *increase* list |
+| `no_change` | equal | counted only |
+| `excluded` | the variant has a #195 `page365_stock_lines.stock_state = 'held'` line | shown, never tickable (until PR 2) |
+| `flagged` | `no_code`, `duplicate_in_page365`, `ambiguous_sku`, `no_variant`, `ambiguous_variant` | shown with the reason |
+| `new` | code not in the Hub | listed only — nothing created |
+| `hub_only` | active/draft Hub product whose code is absent from a **complete** read | flagged with the count of consecutive runs; never zeroed |
+
+Price differences (`price_differs`, plus Page365's compare-at `full_price`) are reported
+only. **Web holds** (`page365_web_holds`) = quantity on web cash orders still `pending`
++ live web layaways (`active/overdue`, `stock_released_at IS NULL`) with `total_paid = 0`
+— the sales staff have not yet entered in Page365 (owner rule: every confirmed website
+sale goes into Page365). A rise can therefore mean "confirmed on the website, not yet in
+Page365": staff leave it unticked.
+
+**Run status.** `ready` only when every product read cleanly and `count` did not fall more
+than 20 % against the last ready run; otherwise `partial` (shown, nothing tickable,
+apply refuses). A list that cannot be read → `failed`, no products queued. **An outage
+changes nothing.**
+
+**Apply** — `page365_inventory_apply(run, decrease_ids[], increase_ids[])`, signed-in user
+with `manage_website_catalog`. Refuses a run that is not `ready`, is > 24 h old, or has a
+newer ready run. Per row: `UPDATE … SET stock_qty = proposed WHERE id = variant AND
+stock_qty = seen_stock` → `applied` (+ audit `page365_inventory_applied`, old/new stock,
+code, Page365 qty, web holds) or `changed_since_fetch`. Skipped, row left reviewable:
+`direction_mismatch` (an increase sent as a decrease), `invoice_hold` (re-checked live),
+`not_a_stock_change`, `already_*`. One audit row per call (`page365_inventory_apply`).
+The CHECK `stock_qty >= 0` and `proposed_stock >= 0` are the never-below-zero backstop.
+
+**Photos** (on Apply, for ticked matched products; pre-ticked). `page365-inventory-photos`
+copies each photo not yet present **with the same version** to
+`promotions/website/page365/<page365 product>/<photo id>-<version>.<ext>` (`upsert:false`,
+image/*, ≤ 10 MB, ≤ 4/s, 12 per call, the browser loops), then
+`page365_inventory_record_photo`: same id + version → nothing; new version → url refreshed
+in place; a spreadsheet hotlink to the same Page365 file → replaced in place; else
+inserted. Order = Page365's (position, then list order); with no staff photos the first
+Page365 photo is `sort 0` (main). **Staff photos** (`page365_photo_id IS NULL`, not a
+Page365 hotlink) keep their rows and their `sort`; Page365 photos go after them. A copied
+photo Page365 later drops is reported (`photos_removed`), never deleted. Unique index
+`(variant_id, page365_photo_id)` makes a duplicate impossible. A fetch alone copies nothing.
+
+**Still #195's job until PR 2:** invoice imports keep taking stock; that is why held
+variants are excluded here. PR 2 switches imports to ledger-only (`inventory_sync`),
+PR 3 adds the 30-min schedule (decreases only), PR 4 "Create draft" — docs/PENDING.md.
