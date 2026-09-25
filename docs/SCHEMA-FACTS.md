@@ -1300,6 +1300,22 @@ Migration `20260927100000_page365_inventory_fetch.sql`. Rules: docs/PAGE365-IMPO
   `page365_web_holds` (service role only).
 - `website_product_media.page365_photo_id bigint`, `page365_photo_version text`; unique
   `(variant_id, page365_photo_id) WHERE page365_photo_id IS NOT NULL`. NULL = staff photo.
+
+## Page365 drafts — source columns and publish rules (added 2026-09-28)
+
+Migration `20260928100000_page365_inventory_drafts.sql`. Rules: docs/PAGE365-IMPORT.md "DRAFTS".
+
+- `page365_inventory_products.list_category_id bigint`, `list_category text`,
+  `list_description text` — from the catalogue LIST at fetch start (no reviews there).
+- `website_products.page365_product_id bigint`, `page365_variant_id bigint`,
+  `page365_category text`; unique `(page365_product_id, page365_variant_id) WHERE
+  page365_product_id IS NOT NULL`. NULL = made in the Hub.
+- Functions: `page365_inventory_create_drafts(uuid, uuid[])` and
+  `website_publish_products(uuid[])` (authenticated, permission-checked inside);
+  `website_product_publish_missing(uuid)` (authenticated + service role);
+  `page365_category_for / _metals_from_text / _clean_description` (service role only).
+- Trigger `trg_page365_draft_publish_guard` BEFORE INSERT OR UPDATE OF status ON
+  website_products — Page365 drafts only.
 - `system_settings.page365_inventory_auto_apply` seeded `false` — unused until PR 3.
 - New `audit_logs` entity types: `website_product_variant` (actions
   `page365_inventory_applied`, `page365_photo_copied`) and `page365_inventory_run`

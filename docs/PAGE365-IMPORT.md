@@ -280,8 +280,8 @@ photo Page365 later drops is reported (`photos_removed`), never deleted. Unique 
 `(variant_id, page365_photo_id)` makes a duplicate impossible. A fetch alone copies nothing.
 
 **PR 2 (2026-09-28)** switched invoice imports to record-only (`inventory_sync`) — next
-section. PR 3 adds the 30-min schedule (decreases only), PR 4 "Create draft" —
-docs/PENDING.md.
+section. PR 3 adds the 30-min schedule (decreases only), PR 4 "Create drafts" —
+section DRAFTS below.
 
 ## PR 2 — PAGE365 IS THE STOCK MASTER (added 2026-09-28)
 
@@ -345,3 +345,71 @@ an oversell. Once the owner's test shows Page365 counts unpaid invoices, set the
   before PR 2 a save stripped them and the next copy duplicated every Page365 photo.
 - The draft carries `stock_mode`; the review chips say "Matched · CODE — stock follows the
   Page365 inventory fetch" (or "Not synced with Page365") instead of "Will take stock".
+
+## DRAFTS — "Create drafts" from new Page365 codes, and Catalog bulk Publish (added 2026-09-28, PR 4 of 4)
+
+Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` (PR 4, owner-approved).
+Migration `20260928100000_page365_inventory_drafts.sql` (owner runs it, AFTER PR 1 and PR 2's
+migrations). Hub: **Website → Page365 stock → New in Page365** (`Page365NewProductsPanel.tsx`)
+and **Website → Catalog** bulk bar (`CatalogBulkBar.tsx`). Behaviour tests:
+`docs/sql/20260928_page365_inventory_drafts_local_{stub,tests}.sql`; unit/pins:
+`src/test/page365-drafts.test.tsx`.
+
+**Owner rules.** Nothing appears on the website until a person publishes it. Created
+products are drafts. Sold pieces (Page365 available 0) are hidden by default and only
+created when "In stock only" is switched off. Every money figure comes from the Hub; yen is
+the price of record. Origin is set by staff and never guessed. Descriptions are English and
+auto-translated to Japanese.
+
+**Filters (review screen).** "In stock only" (ON by default), search by code/name, Page365
+category, yen price range, "Select all shown" (ticks only rows the filters show; a filter
+change drops ticks on rows it hides), counts at the top (`N new · N in stock · N sold out ·
+N drafted`). The Page365 category comes from the catalogue LIST, stored at fetch start in
+`page365_inventory_products.list_category` / `list_description` (the list carries no
+reviews). Runs fetched before this release have no categories: fetch again.
+
+**What "Create drafts" makes** (`page365_inventory_create_drafts`, signed-in user with
+`manage_website_catalog`, only on a `ready`, current, < 24 h run):
+- One Hub product per new CODE, each with ONE variant. A Page365 listing carrying two codes
+  (E1053 / E2057) gives two products, because #195's matcher only matches a code to a
+  product with exactly one variant — a two-variant product would never sync stock.
+- `sku` = the code; name = the Page365 name (the variant's name when the listing carries
+  several codes); `status` = draft; `origin` = UNKNOWN; `condition` = Preloved only when
+  Page365 says so ("[Preloved]" in the name or a PRELOVED category), else New.
+- Price = Page365's yen price for that variant; stock = Page365 available (a new variant
+  has no website holds, so this IS max(0, available − holds)).
+- Metals: whole words equal to a Hub stamp, as printed in the name/description (K18, PT900,
+  …; "0.750ct" is not 750). None printed → **failed `no_metal`** (the column requires one).
+- Category: only when the Page365 category's first word is a jewelry type (Rings MIJ,
+  Necklace MIJ, …) AND exactly one Hub category has that slug/name (singular or plural).
+  "SUPPLIER LISTINGS - …", "- BRANDED PRELOVED" → left unset, flagged **needs category**.
+- Description: Page365's text only through `page365_clean_description` (no links, e-mail,
+  @handles, phone numbers, HTML or banned gold wording; ≤ 2,000 characters), else empty.
+- Skipped, never duplicated: `code_exists` (a Hub sku whose first word is the code — made
+  by hand since the fetch), `already_created` (that Page365 listing+variant was drafted),
+  and the `sku` UNIQUE constraint for a race. Failed, with the reason: `no_price`,
+  `no_metal`, `code_is_a_word` (the name starts "Necklace …", so the first word is not a
+  code), and any trigger refusal (banned gold wording in the Page365 name).
+- The review item becomes `matched` to the new variant (`status applied`,
+  `result_note draft_created`), so the PR 1 copier (`page365-inventory-photos`) copies
+  every photo in Page365's order, first = main, one row per (variant, photo id) — the panel
+  runs it right after creating. The next fetch sees the draft as an ordinary matched piece.
+- Audited: `audit_logs` `page365_draft_created` per product, `page365_inventory_create_drafts`
+  per call.
+
+**Publishing** (`website_publish_products`, Catalog → select → Publish). Drafts only; each
+product missing origin, category, a brand name (origin BRAND), a metal stamp or a price stays
+a draft and is listed with what is missing (`website_product_publish_missing` is the one
+definition). Japanese is generated first for drafts that have none. Audited
+(`website_product_published`). `trg_page365_draft_publish_guard` refuses a Page365 draft
+going live any other way (the product dialog, a spreadsheet row, SQL); Hub-made products are
+not affected. The product dialog now writes a status change to active LAST (after
+categories) so a complete save passes the guard, and keeps `page365_photo_id/_version` on
+media rows it re-writes (otherwise the next photo copy would add every photo again).
+
+**Catalog bulk bar.** Select rows → Set origin (Made in Japan / Branded + brand name /
+Other), Add category, Publish. `?view=page365-drafts` shows only Page365 drafts;
+`?product=<id>` opens a product (links from the Create-drafts results).
+
+**Not built.** Drafts from unmatched INVOICE lines (planned alongside PR 4 in §5.1) — the
+catalogue path covers every listed piece; filed in docs/PENDING.md.

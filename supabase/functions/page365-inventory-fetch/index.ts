@@ -27,7 +27,7 @@ import { requireAuth, requirePermission, type AuthContext } from "../_shared/han
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
 import {
   STOREFRONT_ORIGIN, USER_AGENT, checkCompleteList, createRateLimiter, lastListPage,
-  parseListEnvelope, parseProductDetail,
+  parseListEnvelope, parseListExtras, parseProductDetail,
 } from "../_shared/page365-inventory.ts";
 
 /** Products per continue call: at 4 requests/s about 10 s of reading, well
@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
       const first = await getJson(`${STOREFRONT_ORIGIN}/products?page=1`, LIST_TIMEOUT_MS);
       if (!first.ok) return await fail(`list page 1: ${first.why}`);
       let items;
+      let listJson: unknown = first.json;
       try {
         const env1 = parseListEnvelope(first.json);
         const last = lastListPage(env1.count);
@@ -127,6 +128,7 @@ Deno.serve(async (req) => {
           const full = await getJson(`${STOREFRONT_ORIGIN}/products?page=${last}`, LIST_TIMEOUT_MS);
           if (!full.ok) return await fail(`list page ${last}: ${full.why}`);
           env = parseListEnvelope(full.json);
+          listJson = full.json;
           if (env.count !== env1.count) throw new Error(`count changed during the read (${env1.count} -> ${env.count})`);
         }
         items = checkCompleteList(env);
@@ -134,9 +136,21 @@ Deno.serve(async (req) => {
         return await fail((e as Error).message);
       }
 
-      const { error: qErr } = await supabase.from("page365_inventory_products").insert(
-        items.map(it => ({ run_id: run.id, page365_product_id: it.id, list_name: it.name })),
+      // PR 4: the list's category and description ride along (the review
+      // filter and the draft's category/text). Before the PR 4 migration those
+      // columns do not exist: queue without them rather than fail the read.
+      const extras = parseListExtras(listJson);
+      const queued = items.map(it => ({ run_id: run.id, page365_product_id: it.id, list_name: it.name }));
+      let { error: qErr } = await supabase.from("page365_inventory_products").insert(
+        queued.map(q => {
+          const x = extras.get(q.page365_product_id);
+          return { ...q, list_category_id: x?.category_id ?? null, list_category: x?.category ?? null,
+                   list_description: x?.description ?? null };
+        }),
       );
+      if (qErr && /list_(category|description)/.test(qErr.message)) {
+        ({ error: qErr } = await supabase.from("page365_inventory_products").insert(queued));
+      }
       if (qErr) return await fail(`could not queue products: ${qErr.message}`);
       await supabase.from("page365_inventory_runs")
         .update({ page365_count: items.length, products_total: items.length, updated_at: new Date().toISOString() })

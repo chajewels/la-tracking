@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CatalogBulkBar } from "@/components/website/CatalogBulkBar";
+import { missingText, publishMissing } from "@/lib/page365-drafts";
 import { Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
@@ -47,6 +51,9 @@ export default function ProductsCard() {
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [searchParams, setSearchParams] = useSearchParams();
+  const draftsView = searchParams.get("view") === "page365-drafts";
 
   const collections = useQuery({
     queryKey: ["website-collections"],
@@ -66,10 +73,10 @@ export default function ProductsCard() {
       const { data, error } = await supabase
         .from("website_products" as any)
         .select(
-          "id, sku, slug, name, name_ja, karat, metals, weight_g, condition, origin, brand, description_en, description_ja, status, created_at, " +
-          "page365_sync_disabled, " +
-          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, " +
-          "website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
+          // "*" rather than a column list: page365_product_id (PR 4) is read when
+          // the migration has run and simply absent before it.
+          "*, " +
+          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
           "website_collection_products(collection_id), website_category_products(category_id)"
         )
         .order("created_at", { ascending: false });
@@ -104,6 +111,29 @@ export default function ProductsCard() {
       fromPrice: prices.length ? Math.min(...prices) : 0,
     };
   }), [products.data]);
+
+  // ?view=page365-drafts (from "Create drafts"): only the Page365 drafts.
+  const visible = useMemo(
+    () => (draftsView ? rows.filter((p) => p.page365_product_id != null && p.status === "draft") : rows),
+    [rows, draftsView],
+  );
+  const selectedRows = useMemo(() => visible.filter((p) => picked.has(p.id)), [visible, picked]);
+  const clearParam = (key: string) => setSearchParams(prev => {
+    const n = new URLSearchParams(prev);
+    n.delete(key);
+    return n;
+  }, { replace: true });
+
+  // ?product=<id> (links from "Create drafts"): open that product once loaded.
+  const deepLinked = searchParams.get("product");
+  useEffect(() => {
+    if (!deepLinked || !products.data) return;
+    const p = rows.find((r) => r.id === deepLinked);
+    clearParam("product");
+    if (p) openEdit(p);
+    else toast({ title: "Product not found", description: "It may have been removed.", variant: "destructive" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinked, products.data]);
 
   function openNew() {
     setForm(emptyProduct());
@@ -220,6 +250,8 @@ export default function ProductsCard() {
       if (!f.variants.length) throw new Error("Add at least one variant.");
       if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
+      const wasActive = (products.data ?? []).some((p) => p.id === f.id && p.status === "active");
+      const goingLive = f.status === "active" && !wasActive;
 
       // Japanese is derived from the English text: refresh it when the English
       // changed, or when it has never been generated. Never on an unchanged product.
@@ -262,7 +294,9 @@ export default function ProductsCard() {
         brand: f.brand.trim() || null,
         description_en: en || null,
         description_ja: ja || null,
-        status: f.status,
+        // Going live is written LAST, after categories: a Page365 draft is
+        // refused publication without a category (trg_page365_draft_publish_guard).
+        status: goingLive ? "draft" : f.status,
         page365_sync_disabled: f.page365SyncDisabled,
       };
 
@@ -350,6 +384,11 @@ export default function ProductsCard() {
             category_id: cid, product_id: productId, sort_order: idx,
           })));
         if (error) throw error;
+      }
+      if (goingLive) {
+        const { error } = await supabase.from("website_products" as never)
+          .update({ status: "active" } as never).eq("id", productId!);
+        if (error) throw new Error(`Saved as a draft, not published: ${error.message}`);
       }
       return productId;
     },
@@ -448,11 +487,26 @@ export default function ProductsCard() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {draftsView && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs">
+              <Badge variant="outline">Page365 drafts only ({visible.length})</Badge>
+              <span className="text-muted-foreground">Not on the website. Set origin and category, then select and Publish.</span>
+              <Button size="sm" variant="ghost" onClick={() => clearParam("view")}>Show all products</Button>
+            </div>
+          )}
+          {canManage && (
+            <CatalogBulkBar
+              selected={selectedRows}
+              categories={(categories.data ?? []).map((c) => ({ id: c.id, name: c.name }))}
+              onDone={() => qc.invalidateQueries({ queryKey: ["website-products"] })}
+              onClear={() => setPicked(new Set())}
+            />
+          )}
           {products.isLoading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : rows.length === 0 ? (
+          ) : visible.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
               No products yet. Add your first piece to publish it on the website.
             </div>
@@ -460,6 +514,15 @@ export default function ProductsCard() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {canManage && (
+                    <TableHead className="w-8">
+                      <Checkbox
+                        aria-label="Select all"
+                        checked={visible.length > 0 && selectedRows.length === visible.length}
+                        onCheckedChange={(v) => setPicked(v === true ? new Set(visible.map((p) => p.id as string)) : new Set())}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Name</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Metal</TableHead>
@@ -474,8 +537,21 @@ export default function ProductsCard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((p: any) => (
+                {visible.map((p: any) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => openEdit(p)}>
+                    {canManage && (
+                      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          aria-label={`Select ${p.sku}`}
+                          checked={picked.has(p.id)}
+                          onCheckedChange={(v) => setPicked((prev) => {
+                            const n = new Set(prev);
+                            if (v === true) n.add(p.id); else n.delete(p.id);
+                            return n;
+                          })}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">
                       {p.name}
                       {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
@@ -508,6 +584,9 @@ export default function ProductsCard() {
                     <TableCell className="text-right tabular-nums">{p.stock}</TableCell>
                     <TableCell>
                       <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
+                      {p.status === "draft" && publishMissing(p).length > 0 && (
+                        <div className="mt-0.5 text-[10px] text-warning">{missingText(publishMissing(p))}</div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {canManage && (

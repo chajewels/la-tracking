@@ -102,6 +102,32 @@ export function parseListEnvelope(json: unknown): { count: number; items: ListIt
   return { count, items };
 }
 
+/** What the LIST says about each product beyond id and name (PR 4): its
+ *  Page365 category and description. The list carries no customer reviews.
+ *  Lenient by design: the list was already checked strictly by
+ *  parseListEnvelope, and a missing or odd category/description is null —
+ *  it only means the draft is uncategorised or has no description. */
+export interface ListExtras {
+  category_id: number | null;
+  category: string | null;
+  description: string | null;
+}
+
+export function parseListExtras(json: unknown): Map<number, ListExtras> {
+  const out = new Map<number, ListExtras>();
+  if (!isObj(json) || !Array.isArray(json["items"])) return out;
+  for (const raw of json["items"] as unknown[]) {
+    if (!isObj(raw) || typeof raw["id"] !== "number") continue;
+    const cat = isObj(raw["category"]) ? raw["category"] : null;
+    const catName = cat && typeof cat["name"] === "string" && cat["name"].trim() ? cat["name"].trim() : null;
+    const catId = cat && typeof cat["id"] === "number" && Number.isSafeInteger(cat["id"]) ? cat["id"] : null;
+    const desc = typeof raw["description"] === "string" && raw["description"].trim()
+      ? raw["description"].slice(0, 4000) : null;
+    out.set(raw["id"], { category_id: catId, category: catName ? catName.slice(0, 200) : null, description: desc });
+  }
+  return out;
+}
+
 /** A complete list: exactly `count` items, no id twice. */
 export function checkCompleteList(env: { count: number; items: ListItem[] }): ListItem[] {
   if (env.items.length !== env.count) {
