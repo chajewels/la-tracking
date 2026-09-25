@@ -3421,6 +3421,273 @@ export type Database = {
         }
         Relationships: []
       }
+      page365_inventory_chunks: {
+        Row: {
+          chunk_no: number
+          id: string
+          products: number
+          run_id: string
+          started_at: string
+        }
+        Insert: {
+          chunk_no: number
+          id?: string
+          products?: number
+          run_id: string
+          started_at?: string
+        }
+        Update: {
+          chunk_no?: number
+          id?: string
+          products?: number
+          run_id?: string
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_inventory_chunks_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "page365_inventory_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      page365_inventory_items: {
+        Row: {
+          applied_at: string | null
+          applied_by: string | null
+          category: string
+          code: string | null
+          created_at: string
+          hub_price_jpy: number | null
+          hub_sku: string | null
+          id: string
+          inventory_product_id: string | null
+          invoice_holds: number | null
+          kind: string
+          match_result: string
+          missing_runs: number | null
+          page365_available: number | null
+          page365_full_price_jpy: number | null
+          page365_name: string | null
+          page365_price_jpy: number | null
+          page365_product_id: number | null
+          page365_variant_id: number | null
+          photos_removed: number
+          photos_to_copy: number
+          photos_total: number
+          price_differs: boolean
+          proposed_stock: number | null
+          result_note: string | null
+          run_id: string
+          seen_stock: number | null
+          status: string
+          variant_id: string | null
+          variant_name: string | null
+          web_holds: number | null
+          website_product_id: string | null
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_by?: string | null
+          category?: string
+          code?: string | null
+          created_at?: string
+          hub_price_jpy?: number | null
+          hub_sku?: string | null
+          id?: string
+          inventory_product_id?: string | null
+          invoice_holds?: number | null
+          kind?: string
+          match_result?: string
+          missing_runs?: number | null
+          page365_available?: number | null
+          page365_full_price_jpy?: number | null
+          page365_name?: string | null
+          page365_price_jpy?: number | null
+          page365_product_id?: number | null
+          page365_variant_id?: number | null
+          photos_removed?: number
+          photos_to_copy?: number
+          photos_total?: number
+          price_differs?: boolean
+          proposed_stock?: number | null
+          result_note?: string | null
+          run_id: string
+          seen_stock?: number | null
+          status?: string
+          variant_id?: string | null
+          variant_name?: string | null
+          web_holds?: number | null
+          website_product_id?: string | null
+        }
+        Update: {
+          applied_at?: string | null
+          applied_by?: string | null
+          category?: string
+          code?: string | null
+          created_at?: string
+          hub_price_jpy?: number | null
+          hub_sku?: string | null
+          id?: string
+          inventory_product_id?: string | null
+          invoice_holds?: number | null
+          kind?: string
+          match_result?: string
+          missing_runs?: number | null
+          page365_available?: number | null
+          page365_full_price_jpy?: number | null
+          page365_name?: string | null
+          page365_price_jpy?: number | null
+          page365_product_id?: number | null
+          page365_variant_id?: number | null
+          photos_removed?: number
+          photos_to_copy?: number
+          photos_total?: number
+          price_differs?: boolean
+          proposed_stock?: number | null
+          result_note?: string | null
+          run_id?: string
+          seen_stock?: number | null
+          status?: string
+          variant_id?: string | null
+          variant_name?: string | null
+          web_holds?: number | null
+          website_product_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_inventory_items_inventory_product_id_fkey"
+            columns: ["inventory_product_id"]
+            isOneToOne: false
+            referencedRelation: "page365_inventory_products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_inventory_items_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "page365_inventory_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_inventory_items_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_inventory_items_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      page365_inventory_products: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          error: string | null
+          fetched_at: string | null
+          full_price_jpy: number | null
+          id: string
+          list_name: string
+          name: string | null
+          page365_product_id: number
+          photos: Json
+          price_jpy: number | null
+          run_id: string
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          error?: string | null
+          fetched_at?: string | null
+          full_price_jpy?: number | null
+          id?: string
+          list_name: string
+          name?: string | null
+          page365_product_id: number
+          photos?: Json
+          price_jpy?: number | null
+          run_id: string
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          error?: string | null
+          fetched_at?: string | null
+          full_price_jpy?: number | null
+          id?: string
+          list_name?: string
+          name?: string | null
+          page365_product_id?: number
+          photos?: Json
+          price_jpy?: number | null
+          run_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_inventory_products_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "page365_inventory_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      page365_inventory_runs: {
+        Row: {
+          chunks_started: number
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          page365_count: number | null
+          previous_count: number | null
+          products_total: number
+          source: string
+          started_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          chunks_started?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          page365_count?: number | null
+          previous_count?: number | null
+          products_total?: number
+          source?: string
+          started_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          chunks_started?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          page365_count?: number | null
+          previous_count?: number | null
+          products_total?: number
+          source?: string
+          started_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       page365_stock_lines: {
         Row: {
           account_id: string | null
@@ -6138,6 +6405,8 @@ export type Database = {
           alt: string | null
           created_at: string
           id: string
+          page365_photo_id: number | null
+          page365_photo_version: string | null
           sort: number
           url: string
           variant_id: string
@@ -6146,6 +6415,8 @@ export type Database = {
           alt?: string | null
           created_at?: string
           id?: string
+          page365_photo_id?: number | null
+          page365_photo_version?: string | null
           sort?: number
           url: string
           variant_id: string
@@ -6154,6 +6425,8 @@ export type Database = {
           alt?: string | null
           created_at?: string
           id?: string
+          page365_photo_id?: number | null
+          page365_photo_version?: string | null
           sort?: number
           url?: string
           variant_id?: string
@@ -7131,6 +7404,39 @@ export type Database = {
         Returns: Json
       }
       page365_first_word: { Args: { p_name: string }; Returns: string }
+      page365_inventory_apply: {
+        Args: {
+          p_decrease_ids: string[]
+          p_increase_ids: string[]
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      page365_inventory_claim: {
+        Args: { p_limit: number; p_run_id: string }
+        Returns: {
+          o_chunk_no: number
+          o_id: string
+          o_page365_product_id: number
+        }[]
+      }
+      page365_inventory_finish: { Args: { p_run_id: string }; Returns: Json }
+      page365_inventory_record_photo: {
+        Args: {
+          p_actor: string
+          p_index: number
+          p_item_id: string
+          p_photo_id: number
+          p_source_url: string
+          p_url: string
+          p_version: string
+        }
+        Returns: string
+      }
+      page365_inventory_store_product: {
+        Args: { p_detail: Json; p_error: string; p_product_row_id: string }
+        Returns: string
+      }
       page365_match_line: {
         Args: { p_name: string }
         Returns: {
@@ -7141,6 +7447,7 @@ export type Database = {
           o_variant_id: string
         }[]
       }
+      page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
