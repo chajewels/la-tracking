@@ -159,7 +159,7 @@ export function SettingsCard() {
 
   const unknown = useMemo(() => rows.filter((r) => !KNOWN.has(r.key)), [rows]);
 
-  const SectionSave = ({ id }: { id: SectionId }) => {
+  const renderSectionSave = ({ id }: { id: SectionId }) => {
     const changed = changedKeys(id);
     const errors = validateSection(id, draft);
     const busy = save.isPending && save.variables === id;
@@ -187,7 +187,7 @@ export function SettingsCard() {
     );
   };
 
-  const BilingualField = ({ id, label, rows: textRows }: {
+  const renderBilingualField = ({ id, label, rows: textRows }: {
     id: "footer.tagline" | "announcement.text"; label: string; rows: number;
   }) => (
     <div className="space-y-2">
@@ -227,7 +227,7 @@ export function SettingsCard() {
     </div>
   );
 
-  const SocialList = ({ id, label, hint }: {
+  const renderSocialList = ({ id, label, hint }: {
     id: "social.follow" | "social.loyalty_groups"; label: string; hint: string;
   }) => {
     const list = draft[id];
@@ -353,28 +353,28 @@ export function SettingsCard() {
                   Shown on the contact page and used as the reply-to on the site's forms.
                 </p>
               </div>
-              <SectionSave id="contact" />
+              {renderSectionSave({ id: "contact" })}
             </section>
 
             {/* ── Social ──────────────────────────────────────────────── */}
             <section className="space-y-4 border-t border-border pt-6">
               <h3 className="text-sm font-semibold">Social</h3>
-              <SocialList
-                id="social.follow" label="Follow us"
-                hint="The footer's social row, in this order."
-              />
-              <SocialList
-                id="social.loyalty_groups" label="Loyalty groups"
-                hint="The group-chat invites offered to loyalty members."
-              />
-              <SectionSave id="social" />
+              {renderSocialList({
+                id: "social.follow", label: "Follow us",
+                hint: "The footer's social row, in this order.",
+              })}
+              {renderSocialList({
+                id: "social.loyalty_groups", label: "Loyalty groups",
+                hint: "The group-chat invites offered to loyalty members.",
+              })}
+              {renderSectionSave({ id: "social" })}
             </section>
 
             {/* ── Footer ──────────────────────────────────────────────── */}
             <section className="space-y-3 border-t border-border pt-6">
               <h3 className="text-sm font-semibold">Footer</h3>
-              <BilingualField id="footer.tagline" label="Tagline" rows={2} />
-              <SectionSave id="footer" />
+              {renderBilingualField({ id: "footer.tagline", label: "Tagline", rows: 2 })}
+              {renderSectionSave({ id: "footer" })}
             </section>
 
             {/* ── Announcement ────────────────────────────────────────── */}
@@ -422,7 +422,7 @@ export function SettingsCard() {
                 </p>
               </div>
 
-              <BilingualField id="announcement.text" label="Announcement" rows={2} />
+              {renderBilingualField({ id: "announcement.text", label: "Announcement", rows: 2 })}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -446,7 +446,7 @@ export function SettingsCard() {
                   </p>
                 </div>
               </div>
-              <SectionSave id="announcement" />
+              {renderSectionSave({ id: "announcement" })}
             </section>
 
             {/* ── Anything this card does not know about ──────────────── */}
