@@ -92,7 +92,7 @@ jobs:
       #   peso full payment: the quoted peso total equals the stored order to
       #     the peso (half-up), yen and peso layaway unchanged, loyalty in yen.
       - name: Website and template tests
-        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx src/test/reassign-owner.test.ts src/test/peso-cash.test.ts src/test/hub-down-payments.test.ts src/test/page365-stock.test.tsx
+        run: npx vitest run src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx src/test/reassign-owner.test.ts src/test/peso-cash.test.ts src/test/hub-down-payments.test.ts src/test/page365-stock.test.tsx src/test/page365-inventory.test.tsx
 
       - name: Build app
         run: npm run build

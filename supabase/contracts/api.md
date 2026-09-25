@@ -50,6 +50,12 @@ product_media: [{ url, alt }] }], category_slugs: string[] }`
   or expired import gives it back) — 2026-09-26, docs/PAGE365-IMPORT.md
   "STOCK". No field or shape changed; the storefront keeps reading `stock_qty`
   and is revalidated by the same catalogue trigger.
+- Since 2026-09-27 staff can also set `stock_qty` from the **Page365 inventory
+  fetch** (Website → Page365 stock; docs/PAGE365-IMPORT.md "INVENTORY"), and
+  that fetch adds Page365's photos to `product_media` (in Page365's order,
+  after any staff photos). Still no field or shape change: `product_media`
+  items stay `{ url, alt }`, every URL is the Hub's own `promotions` bucket
+  (never a Page365 hotlink), and the same revalidation trigger fires.
 - `price_php` is derived per request from the latest `fx_rates` row
   (`PHP = JPY × rate`), rounded **half-up to a whole peso** with the same
   integer maths the peso checkout stores (2026-09-25; before, a float round

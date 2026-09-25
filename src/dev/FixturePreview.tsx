@@ -209,6 +209,12 @@ export default function FixturePreview() {
       seed(['page365-stock-flags', true], p365.lines.filter((l) => l.flag));
       seed(['page365-stock-lines', 'cash', cashOrders[0]?.id], p365.lines);
       seed(['page365-draft', 'fixture-p365-draft'], p365.draft);
+      // Page365 inventory fetch (2026-09-27): one complete run covering every
+      // review group — Website → Page365 stock, hub view. &inv=partial shows
+      // an incomplete read (nothing tickable).
+      const inv = buildPage365InventoryFixtures(searchParams.get('inv') === 'partial');
+      seed(['page365-inventory-run'], inv.run);
+      seed(['page365-inventory-items', inv.run.id], inv.items);
     }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
@@ -1154,6 +1160,39 @@ function ReservationsFixture() {
       <DeadlinesCard entityType="layaway" entityId={lay.id} status="active" transferDueAt={null} reference={lay.reference} sourceChannel="web" awaitingConfirmation canEdit />
     </div>
   );
+}
+
+/** Page365 inventory fixtures: one run with every review population. */
+function buildPage365InventoryFixtures(partial: boolean) {
+  const run = {
+    id: 'fixture-inv-run', status: partial ? 'partial' : 'ready', page365_count: 572, products_total: 572,
+    error: partial ? '1 product(s) could not be read' : null,
+    created_at: '2026-09-27T01:00:00Z', finished_at: '2026-09-27T01:03:10Z',
+  };
+  const base = {
+    run_id: run.id, kind: 'page365', variant_name: null, page365_full_price_jpy: null, match_result: 'matched',
+    website_product_id: 'wp', variant_id: 'wv', web_holds: 0, invoice_holds: 0, price_differs: false,
+    photos_total: 0, photos_to_copy: 0, photos_removed: 0, missing_runs: null, status: 'review', result_note: null,
+  };
+  const row = (id: string, code: string, name: string, over: Record<string, unknown>) => ({
+    ...base, id, page365_product_id: Number(id.replace(/\D/g, '')) || 1, page365_variant_id: Number(id.replace(/\D/g, '')) || 1,
+    code, hub_sku: code, page365_name: name, page365_price_jpy: 72980, hub_price_jpy: 72980, ...over,
+  });
+  const items = [
+    row('i1', 'N4020', 'N4020 Necklace Tiffany & Co. 750 Open Teardrop', { category: 'decrease', page365_available: 0, seen_stock: 1, proposed_stock: 0, photos_total: 3, photos_to_copy: 3 }),
+    row('i2', 'E1053', 'E1053 Earrings K18', { variant_name: 'E1053 2.0g', category: 'decrease', page365_available: 0, seen_stock: 1, proposed_stock: 0, page365_price_jpy: 74980, hub_price_jpy: 74980, photos_total: 2, photos_to_copy: 2 }),
+    row('i3', 'R7828', 'R7828 Ring 750YG/WG 19.0g Diamond 2.70ct', { category: 'increase', page365_available: 2, seen_stock: 1, proposed_stock: 2, page365_price_jpy: 679980, hub_price_jpy: 679980, photos_total: 3, photos_to_copy: 1, photos_removed: 1 }),
+    row('i4', 'R3341', 'R3341 Ring K18WG 16.20g Diamond 3.82ct', { category: 'no_change', page365_available: 1, seen_stock: 0, proposed_stock: 0, web_holds: 1 }),
+    row('i5', 'ZT9001', 'ZT9001 Test ring K18', { category: 'excluded', page365_available: 1, seen_stock: 1, proposed_stock: 1, invoice_holds: 1 }),
+    row('i6', 'E2794', 'E2794 Earrings K18 Diamond', { category: 'no_change', page365_available: 1, seen_stock: 1, proposed_stock: 1, page365_price_jpy: 19184, page365_full_price_jpy: 23980, hub_price_jpy: 23980, price_differs: true }),
+    row('i7', 'R0001', 'R0001 duplicate listing', { category: 'flagged', match_result: 'duplicate_in_page365', website_product_id: null, variant_id: null, hub_sku: null, seen_stock: null, proposed_stock: null }),
+    row('i8', 'E1053X', 'E1053X Earrings (two sizes in the Hub)', { category: 'flagged', match_result: 'ambiguous_variant', variant_id: null, seen_stock: null, proposed_stock: null }),
+    row('i9', 'NL22', 'NL22 Necklace new piece', { category: 'new', match_result: 'unmatched', website_product_id: null, variant_id: null, hub_sku: null, hub_price_jpy: null, seen_stock: null, proposed_stock: null, page365_available: 1, page365_price_jpy: 39980 }),
+    { ...base, id: 'i10', kind: 'hub_only', page365_product_id: null, page365_variant_id: null, page365_name: null, code: null, hub_sku: 'ZT9200',
+      page365_price_jpy: null, hub_price_jpy: null, page365_available: null, match_result: 'hub_only', category: 'hub_only',
+      seen_stock: null, proposed_stock: null, missing_runs: 2 },
+  ];
+  return { run, items };
 }
 
 /** Page365 stock fixtures: the owner's four-line acceptance invoice. */

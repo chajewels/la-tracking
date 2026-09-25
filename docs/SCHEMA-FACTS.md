@@ -1273,3 +1273,32 @@ RLS: staff (`is_staff`) SELECT only. No INSERT/UPDATE/DELETE grant to
 a layaway (the bell treats `account_id` as a layaway id); `metadata` carries
 `page365_no`, `order_kind`, `order_id`, `cash_order_id` (cash), `reason`
 (`import` | `rehold_failed`) and, on import, the flagged `lines`.
+
+## Page365 inventory fetch — run tables and photo identity (added 2026-09-27)
+
+Migration `20260927100000_page365_inventory_fetch.sql`. Rules: docs/PAGE365-IMPORT.md "INVENTORY".
+
+- `page365_inventory_runs` — `status fetching | ready | partial | failed`, `page365_count`,
+  `products_total`, `previous_count` (last ready run's count, for the 20 % drop check),
+  `chunks_started`, `error`, `finished_at`. Unique partial index: one `fetching` run.
+- `page365_inventory_chunks` — one row per `continue` call `(run_id, chunk_no, products)`.
+- `page365_inventory_products` — queue + what was read, `UNIQUE (run_id, page365_product_id)`;
+  `status pending | claimed | fetched | error`, `attempts`, `photos jsonb`
+  (`[{id, version, url, position}]` only — never reviews).
+- `page365_inventory_items` — review rows: kind `page365` (one per Page365 variant,
+  `UNIQUE (run_id, page365_product_id, page365_variant_id)`) or `hub_only`
+  (`UNIQUE (run_id, website_product_id)`); `code`, `match_result`, `variant_id`,
+  `seen_stock`, `web_holds`, `invoice_holds`, `proposed_stock >= 0`, `category`,
+  `price_differs`, `photos_total / _to_copy / _removed`, `missing_runs`,
+  `status review | applied | changed_since_fetch | failed`, `result_note`.
+- RLS on all four: SELECT for `has_permission(uid, 'manage_website_catalog')`; no browser
+  writes. Writers: service role (the two edge functions) and SECURITY DEFINER
+  `page365_inventory_claim / _store_product / _finish / _record_photo` (service role only),
+  `page365_inventory_apply` (authenticated, permission-checked inside),
+  `page365_web_holds` (service role only).
+- `website_product_media.page365_photo_id bigint`, `page365_photo_version text`; unique
+  `(variant_id, page365_photo_id) WHERE page365_photo_id IS NOT NULL`. NULL = staff photo.
+- `system_settings.page365_inventory_auto_apply` seeded `false` — unused until PR 3.
+- New `audit_logs` entity types: `website_product_variant` (actions
+  `page365_inventory_applied`, `page365_photo_copied`) and `page365_inventory_run`
+  (`page365_inventory_apply`).
