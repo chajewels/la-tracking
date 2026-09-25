@@ -80,6 +80,20 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     subject: orderReadySubject('CJ-W-000123'),
     previewData: { lang: 'en', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, methods, transferDueAt: due, region: 'JP', orderUrl, variant: 'ready' },
   },
+  // A peso full-payment order (2026-09-25): lines without prices, shipping and
+  // total in ₱, the Philippine accounts (owner decision D1).
+  'storefront-order-reserved-php-en': {
+    displayName: 'Web order in pesos — reservation received (EN)',
+    component: OrderReservedEmail,
+    subject: orderReservedSubject('CJ-W-000125'),
+    previewData: { lang: 'en', reference: 'CJ-W-000125', items, shippingJpy: 1848, totalJpy: 27076, currency: 'PHP', orderUrl },
+  },
+  'storefront-order-ready-php-ja': {
+    displayName: 'Web order in pesos — confirmed, ready for payment (JA + EN)',
+    component: OrderConfirmationEmail,
+    subject: orderReadySubject('CJ-W-000125'),
+    previewData: { lang: 'ja', reference: 'CJ-W-000125', items, shippingJpy: 1848, totalJpy: 27076, currency: 'PHP', methods, transferDueAt: due, region: 'OVERSEAS', orderUrl, variant: 'ready' },
+  },
   'storefront-order-cant-supply-ja': {
     displayName: "Web order — can't supply (JA + EN)",
     component: OrderCancelledEmail,

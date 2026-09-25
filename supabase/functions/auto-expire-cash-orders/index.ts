@@ -286,6 +286,7 @@ Deno.serve(async (req) => {
                 items,
                 shippingJpy: Number((order as any).shipping_fee ?? 0),
                 totalJpy: Number(order.total_amount),
+                currency: String(order.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
                 transferDueAt: String((order as any).transfer_due_at ?? order.expires_at),
                 region: country === "JP" ? "JP" : "OVERSEAS",
                 shopUrl,

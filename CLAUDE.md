@@ -1438,7 +1438,13 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   - TWO BASES, NEVER CONFLATED: deposit = 30% of the TOTAL; loyalty = PRODUCT
     amount only, less points redeemed, ALWAYS IN YEN (even on a peso plan).
   - Currency is the customer's choice; peso plans convert at the stored fx_rate
-    and the parts sum exactly. Web orders paid in full stay JPY-only.
+    and the parts sum exactly. Web orders PAID IN FULL may settle in yen or
+    pesos too (2026-09-25): create_web_order_atomic converts total and shipping
+    once at the quote's fx_rate, half-up to a whole peso, and stores it in
+    cash_orders.fx_rate_used / fx_rate_date; item lines and loyalty_jpy_amount
+    stay YEN. The website's peso full-payment quote must use the integer
+    half-up in _shared/settlement.ts (twin: src/lib/web-settlement.ts), never
+    Math.round on floats. Mechanics: docs/CASH-ORDERS.md "WEB ORDERS IN PESOS".
   - Web layaways are NEVER hard-deleted (trg_prevent_web_layaway_delete).
 
 ## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)

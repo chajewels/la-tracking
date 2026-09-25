@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, type Lang } from '../storefront-email.ts'
-import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod } from './order-shared.tsx'
+import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency } from './order-shared.tsx'
 
 /**
  * Sent by the `website` function the moment /checkout/pay succeeds. The
@@ -17,6 +17,8 @@ export interface OrderConfirmationProps {
   items: OrderEmailItem[]
   shippingJpy: number | null
   totalJpy: number
+  /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
+  currency?: OrderCurrency
   methods: OrderEmailMethod[]
   transferDueAt: string
   region: 'JP' | 'OVERSEAS'
@@ -73,7 +75,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.payHeading}</Text>
       <MethodCards methods={p.methods} lang={lang} />
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>

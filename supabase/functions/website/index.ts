@@ -8,6 +8,7 @@ import type { OrderEmailMethod } from "../_shared/email-templates/order-shared.t
 import * as React from "npm:react@18.3.1";
 import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
+import { settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { sendLayawayReservedEmail, sendOrderReservedEmail } from "../_shared/reservation-emails.ts";
 import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
@@ -1232,13 +1233,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const mode = String(body.mode ?? "full");
       if (mode !== "full" && mode !== "layaway") return jsonResponse({ error: "bad_mode" }, 400);
 
-      // Settlement currency (owner decision 2026-09-13): the customer chooses
-      // yen or pesos and the Hub account follows. Full-payment orders stay in
-      // yen for now — create_web_order_atomic writes 'JPY' — so the choice is
-      // offered on layaway only.
+      // Settlement currency: the customer chooses yen or pesos and the Hub
+      // record follows — for a full payment (owner decision 2026-09-25) exactly
+      // as for a layaway (2026-09-13). Yen stays the price of record; the
+      // default is yen. The old full-payment currency refusal is retired.
       const settlement = String(body.settlement_currency ?? "JPY").toUpperCase();
       if (!["JPY", "PHP"].includes(settlement)) return jsonResponse({ error: "bad_currency" }, 400);
-      if (mode === "full" && settlement !== "JPY") return jsonResponse({ error: "currency_not_supported_for_full" }, 400);
 
       const termMonths = Math.floor(Number(body.term_months ?? 0));
       if (mode === "layaway" && (!Number.isFinite(termMonths) || termMonths < 1)) {
@@ -1322,7 +1322,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       // The rate the customer is shown is the rate they are charged: it is
       // captured on the quote, and the quote's 30-minute life is the only window
-      // it can drift in.
+      // it can drift in. No usable fx_rates row → 503 fx_unavailable, for either
+      // mode: a peso figure is never guessed. Yen quotes never read the rate.
       let fxRate: number | null = null;
       let fxDate: string | null = null;
       if (settlement === "PHP") {
@@ -1335,9 +1336,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // always sum to the total exactly — converting each and adding can differ
       // by one peso.
       const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
-      const totalSettle = toSettle(total);
-      const shippingSettle = shipping === null ? null : toSettle(shipping);
-      const subtotalSettle = totalSettle - (shippingSettle ?? 0);
+      let totalSettle: number;
+      let shippingSettle: number | null;
+      let subtotalSettle: number;
+      if (mode === "full" && fxRate !== null) {
+        // A peso FULL payment is stored by create_web_order_atomic as
+        // round(total_jpy * fx_rate) in Postgres — half-up on an exact product.
+        // Integer maths here, so the quoted peso total IS the stored one, to
+        // the peso (a float Math.round can land ₱1 low on an exact .5).
+        ({ total: totalSettle, shipping: shippingSettle, subtotal: subtotalSettle } =
+          settleFullPaymentInPhp(total, shipping, fxRate));
+      } else {
+        // Layaway (either currency) and yen full payment: unchanged.
+        totalSettle = toSettle(total);
+        shippingSettle = shipping === null ? null : toSettle(shipping);
+        subtotalSettle = totalSettle - (shippingSettle ?? 0);
+      }
 
       // Layaway terms, deposit and dated schedule come from the Hub's own
       // function, per settlement currency — so the site can only ever offer a
@@ -1547,11 +1561,21 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const totalJpy = Number(row.total_jpy ?? 0);
 
       // Same arithmetic as the POST: shipping is converted and the subtotal is
-      // the remainder, so the parts sum to the total exactly.
+      // the remainder, so the parts sum to the total exactly. A peso FULL
+      // payment uses the integer half-up the order will be stored with; a
+      // layaway (and anything in yen) is unchanged.
       const toSettle = (jpy: number) => (fxRate === null ? jpy : Math.round(jpy * fxRate));
-      const totalSettle = toSettle(totalJpy);
-      const shippingSettle = shippingJpy === null ? null : toSettle(shippingJpy);
-      const subtotalSettle = totalSettle - (shippingSettle ?? 0);
+      let totalSettle: number;
+      let shippingSettle: number | null;
+      let subtotalSettle: number;
+      if (String(row.mode ?? "full") === "full" && fxRate !== null) {
+        ({ total: totalSettle, shipping: shippingSettle, subtotal: subtotalSettle } =
+          settleFullPaymentInPhp(totalJpy, shippingJpy, fxRate));
+      } else {
+        totalSettle = toSettle(totalJpy);
+        shippingSettle = shippingJpy === null ? null : toSettle(shippingJpy);
+        subtotalSettle = totalSettle - (shippingSettle ?? 0);
+      }
 
       let layawayOut: AnyRec | null = null;
       if (String(row.mode ?? "full") === "layaway") {
@@ -1792,6 +1816,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // RESERVE-FIRST (A2). "We have your order" in the customer's language —
       // no bank details, no deadline. The payment email is sent by
       // confirm-web-order-ready once staff confirm the piece.
+      // The order's settlement currency and total come back from
+      // create_web_order_atomic (peso full payment, 2026-09-25). An RPC that
+      // predates that migration returns neither and only ever wrote yen, so the
+      // fallback is exactly what that order is. total_jpy stays in every
+      // response for storefront builds that read it.
+      const placedCurrency = String(result.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+      const placedTotal = Number(result.total ?? result.total_jpy ?? 0);
       if (reserve) {
         await sendOrderReservedEmail(supabase, String(result.order_id));
         return jsonResponse(scrub({
@@ -1799,9 +1830,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           awaiting_confirmation: true,
           order_id: result.order_id,
           web_reference: result.web_reference,
+          currency: placedCurrency,
+          total: placedTotal,
           total_jpy: result.total_jpy,
           transfer_due_at: null,
-          transfer_region: regionForCurrency("JPY"),
+          transfer_region: regionForCurrency(placedCurrency),
           transfer_methods: [],
         }));
       }
@@ -1811,13 +1844,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // actually owed on it.
       const { data: placed } = await supabase
         .from("cash_orders")
-        .select("currency")
+        .select("currency, total_amount, shipping_fee")
         .eq("id", String(result.order_id)).maybeSingle();
-      const orderCurrency = String((placed as AnyRec | null)?.currency ?? "JPY");
+      const orderCurrency = String((placed as AnyRec | null)?.currency ?? placedCurrency);
+      // total_amount is in the order's own currency (pesos on a peso order).
+      const orderTotal = placed ? Number((placed as AnyRec).total_amount ?? placedTotal) : placedTotal;
 
-      // Read from the order rather than assumed: cash web orders are yen-only
-      // today (create_web_order_atomic hard-codes JPY), and this stays correct
-      // if that ever changes.
+      // Read from the order rather than assumed: a web order settles in the
+      // currency the customer chose at checkout (yen or pesos, 2026-09-25).
       const region = regionForCurrency(orderCurrency);
       const methods = await transferMethods(supabase, orderCurrency);
 
@@ -1834,8 +1868,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           supabase,
           ((lines ?? []) as AnyRec[]).map((l) => ({ ...l, product_id: l.website_product_id ?? null })),
         );
-        const { data: placedOrder } = await supabase
-          .from("cash_orders").select("shipping_fee").eq("id", String(result.order_id)).maybeSingle();
         await sendStorefrontEmail({
           to: { email: String(customer.email ?? ""), is_test: customer.is_test === true },
           subject: orderConfirmationSubject(String(result.web_reference)),
@@ -1846,8 +1878,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
             lang,
             reference: String(result.web_reference),
             items: withJa.map((l) => ({ title: String(l.title ?? ""), title_ja: (l.title_ja as string | null) ?? null, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) })),
-            shippingJpy: placedOrder ? Number((placedOrder as AnyRec).shipping_fee ?? 0) : null,
-            totalJpy: Number(result.total_jpy ?? 0),
+            // Shipping and total in the order's currency; lines stay yen and
+            // are shown without a price on a peso order (owner decision D1).
+            shippingJpy: placed ? Number((placed as AnyRec).shipping_fee ?? 0) : null,
+            totalJpy: orderTotal,
+            currency: orderCurrency === "PHP" ? "PHP" : "JPY",
             methods: methods as unknown as OrderEmailMethod[],
             transferDueAt: String(result.transfer_due_at),
             region,
@@ -1861,6 +1896,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub({
         order_id: result.order_id,
         web_reference: result.web_reference,
+        currency: orderCurrency,
+        total: orderTotal,
         total_jpy: result.total_jpy,
         transfer_due_at: result.transfer_due_at,
         transfer_region: region,

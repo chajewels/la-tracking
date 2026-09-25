@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, type Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
 
 /**
  * Sent by auto-expire-cash-orders when the 72-hour transfer deadline passes
@@ -15,6 +15,8 @@ export interface OrderExpiredProps {
   items: OrderEmailItem[]
   shippingJpy: number | null
   totalJpy: number
+  /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
+  currency?: OrderCurrency
   transferDueAt: string
   region: 'JP' | 'OVERSEAS'
   shopUrl: string | null
@@ -44,7 +46,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderExpiredProps; primary
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference, formatDeadline(p.transferDueAt, p.region, lang))}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
       <Text style={text}>{c.again}</Text>
       {p.shopUrl && (
         <Section style={buttonWrap}>

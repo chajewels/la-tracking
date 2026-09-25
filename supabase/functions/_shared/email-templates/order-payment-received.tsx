@@ -1,8 +1,8 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
-import { formatJpy, type Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem } from './order-shared.tsx'
+import { orderMoney, type Lang } from '../storefront-email.ts'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
 
 /**
  * Sent by review-payment-submission when a CSR confirms the transfer for a
@@ -15,6 +15,9 @@ export interface OrderPaymentReceivedProps {
   items: OrderEmailItem[]
   shippingJpy: number | null
   totalJpy: number
+  /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
+  currency?: OrderCurrency
+  /** In the order's currency, like totalJpy. */
   amountReceivedJpy: number
   orderUrl: string | null
 }
@@ -40,8 +43,8 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps;
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
-      <Text style={text}>{c.intro(p.reference, formatJpy(p.amountReceivedJpy))}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} />
+      <Text style={text}>{c.intro(p.reference, orderMoney(p.amountReceivedJpy, p.currency))}</Text>
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
       <Text style={text}>{c.shipping}</Text>
       {p.orderUrl && (
         <Section style={buttonWrap}>
