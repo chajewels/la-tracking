@@ -157,9 +157,98 @@ the code is unknown.
 - `GET /orders` / `GET /orders/:ref` — cash orders, own only.
 - `GET /layaway` / `GET /layaway/:ref` — layaway plans, own only, with schedule.
 - `GET/POST/PUT/DELETE /addresses` — the customer's address book.
-- `POST /checkout/quote` — reserves an invoice number and prices a cart.
-- `POST /checkout` — creates the order (`create_web_order_atomic` /
+- `POST /checkout/quote` — prices a cart (and, for a layaway, reserves its
+  invoice number). See **Checkout** below.
+- `GET /checkout/quote/:id` — re-reads a saved quote, same shape.
+- `POST /checkout/pay` — creates the order (`create_web_order_atomic` /
   `create_web_layaway_atomic`).
+
+### Checkout — currency, peso totals, errors (updated 2026-09-25)
+
+**Settlement currency.** `settlement_currency` is `JPY` (default) or `PHP`, for
+**both** modes — a full (one-time) payment and a layaway alike (peso full
+payment, owner decision 2026-09-25; layaway since 2026-09-13). Yen is the price
+of record: every `*_jpy` field stays yen whatever the customer chose.
+
+`POST /checkout/quote` body: `{ items: [{ variant_id, qty }], mode: "full" |
+"layaway", settlement_currency?, term_months? (layaway), ship_to_address_id,
+order_type?, recipient_name?, recipient_phone?, gift_note? }`.
+
+Quote response (POST and GET) — currency fields:
+- `subtotal_jpy`, `shipping_jpy` (null = no published rate), `total_jpy` — yen.
+- `settlement_currency` — as requested.
+- `fx_rate`, `fx_rate_date` — the `fx_rates.jpy_php` rate (PHP per 1 JPY)
+  captured on the quote, `null` for yen. **Never shown to customers** (owner
+  decision 2026-09-18); the order is charged at this rate, not today's.
+- `subtotal_settlement`, `shipping_settlement`, `total_settlement` — in the
+  settlement currency. For yen they equal the `*_jpy` figures.
+- `transfer_region` / `transfer_methods` / `transfer_available` — keyed on the
+  settlement currency (PHP → the Philippine accounts). Methods are `[]` while
+  reserve-first is on.
+
+**Peso rounding.** Converted once, `PHP = JPY × fx_rate`, rounded **half-up to a
+whole peso** (Postgres `round(numeric)`). Shipping is converted on its own and
+the items subtotal is the remainder (`subtotal = total − shipping`), so the
+three always sum. For a **full payment** the quote uses integer maths that
+matches `create_web_order_atomic` exactly, so `total_settlement` is the order's
+`total_amount` to the peso. A layaway's peso schedule comes from
+`layaway_quote` and is unchanged.
+
+**Pay response** (`POST /checkout/pay`, full payment): `order_id`,
+`web_reference`, `currency` (`JPY` | `PHP`), `total` (in `currency`),
+`total_jpy` (kept for older storefront builds — yen, not what a peso order
+owes), `transfer_due_at` (null while a reservation awaits staff),
+`transfer_region`, `transfer_methods` (`[]` for a reservation), plus
+`reservation_mode` / `awaiting_confirmation` on a reservation. A layaway answers
+`mode: "layaway"`, `account_id`, `currency`, `total`, `deposit`, `term_months`,
+`schedule`, … as before.
+
+**`GET /orders/:id`**: `currency` is the order's settlement currency;
+`total_amount`, `total_paid`, `remaining_balance`, `shipping_fee` are in it.
+Item `unit_price_jpy` / `line_total_jpy` are **always yen** — on a peso order
+show the pieces without a per-line price and the totals in ₱ (owner decision
+D1). The stored rate is not returned.
+
+**Error codes** (`{ error, … }`; `request_id` on RPC refusals):
+
+| code | status | where | meaning |
+|---|---|---|---|
+| `customer_auth_required` | 401 | all | no/invalid customer JWT |
+| `email_unverified` | 403 | all | customer email not verified |
+| `email_required_for_account` | 422 | all | auth user has no email |
+| `not_linked` | 404 | all | no customer row for this user |
+| `bad_mode` | 400 | quote | `mode` not `full` / `layaway` |
+| `bad_currency` | 400 | quote | `settlement_currency` not `JPY` / `PHP` |
+| `term_required` | 400 | quote | layaway without `term_months` |
+| `empty_cart` | 400 | quote | no items |
+| `too_many_items` | 400 | quote | over the line limit |
+| `bad_order_type` | 400 | quote | not `SELF` / `GIFT` / `PROXY` |
+| `address_required` | 400 | quote | no `ship_to_address_id` |
+| `address_not_found` | 404 | quote | not one of this customer's addresses |
+| `variant_id_required` | 400 | quote | a line without `variant_id` |
+| `bad_quantity` | 400 | quote | qty < 1 or not a number |
+| `variant_not_found` | 404 | quote | `variant_id` included |
+| `product_unavailable` | 409 | quote | product not active; `variant_id` |
+| `out_of_stock` | 409 | quote, pay | `variant_id` (+ `available` on quote) |
+| `fx_unavailable` | 503 | quote | PHP requested but no usable `fx_rates` row (the daily fetch has never written one, or it is unreadable). Retry later or choose yen; a peso figure is never guessed. |
+| `shipping_quote_required` | 400 | quote (layaway), pay | no published shipping rate for the address |
+| `below_plan_minimum` | 409 | quote, pay | layaway: amount/term not allowed; `allowed_terms`, `max_term_months` |
+| `quote_id_required` | 400 | GET quote, pay | |
+| `quote_already_used` | 409 | GET quote, pay | quote consumed — re-quote |
+| `quote_expired` | 409 | GET quote, pay | 30-minute life passed — re-quote (the new quote takes the current rate) |
+| `quote_not_found` | 404 | pay | not this customer's quote (GET answers a plain 404) |
+| `not_yet` | 501 | pay | `method: "square"` |
+| `bad_method` | 400 | pay | anything but `transfer` |
+| `unsupported_method` | 400 | pay | RPC refusal, same meaning |
+| `transfer_unavailable` | 409 | pay | no active account for the quote's currency; `currency`, `region` |
+| `fx_rate_missing` | 503 | pay | a PHP quote carries no rate (should not happen: the quote refuses first) |
+| `empty_quote` | 400 | pay | total ≤ 0 |
+| `variant_missing` | 409 | pay | a quoted variant no longer exists |
+| `layaway_not_yet` / `not_a_layaway_quote` / `full_not_layaway` | 501 / 400 / 400 | pay | mode mismatch between quote and writer |
+
+**Retired:** `currency_not_supported_for_full` (400) — was returned for a PHP
+full-payment quote until 2026-09-25. The Hub no longer sends it; a storefront
+keeps mapping it only as a rollback safety net.
 
 ### Service requests
 

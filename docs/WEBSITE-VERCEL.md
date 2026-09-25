@@ -563,7 +563,9 @@ stays the Hub's key.
 per-month amounts, due dates, and `allowed_terms` with each term's minimum and
 whether this basket reaches it. The figures come from the `layaway_quote` SQL
 function, so the storefront never computes a schedule of its own. Full payment
-stays JPY-only (`currency_not_supported_for_full`).
+takes `settlement_currency` too since 2026-09-25 (the old
+`currency_not_supported_for_full` refusal is retired) — see
+supabase/contracts/api.md "Checkout".
 
 | Base | What it is | Why it matters |
 |---|---|---|

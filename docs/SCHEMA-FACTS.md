@@ -1229,3 +1229,14 @@ call are different facts, and the UI renders them differently
 (`conflictCheckFailed` vs `emailConflict === null`). A client that only checks
 `if (!error)` reports a refused check as an all-clear — which is precisely the
 bug above.
+
+## `cash_orders.fx_rate_used` / `fx_rate_date` (added 2026-09-25)
+
+`numeric(12,6)` / `date`, nullable, mirroring `layaway_accounts`. The
+`fx_rates.jpy_php` rate (PHP per 1 JPY) a PHP-settled WEB order was charged at,
+copied from its checkout quote by `create_web_order_atomic` — the only writer.
+NULL on yen orders and on Hub-arranged peso orders (those were priced at
+`system_settings.php_jpy_rate` by staff, not by a quote). CHECK
+`cash_orders_fx_rate_only_on_php`: a rate only ever sits on a `currency = 'PHP'`
+row, > 0. Never returned to customers. Mechanics: docs/CASH-ORDERS.md
+"WEB ORDERS IN PESOS".

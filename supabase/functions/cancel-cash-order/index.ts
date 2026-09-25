@@ -59,7 +59,7 @@ async function sendWebCancellationEmail(supabase: any, orderId: string, reason: 
   try {
     const { data: order } = await supabase
       .from("cash_orders")
-      .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, customers(email, is_test)")
+      .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, customers(email, is_test)")
       .eq("id", orderId)
       .maybeSingle();
     if (!order) return;
@@ -93,6 +93,7 @@ async function sendWebCancellationEmail(supabase: any, orderId: string, reason: 
         items,
         shippingJpy: Number(order.shipping_fee ?? 0),
         totalJpy: Number(order.total_amount ?? 0),
+        currency: String(order.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
         reason,
         refundStatus,
         refundNote,
