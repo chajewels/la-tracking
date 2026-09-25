@@ -926,6 +926,15 @@ PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PA
   migration backfills "seen" from the kept runs — its verification query (5) previews them).
   Not built: re-publishing from the bell, and a "keep on website" exception other than the
   "Don't sync with Page365" switch.
+- **PR 3c — quick reads, nightly full read, automatic increases**: BUILT 2026-10-02 (migration
+  20261002100000; docs/PAGE365-IMPORT.md "QUICK FETCH"). Watch after go-live: the quick-read
+  time in the run history ("Took") against the Hub catalogue size — as Create drafts adds Hub
+  products, quick reads open more pages (all ~570 drafted = a full read every 30 min). Known
+  limit: a Hub code moved onto a variant of a never-read listing whose name starts with
+  another code is only seen by the nightly full read (hide-follow may hide it first; the full
+  read then flags it back). Not built: a Hub-editable nightly hour (the setting
+  `page365_inventory_full_hour_pht` is changed in SQL today); a "Full fetch" that does not
+  block quick reads for its duration.
 - **PR 4 — "Create drafts"** from new Page365 codes: BUILT 2026-09-28 (docs/PAGE365-IMPORT.md
   "DRAFTS"). Still open: drafts from an unmatched INVOICE line, and a Hub-editable
   Page365-category → website-category map (today: jewelry-type first word, one Hub match).

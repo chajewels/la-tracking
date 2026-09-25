@@ -13,20 +13,24 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  autoApplyRefusal, autoApplyText, runSourceLabel, runStatusText, type InventoryRun,
+  NIGHTLY_FULL_TEXT, autoApplyRefusal, autoApplyText, runDuration, runKindLabel, runSourceLabel, runStatusText,
+  type InventoryRun,
 } from "@/lib/page365-inventory";
 import { getAutoApply, runsTable, setAutoApply, type AutoApplyState } from "@/lib/page365-inventory-api";
 
 /**
- * Website → Page365 stock → "Automatic decreases every 30 minutes" (PR 3).
+ * Website → Page365 stock → "Automatic updates every 30 minutes (decreases,
+ * increases, hiding)" (PR 3; PR 3b hiding; PR 3c increases + quick reads).
  *
- * A pg_cron job reads the whole Page365 catalogue every 30 minutes whatever
- * this switch says; the switch only decides whether that scheduled read then
- * APPLIES ITS DECREASES by itself (page365_inventory_auto_apply_run). Increases,
- * new products, prices and photos never apply automatically — they wait on
- * the review below. Default OFF. PR 3b: the same switch lets the scheduled read
- * hide products Page365 stopped listing (missing from 2 complete reads in a
- * row: stock 0 + unpublished). Nothing is ever re-published automatically.
+ * A pg_cron job reads Page365 every 30 minutes whatever this switch says —
+ * QUICK reads (the catalogue list plus the pages of Hub products), and one
+ * FULL read a night at 02:00 PHT (03:00 JST). The switch only decides whether
+ * a scheduled read then APPLIES its stock changes by itself
+ * (page365_inventory_auto_apply_run): decreases and increases (owner decision
+ * 2026-09-26 — staff confirm every website sale in Page365, so Page365 is the
+ * full truth), and hides of products Page365 stopped listing (missing from 2
+ * complete reads in a row: stock 0 + unpublished). New products, prices,
+ * photos and re-publishing never apply automatically. Default OFF.
  *
  * The switch is system_settings.page365_inventory_auto_apply, written ONLY by
  * set_page365_inventory_auto_apply (manage_website_catalog, audited); a guard
@@ -67,8 +71,8 @@ export function Page365InventoryScheduleCard() {
     mutationFn: (next: boolean) => setAutoApply(next, state.data?.enabled ?? null),
     onSuccess: out => {
       toast.success(out.enabled
-        ? "Automatic decreases are ON. The next scheduled fetch applies Page365 decreases by itself."
-        : "Automatic decreases are OFF. Scheduled fetches still run; nothing is applied without staff.");
+        ? "Automatic updates are ON. The next scheduled fetch applies Page365 decreases and increases by itself."
+        : "Automatic updates are OFF. Scheduled fetches still run; nothing is applied without staff.");
     },
     onError: (e: Error & { code?: string }) => toast.error(autoApplyRefusal(e.code ?? e.message)),
     onSettled: () => {
@@ -86,7 +90,7 @@ export function Page365InventoryScheduleCard() {
       <CardHeader className="hairline-b">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Clock className="h-4 w-4 text-primary" />
-          Automatic decreases every 30 minutes
+          Automatic updates every 30 minutes (decreases, increases, hiding)
           {data && (
             <Badge variant={data.enabled ? "default" : "secondary"} data-testid="p365-auto-apply-state">
               {data.enabled ? "On" : "Off"}
@@ -94,11 +98,12 @@ export function Page365InventoryScheduleCard() {
           )}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Page365 is read every 30 minutes either way. When this is on, pieces Page365 has fewer of are reduced on the
-          website by themselves — the same rule as the review below (Page365 minus website and unpaid-invoice holds,
-          only if stock is unchanged since the read, never for products switched to “Don’t sync with Page365”, and never
-          from an incomplete read). It also hides a product Page365 stopped listing — missing from 2 complete reads in a
-          row after being on Page365 — by setting its website stock to 0 and unpublishing it. Increases, re-publishing,
+          Page365 is read every 30 minutes either way — a quick read (the catalogue list plus your Hub products’ pages),
+          and a full read of every page once a night at {NIGHTLY_FULL_TEXT}. When this is on, website stock follows
+          Page365 by itself, down and up — the same rule as the review below (Page365 minus website and unpaid-invoice
+          holds, only if stock is unchanged since the read, never for products switched to “Don’t sync with Page365”,
+          and never from an incomplete read). It also hides a product Page365 stopped listing — missing from 2 complete
+          reads in a row after being on Page365 — by setting its website stock to 0 and unpublishing it. Re-publishing,
           new products, prices and photos always wait for you.
         </p>
       </CardHeader>
@@ -108,7 +113,7 @@ export function Page365InventoryScheduleCard() {
         )}
         {state.isError && (
           <p className="text-muted-foreground" data-testid="p365-auto-apply-unavailable">
-            Automatic decreases are not available yet. They appear once the schedule migration has been run.
+            Automatic updates are not available yet. They appear once the schedule migration has been run.
           </p>
         )}
         {data && (
@@ -118,7 +123,7 @@ export function Page365InventoryScheduleCard() {
               checked={data.enabled}
               disabled={save.isPending || !data.can_change}
               onCheckedChange={next => setPending(next)}
-              aria-label="Automatic decreases every 30 minutes"
+              aria-label="Automatic updates every 30 minutes"
             />
             <Label htmlFor="p365-auto-apply">{data.enabled ? "On" : "Off"}</Label>
             {save.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
@@ -134,7 +139,7 @@ export function Page365InventoryScheduleCard() {
           <p className="text-xs text-muted-foreground" data-testid="p365-last-scheduled">
             {lastScheduled ? (
               <>
-                Last scheduled fetch {formatPHTDisplay(lastScheduled.created_at)} ·{" "}
+                Last scheduled fetch {formatPHTDisplay(lastScheduled.created_at)} ({runKindLabel(lastScheduled).toLowerCase()}) ·{" "}
                 <span className={statusTone(lastScheduled.status)}>{runStatusText(lastScheduled)}</span> ·{" "}
                 {autoApplyText(lastScheduled)}
               </>
@@ -151,8 +156,10 @@ export function Page365InventoryScheduleCard() {
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Started</TableHead>
                   <TableHead>Source</TableHead>
+                  <TableHead>Kind</TableHead>
+                  <TableHead className="text-right">Took</TableHead>
                   <TableHead>Read</TableHead>
-                  <TableHead className="min-w-[12rem]">Automatic decreases</TableHead>
+                  <TableHead className="min-w-[12rem]">Automatic updates</TableHead>
                   <TableHead className="text-right">Hidden</TableHead>
                 </TableRow>
               </TableHeader>
@@ -162,6 +169,12 @@ export function Page365InventoryScheduleCard() {
                     <TableCell className="whitespace-nowrap text-xs">{formatPHTDisplay(r.created_at)}</TableCell>
                     <TableCell className="text-xs">
                       <Badge variant="outline" className="text-[10px]">{runSourceLabel(r)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs" data-testid="p365-run-kind">
+                      <Badge variant={r.kind === "quick" ? "secondary" : "outline"} className="text-[10px]">{runKindLabel(r)}</Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right text-xs tabular-nums" data-testid="p365-run-duration">
+                      {runDuration(r)}
                     </TableCell>
                     <TableCell className={`text-xs ${statusTone(r.status)}`} title={r.error ?? ""}>
                       {r.status === "ready" ? "Complete" : r.status === "fetching" ? "Reading…" : r.status === "partial" ? "Incomplete" : "Failed"}
@@ -181,12 +194,12 @@ export function Page365InventoryScheduleCard() {
       <AlertDialog open={pending !== null} onOpenChange={o => { if (!o && !save.isPending) setPending(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Turn automatic decreases {pending ? "ON" : "OFF"}?</AlertDialogTitle>
+            <AlertDialogTitle>Turn automatic updates {pending ? "ON" : "OFF"}?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
                   {pending
-                    ? "Every 30 minutes, website stock goes DOWN by itself wherever Page365 has fewer, and a product Page365 stopped listing (2 complete reads in a row) is hidden. Nothing ever goes up or is re-published by itself."
+                    ? "Every 30 minutes, website stock follows Page365 by itself — DOWN where Page365 has fewer, UP where it has more — and a product Page365 stopped listing (2 complete reads in a row) is hidden. Nothing is ever re-published or created by itself."
                     : "Scheduled fetches keep running and stay in the history below, but nothing is applied without a staff tick."}
                 </p>
                 <p className="text-xs">The change is recorded in the audit log with your name.</p>

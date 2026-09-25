@@ -225,13 +225,41 @@ export default function FixturePreview() {
       const itemsWithHides = sched
         ? items.map((it) => (it.id === 'i16' ? { ...it, status: 'applied', result_note: 'auto_hidden' } : it))
         : items;
-      seed(['page365-inventory-run'], runWithHides);
-      seed(['page365-inventory-items', inv.run.id], itemsWithHides);
+      // PR 3c (2026-10-02): &quick=1 makes the latest run a scheduled QUICK
+      // read (list + Hub pages, 21 s, 2 decreases + 1 increase applied); New in
+      // Page365 then comes from the nightly FULL read, and NL22 is greyed out
+      // (missing from the quick read's list).
+      const quick = searchParams.get('quick') === '1';
+      const fullRun = { ...runWithHides, kind: 'full' };
+      const quickRun = {
+        id: 'fixture-quick-run', source: 'schedule', kind: 'quick', status: 'ready', error: null,
+        page365_count: 571, products_total: 64, listed_total: 507,
+        created_at: '2026-09-27T02:30:00Z', finished_at: '2026-09-27T02:30:21Z',
+        auto_apply_state: 'applied', auto_applied: 3, auto_increased: 1, hidden_count: 0,
+      };
+      const latest = quick ? quickRun : fullRun;
+      const isNew = (it: object) => (it as { category?: string }).category === 'new';
+      const newItems = itemsWithHides.filter(isNew);
+      seed(['page365-inventory-run'], latest);
+      seed(['page365-inventory-items', latest.id], quick
+        ? itemsWithHides.filter((it) => !isNew(it)).map((it) => ({
+          ...it, run_id: quickRun.id,
+          ...(it.id === 'i2' || it.id === 'i3' ? { status: 'applied', result_note: 'auto_applied' } : {}),
+        }))
+        : itemsWithHides);
+      seed(['page365-inventory-full-run'], fullRun);
+      seed(['page365-inventory-new-items', fullRun.id], newItems);
+      if (quick) {
+        seed(['page365-inventory-listed', quickRun.id],
+          new Set(inv.items.map((it) => Number(it.page365_product_id)).filter((n) => n && n !== 9)));
+      }
       seed(['page365-inventory-auto-apply'], {
         found: true, enabled: searchParams.get('auto') === '1', updated_at: '2026-09-30T01:15:00Z',
         updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo', can_change: true,
       });
-      seed(['page365-inventory-run-history'], buildPage365RunHistory(runWithHides, sched));
+      seed(['page365-inventory-run-history'], quick
+        ? [quickRun, ...buildPage365RunHistory(fullRun, sched)]
+        : buildPage365RunHistory(fullRun, sched));
       // PR 4 (2026-09-28): the Page365 category of each "new" listing, and a
       // catalog with two Page365 drafts (one ready, one missing origin and
       // category) and a Hub-made product — Website → Catalog, hub view.
@@ -1245,6 +1273,7 @@ function buildPage365InventoryFixtures(partial: boolean) {
 function buildPage365RunHistory(latest: Record<string, unknown>, sched: boolean) {
   const r = (id: string, source: string, status: string, created_at: string, over: Record<string, unknown> = {}) => ({
     id, source, status, error: null, page365_count: 572, products_total: 572, created_at, finished_at: created_at,
+    kind: 'full',
     auto_apply_state: source === 'schedule' ? (sched ? 'applied' : 'off') : null, auto_applied: 0, ...over,
   });
   return [

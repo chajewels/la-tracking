@@ -4,10 +4,15 @@
  * Staff press "Fetch Page365 inventory" (Website -> Page365 stock). The browser
  * then calls this function in a loop until the run is done:
  *
- *   { action: "start" }             one list read (count, then the page that
+ *   { action: "start", kind? }      one list read (count, then the page that
  *                                   holds the whole cumulative list), one run
  *                                   row, one queue row per product. Resumes the
  *                                   run in progress instead of starting a second.
+ *                                   PR 3c: kind "quick" (default) keeps only the
+ *                                   listings that can hold a Hub product for
+ *                                   reading (page365_inventory_plan_quick; the
+ *                                   rest are 'listed'); kind "full" ("Full
+ *                                   fetch") opens every product page.
  *   { action: "continue", run_id }  claims up to CHUNK products, reads each
  *                                   detail page (<= 4 requests/s), stores the
  *                                   whitelisted fields, and — once nothing is
@@ -19,6 +24,16 @@
  *                                   otherwise resumes the scheduled run, or
  *                                   starts one when the last began >= 27 min
  *                                   ago, and reads until done or out of time.
+ *                                   PR 3c: SQL (page365_inventory_next_kind)
+ *                                   makes the first run after 02:00 PHT
+ *                                   (03:00 JST) full, every other one quick.
+ *   { action: "refresh", run_id, item_ids, skip? }
+ *                                   PR 3c, Create drafts: re-reads the ticked
+ *                                   "New in Page365" listings of a full run
+ *                                   FRESH (page365_inventory_refresh_product),
+ *                                   up to REFRESH_CHUNK per call, under the
+ *                                   reader lease. The browser loops until
+ *                                   remaining is 0, then creates the drafts.
  *
  * Every chunk is read under the run's LEASE (page365_inventory_lease): a staff
  * "Fetch" that joins a scheduled read, and the schedule itself, take turns —
@@ -27,8 +42,8 @@
  *
  * IT NEVER MOVES STOCK AND NEVER COPIES A PHOTO ITSELF. Stock moves through
  * page365_inventory_apply (a staff tick per row) and, for a SCHEDULED run only,
- * page365_inventory_auto_apply_run — decreases only, and only while
- * system_settings.page365_inventory_auto_apply is true (checked in SQL). Photos
+ * page365_inventory_auto_apply_run — decreases and (PR 3c) increases, and only
+ * while system_settings.page365_inventory_auto_apply is true (checked in SQL). Photos
  * move only through page365-inventory-photos. A Page365 outage leaves a
  * 'failed' or 'partial' run that both refuse — nothing on the website changes.
  *
@@ -61,6 +76,12 @@ const SCHEDULE_EVERY_MS = 27 * 60_000;
  *  edge wall-clock limit), and starts no chunk in the last CHUNK_RESERVE_MS. */
 const SCHEDULE_BUDGET_MS = 100_000;
 const CHUNK_RESERVE_MS = 30_000;
+/** PR 3c, Create drafts: listings re-read per "refresh" call (~10 s at 4/s),
+ *  and how recent a read must be to count as fresh here (SQL insists on 15 min). */
+const REFRESH_CHUNK = 40;
+const REFRESH_FRESH_MS = 5 * 60_000;
+const REFRESH_LEASE_SECONDS = 60;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function getJson(url: string, timeoutMs: number): Promise<{ ok: true; json: unknown } | { ok: false; why: string }> {
@@ -83,14 +104,16 @@ async function getJson(url: string, timeoutMs: number): Promise<{ ok: true; json
 
 async function progress(supabase: AuthContext["supabase"], runId: string) {
   const { data: run } = await supabase
-    .from("page365_inventory_runs").select("id, source, status, page365_count, products_total, error, created_at, finished_at")
+    .from("page365_inventory_runs").select("*")
     .eq("id", runId).maybeSingle();
   const { data: rows } = await supabase
     .from("page365_inventory_products").select("status").eq("run_id", runId);
-  const counts = { fetched: 0, error: 0, open: 0 };
+  // PR 3c: 'listed' = on the list of a quick run, page not opened — never open.
+  const counts = { fetched: 0, error: 0, open: 0, listed: 0 };
   for (const r of (rows ?? []) as { status: string }[]) {
     if (r.status === "fetched") counts.fetched++;
     else if (r.status === "error") counts.error++;
+    else if (r.status === "listed") counts.listed++;
     else counts.open++;
   }
   return { run, ...counts };
@@ -107,9 +130,12 @@ async function closeScheduledRun(supabase: Supabase, runId: string) {
   return data ?? null;
 }
 
+export type RunKind = "quick" | "full";
+
 /** Begin a run (manual or scheduled): one list read, one queue row per product.
- *  Resumes the run already reading instead of starting a second. */
-async function startRun(supabase: Supabase, source: "manual" | "schedule", userId: string | null):
+ *  Resumes the run already reading instead of starting a second. PR 3c: a
+ *  quick run then keeps only the listings that can hold a Hub product. */
+async function startRun(supabase: Supabase, source: "manual" | "schedule", userId: string | null, kind: RunKind):
   Promise<{ run_id: string; resumed: boolean } | { response: Response }> {
   const { data: open } = await supabase
     .from("page365_inventory_runs").select("id, source, updated_at").eq("status", "fetching").maybeSingle();
@@ -123,8 +149,14 @@ async function startRun(supabase: Supabase, source: "manual" | "schedule", userI
     if (open.source === "schedule") await closeScheduledRun(supabase, open.id);
   }
 
-  const { data: run, error: runErr } = await supabase
-    .from("page365_inventory_runs").insert({ source, started_by: userId }).select("id").single();
+  let { data: run, error: runErr } = await supabase
+    .from("page365_inventory_runs").insert({ source, started_by: userId, kind }).select("id").single();
+  if (runErr && /\bkind\b/.test(runErr.message)) {
+    // Before the PR 3c migration there is no kind column: read everything.
+    kind = "full";
+    ({ data: run, error: runErr } = await supabase
+      .from("page365_inventory_runs").insert({ source, started_by: userId }).select("id").single());
+  }
   if (runErr || !run) {
     return { response: jsonResponse({ error: runErr?.message ?? "Could not start a run (is another fetch running?)" }, 409) };
   }
@@ -177,7 +209,24 @@ async function startRun(supabase: Supabase, source: "manual" | "schedule", userI
   await supabase.from("page365_inventory_runs")
     .update({ page365_count: items.length, products_total: items.length, updated_at: new Date().toISOString() })
     .eq("id", run.id);
+  if (kind === "quick") {
+    // The LIST drives presence; only listings that can hold a Hub product are
+    // opened. If the plan cannot be made, read everything (the safe side).
+    const { error: planErr } = await supabase.rpc("page365_inventory_plan_quick", { p_run_id: run.id });
+    if (planErr) {
+      console.error("page365-inventory-fetch plan_quick:", run.id, planErr.message);
+      await supabase.from("page365_inventory_runs").update({ kind: "full" }).eq("id", run.id);
+    }
+  }
   return { run_id: run.id, resumed: false };
+}
+
+/** PR 3c: a Create-drafts refresh holds the reader lease — one reader at a time. */
+async function refreshHoldsReader(supabase: Supabase): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("page365_inventory_reader").select("lease_holder, lease_until").maybeSingle();
+  if (error) return false; // before the PR 3c migration: no such lease
+  return !!data?.lease_holder && !!data.lease_until && new Date(data.lease_until).getTime() > Date.now();
 }
 
 /** Read one chunk under the run's lease, then finish the run if nothing is
@@ -188,6 +237,12 @@ async function readChunk(supabase: Supabase, runId: string, holder: string, limi
   });
   if (leaseErr) throw new Error(leaseErr.message);
   if (!leased) return { busy: true as const, finished: null, claimed: 0, ...(await progress(supabase, runId)) };
+  // Checked AFTER taking the run lease (the refresh checks run leases before
+  // taking its own), so the two can never both read.
+  if (await refreshHoldsReader(supabase)) {
+    await supabase.rpc("page365_inventory_release", { p_run_id: runId, p_holder: holder });
+    return { busy: true as const, finished: null, claimed: 0, ...(await progress(supabase, runId)) };
+  }
 
   let claimedCount = 0;
   try {
@@ -263,7 +318,11 @@ async function scheduleTick(supabase: Supabase) {
   } else {
     const { data: kept, error: keepErr } = await supabase.rpc("page365_inventory_retention", { p_keep_days: 14 });
     if (keepErr) console.error("page365-inventory-fetch retention:", keepErr.message);
-    const started = await startRun(supabase, "schedule", null);
+    // PR 3c: the first scheduled read after 02:00 PHT is full, the rest quick.
+    const { data: nextKind, error: kindErr } = await supabase.rpc("page365_inventory_next_kind");
+    if (kindErr) console.error("page365-inventory-fetch next_kind:", kindErr.message);
+    const kind: RunKind = nextKind === "quick" ? "quick" : "full";
+    const started = await startRun(supabase, "schedule", null, kind);
     if ("response" in started) return { started: false, retention: kept ?? null, error: await started.response.json() };
     // A fetch began between the check above and the insert: leave it be.
     if (started.resumed) return { skipped: "another_fetch_started", run_id: started.run_id };
@@ -281,8 +340,81 @@ async function scheduleTick(supabase: Supabase) {
     // product is claimed by another reader: wait, then try again.
     if (step.busy || step.claimed === 0) await sleep(2_000);
   }
-  return { run_id: runId, status: step?.run?.status ?? "fetching", fetched: step?.fetched, open: step?.open,
-           finished: step?.finished ?? null, elapsed_ms: Date.now() - t0 };
+  return { run_id: runId, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
+           open: step?.open, listed: step?.listed, finished: step?.finished ?? null, elapsed_ms: Date.now() - t0 };
+}
+
+/** PR 3c: Create drafts re-reads its ticked listings fresh. Returns what is
+ *  left; the browser calls again until remaining is 0. */
+async function refreshForDrafts(supabase: Supabase, runId: string, itemIds: string[], skip: Set<string>) {
+  // The ticked NEW rows -> their listings (chunked .in: no URL-length risk).
+  const productIds = new Set<string>();
+  for (let i = 0; i < itemIds.length; i += 100) {
+    const { data, error } = await supabase.from("page365_inventory_items").select("inventory_product_id")
+      .eq("run_id", runId).eq("kind", "page365").eq("category", "new").in("id", itemIds.slice(i, i + 100));
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as { inventory_product_id: string | null }[]) {
+      if (r.inventory_product_id && !skip.has(r.inventory_product_id)) productIds.add(r.inventory_product_id);
+    }
+  }
+  const stale: { id: string; page365_product_id: number }[] = [];
+  const ids = [...productIds];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabase.from("page365_inventory_products")
+      .select("id, page365_product_id, fetched_at").in("id", ids.slice(i, i + 100));
+    if (error) throw new Error(error.message);
+    for (const p of (data ?? []) as { id: string; page365_product_id: number; fetched_at: string | null }[]) {
+      if (!p.fetched_at || Date.now() - new Date(p.fetched_at).getTime() > REFRESH_FRESH_MS) stale.push(p);
+    }
+  }
+  if (stale.length === 0) return { busy: false, refreshed: 0, gone: 0, failed: [], remaining: 0 };
+
+  const holder = `refresh:${crypto.randomUUID()}`;
+  const { data: leased, error: leaseErr } = await supabase.rpc("page365_inventory_reader_lease", {
+    p_holder: holder, p_seconds: REFRESH_LEASE_SECONDS,
+  });
+  if (leaseErr) throw new Error(leaseErr.message);
+  // A run is being read right now (or another refresh): wait for it.
+  if (!leased) return { busy: true, refreshed: 0, gone: 0, failed: [], remaining: stale.length };
+
+  const batch = stale.slice(0, REFRESH_CHUNK);
+  const limit = createRateLimiter(4, 4);
+  let refreshed = 0;
+  let gone = 0;
+  const failed: { product_row_id: string; page365_product_id: number; reason: string }[] = [];
+  try {
+    await Promise.all(batch.map(p => limit(async () => {
+      const r = await getJson(`${STOREFRONT_ORIGIN}/products/${p.page365_product_id}`, DETAIL_TIMEOUT_MS);
+      let detail: unknown = null;
+      let why: string | null = null;
+      if (!r.ok) {
+        why = r.why === "HTTP 404" ? "gone" : r.why;
+      } else {
+        try {
+          detail = parseProductDetail(r.json, Number(p.page365_product_id));
+        } catch (e) {
+          why = (e as Error).message;
+        }
+      }
+      const { data, error } = await supabase.rpc("page365_inventory_refresh_product", {
+        p_product_row_id: p.id, p_detail: detail, p_error: why,
+      });
+      const result = (data as { result?: string; error?: string } | null)?.result;
+      if (error || !result) {
+        failed.push({ product_row_id: p.id, page365_product_id: p.page365_product_id, reason: error?.message ?? "no answer" });
+      } else if (result === "refreshed") {
+        refreshed++;
+      } else if (result === "gone") {
+        gone++;
+      } else {
+        failed.push({ product_row_id: p.id, page365_product_id: p.page365_product_id,
+                      reason: (data as { error?: string }).error ?? result });
+      }
+    })));
+  } finally {
+    await supabase.rpc("page365_inventory_reader_release", { p_holder: holder });
+  }
+  return { busy: false, refreshed, gone, failed, remaining: stale.length - batch.length };
 }
 
 Deno.serve(async (req) => {
@@ -310,7 +442,8 @@ Deno.serve(async (req) => {
     if (action === "schedule") return jsonResponse({ error: "The scheduled fetch runs from pg_cron only" }, 403);
 
     if (action === "start") {
-      const started = await startRun(supabase, "manual", userId);
+      const kind: RunKind = body?.kind === "full" ? "full" : "quick";
+      const started = await startRun(supabase, "manual", userId, kind);
       if ("response" in started) return started.response;
       return jsonResponse({ ...started, ...(await progress(supabase, started.run_id)) });
     }
@@ -322,7 +455,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ run_id: runId, ...r });
     }
 
-    return jsonResponse({ error: "action must be start or continue" }, 400);
+    if (action === "refresh") {
+      const runId = typeof body?.run_id === "string" && UUID_RE.test(body.run_id) ? body.run_id : null;
+      const itemIds: string[] = Array.isArray(body?.item_ids)
+        ? (body.item_ids as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x))
+        : [];
+      const skip = new Set<string>(Array.isArray(body?.skip)
+        ? (body.skip as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x)) : []);
+      if (!runId || itemIds.length === 0) return jsonResponse({ error: "run_id and item_ids are required" }, 400);
+      if (itemIds.length > 700) return jsonResponse({ error: "Too many rows at once (700 max)" }, 400);
+      return jsonResponse({ run_id: runId, ...(await refreshForDrafts(supabase, runId, itemIds, skip)) });
+    }
+
+    return jsonResponse({ error: "action must be start, continue or refresh" }, 400);
   } catch (error: unknown) {
     console.error("page365-inventory-fetch error:", error);
     return jsonResponse({ error: (error as Error).message || "Internal server error" }, 500);

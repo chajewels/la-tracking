@@ -9,6 +9,11 @@
  *   In stock only   ON by default — a sold piece (Page365 available 0) is
  *                   hidden and so never ticked unless staff switch it off.
  *   Select all shown ticks exactly the rows the filters show, nothing hidden.
+ *
+ * PR 3c: the list comes from the latest FULL fetch (quick fetches open only
+ * Hub products' pages), so its quantities are "as of" that fetch. A row whose
+ * listing is missing from the latest fetch's list (any kind) is shown but not
+ * tickable, and Create drafts re-reads every ticked listing fresh first.
  */
 import type { InventoryItem } from '@/lib/page365-inventory';
 
@@ -27,12 +32,26 @@ export const defaultNewFilters = (): NewFilters => ({
   inStockOnly: true, search: '', category: '', priceMin: null, priceMax: null,
 });
 
-/** A "New in Page365" row plus the Page365 category its listing carries. */
-export type NewRow = InventoryItem & { inventory_product_id?: string | null; page365_category: string | null };
+/** A "New in Page365" row plus the Page365 category its listing carries.
+ *  not_listed (PR 3c): missing from the latest fetch's catalogue list. */
+export type NewRow = InventoryItem & {
+  inventory_product_id?: string | null; page365_category: string | null; not_listed?: boolean;
+};
 
-/** Rows staff can still act on: not yet drafted, still under review. */
-export const draftable = (it: InventoryItem) =>
-  it.category === 'new' && it.status === 'review' && it.result_note !== 'draft_created';
+/** Rows staff can still act on: not yet drafted, still under review, still on
+ *  Page365 (PR 3c: not gone at the fresh read, and on the latest list). */
+export const draftable = (it: InventoryItem & { not_listed?: boolean }) =>
+  it.category === 'new' && it.status === 'review' && it.result_note !== 'draft_created'
+  && it.result_note !== 'gone_from_page365' && !it.not_listed;
+
+/** PR 3c: flag rows whose listing is not on the latest catalogue list.
+ *  listed = null when the latest list IS the full fetch (nothing to compare). */
+export function markNotListed<T extends InventoryItem>(rows: T[], listed: Set<number> | null): (T & { not_listed: boolean })[] {
+  return rows.map(r => ({
+    ...r,
+    not_listed: listed !== null && r.page365_product_id !== null && !listed.has(Number(r.page365_product_id)),
+  }));
+}
 
 export const isDrafted = (it: InventoryItem) => it.result_note === 'draft_created';
 
@@ -119,8 +138,10 @@ export const CREATE_REFUSAL: Record<string, string> = {
   too_many: 'At most 700 rows at a time.',
   run_not_found: 'This fetch no longer exists. Fetch again.',
   run_not_ready: 'This fetch did not read Page365 completely. Fetch again.',
-  run_stale: 'This fetch is more than 24 hours old. Fetch again.',
-  superseded: 'A newer fetch exists. Review that one instead.',
+  run_stale: 'The last full fetch is more than 48 hours old. Press “Full fetch”.',
+  superseded: 'A newer full fetch exists. Review that one instead.',
+  // PR 3c: New in Page365 always comes from a full fetch.
+  not_full_fetch: 'New products come from a full fetch. Press “Full fetch”.',
 };
 
 export const DRAFT_REASON: Record<string, string> = {
@@ -132,6 +153,9 @@ export const DRAFT_REASON: Record<string, string> = {
   no_metal: 'jewelry with no metal stamp (K18, PT900 …) in the Page365 name or description',
   code_is_a_word: 'the Page365 name does not start with a product code',
   sync_disabled: 'switched to “Don’t sync with Page365” — never created',
+  // PR 3c: every draft is made from a fresh read of its Page365 listing.
+  not_fresh: 'could not be read fresh from Page365 just now — try again',
+  gone_from_page365: 'no longer on Page365',
 };
 
 export const NEEDS_LABEL: Record<string, string> = {
