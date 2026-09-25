@@ -42,10 +42,31 @@ One active product by slug; 404 otherwise.
 `{ id, sku, slug, name, name_en, name_ja, karat, metals, weight_g,
 description_en, description_ja, status, condition, origin, brand, updated_at,
 product_variants: [{ id, size, stone, price_jpy, price_php, stock_qty,
+down_payment_jpy?, down_payment_php?, down_payment_pct?,
 product_media: [{ url, alt }] }], category_slugs: string[] }`
 
 - `price_php` is derived per request from the latest `fx_rates` row
-  (`PHP = JPY × rate`); `null` when no rate is on file. Never stored.
+  (`PHP = JPY × rate`), rounded **half-up to a whole peso** with the same
+  integer maths the peso checkout stores (2026-09-25; before, a float round
+  could land ₱1 low on an exact .5); `null` when no rate is on file. Never
+  stored.
+- **Down payments** (2026-09-25, owner rule: every customer-facing money figure
+  comes from the Hub; the storefront never computes or converts). Per variant,
+  for the **piece alone** (no shipping), on the shortest active term:
+  - `down_payment_jpy` = `layaway_quote(price_jpy, term, 'JPY').deposit`
+  - `down_payment_php` = `layaway_quote(price_php, term, 'PHP').deposit` —
+    convert first, then the percentage, both half-up to a whole unit. With ₱0
+    shipping this is exactly the deposit a peso layaway checkout stores for the
+    piece; with shipping, the checkout deposit also covers shipping (owner
+    decision D1), and the checkout shows that binding figure.
+  - `down_payment_pct` — that term's `dp_percentage` (0.30 today).
+  - All three come from one `website_down_payments` call per request. A field
+    the Hub cannot produce is **omitted, never null and never estimated**: no
+    rate → no `down_payment_php`; lookup failure → none of the three (the
+    catalog still renders). Render the reserve line only when the figures you
+    need are present. Present on every product-shaped response
+    (`/catalog/products`, `/catalog/products/:slug`, `/catalog/collections/:slug`,
+    `/catalog/categories/:slug`); never on the `?fields=` slug list.
 - `category_slugs` lists the published categories the product belongs to;
   empty array when uncategorised. Present on `/catalog/products` and
   `/catalog/collections/:slug` (and `/catalog/categories/:slug`) results.
@@ -142,8 +163,35 @@ notification. Response 200 `{ "status": "received" }`.
 ## Layaway
 
 ### POST /layaway/quote
-Body `{ price, term_months, currency }` (JPY or PHP). Proxies the
-`layaway_quote` RPC: the plan schedule a checkout would create.
+Proxies the `layaway_quote` RPC: the plan schedule a checkout would create.
+`term_months` defaults to 3; `currency` is `JPY` (default) or `PHP`.
+
+**Preferred body (2026-09-25): `{ price_jpy, term_months, currency }`.**
+`price_jpy` is the piece's **yen** price (a whole, non-negative number)
+whatever `currency` is — the storefront sends the catalog price and never
+converts.
+- `currency: "JPY"` → `layaway_quote(price_jpy, term, 'JPY')`.
+- `currency: "PHP"` → the Hub converts, `price_php = HU(price_jpy × rate)` at
+  the latest `fx_rates` row (the same half-up the catalog's `price_php` and the
+  peso checkout use), then `layaway_quote(price_php, term, 'PHP')`. Every figure
+  in the answer — `deposit`, `monthly`, `last_month`, `total`, `schedule` — is
+  in pesos, computed in pesos (floor-and-remainder on the peso amount), never a
+  converted yen figure. No usable rate → **503 `{ "error": "fx_unavailable" }`**.
+- The answer adds `price_jpy`, `fx_rate` and `fx_as_of` (`null` for yen).
+- `price_jpy` wins when both `price_jpy` and `price` are sent. A non-integer or
+  negative `price_jpy` → 400 `invalid_price`.
+
+**Legacy body `{ price, term_months, currency }`** — `price` is read in
+`currency` — is unchanged and keeps working until the storefront moves to
+`price_jpy`. Errors: 400 `invalid_price`, 400 `invalid_currency`.
+
+**Term minimums are per currency.** `allowed_terms[].min_amount` and
+`eligible` use `plan_configurations.min_amount_jpy` for a yen quote and the
+fixed **`min_amount_php`** for a peso quote (6M ₱10,500, 8M ₱126,000, …) — never
+the yen minimum converted at the day's rate. So a piece can clear a term in yen
+and not in pesos: ¥26,427 at 0.397296 is ₱10,499, below 6M's ₱10,500. A peso
+checkout refuses the same term (`409 below_plan_minimum`), so show the peso
+quote's `allowed_terms` in ₱ mode.
 
 ## Claims (live selling)
 
@@ -191,8 +239,9 @@ whole peso** (Postgres `round(numeric)`). Shipping is converted on its own and
 the items subtotal is the remainder (`subtotal = total − shipping`), so the
 three always sum. For a **full payment** the quote uses integer maths that
 matches `create_web_order_atomic` exactly, so `total_settlement` is the order's
-`total_amount` to the peso. A layaway's peso schedule comes from
-`layaway_quote` and is unchanged.
+`total_amount` to the peso. A **layaway** uses the same integer half-up since
+2026-09-25 (H3), matching `create_web_layaway_atomic`'s `round(total_jpy *
+fx_rate)`; its peso deposit and schedule then come from `layaway_quote`.
 
 **Pay response** (`POST /checkout/pay`, full payment): `order_id`,
 `web_reference`, `currency` (`JPY` | `PHP`), `total` (in `currency`),

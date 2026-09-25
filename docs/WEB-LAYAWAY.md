@@ -149,6 +149,19 @@
   exactly. Web orders paid in full may settle in pesos too since 2026-09-25
   (docs/CASH-ORDERS.md "WEB ORDERS IN PESOS").
 
+  DISPLAYED DOWN PAYMENTS COME FROM THE HUB (H-DP, 2026-09-25). The storefront
+  shows no money figure it computed: catalog variants carry `down_payment_jpy`
+  / `down_payment_php` / `down_payment_pct` (from `website_down_payments`,
+  which calls `layaway_quote`), and the calculator asks `POST /layaway/quote`
+  with `{ price_jpy, currency }` so the Hub converts. ONE formula, the
+  checkout's: `price_php = HU(price_jpy × rate)`, then
+  `layaway_quote(price_php, term, 'PHP').deposit`. For one piece at ₱0 shipping
+  that is exactly what `create_web_layaway_atomic` stores (proven over 2,519
+  cases in src/test/hub-down-payments.test.ts). The checkout's own peso
+  layaway quote uses the same integer half-up (H3), so it cannot land ₱1 low
+  on an exact .5. Peso term minimums are `min_amount_php`, never the yen
+  minimum at a rate.
+
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.
 
