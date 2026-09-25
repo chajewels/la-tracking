@@ -228,12 +228,14 @@ describe("previewPage365Stock — read-only, never blocks a fetch", () => {
 describe("previewChip — review screen, before import", () => {
   const m = (result: string, stock_qty: number | null = null) =>
     ({ first_word: "ZT9001", result, stock_qty }) as Parameters<typeof previewChip>[0];
-  it("will take when enough is in stock", () => {
-    expect(previewChip(m("matched", 2), 1, "product")).toMatchObject({ tone: "take" });
+  // 'invoice' = the #195 behaviour, kept as the rollback (PR 2 made
+  // inventory_sync the default — see page365-inventory-pr2.test.tsx).
+  it("invoice mode: will take when enough is in stock", () => {
+    expect(previewChip(m("matched", 2), 1, "product", "invoice")).toMatchObject({ tone: "take" });
   });
-  it("will flag when the website already reserved or sold it — the order is still created", () => {
-    expect(previewChip(m("matched", 0), 1, "product")).toMatchObject({ tone: "flag", label: expect.stringMatching(/reserved or sold/) });
-    expect(previewChip(m("matched", 1), 2, "product").tone).toBe("flag");
+  it("invoice mode: will flag when the website already reserved or sold it — the order is still created", () => {
+    expect(previewChip(m("matched", 0), 1, "product", "invoice")).toMatchObject({ tone: "flag", label: expect.stringMatching(/reserved or sold/) });
+    expect(previewChip(m("matched", 1), 2, "product", "invoice").tone).toBe("flag");
   });
   it("will flag no code / several products / several sizes / no variant", () => {
     for (const r of ["unmatched", "ambiguous_sku", "ambiguous_variant", "no_variant"]) {

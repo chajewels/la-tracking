@@ -66,6 +66,8 @@ export interface PhotoResult {
   copied: number;
   replaced: number;
   already: number;
+  /** PR 2: ticked products skipped because they are switched to "Don't sync with Page365". */
+  not_synced?: number;
   failed: { item_id: string; photo_id: number; reason: string }[];
   remaining: number;
 }

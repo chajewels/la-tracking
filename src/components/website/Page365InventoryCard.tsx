@@ -27,7 +27,9 @@ import {
  *
  * Nothing here decides stock: page365_inventory_finish proposed every row, and
  * page365_inventory_apply writes each ticked row only if its stock is unchanged
- * since the fetch. Decreases start ticked; increases never do.
+ * since the fetch. Decreases start ticked; increases never do. Products
+ * switched to "Don't sync with Page365" sit in their own group and are never
+ * proposed, applied or given photos (checked again on the server).
  */
 
 const yen = (n: number | null | undefined) => (n == null ? "—" : `¥${Math.round(n).toLocaleString("en-US")}`);
@@ -40,7 +42,10 @@ const nameOf = (it: InventoryItem) => it.variant_name ? `${it.page365_name} — 
 
 interface Outcome {
   stock: ApplyResult | null;
-  photos: { copied: number; replaced: number; already: number; failed: { item_id: string; photo_id: number; reason: string }[] } | null;
+  photos: {
+    copied: number; replaced: number; already: number; notSynced: number;
+    failed: { item_id: string; photo_id: number; reason: string }[];
+  } | null;
 }
 
 function Section({ title, hint, count, tone = "default", children }: {
@@ -170,10 +175,11 @@ export function Page365InventoryCard() {
         result.stock = r;
       }
       if (photoIds.length > 0) {
-        const acc = { copied: 0, replaced: 0, already: 0, failed: [] as { item_id: string; photo_id: number; reason: string }[] };
+        const acc = { copied: 0, replaced: 0, already: 0, notSynced: 0, failed: [] as { item_id: string; photo_id: number; reason: string }[] };
         for (let guard = 0; guard < 200; guard++) {
           const r = await copyPhotos(run.id, photoIds, acc.failed.map(f => `${f.item_id}:${f.photo_id}`));
           acc.copied += r.copied; acc.replaced += r.replaced; acc.already += r.already; acc.failed.push(...r.failed);
+          acc.notSynced = Math.max(acc.notSynced, r.not_synced ?? 0);
           setOutcome({ ...result, photos: { ...acc } });
           if (r.remaining === 0 || r.copied + r.replaced + r.already + r.failed.length === 0) break;
         }
@@ -210,6 +216,7 @@ export function Page365InventoryCard() {
           <TableHead className="min-w-[14rem]">Page365 name</TableHead>
           <TableHead className="text-right">Page365</TableHead>
           <TableHead className="text-right">Web holds</TableHead>
+          <TableHead className="text-right whitespace-nowrap" title="Pieces on imported Page365 invoices whose Hub order is not paid yet">Invoice holds</TableHead>
           <TableHead className="text-right whitespace-nowrap">Hub now → proposed</TableHead>
           <TableHead />
         </TableRow>
@@ -222,6 +229,7 @@ export function Page365InventoryCard() {
             <TableCell className="max-w-[22rem] truncate text-xs" title={nameOf(it)}>{nameOf(it)}</TableCell>
             <TableCell className="text-right tabular-nums">{it.page365_available ?? "—"}</TableCell>
             <TableCell className="text-right tabular-nums">{it.web_holds || "—"}</TableCell>
+            <TableCell className="text-right tabular-nums">{it.invoice_holds || "—"}</TableCell>
             <TableCell className="text-right tabular-nums whitespace-nowrap">
               {it.seen_stock ?? "—"} → <span className="font-semibold">{it.proposed_stock ?? "—"}</span>
             </TableCell>
@@ -241,8 +249,9 @@ export function Page365InventoryCard() {
           <div className="min-w-0">
             <CardTitle className="text-base">Page365 inventory</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Reads every Page365 product and proposes website stock = Page365 quantity minus website holds Page365
-              does not know about yet. Nothing changes until you apply ticked rows.
+              Page365 is the stock master. Reads every Page365 product and proposes website stock = Page365 quantity
+              minus website holds and unpaid Page365 invoice holds Page365 may not count yet. Importing a Page365
+              invoice no longer changes website stock. Nothing changes until you apply ticked rows.
             </p>
             {run && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -307,7 +316,22 @@ export function Page365InventoryCard() {
             <Section title="Increases" hint="Tick to apply. A rise can mean a website sale not yet entered in Page365." count={groups.increases.length} tone="warn">
               {stockTable(groups.increases)}
             </Section>
-            <Section title="Excluded — Page365 invoice hold" hint="An imported Page365 invoice holds this piece. Not changed until invoice import switches to the inventory (PR 2)." count={groups.excluded.length} tone="muted">
+            <Section title="Not synced" hint="Switched to “Don’t sync with Page365” in Catalog. Always skipped: never proposed, never applied, photos never copied." count={groups.notSynced.length} tone="muted">
+              <Table>
+                <TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Name</TableHead><TableHead className="text-right">Page365</TableHead><TableHead className="text-right">Hub now</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {groups.notSynced.map(it => (
+                    <TableRow key={it.id} data-testid="p365-inv-not-synced-row">
+                      <TableCell className="font-medium">{label(it)}</TableCell>
+                      <TableCell className="max-w-[22rem] truncate text-xs">{it.kind === "hub_only" ? "(Hub product — not on Page365)" : nameOf(it)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{it.page365_available ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">{it.seen_stock ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Section>
+            <Section title="Excluded — Page365 invoice hold" hint="Invoice import is set back to taking stock (page365_stock_mode = invoice), and an imported invoice holds this piece." count={groups.excluded.length} tone="muted">
               <Table>
                 <TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Page365 name</TableHead><TableHead className="text-right">Page365</TableHead><TableHead className="text-right">Hub now</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -420,7 +444,9 @@ export function Page365InventoryCard() {
                 {outcome.photos && (
                   <p>
                     Photos: <b>{outcome.photos.copied}</b> copied · <b>{outcome.photos.replaced}</b> replaced ·{" "}
-                    <b>{outcome.photos.already}</b> already there · <b>{outcome.photos.failed.length}</b> failed
+                    <b>{outcome.photos.already}</b> already there ·{" "}
+                    {outcome.photos.notSynced > 0 && <><b>{outcome.photos.notSynced}</b> not synced (skipped) · </>}
+                    <b>{outcome.photos.failed.length}</b> failed
                     {outcome.photos.failed.length > 0 && ` (${outcome.photos.failed.slice(0, 3).map(f => f.reason).join("; ")})`}.
                   </p>
                 )}

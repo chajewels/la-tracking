@@ -1,15 +1,19 @@
 /**
  * Page365 inventory fetch — review-screen logic (Website -> Page365 stock).
  *
- * The rules are in SQL (migration 20260927100000_page365_inventory_fetch.sql):
- * page365_inventory_finish decides each row's category and proposal, and
- * page365_inventory_apply writes stock with compare-and-set. This file only
- * groups what the run recorded, decides what is PRE-TICKED, and splits the
- * ticks into the two lists apply takes. It decides nothing about stock.
+ * The rules are in SQL (migrations 20260927100000_page365_inventory_fetch.sql
+ * and 20260928100000_page365_inventory_pr2.sql): page365_inventory_finish
+ * decides each row's category and proposal, and page365_inventory_apply writes
+ * stock with compare-and-set. This file only groups what the run recorded,
+ * decides what is PRE-TICKED, and splits the ticks into the two lists apply
+ * takes. It decides nothing about stock.
  *
  *   decreases   pre-ticked (owner rule)
  *   increases   never pre-ticked: a staff tick is required
- *   excluded    a #195 invoice hold on the variant (until PR 2): shown, never tickable
+ *   notSynced   the product is switched to "Don't sync with Page365": always
+ *               skipped — shown, never proposed, never tickable, no photos
+ *   excluded    a #195 invoice hold on the variant — only while
+ *               page365_stock_mode is 'invoice' (the rollback); none since PR 2
  *   flagged     no code / duplicate / ambiguous / Hub-only: shown, never tickable
  *   new         code not in the Hub: listed only
  *   price       Page365 price differs from the Hub price: reported only
@@ -17,7 +21,7 @@
  */
 
 export type InventoryCategory =
-  | 'pending' | 'decrease' | 'increase' | 'no_change' | 'excluded' | 'flagged' | 'new' | 'hub_only';
+  | 'pending' | 'decrease' | 'increase' | 'no_change' | 'excluded' | 'flagged' | 'new' | 'hub_only' | 'not_synced';
 
 export type InventoryRunStatus = 'fetching' | 'ready' | 'partial' | 'failed';
 
@@ -66,6 +70,7 @@ export interface InventoryGroups {
   decreases: InventoryItem[];
   increases: InventoryItem[];
   excluded: InventoryItem[];
+  notSynced: InventoryItem[];
   flagged: InventoryItem[];
   newInPage365: InventoryItem[];
   priceDiffs: InventoryItem[];
@@ -78,19 +83,21 @@ const byCode = (a: InventoryItem, b: InventoryItem) =>
 
 export function groupItems(items: InventoryItem[]): InventoryGroups {
   const g: InventoryGroups = {
-    decreases: [], increases: [], excluded: [], flagged: [], newInPage365: [], priceDiffs: [], photos: [], noChange: 0,
+    decreases: [], increases: [], excluded: [], notSynced: [], flagged: [], newInPage365: [], priceDiffs: [], photos: [], noChange: 0,
   };
   for (const it of items) {
     if (it.category === 'decrease') g.decreases.push(it);
     else if (it.category === 'increase') g.increases.push(it);
     else if (it.category === 'excluded') g.excluded.push(it);
+    else if (it.category === 'not_synced') g.notSynced.push(it);
     else if (it.category === 'flagged' || it.category === 'hub_only') g.flagged.push(it);
     else if (it.category === 'new') g.newInPage365.push(it);
     else if (it.category === 'no_change') g.noChange++;
+    if (it.category === 'not_synced') continue;
     if (it.match_result === 'matched' && it.price_differs) g.priceDiffs.push(it);
     if (it.match_result === 'matched' && it.photos_to_copy > 0) g.photos.push(it);
   }
-  for (const k of ['decreases', 'increases', 'excluded', 'flagged', 'newInPage365', 'priceDiffs', 'photos'] as const) {
+  for (const k of ['decreases', 'increases', 'excluded', 'notSynced', 'flagged', 'newInPage365', 'priceDiffs', 'photos'] as const) {
     g[k].sort(byCode);
   }
   return g;
@@ -106,6 +113,7 @@ export function defaultSelection(items: InventoryItem[]): { stock: Set<string>; 
   const stock = new Set<string>();
   const photos = new Set<string>();
   for (const it of items) {
+    if (it.category === 'not_synced') continue;
     if (it.category === 'decrease' && it.status === 'review') stock.add(it.id);
     if (it.match_result === 'matched' && it.photos_to_copy > 0) photos.add(it.id);
   }
@@ -151,6 +159,7 @@ export const SKIP_REASON: Record<string, string> = {
   already_changed_since_fetch: 'stock had changed; fetch again',
   already_failed: 'failed earlier',
   invoice_hold: 'a Page365 invoice hold is on this piece',
+  sync_disabled: 'switched to “Don’t sync with Page365”',
   not_a_stock_change: 'not a stock change',
   direction_mismatch: 'an increase must be ticked as an increase',
 };

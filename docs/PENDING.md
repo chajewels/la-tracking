@@ -910,22 +910,27 @@ there is no point publishing a ladder whose base rule has no mechanism.
 PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PAGE365-IMPORT.md
 "INVENTORY". Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` §4-§5.
 
-- **PR 2 — invoice import → record-only.** `system_settings.page365_stock_mode`
-  (`invoice` | `inventory_sync`); `page365_apply_stock` claims and matches but skips the
-  decrement in `inventory_sync` (md5-guarded in-place patch from live
-  `pg_get_functiondef`, drift audit first — Bug #280 rule); widen `stock_state` CHECK with
-  `page365_master`, `absorbed`; cut-over `held → absorbed`. Then the inventory apply stops
-  excluding held variants. Invoice fetch fixes: photo from `/products/<pid>` in position
-  order and drop the catalogue scan (F1: pages are cumulative, never empty); first-word
-  SKU everywhere instead of `naturalSku` (F2: misses ≥ 48 real codes).
+- **PR 2 — BUILT 2026-09-28** (migration 20260928100000; docs/PAGE365-IMPORT.md "PR 2").
+  Invoice import record-only (`page365_stock_mode = inventory_sync`), held → absorbed,
+  "Don't sync with Page365" switch, F1/F2, unpaid-invoice holds.
 - **PR 3 — 30-min schedule.** pg_cron + Vault key → `page365-inventory-fetch` with a
   JWT-claims service-role path; auto-apply **decreases only**, gated by
   `page365_inventory_auto_apply`; bells `page365_inventory_run_failed` /
-  `page365_inventory_rises_pending`.
-- **PR 4 — "Create draft product"** from a new Page365 code (and from an unmatched invoice
-  line): staff pick metals/origin/condition; photos copied the same way.
-- Open question the acceptance test settles: does an UNPAID Page365 invoice already reduce
-  `available`? (§5.9 step 2.)
+  `page365_inventory_rises_pending`. Must skip `not_synced` rows exactly like manual apply
+  (apply already refuses them server-side).
+- **PR 4 — review screen that scales, plus "Create draft product".**
+  - Filters on the review screen: **in-stock-only by default** (Page365 available > 0 or
+    Hub stock > 0), **search** (code / name), **category** (Page365 category), **price
+    range**, **select-all-shown** (ticks only the rows the filters show, never hidden ones),
+    and **counts** per group that follow the filters.
+  - "Create draft product" from a new Page365 code (and from an unmatched invoice line):
+    staff pick metals/origin/condition; photos copied the same way.
+- **Open question (owner acceptance test):** does an UNPAID Page365 invoice already reduce
+  `available`? Until answered, `page365_hold_unpaid_invoices = true` subtracts unpaid
+  imported invoices (safe either way). If yes → set it `false`.
+- Residual, by design: `released` #195 lines were not absorbed; reviving such an order
+  re-takes its piece as #195 did. Drop the #195 follow triggers once no `released` rows
+  remain (`SELECT count(*) FROM page365_stock_lines WHERE stock_state = 'released'`).
 
 ## PAGE365 STOCK — WHAT 20260926120000 DELIBERATELY DID NOT BUILD (filed 2026-09-26)
 

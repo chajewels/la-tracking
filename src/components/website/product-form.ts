@@ -27,7 +27,18 @@ export const metalsLabel = (metals: unknown, karat?: string | null) => {
   return list.length ? list.join(" / ") : "—";
 };
 
-export interface MediaRow { id?: string; url: string; alt: string | null; sort: number }
+export interface MediaRow {
+  id?: string;
+  url: string;
+  alt: string | null;
+  sort: number;
+  /** Set on photos copied from Page365 (Website -> Page365 stock). Carried
+   *  through every save: the editor rewrites a variant's media rows, and a row
+   *  that lost its Page365 id would be copied AGAIN by the next fetch — a
+   *  duplicate photo. Null / absent = uploaded by staff. */
+  page365_photo_id?: number | null;
+  page365_photo_version?: string | null;
+}
 export interface VariantRow {
   id?: string;
   size: string | null;
@@ -59,6 +70,10 @@ export interface ProductForm {
   /** English text as last saved — the translation only refreshes when it changes. */
   savedEn: string;
   status: Status;
+  /** "Don't sync with Page365" (website_products.page365_sync_disabled). On =
+   *  the Page365 inventory fetch always skips this product and an invoice
+   *  import never moves its stock. Default off. */
+  page365SyncDisabled: boolean;
   collectionIds: string[];
   /** website_category_products, in the order picked. */
   categoryIds: string[];
@@ -73,7 +88,7 @@ export const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", name_ja: "", savedName: "", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
-  status: "draft", collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
+  status: "draft", page365SyncDisabled: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
 });
 
 export const slugify = (s: string) =>

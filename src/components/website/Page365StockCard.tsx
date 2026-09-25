@@ -19,9 +19,11 @@ import {
 } from "@/lib/page365-stock";
 
 /**
- * Website → Page365 stock. Page365 invoice lines the Hub could NOT take
- * website stock for, when the invoice was imported (or when its order was
- * revived after the piece sold). See docs/PAGE365-IMPORT.md "STOCK".
+ * Website → Page365 stock. Page365 invoice lines that need a look: lines that
+ * did not match exactly one website product, plus (from before PR 2, or while
+ * page365_stock_mode is 'invoice') lines that could not take website stock.
+ * Since PR 2 an import never changes website stock — the Page365 inventory
+ * fetch on the same tab does. See docs/PAGE365-IMPORT.md "STOCK".
  *
  * Resolving a flag only records that someone dealt with it, with a note. It
  * NEVER moves stock — the fix happens on Page365 or in Catalog. Same key as
@@ -175,7 +177,8 @@ export function Page365StockCard() {
               Page365 stock {flags.data ? `(${openCount} open)` : ""}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Page365 lines that did not reduce website stock when imported. Resolving records a note; it never moves stock.
+              Imported Page365 invoice lines that did not match one website product. Importing an invoice no longer
+              changes website stock — the Page365 inventory fetch below does. Resolving records a note; it never moves stock.
             </p>
           </div>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowResolved(v => !v)}>

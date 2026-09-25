@@ -10,11 +10,22 @@
  *
  *   previewPage365Stock  page365-fetch-order: read-only match per draft line,
  *                        stored on the draft so the review screen can show
- *                        "will take / will flag / skipped" BEFORE import (D1).
+ *                        what the import will do BEFORE import (D1).
+ *   readStockMode        which of the two import behaviours is live (below).
  *   applyPage365Stock    create-cash-order / create-layaway-account: after the
  *                        order and its lines are written. Lines come from the
  *                        STORED DRAFT, never from the browser; the browser only
  *                        says which draft positions the CSR marked as service.
+ *
+ * TWO MODES (system_settings.page365_stock_mode, migration 20260928100000):
+ *   inventory_sync  (live since PR 2) Page365 is the stock master. An import
+ *                   claims, matches and flags each line exactly as before but
+ *                   NEVER changes website stock; stock follows the Page365
+ *                   inventory fetch (docs/PAGE365-IMPORT.md "INVENTORY").
+ *   invoice         the #195 behaviour (an import takes stock) — the rollback.
+ * A product switched to "Don't sync with Page365"
+ * (website_products.page365_sync_disabled) never has its stock moved by an
+ * import in either mode; the match is still recorded.
  *
  * A business outcome (no match, several products, several sizes, not enough
  * stock) is never an error — the order stands and the line is flagged. Only a
@@ -45,6 +56,27 @@ export interface Page365StockMatch {
   result: Page365MatchResult | "service";
   stock_qty: number | null;
   checked_at: string;
+  /** The matched website variant (result 'matched' only). Lets the fetch reuse
+   *  the catalogue's own copy of the main photo instead of storing a second
+   *  file. Absent on drafts fetched before PR 2. */
+  variant_id?: string | null;
+  /** The matched product is switched to "Don't sync with Page365". Null when
+   *  it could not be read. Absent on drafts fetched before PR 2. */
+  sync_disabled?: boolean | null;
+}
+
+export type Page365StockMode = "inventory_sync" | "invoice";
+
+/** Twin of the SQL rule: only an explicit 'invoice' brings back the #195
+ *  decrement; anything else (incl. a missing row) is inventory_sync. */
+export function stockModeFrom(value: unknown): Page365StockMode {
+  return value === "invoice" ? "invoice" : "inventory_sync";
+}
+
+export async function readStockMode(supabase: SupabaseLike): Promise<Page365StockMode> {
+  const { data } = await supabase
+    .from("system_settings").select("value").eq("key", "page365_stock_mode").maybeSingle();
+  return stockModeFrom((data as { value?: unknown } | null)?.value);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,7 +124,13 @@ export async function checkPage365Draft(
 export interface Page365StockResult {
   ok: true;
   page365_no: number;
+  /** PR 2. Absent from a pre-PR 2 database. */
+  mode?: Page365StockMode;
   held: number;
+  /** PR 2: matched lines recorded without moving stock (inventory_sync). */
+  recorded?: number;
+  /** PR 2: matched lines on a product switched to "Don't sync with Page365". */
+  sync_off?: number;
   flagged: number;
   services: number;
   already_claimed: number;
@@ -137,24 +175,48 @@ export async function previewPage365Stock(
 ): Promise<Array<Page365StockMatch | null>> {
   const at = new Date().toISOString();
   const out: Array<Page365StockMatch | null> = [];
+  const productOf: Array<string | null> = [];
   for (const it of items) {
+    productOf.push(null);
     if (it.kind === "service") {
       out.push({ first_word: firstWord(it.name), result: "service", stock_qty: null, checked_at: at });
       continue;
     }
     const { data, error } = await supabase.rpc("page365_match_line", { p_name: it.name });
-    type MatchRow = { o_first_word: string | null; o_match_result: Page365MatchResult; o_stock_qty: number | null };
+    type MatchRow = {
+      o_first_word: string | null; o_match_result: Page365MatchResult; o_stock_qty: number | null;
+      o_product_id: string | null; o_variant_id: string | null;
+    };
     const row = (Array.isArray(data) ? data[0] : data) as MatchRow | null | undefined;
     if (error || !row) {
       out.push(null);
       continue;
     }
+    productOf[productOf.length - 1] = row.o_match_result === "matched" ? row.o_product_id ?? null : null;
     out.push({
       first_word: row.o_first_word ?? null,
       result: row.o_match_result,
       stock_qty: typeof row.o_stock_qty === "number" ? row.o_stock_qty : null,
       checked_at: at,
+      variant_id: row.o_match_result === "matched" ? row.o_variant_id ?? null : null,
+      sync_disabled: null,
     });
+  }
+
+  // The switch, one read for every matched product. Unreadable = null (the
+  // review screen then says nothing about it); never a guess.
+  const ids = [...new Set(productOf.filter((x): x is string => !!x))];
+  if (ids.length) {
+    const { data, error } = await supabase
+      .from("website_products").select("id, page365_sync_disabled").in("id", ids);
+    if (!error && Array.isArray(data)) {
+      const off = new Map((data as { id: string; page365_sync_disabled: boolean | null }[])
+        .map(r => [r.id, r.page365_sync_disabled === true]));
+      productOf.forEach((pid, n) => {
+        const m = out[n];
+        if (pid && m && off.has(pid)) m.sync_disabled = off.get(pid)!;
+      });
+    }
   }
   return out;
 }
