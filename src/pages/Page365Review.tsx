@@ -17,7 +17,10 @@ import { formatCurrency, generateScheduleDates } from '@/lib/calculations';
 import { getPHTToday } from '@/lib/date-utils';
 import type { Currency } from '@/lib/types';
 import type { DbCustomer } from '@/hooks/use-supabase-data';
-import { CHIP_CLASS, importSummary, previewChip, type Page365StockMatch } from '@/lib/page365-stock';
+import {
+  CHIP_CLASS, flaggedTitle, importSummary, previewChip, stockModeFrom,
+  type ImportStockResult, type Page365StockMatch,
+} from '@/lib/page365-stock';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The draft, exactly as page365-fetch-order returns it. Money is ALWAYS yen
@@ -73,6 +76,9 @@ interface DraftPayload {
   page365_expires_on?: string | null;
   fetched_at: string;
   photo_failures: string[];
+  /** PR 2: which import behaviour was live at fetch time. Absent on older
+   *  drafts — stockModeFrom reads that as inventory_sync, the live mode. */
+  stock_mode?: string;
 }
 
 /** Page365 is a Japanese system and its invoice timestamps are instants. The
@@ -473,7 +479,7 @@ export default function Page365Review() {
       if (error) throw new Error(await readFnError(error, 'Could not create the order'));
       const payload = data as {
         error?: string; cash_order?: { id: string }; account?: { id: string };
-        page365_stock?: { held: number; flagged: number } | null;
+        page365_stock?: ImportStockResult | null;
       };
       if (payload?.error) throw new Error(payload.error);
 
@@ -494,7 +500,7 @@ export default function Page365Review() {
       const stockLine = importSummary(payload?.page365_stock);
       toast.success(`Imported Page365 invoice ${draft.page365_no}`, stockLine ? { description: stockLine } : undefined);
       if ((payload?.page365_stock?.flagged ?? 0) > 0) {
-        toast.warning('Some lines did not reduce website stock', {
+        toast.warning(flaggedTitle(payload?.page365_stock?.mode), {
           description: 'They are listed under Website → Page365 stock and on the order page.',
         });
       }
@@ -730,11 +736,14 @@ export default function Page365Review() {
                     <span className="text-[11px] text-muted-foreground">excluded from loyalty</span>
                   )}
                   {(() => {
-                    const chip = previewChip(it.stock_match, draft?.items[it.lineNo - 1]?.quantity ?? it.quantity, it.kind);
+                    const chip = previewChip(it.stock_match, draft?.items[it.lineNo - 1]?.quantity ?? it.quantity, it.kind,
+                      stockModeFrom(draft?.stock_mode));
                     return (
                       <span
                         className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${CHIP_CLASS[chip.tone]}`}
-                        title="Website stock, checked when the link was fetched. Nothing is taken until you import."
+                        title={stockModeFrom(draft?.stock_mode) === 'invoice'
+                          ? 'Website stock, checked when the link was fetched. Nothing is taken until you import.'
+                          : 'Checked when the link was fetched. Importing records the match; website stock follows the Page365 inventory fetch (Website → Page365 stock).'}
                         data-testid={`p365-stock-chip-${it.lineNo}`}
                       >
                         {chip.label}

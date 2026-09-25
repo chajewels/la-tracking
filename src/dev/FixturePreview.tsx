@@ -215,6 +215,9 @@ export default function FixturePreview() {
       const inv = buildPage365InventoryFixtures(searchParams.get('inv') === 'partial');
       seed(['page365-inventory-run'], inv.run);
       seed(['page365-inventory-items', inv.run.id], inv.items);
+      // PR 2: Website → Catalog, N4020 switched to "Don't sync with Page365"
+      // (open it to see the switch) next to an ordinary synced piece.
+      seed(['website-products'], buildCatalogSyncFixtures());
     }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
@@ -1179,11 +1182,13 @@ function buildPage365InventoryFixtures(partial: boolean) {
     code, hub_sku: code, page365_name: name, page365_price_jpy: 72980, hub_price_jpy: 72980, ...over,
   });
   const items = [
-    row('i1', 'N4020', 'N4020 Necklace Tiffany & Co. 750 Open Teardrop', { category: 'decrease', page365_available: 0, seen_stock: 1, proposed_stock: 0, photos_total: 3, photos_to_copy: 3 }),
+    // PR 2: N4020 is the owner's first "Don't sync with Page365" piece (a sample).
+    row('i1', 'N4020', 'N4020 Necklace Tiffany & Co. 750 Open Teardrop', { category: 'not_synced', page365_available: 0, seen_stock: 1, proposed_stock: null, photos_total: 0, photos_to_copy: 0 }),
     row('i2', 'E1053', 'E1053 Earrings K18', { variant_name: 'E1053 2.0g', category: 'decrease', page365_available: 0, seen_stock: 1, proposed_stock: 0, page365_price_jpy: 74980, hub_price_jpy: 74980, photos_total: 2, photos_to_copy: 2 }),
     row('i3', 'R7828', 'R7828 Ring 750YG/WG 19.0g Diamond 2.70ct', { category: 'increase', page365_available: 2, seen_stock: 1, proposed_stock: 2, page365_price_jpy: 679980, hub_price_jpy: 679980, photos_total: 3, photos_to_copy: 1, photos_removed: 1 }),
     row('i4', 'R3341', 'R3341 Ring K18WG 16.20g Diamond 3.82ct', { category: 'no_change', page365_available: 1, seen_stock: 0, proposed_stock: 0, web_holds: 1 }),
-    row('i5', 'ZT9001', 'ZT9001 Test ring K18', { category: 'excluded', page365_available: 1, seen_stock: 1, proposed_stock: 1, invoice_holds: 1 }),
+    // PR 2: an imported, still-unpaid Page365 invoice holds this piece.
+    row('i5', 'ZT9001', 'ZT9001 Test ring K18', { category: 'decrease', page365_available: 1, seen_stock: 1, proposed_stock: 0, invoice_holds: 1 }),
     row('i6', 'E2794', 'E2794 Earrings K18 Diamond', { category: 'no_change', page365_available: 1, seen_stock: 1, proposed_stock: 1, page365_price_jpy: 19184, page365_full_price_jpy: 23980, hub_price_jpy: 23980, price_differs: true }),
     row('i7', 'R0001', 'R0001 duplicate listing', { category: 'flagged', match_result: 'duplicate_in_page365', website_product_id: null, variant_id: null, hub_sku: null, seen_stock: null, proposed_stock: null }),
     row('i8', 'E1053X', 'E1053X Earrings (two sizes in the Hub)', { category: 'flagged', match_result: 'ambiguous_variant', variant_id: null, seen_stock: null, proposed_stock: null }),
@@ -1234,4 +1239,22 @@ function buildPage365StockFixtures(cashOrderId: string) {
     },
   };
   return { lines, draft };
+}
+
+/** PR 2 catalogue fixtures: one product switched to "Don't sync with Page365". */
+function buildCatalogSyncFixtures() {
+  const product = (id: string, sku: string, name: string, off: boolean, stock: number) => ({
+    id, sku, slug: sku.toLowerCase(), name, name_ja: null, karat: null, metals: ['K18'], weight_g: null, condition: 'New',
+    origin: 'UNKNOWN', brand: null, description_en: null, description_ja: null, status: 'active',
+    created_at: '2026-09-28T00:00:00Z', page365_sync_disabled: off,
+    website_product_variants: [{
+      id: `${id}-v`, size: null, stone: null, price_jpy: 72980, cost_basis: null, stock_qty: stock, sort: 0,
+      website_product_media: [],
+    }],
+    website_collection_products: [], website_category_products: [],
+  });
+  return [
+    product('fixture-wp-n4020', 'N4020', 'Necklace Tiffany & Co. 750 Open Teardrop (sample)', true, 1),
+    product('fixture-wp-r7828', 'R7828', 'Ring 750YG/WG 19.0g Diamond 2.70ct', false, 1),
+  ];
 }

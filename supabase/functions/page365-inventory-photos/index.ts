@@ -17,6 +17,9 @@
  *     are never touched or reordered; Page365's first photo is the main one
  *     when there are no staff photos.
  *   * <= 4 downloads/s, 3 at a time, a bounded number per call.
+ *   * A product switched to "Don't sync with Page365" is skipped BEFORE any
+ *     download, read live (the switch may be flipped after the fetch);
+ *     page365_inventory_record_photo refuses it too ('sync_disabled').
  */
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
@@ -63,11 +66,31 @@ Deno.serve(async (req) => {
 
     const { data: items, error: itemsErr } = await supabase
       .from("page365_inventory_items")
-      .select("id, variant_id, page365_product_id, match_result, page365_inventory_products(photos)")
+      .select("id, variant_id, website_product_id, category, page365_product_id, match_result, page365_inventory_products(photos)")
       .eq("run_id", runId).eq("match_result", "matched").in("id", itemIds);
     if (itemsErr) return jsonResponse({ error: itemsErr.message }, 500);
 
-    const variantIds = [...new Set((items ?? []).map((i: { variant_id: string }) => i.variant_id).filter(Boolean))];
+    // "Don't sync with Page365": never copied. Read live, before any download.
+    type ItemRow = {
+      id: string; variant_id: string | null; website_product_id: string | null; category: string;
+      page365_product_id: number; page365_inventory_products: { photos: Page365Photo[] } | null;
+    };
+    const rows = (items ?? []) as ItemRow[];
+    const productIds = [...new Set(rows.map(i => i.website_product_id).filter((x): x is string => !!x))];
+    const syncOff = new Set<string>();
+    if (productIds.length) {
+      const { data: products, error: prodErr } = await supabase.from("website_products")
+        .select("id, page365_sync_disabled").in("id", productIds);
+      if (prodErr) return jsonResponse({ error: prodErr.message }, 500);
+      for (const p of (products ?? []) as { id: string; page365_sync_disabled: boolean }[]) {
+        if (p.page365_sync_disabled === true) syncOff.add(p.id);
+      }
+    }
+    const notSynced = (it: Pick<ItemRow, "website_product_id" | "category">) =>
+      it.category === "not_synced" || (!!it.website_product_id && syncOff.has(it.website_product_id));
+    const skippedNotSynced = rows.filter(notSynced).length;
+
+    const variantIds = [...new Set(rows.filter(i => !notSynced(i)).map(i => i.variant_id).filter((x): x is string => !!x))];
     const have = new Set<string>();
     if (variantIds.length) {
       const { data: media } = await supabase.from("website_product_media")
@@ -79,11 +102,8 @@ Deno.serve(async (req) => {
     }
 
     const jobs: Job[] = [];
-    for (const it of (items ?? []) as {
-      id: string; variant_id: string | null; page365_product_id: number;
-      page365_inventory_products: { photos: Page365Photo[] } | null;
-    }[]) {
-      if (!it.variant_id) continue;
+    for (const it of rows) {
+      if (!it.variant_id || notSynced(it)) continue;
       (it.page365_inventory_products?.photos ?? []).forEach((photo, index) => {
         if (have.has(`${it.variant_id}:${photo.id}:${photo.version}`)) return;
         if (skip.has(`${it.id}:${photo.id}`)) return;
@@ -138,6 +158,7 @@ Deno.serve(async (req) => {
       copied: outcome.inserted,
       replaced: outcome.replaced + outcome.replaced_hotlink,
       already: outcome.exists,
+      not_synced: skippedNotSynced,
       failed,
       remaining: Math.max(0, jobs.length - batch.length),
     });
