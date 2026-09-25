@@ -1,29 +1,26 @@
 import { supabase } from '@/integrations/supabase/client';
+import { callUntypedRpc } from '@/lib/untyped-rpc';
 import type { CreateDraftsResult, PublishResult } from '@/lib/page365-drafts';
 
 /**
  * RPCs and columns from migration 20260929100000_page365_inventory_drafts are
  * not in src/integrations/supabase/types.ts until Lovable regenerates it.
  * types.ts is never hand-edited (CLAUDE.md, GENERATED FILES), so the untyped
- * access lives here.
+ * access lives here. RPCs go through callUntypedRpc: never store supabase.rpc
+ * in a variable (it loses `this`; see docs/FIXED-BUGS.md).
  */
-const rpc = supabase.rpc as unknown as <T>(
-  fn: string, args: Record<string, unknown>,
-) => Promise<{ data: T | null; error: { message: string } | null }>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const untyped = supabase as unknown as { from: (table: string) => any };
 
 export async function createDrafts(runId: string, itemIds: string[]): Promise<CreateDraftsResult> {
-  const { data, error } = await rpc<CreateDraftsResult>('page365_inventory_create_drafts', {
+  const data = await callUntypedRpc<CreateDraftsResult | null>('page365_inventory_create_drafts', {
     p_run_id: runId, p_item_ids: itemIds,
   });
-  if (error) throw new Error(error.message);
   return data ?? { ok: false, reason: 'no_response' };
 }
 
 export async function publishProducts(productIds: string[]): Promise<PublishResult> {
-  const { data, error } = await rpc<PublishResult>('website_publish_products', { p_product_ids: productIds });
-  if (error) throw new Error(error.message);
+  const data = await callUntypedRpc<PublishResult | null>('website_publish_products', { p_product_ids: productIds });
   return data ?? { ok: false, reason: 'no_response' };
 }
 
