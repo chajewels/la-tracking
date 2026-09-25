@@ -38,6 +38,7 @@
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
+import { previewPage365Stock, type Page365StockMatch } from "../_shared/page365-stock.ts";
 
 /** The only hosts a link may point at. A URL anywhere else is refused. */
 const ALLOWED_HOSTS = ["chajewelsjapan.com", "www.chajewelsjapan.com"];
@@ -82,6 +83,12 @@ interface DraftItem {
    *  placeholder tooltip so the owner can tell us what the webstore answered
    *  rather than reporting "it is still blank". */
   photo_note: string | null;
+  /** Read-only stock preview (migration 20260926120000_page365_stock_sync):
+   *  what the line's first word matches in the website catalogue and the stock
+   *  seen at fetch time. NOTHING is taken here — stock moves only when the
+   *  invoice is imported as a Hub order (owner rule D1). Null = not checked
+   *  (the matcher was unavailable); the review screen says so. */
+  stock_match: Page365StockMatch | null;
 }
 
 /** A RESIZE FEE is a SERVICE, never a product line. Services belong in
@@ -395,8 +402,15 @@ Deno.serve(async (req) => {
         photo_url: null,
         source_photo_url: photo,
         photo_note: null,
+        stock_match: null,
       });
     }
+
+    // ── Stock preview (read-only) ────────────────────────────────────────────
+    // Shows the CSR which lines will reduce website stock and which will be
+    // flagged, before anything is taken. Never blocks the fetch.
+    const stockPreview = await previewPage365Stock(supabase, items);
+    stockPreview.forEach((m, n) => { items[n].stock_match = m; });
 
     const shippingJpy = Math.round(toNumber(raw["price_shipping"]) ?? 0);
     const subtotalJpy = Math.round(toNumber(raw["price_subtotal"]) ?? items.reduce((s, i) => s + i.line_total_jpy, 0));

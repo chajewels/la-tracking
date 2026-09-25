@@ -1,6 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { writeOrderExtras, type OrderExtras } from "../_shared/order-extras.ts";
+import {
+  applyPage365Stock,
+  checkPage365Draft,
+  normaliseServiceLineNos,
+  type Page365StockResult,
+} from "../_shared/page365-stock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,6 +81,10 @@ Deno.serve(async (req) => {
       initial_note,
       page365_no,
       page365_slug,
+      // Page365 stock (2026-09-26): the draft the lines come from, and the
+      // draft positions the CSR marked as a service. See _shared/page365-stock.ts.
+      page365_draft_id,
+      page365_service_lines,
     } = body;
 
     // Validation
@@ -144,6 +154,20 @@ Deno.serve(async (req) => {
             : { source: "layaway_account", id: p365Layaway!.id },
         }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
+
+    // A Page365 import names its draft: stock is taken from the draft's own
+    // lines, never from what the browser sends. Checked before anything is written.
+    let page365DraftId: string | null = null;
+    if (page365_no != null) {
+      const draftCheck = await checkPage365Draft(supabase, page365_no, page365_draft_id);
+      if (!draftCheck.ok) {
+        return new Response(JSON.stringify({ error: draftCheck.error }), {
+          status: draftCheck.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      page365DraftId = draftCheck.draftId;
     }
 
     const totalAmountNum = Number(total_amount);
@@ -308,6 +332,27 @@ Deno.serve(async (req) => {
           name: (user.user_metadata as Record<string, unknown> | undefined)?.full_name as string
             ?? user.email ?? "Unknown",
         });
+      } catch (e) {
+        await supabase.from("layaway_accounts").delete().eq("id", account.id);
+        return new Response(JSON.stringify({ error: (e as Error).message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Page365 stock: claim each invoice line, then take website stock for the
+    // lines that match (owner rule D1 — at import, never at fetch). A line that
+    // does not match, or whose piece is already reserved/sold on the website,
+    // is FLAGGED and the account still stands. Only a request or database
+    // error lands here, and it rolls the account back like extras do.
+    let page365Stock: Page365StockResult | null = null;
+    if (page365DraftId) {
+      try {
+        page365Stock = await applyPage365Stock(
+          supabase, "layaway", account.id, page365DraftId,
+          normaliseServiceLineNos(page365_service_lines), user.id,
+        );
       } catch (e) {
         await supabase.from("layaway_accounts").delete().eq("id", account.id);
         return new Response(JSON.stringify({ error: (e as Error).message }), {
@@ -484,7 +529,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults, extras: extrasResult }),
+      JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults, extras: extrasResult, page365_stock: page365Stock }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {

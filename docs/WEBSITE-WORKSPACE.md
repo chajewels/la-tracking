@@ -1,6 +1,6 @@
 # Website workspace (`/website`)
 
-Everything that feeds chajewelsjp.com, on one route with four tabs. Replaced
+Everything that feeds chajewelsjp.com, on one route with five tabs (Page365 stock added 2026-09-26). Replaced
 `/website-catalog`, which was a single page of six unrelated cards.
 
 Added 2026-09-21.
@@ -15,6 +15,7 @@ Added 2026-09-21.
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
 | Settings | `settings` | ReservationModeCard, SettingsCard | `manage_website_content` (the reserve-first switch itself: **admin only**) |
+| Page365 stock | `page365-stock` | Page365StockCard | `manage_website_catalog` — Page365 lines that did not reduce website stock; resolve with a note (added 2026-09-26, docs/PAGE365-IMPORT.md "STOCK") |
 
 **Audience is the one tab that is not a single key's.** Three of its cards
 belong to `manage_website_catalog` — who subscribed, who wrote in — and
