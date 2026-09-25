@@ -1188,3 +1188,44 @@ move, unmatched refused, unmatched refused for a caller without the permission
 even with `p_allow_unmatched`, unmatched allowed with the override (audit
 `override_used` true), the override on an R1-refused order still refused, and
 the 7-argument named call. A re-run of the file stops at its guard.
+
+## `check_customer_email_conflict(uuid)` (added 2026-09-25)
+
+Read-only helper the customer page's portal share menu calls on mount, before a
+staff member sends an email/password setup link. `LANGUAGE plpgsql`, `STABLE`,
+`SECURITY DEFINER`, `search_path` pinned to `public`.
+
+**Callers:** admin / finance / staff / csr. The body gate is the same idiom as
+`find_customer_matches`, and a NULL `auth.uid()` (SQL Editor, service role)
+passes — it is a staff check, not an authentication one. Until 2026-09-25 the
+gate admitted admin and finance ONLY, so every staff and CSR call raised `42501`
+and the screen showed no warning at all; see docs/FIXED-BUGS.md
+"Portal share menu email-conflict check rejected for staff/CSR".
+
+**Four return values, and there are no others:**
+
+| value | meaning |
+|---|---|
+| `NULL` | no conflict, or the customer has no email |
+| `staff_conflict` | the email belongs to a login carrying a non-`customer` role |
+| `customer_conflict` | the email belongs to a login already linked to a DIFFERENT `customers` row |
+| `orphan_auth` | the email has a login with no role and no customer link |
+
+Checked in that order; the first match wins. A login that IS this customer's own
+`auth_user_id` is excluded from all three, so a migrated customer never conflicts
+with herself.
+
+**Matching is exact, not fuzzy:** `lower(u.email) = nullif(lower(btrim(email)), '')`.
+An earlier body used `ILIKE`, which let a stray `%` or `_` in a customer's email
+match unrelated logins. Never reintroduce a pattern match here.
+
+**Grants:** `REVOKE ALL FROM PUBLIC, anon`, `GRANT EXECUTE TO authenticated,
+service_role`. The `20260705230000` baseline records a REVOKE from
+`authenticated` that live has never had — live's grants are the ones above, and
+`20260925030000_check_customer_email_conflict_staff_gate.sql` re-asserts them.
+
+**The caller must distinguish three states, not two.** A NULL return and a failed
+call are different facts, and the UI renders them differently
+(`conflictCheckFailed` vs `emailConflict === null`). A client that only checks
+`if (!error)` reports a refused check as an all-clear — which is precisely the
+bug above.

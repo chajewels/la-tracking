@@ -26,7 +26,11 @@ type Call = { kind: string; target: string; payload?: unknown; filters?: unknown
 const h = vi.hoisted(() => ({
   calls: [] as Array<{ kind: string; target: string; payload?: unknown; filters?: unknown[] }>,
   tables: {} as Record<string, Array<Record<string, unknown>>>,
-  rpc: {} as Record<string, unknown[]>,
+  rpc: {} as Record<string, unknown>,
+  /** Per-RPC error, so a test can exercise the failure path. The fake client
+   *  had no way to return one, which is why the silent console.warn in
+   *  CustomerPortalShareMenu went untested for as long as it did. */
+  rpcError: {} as Record<string, unknown>,
   perms: new Set<string>(),
   roles: ["admin"] as string[],
 }));
@@ -74,6 +78,7 @@ vi.mock("@/integrations/supabase/client", () => {
     from,
     rpc: async (name: string, args: unknown) => {
       h.calls.push({ kind: "rpc", target: name, payload: args });
+      if (h.rpcError[name]) return { data: null, error: h.rpcError[name] };
       return { data: h.rpc[name] ?? [], error: null };
     },
     functions: {
@@ -202,6 +207,7 @@ beforeEach(() => {
   h.calls.length = 0;
   h.tables = {};
   h.rpc = {};
+  h.rpcError = {};
   h.perms = new Set(["create_account", "create_cash_order", "delete_customer"]);
   h.roles = ["admin"];
   vi.mocked(toast.error).mockClear();
@@ -498,6 +504,48 @@ describe(`at ${width}px`, () => {
         { kind: "rpc", target: "check_customer_email_conflict", payload: { p_customer_id: "c-1" } },
       ]);
       expect(writes()).toEqual([]);
+    });
+
+    // ── the portal share menu's email-conflict banners ──────────────────────
+    // The RPC's gate admitted admin/finance only, so staff and CSR opens threw
+    // and the only trace was a console.warn — no banner ever rendered, and two
+    // of the three conflict values had no banner to render at all.
+    const CONFLICT_BANNERS = {
+      staff_conflict: /registered as a staff account/,
+      customer_conflict: /already used by another customer's portal login/,
+      orphan_auth: /already has a portal login that is not linked to this customer/,
+    } as const;
+
+    it("a customer_conflict shows its banner", async () => {
+      h.rpc.check_customer_email_conflict = "customer_conflict";
+      await open();
+      expect(await screen.findByText(CONFLICT_BANNERS.customer_conflict)).toBeInTheDocument();
+      expect(screen.queryByText(CONFLICT_BANNERS.staff_conflict)).not.toBeInTheDocument();
+    });
+
+    it("an orphan_auth shows its banner", async () => {
+      h.rpc.check_customer_email_conflict = "orphan_auth";
+      await open();
+      expect(await screen.findByText(CONFLICT_BANNERS.orphan_auth)).toBeInTheDocument();
+    });
+
+    it("a failed conflict check says so instead of showing an all-clear", async () => {
+      h.rpcError.check_customer_email_conflict = { message: "permission denied for function check_customer_email_conflict" };
+      await open();
+      expect(await screen.findByText(/Couldn't check this email for conflicts/)).toBeInTheDocument();
+      for (const re of Object.values(CONFLICT_BANNERS)) {
+        expect(screen.queryByText(re)).not.toBeInTheDocument();
+      }
+    });
+
+    it("no conflict shows no banner", async () => {
+      h.rpc.check_customer_email_conflict = null;
+      await open();
+      await waitFor(() => expect(h.calls.some((c) => c.target === "check_customer_email_conflict")).toBe(true));
+      for (const re of Object.values(CONFLICT_BANNERS)) {
+        expect(screen.queryByText(re)).not.toBeInTheDocument();
+      }
+      expect(screen.queryByText(/Couldn't check this email for conflicts/)).not.toBeInTheDocument();
     });
 
     it("a test customer's page carries the TEST tag; a real one does not", async () => {

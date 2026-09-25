@@ -30,6 +30,32 @@ interface Props {
   setupLinkSentAt?: string | null;
 }
 
+/** The three values check_customer_email_conflict can report, and the one
+ *  sentence each. The banner and the confirm dialog read the SAME string, so a
+ *  reworded warning cannot end up saying two different things in two places.
+ *  staff_conflict's wording is unchanged from before this file learned about
+ *  the other two. */
+const CONFLICT_VALUES = ['staff_conflict', 'customer_conflict', 'orphan_auth'] as const;
+type EmailConflict = (typeof CONFLICT_VALUES)[number];
+
+const CONFLICT_MESSAGES: Record<EmailConflict, string> = {
+  staff_conflict:
+    '⚠️ This email is registered as a staff account. Migration may fail or cause confusion. Ask the customer to use a different email before sending the setup link.',
+  customer_conflict:
+    "⚠️ This email is already used by another customer's portal login. The setup link will not work. Ask the customer for a different email, or check for a duplicate customer record.",
+  orphan_auth:
+    '⚠️ This email already has a portal login that is not linked to this customer. The setup link may not work. Check with the owner before sending.',
+};
+
+/** The RPC returns text, and the fake client in the parity test returns [] for
+ *  an unset RPC, so anything that is not one of the three known values reads as
+ *  "no conflict" rather than a truthy value that would render an empty banner. */
+function normaliseConflict(value: unknown): EmailConflict | null {
+  return typeof value === 'string' && (CONFLICT_VALUES as readonly string[]).includes(value)
+    ? (value as EmailConflict)
+    : null;
+}
+
 export default function CustomerPortalShareMenu({
   customerId,
   customerName,
@@ -47,8 +73,12 @@ export default function CustomerPortalShareMenu({
   const [showSetupConfirm, setShowSetupConfirm] = useState(false);
   const [sendingInvite, setSendingInvite] = useState(false);
   const [localSetupSentAt, setLocalSetupSentAt] = useState<string | null>(setupLinkSentAt ?? null);
-  const [emailConflict, setEmailConflict] = useState<string | null>(null);
+  const [emailConflict, setEmailConflict] = useState<EmailConflict | null>(null);
   const [conflictLoading, setConflictLoading] = useState(true);
+  /** The check itself failed (the gate rejected the caller, the network died).
+   *  Distinct from "no conflict": staff must know the question went unanswered
+   *  rather than reading silence as an all-clear. */
+  const [conflictCheckFailed, setConflictCheckFailed] = useState(false);
   const [customerPin, setCustomerPin] = useState<string>('----');
 
   const fetchToken = async () => {
@@ -98,18 +128,25 @@ export default function CustomerPortalShareMenu({
     if (!customerId || authUserId) {
       // Skip check if already migrated (no conflict possible) or no customer ID
       setEmailConflict(null);
+      setConflictCheckFailed(false);
       setConflictLoading(false);
       return;
     }
     setConflictLoading(true);
+    setConflictCheckFailed(false);
     (async () => {
-      const { data, error } = await supabase.rpc('check_customer_email_conflict' as any, {
+      const { data, error } = await supabase.rpc('check_customer_email_conflict', {
         p_customer_id: customerId,
       });
-      if (!error) {
-        setEmailConflict(data as string | null);
-      } else {
+      if (error) {
+        // This warn used to be the ONLY trace: the function's gate admitted
+        // admin and finance only, so every staff and CSR open failed here and
+        // the screen showed an all-clear it had never earned.
         console.warn('[email-conflict-check] failed:', error);
+        setEmailConflict(null);
+        setConflictCheckFailed(true);
+      } else {
+        setEmailConflict(normaliseConflict(data));
       }
       setConflictLoading(false);
     })();
@@ -312,10 +349,17 @@ export default function CustomerPortalShareMenu({
                 <p className="text-xs font-medium mb-2">Email/Password Setup</p>
                 {customerEmail ? (
                   <>
-                    {emailConflict === 'staff_conflict' && (
+                    {emailConflict && (
                       <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-2 mb-2">
                         <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                          ⚠️ This email is registered as a staff account. Migration may fail or cause confusion. Ask the customer to use a different email before sending the setup link.
+                          {CONFLICT_MESSAGES[emailConflict]}
+                        </p>
+                      </div>
+                    )}
+                    {conflictCheckFailed && (
+                      <div className="bg-muted border border-border rounded-md p-2 mb-2">
+                        <p className="text-xs text-muted-foreground">
+                          {"Couldn't check this email for conflicts. Reload the page before sending the setup link."}
                         </p>
                       </div>
                     )}
@@ -390,7 +434,7 @@ export default function CustomerPortalShareMenu({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {emailConflict === 'staff_conflict' ? 'Send setup link anyway?' : 'Send setup link?'}
+              {emailConflict ? 'Send setup link anyway?' : 'Send setup link?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {emailConflict === 'staff_conflict' ? (
@@ -399,6 +443,8 @@ export default function CustomerPortalShareMenu({
                   <br /><br />
                   Recommended: Ask the customer for a different email first, then update their customer record before sending.
                 </>
+              ) : emailConflict ? (
+                <>{CONFLICT_MESSAGES[emailConflict]}</>
               ) : (
                 <>
                   This will email <strong>{customerEmail}</strong> a link to set
@@ -410,7 +456,7 @@ export default function CustomerPortalShareMenu({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={sendingInvite}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={sendSetupInvite} disabled={sendingInvite}>
-              {sendingInvite ? 'Sending…' : (emailConflict === 'staff_conflict' ? 'Send Anyway' : 'Send')}
+              {sendingInvite ? 'Sending…' : (emailConflict ? 'Send Anyway' : 'Send')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
