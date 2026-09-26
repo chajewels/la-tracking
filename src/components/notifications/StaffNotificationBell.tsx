@@ -52,6 +52,9 @@ function iconForType(type: string) {
     case 'account_forfeited':
     case 'web_reservation_auto_cancelled':
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
+    // 48h unconfirmed: the last working day before the 72h auto-cancel.
+    case 'web_reservation_expiring':
+      return <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />;
     case 'submission_created':
     case 'submission_confirmed':
     case 'submission_rejected':

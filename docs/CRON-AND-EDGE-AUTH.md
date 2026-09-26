@@ -34,6 +34,8 @@
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
     loyalty-award-sweep:           00:35 UTC = 08:35 PHT ✅  — recovers missed loyalty awards; split out of daily-reconciliation 2026-09-16 (see below)
     auto-expire-cash-orders:       40 * * * * (hourly at :40) ✅  — the ONLY web/cash order expiry path since 2026-09-13; the SQL cron expire_transfer_orders() is gone
+    web-payment-reminder-sweep:    13 * * * * (hourly at :13) ⏳ scheduled by migration 20261004100000 — one payment reminder before a confirmed web order's deadline; returns early while web_payment_reminders_mode is off (docs/WEB-PAYMENT-REMINDERS.md)
+    web-reservation-expiring-bell: 13 * * * * (hourly at :13) ⏳ same migration — PURE SQL (SELECT web_reservation_expiring_bells()), no HTTP, no Vault; one staff bell per web reservation unconfirmed 48–72h
     web-reservation-sweep:         23 * * * * (hourly at :23) ⏳ scheduled by migration 20260924100000 — reserve-first: 72h unconfirmed reservations auto-cancelled + one sales@ reminder at 24h (docs/RESERVE-FIRST.md)
     page365-inventory-schedule:    2-59/5 * * * * (every 5 min) ⏳ scheduled by migration 20260930100000 — Page365 inventory read every 30 min (ticks in between finish it); applies decreases only when page365_inventory_auto_apply is on (docs/PAGE365-IMPORT.md "SCHEDULE"). Touches no account data.
     daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅

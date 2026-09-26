@@ -32,6 +32,7 @@ import {
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
 import ReservationPanel from '@/components/reservations/ReservationPanel';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -1509,6 +1510,9 @@ export default function AccountDetail() {
           awaitingConfirmation={awaitingReservation}
           canEdit={canPerm('edit_account')}
         />
+
+        {/* Every storefront email about this web plan, incl. the deposit reminder. */}
+        {isWebPlan && <OrderEmailHistory entityType="layaway" entityId={account.id} />}
 
         {/* Apply existing store credit to this new, unpaid order */}
         <ApplyStoreCreditCard

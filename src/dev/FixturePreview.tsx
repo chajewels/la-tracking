@@ -55,6 +55,9 @@ import ReservationPanel from '@/components/reservations/ReservationPanel';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import ReassignOwnerFixture from './ReassignOwnerFixture';
 import { ReservationModeCard } from '@/components/website/ReservationModeCard';
+import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
+import { PAYMENT_REMINDERS_KEY } from '@/components/settings/payment-reminders';
+import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
 import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
 import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
@@ -284,6 +287,25 @@ export default function FixturePreview() {
         awaiting_total: Number(searchParams.get('waiting') ?? 0),
       });
     }
+    if (view === 'payment-reminders') {
+      seed([...PAYMENT_REMINDERS_KEY], {
+        found: true, mode: searchParams.get('mode') ?? 'off',
+        owner_addresses: ['chajewelsjapan@gmail.com', '@chajewelsjp.com'],
+        updated_at: '2026-10-04T01:15:00Z', updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo',
+        can_change: searchParams.get('role') !== 'staff', due_now: 2, sent_7d: 5,
+      });
+      seed(['order-email-history', 'cash_order', 'fixture-web-order'], {
+        references: ['CJ-W-000201'],
+        emails: [
+          { created_at: '2026-10-04T05:13:00Z', template: 'order-payment-due', status: 'sent', recipient: 'chajewelsjapan@gmail.com', error: null, skip_reason: null },
+          { created_at: '2026-10-03T11:02:00Z', template: 'order-ready', status: 'sent', recipient: 'chajewelsjapan@gmail.com', error: null, skip_reason: null },
+          { created_at: '2026-10-03T08:40:00Z', template: 'order-reserved', status: 'sent', recipient: 'chajewelsjapan@gmail.com', error: null, skip_reason: null },
+        ],
+        payment_reminders: [
+          { claimed_at: '2026-10-04T05:13:00Z', finished_at: '2026-10-04T05:13:02Z', deadline: '2026-10-04T11:02:00Z', status: 'sent', detail: null, lang: 'ja', currency: 'PHP', amount: 27076, email: 'chajewelsjapan@gmail.com' },
+        ],
+      });
+    }
     // Sales → Payments / Waivers (Phase 2B). Same keys the real pages read.
     stubProofStorage(supabase.storage as never);
     const subs = submissionCacheEntries();
@@ -317,6 +339,7 @@ export default function FixturePreview() {
   if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
   if (view === 'reservations-cash') return <AllowAll><CashOrdersList /></AllowAll>;
   if (view === 'reservation-mode') return <ReservationModeFixture admin={searchParams.get('role') !== 'staff'} />;
+  if (view === 'payment-reminders') return <PaymentRemindersFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;
@@ -1199,6 +1222,18 @@ function ReservationModeFixture({ admin }: { admin: boolean }) {
   return (
     <AuthContext.Provider value={{ ...base, roles: admin ? ['admin'] : ['staff'] } as typeof base}>
       <div className="mx-auto max-w-3xl p-4 sm:p-6"><ReservationModeCard /></div>
+    </AuthContext.Provider>
+  );
+}
+
+function PaymentRemindersFixture({ admin }: { admin: boolean }) {
+  const base = useAuth();
+  return (
+    <AuthContext.Provider value={{ ...base, roles: admin ? ['admin'] : ['staff'] } as typeof base}>
+      <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+        <PaymentRemindersCard />
+        <OrderEmailHistory entityType="cash_order" entityId="fixture-web-order" />
+      </div>
     </AuthContext.Provider>
   );
 }

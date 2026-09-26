@@ -41,6 +41,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.web-reservation-sweep]
     verify_jwt = true
+  [functions.web-payment-reminder-sweep]
+    verify_jwt = true
   [functions.parse-import-docs]
     verify_jwt = true
   [functions.penalty-engine]

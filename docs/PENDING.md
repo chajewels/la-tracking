@@ -960,3 +960,15 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   correct, not a gap.
 - **Flags are resolved by hand, with a note.** Nothing auto-adjusts Page365's stock or
   picks a size for an `ambiguous_variant` line.
+
+## PAYMENT REMINDERS — AFTER THE HUB PR (filed 2026-10-04)
+
+- Owner: run 20261004100000 after the Lovable deploy; acceptance in
+  `owner_only`; then switch to `on` in Settings → General → Payment reminders.
+- Open bug found while building it: Japanese storefront emails can arrive with
+  U+FFFD in place of a character (renderAsync stream decoding) — docs/OPEN-BUGS.md.
+- Not built, by decision: quiet hours (plan §2k: send on time); a second
+  reminder for the same deadline; reminders for Hub-made orders (D14);
+  `email_delivery_report` expecting reminders (D9); stage E "still interested?"
+  (D16).
+- Next in the plan: cart reminders (stages A/B), a separate PR.

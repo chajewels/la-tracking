@@ -32,6 +32,7 @@ import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDia
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
+import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
 import ReservationPanel from '@/components/reservations/ReservationPanel';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Currency } from '@/lib/types';
@@ -1545,6 +1546,9 @@ export default function CashOrderDetail() {
           awaitingConfirmation={awaitingReservation}
           canEdit={can('edit_account')}
         />
+
+        {/* Every storefront email about this web order, incl. the payment reminder. */}
+        {orderWebFields.source_channel === 'web' && <OrderEmailHistory entityType="cash_order" entityId={order.id} />}
 
         {/* Apply existing store credit to this new, unpaid order */}
         <ApplyStoreCreditCard
