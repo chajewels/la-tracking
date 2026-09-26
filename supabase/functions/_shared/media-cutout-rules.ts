@@ -1,5 +1,5 @@
 // Rules shared by the cut-out worker and the Hub (docs/MEDIA-CUTOUTS.md).
-// The SQL in 20261005100000_media_cutouts.sql is the authority; this is its
+// The SQL in 20261006100000_media_cutouts.sql is the authority; this is its
 // TS mirror, pinned by src/test/media-cutouts.test.ts. No imports.
 
 export type CutoutMode = "off" | "test" | "on";

@@ -234,7 +234,7 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
 - Bell `media_cutout_cap_near` opens this tab.
 - Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on]`.
 
-## 7. Database objects (migration 20261005100000_media_cutouts.sql)
+## 7. Database objects (migration 20261006100000_media_cutouts.sql)
 
 Tables: `website_media_cutouts`, `website_media_cutout_usage`,
 `website_media_cutout_lease` (RLS; staff read the first two; only the functions

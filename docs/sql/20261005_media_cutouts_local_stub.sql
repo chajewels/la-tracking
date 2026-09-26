@@ -3,7 +3,7 @@
 -- NEVER RUN THIS ON LIVE: it DROPS schema public.
 --
 -- Builds, in an EMPTY throwaway Postgres, only what migration
--- 20261005100000_media_cutouts.sql reads: the website product / variant /
+-- 20261006100000_media_cutouts.sql reads: the website product / variant /
 -- media / category tables with the live column names, settings, bell, audit
 -- and profile tables; is_staff / has_permission; auth.uid() from a GUC;
 -- stand-ins for pg_cron, pg_net (it RECORDS each call) and Supabase Vault.
@@ -13,8 +13,8 @@
 --   export PGOPTIONS='-c cutout.local_stub=yes'
 --   P="psql -h /tmp -p 55471 -U postgres -v ON_ERROR_STOP=1 -f"
 --   $P docs/sql/20261005_media_cutouts_local_stub.sql
---   $P supabase/migrations/20261005100000_media_cutouts.sql
---   $P supabase/migrations/20261005100000_media_cutouts.sql   # re-run is safe
+--   $P supabase/migrations/20261006100000_media_cutouts.sql
+--   $P supabase/migrations/20261006100000_media_cutouts.sql   # re-run is safe
 --   $P docs/sql/20261005_media_cutouts_local_tests.sql
 -- ============================================================================
 DO $guard$

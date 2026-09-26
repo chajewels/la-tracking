@@ -28,7 +28,7 @@ import {
  */
 
 const src = (p: string) => readFileSync(resolve(__dirname, "../..", p), "utf8");
-const MIGRATION = "supabase/migrations/20261005100000_media_cutouts.sql";
+const MIGRATION = "supabase/migrations/20261006100000_media_cutouts.sql";
 const WORKER = "supabase/functions/media-cutout-worker/index.ts";
 
 // ---------------------------------------------------------------------------

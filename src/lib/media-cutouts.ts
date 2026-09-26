@@ -5,7 +5,7 @@ import { BUCKET, type CutoutMode } from '../../supabase/functions/_shared/media-
 
 /**
  * Website → Photos (automatic background removal, docs/MEDIA-CUTOUTS.md).
- * Every call is an RPC from migration 20261005100000_media_cutouts — not in
+ * Every call is an RPC from migration 20261006100000_media_cutouts — not in
  * types.ts until Lovable regenerates it, so always through callUntypedRpc
  * (never a detached supabase.rpc). All of them check manage_website_catalog.
  */

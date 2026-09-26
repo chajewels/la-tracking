@@ -2,7 +2,7 @@
 // photos (docs/MEDIA-CUTOUTS.md). PR 1 of 3.
 //
 // pg_cron 'media-cutout-worker' every 2 minutes on odd minutes (Vault service
-// key; migration 20261005100000_media_cutouts.sql). Callers: the cron
+// key; migration 20261006100000_media_cutouts.sql). Callers: the cron
 // (service role, action "tick"), staff with manage_website_catalog ("Run now"
 // on Website → Photos, action "tick"), and ITSELF (service role, action
 // "process", one job per invocation).

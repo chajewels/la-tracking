@@ -1479,7 +1479,7 @@ Migration `20260928100000_page365_inventory_pr2.sql`. Rules: docs/PAGE365-IMPORT
 
 ## Media cut-outs — tables, switch, keying (added 2026-10-05)
 
-Migration 20261005100000_media_cutouts.sql; rules in docs/MEDIA-CUTOUTS.md.
+Migration 20261006100000_media_cutouts.sql; rules in docs/MEDIA-CUTOUTS.md.
 
 - `website_media_cutouts` — PK `source_url` (the photo's public promotions URL;
   CHECK: under `promotions/website/`, not under `derived/`). `id uuid UNIQUE`

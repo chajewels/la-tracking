@@ -1,5 +1,5 @@
 -- ============================================================================
--- Media cut-outs — LOCAL tests for 20261005100000_media_cutouts.sql.
+-- Media cut-outs — LOCAL tests for 20261006100000_media_cutouts.sql.
 -- Run after the stub and the migration (see the stub's header). NEVER ON LIVE.
 -- Every block raises on failure; the last line prints ALL PASSED.
 -- ============================================================================
