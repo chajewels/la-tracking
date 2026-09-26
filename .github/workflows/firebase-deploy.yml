@@ -240,6 +240,12 @@ jobs:
           echo "Type-checking ${#targets[@]} edge functions (mcp bundle excluded)."
           deno check --config development/deno.ci.json "${targets[@]}"
 
+      # Renders every email template (JA + EN, every variant) and fails on any
+      # U+FFFD or mojibake, or on a renderAsync import. See docs/FIXED-BUGS.md
+      # "Japanese emails garbled by renderAsync".
+      - name: Email encoding (blocking)
+        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts
+
   # --------------------------------------------------------------- housekeeping
   # Firebase Hosting allows a limited number of preview channels per site (50
   # at the time of writing). Per-PR channels were added on 2026-09-11 and

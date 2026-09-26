@@ -1,5 +1,5 @@
 import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
+import { renderEmail } from '../_shared/render-email.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
 import { isServiceRole, parseJwtClaims } from '../_shared/jwt-claims.ts'
@@ -216,10 +216,10 @@ Deno.serve(async (req) => {
   // Opt-outs still gate sending here through the suppressed_emails check above.
 
   // 4. Render React Email template to HTML and plain text
-  const html = await renderAsync(
+  const html = await renderEmail(
     React.createElement(template.component, templateData)
   )
-  const plainText = await renderAsync(
+  const plainText = await renderEmail(
     React.createElement(template.component, templateData),
     { plainText: true }
   )
