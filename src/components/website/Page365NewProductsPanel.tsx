@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FETCH_BUSY_MAX_WAITS, FETCH_BUSY_WAIT_MS, newAsOfText, type InventoryItem, type InventoryRun } from "@/lib/page365-inventory";
 import {
-  CREATE_REFUSAL, NEEDS_LABEL, NO_CATEGORY, categoryOptions, countNewRows, defaultNewFilters, draftable, filterNewRows,
-  isDrafted, markNotListed, parseYen, pruneTicks, reasonText, selectAllShown, type CreateDraftsResult, type NewFilters,
+  CREATE_REFUSAL, KIND_LABEL, NEEDS_LABEL, NO_CATEGORY, categoryOptions, countNewRows, createOutcomeText, defaultNewFilters,
+  draftable, filterNewRows, isDrafted, markNotListed, parseYen, pruneTicks, reasonText, selectAllShown,
+  type CreateDraftsResult, type NewFilters,
   type NewRow,
 } from "@/lib/page365-drafts";
 import { createDrafts, listCategories } from "@/lib/page365-drafts-api";
@@ -141,7 +142,8 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged, list
           if (p.remaining === 0 || p.copied + p.replaced + p.already + p.failed.length === 0) break;
         }
       }
-      toast.success(`${r.created ?? 0} draft(s) created. None is on the website until you publish it.`);
+      const outcome = createOutcomeText(r);
+      if (outcome.tone === "success") toast.success(outcome.text); else toast.warning(outcome.text);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -296,6 +298,9 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged, list
               {(result.created_items ?? []).slice(0, 60).map(c => (
                 <li key={c.item_id}>
                   <Link to={productLink(c.product_id!)} className="font-medium text-primary underline-offset-2 hover:underline">{c.code}</Link>
+                  {c.item_kind && KIND_LABEL[c.item_kind] && (
+                    <Badge variant="outline" className="ml-1 text-[10px]">{KIND_LABEL[c.item_kind]}</Badge>
+                  )}
                   {(c.needs ?? []).map(n => (
                     <Badge key={n} variant="outline" className="ml-1 text-[10px] text-warning">{NEEDS_LABEL[n] ?? n}</Badge>
                   ))}
@@ -305,7 +310,7 @@ export function Page365NewProductsPanel({ run, items, canCreate, onChanged, list
             </ul>
           )}
           {[...(result.skipped_items ?? []), ...(result.failed_items ?? [])].length > 0 && (
-            <ul className="space-y-0.5 text-muted-foreground">
+            <ul className="space-y-0.5 text-muted-foreground" data-testid="new-not-created">
               {(result.skipped_items ?? []).map(s => (
                 <li key={s.item_id}>
                   Skipped {s.code ?? ""}: {reasonText(s.reason)}

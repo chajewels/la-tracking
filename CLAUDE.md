@@ -1590,8 +1590,12 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     website_products_metals_jewelry requires >= 1 stamp for jewelry only;
     watches and other items are created and published without one. Never
     re-add an every-product stamp rule (website_products_metals_nonempty is
-    retired). A Page365 listing is a watch only if Page365 itself prints the
-    whole word "watch(es)" in its name or category.
+    retired). Create drafts reads the kind ONLY from what Page365 prints
+    (page365_item_kind_for, whole words in name or category): "watch(es)" ->
+    watch; wallet, bag, key/card/coin/pass case, belt … -> other; else jewelry.
+    A printed stamp with a gold colour code (K18WG, 750PG) is that stamp; SV925
+    is SILVER925. Every row Create drafts does not draft keeps its reason in
+    result_note (docs/PAGE365-IMPORT.md "DRAFTS").
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 

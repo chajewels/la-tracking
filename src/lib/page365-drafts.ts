@@ -119,6 +119,8 @@ export interface DraftOutcomeItem {
   name?: string;
   needs?: string[];
   photos?: number;
+  /** jewelry | watch | other (2026-09-26: wallets, bags, belts … are other). */
+  item_kind?: string;
 }
 
 export interface CreateDraftsResult {
@@ -150,7 +152,7 @@ export const DRAFT_REASON: Record<string, string> = {
   not_new: 'no longer new',
   not_in_run: 'not part of this fetch',
   no_price: 'no price on Page365',
-  no_metal: 'jewelry with no metal stamp (K18, PT900 …) in the Page365 name or description',
+  no_metal: 'jewelry with no metal stamp printed on Page365 (K18, 750WG, PT900, SV925 …) — add it to the Page365 name or description, or make the product by hand',
   code_is_a_word: 'the Page365 name does not start with a product code',
   sync_disabled: 'switched to “Don’t sync with Page365” — never created',
   // PR 3c: every draft is made from a fresh read of its Page365 listing.
@@ -167,6 +169,24 @@ export const NEEDS_LABEL: Record<string, string> = {
 };
 
 export const reasonText = (r: string | undefined) => (r ? DRAFT_REASON[r] ?? r : '');
+
+/** Kinds shown next to a created draft; jewelry is the default and unlabelled. */
+export const KIND_LABEL: Record<string, string> = { watch: 'watch', other: 'not jewelry' };
+
+/**
+ * The one-line outcome of a Create drafts press. Never a bare "0 drafts":
+ * skipped and failed rows are counted, and each is listed with its reason
+ * below the table (and kept on its row, result_note).
+ */
+export function createOutcomeText(r: CreateDraftsResult): { text: string; tone: 'success' | 'warning' } {
+  const created = r.created ?? 0;
+  const notMade = (r.skipped ?? 0) + (r.failed ?? 0);
+  const parts = [`${created} draft(s) created`];
+  if (r.skipped) parts.push(`${r.skipped} skipped`);
+  if (r.failed) parts.push(`${r.failed} could not be created`);
+  const tail = notMade > 0 ? ' — each one is listed below with the reason.' : '. None is on the website until you publish it.';
+  return { text: parts.join(' · ') + tail, tone: created > 0 && notMade === 0 ? 'success' : 'warning' };
+}
 
 export interface PublishResult {
   ok: boolean;

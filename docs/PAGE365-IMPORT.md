@@ -406,11 +406,20 @@ reviews). Runs fetched before this release have no categories: fetch again.
   Page365 says so ("[Preloved]" in the name or a PRELOVED category), else New.
 - Price = Page365's yen price for that variant; stock = Page365 available (a new variant
   has no website holds, so this IS max(0, available − holds)).
-- Metals: whole words equal to a Hub stamp, as printed in the name/description (K18, PT900,
-  …; "0.750ct" is not 750). **A stamp is required only for jewelry** (owner decision
-  2026-09-28, `website_products.item_kind`). A listing whose name or Page365 category
-  carries the whole word "watch"/"watches" is drafted as `item_kind = watch` and needs
-  none; anything else is jewelry, and jewelry with no stamp printed → **failed `no_metal`**.
+- Metals: a stamp as printed in the name/description (K18, PT900, …; "0.750ct" is not
+  750). Since 2026-09-26 (`page365_metals_from_text`, migration
+  `20261005100000_page365_drafts_designer.sql`) a stamp followed by a gold colour code is
+  read as that stamp — K18WG / K18YG/WG → K18, 750WG / 750PG → 750, 18KWG → 18K, K18g → K18
+  — and SV925 is the Hub's SILVER925. A bare "SV" (no purity) is no stamp. **A stamp is
+  required only for jewelry** (owner decision 2026-09-28, `website_products.item_kind`).
+- Item kind (`page365_item_kind_for`, whole words in the Page365 name or category, watch
+  wins): "watch"/"watches" → `watch`; wallet, bag, handbag, clutch, tote, purse, pouch,
+  backpack, cardholder / card holder / card case, coin / key / pass case, key chain / key
+  holder / key ring, belt, scarf, sunglasses → `other`; anything else → jewelry. Watches and
+  other items need no stamp. Jewelry with no stamp printed → **failed `no_metal`** (the
+  CHECK `website_products_metals_jewelry` is unchanged). Before 2026-09-26 only "watch" was
+  known, so every wallet/bag/belt and every "750WG"-style piece failed `no_metal` — the
+  "0 draft(s) created" of 2026-09-26 (docs/FIXED-BUGS.md).
 - "Don't sync with Page365" (PR 2): a code whose Hub product is switched off is never
   drafted — `sync_disabled`, whether the fetch saw the switch (`not_synced`) or it was
   switched on since (read live).
@@ -419,6 +428,12 @@ reviews). Runs fetched before this release have no categories: fetch again.
   "SUPPLIER LISTINGS - …", "- BRANDED PRELOVED" → left unset, flagged **needs category**.
 - Description: Page365's text only through `page365_clean_description` (no links, e-mail,
   @handles, phone numbers, HTML or banned gold wording; ≤ 2,000 characters), else empty.
+- **Every row not drafted keeps its reason** in `page365_inventory_items.result_note`
+  (since 2026-09-26; before, only `sync_disabled` / `code_exists` were stored and a failed
+  row stayed NULL). The panel lists each skipped/failed row with its reason after the press,
+  the row's last column shows the stored reason after a reload, and the toast counts
+  created / skipped / could-not-be-created (a warning whenever anything was not created).
+  A `no_metal` / `not_fresh` row stays tickable, so it can be retried once Page365 is fixed.
 - Skipped, never duplicated: `code_exists` (a Hub sku whose first word is the code — made
   by hand since the fetch), `already_created` (that Page365 listing+variant was drafted),
   and the `sku` UNIQUE constraint for a race. Failed, with the reason: `no_price`,
