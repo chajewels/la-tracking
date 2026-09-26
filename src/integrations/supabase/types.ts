@@ -6530,6 +6530,213 @@ export type Database = {
           },
         ]
       }
+      website_media_cutout_lease: {
+        Row: {
+          holder: string | null
+          id: number
+          last_tick: Json | null
+          last_tick_at: string | null
+          lease_until: string | null
+        }
+        Insert: {
+          holder?: string | null
+          id?: number
+          last_tick?: Json | null
+          last_tick_at?: string | null
+          lease_until?: string | null
+        }
+        Update: {
+          holder?: string | null
+          id?: number
+          last_tick?: Json | null
+          last_tick_at?: string | null
+          lease_until?: string | null
+        }
+        Relationships: []
+      }
+      website_media_cutout_usage: {
+        Row: {
+          bell_80_at: string | null
+          month: string
+          provider_calls: number
+          updated_at: string
+        }
+        Insert: {
+          bell_80_at?: string | null
+          month: string
+          provider_calls?: number
+          updated_at?: string
+        }
+        Update: {
+          bell_80_at?: string | null
+          month?: string
+          provider_calls?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      website_media_cutouts: {
+        Row: {
+          attempts: number
+          catalog_h: number | null
+          catalog_path: string | null
+          catalog_small_h: number | null
+          catalog_small_path: string | null
+          catalog_small_w: number | null
+          catalog_w: number | null
+          coverage: number | null
+          cpu_fallback: boolean
+          created_at: string
+          cutout_h: number | null
+          cutout_path: string | null
+          cutout_w: number | null
+          detail_kept: number | null
+          edges: string[]
+          finished_at: string | null
+          flags: string[]
+          hero_usable: boolean | null
+          high_detail: boolean
+          id: string
+          job_state: string
+          last_error: string | null
+          last_rerun: Json | null
+          master_path: string | null
+          model: string | null
+          next_attempt_at: string
+          orphaned_at: string | null
+          output_kind: string | null
+          own_cutout_url: string | null
+          priority: number
+          processing_started_at: string | null
+          provider: string | null
+          provider_request_id: string | null
+          provider_response_url: string | null
+          provider_status_url: string | null
+          rerun: boolean
+          result_url: string | null
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          run: number
+          source_h: number | null
+          source_kind: string
+          source_sha256: string | null
+          source_url: string
+          source_w: number | null
+          status: string
+          submitted_at: string | null
+          test_batch: string | null
+          timings: Json | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          catalog_h?: number | null
+          catalog_path?: string | null
+          catalog_small_h?: number | null
+          catalog_small_path?: string | null
+          catalog_small_w?: number | null
+          catalog_w?: number | null
+          coverage?: number | null
+          cpu_fallback?: boolean
+          created_at?: string
+          cutout_h?: number | null
+          cutout_path?: string | null
+          cutout_w?: number | null
+          detail_kept?: number | null
+          edges?: string[]
+          finished_at?: string | null
+          flags?: string[]
+          hero_usable?: boolean | null
+          high_detail?: boolean
+          id?: string
+          job_state?: string
+          last_error?: string | null
+          last_rerun?: Json | null
+          master_path?: string | null
+          model?: string | null
+          next_attempt_at?: string
+          orphaned_at?: string | null
+          output_kind?: string | null
+          own_cutout_url?: string | null
+          priority?: number
+          processing_started_at?: string | null
+          provider?: string | null
+          provider_request_id?: string | null
+          provider_response_url?: string | null
+          provider_status_url?: string | null
+          rerun?: boolean
+          result_url?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run?: number
+          source_h?: number | null
+          source_kind?: string
+          source_sha256?: string | null
+          source_url: string
+          source_w?: number | null
+          status?: string
+          submitted_at?: string | null
+          test_batch?: string | null
+          timings?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          catalog_h?: number | null
+          catalog_path?: string | null
+          catalog_small_h?: number | null
+          catalog_small_path?: string | null
+          catalog_small_w?: number | null
+          catalog_w?: number | null
+          coverage?: number | null
+          cpu_fallback?: boolean
+          created_at?: string
+          cutout_h?: number | null
+          cutout_path?: string | null
+          cutout_w?: number | null
+          detail_kept?: number | null
+          edges?: string[]
+          finished_at?: string | null
+          flags?: string[]
+          hero_usable?: boolean | null
+          high_detail?: boolean
+          id?: string
+          job_state?: string
+          last_error?: string | null
+          last_rerun?: Json | null
+          master_path?: string | null
+          model?: string | null
+          next_attempt_at?: string
+          orphaned_at?: string | null
+          output_kind?: string | null
+          own_cutout_url?: string | null
+          priority?: number
+          processing_started_at?: string | null
+          provider?: string | null
+          provider_request_id?: string | null
+          provider_response_url?: string | null
+          provider_status_url?: string | null
+          rerun?: boolean
+          result_url?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run?: number
+          source_h?: number | null
+          source_kind?: string
+          source_sha256?: string | null
+          source_url?: string
+          source_w?: number | null
+          status?: string
+          submitted_at?: string | null
+          test_batch?: string | null
+          timings?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       website_posts: {
         Row: {
           body_en: string
@@ -6934,6 +7141,10 @@ export type Database = {
     }
     Functions: {
       _award_birthday_reward: { Args: { p_customer_id: string }; Returns: Json }
+      add_media_cutout_test_batch: {
+        Args: { p_batch: string; p_main_only?: boolean; p_skus: string[] }
+        Returns: Json
+      }
       address_snapshot: { Args: { p_address_id: string }; Returns: Json }
       admin_correct_birthday: {
         Args: { p_birthday: string; p_customer_id: string }
@@ -7397,6 +7608,7 @@ export type Database = {
           schedule_id: string
         }[]
       }
+      get_media_cutout_overview: { Args: never; Returns: Json }
       get_monthly_analytics: {
         Args: never
         Returns: {
@@ -7562,6 +7774,15 @@ export type Database = {
         }
         Returns: Json
       }
+      list_media_cutouts: {
+        Args: {
+          p_filter: string
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
+        }
+        Returns: Json
+      }
       loyalty_integrity_report: {
         Args: never
         Returns: {
@@ -7586,6 +7807,56 @@ export type Database = {
       }
       manual_forfeit_layaway_atomic: {
         Args: { p_account_id: string; p_source?: string; p_user_id?: string }
+        Returns: Json
+      }
+      media_cutout_allow_pairs: { Args: { p_url: string }; Returns: boolean }
+      media_cutout_cap: { Args: never; Returns: number }
+      media_cutout_claim_process: {
+        Args: { p_source_url: string }
+        Returns: Json
+      }
+      media_cutout_error: {
+        Args: {
+          p_error: string
+          p_retryable: boolean
+          p_source_url: string
+          p_stage: string
+        }
+        Returns: string
+      }
+      media_cutout_finish: {
+        Args: { p_result: Json; p_source_url: string }
+        Returns: string
+      }
+      media_cutout_forget: { Args: { p_source_url: string }; Returns: boolean }
+      media_cutout_housekeeping: { Args: { p_limit: number }; Returns: Json }
+      media_cutout_lease: {
+        Args: { p_holder: string; p_seconds: number }
+        Returns: boolean
+      }
+      media_cutout_mode: { Args: never; Returns: string }
+      media_cutout_month: { Args: never; Returns: string }
+      media_cutout_poll_batch: { Args: { p_limit: number }; Returns: Json }
+      media_cutout_process_batch: { Args: { p_limit: number }; Returns: Json }
+      media_cutout_release: {
+        Args: { p_holder: string; p_summary: Json }
+        Returns: undefined
+      }
+      media_cutout_result_ready: {
+        Args: { p_result_url: string; p_source_url: string }
+        Returns: undefined
+      }
+      media_cutout_source_ok: { Args: { p_url: string }; Returns: boolean }
+      media_cutout_submit_batch: { Args: { p_limit: number }; Returns: Json }
+      media_cutout_submitted: {
+        Args: {
+          p_model: string
+          p_provider: string
+          p_request_id: string
+          p_response_url: string
+          p_source_url: string
+          p_status_url: string
+        }
         Returns: Json
       }
       monthly_inflow_by_plan_6m: {
@@ -7841,6 +8112,16 @@ export type Database = {
         Args: { p_invoice_number: string }
         Returns: Json
       }
+      review_media_cutout: {
+        Args: {
+          p_action: string
+          p_expected_status?: string
+          p_note?: string
+          p_own_cutout_url?: string
+          p_source_url: string
+        }
+        Returns: Json
+      }
       revive_web_cash_order_atomic: {
         Args: {
           p_order_id: string
@@ -7886,6 +8167,10 @@ export type Database = {
           p_transfer_due_at: string
           p_user_id?: string
         }
+        Returns: Json
+      }
+      set_media_cutout_settings: {
+        Args: { p_cap?: number; p_expected_mode?: string; p_mode: string }
         Returns: Json
       }
       set_page365_inventory_auto_apply: {
