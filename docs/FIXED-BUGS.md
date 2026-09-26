@@ -5417,3 +5417,43 @@ NewCustomerDialog). Tests: `src/test/page365-customer-match.test.ts`.
 
 Do not reintroduce: never match a phone with a text filter on the stored
 number; compare digits only. Never search the Page365 name in full_name alone.
+
+### Layaway emails went out with Japanese subjects and bodies (2026-09-27)
+
+Owner rule: no layaway email in Japanese — subject or body. The owner's inbox
+showed 「ご契約終了のお知らせ CJ-W-900013 / Layaway plan closed」,
+「分割予約を承りました … / Layaway reserved」 and 「お取り置き期限のご案内 … /
+Layaway hold released」. D17 (above) forced the layaway-expired BODY to English
+but every subject helper was bilingual whatever the language, and
+layaway-plan-created, layaway-payment-received and layaway-forfeited still took
+`pickLang(customer_lang)` (a missing language reads as Japanese) and rendered a
+Japanese block first.
+
+Every layaway email, with sender and template:
+
+| Email | Sent by (file:line on develop before the fix) | Template |
+|---|---|---|
+| layaway-plan-created (placed) | website/index.ts:1771 | layaway-plan-created.tsx |
+| layaway-ready (plan-created, variant ready) | confirm-web-order-ready → _shared/reservation-emails.ts:224 | layaway-plan-created.tsx |
+| layaway-reserved | website → _shared/reservation-emails.ts:143 | layaway-reserved.tsx (already EN) |
+| layaway-declined / lapsed | decline-web-reservation, web-reservation-sweep → _shared/reservation-emails.ts:290 | layaway-declined.tsx (already EN) |
+| layaway-payment-received (deposit / instalment) | review-payment-submission/index.ts:1308 | layaway-payment-received.tsx |
+| layaway-deposit-due | web-payment-reminder-sweep → _shared/payment-reminder-emails.ts:61 | layaway-deposit-due.tsx (already EN) |
+| layaway-expired ("hold released") | auto-expire-cash-orders/index.ts:388 | layaway-expired.tsx (body EN since D17, subject was not) |
+| layaway-forfeited ("plan closed") | manual-forfeit, auto-forfeit-settlement → _shared/layaway-forfeit-email.ts:38 | layaway-forfeited.tsx |
+
+Fix: the four bilingual templates and layaway-shared.tsx are English only by
+construction — no `lang` prop, no Japanese copy, English subjects
+(「Your layaway is reserved」「Deposit received」「Payment received」
+「Layaway hold released」「Layaway plan closed」 — Cha Jewels <ref>). Every
+caller stopped passing `lang`. Test: development/layaway-english.test.ts
+renders every layaway email (every variant, yen and peso, JP and overseas, HTML
+and text) and every subject and fails on any Japanese character; also fails on
+a Japanese character or a `lang: Lang` prop in any layaway-*.tsx, and on any
+function passing `lang` to a Layaway…Email. Exceptions: the registered company
+name 「Ｃｈａ　Ｊｅｗｅｌｓ株式会社」 in the footer, and stored transfer-account
+details (bank name, branch, account holder), printed verbatim.
+
+Do not reintroduce: never give a layaway template a `lang`, never make a layaway
+subject bilingual.
+

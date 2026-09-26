@@ -94,15 +94,15 @@ function storefrontFixtures(): Fixture[] {
       add('order-payment-due.tsx', `order-payment-due ${k}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, methods, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       add('order-payment-received.tsx', `order-payment-received ${k}`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, amountReceivedJpy: 317980, orderUrl }))
       add('order-reservation-lapsed.tsx', `order-reservation-lapsed ${k}`, el(OrderReservationLapsedEmail, { lang, currency, ...base, shopUrl }))
-      // Layaway: currency is the plan's; lang is ignored by the EN-only ones.
+      // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])
-        add('layaway-plan-created.tsx', `layaway-plan-created ${k} ${variant}`, el(LayawayPlanCreatedEmail, { lang, ...plan, schedule, methods, transferDueAt: due, region: 'JP', planUrl, variant }))
+        add('layaway-plan-created.tsx', `layaway-plan-created ${k} ${variant}`, el(LayawayPlanCreatedEmail, { ...plan, schedule, methods, transferDueAt: due, region: 'JP', planUrl, variant }))
       for (const isDeposit of [true, false])
-        add('layaway-payment-received.tsx', `layaway-payment-received ${k} deposit=${isDeposit}`, el(LayawayPaymentReceivedEmail, { lang, reference: plan.reference, currency, isDeposit, amountReceived: 36000, remaining: 84000, schedule, nextDueDate: '2026-10-24', nextDueAmount: 28000, planUrl }))
+        add('layaway-payment-received.tsx', `layaway-payment-received ${k} deposit=${isDeposit}`, el(LayawayPaymentReceivedEmail, { reference: plan.reference, currency, isDeposit, amountReceived: 36000, remaining: 84000, schedule, nextDueDate: '2026-10-24', nextDueAmount: 28000, planUrl }))
       for (const final of [false, true])
-        add('layaway-forfeited.tsx', `layaway-forfeited ${k} final=${final}`, el(LayawayForfeitedEmail, { lang, reference: plan.reference, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }))
-      add('layaway-expired.tsx', `layaway-expired ${k}`, el(LayawayExpiredEmail, { lang, reference: plan.reference, currency, totalAmount: 120000, deposit: 36000, transferDueAt: due, region: 'JP', shopUrl }))
+        add('layaway-forfeited.tsx', `layaway-forfeited ${k} final=${final}`, el(LayawayForfeitedEmail, { reference: plan.reference, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }))
+      add('layaway-expired.tsx', `layaway-expired ${k}`, el(LayawayExpiredEmail, { reference: plan.reference, currency, totalAmount: 120000, deposit: 36000, transferDueAt: due, region: 'JP', shopUrl }))
       if (lang === 'en') {
         add('layaway-reserved.tsx', `layaway-reserved ${currency}`, el(LayawayReservedEmail, { ...plan, planUrl }))
         for (const kind of ['declined', 'lapsed'])

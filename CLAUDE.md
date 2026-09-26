@@ -1621,7 +1621,11 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   - Switch web_payment_reminders_mode off|owner_only|on (fail-closed) +
     owner list: changed ONLY via set_web_payment_reminders (admin, audited);
     never in a migration or SQL.
-  - Layaway emails are ENGLISH ONLY — pass lang "en", never pickLang.
+  - Layaway emails are ENGLISH ONLY — subjects AND bodies, every layaway
+    email (owner rule, 2026-09-27). Layaway templates have NO lang prop and no
+    Japanese copy; never pass one or add one. Guarded by
+    development/layaway-english.test.ts (CI). Exceptions: the registered
+    company name in the footer and stored transfer-account details.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

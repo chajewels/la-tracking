@@ -44,7 +44,7 @@ export const LayawayReservedEmail = (p: LayawayReservedProps) => (
         </Text>
         <PlanSummary
           reference={p.reference} totalAmount={p.totalAmount} deposit={p.deposit}
-          termMonths={p.termMonths} currency={p.currency} lang="en"
+          termMonths={p.termMonths} currency={p.currency}
         />
         <Text style={text}>
           As soon as it is confirmed we will email you the deposit, where to send it and your
@@ -56,7 +56,7 @@ export const LayawayReservedEmail = (p: LayawayReservedProps) => (
         </Text>
         {p.planUrl && (
           <Section style={buttonWrap}>
-            <Button style={button} href={p.planUrl}>{LAYAWAY_WORDS.viewPlan.en}</Button>
+            <Button style={button} href={p.planUrl}>{LAYAWAY_WORDS.viewPlan}</Button>
           </Section>
         )}
         <Hr style={rule} />
