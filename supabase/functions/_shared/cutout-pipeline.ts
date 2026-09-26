@@ -21,6 +21,8 @@ export interface PipelineOptions {
    */
   output?: "baked" | "cutout_only";
   sizes?: { cutoutMax: number; catalog: number; catalogSmall: number };
+  /** Photoroom's x-uncertainty-score for this result (null = none given). */
+  providerUncertainty?: number | null;
 }
 
 export interface PipelineResult {
@@ -71,6 +73,7 @@ export async function runPipeline(
     sourceHeight: orig.height,
     original,
     allowPairs: opts.allowPairs,
+    providerUncertainty: opts.providerUncertainty ?? null,
   });
   lap("qa");
 

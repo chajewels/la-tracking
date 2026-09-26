@@ -1,7 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  CUTOUT_LIST_KEY, CUTOUT_OVERVIEW_KEY, type CutoutOverview, type CutoutRow,
+  CUTOUT_LIST_KEY, CUTOUT_OVERVIEW_KEY, CUTOUT_PROVIDER_KEY, type CutoutOverview, type CutoutProviderSetting,
+  type CutoutRow,
 } from '@/lib/media-cutouts';
 import { storefrontPreview } from '@/theme/tokens';
 
@@ -45,8 +46,8 @@ function stubPromotions() {
 
 const row = (over: Partial<CutoutRow>): CutoutRow => ({
   id: 'x', source_url: BASE + 'page365/1/1-1.jpg', source_kind: 'page365', priority: 0, test_batch: 'Test 30',
-  job_state: 'done', status: 'ok', flags: [], rerun: false, own_cutout_url: null, provider: 'fal',
-  model: 'fal-ai/birefnet/v2:heavy', attempts: 0, last_error: null, source_w: 1512, source_h: 1512, output_kind: 'baked',
+  job_state: 'done', status: 'ok', flags: [], rerun: false, own_cutout_url: null, provider: 'photoroom',
+  model: 'photoroom/v1/segment', attempts: 0, last_error: null, source_w: 1512, source_h: 1512, output_kind: 'baked',
   cutout_path: 'website/derived/aa/r1/cutout.webp', catalog_path: 'website/derived/aa/r1/catalog.webp',
   catalog_small_path: 'website/derived/aa/r1/catalog-small.webp', hero_usable: true, timings: { total: 480 },
   last_rerun: null, review_note: null, reviewed_at: null, finished_at: '2026-10-05T03:14:00Z',
@@ -69,9 +70,16 @@ export function seedMediaCutouts(qc: QueryClient, mode: string) {
     cpu_ms_p95: 812, cpu_ms_max: 1040, cpu_fallbacks: 0,
   };
   seed(CUTOUT_OVERVIEW_KEY, overview);
+  const provider: CutoutProviderSetting = {
+    found: true, provider: 'photoroom', price_usd: 0.02, updated_at: '2026-10-07T01:00:00Z', updated_by_name: 'Cynthia Largo',
+  };
+  seed(CUTOUT_PROVIDER_KEY, provider);
   seed([CUTOUT_LIST_KEY, 'needs_review', '', 0], {
-    total: 2,
+    total: 3,
     rows: [
+      row({ source_url: drawn('original', false, true), status: 'needs_review',
+            flags: ['edge_touch:bottom,left,right', 'interior_hole:0.054', 'uncertain:0.52'], source_w: 1440, source_h: 1440,
+            product: { id: 'p5', sku: 'C1395', name: 'Casio G-SHOCK Full Metal Series Solar', slug: 'c1395', status: 'active' } }),
       row({ source_url: drawn('original', true, false), status: 'needs_review', flags: ['extra_objects:1'],
             product: { id: 'p1', sku: 'AL123', name: 'K18 Yellow Gold Diamond-Cut Heart Pendant', slug: 'al123', status: 'active' } }),
       row({ source_url: drawn('original', false, false), status: 'needs_review', flags: ['low_res:418x370'],
@@ -90,7 +98,7 @@ export function seedMediaCutouts(qc: QueryClient, mode: string) {
   seed([CUTOUT_LIST_KEY, 'failed', '', 0], {
     total: 1,
     rows: [row({ source_url: drawn('original', false, false), status: 'failed', job_state: 'error', flags: ['api_error:HTTP 500 upstream'],
-                 cutout_path: null, catalog_path: null, catalog_small_path: null, attempts: 4, last_error: 'fal submit: HTTP 500 upstream',
+                 cutout_path: null, catalog_path: null, catalog_small_path: null, attempts: 4, last_error: 'photoroom: HTTP 500 upstream',
                  product: { id: 'p4', sku: 'N1055', name: 'K18 Venetian Chain Necklace 45cm', slug: 'n1055', status: 'active' } })],
   });
 }
