@@ -1541,8 +1541,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     Page365 drafts. A code whose Hub product is switched to "Don't sync with
     Page365" is NEVER drafted (sync_disabled, read live).
   - SCHEDULE (2026-09-30, PR 3; docs/PAGE365-IMPORT.md "SCHEDULE"): pg_cron
-    page365-inventory-schedule (Vault key) reads Page365 every 30 min whatever
-    the switch says. system_settings.page365_inventory_auto_apply (default
+    page365-inventory-schedule (Vault key) wakes every 5 min and reads Page365
+    at the INTERVAL (below) whatever the switch says. system_settings.page365_inventory_auto_apply (default
     OFF; changed ONLY by set_page365_inventory_auto_apply — manage_website_
     catalog, audited; a guard trigger refuses SQL/PostgREST writes; never flip
     it in a migration) lets page365_inventory_auto_apply_run apply DECREASES
@@ -1554,9 +1554,20 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     run's lease (page365_inventory_lease); the schedule skips a manual fetch.
     At most one bell per scheduled run. Retention (14 days) never touches
     audit_logs and keeps applied items.
+  - INTERVAL (2026-10-03, PR 3d; docs/PAGE365-IMPORT.md "INTERVAL"):
+    system_settings.page365_inventory_interval_minutes, ONLY 5/10/20/30 (CHECK;
+    seeded 30), changed ONLY by set_page365_inventory_interval
+    (manage_website_catalog, audited; guard trigger; never set it in a
+    migration). A scheduled read starts once (interval − 2.5 min) has passed
+    since the last scheduled start (shared scheduleEveryMs; SQL mirror
+    get_page365_inventory_interval next_check_at). A read still running is
+    resumed, never overlapped. The auto-apply 30-min window is a freshness
+    bound, NOT the cadence — it stays 30 at every interval. Never change the
+    cron schedule to change the cadence.
   - HIDE-FOLLOW (2026-10-01, PR 3b; docs/PAGE365-IMPORT.md "HIDE-FOLLOW"): a
     product SEEN on Page365 (page365_product_presence, same code, complete
-    reads only) and then missing from 2 COMPLETE reads in a row -> stock 0 +
+    reads only) and then missing from 2 COMPLETE reads in a row AND last seen
+    >= 30 min before the read (PR 3d; any interval) -> stock 0 +
     status 'draft' (page365_inventory_hide_item, compare-and-set). Never a
     never-seen/Hub-only product, a switched-off one (read live) or an
     unpublished one; never from a partial read. Automatic only through

@@ -99,8 +99,8 @@ export interface RefreshResult {
 export const refreshForDrafts = (runId: string, itemIds: string[], skip: string[]) =>
   invoke<RefreshResult>('page365-inventory-fetch', { action: 'refresh', run_id: runId, item_ids: itemIds, skip });
 
-/** PR 3 — the automatic switch ("Automatic updates every 30 minutes" since
- *  PR 3c: decreases, increases, hiding). Both RPCs ship in
+/** PR 3 — the automatic switch (automatic updates: decreases, increases,
+ *  hiding since PR 3c; at the chosen interval since PR 3d). Both RPCs ship in
  *  migration 20260930100000_page365_inventory_schedule and are not in
  *  types.ts until Lovable regenerates it — hence the cast. */
 export interface AutoApplyState {
@@ -126,6 +126,33 @@ export const getAutoApply = async () =>
   (await switchRpc('get_page365_inventory_auto_apply')) as unknown as AutoApplyState;
 export const setAutoApply = (enabled: boolean, expected: boolean | null) =>
   switchRpc('set_page365_inventory_auto_apply', { p_enabled: enabled, p_expected: expected });
+
+/** PR 3d — "Check Page365 every" 5 / 10 / 20 / 30 minutes. Both RPCs ship in
+ *  migration 20261003100000_page365_interval and are not in types.ts until
+ *  Lovable regenerates it. Always called as a method (callUntypedRpc). */
+export interface IntervalState {
+  found: boolean;
+  minutes: number;
+  allowed: number[];
+  updated_at: string | null;
+  updated_by_user_id: string | null;
+  updated_by_name: string | null;
+  last_scheduled_at: string | null;
+  reading: 'schedule' | 'manual' | null;
+  next_check_at: string | null;
+  can_change: boolean;
+}
+
+async function intervalRpc(name: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const out = (await callUntypedRpc<Record<string, unknown> | null>(name, args)) ?? {};
+  if (typeof out.error === 'string') throw Object.assign(new Error(out.error), { code: out.error });
+  return out;
+}
+
+export const getScheduleInterval = async () =>
+  (await intervalRpc('get_page365_inventory_interval')) as unknown as IntervalState;
+export const setScheduleInterval = (minutes: number, expected: number | null) =>
+  intervalRpc('set_page365_inventory_interval', { p_minutes: minutes, p_expected: expected });
 
 /** PR 3b — "Hide on website" rows (stock 0 + unpublish, compare-and-set).
  *  The RPC ships in migration 20261001100000_page365_hide_follow and is not in

@@ -282,6 +282,8 @@ vi.mock("@/lib/page365-inventory-api", () => {
   chain.limit = async () => ({ data: runs, error: null });
   return {
     runsTable: () => chain,
+    // PR 3d: before its migration the interval cannot be read — the card shows 30.
+    getScheduleInterval: async () => { throw new Error("function get_page365_inventory_interval does not exist"); },
     getAutoApply: async () => ({ found: true, enabled: true, updated_at: null, updated_by_user_id: null, updated_by_name: null, can_change: true }),
     setAutoApply: vi.fn(),
   };

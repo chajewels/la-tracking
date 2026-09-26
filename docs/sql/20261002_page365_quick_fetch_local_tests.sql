@@ -57,6 +57,11 @@ CREATE TEMP TABLE claims(run_id uuid PRIMARY KEY, n integer);
 CREATE OR REPLACE FUNCTION pg_temp.run(p_source text, p_kind text, p_details jsonb) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_run uuid; r record; d jsonb; v_n integer := 0;
 BEGIN
+  -- PR 3d: scheduled reads are >= 30 min apart in these scenarios. Hide now also
+  -- needs the product last seen >= 30 min before the read, so age "seen" as a
+  -- 30-minute interval would (runs themselves keep their times: auto-apply windows).
+  UPDATE public.page365_product_presence
+     SET first_seen_at = first_seen_at - interval '31 minutes', last_seen_at = last_seen_at - interval '31 minutes';
   INSERT INTO public.page365_inventory_runs(source, kind, page365_count, products_total)
   VALUES (p_source, p_kind, jsonb_array_length(p_details), jsonb_array_length(p_details)) RETURNING id INTO v_run;
   INSERT INTO public.page365_inventory_products(run_id, page365_product_id, list_name)

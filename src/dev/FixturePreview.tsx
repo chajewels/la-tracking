@@ -257,6 +257,13 @@ export default function FixturePreview() {
         found: true, enabled: searchParams.get('auto') === '1', updated_at: '2026-09-30T01:15:00Z',
         updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo', can_change: true,
       });
+      // PR 3d: "Check Page365 every" — &every=5|10|20|30 (default 5, a live session).
+      const every = Number(searchParams.get('every') ?? '5');
+      seed(['page365-inventory-interval'], {
+        found: true, minutes: [5, 10, 20, 30].includes(every) ? every : 5, allowed: [5, 10, 20, 30],
+        updated_at: '2026-10-03T05:30:00Z', updated_by_user_id: 'fixture-admin', updated_by_name: 'Cynthia Largo',
+        last_scheduled_at: '2026-10-03T05:42:03Z', reading: null, next_check_at: '2026-10-03T05:47:00Z', can_change: true,
+      });
       seed(['page365-inventory-run-history'], quick
         ? [quickRun, ...buildPage365RunHistory(fullRun, sched)]
         : buildPage365RunHistory(fullRun, sched));
