@@ -31,24 +31,26 @@
  *                                   PR 3c: SQL (page365_inventory_next_kind)
  *                                   makes the first run after 02:00 PHT
  *                                   (03:00 JST) full, every other one quick.
- *   { action: "refresh", run_id, item_ids, skip? }
- *                                   PR 3c, Create drafts: re-reads the ticked
- *                                   "New in Page365" listings of a full run
- *                                   FRESH (page365_inventory_refresh_product),
- *                                   up to REFRESH_CHUNK per call, under the
- *                                   reader lease. The browser loops until
- *                                   remaining is 0, then creates the drafts.
+ *
+ * NEW PRODUCTS LAND BY THEMSELVES (2026-09-26, replaces "Create drafts"):
+ * page365_inventory_finish lands every new, in-stock code of a COMPLETE read
+ * as an UNPUBLISHED Catalog product (page365_inventory_land_run). A quick read
+ * also opens every listing it has never read before, so a new code lands
+ * within one interval. The scheduled tick then copies the landed products'
+ * photos (page365_landings, copyLandedPhotos) — only after its own read, never
+ * while a staff fetch is reading, <= 4 downloads/s.
  *
  * Every chunk is read under the run's LEASE (page365_inventory_lease): a staff
  * "Fetch" that joins a scheduled read, and the schedule itself, take turns —
  * one reader, <= 4 requests/s to Page365. A caller that finds the lease taken
  * is answered { busy: true } and waits.
  *
- * IT NEVER MOVES STOCK AND NEVER COPIES A PHOTO ITSELF. Stock moves through
+ * IT NEVER MOVES STOCK. Stock moves through
  * page365_inventory_apply (a staff tick per row) and, for a SCHEDULED run only,
  * page365_inventory_auto_apply_run — decreases and (PR 3c) increases, and only
  * while system_settings.page365_inventory_auto_apply is true (checked in SQL). Photos
- * move only through page365-inventory-photos. A Page365 outage leaves a
+ * move through page365-inventory-photos (staff) and, for LANDED products only,
+ * the scheduled photo backlog below. A Page365 outage leaves a
  * 'failed' or 'partial' run that both refuse — nothing on the website changes.
  *
  * Customer reviews on the detail pages are dropped by parseProductDetail and
@@ -57,6 +59,7 @@
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission, type AuthContext } from "../_shared/handler.ts";
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
+import { copyItemPhotos } from "../_shared/page365-photo-copy.ts";
 import {
   STOREFRONT_ORIGIN, USER_AGENT, checkCompleteList, createRateLimiter, lastListPage,
   normalizeIntervalMinutes, parseListEnvelope, parseListExtras, parseProductDetail, scheduleDecision,
@@ -78,12 +81,11 @@ const LEASE_SECONDS = 120;
  *  edge wall-clock limit), and starts no chunk in the last CHUNK_RESERVE_MS. */
 const SCHEDULE_BUDGET_MS = 100_000;
 const CHUNK_RESERVE_MS = 30_000;
-/** PR 3c, Create drafts: listings re-read per "refresh" call (~10 s at 4/s),
- *  and how recent a read must be to count as fresh here (SQL insists on 15 min). */
-const REFRESH_CHUNK = 40;
-const REFRESH_FRESH_MS = 5 * 60_000;
-const REFRESH_LEASE_SECONDS = 60;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** 2026-09-26: the landed-photo backlog. Photos per copy call, products per
+ *  query, and tries before a photo that keeps failing is given up on. */
+const LAND_PHOTOS_PER_CALL = 12;
+const LAND_PRODUCTS_PER_QUERY = 10;
+const LAND_PHOTO_MAX_ATTEMPTS = 3;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function getJson(url: string, timeoutMs: number): Promise<{ ok: true; json: unknown } | { ok: false; why: string }> {
@@ -223,14 +225,6 @@ async function startRun(supabase: Supabase, source: "manual" | "schedule", userI
   return { run_id: run.id, resumed: false };
 }
 
-/** PR 3c: a Create-drafts refresh holds the reader lease — one reader at a time. */
-async function refreshHoldsReader(supabase: Supabase): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("page365_inventory_reader").select("lease_holder, lease_until").maybeSingle();
-  if (error) return false; // before the PR 3c migration: no such lease
-  return !!data?.lease_holder && !!data.lease_until && new Date(data.lease_until).getTime() > Date.now();
-}
-
 /** Read one chunk under the run's lease, then finish the run if nothing is
  *  left (and close it, if it is a scheduled run). */
 async function readChunk(supabase: Supabase, runId: string, holder: string, limit: Limiter) {
@@ -239,12 +233,6 @@ async function readChunk(supabase: Supabase, runId: string, holder: string, limi
   });
   if (leaseErr) throw new Error(leaseErr.message);
   if (!leased) return { busy: true as const, finished: null, claimed: 0, ...(await progress(supabase, runId)) };
-  // Checked AFTER taking the run lease (the refresh checks run leases before
-  // taking its own), so the two can never both read.
-  if (await refreshHoldsReader(supabase)) {
-    await supabase.rpc("page365_inventory_release", { p_run_id: runId, p_holder: holder });
-    return { busy: true as const, finished: null, claimed: 0, ...(await progress(supabase, runId)) };
-  }
 
   let claimedCount = 0;
   try {
@@ -292,6 +280,59 @@ async function readChunk(supabase: Supabase, runId: string, holder: string, limi
   return { busy: false as const, finished, claimed: claimedCount, ...now };
 }
 
+/**
+ * 2026-09-26: copy the Page365 photos of products that LANDED in the Catalog
+ * by themselves (page365_landings.photos_done_at IS NULL), oldest first, until
+ * the deadline. Runs only when this tick is not reading (so Page365 sees one
+ * reader at <= 4 requests/s). A product is done when nothing is left to copy;
+ * a photo that fails is retried on later ticks, and given up on after
+ * LAND_PHOTO_MAX_ATTEMPTS ticks (photo_failures records how many).
+ */
+export async function copyLandedPhotos(supabase: Supabase, deadline: number) {
+  const out = { products: 0, copied: 0, failed: 0, done: 0 };
+  const limit = createRateLimiter(4, 3);
+  const skip = new Set<string>();
+  const failedThisTick = new Map<string, number>();
+  const handled = new Set<string>();
+  while (Date.now() < deadline) {
+    const { data, error } = await supabase.from("page365_landings")
+      .select("product_id, item_id, photo_attempts").is("photos_done_at", null).not("item_id", "is", null)
+      .order("landed_at", { ascending: true }).limit(LAND_PRODUCTS_PER_QUERY + handled.size);
+    if (error) {
+      // Before the 2026-09-26 migration there is no backlog table.
+      if (!/page365_landings/.test(error.message)) console.error("page365-inventory-fetch landed photos:", error.message);
+      break;
+    }
+    const pending = ((data ?? []) as { product_id: string; item_id: string; photo_attempts: number }[])
+      .filter(p => !handled.has(p.product_id)).slice(0, LAND_PRODUCTS_PER_QUERY);
+    if (pending.length === 0) break;
+    const r = await copyItemPhotos(supabase, pending.map(p => p.item_id), {
+      skip, actor: null, maxPhotos: LAND_PHOTOS_PER_CALL, limit,
+    });
+    out.copied += r.copied + r.replaced;
+    out.failed += r.failed.length;
+    for (const f of r.failed) {
+      skip.add(`${f.item_id}:${f.photo_id}`);
+      failedThisTick.set(f.item_id, (failedThisTick.get(f.item_id) ?? 0) + 1);
+    }
+    for (const p of pending) {
+      if ((r.remainingByItem.get(p.item_id) ?? 0) > 0) continue; // more next call
+      handled.add(p.product_id);
+      out.products++;
+      const fails = failedThisTick.get(p.item_id) ?? 0;
+      const attempts = p.photo_attempts + (fails > 0 ? 1 : 0);
+      const done = fails === 0 || attempts >= LAND_PHOTO_MAX_ATTEMPTS;
+      const { error: upErr } = await supabase.from("page365_landings")
+        .update({ photo_attempts: attempts, photo_failures: fails,
+                  ...(done ? { photos_done_at: new Date().toISOString() } : {}) })
+        .eq("product_id", p.product_id).is("photos_done_at", null);
+      if (upErr) console.error("page365-inventory-fetch landed photos:", p.product_id, upErr.message);
+      else if (done) out.done++;
+    }
+  }
+  return out;
+}
+
 /** PR 3: one cron tick. */
 async function scheduleTick(supabase: Supabase) {
   const t0 = Date.now();
@@ -319,7 +360,9 @@ async function scheduleTick(supabase: Supabase) {
   // Never overlap a staff fetch: it is theirs to finish.
   if (decision.act === "skip") return { skipped: decision.reason, run_id: open?.id };
   if (decision.act === "wait") {
-    return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes };
+    // Nothing to read this tick: copy landed products' photos instead.
+    const photos = await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS);
+    return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes, photos };
   }
 
   let runId: string;
@@ -350,81 +393,13 @@ async function scheduleTick(supabase: Supabase) {
     // product is claimed by another reader: wait, then try again.
     if (step.busy || step.claimed === 0) await sleep(2_000);
   }
+  // The read is over (a run still reading has used the time): the time left
+  // copies landed products' photos — after the read, never alongside it.
+  const photos = step?.run?.status && step.run.status !== "fetching"
+    ? await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS)
+    : null;
   return { run_id: runId, interval_minutes: intervalMinutes, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
-           open: step?.open, listed: step?.listed, finished: step?.finished ?? null, elapsed_ms: Date.now() - t0 };
-}
-
-/** PR 3c: Create drafts re-reads its ticked listings fresh. Returns what is
- *  left; the browser calls again until remaining is 0. */
-async function refreshForDrafts(supabase: Supabase, runId: string, itemIds: string[], skip: Set<string>) {
-  // The ticked NEW rows -> their listings (chunked .in: no URL-length risk).
-  const productIds = new Set<string>();
-  for (let i = 0; i < itemIds.length; i += 100) {
-    const { data, error } = await supabase.from("page365_inventory_items").select("inventory_product_id")
-      .eq("run_id", runId).eq("kind", "page365").eq("category", "new").in("id", itemIds.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const r of (data ?? []) as { inventory_product_id: string | null }[]) {
-      if (r.inventory_product_id && !skip.has(r.inventory_product_id)) productIds.add(r.inventory_product_id);
-    }
-  }
-  const stale: { id: string; page365_product_id: number }[] = [];
-  const ids = [...productIds];
-  for (let i = 0; i < ids.length; i += 100) {
-    const { data, error } = await supabase.from("page365_inventory_products")
-      .select("id, page365_product_id, fetched_at").in("id", ids.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const p of (data ?? []) as { id: string; page365_product_id: number; fetched_at: string | null }[]) {
-      if (!p.fetched_at || Date.now() - new Date(p.fetched_at).getTime() > REFRESH_FRESH_MS) stale.push(p);
-    }
-  }
-  if (stale.length === 0) return { busy: false, refreshed: 0, gone: 0, failed: [], remaining: 0 };
-
-  const holder = `refresh:${crypto.randomUUID()}`;
-  const { data: leased, error: leaseErr } = await supabase.rpc("page365_inventory_reader_lease", {
-    p_holder: holder, p_seconds: REFRESH_LEASE_SECONDS,
-  });
-  if (leaseErr) throw new Error(leaseErr.message);
-  // A run is being read right now (or another refresh): wait for it.
-  if (!leased) return { busy: true, refreshed: 0, gone: 0, failed: [], remaining: stale.length };
-
-  const batch = stale.slice(0, REFRESH_CHUNK);
-  const limit = createRateLimiter(4, 4);
-  let refreshed = 0;
-  let gone = 0;
-  const failed: { product_row_id: string; page365_product_id: number; reason: string }[] = [];
-  try {
-    await Promise.all(batch.map(p => limit(async () => {
-      const r = await getJson(`${STOREFRONT_ORIGIN}/products/${p.page365_product_id}`, DETAIL_TIMEOUT_MS);
-      let detail: unknown = null;
-      let why: string | null = null;
-      if (!r.ok) {
-        why = r.why === "HTTP 404" ? "gone" : r.why;
-      } else {
-        try {
-          detail = parseProductDetail(r.json, Number(p.page365_product_id));
-        } catch (e) {
-          why = (e as Error).message;
-        }
-      }
-      const { data, error } = await supabase.rpc("page365_inventory_refresh_product", {
-        p_product_row_id: p.id, p_detail: detail, p_error: why,
-      });
-      const result = (data as { result?: string; error?: string } | null)?.result;
-      if (error || !result) {
-        failed.push({ product_row_id: p.id, page365_product_id: p.page365_product_id, reason: error?.message ?? "no answer" });
-      } else if (result === "refreshed") {
-        refreshed++;
-      } else if (result === "gone") {
-        gone++;
-      } else {
-        failed.push({ product_row_id: p.id, page365_product_id: p.page365_product_id,
-                      reason: (data as { error?: string }).error ?? result });
-      }
-    })));
-  } finally {
-    await supabase.rpc("page365_inventory_reader_release", { p_holder: holder });
-  }
-  return { busy: false, refreshed, gone, failed, remaining: stale.length - batch.length };
+           open: step?.open, listed: step?.listed, finished: step?.finished ?? null, photos, elapsed_ms: Date.now() - t0 };
 }
 
 Deno.serve(async (req) => {
@@ -465,19 +440,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ run_id: runId, ...r });
     }
 
-    if (action === "refresh") {
-      const runId = typeof body?.run_id === "string" && UUID_RE.test(body.run_id) ? body.run_id : null;
-      const itemIds: string[] = Array.isArray(body?.item_ids)
-        ? (body.item_ids as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x))
-        : [];
-      const skip = new Set<string>(Array.isArray(body?.skip)
-        ? (body.skip as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x)) : []);
-      if (!runId || itemIds.length === 0) return jsonResponse({ error: "run_id and item_ids are required" }, 400);
-      if (itemIds.length > 700) return jsonResponse({ error: "Too many rows at once (700 max)" }, 400);
-      return jsonResponse({ run_id: runId, ...(await refreshForDrafts(supabase, runId, itemIds, skip)) });
-    }
-
-    return jsonResponse({ error: "action must be start, continue or refresh" }, 400);
+    return jsonResponse({ error: "action must be start or continue" }, 400);
   } catch (error: unknown) {
     console.error("page365-inventory-fetch error:", error);
     return jsonResponse({ error: (error as Error).message || "Internal server error" }, 500);
