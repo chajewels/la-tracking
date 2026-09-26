@@ -5337,3 +5337,55 @@ Do not reintroduce: never detach `supabase.rpc`. Call it on the client, or use
 `callUntypedRpc` for an RPC that is not yet in the generated types. A new API
 module also needs at least one test that exercises the real client with only
 the network faked, not a `vi.mock` of the module itself.
+
+### layaway-expired could go out in Japanese (2026-10-04, plan D17)
+
+`auto-expire-cash-orders` built the `layaway-expired` email with
+`lang: pickLang((plan as any).customer_lang)`. `pickLang` turns anything but
+'en' — including a missing language — into 'ja', and the template then renders
+a Japanese block about the hold and deposit (お取り置き / お申込金) first. Every
+other layaway email is English only (owner rule: nothing layaway-related in
+Japanese). Real exposure was low (the JA storefront refuses layaway), but a plan
+with a NULL `customer_lang` hit it.
+
+Fix: the call passes `lang: "en"`; the cash `order-expired` branch keeps the
+customer's language. Test: `src/test/web-payment-reminders.test.tsx`
+("D17 — layaway-expired is always English") fails if the layaway branch calls
+pickLang again. Deploy: `auto-expire-cash-orders`.
+
+Do not reintroduce: a layaway email never takes its language from the plan.
+
+### Japanese emails garbled by renderAsync: 「場合」→「場��」 (2026-09-26)
+
+Every email the edge functions render went through `renderAsync` from
+`npm:@react-email/components@0.0.22` (render 0.0.17). Its `readStream` decodes
+each chunk of React's `renderToReadableStream` separately —
+`decoder.decode(chunk)` with no `{ stream: true }`. React emits 512-byte chunks,
+so any multi-byte character that straddles a boundary (Japanese: 3 bytes; ₱ and
+¥ too; emoji 4) became U+FFFD, in the HTML and the plain-text part alike. Under
+Deno (and the Supabase edge runtime), `react-dom/server` resolves to the browser
+build, which is the streaming path. The chunking is deterministic: the same
+email breaks in the same places every time.
+
+Measured over 153 renderings (every template × JA/EN × JPY/PHP × variant, HTML
++ text): 47 broken, 438 bad characters before; 0 after. Not only Japanese:
+the storefront sign-in email (「一��時間」), English order-expired, peso
+layaway-reserved and the Hub account-forfeited email were hit too.
+
+Fix: `_shared/render-email.ts` `renderEmail()` wraps the package's synchronous
+`render()` (renderToStaticMarkup, one string, never split); all six call sites
+(storefront-email, transactional send-email, newsletter render,
+send-transactional-email, preview-transactional-email, auth-email-hook) use it.
+Output is otherwise byte-identical except React's invisible `<!-- -->` text
+separators. No template wording changed. No template uses Suspense.
+
+Test: `development/email-encoding.test.ts` (CI step "Email encoding") renders
+every template and fails on U+FFFD or mojibake, fails on any renderAsync
+import/call under supabase/functions, and fails when a template file has no
+fixture. With the old renderer it fails 3 of 4 tests (47 of 153 emails).
+
+Deploy: every function that bundles `_shared/render-email.ts` (34, listed in
+the PR).
+
+Do not reintroduce: never render an email with `renderAsync`, and never decode
+a byte stream chunk by chunk without `{ stream: true }`.

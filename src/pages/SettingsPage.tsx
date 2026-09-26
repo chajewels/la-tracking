@@ -16,6 +16,7 @@ import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
 import PaymentMethodsTab from '@/components/settings/PaymentMethodsTab';
 import { EmailHealthCard } from '@/components/system/EmailHealthIndicator';
+import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -340,6 +341,9 @@ export default function SettingsPage() {
           <TabsContent value="general" className="space-y-6 mt-4">
             {/* Email delivery (expected vs accepted, last 24h) */}
             <EmailHealthCard />
+
+            {/* Stage D payment reminders: off / owner addresses only / on (admin) */}
+            <PaymentRemindersCard />
 
             {/* Currency */}
             <div className="rounded-xl border border-border bg-card p-6">

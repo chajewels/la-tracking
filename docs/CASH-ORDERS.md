@@ -196,3 +196,13 @@
   behaviour. Reports still convert PHP to yen at php_jpy_rate, as for peso
   layaway plans, so a peso web order's reported yen can differ slightly from
   its catalog yen price — accepted.
+
+## PAYMENT REMINDER BEFORE THE DEADLINE (added 2026-10-04)
+
+A confirmed WEB cash order that is still `pending` / `pending_transfer` with
+`remaining_balance > 0` gets ONE reminder (`order-payment-due`, in the order's
+currency and `customer_lang`, every transfer method) 6h before a 24h deadline or
+24h before a 72h one; a moved deadline earns one more, max 2. A pending
+submission (INVARIANT 12) suppresses it. Hub-made cash orders never get one.
+The layaway-expired email is now always English (D17). Full rules:
+docs/WEB-PAYMENT-REMINDERS.md.

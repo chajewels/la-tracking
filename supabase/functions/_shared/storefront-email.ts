@@ -1,5 +1,5 @@
 import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
+import { renderEmail } from './render-email.ts'
 import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0'
 import { recordEmailAttempt } from './email-log.ts'
 
@@ -139,8 +139,8 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
   if (!apiKey) return await skip('not_configured')
 
   try {
-    const html = await renderAsync(args.element)
-    const text = await renderAsync(args.element, { plainText: true })
+    const html = await renderEmail(args.element)
+    const text = await renderEmail(args.element, { plainText: true })
     await sendLovableEmail(
       {
         to: email,
