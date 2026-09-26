@@ -315,6 +315,35 @@ export function autoApplyRefusal(code: string): string {
   }
 }
 
+/** PR 3d — "Check Page365 every" (system_settings.page365_inventory_interval_minutes).
+ *  Only these values; the RPC refuses anything else (invalid_interval). */
+export const INTERVAL_CHOICES = [5, 10, 20, 30] as const;
+export type IntervalMinutes = typeof INTERVAL_CHOICES[number];
+
+/** Words for set_page365_inventory_interval's refusals. */
+export function intervalRefusal(code: string): string {
+  switch (code) {
+    case 'permission_denied': return 'You need the Website catalog permission to change how often Page365 is checked.';
+    case 'user_identity_required': return 'Your session has expired. Sign in again.';
+    case 'invalid_interval': return 'Choose 5, 10, 20 or 30 minutes.';
+    case 'stale': return 'Someone else changed this a moment ago. The card now shows the current interval.';
+    case 'setting_missing': return 'The interval is missing from system settings. Ask Claude Code to check the PR 3d migration.';
+    default: return code || 'Could not change how often Page365 is checked.';
+  }
+}
+
+/** "Next check around 14:07 (PHT)" — the time only, in PHT. `reading` is what
+ *  is reading Page365 right now ('schedule' | 'manual' | null). */
+export function nextCheckText(nextCheckAt: string | null, reading: string | null): string {
+  if (reading === 'schedule') return 'Checking Page365 now…';
+  if (!nextCheckAt) return '';
+  const hhmm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(nextCheckAt));
+  const base = `Next check around ${hhmm} (PHT)`;
+  return reading === 'manual' ? `${base}, once the staff fetch in progress has finished.` : `${base}.`;
+}
+
 /** PR 3: while the browser reads, a { busy } answer means another reader (the
  *  schedule) holds the run's lease — wait, and do not count it as a stall. */
 export const FETCH_BUSY_WAIT_MS = 3_000;

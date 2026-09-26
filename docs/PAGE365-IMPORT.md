@@ -428,6 +428,10 @@ catalogue path covers every listed piece; filed in docs/PENDING.md.
 > INCREASES too, most scheduled reads are QUICK (the list + Hub products' pages), and one FULL
 > read runs nightly at 02:00 PHT (03:00 JST). The switch is "Automatic updates every 30
 > minutes (decreases, increases, hiding)". Everything else in this section still holds.
+>
+> **Changed by PR 3d (2026-10-03, section INTERVAL below):** reads start every 5, 10, 20 or 30
+> minutes as chosen in the Hub (default 30), not a fixed 30; step 4's "27 min" is now
+> "interval − 2.5 min". The 30-minute auto-apply window is unchanged.
 
 Migration `20260930100000_page365_inventory_schedule.sql` (owner runs it AFTER the release
 is on main and `page365-inventory-fetch` is redeployed). Local SQL tests:
@@ -681,4 +685,74 @@ and increases apart.
 **Expected quick-read time.** 2 list requests (~1–3 s) + one page per Hub listing at 4
 requests/s + one store call each. With H Hub listings: ≈ 3 s + H/4 s (e.g. 60 → ~20 s, 150 →
 ~40 s). Count H with verification (6) of the migration.
+
+## INTERVAL — "Check Page365 every" 5 / 10 / 20 / 30 minutes; time-safe hide (added 2026-10-03, PR 3d)
+
+Owner decisions, final, 2026-09-26. Migration `20261003100000_page365_interval.sql` (owner
+runs it in the SQL Editor after the release PR is on main, BEFORE redeploying
+`page365-inventory-fetch`). It changes no stock, no product status, not the automatic switch
+and no other `system_settings` row — its self-check proves it.
+
+**The setting.** `system_settings.page365_inventory_interval_minutes`, a JSON number, only
+5, 10, 20 or 30 (table CHECK `system_settings_page365_interval_check`). Seeded 30 — the
+cadence before PR 3d. Written ONLY by `set_page365_inventory_interval(p_minutes, p_expected)`
+(signed in; `manage_website_catalog`; `invalid_interval` for anything else; `stale` if the
+screen was out of date; one `audit_logs` row per change, action
+`set_page365_inventory_interval`, old/new minutes, who, when). Trigger
+`trg_guard_page365_inventory_interval` refuses every other UPDATE/DELETE of the value (same
+pattern as the automatic switch). Read by the service role through
+`page365_inventory_interval_minutes()` (30 if missing) and by the Hub through
+`get_page365_inventory_interval()` (minutes, who changed it, last scheduled start, what is
+reading, `next_check_at`).
+
+**The cadence.** The pg_cron job is unchanged — it still wakes every 5 minutes (`2-59/5`).
+Each tick, `page365-inventory-fetch` reads the interval and starts a new scheduled read once
+**(interval − 2.5 min)** has passed since the last scheduled START (`scheduleEveryMs` in
+`_shared/page365-inventory.ts`). The half-tick slack absorbs cron jitter: the tick one
+interval later always qualifies, the tick before it never does — on time, never early (30 →
+27.5 min; PR 3 used 27). `next_check_at` is the first `2-59/5` tick at or after
+`max(now, last start + interval − 150 s)`: "Next check around HH:MM (PHT)".
+Unchanged: the first scheduled read after 02:00 PHT is FULL; a staff fetch in progress is
+skipped; one reader (run lease, reader lease); ≤ 4 requests/s; every auto-apply rule.
+
+**No overlap.** A scheduled read still running when the next is due is RESUMED — the tick
+reads more of it — and never joined by a second (`scheduleDecision` returns `resume`; the
+runs table holds one `fetching` run). So a read longer than the interval simply stretches the
+cadence to the next due tick after it ends.
+
+**Why the 30-minute auto-apply window did NOT change.** `window_passed` (a run that finishes
+more than 30 minutes after it began applies nothing) bounds how stale a read's numbers may be
+when applied. It is not the start cadence. Tying it to a 5-minute interval would make every
+read longer than 5 minutes apply nothing.
+
+**Time-safe hide.** `page365_inventory_follow` (d) proposes `hide` only when the product is
+missing from 2 complete reads in a row AND was last seen at least 30 minutes before this read
+began (`pr.last_seen_at <= v_run.created_at - interval '30 minutes'`). At 30 minutes nothing
+changes (two missing reads are ≥ 60 min); at 5 minutes the hide waits for the read that
+starts ≥ 30 min after the product was last seen (the 6th missing read). Everything else in
+HIDE-FOLLOW holds.
+
+**Hub.** Website → Page365 stock → the automatic-updates card: title "Automatic updates every
+N minutes (decreases, increases, hiding)"; "Check Page365 every [5 / 10 / 20 / 30 minutes]"
+(disabled while saving; absent without the permission or before the migration, when the card
+reads 30); "Next check around HH:MM (PHT)"; helper text "Use 5 minutes during live sessions".
+
+**Scale.** One scheduled tick reads for ~70 s (it starts no 40-page chunk after 70 s of its
+100 s budget) — about **280 pages per tick** at 4 requests/s. Quick read ≈ 3 s + H/4 s for H
+Hub listings (count: verification (6) of `20261002100000`).
+
+| Hub listings (H) | quick read | ticks | at 5 min | at 10 / 20 / 30 min |
+|---|---|---|---|---|
+| 60   | ~18 s  | 1 | every 5 min  | on time |
+| 150  | ~40 s  | 1 | every 5 min  | on time |
+| 300  | ~78 s  | 2 | every ~10 min (the next tick finishes the read; a new one starts the tick after) | on time |
+| ~570 (full read) | ~2.5 min | 3 | nightly full read pauses quick reads ~10–15 min | on time |
+
+**Tests.** `docs/sql/20261003_page365_interval_local_tests.sql` (local Postgres: setting,
+CHECK, guard, permission, audit, `next_check_at` for every interval × 7 ages, the hide rule at
+10 / 29 / 31 minutes, nothing else changed). The PR 3b and PR 3c suites now age "seen" by 31
+minutes between reads (their scenarios are 30-minute reads) and pass on top of PR 3d.
+`src/test/page365-interval.test.tsx` (the cadence at each interval over 6 hours of ticks —
+never early, never late, no overlap, manual skip; the edge wiring; the migration's
+load-bearing clauses; the card).
 

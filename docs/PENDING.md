@@ -935,6 +935,14 @@ PR 1 (manual fetch + review + apply + photos) shipped in 20260927100000; docs/PA
   read then flags it back). Not built: a Hub-editable nightly hour (the setting
   `page365_inventory_full_hour_pht` is changed in SQL today); a "Full fetch" that does not
   block quick reads for its duration.
+- **PR 3d — selectable interval (5/10/20/30) + time-safe hide**: BUILT 2026-10-03 (migration
+  20261003100000; docs/PAGE365-IMPORT.md "INTERVAL"). Watch after go-live: at 5 minutes, the
+  run history's "Took" against ~70 s of reading per tick — past ~280 Hub listings a quick read
+  needs two ticks and the effective cadence becomes ~10 minutes (no overlap, by design). A
+  Page365 outage rings once per scheduled run, so at 5 minutes up to 12 bells an hour (see the
+  PR 3 note above — ringing only on the first failure after a ready run is still not built).
+  Not built: a Hub-editable nightly hour; a separate auto-apply window per interval (kept at 30
+  on purpose — a freshness bound, not the cadence).
 - **PR 4 — "Create drafts"** from new Page365 codes: BUILT 2026-09-28 (docs/PAGE365-IMPORT.md
   "DRAFTS"). Still open: drafts from an unmatched INVOICE line, and a Hub-editable
   Page365-category → website-category map (today: jewelry-type first word, one Hub match).

@@ -21,9 +21,13 @@
  *   { action: "schedule" }          PR 3, SERVICE ROLE ONLY (the pg_cron job
  *                                   page365-inventory-schedule, every 5 min).
  *                                   Skips while a manual fetch is reading;
- *                                   otherwise resumes the scheduled run, or
- *                                   starts one when the last began >= 27 min
- *                                   ago, and reads until done or out of time.
+ *                                   otherwise resumes the scheduled run (a
+ *                                   read still running is never overlapped),
+ *                                   or starts one once the chosen interval has
+ *                                   passed since the last scheduled start
+ *                                   (PR 3d: 5/10/20/30 min, read from SQL via
+ *                                   page365_inventory_interval_minutes), and
+ *                                   reads until done or out of time.
  *                                   PR 3c: SQL (page365_inventory_next_kind)
  *                                   makes the first run after 02:00 PHT
  *                                   (03:00 JST) full, every other one quick.
@@ -55,7 +59,8 @@ import { requireAuth, requirePermission, type AuthContext } from "../_shared/han
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
 import {
   STOREFRONT_ORIGIN, USER_AGENT, checkCompleteList, createRateLimiter, lastListPage,
-  parseListEnvelope, parseListExtras, parseProductDetail, scheduleDecision,
+  normalizeIntervalMinutes, parseListEnvelope, parseListExtras, parseProductDetail, scheduleDecision,
+  scheduleEveryMs,
 } from "../_shared/page365-inventory.ts";
 
 /** Products per continue call: at 4 requests/s about 10 s of reading, well
@@ -69,9 +74,6 @@ const ABANDONED_AFTER_MS = 10 * 60_000;
 /** PR 3. A reader holds the run's lease for one chunk; one that crashed lets
  *  go by itself after this long. */
 const LEASE_SECONDS = 120;
-/** A scheduled read begins every 30 minutes; the 5-minute ticks in between
- *  only finish it. 27 leaves room for cron jitter. */
-const SCHEDULE_EVERY_MS = 27 * 60_000;
 /** One scheduled invocation reads for at most this long (well inside the
  *  edge wall-clock limit), and starts no chunk in the last CHUNK_RESERVE_MS. */
 const SCHEDULE_BUDGET_MS = 100_000;
@@ -307,10 +309,18 @@ async function scheduleTick(supabase: Supabase) {
   const { data: last } = await supabase
     .from("page365_inventory_runs").select("created_at").eq("source", "schedule")
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const decision = scheduleDecision(open ?? null, last?.created_at ?? null, Date.now(), ABANDONED_AFTER_MS, SCHEDULE_EVERY_MS);
+  // PR 3d: the interval staff chose (5/10/20/30). Before the migration the
+  // RPC does not exist: 30, as before.
+  const { data: minutesRaw, error: minutesErr } = await supabase.rpc("page365_inventory_interval_minutes");
+  if (minutesErr) console.error("page365-inventory-fetch interval:", minutesErr.message);
+  const intervalMinutes = normalizeIntervalMinutes(minutesErr ? null : minutesRaw);
+  const decision = scheduleDecision(open ?? null, last?.created_at ?? null, Date.now(), ABANDONED_AFTER_MS,
+                                    scheduleEveryMs(intervalMinutes));
   // Never overlap a staff fetch: it is theirs to finish.
   if (decision.act === "skip") return { skipped: decision.reason, run_id: open?.id };
-  if (decision.act === "wait") return { skipped: decision.reason, last_scheduled_at: last?.created_at };
+  if (decision.act === "wait") {
+    return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes };
+  }
 
   let runId: string;
   if (decision.act === "resume") {
@@ -340,7 +350,7 @@ async function scheduleTick(supabase: Supabase) {
     // product is claimed by another reader: wait, then try again.
     if (step.busy || step.claimed === 0) await sleep(2_000);
   }
-  return { run_id: runId, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
+  return { run_id: runId, interval_minutes: intervalMinutes, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
            open: step?.open, listed: step?.listed, finished: step?.finished ?? null, elapsed_ms: Date.now() - t0 };
 }
 
