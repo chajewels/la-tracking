@@ -9,7 +9,7 @@
 // template. Callers decide with forfeitEmailKind() from web-order-rules.ts.
 
 import * as React from "npm:react@18.3.1";
-import { pickLang, sendStorefrontEmail, type SendStorefrontEmailResult } from "./storefront-email.ts";
+import { sendStorefrontEmail, type SendStorefrontEmailResult } from "./storefront-email.ts";
 import { LayawayForfeitedEmail, layawayForfeitedSubject } from "./email-templates/layaway-forfeited.tsx";
 
 export async function sendLayawayForfeitedEmail(
@@ -36,7 +36,6 @@ export async function sendLayawayForfeitedEmail(
     reference,
     idempotencyKey: opts.idempotencyKey,
     element: React.createElement(LayawayForfeitedEmail, {
-      lang: pickLang(acct.customer_lang),
       reference,
       currency: String(acct.currency ?? "JPY") as "JPY" | "PHP",
       totalAmount: Number(acct.total_amount ?? 0),

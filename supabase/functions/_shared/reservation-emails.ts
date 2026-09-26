@@ -222,7 +222,6 @@ export function sendLayawayReadyEmail(
       reference: p.reference,
       idempotencyKey: `layaway-ready-${accountId}`,
       element: React.createElement(LayawayPlanCreatedEmail, {
-        lang: "en",
         reference: p.reference,
         currency: p.currency,
         totalAmount: Number(p.plan.total_amount ?? 0),

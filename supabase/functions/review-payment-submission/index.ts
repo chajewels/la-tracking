@@ -1306,7 +1306,6 @@ Deno.serve(async (req) => {
             reference,
             idempotencyKey: `layaway-payment-received-${submission_id}`,
             element: React.createElement(LayawayPaymentReceivedEmail, {
-              lang: pickLang((acctForEmail as any).customer_lang),
               reference,
               currency: String(acctForEmail?.currency ?? "JPY") as "JPY" | "PHP",
               isDeposit,

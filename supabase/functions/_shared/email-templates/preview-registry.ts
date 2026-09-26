@@ -124,7 +124,7 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     displayName: 'Web layaway — confirmed, send your deposit (EN only)',
     component: LayawayPlanCreatedEmail,
     subject: layawayReadySubject('CJ-W-000124'),
-    previewData: { lang: 'en', reference: 'CJ-W-000124', currency: 'JPY', totalAmount: 120000, deposit: 36000, termMonths: 3, schedule, methods, transferDueAt: due, region: 'JP', planUrl, variant: 'ready' },
+    previewData: { reference: 'CJ-W-000124', currency: 'JPY', totalAmount: 120000, deposit: 36000, termMonths: 3, schedule, methods, transferDueAt: due, region: 'JP', planUrl, variant: 'ready' },
   },
   'storefront-layaway-declined': {
     displayName: "Web layaway — can't supply (EN only)",

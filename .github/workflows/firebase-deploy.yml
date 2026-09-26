@@ -244,7 +244,7 @@ jobs:
       # U+FFFD or mojibake, or on a renderAsync import. See docs/FIXED-BUGS.md
       # "Japanese emails garbled by renderAsync".
       - name: Email encoding (blocking)
-        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts
+        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/layaway-english.test.ts
 
   # --------------------------------------------------------------- housekeeping
   # Firebase Hosting allows a limited number of preview channels per site (50
