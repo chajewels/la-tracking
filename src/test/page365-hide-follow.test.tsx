@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import {
   SKIP_REASON, autoApplyText, defaultSelection, groupItems, hiddenByPage365Note, hideTickable, hubOnlyReason,
   republishProductIds, type InventoryItem, type InventoryRun,
@@ -200,7 +201,7 @@ const applyInventory = vi.fn(async () => ({ ok: true, applied: 1 }));
 const publishProducts = vi.fn(async (ids: string[]) => ({ ok: true, published: ids.length, blocked: 0, skipped: 0 }));
 vi.mock("@/lib/page365-drafts-api", () => ({
   publishProducts: (ids: string[]) => publishProducts(ids),
-  createDrafts: vi.fn(), listCategories: vi.fn(async () => new Map()),
+  listLandings: vi.fn(async () => []),
 }));
 vi.mock("@/lib/page365-inventory-api", () => {
   const run = { id: "run1", source: "manual", status: "ready", page365_count: 572, products_total: 572, error: null,
@@ -234,9 +235,9 @@ describe("Page365InventoryCard — Hide on website / Back in Page365", () => {
   it("pre-ticks the hide, leaves re-publish unticked, and applies only what is ticked", async () => {
     const { Page365InventoryCard } = await import("@/components/website/Page365InventoryCard");
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Page365InventoryCard />
-      </QueryClientProvider>,
+      </QueryClientProvider></MemoryRouter>,
     );
     const hideRow = await screen.findByTestId("p365-inv-hide-row");
     expect(within(hideRow).getByText("ZH1")).toBeTruthy();
@@ -257,9 +258,9 @@ describe("Page365InventoryCard — Hide on website / Back in Page365", () => {
   it("re-publishes only after a staff tick, as the product id", async () => {
     const { Page365InventoryCard } = await import("@/components/website/Page365InventoryCard");
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Page365InventoryCard />
-      </QueryClientProvider>,
+      </QueryClientProvider></MemoryRouter>,
     );
     const backRow = await screen.findByTestId("p365-inv-back-row");
     fireEvent.click(within(backRow).getByRole("checkbox"));

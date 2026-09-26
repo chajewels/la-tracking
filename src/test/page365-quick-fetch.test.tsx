@@ -5,10 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  autoApplyText, defaultSelection, newAsOfText, runDuration, runKindLabel, splitStockSelection,
+  autoApplyText, defaultSelection, runDuration, runKindLabel, splitStockSelection,
   type InventoryItem, type InventoryRun,
 } from "@/lib/page365-inventory";
-import { CREATE_REFUSAL, DRAFT_REASON, draftable, markNotListed } from "@/lib/page365-drafts";
 
 /**
  * Page365 PR 3c (owner decisions 2026-09-26): QUICK reads every 30 minutes
@@ -83,27 +82,6 @@ describe("review screen (PR 3c)", () => {
     expect(autoApplyText(run({ auto_applied: 3, auto_increased: 1, hidden_count: 1 })))
       .toBe("2 decreases · 1 increase applied automatically · 1 product hidden on the website");
     expect(autoApplyText(run({ auto_apply_state: "off" }))).toBe("Automatic updates off — nothing applied");
-  });
-});
-
-describe("New in Page365 (PR 3c)", () => {
-  it("is labelled with the full fetch it comes from, in PHT", () => {
-    // 2026-10-01 18:10 UTC = 2 October 02:10 in Manila.
-    expect(newAsOfText({ created_at: "2026-10-01T18:10:00Z" })).toBe("Quantities as of the full fetch of 2026-10-02, 02:10 PHT");
-  });
-  it("greys out rows missing from the latest list; nothing to compare when the list IS the full fetch", () => {
-    const rows = [item({ id: "a", category: "new", page365_product_id: 11 }), item({ id: "b", category: "new", page365_product_id: 12 })];
-    const marked = markNotListed(rows, new Set([11]));
-    expect(marked.map(r => r.not_listed)).toEqual([false, true]);
-    expect(draftable(marked[0])).toBe(true);
-    expect(draftable(marked[1])).toBe(false);
-    expect(markNotListed(rows, null).every(r => !r.not_listed)).toBe(true);
-  });
-  it("a listing gone from Page365 at the fresh read is never draftable", () => {
-    expect(draftable(item({ category: "new", result_note: "gone_from_page365" }))).toBe(false);
-    expect(DRAFT_REASON.not_fresh).toMatch(/fresh/);
-    expect(DRAFT_REASON.gone_from_page365).toMatch(/no longer on Page365/);
-    expect(CREATE_REFUSAL.not_full_fetch).toMatch(/Full fetch/);
   });
 });
 
@@ -237,7 +215,7 @@ describe("edge page365-inventory-fetch (PR 3c)", () => {
   });
   it("a quick run is planned right after the list is queued; the list count is the run's count", () => {
     const start = E.indexOf("async function startRun");
-    const seg = E.slice(start, E.indexOf("async function refreshHoldsReader"));
+    const seg = E.slice(start, E.indexOf("async function readChunk"));
     expect(seg.indexOf("page365_count: items.length")).toBeLessThan(seg.indexOf('rpc("page365_inventory_plan_quick"'));
     expect(seg).toContain('if (kind === "quick")');
     // If the plan cannot be made, read everything (the safe side).
@@ -250,18 +228,9 @@ describe("edge page365-inventory-fetch (PR 3c)", () => {
   it("'listed' products are neither open nor errors", () => {
     expect(E).toContain('else if (r.status === "listed") counts.listed++;');
   });
-  it("one reader: a chunk backs off while a draft refresh holds the reader lease, after taking its own", () => {
-    const seg = E.slice(E.indexOf("async function readChunk"), E.indexOf("/** PR 3: one cron tick. */"));
-    expect(seg.indexOf('rpc("page365_inventory_lease"')).toBeLessThan(seg.indexOf("refreshHoldsReader(supabase)"));
-  });
-  it("refresh: staff only, <= 4 requests/s, under the reader lease, a 404 is 'gone'", () => {
-    const seg = E.slice(E.indexOf("async function refreshForDrafts"), E.indexOf("Deno.serve"));
-    expect(seg).toContain('rpc("page365_inventory_reader_lease"');
-    expect(seg).toContain("createRateLimiter(4, 4)");
-    expect(seg).toContain('r.why === "HTTP 404" ? "gone" : r.why');
-    expect(seg).toContain('rpc("page365_inventory_refresh_product"');
-    expect(seg).toContain('rpc("page365_inventory_reader_release"');
-    expect(seg).toContain('.eq("category", "new")');
+  it("2026-09-26: the Create drafts 'refresh' action is gone; new products land in SQL", () => {
+    expect(E).not.toMatch(/refreshForDrafts|refreshHoldsReader|page365_inventory_refresh_product|action === "refresh"/);
+    expect(E).toContain('return jsonResponse({ error: "action must be start or continue" }, 400);');
     // The service role may still only run the scheduled tick.
     expect(E).toContain('if (action !== "schedule") return jsonResponse({ error: "The service role may only run the scheduled fetch" }, 400);');
   });

@@ -1,5 +1,5 @@
 import {
-  ConditionValue, MetalValue, OriginValue,
+  ConditionValue, METAL_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 
 /**
@@ -18,17 +18,30 @@ export const TEMPLATE_PATH = "/templates/cha-jewels-product-upload-template.xlsx
 export type Status = "draft" | "active" | "archived";
 
 /**
- * What the piece is (website_products.item_kind). A metal stamp is required
- * ONLY for jewelry (owner decision 2026-09-28; DB CHECK
- * website_products_metals_jewelry). Watches and other items may have none.
+ * What the piece is (website_products.item_kind): exactly three types (owner
+ * decision 2026-09-26). A metal stamp is required ONLY for jewelry, and only to
+ * PUBLISH (DB CHECK website_products_metals_jewelry applies to status active;
+ * a draft may be saved without one and shows "needs metal stamp"). Watches and
+ * accessories (JA 小物: wallets, bags, cases, belts …) never need one.
  */
-export const ITEM_KINDS = ["jewelry", "watch", "other"] as const;
+export const ITEM_KINDS = ["jewelry", "watch", "accessory"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
-export const ITEM_KIND_LABEL: Record<ItemKind, string> = { jewelry: "Jewelry", watch: "Watch", other: "Other (not jewelry)" };
+export const ITEM_KIND_LABEL: Record<ItemKind, string> = { jewelry: "Jewelry", watch: "Watch", accessory: "Accessory" };
+/** 'other' was renamed 'accessory' (2026-09-26); anything unknown reads as jewelry. */
 export const itemKindFrom = (v: unknown): ItemKind =>
-  (ITEM_KINDS as readonly string[]).includes(v as string) ? (v as ItemKind) : "jewelry";
-/** The one client-side twin of the DB rule. */
+  v === "other" ? "accessory" : (ITEM_KINDS as readonly string[]).includes(v as string) ? (v as ItemKind) : "jewelry";
+/** The one client-side twin of the DB rule: jewelry needs a stamp to be published. */
 export const metalRequired = (kind: ItemKind) => kind === "jewelry";
+
+/**
+ * Metal values a product can carry: the importer's list plus SILVER (2026-09-26,
+ * a piece Page365 marks only "SV"). The upload template keeps METAL_VALUES.
+ */
+export const PRODUCT_METAL_VALUES = [...METAL_VALUES, "SILVER"] as const;
+export type ProductMetal = (typeof PRODUCT_METAL_VALUES)[number];
+/** Display names where the stored value is not how staff say it. */
+export const METAL_LABEL: Partial<Record<ProductMetal, string>> = { SILVER: "Silver", SILVER925: "Silver 925" };
+export const metalLabel = (m: string) => METAL_LABEL[m as ProductMetal] ?? m;
 
 /**
  * Metals are shown exactly as stamped (METAL_VALUES is the single source of
@@ -37,7 +50,7 @@ export const metalRequired = (kind: ItemKind) => kind === "jewelry";
  */
 export const metalsLabel = (metals: unknown, karat?: string | null) => {
   const list = Array.isArray(metals) && metals.length ? (metals as string[]) : karat ? [karat] : [];
-  return list.length ? list.join(" / ") : "—";
+  return list.length ? list.map(metalLabel).join(" / ") : "—";
 };
 
 export interface MediaRow {
@@ -74,7 +87,7 @@ export interface ProductForm {
   /** jewelry | watch | other. Decides whether a metal stamp is required. */
   itemKind: ItemKind;
   /** Stamps in the order picked; at least one to save JEWELRY, optional otherwise. */
-  metals: MetalValue[];
+  metals: ProductMetal[];
   weight_g: number | null;
   condition: ConditionValue;
   /** The only source of any origin claim on the site — see OriginBadge there. */

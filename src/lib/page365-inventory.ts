@@ -267,13 +267,6 @@ export function runDuration(run: Pick<InventoryRun, 'created_at' | 'finished_at'
  *  page365_inventory_full_hour_pht, default 2 = 02:00 PHT = 03:00 JST). */
 export const NIGHTLY_FULL_TEXT = '02:00 PHT (03:00 JST)';
 
-/** PR 3c: the "as of" label on New in Page365 — its quantities come from the
- *  latest FULL fetch. */
-export const newAsOfText = (fullRun: Pick<InventoryRun, 'created_at'>): string =>
-  `Quantities as of the full fetch of ${new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(new Date(fullRun.created_at))} PHT`;
-
 /** PR 3b: "2 products hidden on the website". */
 export const hiddenText = (n: number): string => `${n} product${n === 1 ? '' : 's'} hidden on the website`;
 
