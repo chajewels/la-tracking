@@ -1,6 +1,6 @@
 import * as React from "npm:react@18.3.1";
 import {
-  pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl,
+  pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
   type SendStorefrontEmailResult,
 } from "./storefront-email.ts";
 import { regionForCurrency, transferMethods } from "./transfer-methods.ts";
@@ -37,7 +37,6 @@ type AnyRec = Record<string, unknown>;
 
 export type ReservationEmailResult = SendStorefrontEmailResult | { sent: false; reason: "not_found" | "error"; detail?: string };
 
-const shopUrl = () => (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
 
 /** The order row, its lines (with Japanese titles), and its customer. */
 async function loadOrder(supabase: Db, orderId: string) {
@@ -291,7 +290,7 @@ export function sendLayawayDeclinedEmail(
         reference: p.reference,
         kind,
         reason: reason ?? null,
-        shopUrl: shopUrl(),
+        shopUrl: storefrontShopUrl(),
       }),
     });
   });
@@ -315,7 +314,7 @@ export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): 
         shippingJpy: Number(o.order.shipping_fee ?? 0),
         totalJpy: Number(o.order.total_amount ?? 0),
         currency: o.currency,
-        shopUrl: shopUrl(),
+        shopUrl: storefrontShopUrl(),
       }),
     });
   });
