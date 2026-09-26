@@ -3766,6 +3766,73 @@ export type Database = {
         }
         Relationships: []
       }
+      page365_landings: {
+        Row: {
+          code: string
+          item_id: string | null
+          item_kind: string | null
+          landed_at: string
+          name: string | null
+          photo_attempts: number
+          photo_failures: number
+          photos_done_at: string | null
+          photos_total: number
+          product_id: string
+          run_id: string | null
+          variant_id: string | null
+        }
+        Insert: {
+          code: string
+          item_id?: string | null
+          item_kind?: string | null
+          landed_at?: string
+          name?: string | null
+          photo_attempts?: number
+          photo_failures?: number
+          photos_done_at?: string | null
+          photos_total?: number
+          product_id: string
+          run_id?: string | null
+          variant_id?: string | null
+        }
+        Update: {
+          code?: string
+          item_id?: string | null
+          item_kind?: string | null
+          landed_at?: string
+          name?: string | null
+          photo_attempts?: number
+          photo_failures?: number
+          photos_done_at?: string | null
+          photos_total?: number
+          product_id?: string
+          run_id?: string | null
+          variant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_landings_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "page365_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_landings_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: true
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page365_landings_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       page365_product_presence: {
         Row: {
           code: string
@@ -6612,6 +6679,7 @@ export type Database = {
           provider_request_id: string | null
           provider_response_url: string | null
           provider_status_url: string | null
+          provider_uncertainty: number | null
           rerun: boolean
           result_url: string | null
           review_note: string | null
@@ -6665,6 +6733,7 @@ export type Database = {
           provider_request_id?: string | null
           provider_response_url?: string | null
           provider_status_url?: string | null
+          provider_uncertainty?: number | null
           rerun?: boolean
           result_url?: string | null
           review_note?: string | null
@@ -6718,6 +6787,7 @@ export type Database = {
           provider_request_id?: string | null
           provider_response_url?: string | null
           provider_status_url?: string | null
+          provider_uncertainty?: number | null
           rerun?: boolean
           result_url?: string | null
           review_note?: string | null
@@ -7609,6 +7679,7 @@ export type Database = {
         }[]
       }
       get_media_cutout_overview: { Args: never; Returns: Json }
+      get_media_cutout_provider: { Args: never; Returns: Json }
       get_monthly_analytics: {
         Args: never
         Returns: {
@@ -7859,6 +7930,17 @@ export type Database = {
         }
         Returns: Json
       }
+      media_cutout_sync_result: {
+        Args: {
+          p_model: string
+          p_provider: string
+          p_request_id: string
+          p_result_url: string
+          p_source_url: string
+          p_uncertainty: number
+        }
+        Returns: Json
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -7917,10 +7999,6 @@ export type Database = {
           o_page365_product_id: number
         }[]
       }
-      page365_inventory_create_drafts: {
-        Args: { p_item_ids: string[]; p_run_id: string }
-        Returns: Json
-      }
       page365_inventory_finish: { Args: { p_run_id: string }; Returns: Json }
       page365_inventory_follow: { Args: { p_run_id: string }; Returns: Json }
       page365_inventory_hide: {
@@ -7937,6 +8015,7 @@ export type Database = {
         Returns: Json
       }
       page365_inventory_interval_minutes: { Args: never; Returns: number }
+      page365_inventory_land_run: { Args: { p_run_id: string }; Returns: Json }
       page365_inventory_lease: {
         Args: { p_holder: string; p_run_id: string; p_seconds: number }
         Returns: boolean
@@ -7966,10 +8045,6 @@ export type Database = {
         }
         Returns: string
       }
-      page365_inventory_refresh_product: {
-        Args: { p_detail: Json; p_error: string; p_product_row_id: string }
-        Returns: Json
-      }
       page365_inventory_release: {
         Args: { p_holder: string; p_run_id: string }
         Returns: undefined
@@ -7983,6 +8058,10 @@ export type Database = {
         Returns: string
       }
       page365_invoice_holds: { Args: { p_variant_id: string }; Returns: number }
+      page365_item_kind_for: {
+        Args: { p_category: string; p_name: string }
+        Returns: string
+      }
       page365_match_line: {
         Args: { p_name: string }
         Returns: {
@@ -8166,6 +8245,14 @@ export type Database = {
           p_reason?: string
           p_transfer_due_at: string
           p_user_id?: string
+        }
+        Returns: Json
+      }
+      set_media_cutout_provider: {
+        Args: {
+          p_expected_provider?: string
+          p_price_usd?: number
+          p_provider: string
         }
         Returns: Json
       }
@@ -8410,6 +8497,7 @@ export type Database = {
         | "PT850"
         | "PM"
         | "PM900"
+        | "SILVER"
       website_product_status: "draft" | "active" | "archived"
     }
     CompositeTypes: {
@@ -8644,6 +8732,7 @@ export const Constants = {
         "PT850",
         "PM",
         "PM900",
+        "SILVER",
       ],
       website_product_status: ["draft", "active", "archived"],
     },
