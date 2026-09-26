@@ -57,3 +57,14 @@
   The report is REPORT-ONLY. Nothing re-sends automatically; a replay job
   was explicitly declined by the owner (2026-09-13).
 
+## Payment reminders (added 2026-10-04)
+
+`web-payment-reminder-sweep` sends `order-payment-due` / `layaway-deposit-due`
+through `sendStorefrontEmail`, so every attempt leaves an `email_send_log` row
+(channel `storefront`, `metadata.reference` = the order reference). Each
+reminder also has its own `web_payment_reminders` row (claimed → sent / skipped /
+failed / suppressed), and a claim that never reached the sender still shows
+there. `email_delivery_report` is NOT taught to expect reminders (plan D9);
+silence from them is normal while `web_payment_reminders_mode` is off. Staff see
+both per order under **Customer emails** (get_order_email_history).
+docs/WEB-PAYMENT-REMINDERS.md.

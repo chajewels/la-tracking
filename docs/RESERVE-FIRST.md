@@ -204,6 +204,8 @@ and again inside the RPCs where A1 does so.
   `order-cancelled` with the reason; layaway →
   `decline_web_layaway_reservation_atomic` + `layaway-declined` (English only).
 
+**Stage D and the 48h bell (2026-10-04):** a confirmed, unpaid web order or plan gets one payment reminder before its deadline, and staff get a "last day" bell at 48h unconfirmed — docs/WEB-PAYMENT-REMINDERS.md. Neither touches this sweep.
+
 **Hourly `web-reservation-sweep`** (cron `23 * * * *`, Vault pattern):
 first the 72-hour auto-cancel (`expire_unconfirmed_web_reservations_atomic`)
 with `order-reservation-lapsed` / `layaway-reservation-lapsed` to each customer

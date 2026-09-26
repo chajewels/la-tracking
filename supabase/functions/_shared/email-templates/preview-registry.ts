@@ -8,6 +8,8 @@ import { LayawayPlanCreatedEmail, layawayReadySubject } from './layaway-plan-cre
 import { OrderCancelledEmail, orderCancelledSubject } from './order-cancelled.tsx'
 import { LayawayDeclinedEmail, layawayDeclinedSubject } from './layaway-declined.tsx'
 import { OrderReservationLapsedEmail, orderReservationLapsedSubject } from './order-reservation-lapsed.tsx'
+import { OrderPaymentDueEmail, orderPaymentDueSubject } from './order-payment-due.tsx'
+import { LayawayDepositDueEmail, layawayDepositDueSubject } from './layaway-deposit-due.tsx'
 import type { OrderEmailMethod } from './order-shared.tsx'
 
 /**
@@ -135,5 +137,25 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     component: LayawayDeclinedEmail,
     subject: layawayDeclinedSubject('CJ-W-000124', 'lapsed'),
     previewData: { reference: 'CJ-W-000124', kind: 'lapsed', shopUrl },
+  },
+  // Stage D payment reminders (2026-10-04, docs/WEB-PAYMENT-REMINDERS.md).
+  // Sent by web-payment-reminder-sweep only; the layaway one has no language.
+  'storefront-order-payment-due-php-ja': {
+    displayName: 'Web order in pesos — payment reminder (JA + EN)',
+    component: OrderPaymentDueEmail,
+    subject: orderPaymentDueSubject('CJ-W-000125'),
+    previewData: { lang: 'ja', reference: 'CJ-W-000125', currency: 'PHP', amount: 27076, methods, transferDueAt: due, region: 'OVERSEAS', orderUrl },
+  },
+  'storefront-order-payment-due-en': {
+    displayName: 'Web order — payment reminder (EN)',
+    component: OrderPaymentDueEmail,
+    subject: orderPaymentDueSubject('CJ-W-000123'),
+    previewData: { lang: 'en', reference: 'CJ-W-000123', currency: 'JPY', amount: 72980, methods, transferDueAt: due, region: 'JP', orderUrl },
+  },
+  'storefront-layaway-deposit-due': {
+    displayName: 'Web layaway — deposit reminder (EN only)',
+    component: LayawayDepositDueEmail,
+    subject: layawayDepositDueSubject('CJ-W-000124'),
+    previewData: { reference: 'CJ-W-000124', currency: 'JPY', deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl },
   },
 }

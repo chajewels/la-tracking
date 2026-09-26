@@ -5337,3 +5337,20 @@ Do not reintroduce: never detach `supabase.rpc`. Call it on the client, or use
 `callUntypedRpc` for an RPC that is not yet in the generated types. A new API
 module also needs at least one test that exercises the real client with only
 the network faked, not a `vi.mock` of the module itself.
+
+### layaway-expired could go out in Japanese (2026-10-04, plan D17)
+
+`auto-expire-cash-orders` built the `layaway-expired` email with
+`lang: pickLang((plan as any).customer_lang)`. `pickLang` turns anything but
+'en' — including a missing language — into 'ja', and the template then renders
+a Japanese block about the hold and deposit (お取り置き / お申込金) first. Every
+other layaway email is English only (owner rule: nothing layaway-related in
+Japanese). Real exposure was low (the JA storefront refuses layaway), but a plan
+with a NULL `customer_lang` hit it.
+
+Fix: the call passes `lang: "en"`; the cash `order-expired` branch keeps the
+customer's language. Test: `src/test/web-payment-reminders.test.tsx`
+("D17 — layaway-expired is always English") fails if the layaway branch calls
+pickLang again. Deploy: `auto-expire-cash-orders`.
+
+Do not reintroduce: a layaway email never takes its language from the plan.

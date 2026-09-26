@@ -386,7 +386,7 @@ Deno.serve(async (req) => {
               reference,
               idempotencyKey: `layaway-expired-${(plan as any).id}`,
               element: React.createElement(LayawayExpiredEmail, {
-                lang: pickLang((plan as any).customer_lang),
+                lang: "en", // layaway emails are English only (D17): never pickLang, which reads a missing language as Japanese
                 reference,
                 currency: String((plan as any).currency ?? "JPY") as "JPY" | "PHP",
                 totalAmount: Number((plan as any).total_amount ?? 0),

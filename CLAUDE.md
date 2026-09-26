@@ -42,6 +42,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
+- docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: the five tabs (Page365 stock added 2026-09-26), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
 - Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
   and a pointer): docs/CRON-AND-EDGE-AUTH.md, docs/LOYALTY-RULES.md,
@@ -932,7 +933,8 @@ When completing a partially_paid month:
   (00:45) is independent and writes only fx_rates; `website` derives price_php
   at read time and NEVER stores a peso price. auto-expire-cash-orders (:40
   hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
-  hourly. page365-inventory-schedule runs every 5 min (2-59/5) and touches no
+  hourly. web-payment-reminder-sweep and web-reservation-expiring-bell run :13
+  hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 min (2-59/5) and touches no
   account data (docs/PAGE365-IMPORT.md "SCHEDULE"). process-email-queue has NO cron — silence means nothing is calling it,
   not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
 
@@ -1590,6 +1592,20 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     re-add an every-product stamp rule (website_products_metals_nonempty is
     retired). A Page365 listing is a watch only if Page365 itself prints the
     whole word "watch(es)" in its name or category.
+
+## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
+
+  Full text: docs/WEB-PAYMENT-REMINDERS.md.
+  - ONE transactional reminder before a confirmed, unpaid WEB order's / web
+    layaway's deadline (6h before a 24h one, 24h before a 72h one); max 2 per
+    order; web only. It never reads consent / cart-reminder / suppression data.
+  - SQL decides (web_payment_reminder_eligible, claim_ under a row lock);
+    the edge function only sends via sendStorefrontEmail. Change the TS mirror
+    (_shared/web-payment-reminder-rules.ts) with the SQL.
+  - Switch web_payment_reminders_mode off|owner_only|on (fail-closed) +
+    owner list: changed ONLY via set_web_payment_reminders (admin, audited);
+    never in a migration or SQL.
+  - Layaway emails are ENGLISH ONLY — pass lang "en", never pickLang.
 
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 

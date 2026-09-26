@@ -1460,3 +1460,19 @@ Migration `20260928100000_page365_inventory_pr2.sql`. Rules: docs/PAGE365-IMPORT
 - NEVER re-run 20260926120000 or 20260927100000 after this file: their CREATE OR REPLACE
   would silently put the pre-PR 2 bodies back. (Re-running PR 2 afterwards repairs it —
   its guard accepts the "before" bodies.)
+
+## Web payment reminders — ledger, switch, bell (added 2026-10-04)
+
+- `web_payment_reminders` (migration 20261004100000): one row per reminder,
+  `UNIQUE (entity_type, entity_id, deadline)`, columns reference / email / lang /
+  currency / amount captured under the claim's row lock, status claimed → sent |
+  skipped | failed | suppressed. RLS: staff SELECT; written only by the
+  service-role `claim_` / `finish_web_payment_reminder`.
+- `system_settings.web_payment_reminders_mode` ("off" | "owner_only" | "on",
+  fail-closed) and `web_payment_reminders_owner_addresses` (JSON array of
+  addresses / "@domain"): guarded by `trg_guard_web_payment_reminders`; the only
+  writer is `set_web_payment_reminders` (admin role, audited).
+- Staff bell type `web_reservation_expiring` (48h unconfirmed web reservation;
+  `metadata.entity_id` is the dedupe key; `cash_order_id` / `account_id` link it).
+- `email_send_log` gained the expression index `idx_email_send_log_reference`
+  on `(metadata->>'reference')` for `get_order_email_history`.
