@@ -320,11 +320,35 @@ export function createRateLimiter(perSecond: number, concurrency: number,
 }
 
 /**
+ * PR 3d — the scheduled-read interval staff choose in the Hub
+ * (system_settings.page365_inventory_interval_minutes; only 5, 10, 20 or 30).
+ * Anything else — including "not readable yet" before the migration — is 30,
+ * the pre-PR 3d cadence.
+ */
+export const SCHEDULE_INTERVALS = [5, 10, 20, 30] as const;
+export type ScheduleInterval = typeof SCHEDULE_INTERVALS[number];
+export const DEFAULT_SCHEDULE_INTERVAL: ScheduleInterval = 30;
+
+export function normalizeIntervalMinutes(v: unknown): ScheduleInterval {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  return (SCHEDULE_INTERVALS as readonly unknown[]).includes(n) ? n as ScheduleInterval : DEFAULT_SCHEDULE_INTERVAL;
+}
+
+/** The cron wakes every 5 minutes (2-59/5) and a read starts a few seconds
+ *  after its tick. A read is due once (interval − 2.5 min) has passed since the
+ *  last scheduled START: the tick one interval later always qualifies, the tick
+ *  before it never does — on time, never early. (At 30 this is 27.5 min; PR 3
+ *  used 27.) get_page365_inventory_interval() mirrors this for "next check". */
+export const SCHEDULE_SLACK_MS = 150_000;
+export const scheduleEveryMs = (minutes: ScheduleInterval): number => minutes * 60_000 - SCHEDULE_SLACK_MS;
+
+/**
  * PR 3 — what one scheduled tick (every 5 minutes) does, given the run that
  * is reading now (if any) and when the last SCHEDULED run began:
  *   skip    a staff (manual) fetch is reading — never overlap it
  *   resume  the scheduled run is still reading — read more of it
  *   wait    the last scheduled run began less than everyMs ago
+ *           (scheduleEveryMs(interval), PR 3d)
  *   start   begin a new scheduled run (an abandoned reader is closed by start)
  */
 export type ScheduleAct =

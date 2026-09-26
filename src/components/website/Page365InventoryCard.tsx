@@ -36,7 +36,7 @@ import { Page365NewProductsPanel } from "@/components/website/Page365NewProducts
  * switched to "Don't sync with Page365" sit in their own group and are never
  * proposed, applied or given photos (checked again on the server).
  *
- * PR 3: the latest run may be a SCHEDULED one (every 30 minutes). While it
+ * PR 3: the latest run may be a SCHEDULED one (every 5-30 minutes, PR 3d). While it
  * reads, this card polls instead of offering Resume as if it were stuck; a
  * staff "Fetch" joins it and takes turns with the schedule (a { busy } answer
  * waits). Its decreases may already be applied automatically (row badge
@@ -44,7 +44,7 @@ import { Page365NewProductsPanel } from "@/components/website/Page365NewProducts
  *
  * PR 3c: "Fetch Page365 inventory" is a QUICK read (the catalogue list plus
  * the pages of Hub products — seconds); "Full fetch" opens every page
- * (minutes). The schedule does the same: quick every 30 minutes, full nightly.
+ * (minutes). The schedule does the same: quick at the chosen interval (PR 3d), full nightly.
  * Increases start ticked like decreases (owner decision 2026-09-26). "New in
  * Page365" comes from the latest FULL read, labelled "as of" it; codes gone
  * from the latest list are greyed out there.

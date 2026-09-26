@@ -1384,6 +1384,27 @@ Migration `20261002100000_page365_quick_fetch.sql`. Rules: docs/PAGE365-IMPORT.m
 - New item notes: `gone_from_page365` (fresh read: listing/variant left Page365). New
   create_drafts reasons: `not_full_fetch`, `not_fresh`, `gone_from_page365`.
 
+## Page365 schedule interval + time-safe hide (added 2026-10-03)
+
+Migration `20261003100000_page365_interval.sql`. Rules: docs/PAGE365-IMPORT.md "INTERVAL".
+
+- `system_settings.page365_inventory_interval_minutes` — JSON NUMBER, only `5 | 10 | 20 | 30`
+  (table CHECK `system_settings_page365_interval_check`; a JSON string is refused). Seeded 30.
+  Trigger `trg_guard_page365_inventory_interval` (`guard_page365_inventory_interval()`,
+  bypass GUC `app.allow_page365_interval_change`) refuses UPDATE/DELETE of the value outside
+  the setter. `updated_by_user_id` / `updated_at` stamped by the setter.
+- `set_page365_inventory_interval(p_minutes integer, p_expected integer DEFAULT NULL)` →
+  jsonb (`ok, changed, minutes, old_minutes` | `error`: user_identity_required,
+  permission_denied, invalid_interval, setting_missing, stale). authenticated;
+  `manage_website_catalog` checked inside. Audit: `audit_logs` action
+  `set_page365_inventory_interval`, entity_type `system_setting`, old/new `minutes`.
+- `get_page365_inventory_interval()` → jsonb (`minutes, allowed, updated_at,
+  updated_by_user_id, updated_by_name, last_scheduled_at, reading ('schedule'|'manual'|null),
+  next_check_at, can_change`). authenticated + service role; `manage_website_catalog`.
+- `page365_inventory_interval_minutes()` → integer (30 if missing). Service role only.
+- `page365_inventory_follow` redefined from live (md5 9c99a035… → 6e265684…): step (d) adds
+  `pr.last_seen_at <= v_run.created_at - interval '30 minutes'`. Nothing else changed.
+
 ## Page365 drafts — source columns and publish rules (added 2026-09-28)
 
 Migration `20260929100000_page365_inventory_drafts.sql`. Rules: docs/PAGE365-IMPORT.md "DRAFTS".
