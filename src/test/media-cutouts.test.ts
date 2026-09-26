@@ -66,7 +66,10 @@ describe("quality checks on the eight real photos", () => {
   });
 
   it("the clean cut-outs pass (AL112 on a black vignette backdrop too — no false 'detail loss')", () => {
-    for (const n of ["al112", "al3", "r7828", "r3341"]) {
+    // al3 is judged with its original in media-cutouts-photoroom.test.ts: this
+    // fixture has none, and without it the bail's opening is held as
+    // "interior_hole_unchecked" (asserted there).
+    for (const n of ["al112", "r7828", "r3341"]) {
       const qa = verdictOf(n);
       expect(qa.status, n).toBe("ok");
       expect(qa.flags, n).toEqual([]);
@@ -413,12 +416,16 @@ describe("fal adapter", () => {
 
 describe("provider choice and the Replicate backup", () => {
   const envOf = (m: Record<string, string>) => (k: string) => m[k];
-  it("fal when FAL_KEY is set; Replicate only as backup (token + version) or when forced; null when nothing is set", () => {
-    expect(pickProvider(envOf({ FAL_KEY: "k" }))?.name).toBe("fal");
-    expect(pickProvider(envOf({ REPLICATE_API_TOKEN: "t", REPLICATE_BIREFNET_VERSION: "v" }))?.name).toBe("replicate");
-    expect(pickProvider(envOf({ FAL_KEY: "k", REPLICATE_API_TOKEN: "t", REPLICATE_BIREFNET_VERSION: "v" }))?.name).toBe("fal");
-    expect(pickProvider(envOf({ FAL_KEY: "k", REPLICATE_API_TOKEN: "t", REPLICATE_BIREFNET_VERSION: "v", CUTOUT_PROVIDER: "replicate" }))?.name).toBe("replicate");
-    expect(pickProvider(envOf({ REPLICATE_API_TOKEN: "t" }))).toBeNull();
+  it("the SETTING picks the provider (Photoroom by default); fal / Replicate only when selected and keyed", () => {
+    const all = { PHOTOROOM_API_KEY: "p", FAL_KEY: "k", REPLICATE_API_TOKEN: "t", REPLICATE_BIREFNET_VERSION: "v" };
+    expect(pickProvider(envOf(all))?.name).toBe("photoroom");
+    expect(pickProvider(envOf(all), "photoroom")?.name).toBe("photoroom");
+    expect(pickProvider(envOf(all), "fal")?.name).toBe("fal");
+    expect(pickProvider(envOf(all), "replicate")?.name).toBe("replicate");
+    // FAL_KEY alone never makes a fal call: the default is Photoroom, unkeyed → nothing.
+    expect(pickProvider(envOf({ FAL_KEY: "k" }))).toBeNull();
+    expect(pickProvider(envOf({ FAL_KEY: "k" }), "garbage")).toBeNull();
+    expect(pickProvider(envOf({ REPLICATE_API_TOKEN: "t" }), "replicate")).toBeNull();
     expect(pickProvider(envOf({}))).toBeNull();
   });
 
@@ -464,5 +471,6 @@ describe("media-cutout-worker", () => {
       expect(line).not.toMatch(/FAL_KEY|REPLICATE_API_TOKEN|env\(/);
     }
     expect(src(MIGRATION)).not.toMatch(/FAL_KEY/);
+    expect(w).not.toMatch(/console\.(log|error|warn)\([^)]*PHOTOROOM_API_KEY/);
   });
 });

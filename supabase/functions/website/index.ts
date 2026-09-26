@@ -1769,7 +1769,6 @@ async function handle(req: Request, requestId: string): Promise<Response> {
             reference: String(plan.web_reference),
             idempotencyKey: `layaway-plan-created-${plan.account_id}`,
             element: React.createElement(LayawayPlanCreatedEmail, {
-              lang,
               reference: String(plan.web_reference),
               currency,
               totalAmount: Number(plan.total ?? 0),

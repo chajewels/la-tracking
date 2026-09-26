@@ -250,16 +250,19 @@ describe("48h staff bell", () => {
 });
 
 describe("D17 — layaway-expired is always English", () => {
-  it("auto-expire-cash-orders sends it with lang \"en\", never pickLang(customer_lang)", () => {
+  it("auto-expire-cash-orders sends it with no lang at all, never pickLang(customer_lang)", () => {
     const src = stripComments(code("supabase/functions/auto-expire-cash-orders/index.ts"));
     const branch = src.slice(src.indexOf('label: "layaway-expired"'), src.indexOf("layawayResults.push"));
-    expect(branch).toMatch(/React\.createElement\(LayawayExpiredEmail, \{\s+lang: "en",/);
+    expect(branch).toMatch(/React\.createElement\(LayawayExpiredEmail, \{\s+reference,/);
+    expect(branch).not.toMatch(/\blang\b/);
     expect(src).not.toMatch(/pickLang\(\(plan as any\)\.customer_lang\)/);
     // The cash branch keeps the customer's language.
     expect(src).toMatch(/lang: pickLang\(\(order as any\)\.customer_lang\)/);
   });
-  it("the template renders Japanese only when asked for 'ja'", () => {
-    expect(code("supabase/functions/_shared/email-templates/layaway-expired.tsx")).toMatch(/\{p\.lang === 'ja' && \(/);
+  it("the template has no lang prop and no Japanese (owner rule 2026-09-27)", () => {
+    const t = code("supabase/functions/_shared/email-templates/layaway-expired.tsx");
+    expect(t).not.toMatch(/p\.lang/);
+    expect(t).not.toMatch(/[\u3040-\u30ff\u4e00-\u9fff]/);
   });
 });
 

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -24,9 +25,11 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  addTestBatch, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE, type CutoutFilter,
-  type CutoutMode, type CutoutOverview, type CutoutRow, describeFlag, FILTERS, getOverview, hasTransparency,
-  isPublishable, listCutouts, MODE_TEXT, parseSkus, publicUrl, refusalText, review, type ReviewAction, runNow,
+  addTestBatch, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
+  CUTOUT_PROVIDER_KEY as PROVIDER_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
+  type CutoutProviderSetting, type CutoutRow, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS, formatUsd,
+  getOverview, getProvider, hasTransparency, isPublishable, listCutouts, MODE_TEXT, parseSkus, PROVIDER_LABEL,
+  PROVIDER_TEXT, type ProviderName, publicUrl, refusalText, review, type ReviewAction, runNow, setProvider,
   setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
 
@@ -35,7 +38,7 @@ import {
  *
  * Every photo added to the catalogue is queued (keyed by its URL, so the
  * Catalog save's delete-and-reinsert of media rows never loses a verdict).
- * The worker runs every 2 minutes and obeys the switch here — Off / Test / On,
+ * The worker runs every minute and obeys the switch here — Off / Test / On,
  * failing to Off — and the monthly limit. Each result gets an automatic
  * verdict; only OK / Auto-fixed / Approved will ever be shown on the website
  * (PR 2). Staff approve, re-run, reject or upload their own cut-out here.
@@ -65,9 +68,19 @@ export function MediaCutoutSettingsCard() {
   const [batchName, setBatchName] = useState("Test 30");
   const [skuText, setSkuText] = useState("");
   const [mainOnly, setMainOnly] = useState(false);
+  const [priceDraft, setPriceDraft] = useState<string>("");
+  // Absent until migration 20261007100000 runs: the card then assumes the
+  // code's default (Photoroom at its list price) for the estimate.
+  const providerQ = useQuery<CutoutProviderSetting>({
+    queryKey: PROVIDER_KEY, queryFn: getProvider, staleTime: 60_000, retry: false,
+  });
+  const prov = providerQ.data;
+  const provider: ProviderName = prov?.provider ?? "photoroom";
+  const price = prov ? prov.price_usd : DEFAULT_PRICE_USD.photoroom;
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
+    qc.invalidateQueries({ queryKey: PROVIDER_KEY });
     qc.invalidateQueries({ queryKey: [LIST_KEY] });
   };
 
@@ -76,6 +89,16 @@ export function MediaCutoutSettingsCard() {
     onSuccess: out => {
       toast.success(`Background removal: ${out.mode.toUpperCase()}, up to ${out.cap.toLocaleString()} photos a month. Saved to the audit log.`);
       setCapDraft("");
+    },
+    onError: e => toast.error(refusalText(e)),
+    onSettled: refresh,
+  });
+
+  const saveProvider = useMutation({
+    mutationFn: (v: { provider: ProviderName | null; price: number | null }) => setProvider(v.provider, v.price, prov?.provider ?? null),
+    onSuccess: out => {
+      toast.success(`Background removal provider: ${PROVIDER_LABEL[out.provider]}, ${out.price_usd == null ? "price unknown" : `$${out.price_usd} a photo`}. Saved to the audit log.`);
+      setPriceDraft("");
     },
     onError: e => toast.error(refusalText(e)),
     onSettled: refresh,
@@ -107,6 +130,8 @@ export function MediaCutoutSettingsCard() {
   const capValid = capValue !== null && Number.isInteger(capValue) && capValue >= 0 && capValue <= 100_000;
   const usedPct = data && data.cap > 0 ? Math.min(100, Math.round((data.used / data.cap) * 100)) : 0;
   const tick = data?.last_tick ?? null;
+  const priceValue = priceDraft === "" ? null : Number(priceDraft);
+  const priceValid = priceValue !== null && Number.isFinite(priceValue) && priceValue >= 0 && priceValue <= 10;
 
   return (
     <Card>
@@ -163,12 +188,65 @@ export function MediaCutoutSettingsCard() {
               )}
             </div>
 
+            <div className="space-y-2" data-testid="cutout-provider">
+              <Label htmlFor="cutout-provider-select">Provider</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={provider}
+                  disabled={!prov || saveProvider.isPending || !data.can_change}
+                  onValueChange={v => { if (v !== provider) saveProvider.mutate({ provider: v as ProviderName, price: null }); }}
+                >
+                  <SelectTrigger id="cutout-provider-select" className="h-8 w-56" aria-label="Background removal provider">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(PROVIDER_LABEL) as ProviderName[]).map(p => (
+                      <SelectItem key={p} value={p}>{PROVIDER_LABEL[p]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground tabular-nums" data-testid="cutout-price">
+                  {price == null ? "Price per photo unknown" : `$${price} a photo`}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{PROVIDER_TEXT[provider]}</p>
+              {prov ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="cutout-price-input" className="text-xs">Price per photo (US$, for the estimate)</Label>
+                  <Input
+                    id="cutout-price-input" inputMode="decimal" className="h-8 w-24" placeholder={price == null ? "—" : String(price)}
+                    value={priceDraft} onChange={e => setPriceDraft(e.target.value.replace(/[^0-9.]/g, ""))}
+                    disabled={!data.can_change}
+                  />
+                  <Button size="sm" variant="outline" disabled={!priceValid || saveProvider.isPending}
+                          onClick={() => saveProvider.mutate({ provider: null, price: priceValue })}>
+                    Save price
+                  </Button>
+                </div>
+              ) : !providerQ.isLoading && (
+                <p className="text-xs text-muted-foreground" data-testid="cutout-provider-missing">
+                  The provider setting appears once the Photoroom migration has been run.
+                </p>
+              )}
+              {prov?.updated_by_name && (
+                <p className="text-xs text-muted-foreground">
+                  Last changed {prov.updated_at ? formatPHTDisplay(prov.updated_at) : ""} by {prov.updated_by_name}.
+                </p>
+              )}
+            </div>
+
             <div className="space-y-2" data-testid="cutout-usage">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <Label>This month ({data.month})</Label>
                 <span className="tabular-nums">{data.used.toLocaleString()} of {data.cap.toLocaleString()} photos</span>
               </div>
               <Progress value={usedPct} aria-label="Photos sent this month" />
+              <p className="text-xs text-muted-foreground" data-testid="cutout-cost">
+                Estimated cost: {formatUsd(estimateCost(data.used, price))} so far this month
+                {" "}({data.used.toLocaleString()} × {price == null ? "?" : `$${price}`});
+                {" "}at most {formatUsd(estimateCost(data.cap, price))} at the limit. An estimate — the provider's own
+                dashboard is the bill.
+              </p>
               <p className="text-xs text-muted-foreground">
                 A bell rings at 80%. At the limit, sending pauses until next month; nothing is lost.
               </p>
@@ -194,7 +272,7 @@ export function MediaCutoutSettingsCard() {
               <span>
                 {data.last_tick_at
                   ? <>Last run {formatPHTDisplay(data.last_tick_at)}{tick ? ` — ${Number(tick.submitted ?? 0)} sent, ${Number(tick.ready ?? 0)} back, ${Number(tick.errors ?? 0)} errors` : ""}.</>
-                  : <>Not run yet. It runs every 2 minutes while the switch is on.</>}
+                  : <>Not run yet. It runs every minute while the switch is on.</>}
               </span>
               {data.cpu_ms_p95 !== null && (
                 <span>Processing time p95 {Math.round(Number(data.cpu_ms_p95))} ms (limit 2,000){data.cpu_fallbacks ? `; ${data.cpu_fallbacks} stored as cut-out only` : ""}.</span>
@@ -239,8 +317,9 @@ export function MediaCutoutSettingsCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Turn background removal on for every photo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every queued photo will be sent — main photos of live products first — up to {data?.cap.toLocaleString()} a
-              month. Doubtful results wait here for review; nothing unapproved is shown on the website.
+              Every queued photo will be sent to {PROVIDER_LABEL[provider]} — main photos of live products first — up to
+              {" "}{data?.cap.toLocaleString()} a month (at most about {formatUsd(estimateCost(data?.cap ?? 0, price))}). Doubtful
+              results wait here for review; nothing unapproved is shown on the website.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
