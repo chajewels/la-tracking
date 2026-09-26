@@ -15,11 +15,11 @@ describe("page365-drafts-api reaches PostgREST through a bound client", () => {
     }));
   });
 
-  it("createDrafts posts to rpc/page365_inventory_create_drafts", async () => {
-    const { createDrafts } = await import("@/lib/page365-drafts-api");
-    const r = await createDrafts("00000000-0000-0000-0000-000000000001", ["00000000-0000-0000-0000-000000000002"]);
-    expect(r.ok).toBe(true);
-    expect(calls.some(u => u.includes("/rest/v1/rpc/page365_inventory_create_drafts"))).toBe(true);
+  it("listLandings reads page365_landings (2026-09-26: Create drafts is gone)", async () => {
+    const api = await import("@/lib/page365-drafts-api");
+    expect("createDrafts" in api).toBe(false);
+    await api.listLandings(5).catch(() => undefined);
+    expect(calls.some(u => u.includes("/rest/v1/page365_landings"))).toBe(true);
   });
 
   it("publishProducts posts to rpc/website_publish_products", async () => {
@@ -38,12 +38,6 @@ describe("page365-drafts-api surfaces the PostgREST error message unchanged", ()
       new Response(JSON.stringify({ code: "42501", message: "permission denied for function x", details: null, hint: null }), {
         status: 403, headers: { "Content-Type": "application/json" },
       })));
-  });
-
-  it("createDrafts rejects with the server's message", async () => {
-    const { createDrafts } = await import("@/lib/page365-drafts-api");
-    await expect(createDrafts("00000000-0000-0000-0000-000000000001", []))
-      .rejects.toMatchObject({ message: "permission denied for function x" });
   });
 
   it("publishProducts rejects with the server's message", async () => {

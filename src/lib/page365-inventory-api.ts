@@ -86,19 +86,6 @@ export interface PhotoResult {
 export const copyPhotos = (runId: string, itemIds: string[], skip: string[]) =>
   invoke<PhotoResult>('page365-inventory-photos', { run_id: runId, item_ids: itemIds, skip });
 
-/** PR 3c — Create drafts reads its ticked listings FRESH first. Call until
- *  remaining is 0; `skip` = listing rows that already failed this press. */
-export interface RefreshResult {
-  busy: boolean;
-  refreshed: number;
-  gone: number;
-  failed: { product_row_id: string; page365_product_id: number; reason: string }[];
-  remaining: number;
-}
-
-export const refreshForDrafts = (runId: string, itemIds: string[], skip: string[]) =>
-  invoke<RefreshResult>('page365-inventory-fetch', { action: 'refresh', run_id: runId, item_ids: itemIds, skip });
-
 /** PR 3 — the automatic switch (automatic updates: decreases, increases,
  *  hiding since PR 3c; at the chosen interval since PR 3d). Both RPCs ship in
  *  migration 20260930100000_page365_inventory_schedule and are not in

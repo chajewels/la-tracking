@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import {
   findListing, mainGalleryPhoto, readCatalogueList, type GetJson,
 } from "../../supabase/functions/_shared/page365-inventory.ts";
@@ -137,7 +138,8 @@ describe("A. the switch is enforced on the server", () => {
     expect(PR2).not.toMatch(/sku\s*(=|IN)\s*\(?'N4020'/);
   });
   it("the photo copier skips a switched-off product before any download", () => {
-    const s = src("supabase/functions/page365-inventory-photos/index.ts");
+    // 2026-09-26: the copy lives in the shared copier (staff photos + landed backlog).
+    const s = src("supabase/functions/_shared/page365-photo-copy.ts");
     expect(s).toContain('.select("id, page365_sync_disabled").in("id", productIds)');
     expect(s).toContain("if (!it.variant_id || notSynced(it)) continue;");
   });
@@ -318,9 +320,9 @@ describe("Page365InventoryCard — Not synced group", () => {
   it("lists the switched-off piece in its own group, without a tick box", async () => {
     const { Page365InventoryCard } = await import("@/components/website/Page365InventoryCard");
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Page365InventoryCard />
-      </QueryClientProvider>,
+      </QueryClientProvider></MemoryRouter>,
     );
     const heading = await screen.findByText("Not synced");
     const section = heading.closest("section")!;
