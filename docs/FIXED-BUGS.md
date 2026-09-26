@@ -5389,3 +5389,31 @@ the PR).
 
 Do not reintroduce: never render an email with `renderAsync`, and never decode
 a byte stream chunk by chunk without `{ stream: true }`.
+
+### Page365 import: existing customer not suggested — Facebook name and dashed phones ignored (2026-09-26)
+
+Invoice 19794: Page365 sent the Facebook name "Ako Si Vines" and phone
+`949-247-9913`; the Hub customer is full_name "Venus Paragatos", facebook_name
+"Ako Si Vines", mobile `949-247-9913` — the same text. The review page still
+showed "No existing customer matched", and staff renamed the customer's Full
+Name to get a match.
+
+Two holes in `src/pages/Page365Review.tsx`: (1) the name was searched in
+`full_name` only (`facebook_name` loaded, never searched) — 101 customers have
+a Facebook name that differs from their Full Name; (2) the phone was a
+database text filter `mobile_number ILIKE '%<last 9 digits>%'`, so a stored
+number with dashes or spaces could never be found even when identical — 210
+of 886 stored phones. Also: the query error was ignored (a Page365 name with a
+comma or brackets would have broken the whole `.or()` filter silently), and a
+common name could push a phone match past the `.limit(10)`.
+
+Fix: `src/lib/page365-customer-match.ts` matches in code over the whole
+customer directory (paged 1,000): name against full_name AND facebook_name;
+phone on digits only (identical digits, or last 9 when both have >= 9). Phone
+matches listed first, never cut off. New "Find a customer" search (name,
+Facebook name, email, customer code, phone digits). A failed load now says so.
+"Create new customer" seeds Facebook Name too (`initialFacebookName` on
+NewCustomerDialog). Tests: `src/test/page365-customer-match.test.ts`.
+
+Do not reintroduce: never match a phone with a text filter on the stored
+number; compare digits only. Never search the Page365 name in full_name alone.

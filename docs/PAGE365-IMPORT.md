@@ -87,8 +87,23 @@
   button's "From Page365" opens a paste box; a successful fetch navigates to
   `/page365/review/:draftId`, where every parsed field is editable before
   anything is created. The customer is SUGGESTED, never auto-selected — matches
-  are listed with the basis shown (name / phone / name + phone) because live
-  phone data is only 80 clean E.164 of 891, with 10 colliding digit-groups.
+  are listed with the basis shown (name / facebook name / phone, combined with
+  " + ") because live phone data is only 80 clean E.164 of 891, with 10
+  colliding digit-groups. CUSTOMER MATCHING (owner rules 2026-09-26, after
+  invoice 19794 found no one): the Page365 name is checked against full_name
+  AND facebook_name (contains, case/space-insensitive); a phone matches
+  whenever the DIGITS are identical — dashes, spaces or any other character
+  never stop it (identical digits, or the last 9 when both have >= 9; minimum 7
+  digits). Matching runs IN CODE on the whole customer directory
+  (src/lib/page365-customer-match.ts, paged 1,000 at a time) — never a text
+  filter on the stored number, which cannot see "492479913" inside
+  "949-247-9913" (210 of 886 stored phones have separators). Phone matches are
+  listed first and never cut off; name-only matches cap at 10. A "Find a
+  customer" box searches full name, Facebook name, email, customer code and
+  phone digits. Page365 sends no email, so email is search-only. If the
+  directory cannot load, the page says so instead of "no match". "Create new
+  customer" seeds BOTH Full Name and Facebook Name with the Page365 name, so
+  the duplicate check catches a customer saved under that Facebook name.
   Item notes are displayed beside their line and never parsed. A RESIZE FEE
   arrives flagged `kind: 'service'` and the CSR can move any line between
   product and service; the loyalty basis sent to the creating function is the

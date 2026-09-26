@@ -21,6 +21,7 @@ import {
   CHIP_CLASS, flaggedTitle, importSummary, previewChip, stockModeFrom,
   type ImportStockResult, type Page365StockMatch,
 } from '@/lib/page365-stock';
+import { suggestCustomers, searchCustomers, MIN_SEARCH_LENGTH } from '@/lib/page365-customer-match';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The draft, exactly as page365-fetch-order returns it. Money is ALWAYS yen
@@ -118,13 +119,30 @@ type OrderType = 'cash' | 'layaway';
 type PlanMonths = 3 | 6 | 8 | 10 | 12;
 const PLAN_OPTIONS: PlanMonths[] = [3, 6, 8, 10, 12];
 
-/** How a suggested customer was matched — shown so the CSR can judge it. */
-type MatchBasis = 'name' | 'phone' | 'name + phone';
-interface Suggestion { customer: DbCustomer; basis: MatchBasis }
+/** Columns loaded for the customer directory the suggestions and search run on. */
+const CUSTOMER_DIRECTORY_COLUMNS =
+  'id, full_name, mobile_number, email, facebook_name, messenger_link, location, customer_code';
+/** PostgREST returns at most 1,000 rows per request; the directory pages through. */
+const DIRECTORY_PAGE = 1000;
 
-/** Digits only, so "+63 917 123 4567" and "09171234567" compare sensibly. */
-function digits(s: string | null | undefined): string {
-  return (s ?? '').replace(/\D/g, '');
+/**
+ * Every customer, for matching in code. Phones are compared on digits only
+ * (src/lib/page365-customer-match.ts), which a database text filter cannot do
+ * on a stored "949-247-9913" — the reason invoice 19794 found no one.
+ */
+async function loadCustomerDirectory(): Promise<DbCustomer[]> {
+  const all: DbCustomer[] = [];
+  for (let from = 0; ; from += DIRECTORY_PAGE) {
+    const { data, error } = await supabase
+      .from('customers')
+      .select(CUSTOMER_DIRECTORY_COLUMNS)
+      .order('id', { ascending: true })
+      .range(from, from + DIRECTORY_PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = ((data as unknown) || []) as DbCustomer[];
+    all.push(...rows);
+    if (rows.length < DIRECTORY_PAGE) return all;
+  }
 }
 
 /** Surface the edge function's JSON error body (FunctionsHttpError wraps it). */
@@ -138,6 +156,28 @@ async function readFnError(error: unknown, fallback: string): Promise<string> {
     }
   } catch { /* keep the generic */ }
   return msg;
+}
+
+/** One pickable customer — used by the suggestions and the manual search. */
+function CustomerOption({ c, badge, onUse }: { c: DbCustomer; badge?: string; onUse: () => void }) {
+  const fb = (c.facebook_name ?? '').trim();
+  const showFb = !!fb && fb.toLowerCase() !== (c.full_name ?? '').trim().toLowerCase();
+  return (
+    <div className="rounded-lg border border-border bg-background p-3 flex items-center justify-between gap-3">
+      <div className="text-sm min-w-0">
+        <p className="text-card-foreground truncate">{c.full_name}</p>
+        {showFb && <p className="text-xs text-muted-foreground truncate">FB: {fb}</p>}
+        <p className="text-xs text-muted-foreground truncate">
+          {c.mobile_number || 'no phone on file'}
+          {c.customer_code ? ` · ${c.customer_code}` : ''}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {badge && <Badge variant="outline" className="text-[10px]">{badge}</Badge>}
+        <Button size="sm" variant="outline" onClick={onUse}>Use this</Button>
+      </div>
+    </div>
+  );
 }
 
 export default function Page365Review() {
@@ -354,37 +394,33 @@ export default function Page365Review() {
   const monthlyAmount = previewInstallments[0] ?? 0;
   const lastAmount = previewInstallments[previewInstallments.length - 1] ?? 0;
 
-  /* ── Customer suggestions: name OR phone, same shape as NewAccount's search,
-   *    but each result carries WHY it matched and nothing is auto-selected. ─ */
-  const { data: suggestions } = useQuery({
-    queryKey: ['page365-customer-suggestions', draft?.customer?.name, draft?.customer?.phone],
+  /* ── Customer suggestions (owner rules 2026-09-26): the Page365 name is
+   *    checked against full name AND Facebook name; a phone matches whenever
+   *    the digits are identical, whatever dashes/spaces sit between them.
+   *    Matching runs in code on the whole directory (never a text filter on
+   *    the stored number), phone matches are never cut off, each result says
+   *    WHY it matched, and nothing is auto-selected. ─────────────────────── */
+  const {
+    data: customerDirectory,
+    isLoading: directoryLoading,
+    error: directoryError,
+  } = useQuery({
+    queryKey: ['page365-customer-directory'],
     enabled: !!draft,
     staleTime: 60_000,
-    queryFn: async (): Promise<Suggestion[]> => {
-      const name = draft!.customer.name?.trim() ?? '';
-      const phoneDigits = digits(draft!.customer.phone);
-      const filters: string[] = [];
-      if (name) filters.push(`full_name.ilike.%${name}%`);
-      // Match on the last 9 digits so +63/0 prefixes do not defeat it.
-      if (phoneDigits.length >= 7) filters.push(`mobile_number.ilike.%${phoneDigits.slice(-9)}%`);
-      if (filters.length === 0) return [];
-      const { data } = await supabase
-        .from('customers')
-        .select('id, full_name, mobile_number, email, facebook_name, messenger_link, location, customer_code')
-        .or(filters.join(','))
-        .order('full_name', { ascending: true })
-        .limit(10);
-      const rows = ((data as unknown) || []) as DbCustomer[];
-      const wantName = name.toLowerCase();
-      return rows.map((c) => {
-        const nameHit = !!wantName && (c.full_name ?? '').toLowerCase().includes(wantName);
-        const phoneHit =
-          phoneDigits.length >= 7 && digits(c.mobile_number).endsWith(phoneDigits.slice(-9));
-        const basis: MatchBasis = nameHit && phoneHit ? 'name + phone' : phoneHit ? 'phone' : 'name';
-        return { customer: c, basis };
-      });
-    },
+    queryFn: loadCustomerDirectory,
   });
+  const suggestions = useMemo(
+    () => (draft && customerDirectory
+      ? suggestCustomers(customerDirectory, draft.customer.name, draft.customer.phone)
+      : []),
+    [draft, customerDirectory],
+  );
+  const [customerSearch, setCustomerSearch] = useState('');
+  const searchResults = useMemo(
+    () => (customerDirectory ? searchCustomers(customerDirectory, customerSearch) : []),
+    [customerDirectory, customerSearch],
+  );
 
   /* ── Loyalty basis: PRODUCT lines MINUS the discount, always yen. A service
    *    (a resize fee) is labour the customer paid for and must never inflate
@@ -609,24 +645,46 @@ export default function Page365Review() {
               <p className="text-xs text-muted-foreground">
                 Suggested matches — none is selected for you. Check the phone before choosing.
               </p>
-              {(suggestions ?? []).length === 0 && (
-                <p className="text-sm text-muted-foreground">No existing customer matched.</p>
+              {directoryLoading && (
+                <p className="text-sm text-muted-foreground">Looking for existing customers…</p>
               )}
-              {(suggestions ?? []).map(({ customer: c, basis }) => (
-                <div key={c.id} className="rounded-lg border border-border bg-background p-3 flex items-center justify-between gap-3">
-                  <div className="text-sm min-w-0">
-                    <p className="text-card-foreground truncate">{c.full_name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {c.mobile_number || 'no phone on file'}
-                      {c.customer_code ? ` · ${c.customer_code}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline" className="text-[10px]">matched on {basis}</Badge>
-                    <Button size="sm" variant="outline" onClick={() => setCustomer(c)}>Use this</Button>
-                  </div>
-                </div>
+              {directoryError && (
+                <p className="text-sm text-destructive">
+                  Could not load customers, so no match check ran — do not create a new customer yet.
+                  Refresh the page and try again. ({(directoryError as Error).message})
+                </p>
+              )}
+              {!directoryLoading && !directoryError && suggestions.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No existing customer matched on name, Facebook name or phone. Search below before creating one.
+                </p>
+              )}
+              {suggestions.map(({ customer: c, basis }) => (
+                <CustomerOption
+                  key={c.id}
+                  c={c}
+                  badge={`matched on ${basis.join(' + ')}`}
+                  onUse={() => setCustomer(c)}
+                />
               ))}
+
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="page365-customer-search" className="text-xs">Find a customer</Label>
+                <Input
+                  id="page365-customer-search"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  placeholder="Search name, Facebook name, phone, email or customer code"
+                  disabled={!customerDirectory}
+                />
+                {customerSearch.trim().length >= MIN_SEARCH_LENGTH && searchResults.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No customer found for “{customerSearch.trim()}”.</p>
+                )}
+                {searchResults.map((c) => (
+                  <CustomerOption key={`s-${c.id}`} c={c} onUse={() => setCustomer(c)} />
+                ))}
+              </div>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -1009,6 +1067,10 @@ export default function Page365Review() {
           open={newCustomerOpen}
           onOpenChange={setNewCustomerOpen}
           initialFullName={draft.customer.name}
+          // Page365 usually carries the Facebook name (owner decision
+          // 2026-09-26), so it seeds Facebook Name too and the duplicate
+          // check catches a customer already saved under it.
+          initialFacebookName={draft.customer.name}
           onCreated={(c) => { setCustomer(c); setNewCustomerOpen(false); }}
         />
       </div>

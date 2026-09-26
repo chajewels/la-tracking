@@ -23,9 +23,11 @@ interface NewCustomerDialogProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   initialFullName?: string;
+  /** Seeds Facebook Name when the dialog opens (Page365 import passes the invoice name). */
+  initialFacebookName?: string;
 }
 
-export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChange, initialFullName }: NewCustomerDialogProps) {
+export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChange, initialFullName, initialFacebookName }: NewCustomerDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = open !== undefined;
   const isOpen = isControlled ? open : internalOpen;
@@ -37,7 +39,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
   const { user } = useAuth();
 
   const [fullName, setFullName] = useState(initialFullName ?? '');
-  const [facebookName, setFacebookName] = useState('');
+  const [facebookName, setFacebookName] = useState(initialFacebookName ?? '');
   const [messengerLink, setMessengerLink] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [email, setEmail] = useState('');
@@ -59,6 +61,13 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       setFullName(initialFullName);
     }
   }, [isOpen, initialFullName]);
+
+  // Same rule for Facebook Name.
+  useEffect(() => {
+    if (isOpen && initialFacebookName) {
+      setFacebookName(initialFacebookName);
+    }
+  }, [isOpen, initialFacebookName]);
 
   // A match list belongs to one attempt; never show it on a reopened dialog.
   useEffect(() => {
