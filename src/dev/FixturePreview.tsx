@@ -277,6 +277,8 @@ export default function FixturePreview() {
       // category) and a Hub-made product — Website → Catalog, hub view.
       // PR 2: N4020 switched to "Don't sync with Page365" is in the same list.
       seed(['page365-inventory-list-categories', inv.run.id], inv.listCategories);
+      // 2026-09-26: "Landed in Catalog" — new products that landed by themselves.
+      seed(['page365-landings'], buildLandedFixtures());
       seed(['website-products'], [...buildCatalogDraftFixtures(), ...buildCatalogSyncFixtures(), ...buildCatalogHiddenFixtures()]);
       // PR 3b: the draft the Hub hid because Page365 stopped listing it.
       seed(['page365-hidden-products'], new Map([['fixture-wp-zt9300', '2026-10-01T02:05:00Z']]));
@@ -1419,5 +1421,29 @@ function buildCatalogSyncFixtures() {
     product('fixture-wp-r7828', 'R7828', 'Ring 750YG/WG 19.0g Diamond 2.70ct', false, 1),
     // Owner decision 2026-09-28: a watch needs no metal stamp.
     { ...product('fixture-wp-w9001', 'W9001', 'Rolex Datejust 36mm Steel', false, 1), item_kind: 'watch', metals: [] },
+  ];
+}
+
+/** 2026-09-26: rows of "Landed in Catalog" (page365_landings + product). */
+function buildLandedFixtures() {
+  const p = (id: string, sku: string, name: string, kind: string, over: Record<string, unknown> = {}) => ({
+    id, sku, name, status: 'draft', origin: 'UNKNOWN', brand: null, metals: [], item_kind: kind,
+    website_category_products: [], website_product_variants: [{ price_jpy: 42000 }], ...over,
+  });
+  return [
+    { product_id: 'fx-l1', code: 'W3356', name: 'W3356 Wallet Gucci GG Marmont Long Wallet [Preloved]', item_kind: 'accessory',
+      landed_at: '2026-09-26T00:40:00Z', photos_total: 4, photos_done_at: null, photo_failures: 0,
+      website_products: p('fx-l1', 'W3356', 'W3356 Wallet Gucci GG Marmont Long Wallet [Preloved]', 'accessory') },
+    { product_id: 'fx-l2', code: 'N3178', name: 'N3178 Necklace SV 8.50g Emerald 48cm [Preloved]', item_kind: 'jewelry',
+      landed_at: '2026-09-26T00:40:00Z', photos_total: 3, photos_done_at: '2026-09-26T00:45:00Z', photo_failures: 0,
+      website_products: p('fx-l2', 'N3178', 'N3178 Necklace SV 8.50g Emerald 48cm [Preloved]', 'jewelry', { metals: ['SILVER'] }) },
+    { product_id: 'fx-l3', code: 'NS100', name: 'NS100 Necklace Spinel 17mm 100cm Necktie', item_kind: 'jewelry',
+      landed_at: '2026-09-26T00:40:00Z', photos_total: 2, photos_done_at: '2026-09-26T00:45:00Z', photo_failures: 1,
+      website_products: p('fx-l3', 'NS100', 'NS100 Necklace Spinel 17mm 100cm Necktie', 'jewelry',
+        { origin: 'JAPAN', website_category_products: [{ category_id: 'cat-rings' }] }) },
+    { product_id: 'fx-l4', code: 'WT100', name: 'WT100 Rolex Datejust 36mm [Preloved]', item_kind: 'watch',
+      landed_at: '2026-09-25T18:40:00Z', photos_total: 5, photos_done_at: '2026-09-25T18:50:00Z', photo_failures: 0,
+      website_products: p('fx-l4', 'WT100', 'WT100 Rolex Datejust 36mm [Preloved]', 'watch',
+        { status: 'active', origin: 'BRAND', brand: 'Rolex', website_category_products: [{ category_id: 'cat-rings' }] }) },
   ];
 }

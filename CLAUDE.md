@@ -1524,24 +1524,29 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     at fetch, else changed_since_fetch), only on a 'ready' run (a partial/failed
     read — outage, count drop > 20 % — applies nothing). #195 'held' variants
     are EXCLUDED only in 'invoice' mode. Prices reported, never repriced;
-    Hub-only flagged, zeroed ONLY by HIDE-FOLLOW below. New codes are created ONLY by a staff "Create
-    drafts" (see DRAFTS). Photos: every photo of
+    Hub-only flagged, zeroed ONLY by HIDE-FOLLOW below. New codes LAND by
+    themselves, unpublished (see AUTO-LAND). Photos: every photo of
     a matched product, one row per (variant, page365_photo_id), staff photos
     never touched; the Catalog save must carry page365_photo_id through (else
     duplicates). An invoice line keeps ONE main photo and reuses the catalogue's
     stored copy when there is one. Customer reviews are never stored.
-  - DRAFTS (2026-09-28; docs/PAGE365-IMPORT.md "DRAFTS"): "Create drafts" on
-    ticked New-in-Page365 rows (sold pieces hidden by default) runs
-    page365_inventory_create_drafts — one Hub product per new CODE (one variant
-    each), status DRAFT, origin UNKNOWN (never guessed), sku = code, yen price
-    and stock from the fetch, category only from a jewelry-type Page365
-    category matching ONE Hub category, metals only as printed, description
-    only if clean. Idempotent (code exists / already drafted / sku UNIQUE).
-    NOTHING GOES LIVE until published: website_publish_products (Catalog bulk
-    Publish) refuses a product missing origin, category, brand (Branded), metal
-    (jewelry only) or price, and trg_page365_draft_publish_guard backs it for
-    Page365 drafts. A code whose Hub product is switched to "Don't sync with
-    Page365" is NEVER drafted (sync_disabled, read live).
+  - AUTO-LAND (2026-09-26 owner decision, replaces "Create drafts"; docs/
+    PAGE365-IMPORT.md "AUTO-LAND"): page365_inventory_finish of a READY
+    (complete) read calls page365_inventory_land_run — every NEW code with
+    Page365 available > 0, not "Don't sync with Page365" (read live), becomes
+    ONE Hub product (one variant), status DRAFT (NEVER published), origin
+    UNKNOWN (never guessed), sku = code, yen price and stock from the read,
+    item kind / metals only as printed, category only from a jewelry-type
+    Page365 category matching ONE Hub category, description only if clean;
+    recorded in page365_landings, whose photos the scheduled
+    page365-inventory-fetch copies (never while a read runs, <= 4/s). Sold-out
+    new codes never land. Nothing is refused for being incomplete: it lands and
+    shows "incomplete — needs …"; publishing is refused server-side
+    (website_publish_products, trg_page365_draft_publish_guard, CHECKs) until
+    filled. Every row not landed keeps its reason in result_note. A quick read
+    also opens every listing it never read before (plan_quick (d)), so a new
+    code lands within one interval; one back in stock lands at the nightly
+    full read. page365_inventory_create_drafts / _refresh_product are dropped.
   - SCHEDULE (2026-09-30, PR 3; docs/PAGE365-IMPORT.md "SCHEDULE"): pg_cron
     page365-inventory-schedule (Vault key) wakes every 5 min and reads Page365
     at the INTERVAL (below) whatever the switch says. system_settings.page365_inventory_auto_apply (default
@@ -1550,8 +1555,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     it in a migration) lets page365_inventory_auto_apply_run apply DECREASES
     AND INCREASES (PR 3c) from a SCHEDULED run that is 'ready', inside its
     30-min window and not superseded — same target, compare-and-set, never a
-    switched-off product. Drafts, prices, photos and re-publishing NEVER apply
-    automatically. A partial
+    switched-off product. Prices and re-publishing NEVER apply automatically
+    (new codes land unpublished, AUTO-LAND). A partial
     or failed read applies nothing. One reader at a time: every chunk takes the
     run's lease (page365_inventory_lease); the schedule skips a manual fetch.
     At most one bell per scheduled run. Retention (14 days) never touches
@@ -1580,18 +1585,24 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     scheduled reads and the default button are QUICK — the list plus pages of
     listings that can hold a Hub product (page365_inventory_plan_quick; rest
     'listed'); the first scheduled read after 02:00 PHT is FULL
-    (page365_inventory_next_kind), as is staff "Full fetch". New in Page365 =
-    latest full run; Create drafts re-reads each listing fresh (edge action
-    refresh; SQL refuses a row not read in 15 min). A quick read never counts a
+    (page365_inventory_next_kind), as is staff "Full fetch". A quick read also
+    opens listings never read before (AUTO-LAND). A quick read never counts a
     switched-off product as missing. Never read with a second reader
     (page365_inventory_reader lease).
-  - METAL STAMP = JEWELRY ONLY (owner decision 2026-09-28): website_products.
-    item_kind (jewelry default | watch | other). CHECK
-    website_products_metals_jewelry requires >= 1 stamp for jewelry only;
-    watches and other items are created and published without one. Never
-    re-add an every-product stamp rule (website_products_metals_nonempty is
-    retired). A Page365 listing is a watch only if Page365 itself prints the
-    whole word "watch(es)" in its name or category.
+  - ITEM TYPES + METAL STAMP (owner decisions 2026-09-28 / 2026-09-26):
+    website_products.item_kind is EXACTLY jewelry | watch | accessory (JA 小物;
+    'other' was renamed). A metal stamp is required for JEWELRY only, and only
+    to PUBLISH: CHECK website_products_metals_jewelry applies to status active;
+    a jewelry draft may have none and shows "needs metal stamp". Never re-add
+    an every-product or creation-time stamp rule (website_products_metals_
+    nonempty is retired). Kind is read ONLY from what Page365 prints
+    (page365_item_kind_for, whole words): "watch(es)" -> watch; wallet, bag,
+    clutch, tote, purse, pouch, card/coin/key/pass case, key holder, belt,
+    scarf, sunglasses -> accessory; else jewelry; watch wins. Stamps: a printed
+    stamp with a gold colour code (K18WG, 750PG, 18KWG, K18g) is that stamp;
+    SV925 -> SILVER925 ("Silver 925"); a bare SV -> SILVER ("Silver", JA
+    シルバー; product metal only, not in the upload template); "0.750ct" is
+    no stamp.
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 

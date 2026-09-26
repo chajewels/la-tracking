@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import {
   checkCompleteList, createRateLimiter, firstWord, isPhotoUrl, lastListPage, orderPhotos,
   parseListEnvelope, parseProductDetail, photoStoragePath, photoVersion, variantCode,
@@ -219,11 +220,14 @@ describe("SQL rules are pinned", () => {
 
 describe("edge functions", () => {
   const fetchFn = src("supabase/functions/page365-inventory-fetch/index.ts");
-  const photosFn = src("supabase/functions/page365-inventory-photos/index.ts");
+  // 2026-09-26: the copy itself lives in the shared copier used by both.
+  const photosFn = src("supabase/functions/page365-inventory-photos/index.ts")
+    + src("supabase/functions/_shared/page365-photo-copy.ts");
   it("the fetch writes only its own run tables — an outage changes nothing on the website", () => {
     const tables = [...fetchFn.matchAll(/\.from\("([a-z0-9_]+)"\)/g)].map(m => m[1]);
     expect(tables.length).toBeGreaterThan(0);
-    for (const t of tables) expect(t).toMatch(/^page365_inventory_/);
+    // page365_landings (2026-09-26): the landed-photo backlog it copies from.
+    for (const t of tables) expect(t).toMatch(/^page365_(inventory_|landings$)/);
     const code = fetchFn.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(code).not.toMatch(/storage\.from|website_product_variants|page365_inventory_apply/);
   });
@@ -236,6 +240,9 @@ describe("edge functions", () => {
     expect(photosFn).toContain('run.status !== "ready"');
   });
 });
+
+// 2026-09-26: the card shows "Landed in Catalog"; keep it off the network.
+vi.mock("@/lib/page365-drafts-api", () => ({ listLandings: vi.fn(async () => []), publishProducts: vi.fn() }));
 
 // ── The review screen ───────────────────────────────────────────────────────
 vi.mock("@/lib/page365-inventory-api", () => {
@@ -272,9 +279,9 @@ describe("Page365InventoryCard", () => {
   it("pre-ticks decreases and (PR 3c) increases, shows excluded rows without a box", async () => {
     const { Page365InventoryCard } = await import("@/components/website/Page365InventoryCard");
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Page365InventoryCard />
-      </QueryClientProvider>,
+      </QueryClientProvider></MemoryRouter>,
     );
     const dec = await screen.findByRole("checkbox", { name: "Select N4020" });
     expect(dec.getAttribute("data-state")).toBe("checked");

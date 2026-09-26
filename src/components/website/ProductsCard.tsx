@@ -21,10 +21,10 @@ import { translateJa } from "@/components/website/translate";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
 import {
-  ConditionValue, METAL_VALUES, MetalValue, ORIGIN_VALUES, OriginValue,
+  ConditionValue, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 import {
-  type MediaRow, type ProductForm, type VariantRow, TEMPLATE_PATH,
+  type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
   ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, slugify, yen,
 } from "@/components/website/product-form";
 
@@ -123,7 +123,7 @@ export default function ProductsCard() {
     };
   }), [products.data]);
 
-  // ?view=page365-drafts (from "Create drafts"): only the Page365 drafts.
+  // ?view=page365-drafts (from "Landed in Catalog"): only the unpublished Page365 products.
   const visible = useMemo(
     () => (draftsView ? rows.filter((p) => p.page365_product_id != null && p.status === "draft") : rows),
     [rows, draftsView],
@@ -135,7 +135,7 @@ export default function ProductsCard() {
     return n;
   }, { replace: true });
 
-  // ?product=<id> (links from "Create drafts"): open that product once loaded.
+  // ?product=<id> (links from "Landed in Catalog"): open that product once loaded.
   const deepLinked = searchParams.get("product");
   useEffect(() => {
     if (!deepLinked || !products.data) return;
@@ -178,7 +178,7 @@ export default function ProductsCard() {
       savedName: p.name ?? "",
       itemKind: itemKindFrom(p.item_kind),
       metals: (Array.isArray(p.metals) && p.metals.length ? p.metals : p.karat ? [p.karat] : [])
-        .filter((m: string): m is MetalValue => (METAL_VALUES as readonly string[]).includes(m)),
+        .filter((m: string): m is ProductMetal => (PRODUCT_METAL_VALUES as readonly string[]).includes(m)),
       weight_g: p.weight_g === null ? null : Number(p.weight_g),
       condition: (p.condition === "Preloved" ? "Preloved" : "New") as ConditionValue,
       origin: (ORIGIN_VALUES as readonly string[]).includes(p.origin) ? (p.origin as OriginValue) : "UNKNOWN",
@@ -258,8 +258,11 @@ export default function ProductsCard() {
   const save = useMutation({
     mutationFn: async (f: ProductForm) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
-      // Jewelry only (owner decision 2026-09-28; DB CHECK website_products_metals_jewelry).
-      if (metalRequired(f.itemKind) && !f.metals.length) throw new Error("Pick at least one metal stamp — required for jewelry.");
+      // Jewelry only, and only to publish (owner decision 2026-09-26; DB CHECK
+      // website_products_metals_jewelry applies to status active). A draft saves without one.
+      if (f.status === "active" && metalRequired(f.itemKind) && !f.metals.length) {
+        throw new Error("Pick at least one metal stamp — required to publish jewelry. Save it as a draft until then.");
+      }
       if (!f.variants.length) throw new Error("Add at least one variant.");
       if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
@@ -503,7 +506,7 @@ export default function ProductsCard() {
         <CardContent className="p-0">
           {draftsView && (
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs">
-              <Badge variant="outline">Page365 drafts only ({visible.length})</Badge>
+              <Badge variant="outline">Unpublished Page365 products only ({visible.length})</Badge>
               <span className="text-muted-foreground">Not on the website. Set origin and category, then select and Publish.</span>
               <Button size="sm" variant="ghost" onClick={() => clearParam("view")}>Show all products</Button>
             </div>
