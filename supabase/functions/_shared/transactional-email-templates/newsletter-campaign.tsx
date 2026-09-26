@@ -71,7 +71,7 @@ const NewsletterCampaignEmail = ({
   subject = 'Cha Jewels',
   bodyMarkdown = '',
   lang = 'en',
-  unsubscribeUrl = 'https://chajewelsjp.com/newsletter/unsubscribe',
+  unsubscribeUrl = 'https://www.chajewelsjp.com/newsletter/unsubscribe',
   products = [],
   post = null,
 }: Props) => {
@@ -153,8 +153,8 @@ export const template = {
     subject: 'New arrivals — September',
     lang: 'en',
     bodyMarkdown:
-      '## This month at Cha Jewels\n\nThree new **pearl** pieces just landed, each one hand-finished in Tokyo.\n\n- Akoya pearl studs\n- A 18K gold chain, 45cm\n- One-of-a-kind diamond pendant\n\nRead the full story on [our journal](https://chajewelsjp.com/journal).',
-    unsubscribeUrl: 'https://chajewelsjp.com/newsletter/unsubscribe?token=demo',
+      '## This month at Cha Jewels\n\nThree new **pearl** pieces just landed, each one hand-finished in Tokyo.\n\n- Akoya pearl studs\n- A 18K gold chain, 45cm\n- One-of-a-kind diamond pendant\n\nRead the full story on [our journal](https://www.chajewelsjp.com/journal).',
+    unsubscribeUrl: 'https://www.chajewelsjp.com/newsletter/unsubscribe?token=demo',
     products: [],
     post: null,
   },
