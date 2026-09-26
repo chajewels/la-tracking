@@ -120,6 +120,18 @@
   actually create. An unmapped path there returns false for everyone but admin
   — the documented new-feature lockout.
 
+  CUSTOM INSTALLMENTS (owner request 2026-09-26): a Page365 LAYAWAY offers the
+  same "Installment structure: Equal / Custom" choice as NewAccount. Equal
+  (default) sends nothing and `create-layaway-account` splits it (floor per
+  month, remainder on the LAST row — the preview reproduces it). Custom pre-fills
+  that split, lets the CSR type each month, has "Auto-adjust last month", and
+  sends `custom_installments`. The import button stays blocked until every month
+  is > 0 and the months add up to total − downpayment; the function refuses a
+  wrong sum again (400). A plan change refills the boxes with the new split; so
+  do total / deposit / currency changes until the CSR types a month. Whole
+  amounts only, as NewAccount sends them. Test:
+  `src/test/page365-custom-installments.test.tsx`.
+
   LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (`_shared/order-extras.ts`),
   not by the browser afterwards. The old post-RPC writes in NewAccount.tsx and
   NewCashOrder.tsx swallowed their own failure into a `toast.warning` on an

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { FileInput, Image as ImageIcon, UserPlus, AlertTriangle, Info } from 'lucide-react';
+import { FileInput, Image as ImageIcon, UserPlus, AlertTriangle, Info, Wand2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -118,6 +118,21 @@ function tokyoDateTimeLocal(iso: string | null | undefined): string {
 type OrderType = 'cash' | 'layaway';
 type PlanMonths = 3 | 6 | 8 | 10 | 12;
 const PLAN_OPTIONS: PlanMonths[] = [3, 6, 8, 10, 12];
+
+/** Equal installments, or amounts the CSR types per month (as NewAccount). */
+type InstallmentMode = 'equal' | 'custom';
+
+/**
+ * create-layaway-account's own equal split (index.ts, "equal-distribution"):
+ * floor per month, the remainder on the LAST row. Used for the Equal preview
+ * and to pre-fill the Custom boxes.
+ */
+function equalSplit(total: number, months: number): number[] {
+  if (months <= 0 || total <= 0) return [];
+  const base = Math.floor(total / months);
+  const rem = total - base * months;
+  return Array.from({ length: months }, (_, i) => (i === months - 1 ? base + rem : base));
+}
 
 /** Columns loaded for the customer directory the suggestions and search run on. */
 const CUSTOMER_DIRECTORY_COLUMNS =
@@ -237,6 +252,11 @@ export default function Page365Review() {
   const [planMonths, setPlanMonths] = useState<PlanMonths>(3);
   const [downpayment, setDownpayment] = useState('');
   const [dpTouched, setDpTouched] = useState(false);
+  /** Custom installments (layaway only) — the same option NewAccount offers. */
+  const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
+  const [customAmounts, setCustomAmounts] = useState<string[]>([]);
+  /** Once the CSR types a month, the boxes stop following the equal split. */
+  const [customEdited, setCustomEdited] = useState(false);
   /** Whether the visible order date is the invoice's own, so the badge only
    *  claims "from Page365" while that is still true. Cleared the moment the
    *  CSR types over it. */
@@ -327,6 +347,9 @@ export default function Page365Review() {
     setDiscount(conv(discount));
     if (totalTouched) setTotalInput(conv(totalInput));
     if (dpTouched) setDownpayment(conv(downpayment));
+    // Typed custom amounts were in the old currency: start again from the
+    // equal split in the new one.
+    setCustomEdited(false);
     setCurrency(next);
   };
 
@@ -375,24 +398,55 @@ export default function Page365Review() {
   const previewDates = orderDate && orderType === 'layaway' ? generateScheduleDates(orderDate, planMonths) : [];
 
   /* ── Schedule preview ───────────────────────────────────────────────────
-   * This screen sends NO custom_installments, so create-layaway-account does
-   * the split itself (index.ts:250-266):
-   *     base      = floor(baseForInstallments / months)
-   *     remainder = baseForInstallments - base * months   -> on the LAST row
-   * Reproduced exactly here so the CSR is shown the schedule that will
-   * actually be written, not an approximation of it. NOTE: this is the
-   * remainder-on-LAST rule the edge function uses, which is NOT what
-   * calculateInstallments() in src/lib/calculations.ts does (it puts the
-   * remainder on the FIRST row) -- see the PR description. */
+   * EQUAL (default): this screen sends NO custom_installments, so
+   * create-layaway-account does the split itself — floor per month, the
+   * remainder on the LAST row (equalSplit above). Reproduced exactly so the
+   * CSR sees the schedule that will actually be written. NOTE: this is NOT
+   * what calculateInstallments() in src/lib/calculations.ts does (it puts the
+   * remainder on the FIRST row).
+   * CUSTOM (owner request 2026-09-26, same option as NewAccount): the CSR
+   * types each month; custom_installments is sent and create-layaway-account
+   * refuses it unless it adds up to total − deposit. */
   const baseForInstallments = Math.max(0, amount - downpaymentAmount);
-  const previewInstallments = useMemo(() => {
-    if (orderType !== 'layaway' || planMonths <= 0 || baseForInstallments <= 0) return [];
-    const base = Math.floor(baseForInstallments / planMonths);
-    const rem = baseForInstallments - base * planMonths;
-    return Array.from({ length: planMonths }, (_, i) => (i === planMonths - 1 ? base + rem : base));
-  }, [orderType, planMonths, baseForInstallments]);
+  const previewInstallments = useMemo(
+    () => (orderType === 'layaway' ? equalSplit(baseForInstallments, planMonths) : []),
+    [orderType, planMonths, baseForInstallments],
+  );
   const monthlyAmount = previewInstallments[0] ?? 0;
   const lastAmount = previewInstallments[previewInstallments.length - 1] ?? 0;
+
+  const isCustom = orderType === 'layaway' && installmentMode === 'custom';
+  // Until the CSR types a month, the Custom boxes follow the equal split (plan,
+  // total, deposit or currency changes). A plan change always refills them —
+  // the number of months is different.
+  useEffect(() => {
+    if (!isCustom) return;
+    if (customEdited && customAmounts.length === planMonths) return;
+    const split = equalSplit(baseForInstallments, planMonths);
+    setCustomAmounts(split.length ? split.map(String) : Array(planMonths).fill(''));
+    setCustomEdited(false);
+  }, [isCustom, customEdited, customAmounts.length, planMonths, baseForInstallments]);
+
+  // Whole amounts, as NewAccount sends them (parseInt).
+  const customValues = customAmounts.map((v) => parseInt(v, 10) || 0);
+  const customTotal = customValues.reduce((a, b) => a + b, 0);
+  const customReady = isCustom && customAmounts.length === planMonths;
+  const customMismatch = customReady && customTotal !== baseForInstallments;
+  const customHasEmpty = isCustom && (!customReady || customValues.some((v) => v <= 0));
+  const scheduleAmounts = customReady ? customValues : previewInstallments;
+
+  const updateCustomAmount = (index: number, value: string) => {
+    setCustomAmounts((prev) => prev.map((v, i) => (i === index ? value : v)));
+    setCustomEdited(true);
+  };
+  /** Same as NewAccount: the last month takes whatever the others leave. */
+  const autoAdjustLastMonth = () => {
+    if (customAmounts.length !== planMonths) return;
+    const sumExceptLast = customValues.slice(0, -1).reduce((a, b) => a + b, 0);
+    const last = Math.max(0, baseForInstallments - sumExceptLast);
+    setCustomAmounts((prev) => prev.map((v, i) => (i === prev.length - 1 ? String(last) : v)));
+    setCustomEdited(true);
+  };
 
   /* ── Customer suggestions (owner rules 2026-09-26): the Page365 name is
    *    checked against full name AND Facebook name; a phone matches whenever
@@ -455,6 +509,8 @@ export default function Page365Review() {
   if (!orderDate) missing.push('an order date');
   if (orderType === 'cash' && !expiresAt) missing.push('an expiry date');
   if (orderType === 'layaway' && isBelowMinimum) missing.push('a total at or above the plan minimum');
+  if (customHasEmpty) missing.push('an installment amount above zero for every month');
+  if (customMismatch) missing.push('custom installments that add up to the remaining balance');
   const ready = missing.length === 0 && canSubmitType && !submitting;
 
   const submit = async () => {
@@ -508,6 +564,8 @@ export default function Page365Review() {
             downpayment_paid: 0,
             transfer_due_at: transferDueAt || undefined,
             initial_note: notes.trim() || undefined,
+            // Custom only; Equal sends nothing and the function splits it.
+            ...(customReady ? { custom_installments: customValues } : {}),
           };
 
     try {
@@ -972,13 +1030,42 @@ export default function Page365Review() {
                 </div>
               </div>
 
+              {/* Installment structure — the same Equal / Custom choice as NewAccount. */}
+              <div>
+                <Label className="text-xs">Installment structure</Label>
+                <div className="flex gap-2 mt-1">
+                  {(['equal', 'custom'] as const).map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      size="sm"
+                      variant={installmentMode === mode ? 'default' : 'outline'}
+                      className={`flex-1 ${installmentMode === mode ? 'gold-gradient text-primary-foreground' : ''}`}
+                      onClick={() => {
+                        if (mode === installmentMode) return;
+                        setCustomEdited(false);
+                        setInstallmentMode(mode);
+                      }}
+                    >
+                      {mode === 'equal' ? 'Equal installments' : 'Custom installments'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
               {/* Schedule preview — the exact rows create-layaway-account will write. */}
               <div className="rounded-lg border border-primary/20 bg-background p-3">
-                <div className="flex items-baseline justify-between mb-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <h3 className="text-xs font-semibold text-card-foreground">
-                    Schedule preview ({planMonths} months)
+                    {isCustom ? 'Custom schedule' : 'Schedule preview'} ({planMonths} months)
                   </h3>
-                  {previewInstallments.length > 0 && (
+                  {isCustom ? (
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                      onClick={autoAdjustLastMonth} disabled={!customReady || previewInstallments.length === 0}>
+                      <Wand2 className="h-3.5 w-3.5" />
+                      Auto-adjust last month
+                    </Button>
+                  ) : previewInstallments.length > 0 && (
                     <span className="text-[11px] text-muted-foreground tabular-nums">
                       {formatCurrency(monthlyAmount, currency)} × {planMonths}
                       {lastAmount !== monthlyAmount && <> · last {formatCurrency(lastAmount, currency)}</>}
@@ -1005,17 +1092,51 @@ export default function Page365Review() {
                               {new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                             </span>
                           </span>
-                          <span className="tabular-nums text-card-foreground shrink-0">
-                            {formatCurrency(previewInstallments[i] ?? 0, currency)}
-                          </span>
+                          {isCustom ? (
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              aria-label={`Installment ${i + 1} amount`}
+                              value={customAmounts[i] ?? ''}
+                              onChange={(e) => updateCustomAmount(i, e.target.value)}
+                              className="w-28 h-7 bg-background border-border text-right text-xs tabular-nums shrink-0"
+                              placeholder="Amount"
+                            />
+                          ) : (
+                            <span className="tabular-nums text-card-foreground shrink-0">
+                              {formatCurrency(previewInstallments[i] ?? 0, currency)}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
+
+                    {isCustom && (
+                      <div className={`mt-2 rounded-md border p-2 text-xs ${
+                        customMismatch ? 'border-destructive/50 bg-destructive/5' : 'border-primary/20 bg-primary/5'}`}>
+                        <div className="flex items-center justify-between font-medium text-card-foreground">
+                          <span>Installment total</span>
+                          <span className={`tabular-nums font-bold ${customMismatch ? 'text-destructive' : 'text-primary'}`}>
+                            {formatCurrency(customTotal, currency)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-0.5 text-muted-foreground">
+                          <span>Required (total − downpayment)</span>
+                          <span className="tabular-nums">{formatCurrency(baseForInstallments, currency)}</span>
+                        </div>
+                        {customMismatch && (
+                          <p className="text-destructive mt-1.5 font-medium">
+                            Mismatch of {formatCurrency(Math.abs(customTotal - baseForInstallments), currency)} — installments must equal the remaining balance.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-2 mt-1 text-xs font-semibold text-card-foreground">
                       <span>Deposit + installments</span>
                       <span className="tabular-nums">
                         {formatCurrency(
-                          downpaymentAmount + previewInstallments.reduce((a, b) => a + b, 0),
+                          downpaymentAmount + scheduleAmounts.reduce((a, b) => a + b, 0),
                           currency,
                         )}
                       </span>

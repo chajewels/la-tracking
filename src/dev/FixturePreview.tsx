@@ -174,6 +174,8 @@ export default function FixturePreview() {
     // Customers (Phase 3): the directory, its lookups, and one full customer
     // page at /customers/fixture-cust-demo (hub view).
     seed(['customers'], buildCustomerDirectoryFixtures(empty));
+    // Page365 review suggestions + "Find a customer" read the whole directory.
+    seed(['page365-customer-directory'], buildCustomerDirectoryFixtures(empty));
     seed(['cash-orders-light'], cashOrders.map((o) => ({ id: o.id, customer_id: o.customers.id, status: o.status })));
     seed(['customers-loyalty-tiers'], empty ? new Map() : buildCustomerTierMap());
     if (!empty) {
