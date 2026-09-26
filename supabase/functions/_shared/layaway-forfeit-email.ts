@@ -9,7 +9,7 @@
 // template. Callers decide with forfeitEmailKind() from web-order-rules.ts.
 
 import * as React from "npm:react@18.3.1";
-import { pickLang, sendStorefrontEmail, type SendStorefrontEmailResult } from "./storefront-email.ts";
+import { sendStorefrontEmail, storefrontLayawayUrl, type SendStorefrontEmailResult } from "./storefront-email.ts";
 import { LayawayForfeitedEmail, layawayForfeitedSubject } from "./email-templates/layaway-forfeited.tsx";
 
 export async function sendLayawayForfeitedEmail(
@@ -28,7 +28,6 @@ export async function sendLayawayForfeitedEmail(
     return null;
   }
   const reference = String(acct.web_reference ?? acct.invoice_number);
-  const site = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "");
   return await sendStorefrontEmail({
     to: { email: acct.customers?.email ?? null, is_test: acct.customers?.is_test === true },
     subject: layawayForfeitedSubject(reference),
@@ -36,12 +35,11 @@ export async function sendLayawayForfeitedEmail(
     reference,
     idempotencyKey: opts.idempotencyKey,
     element: React.createElement(LayawayForfeitedEmail, {
-      lang: pickLang(acct.customer_lang),
       reference,
       currency: String(acct.currency ?? "JPY") as "JPY" | "PHP",
       totalAmount: Number(acct.total_amount ?? 0),
       totalPaid: Number(acct.total_paid ?? 0),
-      planUrl: site ? `${site}/account/layaway/${accountId}` : null,
+      planUrl: storefrontLayawayUrl(accountId),
       final: opts.final,
     }),
   });

@@ -5449,6 +5449,77 @@ wallet, bag, case or belt; never match a stamp only as a bare word; never
 refuse to create a product for a field that is only needed to publish; never
 leave a row not landed without its reason.
 
+### Storefront sign-in on www.chajewelsjp.com got the Hub email; storefront email links followed a secret to vercel.app (2026-09-26)
+
+Evidence (owner's inbox): a sign-in on https://www.chajewelsjp.com at
+2026-09-26 02:03 UTC produced "Your login link / Your login link for Cha Jewels
+Hub" (English, raw GoTrue verify link) with
+`redirect_to=https://www.chajewelsjp.com/auth/callback?next=/account`. Sign-in
+completed, so the Auth redirect allow-list already has www; the template choice
+was wrong. `auth-email-hook` STOREFRONT_HOSTS named `chajewelsjapan.com` (the
+Page365 shop, never a sign-in origin) instead of `chajewelsjp.com` (the Bug #264
+entry above repeated the same wrong domain). Earlier sign-ins from the
+vercel.app hosts (e.g. 2026-09-25 10:19 UTC) were correct.
+
+Separately, every storefront email link was built from the `WEBSITE_URL` secret
+(then `https://cha-jewels-web.vercel.app`), whose real job is the revalidation
+target — so customers were sent to vercel.app.
+
+Fix: host logic moved to `_shared/auth-audience.ts` (pure, tested);
+STOREFRONT_HOSTS = `^(www\.)?chajewelsjp\.com$` + the cha-jewels-web Vercel
+hosts; `app.`/`portal.chajewelsjp.com` stay Hub. Customer links come from
+`STOREFRONT_PUBLIC_URL = https://www.chajewelsjp.com` (`_shared/storefront-email.ts`)
+via `storefrontOrderUrl` / `storefrontLayawayUrl` / `storefrontShopUrl`; the
+inline copies in `reservation-emails.ts`, `layaway-forfeit-email.ts` and
+`auto-expire-cash-orders` are gone. Newsletter `SITE` → www. Tests:
+`development/auth-audience.test.ts`; `development/email-encoding.test.ts`
+("no rendered email links to vercel.app", "WEBSITE_URL is read only by
+notify_website").
+
+Do not reintroduce: never build a customer link from `WEBSITE_URL`; never put
+`chajewelsjapan.com` (Page365) in the sign-in host list; never widen the list to
+`*.chajewelsjp.com` (app./portal. are the Hub).
+
+### Layaway emails went out with Japanese subjects and bodies (2026-09-27)
+
+Owner rule: no layaway email in Japanese — subject or body. The owner's inbox
+showed 「ご契約終了のお知らせ CJ-W-900013 / Layaway plan closed」,
+「分割予約を承りました … / Layaway reserved」 and 「お取り置き期限のご案内 … /
+Layaway hold released」. D17 (above) forced the layaway-expired BODY to English
+but every subject helper was bilingual whatever the language, and
+layaway-plan-created, layaway-payment-received and layaway-forfeited still took
+`pickLang(customer_lang)` (a missing language reads as Japanese) and rendered a
+Japanese block first.
+
+Every layaway email, with sender and template:
+
+| Email | Sent by (file:line on develop before the fix) | Template |
+|---|---|---|
+| layaway-plan-created (placed) | website/index.ts:1771 | layaway-plan-created.tsx |
+| layaway-ready (plan-created, variant ready) | confirm-web-order-ready → _shared/reservation-emails.ts:224 | layaway-plan-created.tsx |
+| layaway-reserved | website → _shared/reservation-emails.ts:143 | layaway-reserved.tsx (already EN) |
+| layaway-declined / lapsed | decline-web-reservation, web-reservation-sweep → _shared/reservation-emails.ts:290 | layaway-declined.tsx (already EN) |
+| layaway-payment-received (deposit / instalment) | review-payment-submission/index.ts:1308 | layaway-payment-received.tsx |
+| layaway-deposit-due | web-payment-reminder-sweep → _shared/payment-reminder-emails.ts:61 | layaway-deposit-due.tsx (already EN) |
+| layaway-expired ("hold released") | auto-expire-cash-orders/index.ts:388 | layaway-expired.tsx (body EN since D17, subject was not) |
+| layaway-forfeited ("plan closed") | manual-forfeit, auto-forfeit-settlement → _shared/layaway-forfeit-email.ts:38 | layaway-forfeited.tsx |
+
+Fix: the four bilingual templates and layaway-shared.tsx are English only by
+construction — no `lang` prop, no Japanese copy, English subjects
+(「Your layaway is reserved」「Deposit received」「Payment received」
+「Layaway hold released」「Layaway plan closed」 — Cha Jewels <ref>). Every
+caller stopped passing `lang`. Test: development/layaway-english.test.ts
+renders every layaway email (every variant, yen and peso, JP and overseas, HTML
+and text) and every subject and fails on any Japanese character; also fails on
+a Japanese character or a `lang: Lang` prop in any layaway-*.tsx, and on any
+function passing `lang` to a Layaway…Email. Exceptions: the registered company
+name 「Ｃｈａ　Ｊｅｗｅｌｓ株式会社」 in the footer, and stored transfer-account
+details (bank name, branch, account holder), printed verbatim.
+
+Do not reintroduce: never give a layaway template a `lang`, never make a layaway
+subject bilingual.
+
+
 ### Background removal: watches with erased dials passed the quality checks (2026-09-27)
 
 "Test 30" (fal.ai BiRefNet, PR #215): C1395 (G-SHOCK, dark dial) and C0983

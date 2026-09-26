@@ -5,7 +5,7 @@ import {
   partitionExpiryCandidates,
 } from "../_shared/web-order-rules.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
-import { pickLang, sendStorefrontEmail } from "../_shared/storefront-email.ts";
+import { pickLang, sendStorefrontEmail, storefrontShopUrl } from "../_shared/storefront-email.ts";
 import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
@@ -273,7 +273,7 @@ Deno.serve(async (req) => {
       const country = String(
         ((order as any).ship_to_snapshot?.country ?? (order as any).ship_to_address?.country) ?? "JP",
       ).toUpperCase();
-            const shopUrl = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
+            const shopUrl = storefrontShopUrl();
             await sendStorefrontEmail({
               to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
               subject: orderExpiredSubject(reference),
@@ -377,7 +377,7 @@ Deno.serve(async (req) => {
           const country = String(
             ((plan as any).ship_to_snapshot?.country ?? (plan as any).quote?.ship_to_address?.country) ?? "JP",
           ).toUpperCase();
-          const shopUrl = (Deno.env.get("WEBSITE_URL") ?? "").replace(/\/$/, "") || null;
+          const shopUrl = storefrontShopUrl();
           try {
             await sendStorefrontEmail({
               to: { email: (plan as any).customers?.email ?? null, is_test: (plan as any).customers?.is_test === true },
@@ -386,7 +386,6 @@ Deno.serve(async (req) => {
               reference,
               idempotencyKey: `layaway-expired-${(plan as any).id}`,
               element: React.createElement(LayawayExpiredEmail, {
-                lang: "en", // layaway emails are English only (D17): never pickLang, which reads a missing language as Japanese
                 reference,
                 currency: String((plan as any).currency ?? "JPY") as "JPY" | "PHP",
                 totalAmount: Number((plan as any).total_amount ?? 0),

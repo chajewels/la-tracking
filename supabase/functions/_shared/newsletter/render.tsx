@@ -10,7 +10,7 @@ import {
 /** Shared by campaign-queue and process-newsletter-campaigns so a test send and
  * a real send can never render differently. */
 
-export const SITE = 'https://chajewelsjp.com'
+export const SITE = 'https://www.chajewelsjp.com'
 
 export interface Campaign {
   id: string
