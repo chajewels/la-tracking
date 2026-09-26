@@ -1,6 +1,6 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
+import { renderEmail } from '../render-email.ts'
 import {
   NewsletterCampaignEmail,
   type PostCard,
@@ -131,7 +131,7 @@ export async function renderCampaign(
   subjectPrefix = '',
 ): Promise<{ subject: string; html: string }> {
   const { products, post } = await loadCards(supabase, c, lang)
-  const html = await renderAsync(
+  const html = await renderEmail(
     React.createElement(NewsletterCampaignEmail, {
       subject: subjectFor(c, lang),
       bodyMarkdown: (lang === 'ja' ? c.body_ja : c.body_en) ?? '',

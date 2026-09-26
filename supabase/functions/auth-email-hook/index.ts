@@ -1,5 +1,5 @@
 import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
+import { renderEmail } from '../_shared/render-email.ts'
 import { createAuthEmailHandler, sendLovableEmail, EmailAPIError, type AuthEmailDefinitions, type AuthEmailHookData } from 'npm:@lovable.dev/email-js@0.1.0'
 import { verifyWebhookRequest, WebhookError } from 'npm:@lovable.dev/webhooks-js@0.0.2'
 import { SignupEmail } from '../_shared/email-templates/signup.tsx'
@@ -114,7 +114,7 @@ async function handlePreview(req: Request): Promise<Response> {
   }
 
   const sampleData = SAMPLE_DATA[type] || {}
-  const html = await renderAsync(React.createElement(EmailTemplate, sampleData))
+  const html = await renderEmail(React.createElement(EmailTemplate, sampleData))
 
   return new Response(html, {
     status: 200,
@@ -355,8 +355,8 @@ async function storefrontHandler(req: Request): Promise<Response> {
     // signup (first-time customer) and magiclink are the same email to the
     // customer: the sign-in link they just asked for.
     const element = React.createElement(StorefrontMagicLinkEmail, { confirmationUrl: storefrontConfirmUrl(data) })
-    const html = await renderAsync(element)
-    const text = await renderAsync(element, { plainText: true })
+    const html = await renderEmail(element)
+    const text = await renderEmail(element, { plainText: true })
     await sendLovableEmail(
       {
         run_id: event.run_id,

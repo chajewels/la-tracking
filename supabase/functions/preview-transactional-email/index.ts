@@ -1,5 +1,5 @@
 import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
+import { renderEmail } from '../_shared/render-email.ts'
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
 import { STOREFRONT_PREVIEWS } from '../_shared/email-templates/preview-registry.ts'
@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const html = await renderAsync(
+      const html = await renderEmail(
         React.createElement(entry.component, entry.previewData)
       )
       const resolvedSubject =
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
   // sent by their own callers, never from the registry. See preview-registry.ts.
   for (const [name, entry] of Object.entries(STOREFRONT_PREVIEWS)) {
     try {
-      const html = await renderAsync(React.createElement(entry.component, entry.previewData))
+      const html = await renderEmail(React.createElement(entry.component, entry.previewData))
       results.push({ templateName: name, displayName: entry.displayName, subject: entry.subject, html, status: 'ready' })
     } catch (err) {
       console.error('Failed to render storefront template for preview', { template: name, error: err })

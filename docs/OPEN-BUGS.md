@@ -4,20 +4,6 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### Japanese storefront emails can contain U+FFFD (garbled characters) — renderAsync (found 2026-10-04)
-
-`sendStorefrontEmail` renders with `renderAsync` from
-`npm:@react-email/components@0.0.22`. Rendering the preview registry locally
-(Deno 2.9.6) puts U+FFFD in place of a multi-byte character wherever a stream
-chunk boundary splits it: order-reserved-ja 5, order-ready-ja 6,
-order-ready-php-ja 6, order-reservation-lapsed-ja 2, the new
-order-payment-due-php-ja 5 (e.g. 「場合」→「場��」). English and layaway emails
-have none. The synchronous `render()` from the same package and React's
-`renderToStaticMarkup` produce none. NOT yet confirmed on the live edge runtime
-— check a real Japanese order email. A fix is a change to the shared sender
-(every storefront-email function would need a redeploy), so it was left out of
-the payment-reminders PR on purpose.
-
 ### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23)
 
   Added on live with the discount columns on 2026-07-09 (docs/SCHEMA-FACTS.md

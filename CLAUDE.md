@@ -1870,6 +1870,8 @@ Customer / Amount), non-blocking relative to the tracking output.
     degraded / ok); cron email-health-check 00:50 UTC raises
     'email_delivery_outage'. Shown in the sidebar pill, Dashboard banner and
     Settings. REPORT-ONLY — nothing re-sends automatically (owner decision).
+  - Render email ONLY with renderEmail (_shared/render-email.ts); never
+    renderAsync — it splits UTF-8 across stream chunks (U+FFFD). CI-guarded.
 
 ## SERVICES RULE (added 2026-04-12)
 
