@@ -6142,6 +6142,65 @@ export type Database = {
         }
         Relationships: []
       }
+      web_payment_reminders: {
+        Row: {
+          amount: number
+          claimed_at: string
+          currency: string
+          customer_id: string | null
+          deadline: string
+          detail: string | null
+          email: string
+          entity_id: string
+          entity_type: string
+          finished_at: string | null
+          id: string
+          lang: string
+          reference: string | null
+          status: string
+        }
+        Insert: {
+          amount: number
+          claimed_at?: string
+          currency: string
+          customer_id?: string | null
+          deadline: string
+          detail?: string | null
+          email: string
+          entity_id: string
+          entity_type: string
+          finished_at?: string | null
+          id?: string
+          lang: string
+          reference?: string | null
+          status?: string
+        }
+        Update: {
+          amount?: number
+          claimed_at?: string
+          currency?: string
+          customer_id?: string | null
+          deadline?: string
+          detail?: string | null
+          email?: string
+          entity_id?: string
+          entity_type?: string
+          finished_at?: string | null
+          id?: string
+          lang?: string
+          reference?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "web_payment_reminders_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_categories: {
         Row: {
           created_at: string
@@ -6979,6 +7038,10 @@ export type Database = {
         Args: { p_source_id: string; p_source_kind: string }
         Returns: boolean
       }
+      claim_web_payment_reminder: {
+        Args: { p_deadline: string; p_entity_id: string; p_entity_type: string }
+        Returns: string
+      }
       confirm_loyalty_award_claim: {
         Args: {
           p_source_id: string
@@ -7261,6 +7324,10 @@ export type Database = {
           mobile_number: string
         }[]
       }
+      finish_web_payment_reminder: {
+        Args: { p_detail: string; p_id: string; p_status: string }
+        Returns: undefined
+      }
       get_aging_buckets: {
         Args: { p_scope?: string }
         Returns: {
@@ -7355,6 +7422,10 @@ export type Database = {
           total_jpy: number
         }[]
       }
+      get_order_email_history: {
+        Args: { p_entity_id: string; p_entity_type: string }
+        Returns: Json
+      }
       get_page365_inventory_auto_apply: { Args: never; Returns: Json }
       get_page365_inventory_interval: { Args: never; Returns: Json }
       get_recent_qualifying_order: {
@@ -7405,6 +7476,7 @@ export type Database = {
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
+      get_web_payment_reminders: { Args: never; Returns: Json }
       get_web_reservation_mode: { Args: never; Returns: Json }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
@@ -7824,6 +7896,14 @@ export type Database = {
         Args: { p_expected?: number; p_minutes: number }
         Returns: Json
       }
+      set_web_payment_reminders: {
+        Args: {
+          p_expected_mode?: string
+          p_mode: string
+          p_owner_addresses?: Json
+        }
+        Returns: Json
+      }
       set_web_reservation_mode: {
         Args: { p_enabled: boolean; p_expected?: boolean }
         Returns: Json
@@ -7887,6 +7967,42 @@ export type Database = {
         Args: { p_customer_id: string; p_exclude_order?: string }
         Returns: number
       }
+      web_payment_reminder_address_allowed: {
+        Args: { p_email: string }
+        Returns: boolean
+      }
+      web_payment_reminder_candidates: {
+        Args: { p_limit?: number }
+        Returns: {
+          amount: number
+          currency: string
+          customer_id: string
+          deadline: string
+          email: string
+          entity_id: string
+          entity_type: string
+          is_test: boolean
+          lang: string
+          reference: string
+        }[]
+      }
+      web_payment_reminder_eligible: {
+        Args: { p_entity_id: string; p_entity_type: string }
+        Returns: {
+          amount: number
+          currency: string
+          customer_id: string
+          deadline: string
+          email: string
+          entity_id: string
+          entity_type: string
+          is_test: boolean
+          lang: string
+          reference: string
+        }[]
+      }
+      web_payment_reminder_mode: { Args: never; Returns: string }
+      web_reservation_expiring_bells: { Args: never; Returns: number }
       website_down_payments: {
         Args: { p_prices_jpy: number[]; p_rate: number }
         Returns: {
