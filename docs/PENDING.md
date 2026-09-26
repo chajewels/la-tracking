@@ -1,5 +1,26 @@
 ## PENDING ITEMS (as of 2026-05-25)
 
+### Background removal — PR 2 and PR 3 still to build (filed 2026-10-05)
+
+PR 1 (Hub queue, worker, checks, Photos tab) is built; see docs/MEDIA-CUTOUTS.md.
+Still to do, in order:
+- **Owner:** run the 30-photo test in Test mode (docs/MEDIA-CUTOUTS.md §8);
+  confirm fal's real per-image price in the dashboard; read the production
+  processing-time p95 on the Photos card (if well under 1,000 ms, the stored
+  sizes may be raised from D10 path A).
+- **PR 2 (Hub):** `website` API adds `cutout` / `catalog` per `product_media`
+  item (only ok / auto_fixed / approved), `display_height_mm` (+ per-category
+  defaults table and the Catalog field, D8 — deferred from PR 1 as the plan
+  allows), the backfill enqueue of existing photos (mains of active products
+  first), and `ProductImportDialog` keeping `page365_photo_id/_version`.
+- **PR 3 (storefront):** use `catalog.url` / small on chalk 1:1, fall back to
+  the original `object-contain`; hero uses `cutout` + `display_height_mm`;
+  handle `output_kind = 'cutout_only'` (cut-out present, `catalog` null) by
+  drawing the chalk well in CSS; delete `lib/hero-cutouts.ts` and
+  `public/fixtures/cutouts/*`.
+- Replicate backup: its model version hash and input field name must be
+  confirmed on the model page before `REPLICATE_*` secrets are set.
+
 ### An unpaid deposit should not release the piece while a settlement date is still ahead — NOT BUILT (filed 2026-09-15)
 
 Cynthia described a rule that the system does not have: a customer who has not sent the

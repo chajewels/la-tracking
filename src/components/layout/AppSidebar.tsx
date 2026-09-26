@@ -133,6 +133,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Audience', tab: 'audience', permFilter: (can) => can('manage_website_catalog') || can('manage_website_content') },
       { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
       { label: 'Page365 stock', tab: 'page365-stock', permFilter: (can) => can('manage_website_catalog') },
+      { label: 'Photos', tab: 'photos', permFilter: (can) => can('manage_website_catalog') },
     ],
   },
 

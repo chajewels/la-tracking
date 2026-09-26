@@ -1476,3 +1476,32 @@ Migration `20260928100000_page365_inventory_pr2.sql`. Rules: docs/PAGE365-IMPORT
   `metadata.entity_id` is the dedupe key; `cash_order_id` / `account_id` link it).
 - `email_send_log` gained the expression index `idx_email_send_log_reference`
   on `(metadata->>'reference')` for `get_order_email_history`.
+
+## Media cut-outs — tables, switch, keying (added 2026-10-05)
+
+Migration 20261005100000_media_cutouts.sql; rules in docs/MEDIA-CUTOUTS.md.
+
+- `website_media_cutouts` — PK `source_url` (the photo's public promotions URL;
+  CHECK: under `promotions/website/`, not under `derived/`). `id uuid UNIQUE`
+  exists only as `audit_logs.entity_id`. NO foreign key to
+  `website_product_media`: join on `m.url = c.source_url` (index
+  `idx_website_product_media_url`). `job_state` = machinery
+  (queued/submitted/ready/processing/done/error); `status` = verdict
+  (pending/ok/auto_fixed/needs_review/approved/rejected/failed). File paths are
+  bucket-relative (`website/derived/<sha32>/r<run>/…`), not URLs.
+- `website_media_cutout_usage` — provider submissions per PHT month
+  (`media_cutout_month()`), `bell_80_at`.
+- `website_media_cutout_lease` — single row (id = 1): the tick lease and the
+  last tick's summary.
+- Settings `media_cutout_mode` (JSON string) and `media_cutout_monthly_cap`
+  (JSON number); read with `#>> '{}'`; guarded by
+  `trg_guard_media_cutout_settings` (bypass GUC
+  `app.allow_media_cutout_settings_change`, set only inside
+  `set_media_cutout_settings`).
+- Not in `types.ts` until Lovable regenerates it — the Hub calls every RPC
+  through `callUntypedRpc` (src/lib/media-cutouts.ts).
+- Staff notification type: `media_cutout_cap_near` (→ Website → Photos).
+- Audit rows: `system_setting / set_media_cutout_settings`,
+  `system_setting / add_media_cutout_test_batch`,
+  `website_media_cutout / review_media_cutout:<action>`.
+

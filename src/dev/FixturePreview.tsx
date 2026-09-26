@@ -58,6 +58,8 @@ import { ReservationModeCard } from '@/components/website/ReservationModeCard';
 import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
 import { PAYMENT_REMINDERS_KEY } from '@/components/settings/payment-reminders';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
+import MediaCutoutsFixture from './MediaCutoutsFixture';
+import { seedMediaCutouts } from './media-cutouts-fixture-data';
 import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
 import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
@@ -296,6 +298,7 @@ export default function FixturePreview() {
         awaiting_total: Number(searchParams.get('waiting') ?? 0),
       });
     }
+    if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test');
     if (view === 'payment-reminders') {
       seed([...PAYMENT_REMINDERS_KEY], {
         found: true, mode: searchParams.get('mode') ?? 'off',
@@ -349,6 +352,7 @@ export default function FixturePreview() {
   if (view === 'reservations-cash') return <AllowAll><CashOrdersList /></AllowAll>;
   if (view === 'reservation-mode') return <ReservationModeFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'payment-reminders') return <PaymentRemindersFixture admin={searchParams.get('role') !== 'staff'} />;
+  if (view === 'media-cutouts') return <MediaCutoutsFixture />;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;

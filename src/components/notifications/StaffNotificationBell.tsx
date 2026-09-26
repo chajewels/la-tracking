@@ -88,6 +88,7 @@ function iconForType(type: string) {
       return <Wrench className="h-3.5 w-3.5 text-sky-400" />;
     case 'page365_stock_flag':
     case 'page365_inventory_run_failed':
+    case 'media_cutout_cap_near':
       return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     case 'page365_inventory_auto_applied':
     case 'page365_inventory_hidden':
@@ -203,6 +204,11 @@ export default function StaffNotificationBell() {
     if (n.type === 'page365_stock_flag' || n.type === 'page365_inventory_run_failed' || n.type === 'page365_inventory_auto_applied'
         || n.type === 'page365_inventory_hidden') {
       navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
+      return;
+    }
+    // Background removal near its monthly limit: the limit lives on Website → Photos.
+    if (n.type === 'media_cutout_cap_near') {
+      navigate(`${ROUTES.WEBSITE}?tab=photos`);
       return;
     }
     if (n.account_id) {
