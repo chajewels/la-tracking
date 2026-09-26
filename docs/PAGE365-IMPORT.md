@@ -374,7 +374,76 @@ an oversell. Once the owner's test shows Page365 counts unpaid invoices, set the
 - The draft carries `stock_mode`; the review chips say "Matched · CODE — stock follows the
   Page365 inventory fetch" (or "Not synced with Page365") instead of "Will take stock".
 
-## DRAFTS — "Create drafts" from new Page365 codes, and Catalog bulk Publish (added 2026-09-28, PR 4 of 4)
+## AUTO-LAND — new Page365 products land in the Catalog by themselves (added 2026-09-26, replaces "Create drafts")
+
+Owner decisions 2026-09-26. Migration `20261005100000_page365_auto_land.sql` (owner runs
+it); edge `page365-inventory-fetch` + `page365-inventory-photos` (shared copier
+`_shared/page365-photo-copy.ts`). Tests: `docs/sql/20261005_page365_auto_land_local_tests.sql`,
+`src/test/page365-auto-land.test.tsx`.
+
+**Why.** "Create drafts" made 0 drafts for wallets (W3356 …): item kind knew only "watch",
+so wallets/bags/belts were jewelry and refused `no_metal`; stamps were matched only as bare
+words (K18WG, 750WG, 750PG, 18KWG, K18g, SV925 never read); refused rows kept no reason.
+164 of 642 live listings were affected (docs/FIXED-BUGS.md).
+
+**What lands.** `page365_inventory_finish` of a READY (complete) read — full or quick, manual
+or scheduled — calls `page365_inventory_land_run`: every row `category new`, `unmatched`,
+under review, with Page365 **available > 0**, becomes one Hub product (one variant) with
+status **draft** — never published — origin UNKNOWN, sku = code, name (the variant's when a
+listing carries several codes), yen price (0 if Page365 has none → "needs price"), stock =
+Page365 available, condition (Preloved when Page365 says so), item kind and metals as
+printed, category only when the Page365 category's first word is a jewelry type and exactly
+one Hub category matches, description only through `page365_clean_description`. The item
+becomes `matched`/`applied`, `result_note = landed`; `page365_landings` records it; audit
+`page365_product_landed` (with what is still missing). A landing error never fails the read.
+
+**What does not land** (reason kept in `result_note`): `sold_out` (lands at a later read once
+back in stock), `sync_disabled` ("Don't sync with Page365", read live), `code_exists` (a Hub
+sku with that first word), `already_landed`, `no_code`, `code_is_a_word` (the Page365 name
+starts "Necklace …", "Wallet …": no code to sync stock on — fix the name on Page365), or the
+database error. A partial or failed read lands nothing.
+
+**Detection — how a new code is seen in time.** A full read opens every page, so the nightly
+full read (02:00 PHT) and a staff "Full fetch" see every new code. A quick read opens only
+listings that can hold a Hub product — so `page365_inventory_plan_quick` gains **(d)**: a
+listing never read before (no `fetched` row for its `page365_product_id` in any earlier run)
+is opened too. A brand-new listing therefore lands within ONE scheduled interval (5–30 min),
+at the cost of a handful of extra page reads per interval — polite limits unchanged (≤ 4
+requests/s, one reader, the run lease). A known listing that was sold out and comes back in
+stock is not reopened by a quick read; it lands at the nightly full read (or a Full fetch).
+
+**Incomplete still lands.** Nothing is refused for missing information. The Catalog shows
+"incomplete — needs …" (`publishMissing`, display twin of `website_product_publish_missing`:
+origin, brand for Branded, category, metal stamp for jewelry, price). Publishing is refused
+server-side until filled: `website_publish_products`, `trg_page365_draft_publish_guard`, and
+the CHECK `website_products_metals_jewelry`, which now applies to status `active` only (the
+jewelry-stamp rule moved from creation to publish). A landed product that sells out before it
+is published simply stays unpublished; its stock follows Page365 like any matched piece.
+
+**Item types and metals.** `item_kind` is exactly jewelry | watch | **accessory** (JA 小物;
+'other' rows converted). `page365_item_kind_for`: whole words in the Page365 name or
+category — watch(es) → watch; wallet, bag, handbag, clutch, tote, purse, pouch, backpack,
+cardholder / card holder / card case, coin / key / pass case, key chain / key holder / key
+ring, belt, scarf, sunglasses → accessory; else jewelry; watch wins. `page365_metals_from_text`:
+a printed stamp followed by a gold colour code (WG YG PG RG CG G) is that stamp; SV925 →
+SILVER925 ("Silver 925"); bare SV → **SILVER** ("Silver", JA シルバー — a new value in
+`website_products_metals_values` and the karat enum; product-only, the upload template's
+metal list is unchanged); "0.750ct" is no stamp. The storefront (cha-jewels-web) must learn
+to label SILVER.
+
+**Photos.** `page365_landings.photos_done_at IS NULL` is the backlog. Each scheduled tick of
+`page365-inventory-fetch`, after its own read (or on a tick with nothing to read) and never
+while a staff fetch is reading, copies landed products' photos through the shared copier
+(≤ 4 downloads/s, 12 per call, until the tick's time budget), Page365's order, first = main.
+A photo that keeps failing is retried on later ticks and given up after 3
+(`photo_failures`). A manual Full fetch lands at once; photos follow within minutes.
+
+**Screen.** Website → Page365 stock: the "New in Page365 / Create drafts" panel is replaced
+by a read-only **Landed in Catalog** list (`Page365LandedPanel.tsx`: code linked to the
+product, name, kind, when, incomplete flags, photo state). `page365_inventory_create_drafts`,
+`page365_inventory_refresh_product` and the edge `refresh` action are gone.
+
+## DRAFTS — "Create drafts" from new Page365 codes, and Catalog bulk Publish (added 2026-09-28, PR 4 of 4) — SUPERSEDED 2026-09-26 by AUTO-LAND (Create drafts removed; Catalog bulk Publish unchanged)
 
 Plan: `~/Code/reference/page365-inventory-fetch-investigation.md` (PR 4, owner-approved).
 Migration `20260929100000_page365_inventory_drafts.sql` (owner runs it, AFTER PR 1 and PR 2's
@@ -406,11 +475,20 @@ reviews). Runs fetched before this release have no categories: fetch again.
   Page365 says so ("[Preloved]" in the name or a PRELOVED category), else New.
 - Price = Page365's yen price for that variant; stock = Page365 available (a new variant
   has no website holds, so this IS max(0, available − holds)).
-- Metals: whole words equal to a Hub stamp, as printed in the name/description (K18, PT900,
-  …; "0.750ct" is not 750). **A stamp is required only for jewelry** (owner decision
-  2026-09-28, `website_products.item_kind`). A listing whose name or Page365 category
-  carries the whole word "watch"/"watches" is drafted as `item_kind = watch` and needs
-  none; anything else is jewelry, and jewelry with no stamp printed → **failed `no_metal`**.
+- Metals: a stamp as printed in the name/description (K18, PT900, …; "0.750ct" is not
+  750). Since 2026-09-26 (`page365_metals_from_text`, migration
+  `20261005100000_page365_drafts_designer.sql`) a stamp followed by a gold colour code is
+  read as that stamp — K18WG / K18YG/WG → K18, 750WG / 750PG → 750, 18KWG → 18K, K18g → K18
+  — and SV925 is the Hub's SILVER925. A bare "SV" (no purity) is no stamp. **A stamp is
+  required only for jewelry** (owner decision 2026-09-28, `website_products.item_kind`).
+- Item kind (`page365_item_kind_for`, whole words in the Page365 name or category, watch
+  wins): "watch"/"watches" → `watch`; wallet, bag, handbag, clutch, tote, purse, pouch,
+  backpack, cardholder / card holder / card case, coin / key / pass case, key chain / key
+  holder / key ring, belt, scarf, sunglasses → `other`; anything else → jewelry. Watches and
+  other items need no stamp. Jewelry with no stamp printed → **failed `no_metal`** (the
+  CHECK `website_products_metals_jewelry` is unchanged). Before 2026-09-26 only "watch" was
+  known, so every wallet/bag/belt and every "750WG"-style piece failed `no_metal` — the
+  "0 draft(s) created" of 2026-09-26 (docs/FIXED-BUGS.md).
 - "Don't sync with Page365" (PR 2): a code whose Hub product is switched off is never
   drafted — `sync_disabled`, whether the fetch saw the switch (`not_synced`) or it was
   switched on since (read live).
@@ -419,6 +497,12 @@ reviews). Runs fetched before this release have no categories: fetch again.
   "SUPPLIER LISTINGS - …", "- BRANDED PRELOVED" → left unset, flagged **needs category**.
 - Description: Page365's text only through `page365_clean_description` (no links, e-mail,
   @handles, phone numbers, HTML or banned gold wording; ≤ 2,000 characters), else empty.
+- **Every row not drafted keeps its reason** in `page365_inventory_items.result_note`
+  (since 2026-09-26; before, only `sync_disabled` / `code_exists` were stored and a failed
+  row stayed NULL). The panel lists each skipped/failed row with its reason after the press,
+  the row's last column shows the stored reason after a reload, and the toast counts
+  created / skipped / could-not-be-created (a warning whenever anything was not created).
+  A `no_metal` / `not_fresh` row stays tickable, so it can be retried once Page365 is fixed.
 - Skipped, never duplicated: `code_exists` (a Hub sku whose first word is the code — made
   by hand since the fetch), `already_created` (that Page365 listing+variant was drafted),
   and the `sku` UNIQUE constraint for a race. Failed, with the reason: `no_price`,

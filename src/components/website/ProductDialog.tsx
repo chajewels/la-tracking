@@ -14,11 +14,11 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { MultiPick } from "@/components/website/MultiPick";
 import {
-  CONDITION_VALUES, ConditionValue, METAL_VALUES, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
+  CONDITION_VALUES, ConditionValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
 import {
   ITEM_KINDS, ITEM_KIND_LABEL, type ItemKind, type ProductForm, type Status, type VariantRow, emptyVariant,
-  metalRequired, slugify,
+  PRODUCT_METAL_VALUES, metalLabel, metalRequired, slugify,
 } from "@/components/website/product-form";
 
 /**
@@ -139,7 +139,7 @@ export default function ProductDialog({
               <div className="space-y-1.5">
                 <Label>Metal stamps{metalRequired(form.itemKind) ? "" : " (optional)"}</Label>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Metal stamps">
-                  {METAL_VALUES.map((m) => {
+                  {PRODUCT_METAL_VALUES.map((m) => {
                     const idx = form.metals.indexOf(m);
                     const on = idx >= 0;
                     return (
@@ -155,16 +155,16 @@ export default function ProductDialog({
                             : "border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground"
                         }`}
                       >
-                        {on && form.metals.length > 1 ? `${idx + 1}. ` : ""}{m}
+                        {on && form.metals.length > 1 ? `${idx + 1}. ` : ""}{metalLabel(m)}
                       </button>
                     );
                   })}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   {form.metals.length
-                    ? <>Shown as <span className="text-foreground">{form.metals.join(" / ")}</span> — the order you pick is the order shown.</>
+                    ? <>Shown as <span className="text-foreground">{form.metals.map(metalLabel).join(" / ")}</span> — the order you pick is the order shown.</>
                     : metalRequired(form.itemKind)
-                      ? "Pick at least one. Exactly as stamped: 750 stays 750, it is not K18."
+                      ? "Needed before this jewelry can be published. Exactly as stamped: 750 stays 750, it is not K18."
                       : "Optional for this item. If it carries a stamp, pick it exactly as stamped."}
                 </p>
               </div>
