@@ -43,16 +43,29 @@ export function pickLang(v: unknown): Lang {
   return v === 'en' ? 'en' : 'ja'
 }
 
-/** The storefront order page for this order, built from WEBSITE_URL. */
-export function storefrontOrderUrl(orderId: string): string | null {
-  const base = (Deno.env.get('WEBSITE_URL') ?? '').replace(/\/$/, '')
-  return base ? `${base}/account/orders/${encodeURIComponent(orderId)}` : null
+/**
+ * The public storefront every customer link points at. FIXED, not read from a
+ * secret (owner decision E2, 2026-09-26): the WEBSITE_URL secret used to build
+ * these links, so it was set to cha-jewels-web.vercel.app and every order email
+ * sent customers to a vercel.app address. WEBSITE_URL is now the cache
+ * revalidation target ONLY (notify_website); changing it can never move a
+ * customer link. www, not the apex — the apex answers 308 → www.
+ */
+export const STOREFRONT_PUBLIC_URL = 'https://www.chajewelsjp.com'
+
+/** The storefront order page for this order. */
+export function storefrontOrderUrl(orderId: string): string {
+  return `${STOREFRONT_PUBLIC_URL}/account/orders/${encodeURIComponent(orderId)}`
 }
 
-/** The storefront layaway page for this plan, built from WEBSITE_URL. */
-export function storefrontLayawayUrl(accountId: string): string | null {
-  const base = (Deno.env.get('WEBSITE_URL') ?? '').replace(/\/$/, '')
-  return base ? `${base}/account/layaway/${encodeURIComponent(accountId)}` : null
+/** The storefront layaway page for this plan. */
+export function storefrontLayawayUrl(accountId: string): string {
+  return `${STOREFRONT_PUBLIC_URL}/account/layaway/${encodeURIComponent(accountId)}`
+}
+
+/** The storefront home page ("visit the shop" links). */
+export function storefrontShopUrl(): string {
+  return STOREFRONT_PUBLIC_URL
 }
 
 /**

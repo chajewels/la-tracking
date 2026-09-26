@@ -42,6 +42,14 @@ import { ReauthenticationEmail } from '../supabase/functions/_shared/email-templ
 import { NewsletterCampaignEmail } from '../supabase/functions/_shared/transactional-email-templates/newsletter-campaign.tsx'
 import { TEMPLATES } from '../supabase/functions/_shared/transactional-email-templates/registry.ts'
 import { STOREFRONT_PREVIEWS } from '../supabase/functions/_shared/email-templates/preview-registry.ts'
+import { storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl } from '../supabase/functions/_shared/storefront-email.ts'
+import { SITE as NEWSLETTER_SITE, unsubscribeUrl as newsletterUnsubscribeUrl } from '../supabase/functions/_shared/newsletter/render.tsx'
+
+// The WEBSITE_URL secret once built every storefront link, and was set to the
+// vercel.app alias, so customers were sent there (2026-09-26). Set it to that
+// alias here: the links below come from the REAL helpers, and the
+// "no vercel.app" test fails if any of them still reads the secret.
+Deno.env.set('WEBSITE_URL', 'https://cha-jewels-web.vercel.app')
 
 type Fixture = { name: string; file: string; element: React.ReactElement }
 
@@ -70,9 +78,9 @@ const schedule = [
   { installment_number: 3, due_date: '2026-12-24', amount: 28000 },
 ]
 const due = '2026-09-27T05:00:00.000Z'
-const orderUrl = 'https://www.chajewelsjp.com/account/orders/preview'
-const planUrl = 'https://www.chajewelsjp.com/account/layaway/preview'
-const shopUrl = 'https://www.chajewelsjp.com'
+const orderUrl = storefrontOrderUrl('preview')
+const planUrl = storefrontLayawayUrl('preview')
+const shopUrl = storefrontShopUrl()
 const base = { reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 317980 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- templates take heterogeneous props
 const el = (c: React.ComponentType<any>, p: Record<string, unknown>) => React.createElement(c, p)
@@ -140,10 +148,10 @@ function hubFixtures(): Fixture[] {
     out.push({ name: `hub ${name}`, file: `_shared/transactional-email-templates/${name}.tsx`, element: el(entry.component, props) })
   }
   // Newsletter in Japanese: a long body is exactly what crossed chunk boundaries.
-  const bodyJa = '## 今月のCha Jewels\n\n東京で一点ずつ仕上げた**パール**の新作が3点入荷しました。\n\n- アコヤ真珠のスタッドピアス\n- 18金チェーン 45cm\n- 一点物のダイヤモンドペンダント\n\n詳しくは[ジャーナル](https://chajewelsjp.com/journal)をご覧ください。'.repeat(6)
-  const products = [1, 2, 3].map((i) => ({ title: `パールピアス ${i}`, url: `${shopUrl}/p/${i}`, image_url: `${shopUrl}/i/${i}.jpg`, price_label: '¥68,000 / ₱26,000' }))
+  const bodyJa = '## 今月のCha Jewels\n\n東京で一点ずつ仕上げた**パール**の新作が3点入荷しました。\n\n- アコヤ真珠のスタッドピアス\n- 18金チェーン 45cm\n- 一点物のダイヤモンドペンダント\n\n詳しくは[ジャーナル](https://www.chajewelsjp.com/journal)をご覧ください。'.repeat(6)
+  const products = [1, 2, 3].map((i) => ({ title: `パールピアス ${i}`, url: `${NEWSLETTER_SITE}/product/${i}`, image_url: `${shopUrl}/i/${i}.jpg`, price_label: '¥68,000 / ₱26,000' }))
   for (const lang of LANGS)
-    out.push({ name: `hub newsletter-campaign ${lang}`, file: '_shared/transactional-email-templates/newsletter-campaign.tsx', element: el(NewsletterCampaignEmail, { subject: lang === 'ja' ? '9月の新作' : 'New arrivals', lang, bodyMarkdown: lang === 'ja' ? bodyJa : 'Three new **pearl** pieces — ¥68,000 / ₱26,000 🧡', unsubscribeUrl: `${shopUrl}/newsletter/unsubscribe?token=demo`, products, post: null }) })
+    out.push({ name: `hub newsletter-campaign ${lang}`, file: '_shared/transactional-email-templates/newsletter-campaign.tsx', element: el(NewsletterCampaignEmail, { subject: lang === 'ja' ? '9月の新作' : 'New arrivals', lang, bodyMarkdown: lang === 'ja' ? bodyJa : 'Three new **pearl** pieces — ¥68,000 / ₱26,000 🧡', unsubscribeUrl: newsletterUnsubscribeUrl('demo'), products, post: null }) })
   return out
 }
 
@@ -176,6 +184,34 @@ Deno.test('every email template renders without U+FFFD or mojibake (HTML and pla
     if (!html.includes('<html')) failures.push(`${f.name}: no <html> in output`)
   }
   if (failures.length) throw new Error(`${failures.length} of ${FIXTURES.length} emails broken:\n${failures.join('\n')}`)
+})
+
+Deno.test('no rendered email links to vercel.app — customer links are https://www.chajewelsjp.com', async () => {
+  const failures: string[] = []
+  for (const f of FIXTURES) {
+    const out = (await renderEmail(f.element)) + (await renderEmail(f.element, { plainText: true }))
+    if (/vercel\.app/i.test(out)) failures.push(f.name)
+  }
+  if (failures.length) throw new Error(`vercel.app in ${failures.length} emails: ${failures.join(', ')}`)
+  for (const u of [orderUrl, planUrl, shopUrl, NEWSLETTER_SITE, newsletterUnsubscribeUrl('x')])
+    if (!u.startsWith('https://www.chajewelsjp.com')) throw new Error(`customer link not on www: ${u}`)
+})
+
+Deno.test('WEBSITE_URL is read only by notify_website (revalidation), never to build an email link', async () => {
+  const root = new URL('../supabase/functions/', import.meta.url)
+  const offenders: string[] = []
+  const walk = async (dir: URL, rel: string) => {
+    for await (const e of Deno.readDir(dir)) {
+      if (e.name === 'node_modules') continue
+      if (e.isDirectory) await walk(new URL(`${e.name}/`, dir), `${rel}${e.name}/`)
+      else if (/\.(ts|tsx)$/.test(e.name) && rel !== 'notify_website/') {
+        const code = (await Deno.readTextFile(new URL(e.name, dir))).replace(/^\s*(\*|\/\/).*$/gm, '')
+        if (/env\.get\(\s*['"]WEBSITE_URL['"]/.test(code) || /vercel\.app/.test(code) && !rel.startsWith('auth-email-hook') && !(rel === '_shared/' && e.name === 'auth-audience.ts')) offenders.push(rel + e.name)
+      }
+    }
+  }
+  await walk(root, '')
+  if (offenders.length) throw new Error(`WEBSITE_URL / vercel.app in: ${offenders.join(', ')} — use STOREFRONT_PUBLIC_URL from _shared/storefront-email.ts`)
 })
 
 Deno.test('the renderer never splits a multi-byte character, however long the email', async () => {
