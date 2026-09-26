@@ -76,3 +76,15 @@ export const gridUnit = 4;
 
 /** Border radii (px): cards 8, inputs 6, pills 999. */
 export const radii = { card: 8, input: 6, pill: 999 } as const;
+
+/**
+ * The STOREFRONT's colours, for previews of website images inside the Hub
+ * (Website → Photos). Not Hub UI colours.
+ *  - heroStage: the dark hero stage a cut-out stands on (cha-jewels-web hero v3)
+ *  - chalk: the product-card well, and the background baked into every ivory
+ *    catalogue image (owner decision D2, docs/MEDIA-CUTOUTS.md)
+ */
+export const storefrontPreview = {
+  heroStage: '#15120F',
+  chalk: '#F5F5F2',
+} as const;

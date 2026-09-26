@@ -21,9 +21,10 @@ import { ReservationModeCard } from "@/components/website/ReservationModeCard";
 import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
+import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
 
 /**
- * The Website workspace — everything that feeds chajewelsjp.com, on five tabs.
+ * The Website workspace — everything that feeds chajewelsjp.com, on six tabs.
  *
  * Tab state lives in `?tab=`, the same arrangement Monitoring uses: validated
  * on init so a hand-typed tab falls back rather than rendering nothing, written
@@ -41,8 +42,11 @@ import { Page365InventoryScheduleCard } from "@/components/website/Page365Invent
  *                      "STOCK"), and the Page365 inventory fetch/review/apply,
  *                      which since PR 2 is the only thing that moves website
  *                      stock from Page365 (docs/PAGE365-IMPORT.md "INVENTORY")
+ *   photos           → manage_website_catalog  (automatic background removal:
+ *                      the switch, the monthly limit and the review queue —
+ *                      docs/MEDIA-CUTOUTS.md)
  */
-export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock"] as const;
+export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock", "photos"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];
 
 const isWebsiteTab = (v: string | null): v is WebsiteTab =>
@@ -109,13 +113,14 @@ export default function Website() {
         </div>
 
         <Tabs value={tab} onValueChange={v => setTab(v as WebsiteTab)} className="w-full">
-          {/* Five tabs overflow a phone: scroll sideways there (CustomerDetail's pattern). */}
+          {/* Six tabs overflow a phone: scroll sideways there (CustomerDetail's pattern). */}
           <TabsList className="flex w-full max-w-full justify-start overflow-x-auto scrollbar-hide sm:inline-flex sm:w-auto [&>*]:shrink-0">
             {canCatalog && <TabsTrigger value="catalog">Catalog</TabsTrigger>}
             {canContent && <TabsTrigger value="content">Content</TabsTrigger>}
             {canAudience && <TabsTrigger value="audience">Audience</TabsTrigger>}
             {canContent && <TabsTrigger value="settings">Settings</TabsTrigger>}
             {canCatalog && <TabsTrigger value="page365-stock">Page365 stock</TabsTrigger>}
+            {canCatalog && <TabsTrigger value="photos">Photos</TabsTrigger>}
           </TabsList>
 
           {canCatalog && (
@@ -155,6 +160,13 @@ export default function Website() {
               <Page365InventoryScheduleCard />
               <Page365InventoryCard />
               <Page365StockCard />
+            </TabsContent>
+          )}
+
+          {canCatalog && (
+            <TabsContent value="photos" className="mt-5 space-y-6" tabIndex={-1}>
+              <MediaCutoutSettingsCard />
+              <MediaCutoutReviewCard />
             </TabsContent>
           )}
         </Tabs>

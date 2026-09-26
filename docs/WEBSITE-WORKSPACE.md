@@ -1,6 +1,6 @@
 # Website workspace (`/website`)
 
-Everything that feeds chajewelsjp.com, on one route with five tabs (Page365 stock added 2026-09-26). Replaced
+Everything that feeds chajewelsjp.com, on one route with six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05). Replaced
 `/website-catalog`, which was a single page of six unrelated cards.
 
 Added 2026-09-21.
@@ -16,6 +16,7 @@ Added 2026-09-21.
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
 | Settings | `settings` | ReservationModeCard, SettingsCard | `manage_website_content` (the reserve-first switch itself: **admin only**) |
 | Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK"); "Create drafts" from new Page365 codes (added 2026-09-28, "DRAFTS") |
+| Photos | `photos` | MediaCutoutSettingsCard, MediaCutoutReviewCard | `manage_website_catalog` — automatic background removal: the Off / Test / On switch, the monthly limit, the test batch, and the review queue (approve / re-run / reject / own cut-out). Added 2026-10-05, docs/MEDIA-CUTOUTS.md |
 
 **Audience is the one tab that is not a single key's.** Three of its cards
 belong to `manage_website_catalog` — who subscribed, who wrote in — and

@@ -43,7 +43,8 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
-- docs/WEBSITE-WORKSPACE.md — the /website workspace: the five tabs (Page365 stock added 2026-09-26), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
+- docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
 - Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
   and a pointer): docs/CRON-AND-EDGE-AUTH.md, docs/LOYALTY-RULES.md,
   docs/WEB-LAYAWAY.md, docs/PAGE365-IMPORT.md, docs/MIGRATIONS.md,
@@ -935,7 +936,8 @@ When completing a partially_paid month:
   hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
   hourly. web-payment-reminder-sweep and web-reservation-expiring-bell run :13
   hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 min (2-59/5) and touches no
-  account data (docs/PAGE365-IMPORT.md "SCHEDULE"). process-email-queue has NO cron — silence means nothing is calling it,
+  account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every 2 min on odd minutes
+  (1-59/2) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
   not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
 
   CRON AUTH RULE: a pg_cron job calling a service-role-gated function MUST read
@@ -1592,6 +1594,20 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     re-add an every-product stamp rule (website_products_metals_nonempty is
     retired). A Page365 listing is a watch only if Page365 itself prints the
     whole word "watch(es)" in its name or category.
+
+## MEDIA CUT-OUTS (BACKGROUND REMOVAL) — NON-NEGOTIABLE (added 2026-10-05)
+
+  Full text: docs/MEDIA-CUTOUTS.md.
+  - One row per SOURCE PHOTO URL (website_media_cutouts.source_url), never per
+    media id (the Catalog save re-inserts media rows). A new URL is a new row;
+    old rows and staff decisions are never touched. Originals never modified.
+  - The enqueue trigger must never fail a media write.
+  - media_cutout_mode off|test|on FAILS TO OFF (off = worker does nothing);
+    invalid cap = 0. Changed ONLY via set_media_cutout_settings (audited,
+    guard trigger); never in a migration or SQL.
+  - Automation never overwrites approved/rejected; only ok / auto_fixed /
+    approved may be shown on the website.
+  - FAL_KEY / REPLICATE_* are edge secrets only — never repo, DB, logs, chat.
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 
