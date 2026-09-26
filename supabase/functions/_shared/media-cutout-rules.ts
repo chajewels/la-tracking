@@ -53,6 +53,21 @@ export function derivedPaths(sha256: string, run: number) {
   };
 }
 
+/**
+ * Where a SYNC provider's result (Photoroom) is stored the moment it arrives:
+ * next to the runs of the same original, one file per provider call, so a
+ * re-run never overwrites a result a row still points at. It becomes the
+ * row's master_path (housekeeping removes it with the rest).
+ */
+export function syncResultPath(sha256: string, provider: string, requestId: string): string {
+  return `website/derived/${sha256.slice(0, 32)}/${provider}-${requestId}.png`;
+}
+
+/** One of OUR derived files (a stored provider result or an own cut-out). */
+export function isOwnDerivedUrl(url: string): boolean {
+  return /^https:\/\/[^/]+\/storage\/v1\/object\/public\/promotions\/website\/derived\//.test(url);
+}
+
 /** The storage path inside the bucket for one of our public URLs. */
 export function storagePathOf(publicUrl: string): string | null {
   const m = publicUrl.match(/\/storage\/v1\/object\/public\/promotions\/(.+)$/);
@@ -63,13 +78,26 @@ export function storagePathOf(publicUrl: string): string | null {
 export const MAX_RETRIES = 3;
 export const RETRY_BACKOFF_MINUTES = [5, 30, 180] as const;
 
-/** Per tick. Submissions are also capped by the monthly cap. */
+/**
+ * Per tick (the cron fires every minute). Submissions are also capped by the
+ * monthly cap. docs/MEDIA-CUTOUTS.md "SPEED":
+ * - submit 12, 4 at a time: Photoroom allows 60 a minute; each call is I/O
+ *   (download, POST, upload) — the tick's own CPU per photo is a hash and a
+ *   multipart copy, a few ms.
+ * - process 12, 4 at a time: each is its OWN invocation with its own 2 s CPU
+ *   (measured p95 ≈ 0.65 s locally at path A sizes), so running them side by
+ *   side does not add CPU to any one of them.
+ * → up to 12 photos a minute. budgetMs stays under the minute so a tick has
+ *   finished (and released the lease) before the next one fires.
+ */
 export const TICK = {
-  submit: 8,
+  submit: 12,
+  submitParallel: 4,
   poll: 20,
-  process: 6,
+  process: 12,
+  processParallel: 4,
   housekeeping: 20,
   leaseSeconds: 110,
-  /** Stop starting new work after this much wall time (cron fires every 2 min). */
-  budgetMs: 90_000,
+  /** Stop starting new work after this much wall time. */
+  budgetMs: 45_000,
 } as const;

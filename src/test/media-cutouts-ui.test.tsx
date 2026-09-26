@@ -12,11 +12,14 @@ import type { ReactNode } from "react";
 const calls: { fn: string; args?: Record<string, unknown> }[] = [];
 let overview: Record<string, unknown>;
 let listRows: Record<string, unknown>[];
+let providerRow: Record<string, unknown> | Error;
 
 vi.mock("@/lib/untyped-rpc", () => ({
   callUntypedRpc: async (fn: string, args?: Record<string, unknown>) => {
     calls.push({ fn, args });
     if (fn === "get_media_cutout_overview") return overview;
+    if (fn === "get_media_cutout_provider") { if (providerRow instanceof Error) throw providerRow; return providerRow; }
+    if (fn === "set_media_cutout_provider") return { ok: true, changed: true, provider: args?.p_provider ?? "photoroom", price_usd: String(args?.p_price_usd ?? "0.02") };
     if (fn === "list_media_cutouts") return { total: listRows.length, rows: listRows };
     if (fn === "set_media_cutout_settings") return { ok: true, changed: true, mode: args?.p_mode ?? overview.mode, cap: args?.p_cap ?? overview.cap };
     if (fn === "review_media_cutout") return { ok: true, status: args?.p_action === "approve" ? "approved" : "rejected" };
@@ -45,6 +48,7 @@ const SRC = "https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/p
 
 beforeEach(() => {
   calls.length = 0;
+  providerRow = { found: true, provider: "photoroom", raw_provider: "photoroom", price_usd: "0.02", updated_at: null, updated_by_name: null };
   overview = {
     found: true, mode: "off", cap: 600, month: "2026-10", used: 480, bell_80_at: "2026-10-05T00:00:00Z",
     updated_at: null, updated_by_name: null, can_change: true, last_tick_at: null, last_tick: null,
@@ -94,6 +98,41 @@ describe("switch and limit", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add to test batch \(4 SKUs\)/ }));
     await waitFor(() => expect(calls.find(c => c.fn === "add_media_cutout_test_batch")?.args)
       .toEqual({ p_skus: ["AL112", "AL3", "R3110", "ZZ9"], p_batch: "Test 30", p_main_only: false }));
+  });
+});
+
+describe("provider and estimated cost (Photoroom)", () => {
+  it("shows Photoroom at $0.02 a photo and the month's estimate: 480 × $0.02 = $9.60, at most $12.00 at the 600 limit", async () => {
+    wrap(<MediaCutoutSettingsCard />);
+    const prov = await screen.findByTestId("cutout-provider");
+    await waitFor(() => expect(prov).toHaveTextContent("Photoroom"));
+    expect(screen.getByTestId("cutout-price")).toHaveTextContent("$0.02 a photo");
+    expect(screen.getByTestId("cutout-cost")).toHaveTextContent("Estimated cost: $9.60 so far this month (480 × $0.02); at most $12.00 at the limit");
+    expect(screen.getByTestId("cutout-last-run")).toHaveTextContent("It runs every minute while the switch is on.");
+  });
+
+  it("saves a price with the provider the screen showed", async () => {
+    wrap(<MediaCutoutSettingsCard />);
+    fireEvent.change(await screen.findByLabelText("Price per photo (US$, for the estimate)"), { target: { value: "0.025" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save price" }));
+    await waitFor(() => expect(calls.find(c => c.fn === "set_media_cutout_provider")?.args)
+      .toEqual({ p_provider: null, p_price_usd: 0.025, p_expected_provider: "photoroom" }));
+  });
+
+  it("before the migration: says so, and still estimates at Photoroom's list price", async () => {
+    providerRow = new Error("function get_media_cutout_provider() does not exist");
+    wrap(<MediaCutoutSettingsCard />);
+    expect(await screen.findByTestId("cutout-provider-missing")).toHaveTextContent("once the Photoroom migration has been run");
+    expect(screen.getByTestId("cutout-cost")).toHaveTextContent("$9.60 so far");
+  });
+
+  it("the Turn-on question names the provider and the most it can cost", async () => {
+    wrap(<MediaCutoutSettingsCard />);
+    await waitFor(() => expect(screen.getByTestId("cutout-provider")).toHaveTextContent("Photoroom"));
+    fireEvent.click(screen.getByRole("radio", { name: "On" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Every queued photo will be sent to Photoroom");
+    expect(dialog).toHaveTextContent("up to 600 a month (at most about $12.00)");
   });
 });
 
