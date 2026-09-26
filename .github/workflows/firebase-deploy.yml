@@ -243,8 +243,10 @@ jobs:
       # Renders every email template (JA + EN, every variant) and fails on any
       # U+FFFD or mojibake, or on a renderAsync import. See docs/FIXED-BUGS.md
       # "Japanese emails garbled by renderAsync".
-      - name: Email encoding (blocking)
-        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts
+      # Also: no rendered email links to vercel.app, and the sign-in email
+      # audience (storefront vs Hub) for every host — docs/WEBSITE-VERCEL.md.
+      - name: Email encoding + links + sign-in audience (blocking)
+        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/auth-audience.test.ts
 
   # --------------------------------------------------------------- housekeeping
   # Firebase Hosting allows a limited number of preview channels per site (50

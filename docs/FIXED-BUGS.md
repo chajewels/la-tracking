@@ -5417,3 +5417,34 @@ NewCustomerDialog). Tests: `src/test/page365-customer-match.test.ts`.
 
 Do not reintroduce: never match a phone with a text filter on the stored
 number; compare digits only. Never search the Page365 name in full_name alone.
+
+### Storefront sign-in on www.chajewelsjp.com got the Hub email; storefront email links followed a secret to vercel.app (2026-09-26)
+
+Evidence (owner's inbox): a sign-in on https://www.chajewelsjp.com at
+2026-09-26 02:03 UTC produced "Your login link / Your login link for Cha Jewels
+Hub" (English, raw GoTrue verify link) with
+`redirect_to=https://www.chajewelsjp.com/auth/callback?next=/account`. Sign-in
+completed, so the Auth redirect allow-list already has www; the template choice
+was wrong. `auth-email-hook` STOREFRONT_HOSTS named `chajewelsjapan.com` (the
+Page365 shop, never a sign-in origin) instead of `chajewelsjp.com` (the Bug #264
+entry above repeated the same wrong domain). Earlier sign-ins from the
+vercel.app hosts (e.g. 2026-09-25 10:19 UTC) were correct.
+
+Separately, every storefront email link was built from the `WEBSITE_URL` secret
+(then `https://cha-jewels-web.vercel.app`), whose real job is the revalidation
+target — so customers were sent to vercel.app.
+
+Fix: host logic moved to `_shared/auth-audience.ts` (pure, tested);
+STOREFRONT_HOSTS = `^(www\.)?chajewelsjp\.com$` + the cha-jewels-web Vercel
+hosts; `app.`/`portal.chajewelsjp.com` stay Hub. Customer links come from
+`STOREFRONT_PUBLIC_URL = https://www.chajewelsjp.com` (`_shared/storefront-email.ts`)
+via `storefrontOrderUrl` / `storefrontLayawayUrl` / `storefrontShopUrl`; the
+inline copies in `reservation-emails.ts`, `layaway-forfeit-email.ts` and
+`auto-expire-cash-orders` are gone. Newsletter `SITE` → www. Tests:
+`development/auth-audience.test.ts`; `development/email-encoding.test.ts`
+("no rendered email links to vercel.app", "WEBSITE_URL is read only by
+notify_website").
+
+Do not reintroduce: never build a customer link from `WEBSITE_URL`; never put
+`chajewelsjapan.com` (Page365) in the sign-in host list; never widen the list to
+`*.chajewelsjp.com` (app./portal. are the Hub).

@@ -396,18 +396,49 @@ Three secrets gate the whole integration. None is a code change.
 | Secret | Set where | If unset |
 |---|---|---|
 | `WEBSITE_API_KEY` | Supabase function secret **and** Vercel env — identical value | `website` returns `401 unauthorized` to every request. Loud: the storefront shows nothing. |
-| `WEBSITE_URL` | Supabase function secret | `notify_website` → **500**, `missing: ["WEBSITE_URL"]`. No trailing slash (the relay strips exactly one). |
+| `WEBSITE_URL` | Supabase function secret | `notify_website` → **500**, `missing: ["WEBSITE_URL"]`. No trailing slash (the relay strips exactly one). **Revalidation target only** since 2026-09-26 — it no longer builds any email link (see below). |
 | `REVALIDATE_SECRET` | Supabase function secret **and** Vercel env — identical value | `notify_website` → **500**. |
 
 ### `WEBSITE_URL` must be a host with NO Vercel Deployment Protection
 
-`WEBSITE_URL` is `https://cha-jewels-web.vercel.app` — the storefront's
-unprotected production host. It must never point at a `*-git-<branch>-*`
+`WEBSITE_URL` was set to `https://cha-jewels-web.vercel.app` on 2026-09-12 and
+moved to `https://www.chajewelsjp.com` (owner decision E1, verified in a live
+email 2026-09-26) — both are unprotected production hosts. It must never point at a `*-git-<branch>-*`
 preview URL or at the team-scoped `cha-jewels-web-cha-jewels.vercel.app` host:
 those sit behind Vercel Deployment Protection, and Vercel's auth wall answers
 **401 "Protected deployment"** before the request reaches `/api/revalidate`.
 The secret comparison never runs, so aligning `REVALIDATE_SECRET` cannot fix
 it. Changing `WEBSITE_URL` needs a `notify_website` redeploy to take effect.
+
+### Customer email links are FIXED to https://www.chajewelsjp.com (2026-09-26)
+
+Until 2026-09-26 every storefront email link (order page, layaway page, "visit
+the shop") was built from `WEBSITE_URL`, so while that secret named the
+vercel.app alias, customers were sent to `cha-jewels-web.vercel.app`. The links
+now come from ONE constant, `STOREFRONT_PUBLIC_URL = "https://www.chajewelsjp.com"`
+in `_shared/storefront-email.ts`, through `storefrontOrderUrl()`,
+`storefrontLayawayUrl()` and `storefrontShopUrl()` — the same way the Hub portal
+base is hard-coded. **www, not the apex** (the apex answers 308 → www, which
+breaks a one-click unsubscribe POST). The Resend newsletter
+(`_shared/newsletter/render.tsx` `SITE`) uses www too.
+
+`WEBSITE_URL` is now read ONLY by `notify_website` (cache revalidation). A
+wrong value can break revalidation; it can never move a customer link.
+Guarded by `development/email-encoding.test.ts`, which sets `WEBSITE_URL` to the
+vercel.app alias, renders every email with links from the real helpers and
+fails on any `vercel.app`, and fails if any function other than
+`notify_website` reads `WEBSITE_URL`.
+
+### Sign-in email on www.chajewelsjp.com (2026-09-26)
+
+`auth-email-hook` picks the storefront template (「Cha Jewels サインインリンク /
+Your Cha Jewels sign-in link」) only when the link lands on a storefront host.
+The list (`_shared/auth-audience.ts` `STOREFRONT_HOSTS`) is: `chajewelsjp.com`
+and `www.chajewelsjp.com` exactly, and the cha-jewels-web Vercel hosts. It used
+to name `chajewelsjapan.com` (the Page365 shop) instead, so a sign-in on the
+real domain got the Hub's "Your login link". `app.` and `portal.chajewelsjp.com`
+are the Hub and must keep the Hub email. Pinned by
+`development/auth-audience.test.ts`.
 
 ### Test sign-in from the branch alias, never a per-deployment host
 
@@ -503,7 +534,7 @@ Japanese emails carry the English text below; English emails are English only.
 The confirmation repeats exactly what the payment screen showed: items, total,
 every transfer method as a labelled card (the same `transfer_methods` payload),
 the transfer-name notice, the deadline as date+time in JST (Japan) or PHT
-(overseas), and the `/account/orders/[id]` link built from `WEBSITE_URL`.
+(overseas), and the `/account/orders/[id]` link on `https://www.chajewelsjp.com` (`storefrontOrderUrl`).
 
 **Reply-To on every storefront email is `sales@chajewelsjp.com`** (2026-09-13):
 the three order emails via `STOREFRONT_REPLY_TO` in `_shared/storefront-email.ts`,
