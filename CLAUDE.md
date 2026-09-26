@@ -936,8 +936,8 @@ When completing a partially_paid month:
   hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
   hourly. web-payment-reminder-sweep and web-reservation-expiring-bell run :13
   hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 min (2-59/5) and touches no
-  account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every 2 min on odd minutes
-  (1-59/2) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
+  account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every minute
+  (* * * * *, since 20261007100000) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
   not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
 
   CRON AUTH RULE: a pg_cron job calling a service-role-gated function MUST read
@@ -1607,7 +1607,16 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     guard trigger); never in a migration or SQL.
   - Automation never overwrites approved/rejected; only ok / auto_fixed /
     approved may be shown on the website.
-  - FAL_KEY / REPLICATE_* are edge secrets only — never repo, DB, logs, chat.
+  - PROVIDER = PHOTOROOM (owner, 2026-09-27): system_settings.
+    media_cutout_provider photoroom|fal|replicate fails to photoroom; fal and
+    Replicate are called ONLY when selected there. Provider + price change
+    ONLY via set_media_cutout_provider (audited, guard trigger).
+  - PHOTOROOM_API_KEY / FAL_KEY / REPLICATE_* are edge secrets only — never
+    repo, DB, logs, chat.
+  - A hole INSIDE the piece that is not plausible backdrop (interior_hole) or
+    Photoroom uncertainty >= 0.45 (uncertain) is needs_review, never OK /
+    auto_fixed. Never drop these checks: "Test 30" shipped two watches with
+    erased dials as passed.
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 

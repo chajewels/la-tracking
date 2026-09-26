@@ -5417,3 +5417,32 @@ NewCustomerDialog). Tests: `src/test/page365-customer-match.test.ts`.
 
 Do not reintroduce: never match a phone with a text filter on the stored
 number; compare digits only. Never search the Page365 name in full_name alone.
+
+### Background removal: watches with erased dials passed the quality checks (2026-09-27)
+
+"Test 30" (fal.ai BiRefNet, PR #215): C1395 (G-SHOCK, dark dial) and C0983
+(Van Cleef & Arpels, white dial) came back with part of the dial erased — a
+hole INSIDE the watch — and both were `auto_fixed` ("Will be used on the
+website"); QA noted only the frame crops.
+
+Why: no check looked inside the piece. Regions / edge / coverage see only the
+outline. `detail_loss` compares the photo's non-backdrop pixels with the
+cut-out, but C0983's white dial is within ΔE 12 of its white backdrop, so the
+erased dial never counted as "something" (detail kept 0.95), and C1395's hole
+is ~5 % of the piece, far under the 20 % allowance (0.91).
+
+Fix (`_shared/cutout-qa.ts` `interiorHoles`, flag `interior_hole:<share>`):
+transparent cells enclosed by the piece are holes; a hole is an erasure when
+the photo shows something other than backdrop there, or when its rim has its
+colour and that surface carries on at least 2× the hole (a dial; not the thin
+light metal round a bracelet seen from the side). Erasures >= 0.4 % of the
+piece → needs_review. Without the original, sizeable openings are held as
+`interior_hole_unchecked`. Photoroom's `x-uncertainty-score` >= 0.45 is held
+too (`uncertain:`). Calibrated on all 34 stored fal results; tests on the real
+C1395 / C0983 / R3341 masters (`src/test/fixtures/media-cutouts-fal-live.json`,
+`src/test/media-cutouts-photoroom.test.ts`). The provider moved to Photoroom
+in the same PR (owner decision).
+
+Do not reintroduce: never judge a cut-out by its outline and colour-vs-backdrop
+alone; a backdrop-coloured part of the piece (white dial, pearl, enamel) is
+invisible to that.

@@ -2,6 +2,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { callUntypedRpc } from '@/lib/untyped-rpc';
 import { describeFlag, PUBLISHABLE_STATUSES, type CutoutStatus } from '../../supabase/functions/_shared/cutout-qa.ts';
 import { BUCKET, type CutoutMode } from '../../supabase/functions/_shared/media-cutout-rules.ts';
+import {
+  DEFAULT_PRICE_USD, estimateCost, type ProviderName, readPriceSetting, readProviderSetting,
+} from '../../supabase/functions/_shared/cutout-provider.ts';
 
 /**
  * Website → Photos (automatic background removal, docs/MEDIA-CUTOUTS.md).
@@ -10,8 +13,30 @@ import { BUCKET, type CutoutMode } from '../../supabase/functions/_shared/media-
  * (never a detached supabase.rpc). All of them check manage_website_catalog.
  */
 
-export { describeFlag, PUBLISHABLE_STATUSES };
-export type { CutoutMode, CutoutStatus };
+export { DEFAULT_PRICE_USD, describeFlag, estimateCost, PUBLISHABLE_STATUSES };
+export type { CutoutMode, CutoutStatus, ProviderName };
+
+/** Who removes the backgrounds (migration 20261007100000_media_cutout_photoroom). */
+export interface CutoutProviderSetting {
+  found: boolean;
+  provider: ProviderName;
+  /** US$ per photo for the estimate; null = unknown (Replicate). */
+  price_usd: number | null;
+  updated_at: string | null;
+  updated_by_name: string | null;
+}
+
+export const PROVIDER_LABEL: Record<ProviderName, string> = {
+  photoroom: 'Photoroom',
+  fal: 'fal.ai (BiRefNet)',
+  replicate: 'Replicate (BiRefNet)',
+};
+
+export const PROVIDER_TEXT: Record<ProviderName, string> = {
+  photoroom: 'Photoroom Remove Background API — edge secret PHOTOROOM_API_KEY.',
+  fal: 'fal.ai BiRefNet v2 — edge secret FAL_KEY. Used on the first test; it erased parts of two watch dials.',
+  replicate: 'Replicate BiRefNet — edge secrets REPLICATE_API_TOKEN and REPLICATE_BIREFNET_VERSION.',
+};
 
 export interface CutoutOverview {
   found: boolean;
@@ -118,6 +143,30 @@ export const listCutouts = (filter: CutoutFilter, search: string, limit = 20, of
     p_filter: filter, p_search: search.trim() || null, p_limit: limit, p_offset: offset,
   });
 
+export const CUTOUT_PROVIDER_KEY = ['media-cutouts-provider'] as const;
+
+export async function getProvider(): Promise<CutoutProviderSetting> {
+  const raw = await rpc<Record<string, unknown>>('get_media_cutout_provider');
+  const provider = readProviderSetting(raw.provider);
+  return {
+    found: raw.found === true,
+    provider,
+    price_usd: readPriceSetting(raw.price_usd, provider),
+    updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : null,
+    updated_by_name: typeof raw.updated_by_name === 'string' ? raw.updated_by_name : null,
+  };
+}
+
+export const setProvider = (provider: ProviderName | null, priceUsd: number | null, expected: ProviderName | null) =>
+  rpc<{ ok: boolean; changed: boolean; provider: ProviderName; price_usd: string | null }>('set_media_cutout_provider', {
+    p_provider: provider, p_price_usd: priceUsd, p_expected_provider: expected,
+  });
+
+/** "$0.72" — or "unknown" when there is no price. */
+export function formatUsd(v: number | null): string {
+  return v == null ? 'unknown' : `$${v.toFixed(2)}`;
+}
+
 export const setSettings = (mode: CutoutMode | null, cap: number | null, expectedMode: CutoutMode | null) =>
   rpc<{ ok: boolean; changed: boolean; mode: CutoutMode; cap: number }>('set_media_cutout_settings', {
     p_mode: mode, p_cap: cap, p_expected_mode: expectedMode,
@@ -188,6 +237,8 @@ export function refusalText(err: unknown): string {
     case 'no_rerun': return 'There is no re-run result to use.';
     case 'invalid_own_cutout_url': return 'The uploaded cut-out could not be used. Upload a PNG or WebP again.';
     case 'invalid_mode': return 'That setting is not one of Off / Test / On.';
+    case 'invalid_provider': return 'That provider is not one of Photoroom / fal.ai / Replicate.';
+    case 'invalid_price': return 'The price per photo must be between $0 and $10.';
     case 'invalid_cap': return 'The monthly limit must be a whole number from 0 to 100,000.';
     case 'batch_name_required': return 'Give the test batch a name (up to 60 characters).';
     case 'skus_required_max_100': return 'Paste between 1 and 100 SKUs.';

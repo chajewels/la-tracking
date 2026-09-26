@@ -72,7 +72,20 @@ export interface QaInput {
   original?: RgbImage | null;
   /** D7: the product is earrings or a set — similar-size regions are one piece. */
   allowPairs?: boolean;
+  /**
+   * The provider's own confidence, 0 (sure) – 1 (unsure): Photoroom's
+   * `x-uncertainty-score` header. null / undefined = not given (fal, or -1).
+   */
+  providerUncertainty?: number | null;
 }
+
+/**
+ * Photoroom documents "high uncertainty: between 0.6 and 1", "low: between 0
+ * and 0.3" (docs.photoroom.com/remove-background-api-basic-plan/uncertainty-score).
+ * Held from the middle of the gap: a false hold costs a click, a false OK
+ * shows a broken photo.
+ */
+export const UNCERTAINTY_REVIEW = 0.45;
 
 export interface Region {
   area: number;
@@ -289,6 +302,151 @@ export function detailKept(original: RgbImage, cutoutDs: AlphaImage): number | n
 }
 
 // ---------------------------------------------------------------------------
+// Interior holes (added 2026-09-27 after "Test 30": fal.ai erased part of the
+// dial of C1395 and C0983 and both passed — the dial hole is INSIDE the
+// watch, so no region / edge / coverage check sees it, and detail_loss missed
+// it: C0983's white dial is within ΔE 12 of its white backdrop, so the erased
+// dial never counted as "something"; C1395's hole is ~5 % of the piece, far
+// under the 20 % detail_loss allowance).
+//
+// A hole = transparent cells fully enclosed by the piece (not reachable from
+// the frame's border). A real opening (an open heart, a ring's centre, chain
+// links) shows the BACKDROP through it, and the piece around it is a
+// different material. An erasure cuts through ONE continuous surface: the
+// piece right around the hole looks like what was removed. So a hole is
+// "not plausible background" when either
+//   (a) most of what the photo shows there is not backdrop (same rule as the
+//       detail check: ΔE > 12 and not a colourless brightness shift), or
+//   (b) most of its rim (kept piece cells touching it) has the colour of the
+//       hole's content (ΔE ≤ HOLE_RIM_DE) AND that surface carries on well
+//       past the hole (HOLE_SURFACE_RATIO) — the cut ran through a surface.
+//       (a) alone cannot see C0983: the white dial IS backdrop-coloured.
+// Such holes adding up to HOLE_REVIEW_SHARE of the piece → needs_review.
+// Without the original on the same grid, colour cannot be judged: sizeable
+// holes are then held as "unchecked" (review is the safe direction).
+// ---------------------------------------------------------------------------
+/** Ignore holes smaller than this share of the piece (pavé gaps, chain links)… */
+export const HOLE_MIN_SHARE = 0.002;
+/** …and smaller than this many QA-grid cells. */
+export const HOLE_MIN_CELLS = 6;
+/** Rim colour within this ΔE of the hole's content = one continuous surface. */
+export const HOLE_RIM_DE = 10;
+/** Share of a hole's content / rim that decides (a) / (b). */
+export const HOLE_EVIDENCE = 0.5;
+/**
+ * (b) also needs the kept surface of the hole's colour, grown from its rim,
+ * to be at least this many times the hole: the rest of a dial is several
+ * times the bite taken out of it (C0983: 7×), while the light metal round a
+ * bracelet seen from the side is a thin strip next to a big opening (0.1–0.3×
+ * on C0983_3/_4, C1395_3 of "Test 30").
+ */
+export const HOLE_SURFACE_RATIO = 2;
+/** Implausible holes adding up to this share of the piece → needs_review. */
+export const HOLE_REVIEW_SHARE = 0.004;
+
+export interface HoleReport {
+  /** Implausible (erased) hole area as a share of the piece; 0 when none. */
+  erasedShare: number;
+  /** All enclosed hole area (above the size floor) as a share of the piece. */
+  holeShare: number;
+  /** True when the original was not available and colour was not judged. */
+  unchecked: boolean;
+}
+
+const NB4 = (p: number, w: number, h: number): number[] => {
+  const x = p % w, y = (p - x) / w;
+  return [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
+};
+
+/**
+ * `piece`: 1 where the (kept) piece is, on the QA grid. `original`: the photo
+ * on the same grid, or null.
+ */
+export function interiorHoles(piece: Uint8Array, w: number, h: number, original: RgbImage | null): HoleReport {
+  let pieceArea = 0;
+  for (let i = 0; i < piece.length; i++) pieceArea += piece[i];
+  if (pieceArea === 0) return { erasedShare: 0, holeShare: 0, unchecked: false };
+
+  // Empty cells reachable from the frame's border (4-connected) are outside;
+  // every other empty cell is inside a hole.
+  const outside = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  let sp = 0;
+  const seed = (i: number) => { if (!piece[i] && !outside[i]) { outside[i] = 1; stack[sp++] = i; } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (sp > 0) for (const q of NB4(stack[--sp], w, h)) if (q >= 0) seed(q);
+
+  let lab: Float32Array | null = null;
+  let bgLab: [number, number, number] = [0, 0, 0];
+  if (original && original.width === w && original.height === h) {
+    lab = new Float32Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) {
+      const [L, A, B] = rgbToLab(original.rgb[i * 3], original.rgb[i * 3 + 1], original.rgb[i * 3 + 2]);
+      lab[i * 3] = L; lab[i * 3 + 1] = A; lab[i * 3 + 2] = B;
+    }
+    const [br, bg, bb] = cornerBackground(original);
+    bgLab = rgbToLab(br, bg, bb);
+  }
+
+  const minCells = Math.max(HOLE_MIN_CELLS, pieceArea * HOLE_MIN_SHARE);
+  const seen = new Uint8Array(w * h);
+  let holeArea = 0, erased = 0;
+  for (let start = 0; start < w * h; start++) {
+    if (piece[start] || outside[start] || seen[start]) continue;
+    const cells: number[] = [];
+    sp = 0;
+    stack[sp++] = start;
+    seen[start] = 1;
+    while (sp > 0) {
+      const p = stack[--sp];
+      cells.push(p);
+      for (const q of NB4(p, w, h)) if (q >= 0 && !piece[q] && !seen[q]) { seen[q] = 1; stack[sp++] = q; }
+    }
+    if (cells.length < minCells) continue;
+    holeArea += cells.length;
+    if (!lab) continue;
+
+    // (a) What the photo shows in the hole.
+    let notBackdrop = 0, mL = 0, mA = 0, mB = 0;
+    for (const p of cells) {
+      const L = lab[p * 3], A = lab[p * 3 + 1], B = lab[p * 3 + 2];
+      mL += L; mA += A; mB += B;
+      const dL = L - bgLab[0], dA = A - bgLab[1], dB = B - bgLab[2];
+      const backdrop = Math.sqrt(dL * dL + dA * dA + dB * dB) <= DETAIL_DELTA_E ||
+        (Math.abs(dL) < BACKDROP_DL && Math.abs(dA) < BACKDROP_DAB && Math.abs(dB) < BACKDROP_DAB);
+      if (!backdrop) notBackdrop++;
+    }
+    mL /= cells.length; mA /= cells.length; mB /= cells.length;
+    // (b) The rim: kept piece cells 4-adjacent to the hole.
+    let rim = 0, rimSame = 0;
+    const rimSeen = new Set<number>();
+    for (const p of cells) {
+      for (const q of NB4(p, w, h)) {
+        if (q < 0 || !piece[q] || rimSeen.has(q)) continue;
+        rimSeen.add(q);
+        rim++;
+        const dL = lab[q * 3] - mL, dA = lab[q * 3 + 1] - mA, dB = lab[q * 3 + 2] - mB;
+        if (Math.sqrt(dL * dL + dA * dA + dB * dB) <= HOLE_RIM_DE) rimSame++;
+      }
+    }
+    // The kept surface that continues the hole: piece cells reachable from
+    // the matching rim through cells of the hole's colour.
+    const near = (q: number) => Math.hypot(lab[q * 3] - mL, lab[q * 3 + 1] - mA, lab[q * 3 + 2] - mB) <= HOLE_RIM_DE;
+    const surf = new Set<number>();
+    const grow: number[] = [];
+    for (const q of rimSeen) if (near(q)) { surf.add(q); grow.push(q); }
+    while (grow.length) {
+      for (const q of NB4(grow.pop()!, w, h)) if (q >= 0 && piece[q] && !surf.has(q) && near(q)) { surf.add(q); grow.push(q); }
+    }
+    const showsPiece = notBackdrop >= cells.length * HOLE_EVIDENCE;
+    const cutThroughSurface = rim > 0 && rimSame >= rim * HOLE_EVIDENCE && surf.size >= cells.length * HOLE_SURFACE_RATIO;
+    if (showsPiece || cutThroughSurface) erased += cells.length;
+  }
+  return { erasedShare: erased / pieceArea, holeShare: holeArea / pieceArea, unchecked: !lab };
+}
+
+// ---------------------------------------------------------------------------
 // The verdict
 // ---------------------------------------------------------------------------
 
@@ -351,6 +509,27 @@ export function checkCutout(input: QaInput): QaResult {
     }
   }
 
+  // 4b. Part of the piece erased from INSIDE its outline (a watch dial).
+  const pieceMask = new Uint8Array(total);
+  for (let i = 0; i < total; i++) pieceMask[i] = ds.alpha[i] >= ALPHA_ON && (!keep || keep[i]) ? 1 : 0;
+  const holes = interiorHoles(pieceMask, ds.width, ds.height, input.original ?? null);
+  if (holes.unchecked) {
+    if (holes.holeShare >= HOLE_REVIEW_SHARE) {
+      review = true;
+      flags.push(`interior_hole_unchecked:${holes.holeShare.toFixed(3)}`);
+    }
+  } else if (holes.erasedShare >= HOLE_REVIEW_SHARE) {
+    review = true;
+    flags.push(`interior_hole:${holes.erasedShare.toFixed(3)}`);
+  }
+
+  // 4c. The provider's own doubt (Photoroom's x-uncertainty-score).
+  const doubt = input.providerUncertainty;
+  if (typeof doubt === "number" && doubt >= UNCERTAINTY_REVIEW) {
+    review = true;
+    flags.push(`uncertain:${doubt.toFixed(2)}`);
+  }
+
   // 5. Resolution of the ORIGINAL photo (D4).
   const long = Math.max(input.sourceWidth, input.sourceHeight);
   if (long < MIN_CATALOG_PX) {
@@ -400,6 +579,12 @@ export function describeFlag(flag: string): string {
       return `Too small: ${value.replace("x", " × ")} px (at least ${MIN_CATALOG_PX} px needed)`;
     case "hero_low_res":
       return `Fine for the catalogue; too small for the hero (${value.replace("x", " × ")} px, hero needs ${MIN_HERO_PX})`;
+    case "interior_hole":
+      return `Part of the piece was erased from inside it (${(Number(value) * 100).toFixed(1)}% of the piece — e.g. a watch dial) — check it`;
+    case "interior_hole_unchecked":
+      return "The piece has openings that could not be compared with the photo — check it";
+    case "uncertain":
+      return `The background-removal service was unsure of this photo (uncertainty ${value}) — check it`;
     case "soft_matte":
       return "A haze was left around the piece";
     case "api_error":
