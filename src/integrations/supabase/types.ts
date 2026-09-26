@@ -7356,6 +7356,7 @@ export type Database = {
         }[]
       }
       get_page365_inventory_auto_apply: { Args: never; Returns: Json }
+      get_page365_inventory_interval: { Args: never; Returns: Json }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -7592,6 +7593,7 @@ export type Database = {
         }
         Returns: Json
       }
+      page365_inventory_interval_minutes: { Args: never; Returns: number }
       page365_inventory_lease: {
         Args: { p_holder: string; p_run_id: string; p_seconds: number }
         Returns: boolean
@@ -7816,6 +7818,10 @@ export type Database = {
       }
       set_page365_inventory_auto_apply: {
         Args: { p_enabled: boolean; p_expected?: boolean }
+        Returns: Json
+      }
+      set_page365_inventory_interval: {
+        Args: { p_expected?: number; p_minutes: number }
         Returns: Json
       }
       set_web_reservation_mode: {
