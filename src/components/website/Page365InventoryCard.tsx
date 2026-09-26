@@ -23,7 +23,7 @@ import {
 } from "@/lib/page365-inventory-api";
 import { publishProducts } from "@/lib/page365-drafts-api";
 import { PUBLISH_REFUSAL, missingText, type PublishResult } from "@/lib/page365-drafts";
-import { Page365NewProductsPanel } from "@/components/website/Page365NewProductsPanel";
+import { LANDINGS_QUERY_KEY, Page365LandedPanel } from "@/components/website/Page365LandedPanel";
 
 /**
  * Website → Page365 stock → Page365 inventory. Staff read the whole Page365
@@ -150,59 +150,6 @@ export function Page365InventoryCard() {
   const groups = useMemo(() => groupItems(rows), [rows]);
   const canApply = run?.status === "ready";
 
-  // PR 3c: "New in Page365" comes from the latest FULL, complete read. Before
-  // the PR 3c migration there is no kind column: every run is full, so the
-  // latest ready run is used as before.
-  const fullRun = useQuery({
-    queryKey: ["page365-inventory-full-run"],
-    queryFn: async () => {
-      const { data, error } = await runsTable().select("*").eq("kind", "full").eq("status", "ready")
-        .order("created_at", { ascending: false }).limit(1);
-      if (error) {
-        if (/\bkind\b/.test(error.message)) return null;
-        throw error;
-      }
-      return ((data ?? [])[0] ?? null) as InventoryRun | null;
-    },
-  });
-  const newRun: InventoryRun | null = fullRun.data
-    ?? (run && !run.kind && run.status === "ready" ? run : null);
-  const newItems = useQuery({
-    queryKey: ["page365-inventory-new-items", newRun?.id],
-    enabled: !!newRun,
-    queryFn: async () => {
-      const out: InventoryItem[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await itemsTable().select("*").eq("run_id", newRun!.id).eq("category", "new")
-          .range(from, from + 999);
-        if (error) throw error;
-        out.push(...((data ?? []) as InventoryItem[]));
-        if (!data || data.length < 1000) break;
-      }
-      return out;
-    },
-  });
-  // Which listings the latest list still has (any kind of read whose list was
-  // complete). null = the latest read IS the full read: nothing to compare.
-  const listRun = run && run.status !== "fetching" && run.status !== "failed" && run.id !== newRun?.id ? run : null;
-  const listed = useQuery({
-    queryKey: ["page365-inventory-listed", listRun?.id],
-    enabled: !!listRun,
-    queryFn: async () => {
-      const ids = new Set<number>();
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await productsTable().select("page365_product_id")
-          .eq("run_id", listRun!.id).range(from, from + 999);
-        if (error) throw error;
-        for (const r of (data ?? []) as { page365_product_id: number }[]) ids.add(Number(r.page365_product_id));
-        if (!data || data.length < 1000) break;
-      }
-      return ids;
-    },
-  });
-  const canCreateDrafts = newRun?.status === "ready" && !!newRun.finished_at
-    && Date.now() - new Date(newRun.finished_at).getTime() < 48 * 3600_000;
-
   // Pre-tick once per run (decreases + photos), never re-tick after staff untick.
   useEffect(() => {
     if (!run || !items.data || seededFor.current === run.id) return;
@@ -217,9 +164,7 @@ export function Page365InventoryCard() {
   const refresh = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ["page365-inventory-run"] });
     await qc.invalidateQueries({ queryKey: ["page365-inventory-items"] });
-    await qc.invalidateQueries({ queryKey: ["page365-inventory-full-run"] });
-    await qc.invalidateQueries({ queryKey: ["page365-inventory-new-items"] });
-    await qc.invalidateQueries({ queryKey: ["page365-inventory-listed"] });
+    await qc.invalidateQueries({ queryKey: [LANDINGS_QUERY_KEY] });
     await qc.invalidateQueries({ queryKey: ["page365-inventory-run-history"] });
   }, [qc]);
 
@@ -376,7 +321,7 @@ export function Page365InventoryCard() {
               Page365 invoice holds Page365 may not count yet. Importing a Page365 invoice no longer changes website
               stock. Nothing changes until you apply ticked rows. “Fetch” is quick: Page365’s product list plus the
               pages of products the Hub has (seconds). “Full fetch” reads every Page365 page (minutes) — it runs by
-              itself nightly at {NIGHTLY_FULL_TEXT} and feeds “New in Page365”.
+              itself nightly at {NIGHTLY_FULL_TEXT}. New in-stock Page365 products land in Catalog by themselves, unpublished.
             </p>
             {run && (
               <p className="mt-1 text-xs text-muted-foreground" data-testid="p365-inv-last-fetch">
@@ -561,30 +506,7 @@ export function Page365InventoryCard() {
                 </TableBody>
               </Table>
             </Section>
-            {newRun && (newItems.data ?? []).length > 0 ? (
-              <section className="space-y-2" data-testid="p365-inv-new-section">
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <h3 className="font-display text-sm text-card-foreground">New in Page365</h3>
-                  <p className="w-full text-xs text-muted-foreground sm:w-auto">
-                    Codes the Hub does not have, from the latest full fetch. Tick and “Create drafts” — drafts never
-                    appear on the website until published in Catalog.
-                  </p>
-                </div>
-                <Page365NewProductsPanel
-                  run={newRun}
-                  items={newItems.data ?? []}
-                  canCreate={canCreateDrafts}
-                  onChanged={refresh}
-                  listedIds={listRun ? listed.data ?? null : null}
-                  listedAt={listRun ? phtTime(listRun.created_at) : null}
-                />
-              </section>
-            ) : !fullRun.isLoading && !newRun ? (
-              <p className="text-xs text-muted-foreground" data-testid="p365-inv-no-full">
-                New in Page365 comes from a full fetch. None yet — press “Full fetch”, or wait for the nightly one
-                ({NIGHTLY_FULL_TEXT}).
-              </p>
-            ) : null}
+            <Page365LandedPanel />
             <Section title="Price differences" hint="Reported only. The website price changes by hand in Catalog." count={groups.priceDiffs.length} tone="muted">
               <Table>
                 <TableHeader><TableRow><TableHead>Code</TableHead><TableHead className="text-right">Page365</TableHead><TableHead className="text-right">Hub</TableHead></TableRow></TableHeader>

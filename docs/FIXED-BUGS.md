@@ -5417,3 +5417,34 @@ NewCustomerDialog). Tests: `src/test/page365-customer-match.test.ts`.
 
 Do not reintroduce: never match a phone with a text filter on the stored
 number; compare digits only. Never search the Page365 name in full_name alone.
+
+### Page365 "Create drafts" made 0 drafts for wallets and most branded pieces (2026-09-26)
+
+Owner ticked wallets (W3356, W1451, W2607, W3173, W3412, W3307, W3257, W2402,
+W2483, W2210) in Website → Page365 stock → New in Page365 and pressed Create
+drafts: "0 draft(s) created", and `result_note` stayed NULL on every row.
+
+Root cause, all in `page365_inventory_create_drafts` and its helper:
+(1) item kind knew only "watch" — every other listing was drafted as JEWELRY,
+which needed a printed metal stamp at creation, so every wallet/bag/key
+case/belt failed `no_metal`; (2) `page365_metals_from_text` matched a stamp
+only as a bare word, so K18WG, K18YG/WG, 750WG, 750PG, 18KWG, K18g and SV925
+— how Page365 prints most stamps — were never read (on the 2026-09-26
+catalogue 164 of 642 listings failed `no_metal`: 35 non-jewelry, 129
+jewelry); (3) a skipped or failed row never wrote `result_note`, and the toast
+said only "N draft(s) created".
+
+Fix (owner decisions 2026-09-26, migration `20261005100000_page365_auto_land.sql`):
+the Create drafts step is removed — new in-stock codes LAND in the Catalog by
+themselves, unpublished (docs/PAGE365-IMPORT.md "AUTO-LAND"); item types are
+jewelry | watch | accessory from printed words; stamps with colour codes are
+read, SV925 → SILVER925, SV → SILVER; the jewelry-stamp rule moved from
+creation to publish, so an incomplete piece lands flagged instead of being
+refused; every row not landed keeps its reason. Tests:
+`docs/sql/20261005_page365_auto_land_local_tests.sql`,
+`src/test/page365-auto-land.test.tsx`.
+
+Do not reintroduce: never infer "jewelry" for a listing Page365 calls a
+wallet, bag, case or belt; never match a stamp only as a bare word; never
+refuse to create a product for a field that is only needed to publish; never
+leave a row not landed without its reason.
