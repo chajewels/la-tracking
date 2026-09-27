@@ -24,6 +24,7 @@ import { Page365InventoryScheduleCard } from "@/components/website/Page365Invent
 import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
+import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on six tabs.
@@ -38,10 +39,11 @@ import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard
  * Two permission keys, not one — see docs/WEBSITE-WORKSPACE.md:
  *   catalog          → manage_website_catalog  (the shop)
  *   content, settings → manage_website_content  (the words on the site)
- *                      Settings also carries two ADMIN-ONLY sections moved
- *                      from Hub Settings in website-orders PR 1: Payment
- *                      details and Payment reminders. They render only for
- *                      admins, because content editors can open this tab.
+ *                      Settings also carries three ADMIN-ONLY sections:
+ *                      Payment details and Payment reminders (moved from Hub
+ *                      Settings in website-orders PR 1) and Shipping fees
+ *                      (PR 2). They render only for admins, because content
+ *                      editors can open this tab.
  *   audience         → EITHER, with each card on its own key — see canAudience
  *   page365-stock    → manage_website_catalog  (imported Page365 lines that
  *                      did not match one website product — docs/PAGE365-IMPORT.md
@@ -67,6 +69,7 @@ export const WEBSITE_SETTINGS_SECTIONS = {
   orderConfirmation: "order-confirmation",
   paymentDetails: "payment-details",
   paymentReminders: "payment-reminders",
+  shippingFees: "shipping-fees",
   siteSettings: "site-settings",
 } as const;
 
@@ -196,6 +199,14 @@ export default function Website() {
               {isAdmin && (
                 <section id={WEBSITE_SETTINGS_SECTIONS.paymentReminders} className="scroll-mt-20">
                   <PaymentRemindersCard />
+                </section>
+              )}
+              {/* Admin only (website-orders PR 2): the storefront shipping
+                  rate card. set_shipping_rate / deactivate_shipping_rate
+                  re-check the admin role and audit every change. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.shippingFees} className="scroll-mt-20">
+                  <ShippingFeesCard />
                 </section>
               )}
               <section id={WEBSITE_SETTINGS_SECTIONS.siteSettings} className="scroll-mt-20">

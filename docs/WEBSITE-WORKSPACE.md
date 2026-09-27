@@ -14,7 +14,7 @@ Added 2026-09-21.
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
-| Settings | `settings` | ReservationModeCard ("Order confirmation (reserve first)"), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details and Payment reminders render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
+| Settings | `settings` | ReservationModeCard ("Order confirmation (reserve first)"), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
 | Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK"); "Create drafts" from new Page365 codes (added 2026-09-28, "DRAFTS") |
 | Photos | `photos` | MediaCutoutSettingsCard, MediaCutoutReviewCard | `manage_website_catalog` — automatic background removal: the Off / Test / On switch, the monthly limit, the test batch, and the review queue (approve / re-run / reject / own cut-out). Added 2026-10-05, docs/MEDIA-CUTOUTS.md |
 
@@ -91,7 +91,7 @@ and a card on Settings → General). `SettingsPage` now redirects
 `/settings?tab=payment-details` to `/website?tab=settings#payment-details`
 (and `?tab=payment-reminders` to `#payment-reminders`). Each section on the
 Settings tab carries an id (`order-confirmation`, `payment-details`,
-`payment-reminders`, `site-settings`; `WEBSITE_SETTINGS_SECTIONS` in
+`payment-reminders`, `shipping-fees`, `site-settings`; `WEBSITE_SETTINGS_SECTIONS` in
 `Website.tsx`) and the page scrolls to the hash once the tab has rendered.
 `/settings` is admin_settings-gated, so a non-admin following the old link is
 still refused there, exactly as before.
@@ -526,6 +526,7 @@ src/components/website/reservation-mode.ts           its copy + refusal words
 src/components/website/SettingsCard.tsx              the Settings tab's "Site settings" card
 src/components/settings/PaymentMethodsTab.tsx        Settings tab → Payment details (admin only)
 src/components/settings/PaymentRemindersCard.tsx     Settings tab → Payment reminders (admin only)
+src/components/website/ShippingFeesCard.tsx          Settings tab → Shipping fees (admin only; docs/SHIPPING-FEES.md)
 src/components/website/website-settings.ts           the typed key schema
 src/components/website/PostsCard.tsx                 the Posts card + editor
 src/components/website/website-posts.ts              post shape, slug rule
