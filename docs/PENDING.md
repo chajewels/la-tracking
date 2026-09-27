@@ -856,6 +856,14 @@ that staff apply by hand, and the FAQ describes what staff do.
 
 ## FREE SHIPPING: THE FAQ SAYS ¥8,000, THE RATE CARD SAYS ¥50,000 (filed 2026-09-16)
 
+> **JAPAN HALF RESOLVED (2026-09-27).** The owner moved the live JP free row
+> from ¥50,000 to ¥8,000 in the SQL Editor; live reads JP 0 → 800, JP 8000 → 0.
+> Migration `20261008100000_shipping_fees_couriers.sql` records it (a rebuild
+> from the repo converges on ¥8,000) and puts the card in Hub → Website →
+> Settings → Shipping fees (docs/SHIPPING-FEES.md). The SQL below is history —
+> the rate card is now guarded and changes only through the card. The
+> international five-item grouping further down is still open.
+
 Not a missing feature — a **numerical contradiction**, and the one a customer
 actually hits.
 
