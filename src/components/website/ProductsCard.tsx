@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CatalogBulkBar } from "@/components/website/CatalogBulkBar";
+import { CatalogSearchBar } from "@/components/website/CatalogSearchBar";
+import {
+  type CatalogFilters, filterProducts, filtersFromParams, productTypeCounts, withFilters,
+} from "@/lib/catalog-search";
 import { missingText, publishMissing } from "@/lib/page365-drafts";
 import { hiddenByPage365Note } from "@/lib/page365-inventory";
 import { fetchHiddenByPage365 } from "@/lib/page365-inventory-api";
@@ -32,6 +36,13 @@ import {
  * The website product list and everything that writes to it: the queries, the
  * save and remove mutations, the bulk Japanese pass, the import trigger and
  * the template download.
+ *
+ * Search, filters and the product-type tabs (2026-09-27) live in the URL —
+ * ?q=&type=&category=&status=&stock= — and combine with ?view=page365-drafts
+ * and ?product=<id>. Filtering is client-side over the WHOLE catalog: the
+ * list is read in pages (PostgREST returns at most 1,000 rows per request),
+ * so a search never runs over a silently truncated list. Rules:
+ * src/lib/catalog-search.ts.
  *
  * Lifted out of WebsiteCatalog.tsx with its logic untouched. The one thing
  * that moved on screen is the action row — it used to sit beside the page
@@ -72,18 +83,31 @@ export default function ProductsCard() {
   const products = useQuery({
     queryKey: ["website-products"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("website_products" as any)
-        .select(
-          // "*" rather than a column list: page365_product_id (PR 4) is read when
-          // the migration has run and simply absent before it.
-          "*, " +
-          "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
-          "website_collection_products(collection_id), website_category_products(category_id)"
-        )
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as any[];
+      // Paged: one request returns at most 1,000 rows (PostgREST max-rows),
+      // and the search must run over the whole catalog, never a truncated
+      // one. A failed page fails the whole read — no partial list is shown.
+      // id breaks created_at ties so pages never overlap or skip.
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 100;
+      const all: Array<Record<string, unknown>> = [];
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const { data, error } = await supabase
+          .from("website_products" as any)
+          .select(
+            // "*" rather than a column list: page365_product_id (PR 4) is read when
+            // the migration has run and simply absent before it.
+            "*, " +
+            "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
+            "website_collection_products(collection_id), website_category_products(category_id)"
+          )
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+        if (error) throw error;
+        all.push(...((data ?? []) as unknown as Array<Record<string, unknown>>));
+        if ((data ?? []).length < PAGE_SIZE) return all;
+      }
+      throw new Error(`The catalog has more than ${PAGE_SIZE * MAX_PAGES} products; the list would be incomplete.`);
     },
   });
 
@@ -124,10 +148,48 @@ export default function ProductsCard() {
   }), [products.data]);
 
   // ?view=page365-drafts (from "Landed in Catalog"): only the unpublished Page365 products.
-  const visible = useMemo(
+  const scoped = useMemo(
     () => (draftsView ? rows.filter((p) => p.page365_product_id != null && p.status === "draft") : rows),
     [rows, draftsView],
   );
+
+  // Search + filters, from the URL. The box writes ?q= after a short pause so
+  // typing stays smooth and a refresh or shared link keeps the search.
+  const filters = useMemo(() => filtersFromParams(searchParams), [searchParams]);
+  const [query, setQuery] = useState(filters.q);
+  // The last ?q= this box wrote. The URL is copied back into the box only when
+  // it changed from elsewhere (Back, a pasted link), never when our own
+  // debounced write lands — that would drop keys typed in the meantime.
+  const wroteQ = useRef(filters.q);
+  useEffect(() => {
+    if (filters.q !== wroteQ.current) { wroteQ.current = filters.q; setQuery(filters.q); }
+  }, [filters.q]);
+  useEffect(() => {
+    if (query === wroteQ.current) return;
+    const t = setTimeout(() => {
+      wroteQ.current = query;
+      setSearchParams((prev) => withFilters(prev, { q: query }), { replace: true });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+  const setFilters = (patch: Partial<CatalogFilters>) =>
+    setSearchParams((prev) => withFilters(prev, patch), { replace: true });
+  const clearFilters = () => {
+    wroteQ.current = "";
+    setQuery("");
+    setSearchParams(
+      (prev) => withFilters(prev, { q: "", type: "", category: "", status: "", stock: "" }),
+      { replace: true },
+    );
+  };
+  const visible = useMemo(() => filterProducts(scoped, filters), [scoped, filters]);
+  const typeCounts = useMemo(() => productTypeCounts(scoped, filters), [scoped, filters]);
+  const statuses = useMemo(() => {
+    const seen = new Set<string>(["active", "draft", "archived"]);
+    for (const p of rows) if (p.status) seen.add(String(p.status));
+    return [...seen];
+  }, [rows]);
   const selectedRows = useMemo(() => visible.filter((p) => picked.has(p.id)), [visible, picked]);
   const clearParam = (key: string) => setSearchParams(prev => {
     const n = new URLSearchParams(prev);
@@ -511,6 +573,21 @@ export default function ProductsCard() {
               <Button size="sm" variant="ghost" onClick={() => clearParam("view")}>Show all products</Button>
             </div>
           )}
+          {rows.length > 0 && (
+            <CatalogSearchBar
+              query={query}
+              onQueryChange={setQuery}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onClear={clearFilters}
+              types={(collections.data ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))}
+              categories={(categories.data ?? []).map((c) => ({ id: c.id, name: c.name }))}
+              statuses={statuses}
+              counts={typeCounts}
+              shown={visible.length}
+              total={scoped.length}
+            />
+          )}
           {canManage && (
             <CatalogBulkBar
               selected={selectedRows}
@@ -523,9 +600,18 @@ export default function ProductsCard() {
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : visible.length === 0 ? (
+          ) : products.isError ? (
+            <div className="py-16 text-center text-sm text-destructive" data-testid="catalog-load-error">
+              Could not load the whole catalog, so nothing is shown rather than part of it. Refresh to try again.
+            </div>
+          ) : rows.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
               No products yet. Add your first piece to publish it on the website.
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="space-y-3 py-16 text-center text-sm text-muted-foreground" data-testid="catalog-no-match">
+              <p>No products match.</p>
+              <Button variant="outline" size="sm" onClick={clearFilters}>Clear search and filters</Button>
             </div>
           ) : (
             <Table>

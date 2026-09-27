@@ -115,6 +115,33 @@ loaded, and then clear the param. Coming back to the tab later must not
 silently re-apply a filter, or re-open a drawer, from a notification read days
 ago.
 
+## 4b. Finding a product: search, filters, product-type tabs (2026-09-27)
+
+The Products card has a search box, filters and a row of product-type tabs
+(`src/components/website/CatalogSearchBar.tsx`; rules in
+`src/lib/catalog-search.ts`, tested in `src/test/catalog-search.test.ts`).
+
+- **Search** matches, case-insensitively and ignoring spaces and dashes (after
+  NFKC, so full-width input works): the product **code** (first word of the
+  name, the Page365 rule), the **SKU** (`website_products.sku`; variants have no
+  SKU column), the English name and the Japanese name. An exact code/SKU match
+  is listed first. Typing is debounced (250 ms); × clears.
+- **Filters**: Product type (every `website_collections` row with its count, plus
+  "No product type"), Category, Status, Stock (In stock / Sold out). They combine
+  with the search. "Clear filters" resets them all.
+- **Type tabs**: All (n), each type (n), No product type (n). A product in
+  several types appears under each. Counts follow the search and the other
+  filters, never the selected type.
+- **URL**: `?q=&type=&category=&status=&stock=`, written with `replace`, so a
+  refresh or a shared link keeps them. They combine with `?view=page365-drafts`
+  (the drafts scope is applied first) and `?product=<id>` (opens the product
+  even when the current search hides it).
+- **Client-side, over the whole catalog.** The product list is read in pages of
+  1,000 (PostgREST's per-request cap), so search never runs over a truncated
+  list; a failed page fails the whole read and the card says so instead of
+  showing part of the catalog.
+- Empty result: "No products match." with "Clear search and filters".
+
 ## 5. Where each table's editor lives
 
 | Table | Editor | Tab |
