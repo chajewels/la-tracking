@@ -57,6 +57,7 @@ import ReassignOwnerFixture from './ReassignOwnerFixture';
 import { ReservationModeCard } from '@/components/website/ReservationModeCard';
 import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
 import { PAYMENT_REMINDERS_KEY } from '@/components/settings/payment-reminders';
+import { SHIPPING_RATES_KEY } from '@/components/website/shipping-fees';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
 import MediaCutoutsFixture from './MediaCutoutsFixture';
 import { seedMediaCutouts } from './media-cutouts-fixture-data';
@@ -133,8 +134,10 @@ import {
  *                                   → the Hub signed in as that role mix (header +
  *                                     sidebar footer role label)
  *   /__fixtures?view=hub&at=/website?tab=settings[&roles=staff]
- *                                   → Website → Settings (admin: four sections;
- *                                     staff: no Payment details / reminders)
+ *                                   → Website → Settings (admin: five sections;
+ *                                     staff: no Payment details / reminders /
+ *                                     Shipping fees). &shipping=waiting = the
+ *                                     Shipping fees card before the migration
  *   /__fixtures?view=hub&at=/website?tab=catalog&catalog=search
  *                                   → Website → Catalog with product types, categories,
  *                                     Japanese names and sold-out pieces (search/filters)
@@ -339,6 +342,17 @@ export default function FixturePreview() {
         { ...method, id: 'fixture-tpm-os', region: 'OVERSEAS', currency: 'PHP', method_type: 'gcash', bank_name: null, bank_branch: null, account_type: null, account_number: null, account_holder: null, wallet_number: '00000000000', wallet_name: 'Fixture Wallet' },
       ]);
       seed(['website-settings'], []);
+      // Website-orders PR 2: the live rate card as of 2026-09-27, or the
+      // state before the migration is applied (&shipping=waiting).
+      const rate = (id: string, country: string, min: number, fee: number) => ({
+        id, country, min_subtotal_jpy: min, fee_jpy: fee, is_active: true, updated_at: '2026-09-27T01:00:00Z' });
+      seed([...SHIPPING_RATES_KEY], searchParams.get('shipping') === 'waiting'
+        ? { available: false }
+        : { available: true, can_change: hubAdmin, rates: [
+          rate('fixture-sr-jp0', 'JP', 0, 800), rate('fixture-sr-jp8k', 'JP', 8000, 0),
+          rate('fixture-sr-ph0', 'PH', 0, 3500), rate('fixture-sr-ph100k', 'PH', 100000, 0),
+          { ...rate('fixture-sr-us0', 'US', 0, 5000), is_active: false },
+        ] });
     }
     if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test');
     if (view === 'payment-reminders') {

@@ -155,8 +155,10 @@ acts on `expires_at` and would flip the order to `expired` *without* restoring
 stock.
 
 **Shipping is a rate card, and silence means "ask".** `shipping_rates(country,
-min_subtotal_jpy, fee_jpy)` — seeded JP ¥800 / free ≥¥50,000, PH ¥3,500 / free
-≥¥100,000. The match is the highest `min_subtotal_jpy` the subtotal clears. A
+min_subtotal_jpy, fee_jpy)` — live (2026-09-27): JP ¥800 / free from ¥8,000,
+PH ¥3,500 / free from ¥100,000. Shipping is charged on the pieces subtotal; the
+match is the highest `min_subtotal_jpy` the subtotal clears. Staff change it
+only in Hub → Website → Settings → Shipping fees (admin; docs/SHIPPING-FEES.md). A
 country with no active row returns `shipping_jpy: null` and
 `requires_manual_quote: true`; the storefront must stop and ask rather than ship
 for free.
