@@ -22,6 +22,7 @@ import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
 import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
+import { HeroCutoutsCard } from "@/components/website/HeroCutoutsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
@@ -52,7 +53,9 @@ import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
  *                      stock from Page365 (docs/PAGE365-IMPORT.md "INVENTORY")
  *   photos           → manage_website_catalog  (automatic background removal:
  *                      the switch, the monthly limit and the review queue —
- *                      docs/MEDIA-CUTOUTS.md)
+ *                      docs/MEDIA-CUTOUTS.md; and the HERO cut-outs, original
+ *                      tool only, approve / reject / go-live ADMIN only —
+ *                      docs/HERO-CUTOUTS.md)
  */
 export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock", "photos"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];
@@ -227,6 +230,8 @@ export default function Website() {
             <TabsContent value="photos" className="mt-5 space-y-6" tabIndex={-1}>
               <MediaCutoutSettingsCard />
               <MediaCutoutReviewCard />
+              {/* The hero's own cut-outs (original tool), apart from Photoroom's (docs/HERO-CUTOUTS.md). */}
+              <HeroCutoutsCard />
             </TabsContent>
           )}
         </Tabs>
