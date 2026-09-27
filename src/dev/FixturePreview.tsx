@@ -138,6 +138,9 @@ import {
  *                                     staff: no Payment details / reminders /
  *                                     Shipping fees). &shipping=waiting = the
  *                                     Shipping fees card before the migration
+ *   /__fixtures?view=hub&at=/website?tab=catalog&catalog=search
+ *                                   → Website → Catalog with product types, categories,
+ *                                     Japanese names and sold-out pieces (search/filters)
  *   /__fixtures?view=hub&at=/settings?tab=payment-details
  *                                   → the old link, redirected to the above
  *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
@@ -295,6 +298,15 @@ export default function FixturePreview() {
       seed(['website-categories'], [{ id: 'cat-rings', slug: 'rings', name: 'Rings', name_ja: null, published: true, sort_order: 0 }]);
       seed(['website-collections'], []);
       seed(['website-fx-rate'], { date: '2026-09-28', jpy_php: 0.37 });
+      // Catalog search (2026-09-27): &catalog=search swaps in a catalog with
+      // product types, categories, Japanese names and sold-out pieces —
+      // Website → Catalog, hub view.
+      if (searchParams.get('catalog') === 'search') {
+        const cs = buildCatalogSearchFixtures();
+        seed(['website-products'], cs.products);
+        seed(['website-collections'], cs.collections);
+        seed(['website-categories'], cs.categories);
+      }
     }
     if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
     if (view === 'reservation-mode') {
@@ -1395,6 +1407,52 @@ function buildCatalogDraftFixtures() {
       status: 'active', page365_product_id: null, website_product_variants: variant('v3', 72980, 1),
       website_category_products: [{ category_id: 'cat-rings' }] },
   ];
+}
+
+/** Website → Catalog search fixtures (&catalog=search): types, categories, JA names, stock. */
+function buildCatalogSearchFixtures() {
+  const collections = [
+    { id: 'col-rings', slug: 'rings', name: 'Rings', name_ja: 'リング', description: null, description_ja: null, hero_media: null },
+    { id: 'col-necklaces', slug: 'necklaces', name: 'Necklaces', name_ja: 'ネックレス', description: null, description_ja: null, hero_media: null },
+    { id: 'col-pendants', slug: 'pendants', name: 'Pendants', name_ja: 'ペンダント', description: null, description_ja: null, hero_media: null },
+    { id: 'col-earrings', slug: 'earrings', name: 'Earrings', name_ja: 'ピアス', description: null, description_ja: null, hero_media: null },
+  ];
+  const categories = [
+    { id: 'cat-diamond', slug: 'diamond', name: 'Diamond', name_ja: 'ダイヤモンド', published: true, sort_order: 0 },
+    { id: 'cat-pearl', slug: 'pearl', name: 'Pearl', name_ja: 'パール', published: true, sort_order: 1 },
+    { id: 'cat-gold', slug: 'gold', name: 'Gold', name_ja: 'ゴールド', published: true, sort_order: 2 },
+  ];
+  let n = 0;
+  const product = (sku: string, name: string, name_ja: string | null, types: string[], cats: string[],
+    status: string, stock: number, price: number, extra: Record<string, unknown> = {}) => {
+    n += 1;
+    return {
+      id: `wp-cs-${sku.toLowerCase()}`, sku, slug: sku.toLowerCase(), name, name_ja, status, metals: ['K18'], karat: null,
+      origin: 'JAPAN', brand: null, condition: 'New', item_kind: 'jewelry', weight_g: null, description_en: null, description_ja: null,
+      page365_product_id: null, page365_sync_disabled: false,
+      created_at: `2026-09-${String(28 - n).padStart(2, '0')}T01:00:00Z`,
+      website_product_variants: [{ id: `v-cs-${sku}`, size: null, stone: null, price_jpy: price, cost_basis: null, stock_qty: stock, sort: 0,
+        website_product_media: [] }],
+      website_collection_products: types.map((collection_id) => ({ collection_id })),
+      website_category_products: cats.map((category_id) => ({ category_id })),
+      ...extra,
+    };
+  };
+  const products = [
+    product('AL1234', 'AL1234 Diamond eternity ring PT900', 'ダイヤモンド エタニティ リング', ['col-rings'], ['cat-diamond'], 'active', 1, 128000),
+    product('R7828', 'R7828 Akoya pearl pendant K18', 'アコヤ パール ペンダント', ['col-pendants', 'col-necklaces'], ['cat-pearl'], 'active', 2, 54000),
+    product('AL123', 'AL123 Gold signet ring K18', 'ゴールド シグネット リング', ['col-rings'], ['cat-gold'], 'active', 0, 88000),
+    product('E2057', 'E2057 Diamond stud earrings', 'ダイヤモンド スタッド ピアス', ['col-earrings'], ['cat-diamond'], 'active', 3, 42000),
+    product('N4020', 'N4020 Chain necklace K18 45cm', 'チェーン ネックレス', ['col-necklaces'], ['cat-gold'], 'draft', 1, 36000,
+      { page365_product_id: 4020 }),
+    product('R7009', 'R7009 Ruby ring K18 [Preloved]', 'ルビー リング', ['col-rings'], [], 'draft', 1, 60000,
+      { page365_product_id: 9009, origin: 'UNKNOWN' }),
+    product('B3310', 'B3310 Tennis bracelet', 'テニス ブレスレット', [], ['cat-diamond'], 'active', 1, 150000),
+    product('W1001', 'W1001 Leather card case', null, [], [], 'archived', 0, 12000, { item_kind: 'accessory', metals: [] }),
+    product('P5501', 'P5501 Baroque pearl necklace', 'バロック パール ネックレス', ['col-necklaces'], ['cat-pearl'], 'active', 0, 72000),
+    product('E1053', 'E1053 Hoop earrings K18', 'フープ ピアス', ['col-earrings'], ['cat-gold'], 'active', 1, 28000),
+  ];
+  return { products, collections, categories };
 }
 
 /** Page365 stock fixtures: the owner's four-line acceptance invoice. */
