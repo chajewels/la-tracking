@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Globe } from "lucide-react";
 import PageMeta from "@/components/seo/PageMeta";
 import AppLayout from "@/components/layout/AppLayout";
@@ -22,6 +22,8 @@ import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
 import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
+import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
+import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on six tabs.
@@ -36,6 +38,10 @@ import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/web
  * Two permission keys, not one — see docs/WEBSITE-WORKSPACE.md:
  *   catalog          → manage_website_catalog  (the shop)
  *   content, settings → manage_website_content  (the words on the site)
+ *                      Settings also carries two ADMIN-ONLY sections moved
+ *                      from Hub Settings in website-orders PR 1: Payment
+ *                      details and Payment reminders. They render only for
+ *                      admins, because content editors can open this tab.
  *   audience         → EITHER, with each card on its own key — see canAudience
  *   page365-stock    → manage_website_catalog  (imported Page365 lines that
  *                      did not match one website product — docs/PAGE365-IMPORT.md
@@ -51,6 +57,18 @@ export type WebsiteTab = (typeof WEBSITE_TABS)[number];
 
 const isWebsiteTab = (v: string | null): v is WebsiteTab =>
   !!v && (WEBSITE_TABS as readonly string[]).includes(v);
+
+/**
+ * Anchors on the Settings tab, so an old link can land on its section:
+ * /settings?tab=payment-details redirects to
+ * /website?tab=settings#payment-details (SettingsPage).
+ */
+export const WEBSITE_SETTINGS_SECTIONS = {
+  orderConfirmation: "order-confirmation",
+  paymentDetails: "payment-details",
+  paymentReminders: "payment-reminders",
+  siteSettings: "site-settings",
+} as const;
 
 export default function Website() {
   const { roles } = useAuth();
@@ -92,6 +110,18 @@ export default function Website() {
     if (isWebsiteTab(urlTab) && urlTab !== tab) setTabState(urlTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // A #section on the Settings tab scrolls to it once the tab has rendered.
+  // The browser's own hash jump fires before React mounts the section.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (tab !== "settings" || !hash) return;
+    const id = decodeURIComponent(hash.slice(1));
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [tab, hash]);
 
   return (
     <AppLayout>
@@ -150,8 +180,27 @@ export default function Website() {
 
           {canContent && (
             <TabsContent value="settings" className="mt-5 space-y-6" tabIndex={-1}>
-              <ReservationModeCard />
-              <SettingsCard />
+              <section id={WEBSITE_SETTINGS_SECTIONS.orderConfirmation} className="scroll-mt-20">
+                <ReservationModeCard />
+              </section>
+              {/* Admin only: live bank/GCash details shown to customers at
+                  checkout. PaymentMethodsTab keeps its own admins-only gate
+                  as a second layer. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.paymentDetails} className="scroll-mt-20">
+                  <PaymentMethodsTab />
+                </section>
+              )}
+              {/* Admin only (v1 W-17): the stage D reminder switch. Content
+                  editors can open this tab and must not see it. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.paymentReminders} className="scroll-mt-20">
+                  <PaymentRemindersCard />
+                </section>
+              )}
+              <section id={WEBSITE_SETTINGS_SECTIONS.siteSettings} className="scroll-mt-20">
+                <SettingsCard />
+              </section>
             </TabsContent>
           )}
 

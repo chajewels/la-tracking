@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
@@ -14,9 +14,7 @@ import {
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
-import PaymentMethodsTab from '@/components/settings/PaymentMethodsTab';
 import { EmailHealthCard } from '@/components/system/EmailHealthIndicator';
-import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -112,8 +110,8 @@ export default function SettingsPage() {
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
 
-  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit' | 'payment-details';
-  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit', 'payment-details'];
+  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit';
+  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [settingsTab, setSettingsTabState] = useState<SettingsTabKey>(() => {
     const urlTab = searchParams.get('tab') as SettingsTabKey | null;
@@ -325,6 +323,14 @@ export default function SettingsPage() {
     }
   };
 
+  // Payment details and Payment reminders moved to Website → Settings
+  // (website-orders PR 1). An old link lands on the matching section there;
+  // that tab and both sections keep their own gates.
+  const movedTab = searchParams.get('tab');
+  if (movedTab === 'payment-details' || movedTab === 'payment-reminders') {
+    return <Navigate to={`/website?tab=settings#${movedTab}`} replace />;
+  }
+
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
@@ -341,9 +347,6 @@ export default function SettingsPage() {
           <TabsContent value="general" className="space-y-6 mt-4">
             {/* Email delivery (expected vs accepted, last 24h) */}
             <EmailHealthCard />
-
-            {/* Stage D payment reminders: off / owner addresses only / on (admin) */}
-            <PaymentRemindersCard />
 
             {/* Currency */}
             <div className="rounded-xl border border-border bg-card p-6">
@@ -811,14 +814,6 @@ export default function SettingsPage() {
               <StoreCreditReconciliationTab />
             </TabsContent>
           )}
-
-          {/* ── PAYMENT DETAILS TAB ──
-              Admin only: these are live bank/GCash account details shown to
-              customers at website checkout. The component renders its own
-              admins-only notice as a second gate. */}
-          <TabsContent value="payment-details" className="mt-4">
-            <PaymentMethodsTab />
-          </TabsContent>
 
         </Tabs>
 

@@ -23,7 +23,8 @@ card and is audited.
 ## The switch — Hub only, admin only (2026-09-24)
 
 `system_settings.web_reservation_mode` is changed from **Website → Settings →
-Reserve-first checkout** and from nowhere else. Migration
+Order confirmation (reserve first)** (the card was titled "Reserve-first
+checkout" until website-orders PR 1) and from nowhere else. Migration
 `20260924120000_web_reservation_mode_toggle.sql`, assertions in
 `docs/sql/20260924_web_reservation_mode_toggle_assertions.sql`.
 

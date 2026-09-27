@@ -23,8 +23,10 @@ import {
 import { formatPHTDisplay } from '@/lib/date-utils';
 
 /**
- * Settings -> Payment Details. Admin-only editor for the transfer methods the
- * storefront offers a customer who chooses bank transfer at checkout.
+ * Website → Settings → Payment details (moved from Hub Settings in
+ * website-orders PR 1; rendered for admins only). Admin-only editor for the
+ * transfer methods the storefront offers a customer who chooses bank transfer
+ * at checkout.
  *
  * A LIST, not a form. The previous design had one row per country with one bank
  * block welded into it, so a second Japanese account or a Maya wallet alongside
