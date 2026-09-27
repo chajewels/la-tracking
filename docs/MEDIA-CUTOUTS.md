@@ -48,9 +48,13 @@ a tick (§2 "SPEED").
   invalid. Both change ONLY through `set_media_cutout_settings`
   (manage_website_catalog, audited); `trg_guard_media_cutout_settings` refuses
   every other write. Never set them in a migration or SQL.
-- **Off means nothing happens.** The worker reads the switch first and returns
-  — no provider call, no download, no poll. The enqueue trigger still records
-  new photos (a cheap, honest backlog).
+- **Off means no provider work.** The worker reads the switch first: no
+  provider call, no poll, no submit, no housekeeping. The ONE thing it still
+  does (owner, 2026-09-27) is finish cut-outs staff uploaded themselves
+  (`own_cutout_url` set, job `ready`) — they cost nothing and staff asked for
+  them (`finishOwnCutoutsOnly`, same lease as a tick). An unreadable switch
+  does nothing at all. The enqueue trigger still records new photos (a cheap,
+  honest backlog).
 - **The trigger can never fail a media write.** Any error inside
   `enqueue_media_cutout()` is a WARNING. The Page365 scheduled fetch never
   writes media, so it is not touched at all.
@@ -361,6 +365,21 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   sits on Checkered (default) / White / Black / Website — dark and checkered
   show leftover background, halos and holes. "Open … in a new tab" links the
   file. Read-only: it changes nothing.
+- **Upload from Photoroom** (owner request 2026-09-27; `CutoutBulkUpload.tsx`,
+  `src/lib/cutout-bulk.ts`): the owner batch-edits photos in the Photoroom APP
+  (up to 250) and drops the exported transparent PNG/WebP files here — no API
+  call, no API images. Each file is matched by NAME: the product code is the
+  first word (same rule as Page365), then an optional photo number
+  (`AL123.png` = photo 1 / main, `AL123-2.png`, `AL123_2`, `AL123 (2)` = photo
+  2; anything after is ignored). Photos are numbered in Catalog order
+  (variants by sort, then photos by sort, each link once). Code and number are
+  editable per row; the table says where each file goes or why it cannot
+  (no product, several products, no such photo, not in the cut-out list, busy,
+  not PNG/WebP, not transparent, duplicate). Only "ready" rows are applied, on
+  Apply, each exactly as "Upload my own cut-out" (uploadOwnCutout +
+  review_media_cutout `own_cutout`, audited, lands approved), 3 at a time; a
+  failure is shown on its row and the rest continue. Finished by the worker
+  even while the switch is Off.
 - Bell `media_cutout_cap_near` opens this tab.
 - Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on]`.
 

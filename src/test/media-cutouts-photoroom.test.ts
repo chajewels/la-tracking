@@ -330,7 +330,8 @@ describe("worker: Photoroom path and speed", () => {
     expect(TICK).toMatchObject({ submit: 12, submitParallel: 4, process: 12, processParallel: 4, budgetMs: 45_000 });
     expect(TICK.budgetMs).toBeLessThan(60_000);
     expect(TICK.submit * 1).toBeLessThanOrEqual(60); // Photoroom: 60 images a minute
-    expect(w).toContain("inParallel((ready ?? []) as string[], TICK.processParallel");
+    expect(w).toContain("await processUrls((ready ?? []) as string[], inBudget, summary);");
+    expect(w).toContain("await inParallel(urls, TICK.processParallel, async (url) => {");
     expect(w).toContain('body: JSON.stringify({ action: "process", source_url: url })');
   });
 });

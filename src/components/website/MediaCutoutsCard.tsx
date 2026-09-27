@@ -33,6 +33,7 @@ import {
   setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
 import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
+import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 
 /**
  * Website → Photos: automatic background removal (docs/MEDIA-CUTOUTS.md).
@@ -474,6 +475,7 @@ export function MediaCutoutReviewCard() {
   const [dialog, setDialog] = useState<{ row: CutoutRow; action: "reject" | "own_cutout" } | null>(null);
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const list = useQuery({
     queryKey: [LIST_KEY, filter, search, page],
@@ -524,7 +526,12 @@ export function MediaCutoutReviewCard() {
   return (
     <Card>
       <CardHeader className="hairline-b">
-        <CardTitle className="text-base">Photos to check</CardTitle>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <CardTitle className="text-base">Photos to check</CardTitle>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setBulkOpen(true)}>
+            <Upload className="h-3.5 w-3.5" /> Upload from Photoroom
+          </Button>
+        </div>
         <p className="text-xs text-muted-foreground">
           Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Reject to keep the
           original, Re-run to try again (the current version stays until the new one passes), or upload your own cut-out.
@@ -590,6 +597,7 @@ export function MediaCutoutReviewCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <CutoutBulkUpload open={bulkOpen} onOpenChange={setBulkOpen} />
     </Card>
   );
 }

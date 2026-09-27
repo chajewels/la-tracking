@@ -225,7 +225,14 @@ async function tick(supabase: Client): Promise<AnyRec> {
   const { data: modeRow, error: modeErr } = await supabase
     .from("system_settings").select("value").eq("key", "media_cutout_mode").maybeSingle();
   const mode = modeErr ? "off" : readCutoutMode((modeRow as AnyRec | null)?.value);
-  if (mode === "off") return { ok: true, mode, note: modeErr ? "switch unreadable — treated as off" : undefined };
+  // Off (owner decision 2026-09-27): no provider call, no poll, no
+  // housekeeping, no download of provider work. The ONE thing still done is
+  // finishing cut-outs staff uploaded themselves ("Upload my own cut-out" /
+  // "Upload from Photoroom") — they cost nothing and staff asked for them.
+  if (mode === "off") {
+    if (modeErr) return { ok: true, mode, note: "switch unreadable — treated as off" };
+    return await finishOwnCutoutsOnly(supabase, started, inBudget);
+  }
 
   const holder = crypto.randomUUID();
   const { data: leased, error: leaseErr } = await supabase.rpc("media_cutout_lease", { p_holder: holder, p_seconds: TICK.leaseSeconds });
@@ -326,19 +333,53 @@ async function tick(supabase: Client): Promise<AnyRec> {
     //    TICK.processParallel at a time. Runs after submit so a Photoroom
     //    result is processed in the tick that bought it.
     const { data: ready } = await supabase.rpc("media_cutout_process_batch", { p_limit: TICK.process });
-    await inParallel((ready ?? []) as string[], TICK.processParallel, async (url) => {
-      if (!inBudget()) return;
-      const res = await fetch(`${env("SUPABASE_URL")}/functions/v1/media-cutout-worker`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env("SUPABASE_SERVICE_ROLE_KEY")}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "process", source_url: url }),
-        signal: AbortSignal.timeout(PROCESS_CALL_TIMEOUT_MS),
-      }).catch((e) => new Response(JSON.stringify({ error: errText(e) }), { status: 599 }));
-      const body = await res.json().catch(() => ({})) as AnyRec;
-      // A killed invocation (CPU limit) answers 5xx or not at all; the row is
-      // still 'processing' and media_cutout_process_batch reroutes it later.
-      (summary.processed as AnyRec[]).push({ source_url: url, http: res.status, ...(body.result as AnyRec ?? { error: body.error }) });
-    });
+    await processUrls((ready ?? []) as string[], inBudget, summary);
+  } finally {
+    summary.ms = Date.now() - started;
+    await supabase.rpc("media_cutout_release", { p_holder: holder, p_summary: summary });
+  }
+  return { ok: true, ...summary };
+}
+
+/** Each job in its own invocation, TICK.processParallel at a time. */
+async function processUrls(urls: string[], inBudget: () => boolean, summary: AnyRec): Promise<void> {
+  await inParallel(urls, TICK.processParallel, async (url) => {
+    if (!inBudget()) return;
+    const res = await fetch(`${env("SUPABASE_URL")}/functions/v1/media-cutout-worker`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env("SUPABASE_SERVICE_ROLE_KEY")}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "process", source_url: url }),
+      signal: AbortSignal.timeout(PROCESS_CALL_TIMEOUT_MS),
+    }).catch((e) => new Response(JSON.stringify({ error: errText(e) }), { status: 599 }));
+    const body = await res.json().catch(() => ({})) as AnyRec;
+    // A killed invocation (CPU limit) answers 5xx or not at all; the row is
+    // still 'processing' and media_cutout_process_batch reroutes it later.
+    (summary.processed as AnyRec[]).push({ source_url: url, http: res.status, ...(body.result as AnyRec ?? { error: body.error }) });
+  });
+}
+
+/**
+ * The switch is Off: finish ONLY staff-uploaded cut-outs (own_cutout_url set,
+ * job 'ready', due). No provider is called, nothing is polled or submitted,
+ * housekeeping does not run. Same lease as a full tick, so two never overlap.
+ */
+async function finishOwnCutoutsOnly(supabase: Client, started: number, inBudget: () => boolean): Promise<AnyRec> {
+  const { data: due, error: dueErr } = await supabase.from("website_media_cutouts")
+    .select("source_url").eq("job_state", "ready").not("own_cutout_url", "is", null)
+    .lte("next_attempt_at", new Date().toISOString())
+    .order("priority").order("updated_at").limit(TICK.process);
+  if (dueErr) throw dueErr;
+  const urls = ((due ?? []) as AnyRec[]).map((r) => String(r.source_url));
+  if (urls.length === 0) return { ok: true, mode: "off" };
+
+  const holder = crypto.randomUUID();
+  const { data: leased, error: leaseErr } = await supabase.rpc("media_cutout_lease", { p_holder: holder, p_seconds: TICK.leaseSeconds });
+  if (leaseErr) throw leaseErr;
+  if (!leased) return { ok: true, mode: "off", skipped: "another tick is running" };
+
+  const summary: AnyRec = { mode: "off", own_cutouts_only: true, processed: [] as AnyRec[] };
+  try {
+    await processUrls(urls, inBudget, summary);
   } finally {
     summary.ms = Date.now() - started;
     await supabase.rpc("media_cutout_release", { p_holder: holder, p_summary: summary });

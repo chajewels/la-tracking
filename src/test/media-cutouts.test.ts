@@ -466,11 +466,25 @@ describe("media-cutout-worker", () => {
     expect(w).toMatch(/if \(!ctx\.isService\) return jsonResponse\(\{ error: "Access denied" \}, 403\);/);
   });
 
-  it("reads the switch first and does nothing at all while it is off (fail-closed on a read error)", () => {
+  it("reads the switch first; while it is off only staff-uploaded cut-outs are finished (fail-closed on a read error)", () => {
     const t = w.slice(w.indexOf("async function tick("));
     expect(t.indexOf("readCutoutMode(")).toBeLessThan(t.indexOf("media_cutout_lease"));
     expect(t).toMatch(/const mode = modeErr \? "off" : readCutoutMode/);
-    expect(t).toMatch(/if \(mode === "off"\) return \{ ok: true, mode/);
+    // an unreadable switch still does nothing at all
+    expect(t).toContain('if (modeErr) return { ok: true, mode, note: "switch unreadable — treated as off" };');
+    expect(t).toContain("return await finishOwnCutoutsOnly(supabase, started, inBudget);");
+    // off never reaches housekeeping, poll, submit or a provider
+    const offPath = t.indexOf("finishOwnCutoutsOnly(");
+    for (const later of ["media_cutout_housekeeping", "media_cutout_poll_batch", "media_cutout_submit_batch", "pickProvider("]) {
+      expect(t.indexOf(later)).toBeGreaterThan(offPath);
+    }
+    // the off path touches only rows staff uploaded themselves
+    const own = w.slice(w.indexOf("async function finishOwnCutoutsOnly("), w.indexOf("Deno.serve("));
+    expect(own).toContain('.eq("job_state", "ready").not("own_cutout_url", "is", null)');
+    expect(own).toContain('supabase.rpc("media_cutout_lease"');
+    for (const never of ["pickProvider(", "media_cutout_submit_batch", "media_cutout_poll_batch", "media_cutout_housekeeping", ".remove("]) {
+      expect(own).not.toContain(never);
+    }
   });
 
   it("processes one job per invocation, stores path A sizes, never writes an original", () => {

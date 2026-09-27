@@ -1613,9 +1613,17 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     media id (the Catalog save re-inserts media rows). A new URL is a new row;
     old rows and staff decisions are never touched. Originals never modified.
   - The enqueue trigger must never fail a media write.
-  - media_cutout_mode off|test|on FAILS TO OFF (off = worker does nothing);
-    invalid cap = 0. Changed ONLY via set_media_cutout_settings (audited,
-    guard trigger); never in a migration or SQL.
+  - media_cutout_mode off|test|on FAILS TO OFF; invalid cap = 0. Off = no
+    provider call, poll, submit or housekeeping; the ONLY work while off is
+    finishing cut-outs staff uploaded themselves (own_cutout_url set — "Upload
+    my own cut-out" / "Upload from Photoroom", owner 2026-09-27); an unreadable
+    switch does nothing at all. Changed ONLY via set_media_cutout_settings
+    (audited, guard trigger); never in a migration or SQL.
+  - "Upload from Photoroom" (Website → Photos, 2026-09-27): exports of a
+    Photoroom APP batch edit, matched by file name (product code = first word,
+    then photo number; both editable), applied ONLY as own_cutout through
+    review_media_cutout — no API call, no API images. Never auto-apply an
+    unmatched, duplicate, busy or non-transparent file.
   - Automation never overwrites approved/rejected; only ok / auto_fixed /
     approved may be shown on the website.
   - PROVIDER = PHOTOROOM (owner, 2026-09-27): system_settings.
