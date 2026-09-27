@@ -7,9 +7,16 @@ PR 1 of 3 (Hub), 2026-10-05. Plan and owner decisions D1–D10:
 |---|---|---|
 | **1 (this)** | Hub | queue, trigger, worker, provider adapters, quality checks, switch + cap, Website → Photos tab |
 | 2 | Hub | `website` API fields (`cutout`, `catalog`, `display_height_mm` + category defaults), backfill enqueue of existing photos, "Height on display (mm)" field, `ProductImportDialog` keeping Page365 ids |
-| 3 | Storefront | catalogue / PDP / hero use the Hub's files; delete the bundled interim cut-outs |
+| 3 | Storefront | catalogue / PDP use the Hub's files (the hero does NOT — see below) |
 
 Nothing from PR 1 reaches the website: the API does not send cut-outs until PR 2.
+
+**Owner rule 2026-09-28: these Photoroom cut-outs are for product pages and
+cards ONLY. The storefront hero never uses them.** The hero has its own
+record, `website_hero_cutouts` (original tool: BiRefNet-general via rembg, cut
+by the storefront's scheduled workflow) — docs/HERO-CUTOUTS.md. The two
+records never read or write each other. The `cutout.webp` "hero" file below
+and `hero_usable` stay as built but are not what the hero shows.
 
 **2026-09-27 — provider switched to Photoroom** (owner decision after "Test
 30"; migration `20261007100000_media_cutout_photoroom.sql`): fal.ai erased
