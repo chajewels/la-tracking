@@ -334,15 +334,30 @@ describe("switch fails to off; cap; URL keying", () => {
     expect(storagePathOf(`${base}derived/own/1f3a.png`)).toBe("website/derived/own/1f3a.png");
   });
 
-  it("derived files are keyed by the original's bytes and the run", () => {
+  it("derived files are keyed by the original's bytes, the run and the photo's link", () => {
     const sha = "a".repeat(64);
-    expect(derivedPaths(sha, 3)).toEqual({
-      master: `website/derived/${"a".repeat(32)}/r3/master.png`,
-      cutout: `website/derived/${"a".repeat(32)}/r3/cutout.webp`,
-      catalog: `website/derived/${"a".repeat(32)}/r3/catalog.webp`,
-      catalogSmall: `website/derived/${"a".repeat(32)}/r3/catalog-small.webp`,
+    const dir = `website/derived/${"a".repeat(32)}/r3-0123abcd`;
+    expect(derivedPaths(sha, 3, "0123abcd")).toEqual({
+      master: `${dir}/master.png`,
+      cutout: `${dir}/cutout.webp`,
+      catalog: `${dir}/catalog.webp`,
+      catalogSmall: `${dir}/catalog-small.webp`,
     });
+    expect(() => derivedPaths(sha, 3, "")).toThrow();
+    expect(() => derivedPaths(sha, 3, "../x/yz")).toThrow();
     expect([MAX_RETRIES, ...RETRY_BACKOFF_MINUTES]).toEqual([3, 5, 30, 180]);
+  });
+
+  it("two links carrying the identical picture never share a folder (2026-09-27, 'The resource already exists')", async () => {
+    // Page365 listings 82448658 / 82448659 held the same picture under two photo links.
+    const sha = "b".repeat(64); // same bytes → same content hash
+    const key = async (url: string) => {
+      const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url));
+      return Array.from(new Uint8Array(d)).map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 8);
+    };
+    const a = derivedPaths(sha, 1, await key("https://x/storage/v1/object/public/promotions/website/page365/82448658/506961638-1.jpeg"));
+    const b = derivedPaths(sha, 1, await key("https://x/storage/v1/object/public/promotions/website/page365/82448659/505636969-1.jpeg"));
+    for (const k of ["master", "cutout", "catalog", "catalogSmall"] as const) expect(a[k]).not.toBe(b[k]);
   });
 
   it("the SQL says the same", () => {
@@ -463,6 +478,8 @@ describe("media-cutout-worker", () => {
     expect(w).toContain("sizes: CUTOUT_SIZES_PATH_A");
     expect(w).toContain('output: c.cpu_fallback === true ? "cutout_only" : "baked"');
     expect(w).toMatch(/upload\(path, bytes, \{ contentType: type, upsert: false \}\)/);
+    // each photo LINK gets its own folder (never overwrite a twin's files)
+    expect(w).toContain("derivedPaths(sha, Number(c.run), (await sha256Hex(new TextEncoder().encode(sourceUrl))).slice(0, 8))");
     expect(w).not.toMatch(/storage\.from\(BUCKET\)\.update\(/);
   });
 

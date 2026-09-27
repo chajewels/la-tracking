@@ -39,12 +39,20 @@ export const OWN_CUTOUT_RE =
 export const BUCKET = "promotions";
 
 /**
- * Derived files for one run. Keyed by the ORIGINAL's bytes (sha-256) so the
- * same photo used twice is stored once, and by run so a re-run never
- * overwrites what a cache may be serving.
+ * Derived files for one run. Keyed by the ORIGINAL's bytes (sha-256), by run
+ * so a re-run never overwrites what a cache may be serving, and by the photo's
+ * LINK (`sourceKey`, the first 8 hex of sha-256 of the source URL).
+ *
+ * Why the link too (2026-09-27): Page365 can carry the identical picture under
+ * two photo links (two listings). Rows are one per LINK, so two twins at the
+ * same run pointed at the same folder; the second got "The resource already
+ * exists" and stuck, and an overwrite would have let a twin replace the other
+ * twin's APPROVED files. Files are never overwritten (upsert: false) — each
+ * link gets its own folder instead.
  */
-export function derivedPaths(sha256: string, run: number) {
-  const dir = `website/derived/${sha256.slice(0, 32)}/r${run}`;
+export function derivedPaths(sha256: string, run: number, sourceKey: string) {
+  if (!/^[0-9a-f]{8}$/.test(sourceKey)) throw new Error(`derivedPaths: bad source key ${sourceKey}`);
+  const dir = `website/derived/${sha256.slice(0, 32)}/r${run}-${sourceKey}`;
   return {
     master: `${dir}/master.png`,
     cutout: `${dir}/cutout.webp`,

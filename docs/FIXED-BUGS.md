@@ -5548,3 +5548,25 @@ in the same PR (owner decision).
 Do not reintroduce: never judge a cut-out by its outline and colour-vs-backdrop
 alone; a backdrop-coloured part of the piece (white dial, pearl, enamel) is
 invisible to that.
+
+### Cut-outs stuck "waiting": "storage upload: The resource already exists" (2026-09-27)
+
+Test 30 on Photoroom: four photos (Page365 listings 82448658 / 82448659, photo ids
+505636969–505636972) stayed in the queue with last_error "storage upload: The resource
+already exists". Page365 carries the identical picture under two photo links; the Hub keeps
+one row per LINK, but `derivedPaths(sha, run)` named the folder by the picture's content and
+the run only. Two twins at run 1 → one folder: the first saved its files (10:34:09–13
+storage timestamps), the second hit `upload(..., upsert: false)` seconds later and failed,
+and would fail again whenever both reach the same run.
+
+Not fixed by overwriting: one twin (506961638) was already Approved and served from that
+folder, so `upsert: true` would have let its twin silently replace an approved photo.
+
+Fix: `derivedPaths(sha, run, sourceKey)` — the folder is `r<run>-<first 8 hex of
+sha256(source URL)>`, so each link has its own; files are still never overwritten.
+Housekeeping already deletes only the paths a row recorded, so twins never delete each
+other's files. Existing folders keep their names. Tests: media-cutouts.test.ts
+("two links carrying the identical picture never share a folder").
+
+Do not reintroduce: never name derived files by picture content alone; never switch the
+worker's uploads to upsert.

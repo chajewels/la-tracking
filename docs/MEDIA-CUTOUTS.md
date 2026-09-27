@@ -208,7 +208,10 @@ An estimate only — the provider's dashboard is the bill.
 
 ## 4. Outputs (D2, D5, D10)
 
-Per run, under `promotions/website/derived/<first 32 hex of sha256(original)>/r<run>/`:
+Per run, under `promotions/website/derived/<first 32 hex of sha256(original)>/r<run>-<first 8 hex of sha256(source URL)>/`
+(the link part since 2026-09-27: Page365 can carry the identical picture under two photo links, and two such twins
+at the same run used to share one folder — the second failed with "The resource already exists" and stuck. Files are
+never overwritten; each link gets its own folder. Folders written before this keep their old `r<run>/` name):
 
 | file | what |
 |---|---|

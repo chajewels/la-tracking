@@ -164,7 +164,7 @@ async function processOne(supabase: Client, sourceUrl: string): Promise<AnyRec> 
       providerUncertainty: doubt == null ? null : Number(doubt),
     });
 
-    const paths = derivedPaths(sha, Number(c.run));
+    const paths = derivedPaths(sha, Number(c.run), (await sha256Hex(new TextEncoder().encode(sourceUrl))).slice(0, 8));
     const t1 = performance.now();
     const store = async (path: string, bytes: Uint8Array, type: string) => {
       const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, { contentType: type, upsert: false });
