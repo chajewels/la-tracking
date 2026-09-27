@@ -132,6 +132,11 @@ import {
  *   /__fixtures?view=hub&roles=staff[,admin]
  *                                   → the Hub signed in as that role mix (header +
  *                                     sidebar footer role label)
+ *   /__fixtures?view=hub&at=/website?tab=settings[&roles=staff]
+ *                                   → Website → Settings (admin: four sections;
+ *                                     staff: no Payment details / reminders)
+ *   /__fixtures?view=hub&at=/settings?tab=payment-details
+ *                                   → the old link, redirected to the above
  *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
  *                                     detail-page panels, DeadlinesCard
  *   /__fixtures?view=reservations-dashboard
@@ -299,6 +304,29 @@ export default function FixturePreview() {
         can_change: admin,
         awaiting_total: Number(searchParams.get('waiting') ?? 0),
       });
+    }
+    // Website → Settings (website-orders PR 1): the four sections, so
+    // /website?tab=settings renders offline. Payment details and reminders
+    // are admin-only there; &roles=staff shows they are absent.
+    if (view === 'hub') {
+      const hubAdmin = (searchParams.get('roles') ?? 'admin').split(',').some((r) => r.trim() === 'admin');
+      seed([...RESERVATION_MODE_KEY], {
+        enabled: true, updated_at: '2026-09-24T01:15:00Z', updated_by_user_id: 'fixture-admin',
+        updated_by_name: 'Fixture Admin', can_change: hubAdmin, awaiting_total: 0,
+      });
+      seed([...PAYMENT_REMINDERS_KEY], {
+        found: true, mode: 'owner_only', owner_addresses: ['@example.com'],
+        updated_at: '2026-10-04T01:15:00Z', updated_by_user_id: 'fixture-admin', updated_by_name: 'Fixture Admin',
+        can_change: hubAdmin, due_now: 0, sent_7d: 0,
+      });
+      const method = { currency: 'JPY', label_ja: null, label_en: null, bank_branch: 'Fixture Branch', account_type: 'Savings',
+        wallet_number: null, wallet_name: null, note_ja: null, note_en: null, sort_order: 0, is_active: true,
+        updated_at: '2026-09-13T01:00:00Z', updated_by: null };
+      seed(['transfer-payment-methods'], [
+        { ...method, id: 'fixture-tpm-jp', region: 'JP', method_type: 'bank', bank_name: 'Fixture Bank', account_number: '0000000', account_holder: 'Fixture Holder' },
+        { ...method, id: 'fixture-tpm-os', region: 'OVERSEAS', currency: 'PHP', method_type: 'gcash', bank_name: null, bank_branch: null, account_type: null, account_number: null, account_holder: null, wallet_number: '00000000000', wallet_name: 'Fixture Wallet' },
+      ]);
+      seed(['website-settings'], []);
     }
     if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test');
     if (view === 'payment-reminders') {

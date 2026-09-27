@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readReservationMode } from "../../supabase/functions/_shared/web-reservation-rules.ts";
 
 /**
- * Website → Settings → "Reserve-first checkout" (owner request 2026-09-24).
+ * Website → Settings → "Order confirmation (reserve first)" (owner request
+ * 2026-09-24; renamed from "Reserve-first checkout" in website-orders PR 1).
  *
  * What must hold, and fails silently if not: a non-admin must never get a
  * control that looks like it works; the dialog must say what the change does
@@ -84,7 +85,7 @@ describe("state", () => {
 describe("permission split", () => {
   it("an admin gets the switch", async () => {
     mount();
-    expect(await screen.findByRole("switch", { name: "Reserve-first checkout" })).toBeInTheDocument();
+    expect(await screen.findByRole("switch", { name: "Order confirmation (reserve first)" })).toBeInTheDocument();
     expect(screen.queryByTestId("reservation-mode-readonly")).toBeNull();
   });
 

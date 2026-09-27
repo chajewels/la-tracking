@@ -993,7 +993,8 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
 ## PAYMENT REMINDERS — AFTER THE HUB PR (filed 2026-10-04)
 
 - Owner: run 20261004100000 after the Lovable deploy; acceptance in
-  `owner_only`; then switch to `on` in Settings → General → Payment reminders.
+  `owner_only`; then switch to `on` in Website → Settings → Payment reminders
+  (moved from Settings → General in website-orders PR 1).
 - Open bug found while building it: Japanese storefront emails can arrive with
   U+FFFD in place of a character (renderAsync stream decoding) — docs/OPEN-BUGS.md.
 - Not built, by decision: quiet hours (plan §2k: send on time); a second

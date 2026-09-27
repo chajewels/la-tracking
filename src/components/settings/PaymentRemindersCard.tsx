@@ -22,14 +22,15 @@ import {
 } from "@/components/settings/payment-reminders";
 
 /**
- * Settings → General: the stage D payment-reminder switch
+ * Website → Settings → Payment reminders (moved from Settings → General in
+ * website-orders PR 1): the stage D payment-reminder switch
  * (system_settings.web_payment_reminders_mode + _owner_addresses,
  * docs/WEB-PAYMENT-REMINDERS.md). Off → Owner addresses only (the owner's
  * acceptance test) → On.
  *
- * Visible to admin_settings holders (the page's own gate); changing it is
- * ADMIN ONLY and re-checked server-side by set_web_payment_reminders, which
- * writes the audit row. A trigger refuses every other write to the two keys.
+ * Rendered for ADMINS ONLY (Website.tsx), because non-admin content editors
+ * can open that tab (v1 W-17). Changing it is ADMIN ONLY and re-checked
+ * server-side by set_web_payment_reminders, which writes the audit row. A trigger refuses every other write to the two keys.
  * Neither RPC is in src/integrations/supabase/types.ts yet — hence the casts.
  */
 

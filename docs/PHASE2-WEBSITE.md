@@ -7,7 +7,8 @@ here because the Hub is where the schema lives.
 
 > **Owner decision 2026-09-13 — step 3 (Square) is DEFERRED, not deleted.**
 > The payment need is met by CSR-confirmed bank / GCash transfer. Transfer methods
-> are editable in Hub Settings → Payment Methods (table `transfer_payment_methods`,
+> are editable in Hub Website → Settings → Payment details (admins only; was
+> Hub Settings → Payment Details until website-orders PR 1) (table `transfer_payment_methods`,
 > migration `20260911170000`), served region-scoped by the `website` function
 > (`transferMethods()`, index.ts:339) and rendered by the storefront's
 > `TransferDetails` cards. Deferred WITH step 3, and to stay in this plan marked
@@ -79,7 +80,7 @@ here because the Hub is where the schema lives.
 2. (deferred with step 3) Square Dashboard → enable Apple Pay and Google Pay for online; register the domain `chajewelsjapan.com` (and the Vercel preview domain for testing).
 3. (deferred with step 3) Ask Square support whether PayPay online is available for the account.
 4. (deferred with step 3) Give the secrets to Claude Code → Lovable secrets `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_ENV` (sandbox|production). Vercel gets only `NEXT_PUBLIC_SQUARE_APP_ID` and `NEXT_PUBLIC_SQUARE_LOCATION_ID`.
-5. ✅ Done. Transfer bank details are maintained in Hub Settings → Payment Methods (`transfer_payment_methods`, one JP bank and one overseas bank active as of 2026-09-13) and shown on the transfer instructions page and in the order email.
+5. ✅ Done. Transfer bank details are maintained in Hub Website → Settings → Payment details (admins only; formerly Hub Settings) (`transfer_payment_methods`, one JP bank and one overseas bank active as of 2026-09-13) and shown on the transfer instructions page and in the order email.
 
 ## Customer flows
 A. **Buy now (full payment)** — product → "Buy" → sign in → address → pay by transfer (card / Apple / Google: deferred) → order confirmed → receipt email → points awarded on paid.

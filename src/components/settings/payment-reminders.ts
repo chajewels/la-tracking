@@ -1,5 +1,5 @@
 /**
- * Payment reminders switch (Settings → General): the words and shapes the card
+ * Payment reminders switch (Website → Settings): the words and shapes the card
  * uses, kept out of PaymentRemindersCard.tsx so the component file exports
  * only components. Rules: docs/WEB-PAYMENT-REMINDERS.md.
  */

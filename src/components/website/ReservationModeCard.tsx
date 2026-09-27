@@ -19,9 +19,9 @@ import {
 } from "@/components/website/reservation-mode";
 
 /**
- * Website → Settings: the reserve-first switch (system_settings.
- * web_reservation_mode, docs/RESERVE-FIRST.md). Owner rule 2026-09-24: it is
- * changed from here and never by SQL.
+ * Website → Settings → "Order confirmation (reserve first)": the reserve-first
+ * switch (system_settings.web_reservation_mode, docs/RESERVE-FIRST.md). Owner
+ * rule 2026-09-24: it is changed from here and never by SQL.
  *
  * Visible to manage_website_content holders (the Settings tab's own gate).
  * Changing it is ADMIN ONLY: everyone else sees the state read-only.
@@ -87,7 +87,7 @@ export function ReservationModeCard() {
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Hourglass className="h-4 w-4 text-primary" />
-          Reserve-first checkout
+          Order confirmation (reserve first)
           {data && (
             <Badge
               variant={data.enabled ? "default" : "secondary"}
@@ -128,7 +128,7 @@ export function ReservationModeCard() {
                   checked={data.enabled}
                   disabled={save.isPending}
                   onCheckedChange={(next) => openConfirm(next)}
-                  aria-label="Reserve-first checkout"
+                  aria-label="Order confirmation (reserve first)"
                 />
                 <Label htmlFor="reservation-mode">{data.enabled ? "On" : "Off"}</Label>
                 {save.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
