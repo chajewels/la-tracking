@@ -9,6 +9,7 @@ import Customers from '@/pages/Customers';
 import CustomerDetail from '@/pages/CustomerDetail';
 import Website from '@/pages/Website';
 import Page365Review from '@/pages/Page365Review';
+import SettingsPage from '@/pages/SettingsPage';
 import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import IllustratedState from '@/components/shared/LedgerIllustration';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -27,7 +28,7 @@ const FIXTURE_AUTH = {
 
 /**
  * DEV-only: renders the REAL Hub shell and pages at their REAL paths
- * (/, /accounts, /accounts/:id, /sales, /cash-orders/:id) inside an in-memory router, so the
+ * (/, /accounts, /accounts/:id, /sales, /cash-orders/:id, /website, /settings) inside an in-memory router, so the
  * sidebar's active state and navigation can be screenshotted and recorded
  * without a signed-in session. Reached via /__fixtures?view=hub&at=/ (default).
  *
@@ -68,6 +69,7 @@ export default function HubRouteShim({ at, roles }: { at: string; roles?: string
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
           <Route path="/website" element={<Website />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/page365/review/:draftId" element={<Page365Review />} />
           <Route path="*" element={<UnseededPage />} />
         </Routes>

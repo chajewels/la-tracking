@@ -44,7 +44,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
-- docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives. Payment details and Payment reminders live on Website → Settings, ADMIN ONLY there (moved from Hub Settings 2026-09-27; /settings?tab=payment-details redirects)
 - Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
   and a pointer): docs/CRON-AND-EDGE-AUTH.md, docs/LOYALTY-RULES.md,
   docs/WEB-LAYAWAY.md, docs/PAGE365-IMPORT.md, docs/MIGRATIONS.md,

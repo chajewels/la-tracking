@@ -84,7 +84,7 @@ Two `system_settings` rows, both guarded by `trg_guard_web_payment_reminders`. E
 | `web_payment_reminders_mode` | `"off"` \| `"owner_only"` \| `"on"`. Anything else reads as off (fail-closed). | `"off"` |
 | `web_payment_reminders_owner_addresses` | JSON array. Each entry is a full address or `"@domain"`. | `["chajewelsjapan@gmail.com", "@chajewelsjp.com"]` |
 
-- **Changed only in Hub → Settings → General → Payment reminders**, which calls `set_web_payment_reminders`:
+- **Changed only in Hub → Website → Settings → Payment reminders** (admins only; moved from Settings → General in website-orders PR 1, and `/settings?tab=payment-reminders` redirects there), which calls `set_web_payment_reminders`:
   - ADMIN ROLE only;
   - `p_expected_mode` stale check;
   - owner list validated, max 20 entries;
