@@ -61,6 +61,8 @@ import { SHIPPING_RATES_KEY } from '@/components/website/shipping-fees';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
 import MediaCutoutsFixture from './MediaCutoutsFixture';
 import { seedMediaCutouts } from './media-cutouts-fixture-data';
+import { seedHeroCutouts } from './hero-cutouts-fixture-data';
+import HeroCutoutsFixture from './HeroCutoutsFixture';
 import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
 import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
@@ -355,6 +357,7 @@ export default function FixturePreview() {
         ] });
     }
     if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test');
+    if (view === 'hero-cutouts') seedHeroCutouts(queryClient, searchParams.get('role'));
     if (view === 'payment-reminders') {
       seed([...PAYMENT_REMINDERS_KEY], {
         found: true, mode: searchParams.get('mode') ?? 'off',
@@ -409,6 +412,7 @@ export default function FixturePreview() {
   if (view === 'reservation-mode') return <ReservationModeFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'payment-reminders') return <PaymentRemindersFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'media-cutouts') return <MediaCutoutsFixture />;
+  if (view === 'hero-cutouts') return <HeroCutoutsFixture />;
   if (view === 'product-dialog') return <ProductDialogFixture />;
   if (view === 'datatable') return <DataTableFixture />;
   if (view === 'tabs') return <TabsFixture />;

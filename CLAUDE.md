@@ -44,6 +44,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
+- docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
 - docs/SHIPPING-FEES.md — the shipping rate card (Website → Settings → Shipping fees, admin, audited, never deleted) and couriers (Pabitbit on the LBC template; planned_shipping_method_id; PH-only default)
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives. Payment details, Payment reminders and Shipping fees live on Website → Settings, ADMIN ONLY there (moved from Hub Settings 2026-09-27; /settings?tab=payment-details redirects)
 - Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
