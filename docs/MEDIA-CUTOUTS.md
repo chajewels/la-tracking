@@ -349,6 +349,15 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   one `review_media_cutout` call with the status the reviewer saw (a stale
   screen is refused), and one `audit_logs` row
   (`website_media_cutout / review_media_cutout:<action>`).
+- **Large viewer** (owner request 2026-09-27 — the thumbnails were too small
+  to judge a cut-out): clicking any of the three thumbnails (or "See the
+  re-run") opens `CutoutViewer.tsx` — the original beside the chosen result
+  (Cut-out / Catalogue / Parked re-run) at the same size, the FULL files (the
+  catalogue's big version, never `catalog_small_path`). One click or "Full
+  size" zooms both to 100 % and they pan together (drag to move); the result
+  sits on Checkered (default) / White / Black / Website — dark and checkered
+  show leftover background, halos and holes. "Open … in a new tab" links the
+  file. Read-only: it changes nothing.
 - Bell `media_cutout_cap_near` opens this tab.
 - Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on]`.
 

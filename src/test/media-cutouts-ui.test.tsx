@@ -173,3 +173,37 @@ describe("review", () => {
     for (const name of ["Approve", "Reject", /Re-run/, /Upload my own/]) expect(within(row).getByRole("button", { name })).toBeDisabled();
   });
 });
+
+describe("large viewer (owner request 2026-09-27: thumbnails too small to judge)", () => {
+  it("a thumbnail opens the original beside the full-size result; background, result and zoom switch", async () => {
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    fireEvent.click(within(row).getByRole("button", { name: "Open Cut-out (hero) large" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const original = within(dialog).getByTestId("viewer-pane-original");
+    const cut = within(dialog).getByTestId("viewer-pane-cutout");
+    expect(within(original).getByRole("img")).toHaveAttribute("src", SRC);
+    expect(within(cut).getByRole("img")).toHaveAttribute("src", "https://cdn.test/website/derived/aa/r1/cutout.webp");
+
+    // Checkered by default; Black switches only the result's background.
+    expect(cut.style.backgroundImage).toContain("linear-gradient");
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Black" }));
+    expect(cut.style.backgroundColor).toBe("rgb(0, 0, 0)");
+    expect(original.style.backgroundColor).toBe("rgb(255, 255, 255)");
+
+    // The catalogue shows its FULL file, never the small thumbnail.
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Catalogue" }));
+    expect(within(within(dialog).getByTestId("viewer-pane-catalog")).getByRole("img"))
+      .toHaveAttribute("src", "https://cdn.test/website/derived/aa/r1/catalog.webp");
+
+    // Full size and back; both pictures zoom together.
+    fireEvent.click(within(dialog).getByRole("button", { name: /Full size/ }));
+    for (const img of within(dialog).getAllByRole("img")) expect(img.className).toContain("max-w-none");
+    fireEvent.click(within(dialog).getByRole("button", { name: /Fit to screen/ }));
+    for (const img of within(dialog).getAllByRole("img")) expect(img.className).toContain("max-h-full");
+
+    expect(within(dialog).getByRole("link", { name: /Open catalogue in a new tab/ }))
+      .toHaveAttribute("href", "https://cdn.test/website/derived/aa/r1/catalog.webp");
+  });
+});

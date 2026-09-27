@@ -32,6 +32,7 @@ import {
   PROVIDER_TEXT, type ProviderName, publicUrl, refusalText, review, type ReviewAction, runNow, setProvider,
   setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
+import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
 
 /**
  * Website → Photos: automatic background removal (docs/MEDIA-CUTOUTS.md).
@@ -335,17 +336,27 @@ export function MediaCutoutSettingsCard() {
 // ---------------------------------------------------------------------------
 // Review: Original → cut-out on the hero stage → ivory catalogue version.
 // ---------------------------------------------------------------------------
-function Thumb({ src, label, bg }: { src: string | null; label: string; bg?: string }) {
+function Thumb({ src, label, bg, onOpen }: { src: string | null; label: string; bg?: string; onOpen?: () => void }) {
+  const box = (
+    <div
+      className="flex aspect-square items-center justify-center overflow-hidden rounded border border-border"
+      style={{ backgroundColor: bg }}
+    >
+      {src
+        ? <img src={src} alt={label} loading="lazy" className="h-full w-full object-contain" />
+        : <ImageOff className="h-5 w-5 text-muted-foreground" aria-label={`${label}: none`} />}
+    </div>
+  );
   return (
     <figure className="min-w-0 space-y-1">
-      <div
-        className="flex aspect-square items-center justify-center overflow-hidden rounded border border-border"
-        style={{ backgroundColor: bg }}
-      >
-        {src
-          ? <img src={src} alt={label} loading="lazy" className="h-full w-full object-contain" />
-          : <ImageOff className="h-5 w-5 text-muted-foreground" aria-label={`${label}: none`} />}
-      </div>
+      {src && onOpen
+        ? (
+          <button type="button" onClick={onOpen} aria-label={`Open ${label} large`}
+            className="block w-full cursor-zoom-in rounded transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {box}
+          </button>
+        )
+        : box}
       <figcaption className="truncate text-[11px] text-muted-foreground">{label}</figcaption>
     </figure>
   );
@@ -358,6 +369,19 @@ function CutoutItem({ row, onAct, busy }: {
 }) {
   const inFlight = ["submitted", "ready", "processing"].includes(row.job_state);
   const rerunCut = row.last_rerun?.cutout_path ? publicUrl(String(row.last_rerun.cutout_path)) : null;
+  const cutoutUrl = publicUrl(row.cutout_path);
+  const catalogUrl = publicUrl(row.catalog_small_path ?? row.catalog_path);
+  // The large viewer shows full-size files: the catalogue's big version when
+  // there is one, never the small thumbnail.
+  const catalogFull = publicUrl(row.catalog_path ?? row.catalog_small_path);
+  const [viewer, setViewer] = useState<string | null>(null);
+  const results: ViewerImage[] = [
+    ...(cutoutUrl ? [{ key: "cutout", label: "Cut-out", src: cutoutUrl, bg: storefrontPreview.heroStage }] : []),
+    ...(catalogFull ? [{ key: "catalog", label: "Catalogue", src: catalogFull, bg: storefrontPreview.chalk }] : []),
+    ...(rerunCut ? [{ key: "rerun", label: "Parked re-run", src: rerunCut, bg: storefrontPreview.heroStage }] : []),
+  ];
+  const original: ViewerImage | null = row.source_url ? { key: "original", label: "Original", src: row.source_url } : null;
+  const title = row.product ? `${row.product.sku} · ${row.product.name}` : "Photo no longer used by a product";
   return (
     <li className="space-y-3 py-4" data-testid="cutout-row">
       <div className="flex flex-wrap items-center gap-2">
@@ -375,10 +399,18 @@ function CutoutItem({ row, onAct, busy }: {
       </div>
 
       <div className="grid max-w-md grid-cols-3 gap-2">
-        <Thumb src={row.source_url} label="Original" />
-        <Thumb src={publicUrl(row.cutout_path)} label="Cut-out (hero)" bg={storefrontPreview.heroStage} />
-        <Thumb src={publicUrl(row.catalog_small_path ?? row.catalog_path)} label="Catalogue" bg={storefrontPreview.chalk} />
+        <Thumb src={row.source_url} label="Original" onOpen={() => setViewer(results[0]?.key ?? "original")} />
+        <Thumb src={cutoutUrl} label="Cut-out (hero)" bg={storefrontPreview.heroStage} onOpen={() => setViewer("cutout")} />
+        <Thumb src={catalogUrl} label="Catalogue" bg={storefrontPreview.chalk} onOpen={() => setViewer("catalog")} />
       </div>
+      <CutoutViewer
+        open={viewer !== null}
+        onOpenChange={o => { if (!o) setViewer(null); }}
+        title={title}
+        original={original}
+        results={results}
+        initialKey={viewer ?? undefined}
+      />
 
       {row.flags.length > 0 && (
         <ul className="list-disc space-y-0.5 pl-5 text-xs" data-testid="cutout-flags">
@@ -392,7 +424,7 @@ function CutoutItem({ row, onAct, busy }: {
         <p className="text-xs text-warning">
           A re-run came back as “{STATUS_LABEL[(row.last_rerun.status as CutoutRow["status"]) ?? "failed"] ?? row.last_rerun.status}”
           {row.last_rerun.flags?.length ? ` (${row.last_rerun.flags.map(describeFlag).join("; ")})` : ""} — the current version is kept.
-          {rerunCut && <> <a className="underline" href={rerunCut} target="_blank" rel="noreferrer">See the re-run</a>.</>}
+          {rerunCut && <> <button type="button" className="underline" onClick={() => setViewer("rerun")}>See the re-run</button>.</>}
         </p>
       )}
       {row.last_error && row.status === "failed" && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
