@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Clock, Globe, ImageOff, Loader2, Lock, Play, RefreshCw, Scissors, Upload } from "lucide-react";
+import { Clock, Globe, ImageOff, Loader2, Lock, Play, Scissors, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { formatPHTDisplay } from "@/lib/date-utils";
 import { storefrontPreview } from "@/theme/tokens";
@@ -15,9 +15,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -27,12 +24,13 @@ import {
 import {
   addTestBatch, almostNothingKept, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
   CUTOUT_PROVIDER_KEY as PROVIDER_KEY, CUTOUT_TABS_KEY as TABS_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
-  type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS,
-  formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isCapped, isCompleted, isLocked, isPublishable,
+  type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, cutoutRowState, DEFAULT_PRICE_USD, describeFlag, estimateCost,
+  FILTERS, formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isLocked, isPublishable,
   listCutouts, MODE_TEXT, type PaidReopenAction, parseSkus, PROVIDER_LABEL, PROVIDER_TEXT, type ProviderName, publicUrl,
   refusalText, RETURNED_REASON, review, type ReviewAction, runNow, setProvider, setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
 import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
+import CutoutActionButtons from "@/components/website/CutoutActionButtons";
 import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 
 /**
@@ -46,7 +44,8 @@ import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
  * Off / Test / On, failing to Off — and the monthly limit. Each result gets an
  * automatic verdict; only OK / Auto-fixed / Approved will ever be shown on the
  * website (PR 2). Staff approve, re-run, reject, keep the original or upload
- * their own cut-out here. Completed is final. Everything is
+ * their own cut-out here — on the row or in the zoom viewer, which offers the
+ * row's own buttons. Completed is final. Everything is
  * manage_website_catalog and audited.
  */
 
@@ -368,44 +367,39 @@ function Thumb({ src, label, bg, onOpen }: { src: string | null; label: string; 
   );
 }
 
-function CutoutItem({ row, onAct, busy, isAdmin }: {
+/** The full-size files the zoom viewer shows for a photo: never the small thumbnail. */
+function viewerImages(row: CutoutRow): { original: ViewerImage | null; results: ViewerImage[] } {
+  const cutoutUrl = publicUrl(row.cutout_path);
+  // The catalogue's big version when there is one.
+  const catalogFull = publicUrl(row.catalog_path ?? row.catalog_small_path);
+  const rerunCut = row.last_rerun?.cutout_path ? publicUrl(String(row.last_rerun.cutout_path)) : null;
+  return {
+    original: row.source_url ? { key: "original", label: "Original", src: row.source_url } : null,
+    results: [
+      ...(cutoutUrl ? [{ key: "cutout", label: "Cut-out", src: cutoutUrl, bg: storefrontPreview.heroStage }] : []),
+      ...(catalogFull ? [{ key: "catalog", label: "Catalogue", src: catalogFull, bg: storefrontPreview.chalk }] : []),
+      ...(rerunCut ? [{ key: "rerun", label: "Parked re-run", src: rerunCut, bg: storefrontPreview.heroStage }] : []),
+    ],
+  };
+}
+
+function CutoutItem({ row, onAct, busy, isAdmin, onOpen }: {
   row: CutoutRow;
   onAct: (row: CutoutRow, action: ReviewAction) => void;
   busy: boolean;
   isAdmin: boolean;
+  /** Opens the card's zoom viewer on this photo; a result key picks the picture, none = the first. */
+  onOpen: (key?: string) => void;
 }) {
-  const inFlight = ["submitted", "ready", "processing"].includes(row.job_state);
-  // CUT ONCE (migration 20261010100000) + PUBLISH GATE (20261011100000):
-  // Completed (incl. Kept original) is final for everyone; Rejected is locked
-  // (an admin can try once more); a photo at its paid-call limit needs the
-  // owner; a photo of an unpublished product waits. The database enforces all
-  // of it.
-  const completed = isCompleted(row.status);
-  const kept = row.status === "kept_original";
-  const rejected = row.status === "rejected";
-  const waiting = row.job_state === "waiting";
-  const keepFirst = !completed && !inFlight && almostNothingKept(row.flags);
-  const held = !!row.hold_reason;
+  const { inFlight, completed, kept, rejected, waiting, keepFirst, held, capped } = cutoutRowState(row);
   // A provider / account error sent it back (migration 20261012100000).
   const returned = !held && row.status !== "failed" && !!row.last_error && !!row.error_kind && row.error_kind !== "photo"
     && ["queued", "submitted", "ready"].includes(row.job_state);
-  const capped = isCapped(row);
   const paid = row.paid_calls ?? 0;
   const limit = row.paid_call_limit ?? 2;
   const rerunCut = row.last_rerun?.cutout_path ? publicUrl(String(row.last_rerun.cutout_path)) : null;
   const cutoutUrl = publicUrl(row.cutout_path);
   const catalogUrl = publicUrl(row.catalog_small_path ?? row.catalog_path);
-  // The large viewer shows full-size files: the catalogue's big version when
-  // there is one, never the small thumbnail.
-  const catalogFull = publicUrl(row.catalog_path ?? row.catalog_small_path);
-  const [viewer, setViewer] = useState<string | null>(null);
-  const results: ViewerImage[] = [
-    ...(cutoutUrl ? [{ key: "cutout", label: "Cut-out", src: cutoutUrl, bg: storefrontPreview.heroStage }] : []),
-    ...(catalogFull ? [{ key: "catalog", label: "Catalogue", src: catalogFull, bg: storefrontPreview.chalk }] : []),
-    ...(rerunCut ? [{ key: "rerun", label: "Parked re-run", src: rerunCut, bg: storefrontPreview.heroStage }] : []),
-  ];
-  const original: ViewerImage | null = row.source_url ? { key: "original", label: "Original", src: row.source_url } : null;
-  const title = row.product ? `${row.product.sku} · ${row.product.name}` : "Photo no longer used by a product";
   return (
     <li className="space-y-3 py-4" data-testid="cutout-row">
       <div className="flex flex-wrap items-center gap-2">
@@ -438,18 +432,10 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
       </div>
 
       <div className="grid max-w-md grid-cols-3 gap-2">
-        <Thumb src={row.source_url} label="Original" onOpen={() => setViewer(results[0]?.key ?? "original")} />
-        <Thumb src={cutoutUrl} label="Cut-out (hero)" bg={storefrontPreview.heroStage} onOpen={() => setViewer("cutout")} />
-        <Thumb src={catalogUrl} label="Catalogue" bg={storefrontPreview.chalk} onOpen={() => setViewer("catalog")} />
+        <Thumb src={row.source_url} label="Original" onOpen={() => onOpen()} />
+        <Thumb src={cutoutUrl} label="Cut-out (hero)" bg={storefrontPreview.heroStage} onOpen={() => onOpen("cutout")} />
+        <Thumb src={catalogUrl} label="Catalogue" bg={storefrontPreview.chalk} onOpen={() => onOpen("catalog")} />
       </div>
-      <CutoutViewer
-        open={viewer !== null}
-        onOpenChange={o => { if (!o) setViewer(null); }}
-        title={title}
-        original={original}
-        results={results}
-        initialKey={viewer ?? undefined}
-      />
 
       {row.flags.length > 0 && (
         <ul className="list-disc space-y-0.5 pl-5 text-xs" data-testid="cutout-flags">
@@ -463,7 +449,7 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
         <p className="text-xs text-warning">
           A re-run came back as “{STATUS_LABEL[(row.last_rerun.status as CutoutRow["status"]) ?? "failed"] ?? row.last_rerun.status}”
           {row.last_rerun.flags?.length ? ` (${row.last_rerun.flags.map(describeFlag).join("; ")})` : ""} — the current version is kept.
-          {rerunCut && <> <button type="button" className="underline" onClick={() => setViewer("rerun")}>See the re-run</button>.</>}
+          {rerunCut && <> <button type="button" className="underline" onClick={() => onOpen("rerun")}>See the re-run</button>.</>}
         </p>
       )}
       {held && <p className="text-xs text-destructive" data-testid="cutout-hold-reason">Needs owner: {row.hold_reason}</p>}
@@ -486,64 +472,7 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
       {row.last_error && row.status === "failed" && !held && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
       {row.review_note && <p className="text-xs text-muted-foreground">Note: {row.review_note}</p>}
 
-      <div className="flex flex-wrap gap-2" data-testid="cutout-actions">
-        {keepFirst && (
-          <Button size="sm" disabled={busy} onClick={() => onAct(row, "keep_original")}>
-            Keep original
-          </Button>
-        )}
-        {!held && !rejected && !kept && (
-          <Button size="sm" variant={keepFirst ? "outline" : "default"}
-                  disabled={busy || inFlight || !row.cutout_path || row.status === "approved"}
-                  onClick={() => onAct(row, "approve")}>
-            Approve
-          </Button>
-        )}
-        {!held && !isLocked(row.status) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" disabled={busy || inFlight || capped}
-                      title={capped ? "This photo has used all its paid calls" : undefined}>
-                <RefreshCw className="mr-1 h-3.5 w-3.5" /> Re-run <ChevronDown className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onSelect={() => onAct(row, "rerun")}>Re-run</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onAct(row, "rerun_high_detail")}>Re-run in high detail</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {!rejected && !kept && !held && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "reject")}>
-            Reject
-          </Button>
-        )}
-        {!completed && !keepFirst && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "keep_original")}>
-            Keep original
-          </Button>
-        )}
-        {(!completed || kept) && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "own_cutout")}>
-            <Upload className="mr-1 h-3.5 w-3.5" /> Upload my own cut-out
-          </Button>
-        )}
-        {row.last_rerun?.cutout_path && !rejected && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "use_rerun")}>
-            Use the re-run
-          </Button>
-        )}
-        {isAdmin && rejected && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "retry_once")}>
-            Try once more
-          </Button>
-        )}
-        {isAdmin && held && !isLocked(row.status) && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "override_cap")}>
-            Allow one more paid call
-          </Button>
-        )}
-      </div>
+      <CutoutActionButtons row={row} onAct={onAct} busy={busy} isAdmin={isAdmin} />
       {rejected && (
         <p className="text-[11px] text-muted-foreground">
           The website shows the normal photo — nothing more to do. You can upload your own cut-out for free.
@@ -578,11 +507,17 @@ export function MediaCutoutReviewCard() {
   const [filter, setFilter] = useState<CutoutFilter>("needs_review");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [dialog, setDialog] = useState<{ row: CutoutRow; action: "reject" | "own_cutout" | "keep_original" } | null>(null);
+  // fromViewer: the decision was taken in the zoom viewer, which moves on after it succeeds.
+  const [dialog, setDialog] = useState<{ row: CutoutRow; action: "reject" | "own_cutout" | "keep_original"; fromViewer: boolean } | null>(null);
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [paidConfirm, setPaidConfirm] = useState<{ row: CutoutRow; action: PaidReopenAction } | null>(null);
+  const [paidConfirm, setPaidConfirm] = useState<{ row: CutoutRow; action: PaidReopenAction; fromViewer: boolean } | null>(null);
+  // The zoom viewer: the photo it shows (and the picture clicked), or "the
+  // first/last row of the page being loaded" while prev/next crosses a page.
+  const [viewer, setViewer] = useState<null | { url: string; key?: string } | { edge: "first" | "last" }>(null);
+  const [viewerError, setViewerError] = useState<string | null>(null);
+  const lastShown = useRef<CutoutRow | null>(null);
 
   const list = useQuery({
     queryKey: [LIST_KEY, filter, search, page],
@@ -628,21 +563,79 @@ export function MediaCutoutReviewCard() {
       setDialog(null); setPaidConfirm(null); setNote(""); setFile(null);
     },
     onError: e => toast.error(refusalText(e)),
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: [LIST_KEY] });
-      qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
-      qc.invalidateQueries({ queryKey: TABS_KEY });
-    },
+    // Returned, so it is awaited: a viewer decision moves on from the refreshed list and tab counts.
+    onSettled: () => Promise.all([
+      qc.invalidateQueries({ queryKey: [LIST_KEY] }),
+      qc.invalidateQueries({ queryKey: OVERVIEW_KEY }),
+      qc.invalidateQueries({ queryKey: TABS_KEY }),
+    ]),
   });
 
-  const onAct = (row: CutoutRow, action: ReviewAction) => {
+  const total = list.data?.total ?? 0;
+  const rows = list.data?.rows ?? [];
+  const hasNextPage = (page + 1) * PAGE < total;
+
+  /**
+   * After a decision in the viewer, show the next photo of the (refreshed)
+   * tab: the row after the decided one if it is still listed, else the row
+   * that moved into its place (it left the tab), else the next page; close
+   * when nothing is left. Same rule as the hero viewer.
+   */
+  const advanceFrom = (acted: CutoutRow, oldIndex: number) => {
+    const now = qc.getQueryData<{ total: number; rows: CutoutRow[] }>([LIST_KEY, filter, search, page]);
+    const fresh = now?.rows ?? [];
+    const more = (page + 1) * PAGE < (now?.total ?? 0);
+    const j = fresh.findIndex(r => r.source_url === acted.source_url);
+    const next = j >= 0 ? fresh[j + 1] : fresh[oldIndex];
+    if (next) { setViewer({ url: next.source_url }); return; }
+    if (more) { setPage(p => p + 1); setViewer({ edge: "first" }); return; }
+    if (j >= 0) return; // the last one, still listed: stay on it
+    if (fresh.length) { setViewer({ url: fresh[fresh.length - 1].source_url }); return; }
+    if (page > 0) { setPage(p => p - 1); setViewer({ edge: "last" }); return; }
+    setViewer(null); // nothing left to check
+  };
+  const run = (v: { row: CutoutRow; action: ReviewAction; note?: string; file?: File | null }, fromViewer: boolean) => {
+    const oldIndex = rows.findIndex(r => r.source_url === v.row.source_url);
+    setViewerError(null);
+    act.mutate(v, fromViewer ? {
+      onSuccess: () => advanceFrom(v.row, oldIndex),
+      onError: e => setViewerError(refusalText(e)),
+    } : undefined);
+  };
+  const perform = (row: CutoutRow, action: ReviewAction, fromViewer: boolean) => {
     if (action === "reject" || action === "own_cutout" || action === "keep_original") {
-      setNote(""); setFile(null); setDialog({ row, action }); return;
+      setNote(""); setFile(null); setDialog({ row, action, fromViewer }); return;
     }
     if (action === "retry_once" || action === "override_cap") {
-      setNote(""); setPaidConfirm({ row, action }); return;
+      setNote(""); setPaidConfirm({ row, action, fromViewer }); return;
     }
-    act.mutate({ row, action });
+    run({ row, action }, fromViewer);
+  };
+  const onAct = (row: CutoutRow, action: ReviewAction) => perform(row, action, false);
+
+  // Prev/next crossed a page: once that page has loaded, show its first/last row.
+  useEffect(() => {
+    if (!viewer || !("edge" in viewer) || !list.data || list.isPlaceholderData || list.isFetching) return;
+    const r = viewer.edge === "first" ? list.data.rows[0] : list.data.rows[list.data.rows.length - 1];
+    setViewer(r ? { url: r.source_url } : null);
+  }, [viewer, list.data, list.isPlaceholderData, list.isFetching]);
+
+  const viewIndex = viewer && "url" in viewer ? rows.findIndex(r => r.source_url === viewer.url) : -1;
+  const viewRow = viewIndex >= 0 ? rows[viewIndex] : null;
+  if (viewRow) lastShown.current = viewRow;
+  // While a page loads (or a decided row leaves the list) keep showing the last one.
+  const shownRow = viewRow ?? (viewer ? lastShown.current : null);
+  const shownImages = shownRow ? viewerImages(shownRow) : { original: null, results: [] };
+  // A new photo starts without the previous photo's error.
+  const shownUrl = shownRow?.source_url;
+  useEffect(() => { setViewerError(null); }, [shownUrl]);
+  const goPrev = () => {
+    if (viewIndex > 0) setViewer({ url: rows[viewIndex - 1].source_url });
+    else if (page > 0) { setPage(p => p - 1); setViewer({ edge: "last" }); }
+  };
+  const goNext = () => {
+    if (viewIndex >= 0 && viewIndex < rows.length - 1) setViewer({ url: rows[viewIndex + 1].source_url });
+    else if (hasNextPage) { setPage(p => p + 1); setViewer({ edge: "first" }); }
   };
   const costText = price == null ? "unknown — set the price per photo above" : `about $${price}`;
   const PAID_TITLE: Record<PaidReopenAction, string> = {
@@ -654,9 +647,6 @@ export function MediaCutoutReviewCard() {
     if (c.action === "retry_once") return "It was rejected. The website keeps the normal photo unless the new cut-out passes.";
     return `It stopped after ${paid} paid call${paid === 1 ? "" : "s"}, the limit for one photo.`;
   };
-
-  const total = list.data?.total ?? 0;
-  const rows = list.data?.rows ?? [];
 
   return (
     <Card>
@@ -723,7 +713,10 @@ export function MediaCutoutReviewCard() {
           <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">Nothing here.</p>
         )}
         <ul className="divide-y divide-border">
-          {rows.map(r => <CutoutItem key={r.source_url} row={r} onAct={onAct} busy={act.isPending} isAdmin={isAdmin} />)}
+          {rows.map(r => (
+            <CutoutItem key={r.source_url} row={r} onAct={onAct} busy={act.isPending} isAdmin={isAdmin}
+                        onOpen={key => setViewer({ url: r.source_url, key })} />
+          ))}
         </ul>
         {total > PAGE && (
           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -735,6 +728,38 @@ export function MediaCutoutReviewCard() {
           </div>
         )}
       </CardContent>
+
+      <CutoutViewer
+        open={viewer !== null}
+        onOpenChange={o => { if (!o) setViewer(null); }}
+        title={shownRow?.product ? shownRow.product.sku : "Photo no longer used by a product"}
+        badge={shownRow && (
+          <>
+            <Badge variant={statusVariant(shownRow.status)} data-testid="viewer-status">{STATUS_LABEL[shownRow.status]}</Badge>
+            {shownRow.product && <span className="hidden truncate text-sm font-normal text-muted-foreground sm:inline">{shownRow.product.name}</span>}
+          </>
+        )}
+        original={shownImages.original}
+        results={shownImages.results}
+        initialKey={viewer && "url" in viewer ? viewer.key : undefined}
+        nav={{
+          position: viewIndex >= 0 ? `${page * PAGE + viewIndex + 1} of ${total}` : "",
+          canPrev: viewIndex > 0 || (viewIndex === 0 && page > 0),
+          canNext: viewIndex >= 0 && (viewIndex < rows.length - 1 || hasNextPage),
+          onPrev: goPrev,
+          onNext: goNext,
+        }}
+        actions={shownRow && (
+          <div className="space-y-1.5">
+            <CutoutActionButtons row={shownRow} busy={act.isPending} isAdmin={isAdmin} testId="viewer-actions"
+                                 onAct={(row, action) => perform(row, action, true)} />
+            {act.isPending && (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Saving…</p>
+            )}
+            {viewerError && <p className="text-xs text-destructive" role="alert" data-testid="viewer-error">{viewerError}</p>}
+          </div>
+        )}
+      />
 
       <Dialog open={!!dialog} onOpenChange={o => { if (!o) setDialog(null); }}>
         <DialogContent>
@@ -759,7 +784,7 @@ export function MediaCutoutReviewCard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
             <Button disabled={act.isPending || (dialog?.action === "own_cutout" && !file)}
-                    onClick={() => dialog && act.mutate({ row: dialog.row, action: dialog.action, note, file })}>
+                    onClick={() => dialog && run({ row: dialog.row, action: dialog.action, note, file }, dialog.fromViewer)}>
               {act.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               {dialog?.action === "reject" ? "Reject" : dialog?.action === "keep_original" ? "Keep original" : "Upload"}
             </Button>
@@ -789,7 +814,7 @@ export function MediaCutoutReviewCard() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction disabled={act.isPending}
-                               onClick={() => paidConfirm && act.mutate({ row: paidConfirm.row, action: paidConfirm.action, note })}>
+                               onClick={() => paidConfirm && run({ row: paidConfirm.row, action: paidConfirm.action, note }, paidConfirm.fromViewer)}>
               {paidConfirm?.action === "override_cap" ? "Allow 1 paid call" : "Send once (1 paid call)"}
             </AlertDialogAction>
           </AlertDialogFooter>

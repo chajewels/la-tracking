@@ -189,6 +189,29 @@ export function almostNothingKept(flags: readonly string[]): boolean {
 export const isCapped = (r: Pick<CutoutRow, 'paid_calls' | 'paid_call_limit' | 'hold_reason'>) =>
   !!r.hold_reason || (r.paid_calls ?? 0) >= (r.paid_call_limit ?? 2);
 
+/**
+ * What a row's state allows, read once so the row and the zoom viewer offer
+ * exactly the same buttons (CutoutActionButtons). CUT ONCE (20261010100000) +
+ * PUBLISH GATE (20261011100000): Completed (incl. Kept original) is final for
+ * everyone; Rejected is locked (an admin can try once more); a photo at its
+ * paid-call limit needs the owner; a photo of an unpublished product waits.
+ * The database enforces all of it.
+ */
+export function cutoutRowState(row: CutoutRow) {
+  const inFlight = ['submitted', 'ready', 'processing'].includes(row.job_state);
+  const completed = isCompleted(row.status);
+  return {
+    inFlight,
+    completed,
+    kept: row.status === 'kept_original',
+    rejected: row.status === 'rejected',
+    waiting: row.job_state === 'waiting',
+    keepFirst: !completed && !inFlight && almostNothingKept(row.flags),
+    held: !!row.hold_reason,
+    capped: isCapped(row),
+  };
+}
+
 export const STATUS_LABEL: Record<CutoutStatus, string> = {
   pending: 'Waiting',
   ok: 'OK',
