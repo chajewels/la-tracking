@@ -123,11 +123,13 @@ SELECT '5 untouched' AS q,
 
 -- (6) Grants and the function set. Expect: t | f | f | t | t
 SELECT '6 grants' AS q,
-       to_regprocedure('public.media_cutout_error_kind(text,text,text)') IS NOT NULL,
-       has_function_privilege('authenticated', 'public.media_cutout_error(text,text,text,boolean)', 'EXECUTE'),
-       has_function_privilege('anon', 'public.list_media_cutouts(text,text,integer,integer)', 'EXECUTE'),
-       has_function_privilege('authenticated', 'public.get_media_cutout_tab_totals()', 'EXECUTE'),
-       has_function_privilege('service_role', 'public.media_cutout_error(text,text,text,boolean)', 'EXECUTE');
+       -- Every column is aliased: the Supabase SQL Editor collapses columns that
+       -- share a name, so unaliased has_function_privilege columns showed as one.
+       to_regprocedure('public.media_cutout_error_kind(text,text,text)') IS NOT NULL AS a_kind_fn_exists,
+       has_function_privilege('authenticated', 'public.media_cutout_error(text,text,text,boolean)', 'EXECUTE') AS b_staff_can_call_error,
+       has_function_privilege('anon', 'public.list_media_cutouts(text,text,integer,integer)', 'EXECUTE') AS c_public_can_list,
+       has_function_privilege('authenticated', 'public.get_media_cutout_tab_totals()', 'EXECUTE') AS d_staff_can_see_totals,
+       has_function_privilege('service_role', 'public.media_cutout_error(text,text,text,boolean)', 'EXECUTE') AS e_worker_can_call_error;
 
 -- LOCAL ONLY (the throwaway stub sets cutout.local_stub): the snapshot's exact
 -- expectations. Prints nothing on live.

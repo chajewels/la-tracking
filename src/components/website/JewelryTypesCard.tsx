@@ -153,10 +153,10 @@ export function JewelryTypesCard() {
     <Card>
       <CardHeader className="hairline-b">
         <CardTitle className="text-base">
-          Jewelry types {types.data ? `(${types.data.length})` : ""}
+          Product types {types.data ? `(${types.data.length})` : ""}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          The jewelry types the website browses by. English and Japanese are both editable; Regenerate
+          The product types the website browses by. English and Japanese are both editable; Regenerate
           rewrites the Japanese from the English. The hero image is the picture shown for the type.
         </p>
       </CardHeader>

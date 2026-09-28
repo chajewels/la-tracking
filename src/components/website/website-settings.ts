@@ -212,3 +212,25 @@ export function announcementExpired(until: string): boolean {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
   return s < today;
 }
+
+/**
+ * audit_logs.entity_id is a NOT NULL uuid, but website_settings is keyed by a
+ * TEXT key and has no id column. Passing the key itself ("footer.tagline")
+ * made every audit insert fail, silently (backlog #14: zero website_setting
+ * audit rows ever). This derives a stable RFC 4122 version-5 style uuid from
+ * the key (SHA-1 of a fixed namespace + key), so every change to the same key
+ * lands on the same entity_id and the history can be read per key. The key
+ * itself is also written into old/new_value_json so a human never needs to
+ * reverse the hash.
+ */
+const SETTING_AUDIT_NAMESPACE = "website_settings:";
+
+export async function settingAuditId(key: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-1", new TextEncoder().encode(SETTING_AUDIT_NAMESPACE + key)),
+  ).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

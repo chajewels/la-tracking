@@ -159,3 +159,15 @@ describe("announcementExpired", () => {
     expect(announcementExpired("2999-01-01")).toBe(false);
   });
 });
+
+describe("settingAuditId (backlog #14)", () => {
+  it("returns a valid, stable, per-key uuid", async () => {
+    const { settingAuditId } = await import("@/components/website/website-settings");
+    const a1 = await settingAuditId("footer.tagline");
+    const a2 = await settingAuditId("footer.tagline");
+    const b = await settingAuditId("announcement.text");
+    expect(a1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(a1).toBe(a2);
+    expect(a1).not.toBe(b);
+  });
+});

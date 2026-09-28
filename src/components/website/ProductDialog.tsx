@@ -90,11 +90,11 @@ export default function ProductDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Jewelry types</Label>
+                <Label>Product types</Label>
                 <MultiPick
-                  ariaLabel="Jewelry types"
+                  ariaLabel="Product types"
                   buttonLabel="Add jewelry type"
-                  placeholder="Search jewelry types…"
+                  placeholder="Search product types…"
                   emptyText="No jewelry type matches."
                   options={collections.map((c) => ({ id: c.id, label: c.name, hint: c.name_ja }))}
                   value={form.collectionIds}
