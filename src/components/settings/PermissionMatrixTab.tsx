@@ -147,7 +147,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       {
         key: 'manage_website_catalog',
         label: 'Manage Website Catalog',
-        description: 'Products, jewelry types, categories, subscribers, inquiries',
+        description: 'Products, product types, categories, subscribers, inquiries',
       },
       {
         key: 'manage_website_content',

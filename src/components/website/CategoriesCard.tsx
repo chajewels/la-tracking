@@ -206,7 +206,7 @@ export function CategoriesEditor() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-[70ch] text-xs text-muted-foreground">
-          Categories sit above jewelry types — Preloved, Bridal, Gifts — and a product can carry several.
+          Categories sit above product types — Preloved, Bridal, Gifts — and a product can carry several.
           Only published categories appear on the site, in this order.
         </p>
         <Button size="sm" onClick={openNew}><Plus className="mr-1 h-3.5 w-3.5" /> Add category</Button>
@@ -370,7 +370,7 @@ export function CategoriesCard() {
           Categories {categories.data ? `(${categories.data.length})` : ""}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Categories sit above the jewelry types — a product can carry several of each, and both are
+          Categories sit above the product types — a product can carry several of each, and both are
           shown on the site.
         </p>
       </CardHeader>

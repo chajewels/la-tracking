@@ -455,7 +455,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
                 )}
 
                 <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                  <p className="font-medium text-foreground">Jewelry types and categories on pieces that already exist</p>
+                  <p className="font-medium text-foreground">Product types and categories on pieces that already exist</p>
                   <RadioGroup value={assignMode} onValueChange={(v) => setAssignMode(v as AssignMode)} className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
                     <label className="flex items-center gap-2"><RadioGroupItem value="add" id="assign-add" /> Add to existing</label>
                     <label className="flex items-center gap-2"><RadioGroupItem value="replace" id="assign-replace" /> Replace with the sheet's</label>
