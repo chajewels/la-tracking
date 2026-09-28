@@ -8,9 +8,14 @@ import { cn } from "@/lib/utils";
 import { type CatalogFilters, NO_PRODUCT_TYPE, hasActiveFilters } from "@/lib/catalog-search";
 
 /**
- * The Products card's search box, filters and product-type tabs
+ * The Products card's search box, filters and "Jump to" product types
  * (Website → Catalog). Stateless: ProductsCard owns the state, which lives in
- * the URL (?q=&type=&category=&status=&stock=) — see src/lib/catalog-search.ts.
+ * the URL (?q=&type=&category=&status=&stock=, within the ?view= tab) — see
+ * src/lib/catalog-search.ts.
+ *
+ * Since 2026-09-28 the list itself is grouped under product-type headings, so
+ * the chips no longer filter: they JUMP to a group (the Product type select
+ * still narrows the list to one type). Everything counts within the open tab.
  */
 
 // Radix Select cannot hold "" as an item value.
@@ -30,17 +35,22 @@ interface Props {
   counts: { all: number; none: number; byType: Map<string, number> };
   shown: number;
   total: number;
+  /** "published products" / "unpublished products" — what the counts are of. */
+  noun?: string;
+  /** Scroll to a product-type group (website_collections id or NO_PRODUCT_TYPE). */
+  onJump?: (typeId: string) => void;
 }
 
 export function CatalogSearchBar({
   query, onQueryChange, filters, onFiltersChange, onClear, types, categories, statuses, counts, shown, total,
+  noun = "products", onJump,
 }: Props) {
   const active = hasActiveFilters({ ...filters, q: query });
+  // The groups on screen: every type, or only the one the type filter picked.
   const chips: Array<{ value: string; label: string; count: number }> = [
-    { value: "", label: "All", count: counts.all },
     ...types.map((t) => ({ value: t.id, label: t.name, count: counts.byType.get(t.id) ?? 0 })),
     { value: NO_PRODUCT_TYPE, label: "No product type", count: counts.none },
-  ];
+  ].filter((c) => !filters.type || c.value === filters.type);
 
   return (
     <div className="space-y-3 border-b border-border px-4 py-3" data-testid="catalog-search-bar">
@@ -78,10 +88,12 @@ export function CatalogSearchBar({
             label="Category" value={filters.category} onChange={(v) => onFiltersChange({ category: v })}
             options={categories.map((c) => ({ value: c.id, label: c.name }))}
           />
-          <FilterSelect
-            label="Status" value={filters.status} onChange={(v) => onFiltersChange({ status: v })}
-            options={statuses.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-          />
+          {statuses.length > 0 && (
+            <FilterSelect
+              label="Status" value={filters.status} onChange={(v) => onFiltersChange({ status: v })}
+              options={statuses.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+            />
+          )}
           <FilterSelect
             label="Stock" value={filters.stock} onChange={(v) => onFiltersChange({ stock: v as CatalogFilters["stock"] })}
             options={[{ value: "in", label: "In stock" }, { value: "out", label: "Sold out" }]}
@@ -94,31 +106,30 @@ export function CatalogSearchBar({
         </div>
       </div>
 
-      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Product types" data-testid="catalog-type-tabs">
-        {chips.map((c) => {
-          const selected = filters.type === c.value;
-          return (
-            <button
-              key={c.value || "all"}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => onFiltersChange({ type: c.value })}
-              className={cn(
-                "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-colors",
-                selected
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border text-muted-foreground hover:border-primary/60 hover:text-foreground",
-              )}
-            >
-              {c.label} ({c.count})
-            </button>
-          );
-        })}
-      </div>
+      {onJump && chips.length > 1 && (
+        <nav className="flex min-w-0 items-center gap-2" aria-label="Jump to a product type" data-testid="catalog-type-jump">
+          <span className="shrink-0 text-xs text-muted-foreground">Jump to</span>
+          <div className="-mx-1 flex min-w-0 gap-1.5 overflow-x-auto px-1 pb-1">
+            {chips.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                disabled={c.count === 0}
+                onClick={() => onJump(c.value)}
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors",
+                  "hover:border-primary/60 hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:border-border",
+                )}
+              >
+                {c.label} ({c.count})
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
 
       <p className="text-xs text-muted-foreground" data-testid="catalog-result-count">
-        {active ? `${shown} of ${total} products match.` : `${total} products.`}
+        {active ? `${shown} of ${total} ${noun} match.` : `${total} ${noun}.`}
       </p>
     </div>
   );
