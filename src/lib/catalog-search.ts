@@ -155,3 +155,99 @@ export function withFilters(sp: URLSearchParams, f: Partial<CatalogFilters>): UR
 export function hasActiveFilters(f: CatalogFilters): boolean {
   return !!(f.q.trim() || f.type || f.category || f.status || f.stock);
 }
+
+/*
+ * PUBLISHED / UNPUBLISHED (owner request 2026-09-28).
+ *
+ * "Published" = website_products.status === "active" — the same definition as
+ * the background-removal publish gate (migration 20261011100000,
+ * media_cutout_url_published) and the one the website API serves products by
+ * (supabase/functions/website/index.ts, .eq("status", "active")). Everything
+ * else (draft, archived) is Unpublished. The tab is ?view=published|unpublished
+ * (absent = published); ?view=page365-drafts is a narrower Unpublished view.
+ */
+export const CATALOG_VIEWS = ["published", "unpublished", "page365-drafts"] as const;
+export type CatalogView = (typeof CATALOG_VIEWS)[number];
+export type CatalogTab = "published" | "unpublished";
+
+export interface ScopedProduct extends SearchableProduct {
+  page365_product_id?: string | number | null;
+}
+
+export const isPublished = (p: Pick<SearchableProduct, "status">): boolean => p.status === "active";
+
+/** Unknown or missing ?view= reads as the default tab, Published. */
+export function viewFromParams(sp: URLSearchParams): CatalogView {
+  const v = sp.get("view") ?? "";
+  return (CATALOG_VIEWS as readonly string[]).includes(v) ? (v as CatalogView) : "published";
+}
+
+/** The top-level tab a view belongs to: the Page365 drafts view is part of Unpublished. */
+export const tabOf = (view: CatalogView): CatalogTab => (view === "published" ? "published" : "unpublished");
+
+/** The tab a product lives in. */
+export const tabOfProduct = (p: Pick<SearchableProduct, "status">): CatalogTab => (isPublished(p) ? "published" : "unpublished");
+
+/** Rows of one view, in the given order. */
+export function scopeToView<T extends ScopedProduct>(rows: T[], view: CatalogView): T[] {
+  if (view === "published") return rows.filter(isPublished);
+  if (view === "unpublished") return rows.filter((p) => !isPublished(p));
+  return rows.filter((p) => p.page365_product_id != null && p.status === "draft");
+}
+
+/**
+ * Counts on the two tabs: they follow the search and the type / category /
+ * stock filters, never the status filter (a status belongs to one tab only).
+ */
+export function tabCounts<T extends SearchableProduct>(rows: T[], f: CatalogFilters): { published: number; unpublished: number } {
+  const hit = filterProducts(rows, { ...f, status: "" });
+  const published = hit.filter(isPublished).length;
+  return { published, unpublished: hit.length - published };
+}
+
+/**
+ * Switch tab: writes ?view= (dropping the status filter, which belongs to one
+ * tab); search, type, category, stock and every other param are kept.
+ */
+export function withView(sp: URLSearchParams, view: CatalogView): URLSearchParams {
+  const n = new URLSearchParams(sp);
+  n.set("view", view);
+  n.delete("status");
+  return n;
+}
+
+/** The statuses a tab can hold, for its Status filter. Published holds one, so it gets none. */
+export function statusesForTab(tab: CatalogTab, seen: Iterable<string>): string[] {
+  if (tab === "published") return [];
+  const out = new Set<string>(["draft", "archived"]);
+  for (const s of seen) if (s && s !== "active") out.add(s);
+  return [...out];
+}
+
+export interface TypeGroup<T> {
+  /** website_collections id, or NO_PRODUCT_TYPE. */
+  id: string;
+  name: string;
+  rows: T[];
+}
+
+/**
+ * Products grouped under their product types, in the given type order
+ * (website_collections as the Hub loads them), then "No product type". A
+ * product in several types appears under each; order within a group is the
+ * list's own (exact code/SKU matches first when searching). Every type is
+ * returned, empty ones too — the card decides how to show an empty group.
+ */
+export function groupByType<T extends SearchableProduct>(rows: T[], types: Array<{ id: string; name: string }>): TypeGroup<T>[] {
+  const known = new Set(types.map((t) => t.id));
+  const groups: TypeGroup<T>[] = types.map((t) => ({ id: t.id, name: t.name, rows: [] as T[] }));
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const none: TypeGroup<T> = { id: NO_PRODUCT_TYPE, name: "No product type", rows: [] };
+  for (const p of rows) {
+    // A link to a type the Hub no longer has counts as no type.
+    const ids = [...new Set(typeIds(p))].filter((id) => known.has(id));
+    if (ids.length === 0) none.rows.push(p);
+    for (const id of ids) byId.get(id)!.rows.push(p);
+  }
+  return [...groups, none];
+}
