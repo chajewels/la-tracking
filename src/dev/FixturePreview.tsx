@@ -356,7 +356,7 @@ export default function FixturePreview() {
           { ...rate('fixture-sr-us0', 'US', 0, 5000), is_active: false },
         ] });
     }
-    if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test');
+    if (view === 'media-cutouts') seedMediaCutouts(queryClient, searchParams.get('mode') ?? 'test', searchParams.get('role'));
     if (view === 'hero-cutouts') seedHeroCutouts(queryClient, searchParams.get('role'));
     if (view === 'payment-reminders') {
       seed([...PAYMENT_REMINDERS_KEY], {
