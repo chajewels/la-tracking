@@ -4,6 +4,26 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### daily-reconciliation has not completed since 2026-09-23: next_reconciliation_batch is not on live (found 2026-09-28)
+
+  `20260923100000_reconciliation_batch_cursor.sql` was merged but never applied:
+  on 2026-09-28 live has no `next_reconciliation_batch`, no
+  `idx_reconciliation_log_account_checked` and no `daily-reconciliation-midday`
+  cron job. The deployed `daily-reconciliation` calls the RPC first
+  (`supabase/functions/daily-reconciliation/index.ts:65`) and returns 500 when
+  it fails, before the stamp at `:211`. Evidence: `last_daily_reconciliation`
+  is frozen at 2026-09-23T00:23:02Z while cron #15 reports "succeeded" every
+  night (pg_cron only records that the HTTP request was sent).
+  `reconciliation_log` still grows (215 rows / 7 days) from the other
+  `reconcile-account` callers. Check 17 (reconciliation_staleness, > 25h)
+  should be firing.
+
+  **Fix pattern:** apply `20260923100000` as written (idempotent: IF NOT
+  EXISTS index, CREATE OR REPLACE, cron.schedule upserts by jobname), then
+  confirm the next 00:20 UTC run advances `last_daily_reconciliation`. Do NOT
+  record the function as dropped — deployed code depends on it. Until then the
+  drift audit keeps one c_repo_only row for it.
+
 ### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23)
 
   Added on live with the discount columns on 2026-07-09 (docs/SCHEMA-FACTS.md
