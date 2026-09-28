@@ -45,7 +45,7 @@ import {
   falProvider, pickProvider, PROVIDER_SECRET, PROVIDER_TIMEOUT_MS, ProviderError, type QueueProvider, readProviderSetting,
   replicateProvider, type SyncProvider,
 } from "../_shared/cutout-provider.ts";
-import { BUCKET, derivedPaths, isOwnDerivedUrl, readCutoutMode, storagePathOf, syncResultPath, TICK } from "../_shared/media-cutout-rules.ts";
+import { BUCKET, derivedPaths, isOwnDerivedUrl, readCutoutMode, storagePathOf, syncResultPath, TICK, workingUrl } from "../_shared/media-cutout-rules.ts";
 
 type AnyRec = Record<string, unknown>;
 type Client = AuthContext["supabase"];
@@ -63,6 +63,16 @@ async function download(url: string, max: number): Promise<Uint8Array> {
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (bytes.length > max) throw new ProviderError(`download too large (${bytes.length} bytes)`, 413, false);
   return bytes;
+}
+
+/**
+ * The bounded working copy of a photo (workingUrl), or null when there is none
+ * or it cannot be fetched — the caller then falls back to the original.
+ */
+async function downloadWorking(sourceUrl: string): Promise<Uint8Array | null> {
+  const w = workingUrl(sourceUrl);
+  if (w === sourceUrl) return null;
+  try { return await download(w, MAX_ORIGINAL_BYTES); } catch { return null; }
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -110,7 +120,10 @@ async function submitSync(supabase: Client, provider: SyncProvider, row: AnyRec)
   const url = String(row.source_url);
   try {
     const original = await download(url, MAX_ORIGINAL_BYTES);
-    const result = await provider.remove(original, { highDetail: row.high_detail === true, contentType: contentTypeOf(original) });
+    // Send the bounded working copy (same framing) so the result — and the
+    // process step that decodes it — stays within the CPU limit.
+    const input = (await downloadWorking(url)) ?? original;
+    const result = await provider.remove(input, { highDetail: row.high_detail === true, contentType: contentTypeOf(input) });
     const requestId = crypto.randomUUID();
     const path = syncResultPath(await sha256Hex(original), provider.name, requestId);
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, result.bytes, { contentType: "image/png", upsert: false });
@@ -150,14 +163,17 @@ async function processOne(supabase: Client, sourceUrl: string): Promise<AnyRec> 
 
   try {
     const t0 = performance.now();
-    const [result, original] = await Promise.all([
+    const [result, original, working] = await Promise.all([
       download(String(c.result_url), MAX_RESULT_BYTES),
       download(sourceUrl, MAX_ORIGINAL_BYTES),
+      downloadWorking(sourceUrl),
     ]);
     const downloadMs = Math.round(performance.now() - t0);
+    // The hash is always of the untouched original; the pixels decoded are
+    // the bounded working copy when there is one (same framing, <= 1600 px).
     const sha = await sha256Hex(original);
 
-    const out = await runPipeline(result, original, {
+    const out = await runPipeline(result, working ?? original, {
       allowPairs: c.allow_pairs === true,
       output: c.cpu_fallback === true ? "cutout_only" : "baked",
       sizes: CUTOUT_SIZES_PATH_A,
@@ -314,7 +330,9 @@ async function tick(supabase: Client): Promise<AnyRec> {
         for (const row of rows) {
           const url = String(row.source_url);
           try {
-            const job = await provider.submit(url, { highDetail: row.high_detail === true });
+            // The provider fetches the bounded working copy, never the
+            // full-size original (NL366: two CPU-limit kills on 1.7 MB JPEGs).
+            const job = await provider.submit(workingUrl(url), { highDetail: row.high_detail === true });
             await supabase.rpc("media_cutout_submitted", {
               p_source_url: url, p_provider: job.provider, p_model: job.model, p_request_id: job.requestId,
               p_status_url: job.statusUrl, p_response_url: job.responseUrl,
