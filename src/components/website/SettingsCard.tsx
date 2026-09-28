@@ -17,7 +17,7 @@ import { translateJa } from "@/components/website/translate";
 import {
   type Bilingual, type SectionId, type SettingKey, type SettingsDraft, type SocialKey, type SocialRow,
   EMPTY_DRAFT, SECTIONS, SETTING_KEYS, SETTING_KIND, SOCIAL_KEYS, SOCIAL_LABEL,
-  announcementExpired, parseSetting, serializeSetting, validateSection,
+  announcementExpired, parseSetting, serializeSetting, settingAuditId, validateSection,
 } from "@/components/website/website-settings";
 
 /**
@@ -117,17 +117,28 @@ export function SettingsCard() {
       if (error) throw error;
 
       // One audit row per key, not one per Save: "Announcement" changing tells
-      // nobody which of its four keys moved.
-      await supabase.from("audit_logs").insert(
-        keys.map((k) => ({
+      // nobody which of its four keys moved. entity_id is a uuid column, so the
+      // key is mapped to a stable uuid (settingAuditId) and also written into
+      // the JSON. The setting is already saved at this point; an audit failure
+      // is reported, never swallowed, but does not undo the save.
+      const auditRows = await Promise.all(
+        keys.map(async (k) => ({
           entity_type: "website_setting",
-          entity_id: k,
+          entity_id: await settingAuditId(k),
           action: "update_website_setting",
-          old_value_json: { value: serializeSetting(k, loaded[k]) } as never,
-          new_value_json: { value: serializeSetting(k, draft[k]) } as never,
+          old_value_json: { key: k, value: serializeSetting(k, loaded[k]) } as never,
+          new_value_json: { key: k, value: serializeSetting(k, draft[k]) } as never,
           performed_by_user_id: user?.id ?? null,
         })),
       );
+      const { error: auditError } = await supabase.from("audit_logs").insert(auditRows);
+      if (auditError) {
+        toast({
+          title: "Saved, but the change was not recorded in the audit log",
+          description: auditError.message,
+          variant: "destructive",
+        });
+      }
       return keys.length;
     },
     onSuccess: (n) => {
