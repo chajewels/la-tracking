@@ -108,7 +108,7 @@ var get_account_default = defineTool3({
 });
 
 // src/lib/mcp/index.ts
-var projectRef = "dummy";
+var projectRef = "pfoicalpzdcmyxzvwyhz";
 var mcp_default = defineMcp({
   name: "cha-jewels-hub-mcp",
   title: "Cha Jewels Hub MCP",
