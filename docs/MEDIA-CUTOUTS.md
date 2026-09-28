@@ -125,9 +125,11 @@ a tick (§2 "SPEED").
 ## 1b. PUBLISH GATE (migration 20261011100000)
 
 - `job_state = 'waiting'` = **Waiting for publish**: recorded, never sent, not
-  in the queue, costs nothing. It has its own tab and count; the queue tab and
-  count show only publish-eligible photos (published, or already at the
-  provider).
+  in the queue, costs nothing. Since 20261012100000 the Photos card does NOT
+  show these photos at all (owner, 2026-09-28): no Waiting tab; every tab
+  lists and counts photos of published products only. They stay in the
+  database and appear once the product is published. (`list_media_cutouts`
+  'waiting' and the tab-totals `waiting` count remain for SQL use.)
 - **In the database, for every writer:** the guard writes a row that ENTERS
   the queue for an unpublished photo as `waiting` instead — so the enqueue
   trigger, the test batch, Re-run, the admin actions and the worker's retries
@@ -153,6 +155,58 @@ a tick (§2 "SPEED").
 - The Photoroom-402 failures: only those of published products can be sent
   again (Re-run, or a re-publish); a Re-run of an unpublished photo waits
   (`waiting_for_publish: true`).
+
+## 1c. PROVIDER ERRORS (migration 20261012100000)
+
+Owner rule 2026-09-28: a photo is **Failed only for a real photo problem**.
+A provider or account error is not the photo's fault and never needs a human
+to re-run hundreds of rows. Why: on 2026-09-28 Failed held 490 rows, almost
+all Photoroom `HTTP 402 You have exhausted the number of images in your plan`,
+plus ~12 Replicate jobs whose result URL expired (Replicate keeps API outputs
+one hour) while the switch was Off.
+
+- **One classifier**, `public.media_cutout_error_kind(stage, error, result_url)`
+  (IMMUTABLE), reads the worker's own messages
+  (`_shared/cutout-provider.ts` `failure()`: `<what>: HTTP <status> <body>`;
+  `media-cutout-worker` `download()`: `download <status>`; poll:
+  `provider <name> not configured`) and the flags form (`api_error:…`):
+  | kind | when |
+  |---|---|
+  | `account` | HTTP 401 / 402 / 403 / 429 from Photoroom, fal or Replicate; HTTP 404 on a fal / Replicate **submit** (model / version not found); provider not configured / no provider configured |
+  | `provider` | HTTP 5xx from the provider |
+  | `result_expired` | HTTP 404 / 410 on a fal / Replicate status or result call; `download 403/404/410` of a result URL that is the **provider's** (not our storage) at poll / process |
+  | `photo` | everything else — bad input (400, 422), decode, the checks, our own storage, timeouts |
+- **Where errors are recorded** (all through `media_cutout_error`, so no
+  edge-function change was needed): `media-cutout-worker/index.ts`
+  `submitSync` (Photoroom submit), the queue-provider submit loop, the poll
+  loop ("not configured", status errors), `processOne` (result download).
+- **Only `photo` can end in Failed.** The others come back by themselves:
+  - submit step, or `result_expired` → the queue (published product) or
+    Waiting for publish (unpublished);
+  - poll / process step, not expired → stays at that step (the job is at the
+    provider / the result is in hand — re-buying it would be waste).
+  Pace: 5 min, 30 min, then every 3 h, counted in `provider_errors`; the
+  photo's own 3 tries (`attempts`) are untouched. The row keeps `last_error`;
+  the card shows "Sent back automatically — <reason>" on it (`error_kind` in
+  `list_media_cutouts`).
+- **Paid calls** (#235: a failed submit counts) — unchanged except an
+  `account` refusal is **not** counted. Photoroom: "Calls that result in an
+  error will not consume an image" (its pricing page); 401/402/403/429 are
+  refusals before any image is processed. Replicate / fal bill a
+  prediction / request that runs; a refused create makes none (inferred, not
+  quoted). A 5xx and a timeout stay counted: the provider may have done the
+  work. A photo at its paid-call limit goes to **Needs owner** (never Failed).
+- **One-time cleanup** (first run): every Failed row (not held) whose last
+  error is not a photo error → published: queued, but never past this
+  month's limit — up to `cap − used − already queued` due now, the rest queued
+  and held until the 1st (PHT) with the reason in `last_error`; unpublished:
+  Waiting for publish; at the limit: Needs owner. Completed, Rejected and Kept
+  original are never touched. Before / after in `audit_logs`
+  (`media_cutouts_provider_errors`).
+- Verification: `docs/sql/20261012_media_cutouts_provider_errors_verify.sql`
+  prints LIVE values only (preview (P) before the SQL; send-now count and cost
+  after). Local tests: `…_local_tests.sql`, `…_snapshot.sql`,
+  `…_limit_fixture.sql` / `…_limit_check.sql`.
 
 ## 2. Flow
 
@@ -477,6 +531,14 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   even while the switch is Off.
 - Bell `media_cutout_cap_near` opens this tab.
 - Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff]`.
+
+## 7d. Database objects (migration 20261012100000_media_cutouts_provider_errors.sql)
+
+- `website_media_cutouts.provider_errors` integer (backoff for provider / account errors).
+- `media_cutout_error_kind(text,text,text)` — new, IMMUTABLE, service role only.
+- Redefined (md5-checked against 20261011100000's bodies): `media_cutout_error`,
+  `list_media_cutouts` (published only + `error_kind`), `get_media_cutout_tab_totals`
+  (published only; `published_only: true`).
 
 ## 7c. Database objects (migration 20261011100000_media_cutouts_publish_gate.sql)
 

@@ -1654,8 +1654,15 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     COMPLETED (incl. kept_original) IS FINAL for every role — no re-cut path;
     Rejected: admin Try once more only. Keep original = free, audited, final.
     PUBLISH GATE: cut ONLY while the product is published (status 'active');
-    else job_state 'waiting'. DB-enforced; never bypass in SQL.
+    else job_state 'waiting'. DB-enforced; never bypass in SQL. The Photos
+    card shows photos of PUBLISHED products only (no Waiting tab).
     docs/MEDIA-CUTOUTS.md "CUT ONCE" / "PUBLISH GATE".
+  - PROVIDER ERRORS (2026-09-28): Failed = a real PHOTO problem only.
+    Provider/account errors (HTTP 401/402/403/429/5xx, no provider
+    configured, provider result expired — media_cutout_error_kind) are never
+    Failed: the photo goes back by itself (queue / Waiting for publish, or
+    stays at poll/process). A refusal (401/402/403/429) is NOT a paid call;
+    5xx/timeouts still count. docs/MEDIA-CUTOUTS.md "PROVIDER ERRORS".
   - PROVIDER = PHOTOROOM (owner, 2026-09-27): system_settings.
     media_cutout_provider photoroom|fal|replicate fails to photoroom; fal and
     Replicate are called ONLY when selected there. Provider + price change

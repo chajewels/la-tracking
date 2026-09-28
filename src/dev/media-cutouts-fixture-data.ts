@@ -79,12 +79,13 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
   const tabs: CutoutTabTotals = {
     is_admin: role !== 'staff', per_photo_limit: 2, provider: 'replicate', price_usd: 0.005,
     tabs: {
-      // Publish gate (20261011100000), the snapshot's shape: 120 of the queue wait for publish.
+      // Provider errors (20261012100000), the live-shaped snapshot after the SQL: published products only;
+      // Failed = genuine photo problems. 'waiting' is counted for SQL use; the card does not show it.
       needs_review: { count: 15, paid_calls: 15 }, needs_owner: { count: 2, paid_calls: 4 },
-      failed: { count: 495, paid_calls: 0 }, auto_fixed: { count: 10, paid_calls: 10 },
-      queue: { count: 250, paid_calls: 0 }, waiting: { count: 120, paid_calls: 0 },
+      failed: { count: 2, paid_calls: 2 }, auto_fixed: { count: 10, paid_calls: 10 },
+      queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
       completed: { count: 111, paid_calls: 110, kept_original: 1 },
-      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
+      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 209, paid_calls: 154 },
     },
   };
   seed(CUTOUT_TABS_KEY, tabs);
@@ -136,21 +137,27 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
                  last_rerun: { status: 'needs_review', flags: ['soft_matte:0.12'], cutout_path: 'website/derived/c0983/r2/cutout.webp' },
                  product: { id: 'p3', sku: 'C0983', name: 'Van Cleef & Arpels La Collection Watch', slug: 'c0983', status: 'active' } })],
   });
-  seed([CUTOUT_LIST_KEY, 'waiting', '', 0], {
+  // Provider errors (20261012100000): photos the provider refused go back by themselves.
+  seed([CUTOUT_LIST_KEY, 'queue', '', 0], {
     total: 2,
     rows: [
-      row({ source_url: drawn('original', false, false) + '#R4410', status: 'pending', job_state: 'waiting', published: false, paid_calls: 0,
+      row({ source_url: drawn('original', false, false) + '#R4410', status: 'pending', job_state: 'queued', paid_calls: 0,
             cutout_path: null, catalog_path: null, catalog_small_path: null, finished_at: null, test_batch: null,
-            product: { id: 'd1', sku: 'R4410', name: 'Preloved Pt900 Solitaire Ring', slug: 'r4410', status: 'draft' } }),
-      row({ source_url: drawn('original', true, false) + '#E2201', status: 'pending', job_state: 'waiting', published: false, paid_calls: 0,
+            error_kind: 'account', provider: null,
+            last_error: 'photoroom: HTTP 402 {"detail":"You have exhausted the number of images in your plan"}',
+            product: n('R4410', 'Preloved Pt900 Solitaire Ring') }),
+      row({ source_url: drawn('original', true, false) + '#E2201', status: 'pending', job_state: 'queued', paid_calls: 1,
             priority: 1, cutout_path: null, catalog_path: null, catalog_small_path: null, finished_at: null, test_batch: null,
-            product: { id: 'd2', sku: 'E2201', name: 'K18 Diamond Stud Earrings', slug: 'e2201', status: 'draft' } }),
+            error_kind: 'result_expired', provider: 'replicate', last_error: 'download 404',
+            product: n('E2201', 'K18 Diamond Stud Earrings') }),
     ],
   });
   seed([CUTOUT_LIST_KEY, 'failed', '', 0], {
     total: 1,
-    rows: [row({ source_url: drawn('original', false, false), status: 'failed', job_state: 'error', flags: ['api_error:HTTP 500 upstream'],
-                 cutout_path: null, catalog_path: null, catalog_small_path: null, attempts: 4, last_error: 'photoroom: HTTP 500 upstream',
+    rows: [row({ source_url: drawn('original', false, false), status: 'failed', job_state: 'error',
+                 flags: ['api_error:decode failed unsupported JPEG'], error_kind: 'photo',
+                 cutout_path: null, catalog_path: null, catalog_small_path: null, attempts: 4,
+                 last_error: 'decode failed: unsupported JPEG (progressive, 12-bit)',
                  product: { id: 'p4', sku: 'N1055', name: 'K18 Venetian Chain Necklace 45cm', slug: 'n1055', status: 'active' } })],
   });
 }

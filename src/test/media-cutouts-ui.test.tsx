@@ -328,15 +328,15 @@ describe("publish gate + Keep original (owner rules 2026-09-28)", () => {
     is_admin: false, per_photo_limit: 2, provider: "photoroom", price_usd: "0.02", publish_gate: true,
   };
 
-  it("the queue counts only publish-eligible photos; Waiting for publish is its own tab with its count", async () => {
+  it("the queue counts only publish-eligible photos; there is NO Waiting for publish tab (owner, 2026-09-28)", async () => {
     tabTotals = TABS;
     wrap(<MediaCutoutReviewCard />);
     expect(await screen.findByRole("tab", { name: "In the queue (250)" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Waiting for publish (120)" }));
-    await waitFor(() => expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "waiting" }));
-    expect(screen.getByTestId("cutout-waiting-help")).toHaveTextContent("Nothing is sent and nothing is spent");
+    expect(screen.queryByRole("tab", { name: /Waiting for publish/ })).toBeNull();
+    expect(screen.queryByTestId("cutout-waiting-help")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Completed (113)" }));
     await waitFor(() => expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("Completed: 113 photos (3 kept original)"));
+    expect(calls.some(c => c.fn === "list_media_cutouts" && c.args?.p_filter === "waiting")).toBe(false);
   });
 
   it("each photo says whether its product is published; a waiting photo says why it is not sent", async () => {
@@ -441,5 +441,58 @@ describe("publish gate + Keep original (owner rules 2026-09-28)", () => {
     expect(almostNothingKept(["detail_loss:0.31"])).toBe(true);
     expect(almostNothingKept(["detail_loss:0.72"])).toBe(false);
     expect(almostNothingKept(["extra_objects:1", "low_res:418x370"])).toBe(false);
+  });
+});
+
+describe("provider errors (owner rule 2026-09-28): Failed = photo problems only; the rest come back by themselves", () => {
+  const TABS = {
+    tabs: {
+      needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 2, paid_calls: 2 },
+      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
+      completed: { count: 130, paid_calls: 129, kept_original: 1 },
+      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 217, paid_calls: 170 },
+    },
+    is_admin: true, per_photo_limit: 2, provider: "replicate", price_usd: "0.004", publish_gate: true, published_only: true,
+  };
+
+  it("the Failed tab says it holds only photo problems; each failed photo says its product is published", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "failed", job_state: "error", published: true, error_kind: "photo",
+                                 last_error: "decode failed: unsupported JPEG", cutout_path: null, paid_calls: 1 });
+    wrap(<MediaCutoutReviewCard />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Failed (2)" }));
+    await waitFor(() => expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "failed" }));
+    expect(screen.getByTestId("cutout-failed-help")).toHaveTextContent("Provider and account errors are never Failed");
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByTestId("cutout-published")).toHaveTextContent("Product published");
+    expect(within(row).getByText("Last error: decode failed: unsupported JPEG")).toBeInTheDocument();
+    expect(within(row).queryByTestId("cutout-returned")).toBeNull();
+  });
+
+  it("a photo sent back after a 402 is in the queue, says why in plain words, and used no paid call", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "pending", job_state: "queued", published: true, error_kind: "account", flags: [],
+                                 last_error: "photoroom: HTTP 402 {\"detail\":\"You have exhausted the number of images in your plan\"}",
+                                 cutout_path: null, catalog_path: null, catalog_small_path: null, paid_calls: 0 });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    const note = within(row).getByTestId("cutout-returned");
+    expect(note).toHaveTextContent("Sent back automatically — the provider refused the request (no credits left, rate limit, or the key) — no paid call was used");
+    expect(note).toHaveTextContent("Not the photo's fault; it is tried again by itself.");
+    expect(within(row).getByTestId("cutout-paid-calls")).toHaveTextContent("Paid calls: 0 of 2");
+    expect(within(row).queryByText(/^Failed$/)).toBeNull();
+  });
+
+  it("an expired provider result says so; a genuine failure never shows the sent-back note", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "pending", job_state: "queued", error_kind: "result_expired", last_error: "download 404",
+                                 cutout_path: null, paid_calls: 1 });
+    const { unmount } = wrap(<MediaCutoutReviewCard />);
+    expect(within(await screen.findByTestId("cutout-row")).getByTestId("cutout-returned"))
+      .toHaveTextContent("the provider no longer had the result");
+    unmount();
+    Object.assign(listRows[0], { status: "failed", job_state: "error", error_kind: "photo", last_error: "decode failed" });
+    wrap(<MediaCutoutReviewCard />);
+    expect(within(await screen.findByTestId("cutout-row")).queryByTestId("cutout-returned")).toBeNull();
   });
 });
