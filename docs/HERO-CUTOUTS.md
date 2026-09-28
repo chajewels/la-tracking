@@ -18,7 +18,7 @@ Migration `supabase/migrations/20261009100000_hero_cutouts.sql`; local proof
 |---|---|---|
 | 1 | storefront | separate the pipelines (hero reads `hero_cutout`, never `cutout`) |
 | **2 (this)** | Hub | `website_hero_cutouts`, go-live switch, admin approve / reject, Website → Photos → Hero cut-outs |
-| 3 | Hub edge function (Lovable) | `website` API: `hero_cutout` on `product_media`; `GET/POST /hero-cutouts` behind `HERO_CUTOUT_KEY` — spec: `~/Code/reference/hero-comps/EDGE-FUNCTION-SPEC.md` |
+| 3 | Hub edge function (built here, deployed by Lovable) | `website` API: `hero_cutout` on `product_media`; `GET/POST /hero-cutouts` behind `HERO_CUTOUT_KEY` — see "The website edge function" below; spec: `~/Code/reference/hero-comps/EDGE-FUNCTION-SPEC.md` |
 | 4 | storefront | the workflow + checks (holes, relative coverage, < 1200 px) |
 | 5 | storefront | delete the bundled interim set once the owner has approved the backfill |
 
@@ -78,3 +78,44 @@ one asks first). Dev preview: `/__fixtures/?view=hero-cutouts[&role=staff]`
 `trg_hero_cutout_revalidate`: a new record or a status / file change calls
 `notify_website` with the slug of every product using the photo (the
 storefront revalidates `/` and the catalog tag on every call).
+
+## The website edge function (PR 3)
+
+Code: `supabase/functions/_shared/hero-cutouts.ts`, wired into
+`supabase/functions/website/index.ts`. Tests: `src/test/hero-cutouts-edge.test.ts`
+(CI "Website and template tests"). It calls only `hero_cutouts_for_site`,
+`hero_cutouts_known` and `hero_cutout_record`; it never approves or rejects
+and never touches `website_media_cutouts` or the `cutout` field.
+
+- **Read side.** Every catalogue read that returns products (collections/:slug,
+  categories/:slug, products/:slug, products list) sets `hero_cutout` on every
+  `product_media` entry with ONE `hero_cutouts_for_site` call:
+  `{status: approved, url, width, height}` (public URL in bucket `promotions`)
+  | `{status: held}` | `{status: rejected}` | `null`. Only a well-formed
+  approved row ever carries a URL. If the RPC fails, every entry is `null` and
+  the read still succeeds. Nothing else in those responses changes
+  (before/after recorded on 2026-09-28, PR description).
+- **Workflow routes.** `GET /hero-cutouts` (→ `{items}` from
+  `hero_cutouts_known`, `no-store`) and `POST /hero-cutouts` (multipart: `meta`
+  JSON + `file` webp). Both need `x-api-key` (as every route) AND
+  `x-hero-cutout-key` = secret `HERO_CUTOUT_KEY`, compared in constant time;
+  an unset secret refuses everything (401 `{error: unauthorized}`, no detail).
+- **POST validation (422).** Content-Length required, body ≤ 5 MB + 64 KB,
+  multipart only, one `meta` (≤ 16 KB JSON), at most one `file`. `status`
+  ok | auto_fixed | needs_review | failed (anything else, incl. approved /
+  rejected → `invalid_status`); `source_url` the same rule as
+  `hero_cutout_source_ok`; `source_sha256` 64 lower-case hex; a file exactly
+  when not failed; file ≤ 5 MB with `RIFF….WEBP` magic; `width`/`height`
+  integers 1–4000 (null when failed). The RPC receives only the validated
+  fields plus the path the function computed.
+- **Storage.** `promotions/website/derived/hero/<32 hex sha256(file)>/<8 hex
+  sha256(source_url)>/cutout.webp`, `upsert: false`. "Already exists" = same
+  bytes = kept, never deleted. A file uploaded by THIS request is removed
+  (best-effort) when the record answers `unchanged`, `unknown_photo` (422) or
+  fails (500 `record_failed`).
+- **Secret.** `HERO_CUTOUT_KEY`: Supabase edge-function secret (entered by the
+  owner in Lovable's secure secret form) AND the GitHub Actions secret of the
+  same name in chajewels/cha-jewels-web. Never equal to `WEBSITE_API_KEY`.
+- **Deploy.** Lovable only, from its mirror of `main` (see CLAUDE.md "TOOL
+  OWNERSHIP"); the CI "Edge functions" job lints, type-checks and tests but
+  deploys nothing.

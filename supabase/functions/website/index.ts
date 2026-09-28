@@ -15,6 +15,7 @@ import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
+import { attachHeroCutouts, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
 /**
  * Public website API (server-to-server).
@@ -531,6 +532,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
   const segments = path.split("/").filter(Boolean);
 
   try {
+    // GET|POST /hero-cutouts — the storefront workflow's hero-only record
+    // (docs/HERO-CUTOUTS.md). Needs x-hero-cutout-key = HERO_CUTOUT_KEY on
+    // top of x-api-key; fails closed when the secret is unset.
+    if (segments[0] === "hero-cutouts" && !segments[1]) {
+      return await handleHeroCutouts(req, supabase, Deno.env.get("HERO_CUTOUT_KEY"), requestId);
+    }
+
     // GET /fx
     if (req.method === "GET" && segments[0] === "fx" && !segments[1]) {
       const fx = await latestFx(supabase);
@@ -572,6 +580,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .filter((p): p is AnyRec => !!p && p.status === "active")
         .map((p) => shapeProduct(p, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachHeroCutouts(supabase, shaped);
       await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
 
@@ -622,6 +631,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = rows
         .map((r) => shapeProduct(r.product, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachHeroCutouts(supabase, shaped);
       await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
 
@@ -641,6 +651,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!data) return notFound();
       const fx = await latestFx(supabase);
       const product = shapeProduct(data as AnyRec, fx);
+      await attachHeroCutouts(supabase, [product]);
       await attachDownPayments(supabase, [product], fx);
       return jsonResponse(scrub(product));
     }
@@ -675,6 +686,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = (data ?? [])
         .map((p) => shapeProduct(p as AnyRec, fx))
         .filter((p): p is AnyRec => p !== null);
+      await attachHeroCutouts(supabase, shaped);
       await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
       return jsonResponse(scrub(products));
