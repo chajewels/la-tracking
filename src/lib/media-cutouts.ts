@@ -88,6 +88,22 @@ export interface CutoutRow {
   updated_at: string;
   product: { id: string; sku: string; name: string; slug: string; status: string } | null;
   product_count: number;
+  /** Cut once (migration 20261010100000). Absent until it has run. */
+  paid_calls?: number;
+  paid_call_limit?: number;
+  recut_allowed?: boolean;
+  /** Set = "Needs owner": stopped at the paid-call limit; the reason in plain words. */
+  hold_reason?: string | null;
+  held_at?: string | null;
+}
+
+/** Every tab's photos and the paid calls they cost (get_media_cutout_tab_totals). */
+export interface CutoutTabTotals {
+  tabs: Record<string, { count: number; paid_calls: number }>;
+  is_admin: boolean;
+  per_photo_limit: number;
+  provider: ProviderName;
+  price_usd: number | null;
 }
 
 /** React Query keys (the dev fixture seeds the same ones). The list key is
@@ -95,20 +111,35 @@ export interface CutoutRow {
 export const CUTOUT_OVERVIEW_KEY = ['media-cutouts-overview'] as const;
 export const CUTOUT_LIST_KEY = 'media-cutouts-list';
 export const CUTOUT_PAGE_SIZE = 20;
+export const CUTOUT_TABS_KEY = ['media-cutouts-tabs'] as const;
 
 export const FILTERS = [
   { value: 'needs_review', label: 'Needs review' },
+  { value: 'needs_owner', label: 'Needs owner' },
   { value: 'failed', label: 'Failed' },
   { value: 'auto_fixed', label: 'Auto-fixed' },
   { value: 'queue', label: 'In the queue' },
-  { value: 'published', label: 'Published' },
+  { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'test', label: 'Test batch' },
   { value: 'all', label: 'All' },
 ] as const;
 export type CutoutFilter = (typeof FILTERS)[number]['value'];
 
-export type ReviewAction = 'approve' | 'reject' | 'rerun' | 'rerun_high_detail' | 'use_rerun' | 'own_cutout';
+/**
+ * The three ADMIN actions that spend money on a photo the rules have closed:
+ * each allows exactly ONE more paid call and is audited with the estimated
+ * cost (review_media_cutout, migration 20261010100000).
+ */
+export type PaidReopenAction = 'unlock_recut' | 'retry_once' | 'override_cap';
+export type ReviewAction = 'approve' | 'reject' | 'rerun' | 'rerun_high_detail' | 'use_rerun' | 'own_cutout' | PaidReopenAction;
+
+/** CUT ONCE: a Completed (passed / approved) or Rejected photo is never sent again without an admin reopening it. */
+export const isCompleted = (s: CutoutStatus) => s === 'ok' || s === 'auto_fixed' || s === 'approved';
+export const isLocked = (s: CutoutStatus) => isCompleted(s) || s === 'rejected';
+/** At (or over) its paid-call limit, or stopped there: only an admin can allow another call. */
+export const isCapped = (r: Pick<CutoutRow, 'paid_calls' | 'paid_call_limit' | 'hold_reason'>) =>
+  !!r.hold_reason || (r.paid_calls ?? 0) >= (r.paid_call_limit ?? 2);
 
 export const STATUS_LABEL: Record<CutoutStatus, string> = {
   pending: 'Waiting',
@@ -137,6 +168,18 @@ async function rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
 }
 
 export const getOverview = () => rpc<CutoutOverview>('get_media_cutout_overview');
+
+export async function getTabTotals(): Promise<CutoutTabTotals> {
+  const raw = await rpc<Record<string, unknown>>('get_media_cutout_tab_totals');
+  const provider = readProviderSetting(raw.provider);
+  return {
+    tabs: (raw.tabs ?? {}) as CutoutTabTotals['tabs'],
+    is_admin: raw.is_admin === true,
+    per_photo_limit: typeof raw.per_photo_limit === 'number' ? raw.per_photo_limit : 2,
+    provider,
+    price_usd: readPriceSetting(raw.price_usd, provider),
+  };
+}
 
 export const listCutouts = (filter: CutoutFilter, search: string, limit = 20, offset = 0) =>
   rpc<{ total: number; rows: CutoutRow[] }>('list_media_cutouts', {
@@ -243,6 +286,13 @@ export function refusalText(err: unknown): string {
     case 'batch_name_required': return 'Give the test batch a name (up to 60 characters).';
     case 'skus_required_max_100': return 'Paste between 1 and 100 SKUs.';
     case 'setting_missing': return 'Background removal is not set up yet — the migration has not been run.';
+    case 'locked': return 'This photo is finished (completed or rejected) and is not sent again. An admin can reopen it.';
+    case 'needs_owner': return 'This photo stopped at its paid-call limit. Only an admin can allow another call.';
+    case 'paid_call_cap': return 'This photo has used all its paid calls. Only an admin can allow another call.';
+    case 'admin_only': return 'Only an admin can spend another paid call on this photo.';
+    case 'not_completed': return 'Unlock and re-cut is for completed photos only.';
+    case 'not_rejected': return 'Try once more is for rejected photos only.';
+    case 'not_capped': return 'This photo has not reached its paid-call limit.';
     default: return `Could not save: ${err.code}`;
   }
 }

@@ -13,6 +13,7 @@ const calls: { fn: string; args?: Record<string, unknown> }[] = [];
 let overview: Record<string, unknown>;
 let listRows: Record<string, unknown>[];
 let providerRow: Record<string, unknown> | Error;
+let tabTotals: Record<string, unknown> | Error;
 
 vi.mock("@/lib/untyped-rpc", () => ({
   callUntypedRpc: async (fn: string, args?: Record<string, unknown>) => {
@@ -20,6 +21,7 @@ vi.mock("@/lib/untyped-rpc", () => ({
     if (fn === "get_media_cutout_overview") return overview;
     if (fn === "get_media_cutout_provider") { if (providerRow instanceof Error) throw providerRow; return providerRow; }
     if (fn === "set_media_cutout_provider") return { ok: true, changed: true, provider: args?.p_provider ?? "photoroom", price_usd: String(args?.p_price_usd ?? "0.02") };
+    if (fn === "get_media_cutout_tab_totals") { if (tabTotals instanceof Error) throw tabTotals; return tabTotals; }
     if (fn === "list_media_cutouts") return { total: listRows.length, rows: listRows };
     if (fn === "set_media_cutout_settings") return { ok: true, changed: true, mode: args?.p_mode ?? overview.mode, cap: args?.p_cap ?? overview.cap };
     if (fn === "review_media_cutout") return { ok: true, status: args?.p_action === "approve" ? "approved" : "rejected" };
@@ -49,6 +51,8 @@ const SRC = "https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/p
 beforeEach(() => {
   calls.length = 0;
   providerRow = { found: true, provider: "photoroom", raw_provider: "photoroom", price_usd: "0.02", updated_at: null, updated_by_name: null };
+  // Before migration 20261010100000 the RPC does not exist: the tabs fall back to the status counts.
+  tabTotals = new Error("function get_media_cutout_tab_totals() does not exist");
   overview = {
     found: true, mode: "off", cap: 600, month: "2026-10", used: 480, bell_80_at: "2026-10-05T00:00:00Z",
     updated_at: null, updated_by_name: null, can_change: true, last_tick_at: null, last_tick: null,
@@ -205,5 +209,108 @@ describe("large viewer (owner request 2026-09-27: thumbnails too small to judge)
 
     expect(within(dialog).getByRole("link", { name: /Open catalogue in a new tab/ }))
       .toHaveAttribute("href", "https://cdn.test/website/derived/aa/r1/catalog.webp");
+  });
+});
+
+describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, admin-only reopen with the cost", () => {
+  const TABS = {
+    tabs: {
+      needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 495, paid_calls: 0 },
+      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 376, paid_calls: 6 }, completed: { count: 110, paid_calls: 112 },
+      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
+    },
+    is_admin: true, per_photo_limit: 2, provider: "replicate", price_usd: "0.005",
+  };
+  const openTab = async (name: RegExp) => { fireEvent.click(await screen.findByRole("tab", { name })); };
+
+  it("tabs carry their photo counts; the open tab shows its paid calls and cost; the month's used / limit stays visible", async () => {
+    tabTotals = TABS;
+    wrap(<MediaCutoutReviewCard />);
+    expect(await screen.findByRole("tab", { name: "Completed (110)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Needs owner (2)" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Published/ })).toBeNull();
+    expect(screen.getByTestId("cutout-month-usage")).toHaveTextContent("This month: 480 of 600 paid calls · each photo is cut once, at most 2 paid calls");
+    expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("Needs review: 14 photos · 14 paid calls (about $0.07)");
+    await openTab(/^Completed/);
+    await waitFor(() => expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("Completed: 110 photos · 112 paid calls (about $0.56)"));
+    expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "completed" });
+  });
+
+  it("Completed: locked, no Re-run; the admin's Unlock and re-cut confirms 1 paid call and its cost, then sends it with the reason", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "approved", flags: [], paid_calls: 1, paid_call_limit: 2 });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByTestId("cutout-locked")).toHaveTextContent("Locked");
+    expect(within(row).getByTestId("cutout-paid-calls")).toHaveTextContent("Paid calls: 1 of 2");
+    expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
+    expect(within(row).queryByRole("button", { name: /Upload my own/ })).toBeNull();
+    fireEvent.click(await within(row).findByRole("button", { name: /Unlock and re-cut/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Unlock and re-cut this photo?");
+    expect(dialog).toHaveTextContent("This sends it to Replicate (BiRefNet) once: 1 paid call, about $0.005.");
+    expect(dialog).toHaveTextContent("Paid calls for this photo so far: 1. Recorded in the audit log.");
+    expect(calls.some(c => c.fn === "review_media_cutout")).toBe(false); // nothing is spent before the confirm
+    fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "owner wants a cleaner edge" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send once (1 paid call)" }));
+    await waitFor(() => expect(calls.find(c => c.fn === "review_media_cutout")?.args).toEqual({
+      p_source_url: SRC, p_action: "unlock_recut", p_note: "owner wants a cleaner edge", p_own_cutout_url: null, p_expected_status: "approved",
+    }));
+  });
+
+  it("Completed for a non-admin: no reopen button, it says only an admin can", async () => {
+    tabTotals = { ...TABS, is_admin: false };
+    Object.assign(listRows[0], { status: "ok", flags: [], paid_calls: 1 });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(await within(row).findByTestId("cutout-admin-only")).toHaveTextContent("Only an admin can send it for another paid cut.");
+    expect(within(row).queryByRole("button", { name: /Unlock and re-cut/ })).toBeNull();
+    expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
+  });
+
+  it("Rejected: the normal photo stays; Upload my own cut-out (free) and the admin's Try once more (confirmed, 1 paid call)", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "rejected", paid_calls: 1 });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByText(/The website shows the normal photo/)).toBeInTheDocument();
+    for (const name of ["Approve", "Reject", /Re-run/]) expect(within(row).queryByRole("button", { name })).toBeNull();
+    expect(within(row).getByRole("button", { name: /Upload my own cut-out/ })).toBeEnabled();
+    fireEvent.click(await within(row).findByRole("button", { name: "Try once more" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("The website keeps the normal photo unless the new cut-out passes.");
+    expect(dialog).toHaveTextContent("1 paid call, about $0.005");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send once (1 paid call)" }));
+    await waitFor(() => expect(calls.find(c => c.fn === "review_media_cutout")?.args).toMatchObject({ p_action: "retry_once", p_expected_status: "rejected" }));
+  });
+
+  it("Needs owner: the reason in plain words; no Re-run; the admin can allow ONE more paid call after a confirm", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], {
+      status: "failed", job_state: "error", flags: ["api_error:HTTP 502"], paid_calls: 2, paid_call_limit: 2,
+      cutout_path: null, catalog_path: null, catalog_small_path: null,
+      hold_reason: "Stopped after 2 paid calls (the limit for this photo is 2). Last error: replicate submit: HTTP 502",
+    });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByTestId("cutout-hold-reason")).toHaveTextContent("Needs owner: Stopped after 2 paid calls");
+    expect(within(row).getByTestId("cutout-paid-calls")).toHaveTextContent("Paid calls: 2 of 2");
+    expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Keep the normal photo" })).toBeEnabled();
+    fireEvent.click(await within(row).findByRole("button", { name: "Allow one more paid call" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("It stopped after 2 paid calls, the limit for one photo.");
+    expect(dialog).toHaveTextContent("If that call fails it is not retried");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Allow 1 paid call" }));
+    await waitFor(() => expect(calls.find(c => c.fn === "review_media_cutout")?.args).toMatchObject({ p_action: "override_cap" }));
+  });
+
+  it("a photo that has used its 2 paid calls cannot be re-run", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { paid_calls: 2, paid_call_limit: 2 });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByRole("button", { name: /Re-run/ })).toBeDisabled();
+    expect(within(row).getByText(/has used all its paid calls; Re-run is off/)).toBeInTheDocument();
   });
 });

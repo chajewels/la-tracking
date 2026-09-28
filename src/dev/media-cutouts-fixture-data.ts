@@ -1,13 +1,13 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  CUTOUT_LIST_KEY, CUTOUT_OVERVIEW_KEY, CUTOUT_PROVIDER_KEY, type CutoutOverview, type CutoutProviderSetting,
-  type CutoutRow,
+  CUTOUT_LIST_KEY, CUTOUT_OVERVIEW_KEY, CUTOUT_PROVIDER_KEY, CUTOUT_TABS_KEY, type CutoutOverview, type CutoutProviderSetting,
+  type CutoutRow, type CutoutTabTotals,
 } from '@/lib/media-cutouts';
 import { storefrontPreview } from '@/theme/tokens';
 
 /**
- * Seed for /__fixtures/?view=media-cutouts[&mode=off|test|on] — Website → Photos
+ * Seed for /__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff] — Website → Photos
  * (MediaCutoutsFixture.tsx) with seeded data (docs/MEDIA-CUTOUTS.md). No binary images in the repo: the
  * promotions bucket's public URLs are stubbed with drawn stand-ins (a gold
  * ring; an inset square where the photo had a second object).
@@ -51,10 +51,11 @@ const row = (over: Partial<CutoutRow>): CutoutRow => ({
   cutout_path: 'website/derived/aa/r1/cutout.webp', catalog_path: 'website/derived/aa/r1/catalog.webp',
   catalog_small_path: 'website/derived/aa/r1/catalog-small.webp', hero_usable: true, timings: { total: 480 },
   last_rerun: null, review_note: null, reviewed_at: null, finished_at: '2026-10-05T03:14:00Z',
-  updated_at: '2026-10-05T03:14:00Z', product: null, product_count: 1, ...over,
+  updated_at: '2026-10-05T03:14:00Z', product: null, product_count: 1,
+  paid_calls: 1, paid_call_limit: 2, recut_allowed: false, hold_reason: null, held_at: null, ...over,
 });
 
-export function seedMediaCutouts(qc: QueryClient, mode: string) {
+export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | null = null) {
   stubPromotions();
   const seed = (key: readonly unknown[], data: unknown) => {
     qc.setQueryDefaults(key as unknown[], { staleTime: Infinity, gcTime: Infinity, retry: false, refetchInterval: false });
@@ -74,6 +75,39 @@ export function seedMediaCutouts(qc: QueryClient, mode: string) {
     found: true, provider: 'photoroom', price_usd: 0.02, updated_at: '2026-10-07T01:00:00Z', updated_by_name: 'Cynthia Largo',
   };
   seed(CUTOUT_PROVIDER_KEY, provider);
+  // Cut once (20261010100000): the 2026-09-28 shape — Replicate at $0.005.
+  const tabs: CutoutTabTotals = {
+    is_admin: role !== 'staff', per_photo_limit: 2, provider: 'replicate', price_usd: 0.005,
+    tabs: {
+      needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 },
+      failed: { count: 495, paid_calls: 0 }, auto_fixed: { count: 10, paid_calls: 10 },
+      queue: { count: 376, paid_calls: 6 }, completed: { count: 110, paid_calls: 110 },
+      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
+    },
+  };
+  seed(CUTOUT_TABS_KEY, tabs);
+  const n = (sku: string, name: string) => ({ id: sku, sku, name, slug: sku.toLowerCase(), status: 'active' });
+  seed([CUTOUT_LIST_KEY, 'completed', '', 0], {
+    total: 2,
+    rows: [
+      row({ source_url: drawn('original', false, false), status: 'approved', provider: 'replicate', reviewed_at: '2026-09-28T02:00:00Z',
+            product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
+      row({ source_url: drawn('original', true, false), status: 'ok', provider: 'replicate', paid_calls: 2, priority: 1,
+            product: n('R3341', 'Preloved Platinum Baguette Cocktail Ring') }),
+    ],
+  });
+  seed([CUTOUT_LIST_KEY, 'rejected', '', 0], {
+    total: 1,
+    rows: [row({ source_url: drawn('original', true, false), status: 'rejected', flags: ['extra_objects:1'],
+                 review_note: 'The chain was cut through', product: n('N2734', 'K18 Fine Venetian Chain 40cm') })],
+  });
+  seed([CUTOUT_LIST_KEY, 'needs_owner', '', 0], {
+    total: 1,
+    rows: [row({ source_url: drawn('original', false, true), status: 'failed', job_state: 'error', paid_calls: 2,
+                 cutout_path: null, catalog_path: null, catalog_small_path: null, flags: ['api_error:HTTP 502'],
+                 hold_reason: 'Stopped after 2 paid calls (the limit for this photo is 2). Last error: replicate submit: HTTP 502',
+                 held_at: '2026-09-28T03:10:00Z', product: n('C1395', 'Casio G-SHOCK Full Metal Series Solar') })],
+  });
   seed([CUTOUT_LIST_KEY, 'needs_review', '', 0], {
     total: 3,
     rows: [
