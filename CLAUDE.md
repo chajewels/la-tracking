@@ -44,6 +44,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
+- docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4)
 - docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
 - docs/SHIPPING-FEES.md — the shipping rate card (Website → Settings → Shipping fees, admin, audited, never deleted) and couriers (Pabitbit on the LBC template; planned_shipping_method_id; PH-only default)
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives. Payment details, Payment reminders and Shipping fees live on Website → Settings, ADMIN ONLY there (moved from Hub Settings 2026-09-27; /settings?tab=payment-details redirects)
@@ -1663,16 +1664,26 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     Failed: the photo goes back by itself (queue / Waiting for publish, or
     stays at poll/process). A refusal (401/402/403/429) is NOT a paid call;
     5xx/timeouts still count. docs/MEDIA-CUTOUTS.md "PROVIDER ERRORS".
-  - PROVIDER = PHOTOROOM (owner, 2026-09-27): system_settings.
-    media_cutout_provider photoroom|fal|replicate fails to photoroom; fal and
-    Replicate are called ONLY when selected there. Provider + price change
-    ONLY via set_media_cutout_provider (audited, guard trigger).
+  - PROVIDER = REPLICATE men1scus/birefnet (selected + switch On since
+    2026-09-28 17:42 JST; the Photoroom plan is exhausted). system_settings.
+    media_cutout_provider photoroom|fal|replicate fails to photoroom (the
+    reader's default, not the live choice); a provider is called ONLY when
+    selected there. Provider + price change ONLY via set_media_cutout_provider
+    (audited, guard trigger).
   - PHOTOROOM_API_KEY / FAL_KEY / REPLICATE_* are edge secrets only — never
     repo, DB, logs, chat.
   - A hole INSIDE the piece that is not plausible backdrop (interior_hole) or
     Photoroom uncertainty >= 0.45 (uncertain) is needs_review, never OK /
     auto_fixed. Never drop these checks: "Test 30" shipped two watches with
     erased dials as passed.
+  - HERO PICKS (20261013100000; docs/HERO-PICKS.md): the hero uses product
+    cut-outs an ADMIN ticked "Use on hero" (website_hero_picks; set_hero_pick /
+    hero_picks_carry_over, audited) — ONLY while system_settings.
+    hero_photo_source = 'product_ticks' (seeded 'hero_record' = today's hero
+    record; changed ONLY via set_hero_photo_source, admin, audited; never in a
+    migration or SQL). Usable = hero_pick_reason NULL: ok/auto_fixed/approved,
+    file + size, product published. One rule for hero, banner and menu
+    thumbnails. hero_usable stays unused.
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 

@@ -31,6 +31,9 @@ import {
 } from "@/lib/media-cutouts";
 import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
 import CutoutActionButtons from "@/components/website/CutoutActionButtons";
+import { HeroPickContext, type HeroPickControl } from "@/components/website/hero-pick-context";
+import { HeroPicksPanel } from "@/components/website/HeroPicksPanel";
+import { heroPickRefusalText, type HeroTabTotals, setHeroPick } from "@/lib/hero-picks";
 import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 
 /**
@@ -46,7 +49,10 @@ import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
  * website (PR 2). Staff approve, re-run, reject, keep the original or upload
  * their own cut-out here — on the row or in the zoom viewer, which offers the
  * row's own buttons. Completed is final. Everything is
- * manage_website_catalog and audited.
+ * manage_website_catalog and audited. Since 20261013100000 an admin also ticks
+ * "Use on hero" on a finished cut-out (row and viewer), and the Hero tab counts
+ * the ticks, holds the hero switch and the one-time carry-over
+ * (docs/HERO-PICKS.md).
  */
 
 const PAGE = CUTOUT_PAGE_SIZE;
@@ -535,6 +541,14 @@ export function MediaCutoutReviewCard() {
   const price = totals.data ? totals.data.price_usd : null;
   const providerName = PROVIDER_LABEL[totals.data?.provider ?? "photoroom"];
   const activeTotals = tabs?.[filter];
+  // Hero picks (20261013100000): absent until the migration has run — then no Hero tab and no tick.
+  const heroTotals = tabs?.hero && typeof tabs.hero.usable === "number" ? (tabs.hero as HeroTabTotals) : undefined;
+  const heroSource = totals.data?.hero_photo_source ?? null;
+  const refreshAll = () => Promise.all([
+    qc.invalidateQueries({ queryKey: [LIST_KEY] }),
+    qc.invalidateQueries({ queryKey: OVERVIEW_KEY }),
+    qc.invalidateQueries({ queryKey: TABS_KEY }),
+  ]);
 
   const act = useMutation({
     mutationFn: async (v: { row: CutoutRow; action: ReviewAction; note?: string; file?: File | null }) => {
@@ -564,11 +578,22 @@ export function MediaCutoutReviewCard() {
     },
     onError: e => toast.error(refusalText(e)),
     // Returned, so it is awaited: a viewer decision moves on from the refreshed list and tab counts.
-    onSettled: () => Promise.all([
-      qc.invalidateQueries({ queryKey: [LIST_KEY] }),
-      qc.invalidateQueries({ queryKey: OVERVIEW_KEY }),
-      qc.invalidateQueries({ queryKey: TABS_KEY }),
-    ]),
+    onSettled: refreshAll,
+  });
+
+  // "Use on hero": one photo at a time; the list and the Hero tab counts refresh after.
+  const [pickingUrl, setPickingUrl] = useState<string | null>(null);
+  const pick = useMutation({
+    mutationFn: (v: { row: CutoutRow; pick: boolean }) => setHeroPick(v.row.source_url, v.pick),
+    onMutate: v => { setPickingUrl(v.row.source_url); },
+    onSuccess: (_out, v) => {
+      const site = heroSource === "product_ticks"
+        ? "The website hero updates within about a minute."
+        : "The website keeps using the hero record until the hero switch is changed.";
+      toast.success(`${v.pick ? "Ticked \"Use on hero\"" : "Removed from the hero"}. ${site} Saved to the audit log.`);
+    },
+    onError: e => toast.error(heroPickRefusalText(e)),
+    onSettled: async () => { await refreshAll(); setPickingUrl(null); },
   });
 
   const total = list.data?.total ?? 0;
@@ -612,6 +637,20 @@ export function MediaCutoutReviewCard() {
     run({ row, action }, fromViewer);
   };
   const onAct = (row: CutoutRow, action: ReviewAction) => perform(row, action, false);
+  const heroControl: HeroPickControl | null = heroTotals ? {
+    isAdmin,
+    pendingUrl: pickingUrl,
+    onPick: (row, value) => {
+      const oldIndex = rows.findIndex(r => r.source_url === row.source_url);
+      setViewerError(null);
+      // Unticked from the viewer on the Hero tab: the photo leaves the tab, so move on like a decision.
+      const leaves = filter === "hero" && !value && viewer !== null;
+      pick.mutate({ row, pick: value }, {
+        onSuccess: () => { if (leaves) advanceFrom(row, oldIndex); },
+        onError: e => { if (viewer !== null) setViewerError(heroPickRefusalText(e)); },
+      });
+    },
+  } : null;
 
   // Prev/next crossed a page: once that page has loaded, show its first/last row.
   useEffect(() => {
@@ -649,6 +688,7 @@ export function MediaCutoutReviewCard() {
   };
 
   return (
+    <HeroPickContext.Provider value={heroControl}>
     <Card>
       <CardHeader className="hairline-b">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -673,7 +713,7 @@ export function MediaCutoutReviewCard() {
           </p>
         )}
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter photos">
-          {FILTERS.map(f => {
+          {FILTERS.filter(f => f.value !== "hero" || heroTotals).map(f => {
             const n = tabs ? tabs[f.value]?.count : f.value in counts ? counts[f.value as keyof typeof counts] : undefined;
             return (
               <Button key={f.value} size="sm" role="tab" aria-selected={filter === f.value}
@@ -691,6 +731,9 @@ export function MediaCutoutReviewCard() {
             {" "}· {activeTotals.paid_calls.toLocaleString()} paid call{activeTotals.paid_calls === 1 ? "" : "s"}
             {price != null ? ` (about $${(Math.round(activeTotals.paid_calls * price * 100) / 100).toFixed(2)})` : ""}
           </p>
+        )}
+        {filter === "hero" && heroTotals && heroSource && (
+          <HeroPicksPanel totals={heroTotals} source={heroSource} isAdmin={isAdmin} onChanged={() => { void refreshAll(); }} />
         )}
         <Input aria-label="Search by SKU or name" placeholder="Search SKU, name or batch" className="h-8 max-w-xs"
                value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
@@ -710,7 +753,11 @@ export function MediaCutoutReviewCard() {
           </p>
         )}
         {list.data && rows.length === 0 && (
-          <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">Nothing here.</p>
+          <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">
+            {filter === "hero"
+              ? "No photo is ticked for the hero yet. Tick \"Use on hero\" on a finished cut-out, or carry over the approved hero cut-outs."
+              : "Nothing here."}
+          </p>
         )}
         <ul className="divide-y divide-border">
           {rows.map(r => (
@@ -822,5 +869,6 @@ export function MediaCutoutReviewCard() {
       </AlertDialog>
       <CutoutBulkUpload open={bulkOpen} onOpenChange={setBulkOpen} />
     </Card>
+    </HeroPickContext.Provider>
   );
 }
