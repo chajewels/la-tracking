@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageOff, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import {
   HERO_STATUS_LABEL, heroActions, heroCutoutUrl, heroRefusalText, type HeroFilter, type HeroMode, type HeroOverview,
   type HeroRow, listHeroCutouts, reviewHeroCutout, setHeroMode,
 } from "@/lib/hero-cutouts";
+import { HeroCutoutViewer } from "@/components/website/HeroCutoutViewer";
 
 /**
  * Website → Photos → Hero cut-outs (docs/HERO-CUTOUTS.md).
@@ -39,24 +40,36 @@ function statusVariant(s: HeroRow["status"]): "default" | "secondary" | "destruc
   return "outline";
 }
 
-function Thumb({ src, label, bg }: { src: string | null; label: string; bg?: string }) {
+function Thumb({ src, label, bg, onOpen, openLabel }: {
+  src: string | null; label: string; bg?: string; onOpen?: () => void; openLabel?: string;
+}) {
+  const inner = src
+    ? <img src={src} alt={label} loading="lazy" className="h-full w-full object-contain" />
+    : <ImageOff className="h-5 w-5 text-muted-foreground" aria-label={`${label}: none`} />;
+  const box = "flex aspect-square w-full items-center justify-center overflow-hidden rounded border border-border";
   return (
     <figure className="min-w-0 space-y-1">
-      <div className="flex aspect-square items-center justify-center overflow-hidden rounded border border-border" style={{ backgroundColor: bg }}>
-        {src
-          ? <img src={src} alt={label} loading="lazy" className="h-full w-full object-contain" />
-          : <ImageOff className="h-5 w-5 text-muted-foreground" aria-label={`${label}: none`} />}
-      </div>
+      {onOpen ? (
+        // Click, tap or Enter opens the zoom viewer (HeroCutoutViewer).
+        <button type="button" onClick={onOpen} aria-label={openLabel} data-testid="hero-thumb-open"
+                className={`${box} cursor-zoom-in transition-shadow hover:ring-2 hover:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                style={{ backgroundColor: bg }}>
+          {inner}
+        </button>
+      ) : (
+        <div className={box} style={{ backgroundColor: bg }}>{inner}</div>
+      )}
       <figcaption className="truncate text-[11px] text-muted-foreground">{label}</figcaption>
     </figure>
   );
 }
 
-function HeroItem({ row, canReview, busy, onAct }: {
+function HeroItem({ row, canReview, busy, onAct, onOpen }: {
   row: HeroRow;
   canReview: boolean;
   busy: boolean;
   onAct: (row: HeroRow, action: "approve" | "reject") => void;
+  onOpen: () => void;
 }) {
   const can = heroActions(row);
   return (
@@ -70,8 +83,10 @@ function HeroItem({ row, canReview, busy, onAct }: {
         </span>
       </div>
       <div className="grid max-w-xs grid-cols-2 gap-2">
-        <Thumb src={row.source_url} label="Original" />
-        <Thumb src={heroCutoutUrl(row)} label="Hero cut-out" bg={storefrontPreview.heroStage} />
+        <Thumb src={row.source_url} label="Original" onOpen={onOpen}
+               openLabel={`Open the original of ${row.product?.sku ?? "this photo"} in the zoom viewer`} />
+        <Thumb src={heroCutoutUrl(row)} label="Hero cut-out" bg={storefrontPreview.heroStage} onOpen={onOpen}
+               openLabel={`Open the hero cut-out of ${row.product?.sku ?? "this photo"} in the zoom viewer`} />
       </div>
       {row.flags.length > 0 && (
         <ul className="list-disc space-y-0.5 pl-5 text-xs" data-testid="hero-cutout-flags">
@@ -103,7 +118,11 @@ export function HeroCutoutsCard() {
   const [filter, setFilter] = useState<HeroFilter>("waiting");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [confirm, setConfirm] = useState<null | { kind: "mode"; mode: HeroMode } | { kind: "reject-live"; row: HeroRow }>(null);
+  const [confirm, setConfirm] = useState<null | { kind: "mode"; mode: HeroMode } | { kind: "reject-live"; row: HeroRow; fromViewer: boolean }>(null);
+  // The zoom viewer: the photo it shows, or "the first/last row of the page
+  // being loaded" while prev/next crosses a page.
+  const [viewer, setViewer] = useState<null | { url: string } | { edge: "first" | "last" }>(null);
+  const lastShown = useRef<HeroRow | null>(null);
 
   const overview = useQuery<HeroOverview>({ queryKey: HERO_OVERVIEW_KEY, queryFn: getHeroOverview, staleTime: 30_000 });
   const list = useQuery({
@@ -111,16 +130,17 @@ export function HeroCutoutsCard() {
     queryFn: () => listHeroCutouts(filter, search, HERO_PAGE_SIZE, page * HERO_PAGE_SIZE),
     placeholderData: keepPreviousData,
   });
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: HERO_OVERVIEW_KEY });
-    qc.invalidateQueries({ queryKey: [HERO_LIST_KEY] });
-  };
+  const refresh = () => Promise.all([
+    qc.invalidateQueries({ queryKey: HERO_OVERVIEW_KEY }),
+    qc.invalidateQueries({ queryKey: [HERO_LIST_KEY] }),
+  ]);
 
   const act = useMutation({
     mutationFn: (v: { row: HeroRow; action: "approve" | "reject" }) => reviewHeroCutout(v.row, v.action),
-    onSuccess: (_o, v) => {
+    // Awaited, so a viewer decision moves on from the refreshed list.
+    onSuccess: async (_o, v) => {
       toast.success(v.action === "approve" ? "Approved — it goes on the hero. Saved to the audit log." : "Rejected — the hero shows the whole photo. Saved to the audit log.");
-      refresh();
+      await refresh();
     },
     onError: e => { toast.error(heroRefusalText(e)); refresh(); },
   });
@@ -133,16 +153,65 @@ export function HeroCutoutsCard() {
     onError: e => { toast.error(heroRefusalText(e)); refresh(); },
   });
 
-  const onAct = (row: HeroRow, action: "approve" | "reject") => {
-    if (action === "reject" && row.status === "approved") setConfirm({ kind: "reject-live", row });
-    else act.mutate({ row, action });
+  const rows = list.data?.rows ?? [];
+  const total = list.data?.total ?? 0;
+  const hasNextPage = (page + 1) * HERO_PAGE_SIZE < total;
+
+  /**
+   * After a decision in the viewer, show the next item of the (refreshed)
+   * list: the row after the decided one if it is still listed, else the row
+   * that moved into its place (it left the filter), else the next page.
+   */
+  const advanceFrom = (acted: HeroRow, oldIndex: number) => {
+    const now = qc.getQueryData<{ total: number; rows: HeroRow[] }>([HERO_LIST_KEY, filter, search, page]);
+    const fresh = now?.rows ?? [];
+    const more = (page + 1) * HERO_PAGE_SIZE < (now?.total ?? 0);
+    const j = fresh.findIndex(r => r.source_url === acted.source_url);
+    const next = j >= 0 ? fresh[j + 1] : fresh[oldIndex];
+    if (next) { setViewer({ url: next.source_url }); return; }
+    if (more) { setPage(p => p + 1); setViewer({ edge: "first" }); return; }
+    if (j >= 0) return; // the last one, still listed: stay on it
+    if (fresh.length) { setViewer({ url: fresh[fresh.length - 1].source_url }); return; }
+    if (page > 0) { setPage(p => p - 1); setViewer({ edge: "last" }); return; }
+    setViewer(null); // nothing left to check
+  };
+  const run = (row: HeroRow, action: "approve" | "reject", fromViewer: boolean) => {
+    const oldIndex = rows.findIndex(r => r.source_url === row.source_url);
+    act.mutate({ row, action }, fromViewer ? { onSuccess: () => advanceFrom(row, oldIndex) } : undefined);
+  };
+  const perform = (row: HeroRow, action: "approve" | "reject", fromViewer: boolean) => {
+    if (action === "reject" && row.status === "approved") setConfirm({ kind: "reject-live", row, fromViewer });
+    else run(row, action, fromViewer);
+  };
+  const onAct = (row: HeroRow, action: "approve" | "reject") => perform(row, action, false);
+
+  // Prev/next crossed a page: once that page has loaded, show its first/last row.
+  useEffect(() => {
+    if (!viewer || !("edge" in viewer) || !list.data || list.isPlaceholderData || list.isFetching) return;
+    const r = viewer.edge === "first" ? list.data.rows[0] : list.data.rows[list.data.rows.length - 1];
+    setViewer(r ? { url: r.source_url } : null);
+  }, [viewer, list.data, list.isPlaceholderData, list.isFetching]);
+
+  const viewIndex = viewer && "url" in viewer ? rows.findIndex(r => r.source_url === viewer.url) : -1;
+  const viewRow = viewIndex >= 0 ? rows[viewIndex] : null;
+  if (viewRow) lastShown.current = viewRow;
+  // While a page loads (or a decided row leaves the list) keep showing the last one.
+  const shownRow = viewRow ?? (viewer ? lastShown.current : null);
+  const canPrev = viewIndex > 0 || (viewIndex === 0 && page > 0);
+  const canNext = viewIndex >= 0 && (viewIndex < rows.length - 1 || hasNextPage);
+  const goPrev = () => {
+    if (viewIndex > 0) setViewer({ url: rows[viewIndex - 1].source_url });
+    else if (page > 0) { setPage(p => p - 1); setViewer({ edge: "last" }); }
+  };
+  const goNext = () => {
+    if (viewIndex >= 0 && viewIndex < rows.length - 1) setViewer({ url: rows[viewIndex + 1].source_url });
+    else if (hasNextPage) { setPage(p => p + 1); setViewer({ edge: "first" }); }
   };
 
   const o = overview.data;
   const counts = o?.status_counts ?? {};
   const n = (...s: (keyof typeof counts)[]) => s.reduce((a, k) => a + (counts[k] ?? 0), 0);
   const canReview = !!o?.can_review;
-  const total = list.data?.total ?? 0;
 
   return (
     <Card data-testid="hero-cutouts-card">
@@ -220,8 +289,9 @@ export function HeroCutoutsCard() {
           {list.isError && <p className="text-destructive">{heroRefusalText(list.error)}</p>}
           {list.data && total === 0 && <p className="text-muted-foreground">Nothing here.</p>}
           <ul className="divide-y divide-border">
-            {list.data?.rows.map(r => (
-              <HeroItem key={r.source_url} row={r} canReview={canReview} busy={act.isPending} onAct={onAct} />
+            {rows.map(r => (
+              <HeroItem key={r.source_url} row={r} canReview={canReview} busy={act.isPending} onAct={onAct}
+                        onOpen={() => setViewer({ url: r.source_url })} />
             ))}
           </ul>
           {total > HERO_PAGE_SIZE && (
@@ -235,6 +305,20 @@ export function HeroCutoutsCard() {
           )}
         </section>
       </CardContent>
+
+      <HeroCutoutViewer
+        open={viewer !== null}
+        row={shownRow}
+        onClose={() => setViewer(null)}
+        position={viewIndex >= 0 ? `${page * HERO_PAGE_SIZE + viewIndex + 1} of ${total}` : ""}
+        canPrev={canPrev}
+        canNext={canNext}
+        onPrev={goPrev}
+        onNext={goNext}
+        canReview={canReview}
+        busy={act.isPending}
+        onAct={(row, action) => perform(row, action, true)}
+      />
 
       <AlertDialog open={confirm !== null} onOpenChange={v => { if (!v) setConfirm(null); }}>
         <AlertDialogContent>
@@ -256,7 +340,7 @@ export function HeroCutoutsCard() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => {
               if (confirm?.kind === "mode") mode.mutate(confirm.mode);
-              else if (confirm?.kind === "reject-live") act.mutate({ row: confirm.row, action: "reject" });
+              else if (confirm?.kind === "reject-live") run(confirm.row, "reject", confirm.fromViewer);
               setConfirm(null);
             }}>
               {confirm?.kind === "mode" ? "Yes, change it" : "Reject"}

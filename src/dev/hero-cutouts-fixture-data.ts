@@ -1,6 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { setHeroTransportForFixture, type HeroMode, type HeroOverview, type HeroRow } from '@/lib/hero-cutouts';
+import {
+  setHeroContextForFixture, setHeroTransportForFixture, type HeroMode, type HeroOverview, type HeroRow,
+} from '@/lib/hero-cutouts';
 
 /**
  * /__fixtures/?view=hero-cutouts[&role=staff] — Website → Photos → Hero
@@ -14,6 +16,8 @@ import { setHeroTransportForFixture, type HeroMode, type HeroOverview, type Hero
  */
 
 const HUB = 'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/promotions/website/page365/';
+/** Website photos outside page365/ (R3341's own uploads). */
+const WEB = 'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/promotions/website/';
 const SITE = 'https://www.chajewelsjp.com/fixtures/cutouts/';
 const HERO_RPCS = new Set(['get_hero_cutout_overview', 'list_hero_cutouts', 'review_hero_cutout', 'set_hero_cutout_mode']);
 
@@ -42,7 +46,17 @@ function seedRows(): HeroRow[] {
           product: product('R0831', 'Ring Louis Vuitton 750WG 7.30g Empreinte #60 [Preloved]') }),
     row({ source_url: `${HUB}82378949/504517133-1787977458.jpeg`, status: 'auto_fixed', flags: ['edge_touch:left,right'], source_width: 1800, source_height: 2400,
           product: product('N2734', 'Necklace K18WG 9.70g Blue Topaz 3.89ct Diamond 0.17ct 40cm [Preloved]') }),
-    row({ source_url: `${HUB}80288100/450588940-1758211797.jpeg`, status: 'needs_review', flags: ['edge_touch:bottom,left,right', 'interior_hole:1850'],
+    // Three jewellery pieces with REAL BiRefNet cut-outs (the storefront's public
+    // bundled set) on their real originals — for the zoom viewer.
+    row({ source_url: `${WEB}0be8abc2-12d9-4c0e-b978-bf1a36fa2daf.jpeg`, status: 'ok', source_width: 2048, source_height: 2048,
+          coverage: 0.31, width: 867, height: 900, product: product('R3341', 'Ring (fixture — name not recorded)') }),
+    row({ source_url: `${HUB}78321785/428829493-1732601113.jpeg`, status: 'needs_review', flags: ['low_res:418x370'],
+          source_width: 418, source_height: 370, width: 339, height: 204,
+          product: product('R3110', 'Ring (fixture — name not recorded)') }),
+    row({ source_url: `${HUB}79213257/437392479-1742360877.jpeg`, status: 'needs_review', flags: ['extra_objects:1'],
+          source_width: 1280, source_height: 1280, width: 623, height: 773,
+          product: product('AL123', 'Pendant (fixture — name not recorded)') }),
+    row({ source_url: `${HUB}80288100/450588940-1758211797.jpeg`, status: 'needs_review', flags: ['edge_touch:bottom,left,right', 'interior_hole:0.0042'],
           product: product('C0853', 'Watch Bvlgari B-Zero1 Diamond Bezel Quartz SS Leather Silver [Used]') }),
     row({ source_url: `${HUB}80288064/450588849-1758211442.jpeg`, status: 'needs_review', flags: ['edge_touch:left', 'relative_coverage:0.14'], coverage: 0.06,
           product: product('W2527', 'Wallet Louis Vuitton Damier Graphite Zippy Coin Purse [Preloved]') }),
@@ -55,7 +69,8 @@ function seedRows(): HeroRow[] {
   ];
   rows.forEach((r, i) => {
     r.cutout_path = `website/derived/hero/${String(i).padStart(32, '0')}/${'b'.repeat(8)}/cutout.webp`;
-    THUMB.set(r.cutout_path, r.product?.sku === 'C0983' ? `${SITE}c0983.webp` : drawn(r.product?.sku ?? ''));
+    const real = ({ C0983: 'c0983', R3341: 'r3341', R3110: 'r3110', AL123: 'al123' } as Record<string, string>)[r.product?.sku ?? ''];
+    THUMB.set(r.cutout_path, real ? `${SITE}${real}.webp` : drawn(r.product?.sku ?? ''));
   });
   return rows;
 }
@@ -76,6 +91,18 @@ export function seedHeroCutouts(qc: QueryClient, role: string | null) {
     };
     storage.__heroStub = true;
   }
+
+  // The viewer's product read (photo number, categories): the product's photos
+  // in list order, and a category by product type.
+  const CATEGORY: Record<string, string> = {
+    R3341: 'Fine Jewelry', AL123: 'Fine Jewelry', R3110: 'Preloved Branded Jewelry', R0831: 'Preloved Branded Jewelry',
+    N2734: 'Preloved Branded Jewelry', N3940: 'Preloved Branded Jewelry', C0853: 'Preloved Watches', C0983: 'Preloved Watches',
+    W2527: 'Preloved Accessories', W1451: 'Preloved Accessories',
+  };
+  setHeroContextForFixture(async (productId: string) => ({
+    photos: rows.filter(r => r.product?.id === productId).map(r => r.source_url),
+    categories: CATEGORY[productId] ? [CATEGORY[productId]] : [],
+  }));
 
   setHeroTransportForFixture(async (fn: string, args: Record<string, unknown> = {}) => {
     if (!HERO_RPCS.has(fn)) throw new Error(`fixture: ${fn} is not a hero RPC`);
