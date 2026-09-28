@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { File as NodeFile, Blob as NodeBlob } from "node:buffer";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attachHeroCutouts, handleHeroCutouts, heroCutoutFor, heroCutoutPath, heroKeyOk, HERO_MAX_FILE_BYTES, HERO_PATH_RE,
   isAlreadyExists, isWebp, timingSafeEqual, validateHeroMeta,
@@ -84,6 +85,23 @@ const get = (key?: string) =>
   new Request("https://x/website/hero-cutouts", { headers: key === undefined ? {} : { "x-hero-cutout-key": key } });
 
 afterEach(() => vi.restoreAllMocks());
+
+// The function runs on Deno, whose File/Blob are the platform's own. This file
+// runs under jsdom (vitest.config.ts), which replaces globalThis.File/Blob with
+// jsdom's classes. Node's fetch (undici >= 7.2x, Node 24.21 in CI) builds a
+// multipart file part with the GLOBAL File and then brand-checks it against its
+// own File, so every Request.formData() with a file part threw an internal
+// AssertionError under jsdom — the function answered "multipart" (422). Node
+// 24.5 (undici 7.12) had no such check, which is why it passed locally. Put
+// Node's own classes back for this file only, so the harness matches the edge
+// runtime; restore jsdom's afterwards.
+const jsdomGlobals = { File: globalThis.File, Blob: globalThis.Blob };
+beforeAll(() => {
+  Object.assign(globalThis, { File: NodeFile, Blob: NodeBlob });
+});
+afterAll(() => {
+  Object.assign(globalThis, jsdomGlobals);
+});
 
 // ---------------------------------------------------------------------------
 describe("auth: x-hero-cutout-key = HERO_CUTOUT_KEY, constant time, fail closed", () => {
