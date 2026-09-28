@@ -1,5 +1,8 @@
 -- customers.portal_password_at — who actually chose a portal password.
 --
+-- INCOMPLETE — CORRECTED BY 20261010310000: the full_name marker below only
+-- exists for sign-ups from 2026-05-16, so it missed 49 May password holders.
+--
 -- ALREADY APPLIED ON LIVE 2026-09-28 by the owner in the SQL Editor
 -- (UPDATE 89; verify: with_password 89, migrated_without_password 49,
 -- unmigrated_with_password 0). This file is the record. It is idempotent, so
