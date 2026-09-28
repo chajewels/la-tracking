@@ -1096,6 +1096,7 @@ export type Database = {
           notes: string | null
           pancake_fb_id: string | null
           portal_last_seen_at: string | null
+          portal_password_at: string | null
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
@@ -1126,6 +1127,7 @@ export type Database = {
           notes?: string | null
           pancake_fb_id?: string | null
           portal_last_seen_at?: string | null
+          portal_password_at?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -1156,6 +1158,7 @@ export type Database = {
           notes?: string | null
           pancake_fb_id?: string | null
           portal_last_seen_at?: string | null
+          portal_password_at?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -6750,8 +6753,10 @@ export type Database = {
           edges: string[]
           finished_at: string | null
           flags: string[]
+          held_at: string | null
           hero_usable: boolean | null
           high_detail: boolean
+          hold_reason: string | null
           id: string
           job_state: string
           last_error: string | null
@@ -6762,6 +6767,8 @@ export type Database = {
           orphaned_at: string | null
           output_kind: string | null
           own_cutout_url: string | null
+          paid_call_limit: number
+          paid_calls: number
           priority: number
           processing_started_at: string | null
           provider: string | null
@@ -6769,6 +6776,7 @@ export type Database = {
           provider_response_url: string | null
           provider_status_url: string | null
           provider_uncertainty: number | null
+          recut_allowed: boolean
           rerun: boolean
           result_url: string | null
           review_note: string | null
@@ -6804,8 +6812,10 @@ export type Database = {
           edges?: string[]
           finished_at?: string | null
           flags?: string[]
+          held_at?: string | null
           hero_usable?: boolean | null
           high_detail?: boolean
+          hold_reason?: string | null
           id?: string
           job_state?: string
           last_error?: string | null
@@ -6816,6 +6826,8 @@ export type Database = {
           orphaned_at?: string | null
           output_kind?: string | null
           own_cutout_url?: string | null
+          paid_call_limit?: number
+          paid_calls?: number
           priority?: number
           processing_started_at?: string | null
           provider?: string | null
@@ -6823,6 +6835,7 @@ export type Database = {
           provider_response_url?: string | null
           provider_status_url?: string | null
           provider_uncertainty?: number | null
+          recut_allowed?: boolean
           rerun?: boolean
           result_url?: string | null
           review_note?: string | null
@@ -6858,8 +6871,10 @@ export type Database = {
           edges?: string[]
           finished_at?: string | null
           flags?: string[]
+          held_at?: string | null
           hero_usable?: boolean | null
           high_detail?: boolean
+          hold_reason?: string | null
           id?: string
           job_state?: string
           last_error?: string | null
@@ -6870,6 +6885,8 @@ export type Database = {
           orphaned_at?: string | null
           output_kind?: string | null
           own_cutout_url?: string | null
+          paid_call_limit?: number
+          paid_calls?: number
           priority?: number
           processing_started_at?: string | null
           provider?: string | null
@@ -6877,6 +6894,7 @@ export type Database = {
           provider_response_url?: string | null
           provider_status_url?: string | null
           provider_uncertainty?: number | null
+          recut_allowed?: boolean
           rerun?: boolean
           result_url?: string | null
           review_note?: string | null
@@ -7771,6 +7789,7 @@ export type Database = {
       get_hero_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_provider: { Args: never; Returns: Json }
+      get_media_cutout_tab_totals: { Args: never; Returns: Json }
       get_monthly_analytics: {
         Args: never
         Returns: {
@@ -8006,6 +8025,10 @@ export type Database = {
         Args: { p_source_url: string }
         Returns: Json
       }
+      media_cutout_dequeue_unpublished: {
+        Args: { p_urls: string[] }
+        Returns: number
+      }
       media_cutout_error: {
         Args: {
           p_error: string
@@ -8029,6 +8052,10 @@ export type Database = {
       media_cutout_month: { Args: never; Returns: string }
       media_cutout_poll_batch: { Args: { p_limit: number }; Returns: Json }
       media_cutout_process_batch: { Args: { p_limit: number }; Returns: Json }
+      media_cutout_queue_published: {
+        Args: { p_include_failed: boolean; p_urls: string[] }
+        Returns: Json
+      }
       media_cutout_release: {
         Args: { p_holder: string; p_summary: Json }
         Returns: undefined
@@ -8061,6 +8088,7 @@ export type Database = {
         }
         Returns: Json
       }
+      media_cutout_url_published: { Args: { p_url: string }; Returns: boolean }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
@@ -8077,6 +8105,17 @@ export type Database = {
           source_queue: string
         }
         Returns: number
+      }
+      next_reconciliation_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          invoice_number: string
+          last_checked_at: string
+          remaining_balance: number
+          status: string
+          total_paid: number
+        }[]
       }
       notify_deadline_label: { Args: { p_at: string }; Returns: string }
       notify_money_label: {
