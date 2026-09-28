@@ -5570,3 +5570,32 @@ other's files. Existing folders keep their names. Tests: media-cutouts.test.ts
 
 Do not reintroduce: never name derived files by picture content alone; never switch the
 worker's uploads to upsert.
+
+### Function drift census 2026-09-28: 7 a_differs + 1 b_live_only recorded, one audit false positive (2026-09-28)
+
+Before `20261010100000_media_cutouts_cut_once.sql` the drift audit reported 7 a_differs,
+1 b_live_only, 1 c_repo_only. Recorded from the owner's live capture by
+`20261009500000_record_live_drift_2026_09_28.sql` (md5-guarded, a no-op on live; tests:
+`docs/sql/20260928_record_live_drift_local_tests.sh`):
+
+- the four Finance daily-sales RPCs — the 2026-09-24 view_finance gate was applied as an
+  in-place DO/EXECUTE patch (20260924140200), which the audit cannot read;
+- `set_updated_at` — cosmetic only (now() vs NOW(), no trailing semicolon);
+- `sync_service_request_from_job` — 20260921000000 "recorded" a reconstruction, not live.
+  Live is stricter and is what docs/SERVICE-REQUESTS.md describes: acts only on a real
+  status change, never flips a declined request, never moves completed back to
+  in_progress; its trigger is AFTER UPDATE OF service_status (no INSERT);
+- `force_layaway_english_only` and its triggers on website_faq_items / website_posts —
+  created on live, never in git.
+
+`page365_metals_from_text` was a false positive: live and repo are byte-identical, but the
+body contains U+3000 and `scripts/function-drift-audit` normalised it with Python's
+Unicode `\s`, while Postgres's `\s` is ASCII only. The script now uses the ASCII class and
+a space-only trim, exactly like the live side; no other hash moved.
+
+`next_reconciliation_batch` (c_repo_only) is not drift but an unapplied migration — see
+docs/OPEN-BUGS.md.
+
+Do not reintroduce: a record-only migration is captured from pg_get_functiondef on live,
+never written from memory or intent; an in-place patch migration does not count as a record
+for the audit, so follow it with the body written out.
