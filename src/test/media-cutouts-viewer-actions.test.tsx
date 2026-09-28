@@ -139,6 +139,22 @@ describe("zoom viewer: the row's own actions for the photo's state", () => {
     expect(within(viewer).getByTestId("viewer-position")).toHaveTextContent("1 of 3");
   });
 
+  it("a FAILED photo at its paid-call limit offers 'Allow one more paid call' to an admin (NL366)", async () => {
+    listRows = [photo(1, { status: "failed", job_state: "error", cutout_path: null, catalog_path: null, catalog_small_path: null,
+                           last_error: "compositor exceeded the CPU limit twice", paid_calls: 2, paid_call_limit: 2 })];
+    wrap(<MediaCutoutReviewCard />);
+    const viewer = await openViewerOn(0);
+    expect(within(viewer).getByRole("button", { name: "Allow one more paid call" })).toBeEnabled();
+  });
+
+  it("a FAILED photo still under its limit does not offer the extra paid call", async () => {
+    listRows = [photo(1, { status: "failed", job_state: "error", cutout_path: null, catalog_path: null, catalog_small_path: null,
+                           last_error: "bad photo", paid_calls: 1, paid_call_limit: 2 })];
+    wrap(<MediaCutoutReviewCard />);
+    const viewer = await openViewerOn(0);
+    expect(within(viewer).queryByRole("button", { name: "Allow one more paid call" })).toBeNull();
+  });
+
   it("Try once more stays admin-only in the viewer", async () => {
     isAdmin = false;
     listRows = [photo(1, { status: "rejected" })];
