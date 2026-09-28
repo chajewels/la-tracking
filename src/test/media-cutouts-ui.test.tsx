@@ -24,7 +24,14 @@ vi.mock("@/lib/untyped-rpc", () => ({
     if (fn === "get_media_cutout_tab_totals") { if (tabTotals instanceof Error) throw tabTotals; return tabTotals; }
     if (fn === "list_media_cutouts") return { total: listRows.length, rows: listRows };
     if (fn === "set_media_cutout_settings") return { ok: true, changed: true, mode: args?.p_mode ?? overview.mode, cap: args?.p_cap ?? overview.cap };
-    if (fn === "review_media_cutout") return { ok: true, status: args?.p_action === "approve" ? "approved" : "rejected" };
+    if (fn === "review_media_cutout") {
+      if (args?.p_action === "keep_original") return { ok: true, status: "kept_original", job_state: "done", waiting_for_publish: false };
+      if (args?.p_action === "rerun") {
+        const waits = listRows[0]?.published === false;
+        return { ok: true, status: "pending", job_state: waits ? "waiting" : "queued", waiting_for_publish: waits };
+      }
+      return { ok: true, status: args?.p_action === "approve" ? "approved" : "rejected" };
+    }
     if (fn === "add_media_cutout_test_batch") return { ok: true, batch: args?.p_batch, photos: 3, queued_new: 3, tagged: 3, unknown_skus: ["ZZ9"] };
     return {};
   },
@@ -40,6 +47,8 @@ vi.mock("@/integrations/supabase/client", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
+import { toast } from "sonner";
+import { almostNothingKept, isCompleted } from "@/lib/media-cutouts";
 
 const wrap = (ui: ReactNode) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -135,7 +144,7 @@ describe("provider and estimated cost (Photoroom)", () => {
     await waitFor(() => expect(screen.getByTestId("cutout-provider")).toHaveTextContent("Photoroom"));
     fireEvent.click(screen.getByRole("radio", { name: "On" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Every queued photo will be sent to Photoroom");
+    expect(dialog).toHaveTextContent("Every queued photo of a published product will be sent to Photoroom");
     expect(dialog).toHaveTextContent("up to 600 a month (at most about $12.00)");
   });
 });
@@ -236,34 +245,26 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
     expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "completed" });
   });
 
-  it("Completed: locked, no Re-run; the admin's Unlock and re-cut confirms 1 paid call and its cost, then sends it with the reason", async () => {
+  it("Completed is final (owner rule 2026-09-28): locked, no Re-run and NO Unlock and re-cut — not even for an admin", async () => {
     tabTotals = TABS;
     Object.assign(listRows[0], { status: "approved", flags: [], paid_calls: 1, paid_call_limit: 2 });
     wrap(<MediaCutoutReviewCard />);
     const row = await screen.findByTestId("cutout-row");
     expect(within(row).getByTestId("cutout-locked")).toHaveTextContent("Locked");
     expect(within(row).getByTestId("cutout-paid-calls")).toHaveTextContent("Paid calls: 1 of 2");
-    expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
-    expect(within(row).queryByRole("button", { name: /Upload my own/ })).toBeNull();
-    fireEvent.click(await within(row).findByRole("button", { name: /Unlock and re-cut/ }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Unlock and re-cut this photo?");
-    expect(dialog).toHaveTextContent("This sends it to Replicate (BiRefNet) once: 1 paid call, about $0.005.");
-    expect(dialog).toHaveTextContent("Paid calls for this photo so far: 1. Recorded in the audit log.");
-    expect(calls.some(c => c.fn === "review_media_cutout")).toBe(false); // nothing is spent before the confirm
-    fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "owner wants a cleaner edge" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Send once (1 paid call)" }));
-    await waitFor(() => expect(calls.find(c => c.fn === "review_media_cutout")?.args).toEqual({
-      p_source_url: SRC, p_action: "unlock_recut", p_note: "owner wants a cleaner edge", p_own_cutout_url: null, p_expected_status: "approved",
-    }));
+    expect(within(row).getByTestId("cutout-final")).toHaveTextContent("Completed is final — it is never sent again.");
+    for (const name of [/Re-run/, /Unlock/, /Upload my own/, "Keep original", "Try once more", "Allow one more paid call"]) {
+      expect(within(row).queryByRole("button", { name })).toBeNull();
+    }
   });
 
-  it("Completed for a non-admin: no reopen button, it says only an admin can", async () => {
+  it("Completed for a non-admin: the same — final, no reopen", async () => {
     tabTotals = { ...TABS, is_admin: false };
     Object.assign(listRows[0], { status: "ok", flags: [], paid_calls: 1 });
     wrap(<MediaCutoutReviewCard />);
     const row = await screen.findByTestId("cutout-row");
-    expect(await within(row).findByTestId("cutout-admin-only")).toHaveTextContent("Only an admin can send it for another paid cut.");
+    expect(await within(row).findByTestId("cutout-final")).toBeInTheDocument();
+    expect(within(row).queryByTestId("cutout-admin-only")).toBeNull();
     expect(within(row).queryByRole("button", { name: /Unlock and re-cut/ })).toBeNull();
     expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
   });
@@ -296,7 +297,8 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
     expect(within(row).getByTestId("cutout-hold-reason")).toHaveTextContent("Needs owner: Stopped after 2 paid calls");
     expect(within(row).getByTestId("cutout-paid-calls")).toHaveTextContent("Paid calls: 2 of 2");
     expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
-    expect(within(row).getByRole("button", { name: "Keep the normal photo" })).toBeEnabled();
+    expect(within(row).getByRole("button", { name: "Keep original" })).toBeEnabled();
+    expect(within(row).queryByRole("button", { name: "Reject" })).toBeNull();
     fireEvent.click(await within(row).findByRole("button", { name: "Allow one more paid call" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("It stopped after 2 paid calls, the limit for one photo.");
@@ -312,5 +314,132 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
     const row = await screen.findByTestId("cutout-row");
     expect(within(row).getByRole("button", { name: /Re-run/ })).toBeDisabled();
     expect(within(row).getByText(/has used all its paid calls; Re-run is off/)).toBeInTheDocument();
+  });
+});
+
+describe("publish gate + Keep original (owner rules 2026-09-28)", () => {
+  const TABS = {
+    tabs: {
+      needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 495, paid_calls: 0 },
+      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 250, paid_calls: 0 }, waiting: { count: 120, paid_calls: 0 },
+      completed: { count: 113, paid_calls: 112, kept_original: 3 },
+      rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
+    },
+    is_admin: false, per_photo_limit: 2, provider: "photoroom", price_usd: "0.02", publish_gate: true,
+  };
+
+  it("the queue counts only publish-eligible photos; Waiting for publish is its own tab with its count", async () => {
+    tabTotals = TABS;
+    wrap(<MediaCutoutReviewCard />);
+    expect(await screen.findByRole("tab", { name: "In the queue (250)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Waiting for publish (120)" }));
+    await waitFor(() => expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "waiting" }));
+    expect(screen.getByTestId("cutout-waiting-help")).toHaveTextContent("Nothing is sent and nothing is spent");
+    fireEvent.click(screen.getByRole("tab", { name: "Completed (113)" }));
+    await waitFor(() => expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("Completed: 113 photos (3 kept original)"));
+  });
+
+  it("each photo says whether its product is published; a waiting photo says why it is not sent", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "pending", job_state: "waiting", flags: [], published: false, cutout_path: null,
+                                 catalog_path: null, catalog_small_path: null, paid_calls: 0 });
+    listRows.push({ ...listRows[0], id: "2", source_url: SRC + "?2", status: "needs_review", job_state: "done", published: true,
+                    flags: ["extra_objects:1"], cutout_path: "website/derived/bb/r1/cutout.webp" });
+    wrap(<MediaCutoutReviewCard />);
+    const [waiting, live] = await screen.findAllByTestId("cutout-row");
+    expect(within(waiting).getByTestId("cutout-published")).toHaveTextContent("Product not published");
+    expect(within(waiting).getByTestId("cutout-waiting")).toHaveTextContent("Waiting for publish");
+    expect(within(waiting).getByText(/It is cut once, automatically, when the product is published/)).toBeInTheDocument();
+    expect(within(waiting).getByRole("button", { name: "Keep original" })).toBeEnabled();
+    expect(within(live).getByTestId("cutout-published")).toHaveTextContent("Product published");
+    expect(within(live).queryByTestId("cutout-waiting")).toBeNull();
+  });
+
+  it("before the migration (no published field) no publish badge is shown", async () => {
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).queryByTestId("cutout-published")).toBeNull();
+  });
+
+  it("Keep original: confirmed, one review call with the status seen; free and final", async () => {
+    tabTotals = TABS;
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    // a normal needs_review: Approve stays the main button, Keep original is offered beside it
+    expect(within(row).getByRole("button", { name: "Approve" }).className).not.toMatch(/border-input/);
+    fireEvent.click(within(row).getByRole("button", { name: "Keep original" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Keep the original photo?");
+    expect(dialog).toHaveTextContent("never sent again, and costs nothing");
+    expect(calls.some(c => c.fn === "review_media_cutout")).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText("Note"), { target: { value: "photo is fine" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep original" }));
+    await waitFor(() => expect(calls.find(c => c.fn === "review_media_cutout")?.args).toEqual({
+      p_source_url: SRC, p_action: "keep_original", p_note: "photo is fine", p_own_cutout_url: null, p_expected_status: "needs_review",
+    }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Kept the original photo. It is completed and will never be cut — no cost."));
+  });
+
+  it("when almost nothing was kept, Keep original is the MAIN button (first, filled) and a hint says so", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { flags: ["coverage:0.012"] });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    const buttons = within(within(row).getByTestId("cutout-actions")).getAllByRole("button");
+    expect(buttons[0]).toHaveTextContent("Keep original");
+    expect(buttons.filter(b => b.textContent === "Keep original")).toHaveLength(1);
+    expect(within(row).getByTestId("cutout-keep-hint")).toHaveTextContent("Almost nothing of the piece was kept");
+  });
+
+  it("Keep original is offered on Failed, Rejected and Needs owner photos; never on a completed or processing one", async () => {
+    tabTotals = TABS;
+    for (const over of [
+      { status: "failed", job_state: "error", cutout_path: null },
+      { status: "rejected", job_state: "done" },
+      { status: "failed", job_state: "error", paid_calls: 2, hold_reason: "Stopped after 2 paid calls" },
+    ]) {
+      const { unmount } = (() => { Object.assign(listRows[0], over); return wrap(<MediaCutoutReviewCard />); })();
+      const row = await screen.findByTestId("cutout-row");
+      expect(within(row).getByRole("button", { name: "Keep original" })).toBeEnabled();
+      unmount();
+    }
+    Object.assign(listRows[0], { status: "pending", job_state: "processing", hold_reason: null });
+    const { unmount } = wrap(<MediaCutoutReviewCard />);
+    expect(within(await screen.findByTestId("cutout-row")).getByRole("button", { name: "Keep original" })).toBeDisabled();
+    unmount();
+  });
+
+  it("a kept-original photo is Completed: Locked, labelled, no Approve / Reject / Re-run / Keep", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "kept_original", job_state: "done", hero_usable: false });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    expect(within(row).getByText("Kept original")).toBeInTheDocument();
+    expect(within(row).getByTestId("cutout-kept")).toHaveTextContent("the website shows the normal photo");
+    expect(within(row).getByTestId("cutout-locked")).toBeInTheDocument();
+    for (const name of ["Approve", "Reject", /Re-run/, "Keep original", /Unlock/]) expect(within(row).queryByRole("button", { name })).toBeNull();
+    expect(within(row).getByRole("button", { name: /Upload my own cut-out/ })).toBeEnabled();
+    expect(within(row).queryByText("Will be used on the website.")).toBeNull();
+  });
+
+  it("a Re-run of a photo whose product is unpublished says it waits", async () => {
+    tabTotals = TABS;
+    Object.assign(listRows[0], { status: "failed", job_state: "error", published: false, cutout_path: null });
+    wrap(<MediaCutoutReviewCard />);
+    const row = await screen.findByTestId("cutout-row");
+    fireEvent.pointerDown(within(row).getByRole("button", { name: /Re-run/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Re-run" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Saved. Its product is not published, so it waits — it is sent once the product is published."));
+  });
+
+  it("helpers: Completed includes Kept original; 'almost nothing kept' reads the coverage / detail flags", () => {
+    expect(isCompleted("kept_original")).toBe(true);
+    expect(isCompleted("rejected")).toBe(false);
+    expect(almostNothingKept(["coverage:0.012"])).toBe(true);
+    expect(almostNothingKept(["coverage:0.91"])).toBe(false);          // too much kept — a different problem
+    expect(almostNothingKept(["detail_loss:0.31"])).toBe(true);
+    expect(almostNothingKept(["detail_loss:0.72"])).toBe(false);
+    expect(almostNothingKept(["extra_objects:1", "low_res:418x370"])).toBe(false);
   });
 });
