@@ -100,6 +100,12 @@ export interface CutoutRow {
   product_count: number;
   /** Publish gate (migration 20261011100000): any product using this photo is published. Absent until it has run. */
   published?: boolean;
+  /**
+   * What its last error was (migration 20261012100000, media_cutout_error_kind):
+   * only 'photo' can make a photo Failed; the others are the provider's or the
+   * account's problem and send the photo back by itself. Absent until it has run.
+   */
+  error_kind?: CutoutErrorKind;
   /** Cut once (migration 20261010100000). Absent until it has run. */
   paid_calls?: number;
   paid_call_limit?: number;
@@ -108,6 +114,15 @@ export interface CutoutRow {
   hold_reason?: string | null;
   held_at?: string | null;
 }
+
+export type CutoutErrorKind = 'account' | 'provider' | 'result_expired' | 'photo';
+
+/** Why a photo came back by itself (not its own fault), in plain words. */
+export const RETURNED_REASON: Record<Exclude<CutoutErrorKind, 'photo'>, string> = {
+  account: 'the provider refused the request (no credits left, rate limit, or the key) — no paid call was used',
+  provider: 'the provider had an outage',
+  result_expired: 'the provider no longer had the result (it keeps results only a short time)',
+};
 
 /** Every tab's photos and the paid calls they cost (get_media_cutout_tab_totals). */
 export interface CutoutTabTotals {
@@ -132,7 +147,6 @@ export const FILTERS = [
   { value: 'failed', label: 'Failed' },
   { value: 'auto_fixed', label: 'Auto-fixed' },
   { value: 'queue', label: 'In the queue' },
-  { value: 'waiting', label: 'Waiting for publish' },
   { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'test', label: 'Test batch' },
@@ -189,7 +203,7 @@ export const STATUS_LABEL: Record<CutoutStatus, string> = {
 export const MODE_TEXT: Record<CutoutMode, string> = {
   off: 'Off — nothing is sent. New photos wait in the queue.',
   test: 'Test — only photos in a test batch are processed.',
-  on: 'On — every queued photo of a published product is processed, main photos first. Photos of unpublished products wait.',
+  on: 'On — every queued photo of a published product is processed, main photos first. Photos of unpublished products wait (not shown) until the product is published.',
 };
 
 class RpcRefusal extends Error {

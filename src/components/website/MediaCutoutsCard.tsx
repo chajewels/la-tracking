@@ -30,7 +30,7 @@ import {
   type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS,
   formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isCapped, isCompleted, isLocked, isPublishable,
   listCutouts, MODE_TEXT, type PaidReopenAction, parseSkus, PROVIDER_LABEL, PROVIDER_TEXT, type ProviderName, publicUrl,
-  refusalText, review, type ReviewAction, runNow, setProvider, setSettings, STATUS_LABEL, uploadOwnCutout,
+  refusalText, RETURNED_REASON, review, type ReviewAction, runNow, setProvider, setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
 import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
 import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
@@ -386,6 +386,9 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
   const waiting = row.job_state === "waiting";
   const keepFirst = !completed && !inFlight && almostNothingKept(row.flags);
   const held = !!row.hold_reason;
+  // A provider / account error sent it back (migration 20261012100000).
+  const returned = !held && row.status !== "failed" && !!row.last_error && !!row.error_kind && row.error_kind !== "photo"
+    && ["queued", "submitted", "ready"].includes(row.job_state);
   const capped = isCapped(row);
   const paid = row.paid_calls ?? 0;
   const limit = row.paid_call_limit ?? 2;
@@ -472,6 +475,12 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
       {keepFirst && (
         <p className="text-xs text-warning" data-testid="cutout-keep-hint">
           Almost nothing of the piece was kept. Keeping the original photo is usually the right call.
+        </p>
+      )}
+      {returned && (
+        <p className="text-xs text-muted-foreground" data-testid="cutout-returned">
+          Sent back automatically — {RETURNED_REASON[row.error_kind as keyof typeof RETURNED_REASON]}. Not the photo&apos;s
+          fault; it is tried again by itself. Last error: {row.last_error}
         </p>
       )}
       {row.last_error && row.status === "failed" && !held && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
@@ -661,8 +670,9 @@ export function MediaCutoutReviewCard() {
         <p className="text-xs text-muted-foreground">
           Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Keep original to
           leave the photo uncut (free, final), Reject, Re-run to try again, or upload your own cut-out. Only photos of
-          published products are cut. Every photo is cut once: Completed is final, Rejected is locked, and a photo
-          stops after 2 paid calls.
+          published products are cut and shown here — a photo of an unpublished product appears once its product is
+          published. Every photo is cut once: Completed is final, Rejected is locked, and a photo stops after 2 paid
+          calls.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-4 text-sm">
@@ -697,14 +707,17 @@ export function MediaCutoutReviewCard() {
 
         {list.isLoading && <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>}
         {list.isError && <p className="text-muted-foreground">{refusalText(list.error)}</p>}
-        {filter === "waiting" && (
-          <p className="text-xs text-muted-foreground" data-testid="cutout-waiting-help">
-            Photos of products that are not published. Nothing is sent and nothing is spent; each is cut once when its
-            product is published. Keep original works here too.
+        {filter === "queue" && (
+          <p className="text-xs text-muted-foreground">
+            Only photos of published products are in the queue. A photo the provider refused (no credits, rate limit,
+            outage) comes back here by itself — it is never marked Failed.
           </p>
         )}
-        {filter === "queue" && (
-          <p className="text-xs text-muted-foreground">Only photos of published products are in the queue.</p>
+        {filter === "failed" && (
+          <p className="text-xs text-muted-foreground" data-testid="cutout-failed-help">
+            Only real photo problems. Provider and account errors are never Failed: those photos go back to the queue
+            by themselves.
+          </p>
         )}
         {list.data && rows.length === 0 && (
           <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">Nothing here.</p>
