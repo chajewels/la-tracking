@@ -26,11 +26,27 @@ export function CustomerOrderPills({ activeCount, completedCount }: { activeCoun
 
 /**
  * Portal sign-in state, with the labels the customer page uses
- * (CustomerPortalShareMenu): "Migrated" when the customer has an auth account,
- * "Token-based" otherwise. Display only.
+ * (CustomerPortalShareMenu): "Migrated" only when the customer chose a portal
+ * password (customers.portal_password_at); "Web sign-in" when they have an
+ * auth account but no password (a storefront magic-link sign-in — they still
+ * get token links); "Token-based" otherwise. Display only.
  */
-export function CustomerPortalPill({ authUserId }: { authUserId: string | null | undefined }) {
-  return authUserId ? <StatusPill label="Migrated" tone="info" /> : <StatusPill label="Token-based" tone="muted" />;
+export function CustomerPortalPill({
+  authUserId,
+  portalPasswordAt,
+}: {
+  authUserId: string | null | undefined;
+  portalPasswordAt: string | null | undefined;
+}) {
+  if (portalPasswordAt) return <StatusPill label="Migrated" tone="success" />;
+  if (authUserId) return <StatusPill label="Web sign-in" tone="info" />;
+  return <StatusPill label="Token-based" tone="muted" />;
+}
+
+/** portal_password_at is newer than the generated customers type; the
+ *  directory's select('*') carries it at runtime. */
+export function portalPasswordAtOf(c: DbCustomer): string | null {
+  return (c as DbCustomer & { portal_password_at?: string | null }).portal_password_at ?? null;
 }
 
 interface CustomerDirectoryTableProps {
@@ -111,7 +127,7 @@ export default memo(function CustomerDirectoryTable({ customers, accountStats, t
       key: 'portal',
       header: 'Portal',
       cellClassName: 'whitespace-nowrap',
-      cell: (c) => <CustomerPortalPill authUserId={c.auth_user_id} />,
+      cell: (c) => <CustomerPortalPill authUserId={c.auth_user_id} portalPasswordAt={portalPasswordAtOf(c)} />,
     },
     {
       key: 'actions',

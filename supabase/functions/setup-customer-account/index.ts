@@ -23,6 +23,17 @@
 // This function is independent of resolvePortalAuth: that
 // helper only succeeds AFTER auth_user_id is set; this
 // function is what sets it in the first place.
+//
+// PORTAL PASSWORD MARKER (2026-09-28): both the link update (step 5) and
+// the new-customer insert also stamp customers.portal_password_at = now().
+// Only PortalSetup's email+password signUp reaches this function, so a
+// successful link here IS "this customer chose a portal password".
+// auth_user_id alone is not: website POST /auth/customer sets it on any
+// storefront magic-link sign-in. The portal link builders
+// (_shared/portal-link.ts, src/lib/portal-link.ts) key on
+// portal_password_at to send the sign-in page instead of a token link.
+// The already_linked no-op (step 4) does not stamp — the first successful
+// run already did, in the same write as auth_user_id.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
@@ -202,6 +213,8 @@ Deno.serve(async (req) => {
         full_name: fullName,
         email: authUserEmail,
         auth_user_id: authUserId,
+        // They just chose a portal password (PortalSetup signUp) — see header.
+        portal_password_at: new Date().toISOString(),
         facebook_name: facebookName,
         country,
       };
@@ -435,10 +448,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Set auth_user_id (link customer to auth user)
+    // 5. Set auth_user_id (link customer to auth user) and stamp
+    // portal_password_at — this caller just chose a password (see header).
     const { error: updateErr } = await supabase
       .from("customers")
-      .update({ auth_user_id: authUserId })
+      .update({ auth_user_id: authUserId, portal_password_at: new Date().toISOString() })
       .eq("id", customer.id);
 
     if (updateErr) {

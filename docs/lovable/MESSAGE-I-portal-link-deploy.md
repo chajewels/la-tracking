@@ -1,3 +1,5 @@
+> SUPERSEDED 2026-09-28: the link rule now checks customers.portal_password_at first (a password customer gets the sign-in page even with a live token). See CLAUDE.md "PORTAL LINK RULE" and docs/FIXED-BUGS.md.
+
 # Lovable message I — deploy the nine portal-link importers
 
 Status: **SENT 2026-09-15, once, by Claude Code** (`umsg_01m2j2m4hke1bs6s5hecmj4ky9`).

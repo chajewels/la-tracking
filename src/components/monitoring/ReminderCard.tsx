@@ -24,7 +24,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { alertTypeConfig, type AlertType, type AccountBucket, daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
-import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 
 export interface AlertItem {
   type: AlertType | 'grace_period';
@@ -42,7 +42,21 @@ export interface AlertItem {
   messengerLink?: string | null;
   portalToken?: string | null;
   authUserId?: string | null;
+  /** When the customer chose a portal password (customers.portal_password_at). */
+  portalPasswordAt?: string | null;
   customerPin?: string | null;
+}
+
+function hasPortalAccess(alert: AlertItem): boolean {
+  return !!(alert.authUserId || alert.portalToken || alert.portalPasswordAt);
+}
+
+function portalUrlFor(alert: AlertItem): string {
+  return getPortalLinkForCustomer({
+    auth_user_id: alert.authUserId ?? null,
+    portal_password_at: alert.portalPasswordAt ?? null,
+    portal_token: alert.portalToken,
+  });
 }
 
 const iconMap: Record<string, any> = {
@@ -63,13 +77,12 @@ function bucketToStage(bucket: AccountBucket): ReminderStage | null {
 export function generateReminderMessage(alert: AlertItem): string {
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(alert.amount, alert.currency);
-  const portalUrl = (alert.authUserId || alert.portalToken)
-    ? getPortalLinkForCustomer({ auth_user_id: alert.authUserId ?? null, portal_token: alert.portalToken })
-    : null;
+  const portalUrl = hasPortalAccess(alert) ? portalUrlFor(alert) : null;
   const portalLink = portalUrl
     ? `\n\n📱 View your account anytime:\n${portalUrl}`
     : '';
-  const pinLine = (alert.portalToken && !alert.authUserId && alert.customerPin)
+  // PIN line iff the link is a token link (it opens the PIN gate) and a PIN exists.
+  const pinLine = (portalUrl && isTokenLink(portalUrl) && alert.customerPin)
     ? `\n\n🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${alert.customerPin}`
     : '';
 
@@ -106,10 +119,8 @@ export default function ReminderCard({ alert, notifMap, onOpenMessenger }: Remin
   const Icon = iconMap[alert.type];
   const stage = bucketToStage(alert.bucket);
   const existingNotif = stage ? notifMap.get(`${alert.scheduleId}_${stage}`) || null : null;
-  const hasPortal = !!(alert.authUserId || alert.portalToken);
-  const portalUrl = hasPortal
-    ? getPortalLinkForCustomer({ auth_user_id: alert.authUserId ?? null, portal_token: alert.portalToken })
-    : null;
+  const hasPortal = hasPortalAccess(alert);
+  const portalUrl = hasPortal ? portalUrlFor(alert) : null;
 
   const handleCopyPortalLink = async () => {
     if (!portalUrl) {

@@ -60,7 +60,7 @@ import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
-import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 
 // Shape of cancel-cash-order's preview response (preview:true writes nothing).
@@ -928,18 +928,25 @@ export default function CashOrderDetail() {
       return data.token;
     },
   });
-  const { data: authUserId } = useQuery({
-    queryKey: ['customer_auth_user_id', cashCustomerId],
+  const { data: portalAuth } = useQuery({
+    queryKey: ['customer_portal_auth', cashCustomerId],
     enabled: !!cashCustomerId,
     queryFn: async () => {
       const { data } = await supabase
         .from('customers')
-        .select('auth_user_id')
+        .select('auth_user_id, portal_password_at')
         .eq('id', cashCustomerId!)
         .maybeSingle();
-      return ((data as any)?.auth_user_id as string | null) ?? null;
+      // portal_password_at is newer than the generated types — cast here.
+      const row = data as unknown as { auth_user_id: string | null; portal_password_at: string | null } | null;
+      return {
+        authUserId: row?.auth_user_id ?? null,
+        portalPasswordAt: row?.portal_password_at ?? null,
+      };
     },
   });
+  const authUserId = portalAuth?.authUserId ?? null;
+  const portalPasswordAt = portalAuth?.portalPasswordAt ?? null;
   const [copied, setCopied] = useState(false);
   const [awardingLoyalty, setAwardingLoyalty] = useState(false);
   const deleteCashOrder = useDeleteCashOrder();
@@ -948,17 +955,18 @@ export default function CashOrderDetail() {
   const message = useMemo(() => {
     if (!order) return '';
     const cur = order.currency as Currency;
-    const hasAuthMeans = !!authUserId || !!portalToken;
+    const hasAuthMeans = !!portalPasswordAt || !!authUserId || !!portalToken;
     const portalUrl = hasAuthMeans
       ? getPortalLinkForCustomer(
-          { auth_user_id: authUserId ?? null, portal_token: portalToken ?? null },
+          { auth_user_id: authUserId, portal_password_at: portalPasswordAt, portal_token: portalToken ?? null },
           'portal',
         )
       : null;
 
     const _pinDigits = (order.customers?.mobile_number ?? '').replace(/\D/g, '');
     const customerPin = _pinDigits.length >= 4 ? _pinDigits.slice(-4) : null;
-    const pinLine = (!!portalToken && !authUserId && customerPin)
+    // PIN line iff the link is a token link (it opens the PIN gate) and a PIN exists.
+    const pinLine = (portalUrl && isTokenLink(portalUrl) && customerPin)
       ? `🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}\n`
       : '';
 
@@ -1013,7 +1021,7 @@ export default function CashOrderDetail() {
     }
     msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
     return msg;
-  }, [order, orderItems, portalToken, authUserId]);
+  }, [order, orderItems, portalToken, authUserId, portalPasswordAt]);
 
   const handleCopyMessage = () => {
     navigator.clipboard.writeText(message);

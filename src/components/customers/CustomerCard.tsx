@@ -5,7 +5,7 @@ import { Pencil, MessageCircle, ChevronRight, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import Monogram from '@/components/shared/Monogram';
-import { CustomerOrderPills, CustomerPortalPill } from '@/components/customers/CustomerDirectoryTable';
+import { CustomerOrderPills, CustomerPortalPill, portalPasswordAtOf } from '@/components/customers/CustomerDirectoryTable';
 
 interface CustomerCardProps {
   customer: any;
@@ -60,7 +60,7 @@ const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, comp
       <div className="flex items-center justify-between gap-2 pt-3 hairline-t">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
           <CustomerOrderPills activeCount={activeCount} completedCount={completedCount} />
-          <CustomerPortalPill authUserId={c.auth_user_id} />
+          <CustomerPortalPill authUserId={c.auth_user_id} portalPasswordAt={portalPasswordAtOf(c)} />
         </span>
         <div className="flex items-center gap-1">
           {c.messenger_link && (

@@ -105,6 +105,7 @@ interface MemberWithCustomer {
     email: string | null;
     full_name: string | null;
     auth_user_id: string | null;
+    portal_password_at: string | null;
   } | null;
 }
 
@@ -116,12 +117,12 @@ async function sendBroadcastEmails(
   bodyText: string,
   linkTarget: string | null | undefined,
 ) {
-  // Pull member → customer (email + name + auth_user_id) in one query.
-  // auth_user_id drives bare-URL routing for migrated customers via
+  // Pull member → customer (email + name + auth_user_id +
+  // portal_password_at) in one query; they drive the portal link via
   // getPortalLinkForCustomer below.
   const { data: members, error } = await supabase
     .from("loyalty_members")
-    .select("id, customer_id, customers!inner(email, full_name, auth_user_id)")
+    .select("id, customer_id, customers!inner(email, full_name, auth_user_id, portal_password_at)")
     .in("id", memberIds);
   if (error) {
     console.warn("[send-loyalty-notification] email member fetch failed:", error.message);
@@ -151,19 +152,29 @@ async function sendBroadcastEmails(
 
   // Build parallel auth_user_id map from already-fetched rows
   // (no extra DB round-trip).
-  const authByCustomer = new Map<string, string | null>();
+  const authByCustomer = new Map<
+    string,
+    { auth_user_id: string | null; portal_password_at: string | null }
+  >();
   for (const r of rows) {
-    authByCustomer.set(r.customer_id, r.customers?.auth_user_id ?? null);
+    authByCustomer.set(r.customer_id, {
+      auth_user_id: r.customers?.auth_user_id ?? null,
+      portal_password_at: r.customers?.portal_password_at ?? null,
+    });
   }
 
-  // Synchronous URL builder — uses the pure helper to route
-  // migrated customers to bare /loyalty URL and non-migrated
-  // customers to token-bearing /loyalty?token=... or /portal
-  // fallback. Preserves the bulk-Map performance pattern.
+  // Synchronous URL builder — the pure helper applies the portal link
+  // rule (_shared/portal-link.ts): portal password → bare /loyalty; else a
+  // live token → /loyalty?token=...; else auth_user_id → bare; else /portal.
+  // Preserves the bulk-Map performance pattern.
   const portalUrlFor = (customerId: string): string => {
-    const auth_user_id = authByCustomer.get(customerId) ?? null;
+    const auth = authByCustomer.get(customerId);
     const portal_token = tokenByCustomer.get(customerId) ?? null;
-    return getPortalLinkForCustomer({ auth_user_id, portal_token }, 'loyalty');
+    return getPortalLinkForCustomer({
+      auth_user_id: auth?.auth_user_id ?? null,
+      portal_password_at: auth?.portal_password_at ?? null,
+      portal_token,
+    }, 'loyalty');
   };
 
   const emailEndpoint = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;

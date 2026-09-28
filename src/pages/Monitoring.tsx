@@ -37,6 +37,7 @@ import {
   type AlertType, type AccountBucket,
 } from '@/lib/business-rules';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
+import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
 
 type FilterTab = 'all' | 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
@@ -105,7 +106,8 @@ export default function Monitoring() {
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
     ['monitoring-schedules'],
     ['csr-notifications'],
-    ['portal-tokens-with-auth'],
+    ['monitoring-portal-tokens-with-auth'],
+    ['penalty-portal-tokens-with-auth'],
     ['reminder-logs'],
     ['reminder-actionable'],
   ]);
@@ -294,47 +296,13 @@ export default function Monitoring() {
     },
   });
 
-  // Fetch active portal tokens AND auth_user_id per customer
+  // Portal link facts per customer (live token, auth_user_id,
+  // portal_password_at, PIN) — paged; see src/lib/portal-link-customers.ts.
+  // Own queryKey: PenaltyFollowUpSection caches a different shape.
   const { data: portalTokens } = useQuery({
-    queryKey: ['portal-tokens-with-auth'],
+    queryKey: ['monitoring-portal-tokens-with-auth'],
     staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const [tokensRes, customersRes] = await Promise.all([
-        supabase
-          .from('customer_portal_tokens')
-          .select('customer_id, token, expires_at')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('customers')
-          .select('id, auth_user_id, mobile_number'),
-      ]);
-      if (tokensRes.error) throw tokensRes.error;
-      if (customersRes.error) throw customersRes.error;
-      const authMap = new Map<string, { authUserId: string | null; pin: string }>();
-      for (const c of customersRes.data || []) {
-        const digits = (c.mobile_number ?? '').replace(/\D/g, '');
-        const pin = digits.length >= 4 ? digits.slice(-4) : '----';
-        authMap.set(c.id, { authUserId: c.auth_user_id, pin });
-      }
-      const map = new Map<string, { token: string | null; authUserId: string | null; customerPin: string }>();
-      for (const t of tokensRes.data || []) {
-        if (map.has(t.customer_id)) continue;
-        if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
-        const entry = authMap.get(t.customer_id);
-        map.set(t.customer_id, {
-          token: t.token,
-          authUserId: entry?.authUserId ?? null,
-          customerPin: entry?.pin ?? '----',
-        });
-      }
-      for (const [customerId, entry] of authMap.entries()) {
-        if (!entry.authUserId) continue;
-        if (map.has(customerId)) continue;
-        map.set(customerId, { token: null, authUserId: entry.authUserId, customerPin: entry.pin });
-      }
-      return map;
-    },
+    queryFn: fetchPortalAuthByCustomer,
   });
 
   // Build notification lookup map
@@ -396,7 +364,8 @@ export default function Monitoring() {
         messengerLink: acc.customers?.messenger_link,
         portalToken: portalTokens?.get(acc.customer_id)?.token ?? null,
         authUserId: portalTokens?.get(acc.customer_id)?.authUserId ?? null,
-        customerPin: portalTokens?.get(acc.customer_id)?.customerPin ?? '----',
+        portalPasswordAt: portalTokens?.get(acc.customer_id)?.portalPasswordAt ?? null,
+        customerPin: portalTokens?.get(acc.customer_id)?.customerPin ?? null,
       });
     }
 

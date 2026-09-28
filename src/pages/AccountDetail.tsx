@@ -60,7 +60,7 @@ import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getPHTToday } from '@/lib/date-utils';
-import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import {
@@ -231,19 +231,26 @@ export default function AccountDetail() {
       return data.token;
     },
   });
-  const { data: authUserId } = useQuery({
-    queryKey: ['customer_auth_user_id', account?.customer_id],
+  const { data: portalAuth } = useQuery({
+    queryKey: ['customer_portal_auth', account?.customer_id],
     queryFn: async () => {
-      if (!account?.customer_id) return null;
+      if (!account?.customer_id) return { authUserId: null, portalPasswordAt: null };
       const { data } = await supabase
         .from('customers')
-        .select('auth_user_id')
+        .select('auth_user_id, portal_password_at')
         .eq('id', account.customer_id)
         .maybeSingle();
-      return ((data as any)?.auth_user_id as string | null) ?? null;
+      // portal_password_at is newer than the generated types — cast here.
+      const row = data as unknown as { auth_user_id: string | null; portal_password_at: string | null } | null;
+      return {
+        authUserId: row?.auth_user_id ?? null,
+        portalPasswordAt: row?.portal_password_at ?? null,
+      };
     },
     enabled: !!account?.customer_id,
   });
+  const authUserId = portalAuth?.authUserId ?? null;
+  const portalPasswordAt = portalAuth?.portalPasswordAt ?? null;
   const voidPayment = useVoidPayment();
   const editPaymentAmount = useEditPaymentAmount();
   const editPayment = useEditPayment();
@@ -916,17 +923,18 @@ export default function AccountDetail() {
     //    Template A = single payment, Template B = split payment
     // ═══════════════════════════════════════════════════════════════
 
-    const hasAuthMeans = !!authUserId || !!portalToken;
+    const hasAuthMeans = !!portalPasswordAt || !!authUserId || !!portalToken;
     const portalUrl = hasAuthMeans
       ? getPortalLinkForCustomer(
-          { auth_user_id: authUserId ?? null, portal_token: portalToken ?? null },
+          { auth_user_id: authUserId, portal_password_at: portalPasswordAt, portal_token: portalToken ?? null },
           'portal'
         )
       : null;
 
     const _pinDigits = (account?.customers?.mobile_number ?? '').replace(/\D/g, '');
     const customerPin = _pinDigits.length >= 4 ? _pinDigits.slice(-4) : null;
-    const pinLine = (!!portalToken && !authUserId && customerPin)
+    // PIN line iff the link is a token link (it opens the PIN gate) and a PIN exists.
+    const pinLine = (portalUrl && isTokenLink(portalUrl) && customerPin)
       ? `🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}\n`
       : '';
 
@@ -1020,7 +1028,7 @@ export default function AccountDetail() {
     }
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId, account?.customers?.mobile_number]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId, portalPasswordAt, account?.customers?.mobile_number]);
 
 
   if (accountLoading) {

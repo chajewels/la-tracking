@@ -33,7 +33,7 @@ import CustomerStoreCreditTab from '@/components/customers/CustomerStoreCreditTa
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
-import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
@@ -93,6 +93,9 @@ export default function CustomerDetail() {
         .limit(1)
         .maybeSingle();
       const authUserId = data.customer.auth_user_id ?? null;
+      // select('*') already carries it; newer than the generated types.
+      const portalPasswordAt =
+        (data.customer as { portal_password_at?: string | null }).portal_password_at ?? null;
       // An expired token is no token — see the note in AccountDetail's
       // portal-token query. Nulling it here keeps the PIN line consistent
       // with the link.
@@ -102,16 +105,18 @@ export default function CustomerDetail() {
         : null;
       const _digits = (data.customer.mobile_number ?? '').replace(/\D/g, '');
       const _last4 = _digits.length >= 4 ? _digits.slice(-4) : null;
-      setCustomerPin((!authUserId && tokenValue && _last4) ? _last4 : null);
-      const hasAuthMeans = !!authUserId || !!tokenValue;
-      if (hasAuthMeans) {
-        setPortalLink(getPortalLinkForCustomer(
-          { auth_user_id: authUserId, portal_token: tokenValue },
-          'portal'
-        ));
-      }
+      const hasAuthMeans = !!portalPasswordAt || !!authUserId || !!tokenValue;
+      const link = hasAuthMeans
+        ? getPortalLinkForCustomer(
+            { auth_user_id: authUserId, portal_password_at: portalPasswordAt, portal_token: tokenValue },
+            'portal'
+          )
+        : null;
+      // PIN line iff the link is a token link (it opens the PIN gate) and a PIN exists.
+      setCustomerPin((link && isTokenLink(link) && _last4) ? _last4 : null);
+      setPortalLink(link);
     })();
-  }, [customerId, data?.customer?.auth_user_id]);
+  }, [customerId, data?.customer]);
 
   // --- Inline customer detail editing (hooks must be before early returns) ---
   const [editingCustomer, setEditingCustomer] = useState(false);
@@ -678,6 +683,7 @@ export default function CustomerDetail() {
           messengerLink={customer.messenger_link}
           customerEmail={customer.email ?? null}
           authUserId={customer.auth_user_id ?? null}
+          portalPasswordAt={(customer as { portal_password_at?: string | null }).portal_password_at ?? null}
           setupLinkSentAt={(customer as any).setup_link_sent_at ?? null}
         />
 
