@@ -7,7 +7,9 @@
 // Path 0 is tried only if authHeader is provided. JWT validation
 // failures (malformed, expired) silently fall through to Path 1/2.
 // JWT-valid-but-no-linked-customer is a hard error — does NOT fall
-// through (data integrity issue).
+// through (data integrity issue). A valid PASSWORD sign-in on Path 0
+// also fills customers.portal_password_at when it is empty
+// (isPasswordSession / markPortalPassword below).
 //
 // Field-name handling: accepts both `token` and `portal_token`
 // in request bodies (historical inconsistency across functions).
@@ -95,6 +97,64 @@ function recordPortalSeen(supabase: any, opts: { tokenId?: string | null; custom
     });
 }
 
+/**
+ * True when this Supabase access token came from an EMAIL/PASSWORD sign-in.
+ *
+ * WHY (2026-09-28). customers.portal_password_at drives the portal link
+ * (_shared/portal-link.ts): set → the sign-in link, otherwise a live token
+ * wins. setup-customer-account stamps it at /portal/setup, but a password set
+ * later through Forgot password (/portal/reset-password → updateUser) was
+ * never recorded, so that customer kept getting token links. A password
+ * sign-in PROVES a password exists, so Path 0 records it.
+ *
+ * THE CLAIM. Supabase access tokens carry `amr`, the Authentication Methods
+ * Reference: an array of { method, timestamp }, method one of "password",
+ * "otp", "magiclink", "recovery", "oauth", "token_refresh", … (Supabase docs,
+ * guides/auth/jwt-fields). Only "password" counts. "recovery" does NOT: a
+ * reset-link session exists before any password is chosen, and someone who
+ * opens the link and walks away has no password — marking them would send
+ * them the sign-in link. That is why PortalResetPassword signs the reset
+ * session out and sends the customer to a real password sign-in.
+ *
+ * Call it ONLY after supabase.auth.getUser(jwt) has validated the token: this
+ * reads the payload, it does not verify the signature. A plain string array
+ * (["password"]) is accepted too. Anything unreadable → false, never throws.
+ */
+export function isPasswordSession(jwt: string): boolean {
+  try {
+    const part = jwt.split('.')[1];
+    if (!part) return false;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { amr?: unknown };
+    if (!Array.isArray(payload.amr)) return false;
+    return payload.amr.some((entry) =>
+      entry === 'password' ||
+      (typeof entry === 'object' && entry !== null &&
+        (entry as { method?: unknown }).method === 'password'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records that this customer has a portal password (see isPasswordSession).
+ * Only fills an EMPTY value, so the date of the first known password stays.
+ * Fire and forget, like recordPortalSeen: authentication never waits on it and
+ * a failure here must never cost anybody their portal.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function markPortalPassword(supabase: any, customerId: string): void {
+  supabase
+    .from('customers')
+    .update({ portal_password_at: new Date().toISOString() })
+    .eq('id', customerId)
+    .is('portal_password_at', null)
+    .then(({ error }: { error: any }) => {
+      if (error) console.error('Failed to record portal password:', error);
+    });
+}
+
 export async function resolvePortalAuth(
   supabase: any,
   input: PortalAuthInput,
@@ -116,9 +176,9 @@ export async function resolvePortalAuth(
         const authUserId = userData.user.id;
         const { data: customer, error: custErr } = await supabase
           .from('customers')
-          .select('id')
+          .select('id, portal_password_at')
           .eq('auth_user_id', authUserId)
-          .maybeSingle() as { data: { id: string } | null; error: any };
+          .maybeSingle() as { data: { id: string; portal_password_at: string | null } | null; error: any };
         if (custErr) {
           console.error('JWT customer lookup failed:', custErr);
           throw new Error('No customer linked to this account');
@@ -129,6 +189,11 @@ export async function resolvePortalAuth(
         // No token row on this path — the customers column is the only place
         // a password sign-in can be recorded, and 12% of token-holders use it.
         recordPortalSeen(supabase, { customerId: customer.id });
+        // Already known → nothing to do (no write, no parsing). Otherwise a
+        // password sign-in proves a password: record it (Forgot-password gap).
+        if (!customer.portal_password_at && isPasswordSession(jwt)) {
+          markPortalPassword(supabase, customer.id);
+        }
         return {
           customer_id: customer.id,
           source_token_id: undefined,

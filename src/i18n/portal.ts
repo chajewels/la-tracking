@@ -133,7 +133,7 @@ export const portalEn = {
     resetSubtitle: 'Enter your new password below.',
     updatePassword: 'Update Password',
     updating: 'Updating…',
-    passwordUpdated: 'Password updated successfully',
+    passwordUpdated: 'Password updated. Please sign in with your new password.',
     errPasswordMin: 'Password must be at least 8 characters',
     errPasswordMismatch: 'Passwords do not match',
     // setup

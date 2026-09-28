@@ -5600,29 +5600,35 @@ Do not reintroduce: a record-only migration is captured from pg_get_functiondef 
 never written from memory or intent; an in-place patch migration does not count as a record
 for the audit, so follow it with the body written out.
 
-### Portal password customers got token links; magic-link customers lost the PIN line (2026-09-28)
+### Portal password customers got token links; token links lacked the PIN line (2026-09-28)
 
 **Symptom.** Customers who had chosen a portal password still received token links
 (`/portal?token=…`) in CSR reminder, penalty, payment and loyalty messages — the link
-opened the PIN gate instead of their sign-in. And customers who had only signed in on the
-storefront by magic link got token links with **no PIN line**, although every token link
-opens the PIN gate (src/pages/CustomerPortal.tsx PIN gate).
+opened the PIN gate instead of their sign-in. And any migrated customer who did get a
+token link got it with **no PIN line**, although every token link opens the PIN gate
+(src/pages/CustomerPortal.tsx PIN gate).
 
 **Root cause.** PR #70/#71 (2026-09-15) made any live token win over `auth_user_id` in
-both link builders, to stop magic-link storefront customers being sent to a password form.
-But setting a password never retires the token, so password customers kept getting token
-links (40 of them held a live token). Separately, every PIN line was gated on
-`!auth_user_id`, and `auth_user_id` does not mean "has a password": website POST
-/auth/customer sets it on any storefront magic-link sign-in, so 47 magic-link customers
-who still get token links had the PIN line suppressed. Supabase stores a random
-`encrypted_password` for OTP-created users, so `auth.users` cannot tell them apart either.
+both link builders, to stop storefront magic-link customers being sent to a password form.
+Setting a password never retires the token, so password customers with a live token kept
+getting token links (87 of 138). Separately, every PIN line was gated on `!auth_user_id`.
+`auth_user_id` does not by itself mean "has a password": website POST /auth/customer also
+sets it on a storefront magic-link sign-in (live since 2026-09-10). Supabase stores a random
+`encrypted_password` for OTP-created users, so `auth.users` cannot tell them apart.
 
-**Marker.** Only PortalSetup's `signUp` writes `user_metadata.full_name`. The owner added
-`customers.portal_password_at` on live and backfilled it from
-`auth.users.created_at WHERE raw_user_meta_data ? 'full_name'` (UPDATE 89; 138 migrated =
-89 portal-password + 49 magic-link-only; unmigrated_with_password 0). Recorded as
-`20261010300000_customers_portal_password_at.sql`. setup-customer-account stamps it from
-now on (link update and new-customer insert).
+**Marker — two backfills, the first incomplete.** The owner added
+`customers.portal_password_at` on live and first backfilled it from
+`raw_user_meta_data ? 'full_name'` (UPDATE 89) — recorded as
+`20261010300000_customers_portal_password_at.sql`. That marker only exists for sign-ups
+from 2026-05-16 (06923f5d, PortalSetup passes the profile via user_metadata). The other 49
+were created 2026-05-05..14: /portal/setup went live 2026-05-05 (2368fa66), the bulk
+invites of 2026-05-07 (7471edb6) only email a /portal/setup link and create no login, and
+the storefront magic link did not exist until 2026-09-10 (cha-jewels-web fa67875). So every
+linked login created before 2026-09-10 has a password. Corrected backfill (UPDATE 49;
+with_password 138, migrated_without_password 0) — recorded as
+`20261010310000_customers_portal_password_at_backfill_fix.sql`. **All 138 migrated
+customers hold a password; the earlier "47 magic-link customers" reading was wrong; no
+website-only customer existed on 2026-09-28.**
 
 **Fix.** Both builders (`src/lib/portal-link.ts`, `_shared/portal-link.ts`): password →
 bare URL; else live token → token URL; else auth_user_id → bare URL; else /portal.
@@ -5630,8 +5636,15 @@ bare URL; else live token → token URL; else auth_user_id → bare URL; else /p
 `isTokenLink(url) && pin`. Monitoring and penalty follow-up load the flags through
 `src/lib/portal-link-customers.ts` (paged; ~905 customers was near the 1000-row cap) under
 their own query keys. Directory pill: Migrated (password) / Web sign-in (auth, no password)
-/ Token-based. Test: development/portal-link.test.ts (CI).
+/ Token-based. Who writes the column: setup-customer-account (link and new customer), and
+`resolvePortalAuth` Path 0 on any **password** sign-in when it is empty
+(`isPasswordSession` reads the validated token's `amr`; "recovery", "otp", "magiclink" never
+count). That covers a password set through Forgot password: PortalResetPassword now signs
+the reset-link session out (local scope) so the customer signs in with the new password
+instead of being forwarded into the portal on the reset session. Tests:
+development/portal-link.test.ts and development/portal-auth-amr.test.ts (CI).
 
 **Do not reintroduce:** never key a portal link or a PIN line on `auth_user_id`; never
-treat `auth_user_id` as "has a password". Edge functions using the shared module go live
-only when Lovable redeploys them.
+treat `auth_user_id` as "has a password"; never date a marker without checking when the
+code that writes it shipped; never count a "recovery" session as proof of a password.
+Edge functions using the shared modules go live only when Lovable redeploys them.

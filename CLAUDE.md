@@ -793,8 +793,8 @@ All values come from computeLayaway() in business-rules.ts
   2. else a live (active, unexpired) token → token URL, intent honoured
   3. else auth_user_id set                → bare URL, intent honoured
   4. else                                 → https://portal.chajewelsjp.com/portal
-  auth_user_id does NOT mean "has a password" — storefront magic-link sign-ins
-  set it. portal_password_at is stamped only by setup-customer-account.
+  auth_user_id alone is no password (magic-link sign-ins set it). Column set by
+  setup-customer-account + portal-auth Path 0 on a password sign-in.
   PIN line: shown iff the built URL is a token link (isTokenLink) and a PIN
   exists; never keyed on auth_user_id. History: docs/FIXED-BUGS.md
   "Portal password customers got token links" (2026-09-28).
