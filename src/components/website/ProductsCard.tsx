@@ -13,13 +13,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CatalogBulkBar } from "@/components/website/CatalogBulkBar";
 import { CatalogSearchBar } from "@/components/website/CatalogSearchBar";
 import {
-  type CatalogFilters, type CatalogTab, filterProducts, filtersFromParams, groupByType, hasActiveFilters, productTypeCounts,
-  scopeToView, statusesForTab, tabCounts, tabOf, tabOfProduct, viewFromParams, withFilters, withView,
+  type CatalogFilters, type CatalogTab, filterProducts, filtersFromParams, groupByType, hasActiveFilters, openFromParams,
+  pageSlice, pagesFromParams, placementFor, productTypeCounts, scopeToView, statusesForTab, tabCounts, tabOf, tabOfProduct,
+  viewFromParams, withFilters, withOpen, withPage, withView,
 } from "@/lib/catalog-search";
 import { missingText, publishMissing } from "@/lib/page365-drafts";
 import { hiddenByPage365Note } from "@/lib/page365-inventory";
 import { fetchHiddenByPage365 } from "@/lib/page365-inventory-api";
-import { Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
@@ -44,6 +45,11 @@ import {
  * cut-out publish gate use (src/lib/catalog-search.ts isPublished). Inside a
  * tab the products are grouped under their product types (website_collections
  * order, then "No product type"; a product in several types shows under each).
+ * Each type is a collapsible section, closed by default, 25 products a page
+ * (2026-09-28: the list had no boundaries). Open sections and pages live in
+ * the URL (?open=, ?pg=) with the tab and filters; changing search, a filter
+ * or the tab opens only the types with matches (none without a search or
+ * filter) and goes back to page 1 — src/lib/catalog-search.ts placementFor.
  *
  * Search and filters (2026-09-27) live in the URL —
  * ?q=&type=&category=&status=&stock= — work within the open tab, and combine
@@ -176,18 +182,18 @@ export default function ProductsCard() {
     if (query === wroteQ.current) return;
     const t = setTimeout(() => {
       wroteQ.current = query;
-      setSearchParams((prev) => withFilters(prev, { q: query }), { replace: true });
+      setSearchParams((prev) => place(withFilters(prev, { q: query })), { replace: true });
     }, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
   const setFilters = (patch: Partial<CatalogFilters>) =>
-    setSearchParams((prev) => withFilters(prev, patch), { replace: true });
+    setSearchParams((prev) => place(withFilters(prev, patch)), { replace: true });
   const clearFilters = () => {
     wroteQ.current = "";
     setQuery("");
     setSearchParams(
-      (prev) => withFilters(prev, { q: "", type: "", category: "", status: "", stock: "" }),
+      (prev) => place(withFilters(prev, { q: "", type: "", category: "", status: "", stock: "" })),
       { replace: true },
     );
   };
@@ -199,19 +205,58 @@ export default function ProductsCard() {
     () => (collections.data ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })),
     [collections.data],
   );
-  // Under product-type headings; with a type filter, only that group.
-  const groups = useMemo(
-    () => groupByType(visible, typeOptions).filter((g) => !filters.type || g.id === filters.type),
-    [visible, typeOptions, filters.type],
-  );
   const filtering = hasActiveFilters(filters);
+  // Under product-type headings; with a type filter, only that group; while
+  // searching or filtering, types without a match are left out.
+  const groups = useMemo(
+    () => groupByType(visible, typeOptions)
+      .filter((g) => !filters.type || g.id === filters.type)
+      .filter((g) => !filtering || g.rows.length > 0),
+    [visible, typeOptions, filters.type, filtering],
+  );
+  // Which sections are open and the page each shows (URL: ?open=, ?pg=).
+  const openIds = useMemo(() => openFromParams(searchParams), [searchParams]);
+  const pageOf = useMemo(() => pagesFromParams(searchParams), [searchParams]);
+  const sections = useMemo(
+    () => groups.map((g) => ({ group: g, open: openIds.has(g.id), slice: pageSlice(g.rows, pageOf.get(g.id) ?? 1) })),
+    [groups, openIds, pageOf],
+  );
+  // The rows on screen now: the current page of every open section. "Select
+  // all" selects exactly these (a product in two open types counts once).
+  const shownIds = useMemo(
+    () => [...new Set(sections.filter((s) => s.open).flatMap((s) => s.slice.rows.map((p) => String(p.id))))],
+    [sections],
+  );
   const selectedRows = useMemo(() => visible.filter((p) => picked.has(p.id)), [visible, picked]);
+  // A search, filter or tab change re-places the list: see placementFor.
+  function place(sp: URLSearchParams): URLSearchParams {
+    return placementFor(sp, rows, typeOptions);
+  }
   const setView = (v: "published" | "unpublished") => {
     setPicked(new Set());
-    setSearchParams((prev) => withView(prev, v), { replace: false });
+    setSearchParams((prev) => place(withView(prev, v)), { replace: false });
   };
-  const jumpTo = (typeId: string) =>
-    document.getElementById(`catalog-group-${typeId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const setOpenGroups = (ids: Iterable<string>) => setSearchParams((prev) => withOpen(prev, ids), { replace: true });
+  const toggleGroup = (typeId: string) => setSearchParams((prev) => {
+    const o = openFromParams(prev);
+    if (o.has(typeId)) o.delete(typeId); else o.add(typeId);
+    return withOpen(prev, o);
+  }, { replace: true });
+  // Jump to: open that type only, then scroll to it once it has rendered open.
+  // A page change brings the section's header back into view too ("nearest":
+  // only if it is off screen) — the new page can be shorter, which would
+  // otherwise leave the view below the section.
+  const [jumping, setJumping] = useState<{ id: string; block: ScrollLogicalPosition } | null>(null);
+  const jumpTo = (typeId: string) => { setOpenGroups([typeId]); setJumping({ id: typeId, block: "start" }); };
+  const setGroupPage = (typeId: string, page: number) => {
+    setSearchParams((prev) => withPage(prev, typeId, page), { replace: true });
+    setJumping({ id: typeId, block: "nearest" });
+  };
+  useEffect(() => {
+    if (!jumping || !openIds.has(jumping.id)) return;
+    document.getElementById(`catalog-group-${jumping.id}`)?.scrollIntoView?.({ behavior: "smooth", block: jumping.block });
+    setJumping(null);
+  }, [jumping, openIds]);
   const noun = draftsView ? "unpublished Page365 products" : `${tab} products`;
 
   // ?product=<id> (links from "Landed in Catalog"): open that product once loaded.
@@ -629,6 +674,10 @@ export default function ProductsCard() {
               total={scoped.length}
               noun={noun}
               onJump={jumpTo}
+              onOpenAll={() => setOpenGroups(groups.map((g) => g.id))}
+              onCloseAll={() => setOpenGroups([])}
+              openCount={sections.filter((s) => s.open).length}
+              groupCount={sections.length}
             />
           )}
           {canManage && (
@@ -671,9 +720,11 @@ export default function ProductsCard() {
                   {canManage && (
                     <TableHead className="w-8">
                       <Checkbox
-                        aria-label="Select all"
-                        checked={visible.length > 0 && selectedRows.length === visible.length}
-                        onCheckedChange={(v) => setPicked(v === true ? new Set(visible.map((p) => p.id as string)) : new Set())}
+                        aria-label="Select all shown"
+                        title="Selects the products shown: the current page of each open type"
+                        disabled={shownIds.length === 0}
+                        checked={shownIds.length > 0 && shownIds.every((id) => picked.has(id))}
+                        onCheckedChange={(v) => setPicked(v === true ? new Set(shownIds) : new Set())}
                       />
                     </TableHead>
                   )}
@@ -690,19 +741,32 @@ export default function ProductsCard() {
                   <TableHead />
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {groups.map((g) => (g.rows.length === 0 && filtering ? null : (
-                  <Fragment key={g.id}>
+              {sections.map(({ group: g, open: isOpen, slice }) => (
+                <Fragment key={g.id}>
+                  <TableBody>
                     <TableRow className="bg-muted/40 hover:bg-muted/40" data-testid="catalog-group">
-                      <TableCell colSpan={canManage ? 12 : 11} className="py-2" id={`catalog-group-${g.id}`}>
-                        <div className="sticky left-3 inline-flex items-baseline gap-2 scroll-mt-4">
+                      <TableCell colSpan={canManage ? 12 : 11} className="scroll-mt-20 p-0" id={`catalog-group-${g.id}`}>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(g.id)}
+                          aria-expanded={isOpen}
+                          aria-controls={isOpen ? `catalog-group-body-${g.id}` : undefined}
+                          data-testid="catalog-group-toggle"
+                          className="sticky left-0 flex min-h-11 items-center gap-2 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {isOpen
+                            ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                            : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
                           <span className="text-sm font-semibold" data-testid="catalog-group-name">{g.name}</span>
                           <span className="text-xs tabular-nums text-muted-foreground" data-testid="catalog-group-count">
                             {g.rows.length} {g.rows.length === 1 ? "product" : "products"}
                           </span>
-                        </div>
+                        </button>
                       </TableCell>
                     </TableRow>
+                  </TableBody>
+                  {isOpen && (
+                  <TableBody id={`catalog-group-body-${g.id}`} data-testid="catalog-group-body">
                     {g.rows.length === 0 && (
                       <TableRow data-testid="catalog-group-empty">
                         <TableCell colSpan={canManage ? 12 : 11} className="py-3 text-xs text-muted-foreground">
@@ -710,7 +774,7 @@ export default function ProductsCard() {
                         </TableCell>
                       </TableRow>
                     )}
-                    {g.rows.map((p: any) => (
+                    {slice.rows.map((p: any) => (
                   <TableRow key={`${g.id}:${p.id}`} className="cursor-pointer" onClick={() => openEdit(p)}>
                         {canManage && (
                           <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
@@ -788,9 +852,32 @@ export default function ProductsCard() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </Fragment>
-                )))}
-              </TableBody>
+                    {slice.pages > 1 && (
+                      <TableRow className="hover:bg-transparent" data-testid="catalog-group-pager">
+                        <TableCell colSpan={canManage ? 12 : 11} className="py-2">
+                          <div className="sticky left-3 flex max-w-[calc(100vw-7rem)] flex-wrap items-center gap-2 text-xs sm:max-w-none">
+                            <span className="tabular-nums text-muted-foreground" data-testid="catalog-group-range">
+                              {slice.from}–{slice.to} of {slice.total}
+                            </span>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" className="h-8" disabled={slice.page <= 1}
+                                      onClick={() => setGroupPage(g.id, slice.page - 1)} aria-label={`Previous page of ${g.name}`}>
+                                <ChevronLeft className="mr-1 h-3.5 w-3.5" /> Previous
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-8" disabled={slice.page >= slice.pages}
+                                      onClick={() => setGroupPage(g.id, slice.page + 1)} aria-label={`Next page of ${g.name}`}>
+                                Next <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <span className="tabular-nums text-muted-foreground">Page {slice.page} of {slice.pages}</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                  )}
+                </Fragment>
+              ))}
             </Table>
           )}
         </CardContent>
