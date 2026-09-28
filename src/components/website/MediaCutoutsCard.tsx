@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ImageOff, Loader2, Play, RefreshCw, Scissors, Upload } from "lucide-react";
+import { ChevronDown, ImageOff, Loader2, Lock, Play, RefreshCw, Scissors, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { formatPHTDisplay } from "@/lib/date-utils";
 import { storefrontPreview } from "@/theme/tokens";
@@ -26,11 +26,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   addTestBatch, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
-  CUTOUT_PROVIDER_KEY as PROVIDER_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
-  type CutoutProviderSetting, type CutoutRow, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS, formatUsd,
-  getOverview, getProvider, hasTransparency, isPublishable, listCutouts, MODE_TEXT, parseSkus, PROVIDER_LABEL,
-  PROVIDER_TEXT, type ProviderName, publicUrl, refusalText, review, type ReviewAction, runNow, setProvider,
-  setSettings, STATUS_LABEL, uploadOwnCutout,
+  CUTOUT_PROVIDER_KEY as PROVIDER_KEY, CUTOUT_TABS_KEY as TABS_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
+  type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS,
+  formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isCapped, isCompleted, isLocked, isPublishable,
+  listCutouts, MODE_TEXT, type PaidReopenAction, parseSkus, PROVIDER_LABEL, PROVIDER_TEXT, type ProviderName, publicUrl,
+  refusalText, review, type ReviewAction, runNow, setProvider, setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
 import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewer";
 import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
@@ -84,6 +84,7 @@ export function MediaCutoutSettingsCard() {
     qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
     qc.invalidateQueries({ queryKey: PROVIDER_KEY });
     qc.invalidateQueries({ queryKey: [LIST_KEY] });
+    qc.invalidateQueries({ queryKey: TABS_KEY });
   };
 
   const save = useMutation({
@@ -363,12 +364,22 @@ function Thumb({ src, label, bg, onOpen }: { src: string | null; label: string; 
   );
 }
 
-function CutoutItem({ row, onAct, busy }: {
+function CutoutItem({ row, onAct, busy, isAdmin }: {
   row: CutoutRow;
   onAct: (row: CutoutRow, action: ReviewAction) => void;
   busy: boolean;
+  isAdmin: boolean;
 }) {
   const inFlight = ["submitted", "ready", "processing"].includes(row.job_state);
+  // CUT ONCE (migration 20261010100000): Completed and Rejected are locked,
+  // a photo at its paid-call limit needs the owner. Only an admin reopens,
+  // one paid call at a time; the database refuses everything else.
+  const completed = isCompleted(row.status);
+  const rejected = row.status === "rejected";
+  const held = !!row.hold_reason;
+  const capped = isCapped(row);
+  const paid = row.paid_calls ?? 0;
+  const limit = row.paid_call_limit ?? 2;
   const rerunCut = row.last_rerun?.cutout_path ? publicUrl(String(row.last_rerun.cutout_path)) : null;
   const cutoutUrl = publicUrl(row.cutout_path);
   const catalogUrl = publicUrl(row.catalog_small_path ?? row.catalog_path);
@@ -391,6 +402,13 @@ function CutoutItem({ row, onAct, busy }: {
         {inFlight && <Badge variant="outline">Processing…</Badge>}
         {row.job_state === "queued" && row.status !== "pending" && <Badge variant="outline">Queued again</Badge>}
         {row.test_batch && <Badge variant="outline">{row.test_batch}</Badge>}
+        {isLocked(row.status) && !inFlight && row.job_state !== "queued" && (
+          <Badge variant="outline" className="gap-1" data-testid="cutout-locked"><Lock className="h-3 w-3" /> Locked</Badge>
+        )}
+        {held && <Badge variant="destructive">Needs owner</Badge>}
+        <span className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-paid-calls">
+          Paid calls: {paid} of {limit}
+        </span>
         <span className="text-xs text-muted-foreground">
           {row.source_kind === "page365" ? "Page365 photo" : "Staff photo"}
           {row.source_w && row.source_h ? ` · ${row.source_w} × ${row.source_h} px` : ""}
@@ -428,38 +446,75 @@ function CutoutItem({ row, onAct, busy }: {
           {rerunCut && <> <button type="button" className="underline" onClick={() => setViewer("rerun")}>See the re-run</button>.</>}
         </p>
       )}
-      {row.last_error && row.status === "failed" && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
+      {held && <p className="text-xs text-destructive" data-testid="cutout-hold-reason">Needs owner: {row.hold_reason}</p>}
+      {row.last_error && row.status === "failed" && !held && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
       {row.review_note && <p className="text-xs text-muted-foreground">Note: {row.review_note}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy || inFlight || !row.cutout_path || row.status === "approved"}
-                onClick={() => onAct(row, "approve")}>
-          Approve
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" disabled={busy || inFlight}>
-              <RefreshCw className="mr-1 h-3.5 w-3.5" /> Re-run <ChevronDown className="ml-1 h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onSelect={() => onAct(row, "rerun")}>Re-run</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onAct(row, "rerun_high_detail")}>Re-run in high detail</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button size="sm" variant="outline" disabled={busy || inFlight || row.status === "rejected"}
-                onClick={() => onAct(row, "reject")}>
-          Reject
-        </Button>
-        <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "own_cutout")}>
-          <Upload className="mr-1 h-3.5 w-3.5" /> Upload my own cut-out
-        </Button>
-        {row.last_rerun?.cutout_path && (
+      <div className="flex flex-wrap gap-2" data-testid="cutout-actions">
+        {!held && !rejected && (
+          <Button size="sm" disabled={busy || inFlight || !row.cutout_path || row.status === "approved"}
+                  onClick={() => onAct(row, "approve")}>
+            Approve
+          </Button>
+        )}
+        {!held && !isLocked(row.status) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" disabled={busy || inFlight || capped}
+                      title={capped ? "This photo has used all its paid calls" : undefined}>
+                <RefreshCw className="mr-1 h-3.5 w-3.5" /> Re-run <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => onAct(row, "rerun")}>Re-run</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAct(row, "rerun_high_detail")}>Re-run in high detail</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {!rejected && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "reject")}>
+            {held ? "Keep the normal photo" : "Reject"}
+          </Button>
+        )}
+        {!completed && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "own_cutout")}>
+            <Upload className="mr-1 h-3.5 w-3.5" /> Upload my own cut-out
+          </Button>
+        )}
+        {row.last_rerun?.cutout_path && !rejected && (
           <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "use_rerun")}>
             Use the re-run
           </Button>
         )}
+        {isAdmin && completed && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "unlock_recut")}>
+            <Lock className="mr-1 h-3.5 w-3.5" /> Unlock and re-cut
+          </Button>
+        )}
+        {isAdmin && rejected && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "retry_once")}>
+            Try once more
+          </Button>
+        )}
+        {isAdmin && held && !isLocked(row.status) && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "override_cap")}>
+            Allow one more paid call
+          </Button>
+        )}
       </div>
+      {rejected && (
+        <p className="text-[11px] text-muted-foreground">
+          The website shows the normal photo — nothing more to do. You can upload your own cut-out for free.
+        </p>
+      )}
+      {!isAdmin && (completed || rejected || held) && (
+        <p className="text-[11px] text-muted-foreground" data-testid="cutout-admin-only">
+          {held ? "Only an admin can allow another paid call." : "Locked. Only an admin can send it for another paid cut."}
+        </p>
+      )}
+      {!held && !isLocked(row.status) && capped && (
+        <p className="text-[11px] text-muted-foreground">This photo has used all its paid calls; Re-run is off.</p>
+      )}
       {isPublishable(row.status) && (
         <p className="text-[11px] text-muted-foreground">Will be used on the website.</p>
       )}
@@ -476,6 +531,7 @@ export function MediaCutoutReviewCard() {
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [paidConfirm, setPaidConfirm] = useState<{ row: CutoutRow; action: PaidReopenAction } | null>(null);
 
   const list = useQuery({
     queryKey: [LIST_KEY, filter, search, page],
@@ -486,6 +542,13 @@ export function MediaCutoutReviewCard() {
   });
   const overview = useQuery<CutoutOverview>({ queryKey: OVERVIEW_KEY, queryFn: getOverview, staleTime: 30_000 });
   const counts = overview.data?.status_counts ?? {};
+  // Absent until migration 20261010100000 runs: tabs fall back to the status counts, nobody is admin here.
+  const totals = useQuery<CutoutTabTotals>({ queryKey: TABS_KEY, queryFn: getTabTotals, staleTime: 30_000, retry: false });
+  const tabs = totals.data && Object.keys(totals.data.tabs).length > 0 ? totals.data.tabs : undefined;
+  const isAdmin = totals.data?.is_admin === true;
+  const price = totals.data ? totals.data.price_usd : null;
+  const providerName = PROVIDER_LABEL[totals.data?.provider ?? "photoroom"];
+  const activeTotals = tabs?.[filter];
 
   const act = useMutation({
     mutationFn: async (v: { row: CutoutRow; action: ReviewAction; note?: string; file?: File | null }) => {
@@ -504,20 +567,39 @@ export function MediaCutoutReviewCard() {
         rerun_high_detail: "Queued again in high detail. The current version stays until the new one passes.",
         use_rerun: "The re-run is now the approved version.",
         own_cutout: "Uploaded. It is processed on the next run (within 2 minutes) and lands approved.",
+        unlock_recut: "Unlocked for one paid re-cut. It is sent on the next run; the current version stays unless the new one passes.",
+        retry_once: "Queued for one more paid try. The website keeps the normal photo unless the new cut-out passes.",
+        override_cap: "One more paid call allowed. It is sent on the next run.",
       };
       toast.success(words[v.action]);
-      setDialog(null); setNote(""); setFile(null);
+      setDialog(null); setPaidConfirm(null); setNote(""); setFile(null);
     },
     onError: e => toast.error(refusalText(e)),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: [LIST_KEY] });
       qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
+      qc.invalidateQueries({ queryKey: TABS_KEY });
     },
   });
 
   const onAct = (row: CutoutRow, action: ReviewAction) => {
     if (action === "reject" || action === "own_cutout") { setNote(""); setFile(null); setDialog({ row, action }); return; }
+    if (action === "unlock_recut" || action === "retry_once" || action === "override_cap") {
+      setNote(""); setPaidConfirm({ row, action }); return;
+    }
     act.mutate({ row, action });
+  };
+  const costText = price == null ? "unknown — set the price per photo above" : `about $${price}`;
+  const PAID_TITLE: Record<PaidReopenAction, string> = {
+    unlock_recut: "Unlock and re-cut this photo?",
+    retry_once: "Try this rejected photo once more?",
+    override_cap: "Allow one more paid call?",
+  };
+  const paidWhy = (c: { row: CutoutRow; action: PaidReopenAction }) => {
+    const paid = c.row.paid_calls ?? 0;
+    if (c.action === "unlock_recut") return "It is completed. The current version stays on the website unless the new cut-out passes.";
+    if (c.action === "retry_once") return "It was rejected. The website keeps the normal photo unless the new cut-out passes.";
+    return `It stopped after ${paid} paid call${paid === 1 ? "" : "s"}, the limit for one photo.`;
   };
 
   const total = list.data?.total ?? 0;
@@ -535,12 +617,19 @@ export function MediaCutoutReviewCard() {
         <p className="text-xs text-muted-foreground">
           Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Reject to keep the
           original, Re-run to try again (the current version stays until the new one passes), or upload your own cut-out.
+          Every photo is cut once: Completed and Rejected photos are locked, and a photo stops after 2 paid calls.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-4 text-sm">
+        {overview.data && (
+          <p className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-month-usage">
+            This month: {overview.data.used.toLocaleString()} of {overview.data.cap.toLocaleString()} paid calls
+            {totals.data ? ` · each photo is cut once, at most ${totals.data.per_photo_limit} paid calls` : ""}
+          </p>
+        )}
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter photos">
           {FILTERS.map(f => {
-            const n = f.value in counts ? counts[f.value as keyof typeof counts] : undefined;
+            const n = tabs ? tabs[f.value]?.count : f.value in counts ? counts[f.value as keyof typeof counts] : undefined;
             return (
               <Button key={f.value} size="sm" role="tab" aria-selected={filter === f.value}
                       variant={filter === f.value ? "default" : "outline"}
@@ -550,6 +639,13 @@ export function MediaCutoutReviewCard() {
             );
           })}
         </div>
+        {activeTotals && (
+          <p className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-tab-totals">
+            {FILTERS.find(f => f.value === filter)?.label}: {activeTotals.count.toLocaleString()} photo{activeTotals.count === 1 ? "" : "s"}
+            {" "}· {activeTotals.paid_calls.toLocaleString()} paid call{activeTotals.paid_calls === 1 ? "" : "s"}
+            {price != null ? ` (about $${(Math.round(activeTotals.paid_calls * price * 100) / 100).toFixed(2)})` : ""}
+          </p>
+        )}
         <Input aria-label="Search by SKU or name" placeholder="Search SKU, name or batch" className="h-8 max-w-xs"
                value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
 
@@ -559,7 +655,7 @@ export function MediaCutoutReviewCard() {
           <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">Nothing here.</p>
         )}
         <ul className="divide-y divide-border">
-          {rows.map(r => <CutoutItem key={r.source_url} row={r} onAct={onAct} busy={act.isPending} />)}
+          {rows.map(r => <CutoutItem key={r.source_url} row={r} onAct={onAct} busy={act.isPending} isAdmin={isAdmin} />)}
         </ul>
         {total > PAGE && (
           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -597,6 +693,35 @@ export function MediaCutoutReviewCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={!!paidConfirm} onOpenChange={o => { if (!o) setPaidConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{paidConfirm ? PAID_TITLE[paidConfirm.action] : ""}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2" data-testid="cutout-paid-confirm">
+                {paidConfirm && <p>{paidWhy(paidConfirm)}</p>}
+                <p>
+                  This sends it to {providerName} <strong>once</strong>: 1 paid call, {costText}. If that call fails it is
+                  not retried; the photo waits under Needs owner.
+                </p>
+                {paidConfirm && (
+                  <p className="tabular-nums">
+                    Paid calls for this photo so far: {paidConfirm.row.paid_calls ?? 0}. Recorded in the audit log.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea aria-label="Reason" placeholder="Reason (optional)" rows={2} value={note} onChange={e => setNote(e.target.value)} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={act.isPending}
+                               onClick={() => paidConfirm && act.mutate({ row: paidConfirm.row, action: paidConfirm.action, note })}>
+              {paidConfirm?.action === "override_cap" ? "Allow 1 paid call" : "Send once (1 paid call)"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <CutoutBulkUpload open={bulkOpen} onOpenChange={setBulkOpen} />
     </Card>
   );

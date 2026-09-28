@@ -48,6 +48,30 @@ a tick (§2 "SPEED").
 - **A re-run never makes things worse.** While it runs the published version
   stays. If it comes back worse (needs_review / failed) the published version
   stays and the new result is parked in `last_rerun` ("Use the re-run").
+- **CUT ONCE (owner rule 2026-09-28, migration 20261010100000).** Every photo
+  is cut once; decisions are final unless the owner deliberately reopens them;
+  costs are visible and capped.
+  - **Completed** (`ok` / `auto_fixed` / `approved` — what the website shows)
+    and **Rejected** photos are LOCKED: the database refuses to queue them
+    (`trg_guard_media_cutout_cut_once`, every writer incl. the SQL Editor) and
+    `media_cutout_submit_batch` never hands them out. Plain Re-run is refused
+    (`locked`). Only an ADMIN reopens, one paid call at a time, audited with the
+    estimated cost: **Unlock and re-cut** (Completed, `unlock_recut`), **Try
+    once more** (Rejected, `retry_once`). Upload my own cut-out stays free on a
+    rejected photo; keeping the normal photo is the default (no action).
+  - **Per-photo cap: 2 paid calls** (`paid_calls` / `paid_call_limit`).
+    `paid_calls` counts every successful submit AND every failed submit,
+    automatic retries included; a failed status check (poll) or processing
+    step is never counted. A retry that would need a paid call past the limit
+    does not happen — the photo stops in **Needs owner** (`hold_reason`, plain
+    words). Only an admin's **Allow one more paid call** (`override_cap`)
+    lifts it, by exactly one call, audited. `paid_calls` never goes down.
+  - Only a genuinely new photo re-enters by itself: a new or changed file is a
+    new URL → a new row (the enqueue trigger). Re-saving the same photo, a test
+    batch, a provider switch or a retry never re-queues a locked, capped or
+    held photo. (Known edge: a URL forgotten by housekeeping after 30 days
+    unused and later re-added is treated as new.)
+  - Approve and Reject are final decisions: they cancel a pending re-run.
 - **Only `ok`, `auto_fixed`, `approved` may ever be shown** (PR 2 sends only
   these; everything else is `null` to the storefront).
 - **The switch fails to OFF.** `system_settings.media_cutout_mode` =
@@ -142,7 +166,9 @@ processed in test and on modes (no provider call, no cost).
 ### Retries and cost
 
 - 1 try + 3 retries (D9 "retries up to 3"), backoff 5 min → 30 min → 3 h, then
-  `failed` with `api_error:…`. A retry goes back to the step that failed: a
+  `failed` with `api_error:…` — BUT since 20261010100000 a retry that needs a
+  paid call (a submit) happens only below the photo's paid-call limit (2);
+  at the limit the photo stops in Needs owner instead (CUT ONCE above). A retry goes back to the step that failed: a
   result already paid for is re-processed, never re-bought; a status-check
   hiccup stays on polling.
 - 429 from the provider stops submitting for the rest of the tick. For
@@ -150,7 +176,7 @@ processed in test and on modes (no provider call, no cost).
   later — an account problem is never recorded as a failed photo on its
   first try.
 - A job still at the provider after 30 minutes is re-submitted (counts as a
-  retry).
+  retry; the timeout itself is not a new paid call, the re-submit is).
 - Cap = provider **submissions** per PHT calendar month
   (`website_media_cutout_usage`). One staff bell `media_cutout_cap_near` at
   80 % (`used * 5 >= cap * 4`), once per month. At 100 % nothing is submitted;
@@ -202,10 +228,11 @@ processed in test and on modes (no provider call, no cost).
   and polled; the result is `{ image: { url } }` (docs via Context7,
   2026-10-05).
 - **Replicate (backup)** — same BiRefNet model family, addressed by version:
-  needs both `REPLICATE_API_TOKEN` and `REPLICATE_BIREFNET_VERSION`. Used only
-  when `FAL_KEY` is absent or `CUTOUT_PROVIDER=replicate`. Its input field
-  (`image`) is from the plan's reading of the model page — confirm on the
-  model page before relying on it.
+  needs both `REPLICATE_API_TOKEN` and `REPLICATE_BIREFNET_VERSION` (the BARE
+  64-character version hash: the code prefixes `men1scus/birefnet:` itself for
+  the model label). Used only when `system_settings.media_cutout_provider` =
+  `replicate`. Input `{ image: <url> }`, output one file URL — checked against
+  the model's schema on 2026-09-28 (men1scus/birefnet version f74986db…).
 - Nothing configured for the SELECTED provider → the worker submits nothing
   and says so in its summary ("PHOTOROOM_API_KEY not set for photoroom").
 
@@ -355,9 +382,15 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   monthly limit, this month's usage bar, last run + processing-time p95, Run
   now (one tick as the signed-in user), and the **test batch**: paste up to 100
   SKUs + a name (+ "main photo only") → `add_media_cutout_test_batch`.
-- **Photos to check**: filters Needs review (default) · Failed · Auto-fixed ·
-  In the queue · Published · Rejected · Test batch · All; search SKU / name /
-  batch. Each row: Original → cut-out on the dark hero stage → catalogue
+- **Photos to check**: filters Needs review (default) · Needs owner · Failed ·
+  Auto-fixed · In the queue · Completed · Rejected · Test batch · All (each
+  with its photo count; the open tab shows its paid calls and their estimated
+  cost; "This month: X of Y paid calls" above them); search SKU / name /
+  batch. Every row shows "Paid calls: n of 2". Completed and Rejected rows are
+  Locked (no Re-run); Needs owner rows show the reason. The admin-only
+  Unlock and re-cut / Try once more / Allow one more paid call open a confirm
+  naming the provider, "1 paid call, about $…" and the photo's paid calls so
+  far (`get_media_cutout_tab_totals` gives the price and the admin flag). Each row: Original → cut-out on the dark hero stage → catalogue
   square, status, flags in plain words, and **Approve / Re-run (or high
   detail) / Reject / Upload my own cut-out / Use the re-run**. Every action is
   one `review_media_cutout` call with the status the reviewer saw (a stale
@@ -388,7 +421,25 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   failure is shown on its row and the rest continue. Finished by the worker
   even while the switch is Off.
 - Bell `media_cutout_cap_near` opens this tab.
-- Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on]`.
+- Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff]`.
+
+## 7b. Database objects (migration 20261010100000_media_cutouts_cut_once.sql)
+
+Columns `paid_calls`, `paid_call_limit` (2), `recut_allowed`, `hold_reason`,
+`held_at` (backfilled once from what each row shows it cost: a provider
+request id = 1, a parked re-run = +1, or `run` if larger; in-flight re-runs
+staff had already asked for keep their permission; queued rows already at 2
+go to Needs owner). Guard `trg_guard_media_cutout_cut_once`. Redefined from
+the repo bodies, md5-guarded against live: `media_cutout_submit_batch`,
+`media_cutout_submitted`, `media_cutout_sync_result`, `media_cutout_error`,
+`media_cutout_finish`, `list_media_cutouts` (+ `completed`, `needs_owner`;
+`published` kept as an alias), `review_media_cutout` (+ `unlock_recut`,
+`retry_once`, `override_cap`, admin only). New Hub RPC
+`get_media_cutout_tab_totals`. No edge-function change. Proven locally by
+`docs/sql/20261010_media_cutouts_cut_once_local_tests.sql` (C1–C15), the
+live-shaped `…_snapshot.sql` + `…_verify.sql`, and the PR 1 / Photoroom
+suites run as the baseline BEFORE it (their re-runs of approved / rejected
+photos are exactly what this rule replaces).
 
 ## 7a. Database objects (migration 20261007100000_media_cutout_photoroom.sql)
 
