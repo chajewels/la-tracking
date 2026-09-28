@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { ExternalLink, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode,
+} from "react";
+import { ChevronLeft, ChevronRight, ExternalLink, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -13,7 +15,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
  * they pan together, so an edge can be compared pixel for pixel. The result
  * can be shown on white, black, a checkered pattern or the storefront stage —
  * dark and checkered make leftover background, halos and holes stand out.
- * Read-only: it changes nothing.
+ * The viewer itself changes nothing: the review buttons in its bottom bar
+ * (`actions`, from MediaCutoutReviewCard) are the row's own, calling the
+ * card's one handler. With `nav` it steps through the tab like the hero
+ * viewer, with the same keys: ← → previous / next, + full size, − or 0 fit.
  */
 
 export interface ViewerImage { key: string; label: string; src: string; bg?: string }
@@ -35,25 +40,42 @@ function backgroundStyle(bg: ViewerBackground, stage?: string): React.CSSPropert
   return { backgroundColor: "#ffffff" };
 }
 
-export default function CutoutViewer({ open, onOpenChange, title, original, results, initialKey }: {
+export interface ViewerNav {
+  /** "3 of 20" in the card's current tab and order. */
+  position: string;
+  canPrev: boolean;
+  canNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}
+
+export default function CutoutViewer({ open, onOpenChange, title, badge, original, results, initialKey, nav, actions }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** Shown beside the title, e.g. the photo's state. */
+  badge?: ReactNode;
   original: ViewerImage | null;
   /** The processed versions (cut-out, catalogue, a parked re-run …). */
   results: ViewerImage[];
   initialKey?: string;
+  nav?: ViewerNav;
+  /** The review buttons, in a bottom bar below the pictures (never over them). */
+  actions?: ReactNode;
 }) {
   const [resultKey, setResultKey] = useState<string>(initialKey ?? results[0]?.key ?? "");
   const [bg, setBg] = useState<ViewerBackground>("checker");
   const [zoomed, setZoomed] = useState(false);
 
-  // Each time the viewer opens, start on the picture that was clicked, fitted.
+  // Each time the viewer opens (or moves to another photo), start on the
+  // picture that was clicked, fitted. Keyed on the files, not the array, so a
+  // list refresh does not reset the zoom.
+  const signature = [original?.src ?? "", ...results.map(r => `${r.key}=${r.src}`)].join("|");
   useEffect(() => {
     if (!open) return;
     setResultKey(initialKey && results.some(r => r.key === initialKey) ? initialKey : results[0]?.key ?? "");
     setZoomed(false);
-  }, [open, initialKey, results]);
+  }, [open, initialKey, signature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = results.find(r => r.key === resultKey) ?? results[0] ?? null;
   // The original is a photo, not a cut-out: its own background is the point.
@@ -121,11 +143,24 @@ export default function CutoutViewer({ open, onOpenChange, title, original, resu
     }
   };
 
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("input, textarea, select, [contenteditable=true], [role=menu], [role=menuitem], [role=radio]")) return;
+    if (nav && e.key === "ArrowLeft" && nav.canPrev) { e.preventDefault(); nav.onPrev(); }
+    else if (nav && e.key === "ArrowRight" && nav.canNext) { e.preventDefault(); nav.onNext(); }
+    else if (nav && (e.key === "+" || e.key === "=")) { e.preventDefault(); setZoomed(true); }
+    else if (nav && (e.key === "-" || e.key === "_" || e.key === "0")) { e.preventDefault(); setZoomed(false); }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-3 p-4 sm:p-5">
+      <DialogContent onKeyDown={onKeyDown} data-testid="cutout-viewer"
+        className="flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[96vw] flex-col gap-3 p-4 sm:p-5">
         <DialogHeader className="space-y-1">
-          <DialogTitle className="truncate pr-6 text-base">{title}</DialogTitle>
+          <DialogTitle className="flex min-w-0 items-center gap-2 pr-6 text-base">
+            <span className="truncate">{title}</span>
+            {badge}
+          </DialogTitle>
           <DialogDescription className="text-xs">
             Click a picture to zoom to full size, drag to move, click again to fit. Both pictures move together.
           </DialogDescription>
@@ -182,6 +217,27 @@ export default function CutoutViewer({ open, onOpenChange, title, original, resu
             </figure>
           ))}
         </div>
+
+        {(nav || actions) && (
+          <div className="flex shrink-0 flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-end sm:justify-between"
+               data-testid="viewer-bottom-bar">
+            <div className="min-w-0">{actions}</div>
+            {nav && (
+              <div className="flex shrink-0 flex-col gap-1 sm:items-end">
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" disabled={!nav.canPrev} onClick={nav.onPrev} aria-label="Previous photo">
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </Button>
+                  <span className="text-xs tabular-nums text-muted-foreground" data-testid="viewer-position">{nav.position}</span>
+                  <Button size="sm" variant="outline" disabled={!nav.canNext} onClick={nav.onNext} aria-label="Next photo">
+                    Next <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="hidden text-[11px] text-muted-foreground sm:block">Keys: ← → previous / next · + full size · − fit · Esc close</p>
+              </div>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
