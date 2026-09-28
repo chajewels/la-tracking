@@ -650,16 +650,155 @@ const fmtShortStamp = (iso: string) =>
 const fmtPaymentDate = (d: string) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
+/** Statuses in which a submission's notes may still be corrected (same set as the amount editor). */
+const NOTES_EDITABLE_STATUSES = ['submitted', 'under_review', 'needs_clarification'];
+
+/**
+ * Inline editor for payment_submissions.notes while the submission is still
+ * pending review. Same write pattern as InlineAmountEdit: a direct staff
+ * update (RLS "Staff can update submissions") plus a non-fatal audit_logs row.
+ * Touches the notes column ONLY and sends nothing to the customer.
+ */
+const InlineNotesEdit = memo(function InlineNotesEdit({
+  submissionId,
+  notes,
+  canEdit,
+  userId,
+}: {
+  submissionId: string;
+  notes: string | null;
+  canEdit: boolean;
+  userId: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [pending, setPending] = useState(false);
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setValue(notes ?? '');
+    setEditing(true);
+  };
+
+  const cancel = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditing(false);
+  };
+
+  const save = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const trimmed = value.trim();
+    const newVal = trimmed.length > 0 ? trimmed : null;
+    if (newVal === (notes ?? null)) { setEditing(false); return; }
+    if (trimmed.length > 1000) {
+      toast.error('Notes can be at most 1000 characters');
+      return;
+    }
+    setPending(true);
+
+    queryClient.setQueriesData<SubmissionRow[]>(
+      { queryKey: ['payment-submissions'] },
+      (old) => old?.map((row) =>
+        row.id === submissionId ? { ...row, notes: newVal } : row
+      ),
+    );
+
+    const { error } = await supabase
+      .from('payment_submissions')
+      .update({ notes: newVal })
+      .eq('id', submissionId)
+      .in('status', NOTES_EDITABLE_STATUSES as Database['public']['Enums']['submission_status'][]);
+
+    setPending(false);
+
+    if (error) {
+      queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+      toast.error('Failed to update notes', { description: error.message });
+      return;
+    }
+
+    try {
+      await (supabase.from('audit_logs') as any).insert([{
+        entity_type: 'payment_submission',
+        entity_id: submissionId,
+        action: 'edit_submission_notes',
+        old_value_json: { notes: notes ?? null },
+        new_value_json: { notes: newVal },
+        performed_by_user_id: userId || null,
+      }]);
+    } catch { /* audit failure is non-fatal */ }
+
+    setEditing(false);
+    toast.success('Notes updated');
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-sm text-muted-foreground">Notes:</p>
+        <Textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') cancel(); }}
+          className="min-h-[80px] w-full text-sm"
+          maxLength={1000}
+          autoFocus
+          disabled={pending}
+        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="mr-auto text-[10px] text-muted-foreground tabular-nums">{value.length}/1000</span>
+          <Button variant="ghost" size="sm" className="h-7" onClick={cancel} disabled={pending}>
+            <X className="h-3.5 w-3.5 mr-1" /> Cancel
+          </Button>
+          <Button size="sm" className="h-7" onClick={save} disabled={pending}>
+            {pending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1" />} Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!notes && !canEdit) return null;
+
+  return (
+    <div className="flex items-start gap-1.5">
+      {notes ? (
+        <p className="text-sm text-muted-foreground min-w-0 break-words">Notes: <span className="text-foreground">{notes}</span></p>
+      ) : (
+        <p className="text-sm text-muted-foreground italic">No notes</p>
+      )}
+      {canEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+          title="Edit notes"
+          aria-label="Edit notes"
+          onClick={startEdit}
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
+  );
+});
+
 /** Sender, customer notes, the customer-edit warning and the staff note. */
-function SubmissionNotes({ sub, isPending }: { sub: SubmissionRow; isPending: boolean }) {
+function SubmissionNotes({ sub, isPending, canEditNotes = false, userId = null }: {
+  sub: SubmissionRow;
+  isPending: boolean;
+  /** Staff may correct the notes while the submission is still pending review. */
+  canEditNotes?: boolean;
+  userId?: string | null;
+}) {
+  const editable = canEditNotes && NOTES_EDITABLE_STATUSES.includes(sub.status);
   return (
     <>
       {sub.sender_name && (
         <p className="text-sm text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
       )}
-      {sub.notes && (
-        <p className="text-sm text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
-      )}
+      <InlineNotesEdit submissionId={sub.id} notes={sub.notes} canEdit={editable} userId={userId} />
       {sub.customer_edited_at && isPending && (
         <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
           <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
@@ -1356,7 +1495,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               open={expandedAllocs === sub.id}
               onToggle={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)} />
           )}
-          <SubmissionNotes sub={sub} isPending={d.isPending} />
+          <SubmissionNotes sub={sub} isPending={d.isPending} canEditNotes={canModerate} userId={session?.user?.id ?? null} />
         </div>
         <div className="min-w-0">
           {hasProof(sub.proof_url) ? (
@@ -1540,7 +1679,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                         open={expandedAllocs === sub.id}
                         onToggle={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)} />
                     )}
-                    <SubmissionNotes sub={sub} isPending={d.isPending} />
+                    <SubmissionNotes sub={sub} isPending={d.isPending} canEditNotes={canModerate} userId={session?.user?.id ?? null} />
 
                     <ProofPanel url={sub.proof_url} onExpand={setProofDialog} imageClassName="w-full max-h-56 object-cover" />
 
