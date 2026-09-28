@@ -1455,6 +1455,16 @@ function buildCatalogSearchFixtures() {
     product('W1001', 'W1001 Leather card case', null, [], [], 'archived', 0, 12000, { item_kind: 'accessory', metals: [] }),
     product('P5501', 'P5501 Baroque pearl necklace', 'バロック パール ネックレス', ['col-necklaces'], ['cat-pearl'], 'active', 0, 72000),
     product('E1053', 'E1053 Hoop earrings K18', 'フープ ピアス', ['col-earrings'], ['cat-gold'], 'active', 1, 28000),
+    // Collapsible types + paging (2026-09-28): a published type and an
+    // unpublished type of 30+ products, so both tabs show a second page.
+    ...Array.from({ length: 34 }, (_, i) => {
+      const sku = `RG${String(i + 1).padStart(3, '0')}`;
+      return product(sku, `${sku} Diamond band ring K18`, 'ダイヤモンド バンド リング', ['col-rings'], ['cat-diamond'], 'active', 1, 50000 + i * 1000);
+    }),
+    ...Array.from({ length: 31 }, (_, i) => {
+      const sku = `NK${String(i + 1).padStart(3, '0')}`;
+      return product(sku, `${sku} Box chain necklace K18 50cm`, 'ボックス チェーン ネックレス', ['col-necklaces'], ['cat-gold'], 'draft', 1, 30000 + i * 500);
+    }),
   ];
   return { products, collections, categories };
 }

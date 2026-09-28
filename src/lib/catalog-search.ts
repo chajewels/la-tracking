@@ -251,3 +251,102 @@ export function groupByType<T extends SearchableProduct>(rows: T[], types: Array
   }
   return [...groups, none];
 }
+
+/*
+ * COLLAPSIBLE TYPES + PAGING (owner request 2026-09-28: "it will be too long to
+ * scroll … atleast make it as page and not long list").
+ *
+ * Each product type is a section, COLLAPSED by default; an open one shows 25
+ * products a page. Both live in the URL next to the tab and filters:
+ *   ?open=<typeId>,<typeId>   the open sections (absent = all collapsed)
+ *   ?pg=<typeId>:<page>,…     1-based page per open section (absent = page 1)
+ * A change of search, filter or tab re-places the list (placementFor): with a
+ * search or filter active only the types that have matches open; without, all
+ * close; every section goes back to page 1.
+ */
+export const GROUP_PAGE_SIZE = 25;
+const OPEN_PARAM = "open";
+const PAGES_PARAM = "pg";
+
+const splitList = (v: string | null) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+export function openFromParams(sp: URLSearchParams): Set<string> {
+  return new Set(splitList(sp.get(OPEN_PARAM)));
+}
+
+/** Page per section, 1-based; malformed entries are ignored (read as page 1). */
+export function pagesFromParams(sp: URLSearchParams): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const entry of splitList(sp.get(PAGES_PARAM))) {
+    const i = entry.lastIndexOf(":");
+    if (i <= 0) continue;
+    const n = Number(entry.slice(i + 1));
+    if (Number.isInteger(n) && n > 1) out.set(entry.slice(0, i), n);
+  }
+  return out;
+}
+
+/** Writes the open sections (in the given order); an empty set drops ?open=. Pages of closed sections are dropped. */
+export function withOpen(sp: URLSearchParams, open: Iterable<string>): URLSearchParams {
+  const n = new URLSearchParams(sp);
+  const ids = [...new Set(open)];
+  if (ids.length) n.set(OPEN_PARAM, ids.join(",")); else n.delete(OPEN_PARAM);
+  const pages = pagesFromParams(n);
+  for (const id of [...pages.keys()]) if (!ids.includes(id)) pages.delete(id);
+  return writePages(n, pages);
+}
+
+/** Sets one section's page; page 1 is the default and is not written. */
+export function withPage(sp: URLSearchParams, typeId: string, page: number): URLSearchParams {
+  const pages = pagesFromParams(sp);
+  if (page > 1) pages.set(typeId, Math.floor(page)); else pages.delete(typeId);
+  return writePages(new URLSearchParams(sp), pages);
+}
+
+function writePages(n: URLSearchParams, pages: Map<string, number>): URLSearchParams {
+  if (pages.size) n.set(PAGES_PARAM, [...pages].map(([id, p]) => `${id}:${p}`).join(",")); else n.delete(PAGES_PARAM);
+  return n;
+}
+
+export interface PageSlice<T> {
+  rows: T[];
+  /** The page shown, clamped to 1..pages (a stale ?pg= past the end shows the last page). */
+  page: number;
+  pages: number;
+  /** 1-based positions of the first and last row shown; 0 when empty. */
+  from: number;
+  to: number;
+  total: number;
+}
+
+export function pageSlice<T>(rows: T[], page: number, size = GROUP_PAGE_SIZE): PageSlice<T> {
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const p = Math.min(Math.max(1, Math.floor(page) || 1), pages);
+  const start = (p - 1) * size;
+  const shown = rows.slice(start, start + size);
+  return { rows: shown, page: p, pages, from: shown.length ? start + 1 : 0, to: start + shown.length, total };
+}
+
+/** The type sections a view shows: with a type filter only that one; while filtering, empty types are hidden. */
+export function visibleGroups<T extends ScopedProduct>(
+  rows: T[], view: CatalogView, f: CatalogFilters, types: Array<{ id: string; name: string }>,
+): TypeGroup<T>[] {
+  const groups = groupByType(filterProducts(scopeToView(rows, view), f), types).filter((g) => !f.type || g.id === f.type);
+  return hasActiveFilters(f) ? groups.filter((g) => g.rows.length > 0) : groups;
+}
+
+/**
+ * After a change of search, filter or tab: open only the types with matches
+ * while a search or filter is active, otherwise close everything; all pages
+ * back to 1. `sp` already holds the new search / filters / view.
+ */
+export function placementFor<T extends ScopedProduct>(
+  sp: URLSearchParams, rows: T[], types: Array<{ id: string; name: string }>,
+): URLSearchParams {
+  const f = filtersFromParams(sp);
+  const open = hasActiveFilters(f) ? visibleGroups(rows, viewFromParams(sp), f, types).map((g) => g.id) : [];
+  const n = withOpen(sp, open);
+  n.delete(PAGES_PARAM);
+  return n;
+}
