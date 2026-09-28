@@ -45,11 +45,20 @@ export default function PortalResetPassword() {
     }
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       toast.error(error.message);
       return;
     }
+    // End the RESET-LINK session on this browser before going to sign-in.
+    // PortalLogin forwards any existing session straight to /portal, so
+    // without this the customer never signs in with the new password — and
+    // only a password sign-in lets the Hub record portal_password_at
+    // (_shared/portal-auth.ts, isPasswordSession). Local scope: other
+    // devices stay signed in. A failed sign-out is harmless — the password is
+    // already saved — so it is ignored.
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    setLoading(false);
     toast.success(pt('auth.passwordUpdated'));
     navigate('/portal/login', { replace: true });
   };

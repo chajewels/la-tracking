@@ -13,10 +13,12 @@
  * sign-in, so a token customer who only ever used the storefront is
  * "linked" without ever choosing a password. Supabase also stores a random
  * encrypted_password for OTP-created users, so auth.users cannot tell the
- * two apart either. The only reliable marker is the one PortalSetup's
- * signUp leaves behind (user_metadata.full_name); customers.portal_password_at
- * was backfilled from it on 2026-09-28 and setup-customer-account stamps it
- * from then on.
+ * two apart either. So the Hub keeps its own flag, customers.portal_password_at:
+ * backfilled on 2026-09-28 for all 138 linked customers (every login created
+ * before the storefront magic link existed, 2026-09-10, came from
+ * /portal/setup; see 20261010310000) and written from then on by
+ * setup-customer-account and by resolvePortalAuth Path 0 on any password
+ * sign-in (_shared/portal-auth.ts).
  *
  * History: before 2026-09-15 auth_user_id won (magic-link customers were sent
  * to a password form they could not use). PR #70/#71 made any live token win
