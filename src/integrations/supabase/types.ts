@@ -6772,6 +6772,7 @@ export type Database = {
           priority: number
           processing_started_at: string | null
           provider: string | null
+          provider_errors: number
           provider_request_id: string | null
           provider_response_url: string | null
           provider_status_url: string | null
@@ -6831,6 +6832,7 @@ export type Database = {
           priority?: number
           processing_started_at?: string | null
           provider?: string | null
+          provider_errors?: number
           provider_request_id?: string | null
           provider_response_url?: string | null
           provider_status_url?: string | null
@@ -6890,6 +6892,7 @@ export type Database = {
           priority?: number
           processing_started_at?: string | null
           provider?: string | null
+          provider_errors?: number
           provider_request_id?: string | null
           provider_response_url?: string | null
           provider_status_url?: string | null
@@ -8036,6 +8039,10 @@ export type Database = {
           p_source_url: string
           p_stage: string
         }
+        Returns: string
+      }
+      media_cutout_error_kind: {
+        Args: { p_error: string; p_result_url?: string; p_stage: string }
         Returns: string
       }
       media_cutout_finish: {
