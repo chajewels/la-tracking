@@ -55,10 +55,10 @@ describe("published / unpublished split", () => {
   });
 
   it("tab counts follow the search and filters but never the status filter", () => {
-    expect(tabCounts(ROWS, EMPTY_FILTERS)).toEqual({ published: 3, unpublished: 4 });
-    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, q: "ring" })).toEqual({ published: 1, unpublished: 2 });
-    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, type: "rings" })).toEqual({ published: 1, unpublished: 2 });
-    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, status: "draft" })).toEqual({ published: 3, unpublished: 4 });
+    expect(tabCounts(ROWS, EMPTY_FILTERS)).toEqual({ published: 3, unpublished: 4, "sold-out": 0 });
+    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, q: "ring" })).toEqual({ published: 1, unpublished: 2, "sold-out": 0 });
+    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, type: "rings" })).toEqual({ published: 1, unpublished: 2, "sold-out": 0 });
+    expect(tabCounts(ROWS, { ...EMPTY_FILTERS, status: "draft" })).toEqual({ published: 3, unpublished: 4, "sold-out": 0 });
   });
 
   it("search and filters work within the open tab", () => {
@@ -127,5 +127,28 @@ describe("URL", () => {
     const n = withFilters(sp, { q: "x", status: "" });
     expect(n.get("view")).toBe("page365-drafts");
     expect(n.get("product")).toBe("abc");
+  });
+});
+
+describe("Sold out tab (owner decision 2026-09-29)", () => {
+  const SOLD = [
+    ...ROWS,
+    p("8", "R800 Sold draft", "draft", ["rings"], { stock: 0, page365_product_id: 555 }),
+    p("9", "N900 Sold published", "active", ["necklaces"], { stock: 0 }),
+    p("10", "E1000 Unknown stock draft", "draft", [], { stock: null }),
+  ];
+  it("an unpublished product at 0 stock moves to Sold out; published ones never do; unknown stock is not sold out", () => {
+    expect(ids(scopeToView(SOLD, "sold-out"))).toEqual(["8"]);
+    expect(ids(scopeToView(SOLD, "unpublished"))).toEqual(["4", "5", "6", "7", "10"]);
+    expect(ids(scopeToView(SOLD, "published"))).toEqual(["1", "2", "3", "9"]);
+    expect(ids(scopeToView(SOLD, "page365-drafts"))).toEqual(["6"]);
+  });
+  it("counts, tab mapping and the tab a product lives in", () => {
+    expect(tabCounts(SOLD, EMPTY_FILTERS)).toEqual({ published: 4, unpublished: 5, "sold-out": 1 });
+    expect(tabOf("sold-out")).toBe("sold-out");
+    expect(tabOfProduct({ status: "draft", stock: 0 })).toBe("sold-out");
+    expect(tabOfProduct({ status: "draft", stock: 2 })).toBe("unpublished");
+    expect(tabOfProduct({ status: "active", stock: 0 })).toBe("published");
+    expect(viewFromParams(new URLSearchParams("view=sold-out"))).toBe("sold-out");
   });
 });

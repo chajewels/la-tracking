@@ -166,15 +166,27 @@ export function hasActiveFilters(f: CatalogFilters): boolean {
  * else (draft, archived) is Unpublished. The tab is ?view=published|unpublished
  * (absent = published); ?view=page365-drafts is a narrower Unpublished view.
  */
-export const CATALOG_VIEWS = ["published", "unpublished", "page365-drafts"] as const;
+export const CATALOG_VIEWS = ["published", "unpublished", "sold-out", "page365-drafts"] as const;
 export type CatalogView = (typeof CATALOG_VIEWS)[number];
-export type CatalogTab = "published" | "unpublished";
+export type CatalogTab = "published" | "unpublished" | "sold-out";
 
 export interface ScopedProduct extends SearchableProduct {
   page365_product_id?: string | number | null;
 }
 
 export const isPublished = (p: Pick<SearchableProduct, "status">): boolean => p.status === "active";
+
+/*
+ * SOLD OUT (owner decision 2026-09-29). An UNPUBLISHED product whose stock is 0
+ * (e.g. a Page365 auto-landed draft that sold after it landed) lives in its own
+ * "Sold out" tab instead of Unpublished, so the Unpublished list is only what
+ * could be published. Nothing is deleted: when Page365 restocks it, the stock
+ * sync raises its stock and it moves back to Unpublished by itself. Published
+ * products are never in this tab (a published piece at 0 shows as sold on the
+ * website and stays under Published). Unknown stock (null) is not sold out.
+ */
+export const isSoldOutUnpublished = (p: Pick<SearchableProduct, "status" | "stock">): boolean =>
+  !isPublished(p) && typeof p.stock === "number" && p.stock <= 0;
 
 /** Unknown or missing ?view= reads as the default tab, Published. */
 export function viewFromParams(sp: URLSearchParams): CatalogView {
@@ -183,26 +195,32 @@ export function viewFromParams(sp: URLSearchParams): CatalogView {
 }
 
 /** The top-level tab a view belongs to: the Page365 drafts view is part of Unpublished. */
-export const tabOf = (view: CatalogView): CatalogTab => (view === "published" ? "published" : "unpublished");
+export const tabOf = (view: CatalogView): CatalogTab =>
+  view === "published" ? "published" : view === "sold-out" ? "sold-out" : "unpublished";
 
 /** The tab a product lives in. */
-export const tabOfProduct = (p: Pick<SearchableProduct, "status">): CatalogTab => (isPublished(p) ? "published" : "unpublished");
+export const tabOfProduct = (p: Pick<SearchableProduct, "status" | "stock">): CatalogTab =>
+  isPublished(p) ? "published" : isSoldOutUnpublished(p) ? "sold-out" : "unpublished";
 
 /** Rows of one view, in the given order. */
 export function scopeToView<T extends ScopedProduct>(rows: T[], view: CatalogView): T[] {
   if (view === "published") return rows.filter(isPublished);
-  if (view === "unpublished") return rows.filter((p) => !isPublished(p));
-  return rows.filter((p) => p.page365_product_id != null && p.status === "draft");
+  if (view === "unpublished") return rows.filter((p) => !isPublished(p) && !isSoldOutUnpublished(p));
+  if (view === "sold-out") return rows.filter(isSoldOutUnpublished);
+  return rows.filter((p) => p.page365_product_id != null && p.status === "draft" && !isSoldOutUnpublished(p));
 }
 
 /**
  * Counts on the two tabs: they follow the search and the type / category /
  * stock filters, never the status filter (a status belongs to one tab only).
  */
-export function tabCounts<T extends SearchableProduct>(rows: T[], f: CatalogFilters): { published: number; unpublished: number } {
+export function tabCounts<T extends SearchableProduct>(
+  rows: T[], f: CatalogFilters,
+): { published: number; unpublished: number; "sold-out": number } {
   const hit = filterProducts(rows, { ...f, status: "" });
   const published = hit.filter(isPublished).length;
-  return { published, unpublished: hit.length - published };
+  const soldOut = hit.filter(isSoldOutUnpublished).length;
+  return { published, unpublished: hit.length - published - soldOut, "sold-out": soldOut };
 }
 
 /**
