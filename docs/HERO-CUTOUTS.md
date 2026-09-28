@@ -70,7 +70,17 @@ Website → Photos → **Hero cut-outs** (`HeroCutoutsCard.tsx`, below the
 Photoroom cards): the switch (confirm before changing), counts, filters
 Waiting (default) · Held · Live · Rejected · All, search, Original beside the
 cut-out on the dark hero stage, flags in plain words, Approve / Reject (a live
-one asks first). Dev preview: `/__fixtures/?view=hero-cutouts[&role=staff]`
+one asks first). Click, tap or Enter on either thumbnail opens the **zoom viewer**
+(`HeroCutoutViewer.tsx`, 2026-09-28): the full-resolution original and cut-out
+side by side (or one large; stacked on a phone) with ONE linked zoom and
+position (`lib/hero-zoom.ts`): Fit / 100 / 200 / 400 %, wheel, trackpad and
+touch pinch, drag to pan; from 200 % the real pixels (no smoothing). Cut-out
+background checkered / white / black, kept while open. Info: product code,
+photo number (the workflow's order, `heroPhotoOrder` = run.py `all_images`),
+category, size, the flags in plain words (`heroFlagPlain`) over the longer
+detail. Approve / Reject inside it are the card's own (same `heroActions`,
+live-reject confirm, admin only); after a decision it moves to the next item
+of the card's order and filter. Keys ← → · + − · 0 · Esc. Dev preview: `/__fixtures/?view=hero-cutouts[&role=staff]`
 (in-memory; `lib/hero-cutouts.ts setHeroTransportForFixture`).
 
 ## Revalidation
