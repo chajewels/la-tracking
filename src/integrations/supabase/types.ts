@@ -292,6 +292,7 @@ export type Database = {
           pancake_order_id: string | null
           payment_method: string | null
           payment_status: string | null
+          planned_shipping_method_id: string | null
           quote_id: string | null
           ready_confirmed_at: string | null
           ready_confirmed_by: string | null
@@ -356,6 +357,7 @@ export type Database = {
           pancake_order_id?: string | null
           payment_method?: string | null
           payment_status?: string | null
+          planned_shipping_method_id?: string | null
           quote_id?: string | null
           ready_confirmed_at?: string | null
           ready_confirmed_by?: string | null
@@ -420,6 +422,7 @@ export type Database = {
           pancake_order_id?: string | null
           payment_method?: string | null
           payment_status?: string | null
+          planned_shipping_method_id?: string | null
           quote_id?: string | null
           ready_confirmed_at?: string | null
           ready_confirmed_by?: string | null
@@ -454,6 +457,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_orders_planned_shipping_method_id_fkey"
+            columns: ["planned_shipping_method_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_methods"
             referencedColumns: ["id"]
           },
           {
@@ -1769,6 +1779,7 @@ export type Database = {
           pancake_order_id: string | null
           payment_plan_months: number
           penalty_count_at_reactivation: number | null
+          planned_shipping_method_id: string | null
           quote_id: string | null
           reactivated_at: string | null
           reactivated_by_user_id: string | null
@@ -1826,6 +1837,7 @@ export type Database = {
           pancake_order_id?: string | null
           payment_plan_months: number
           penalty_count_at_reactivation?: number | null
+          planned_shipping_method_id?: string | null
           quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
@@ -1883,6 +1895,7 @@ export type Database = {
           pancake_order_id?: string | null
           payment_plan_months?: number
           penalty_count_at_reactivation?: number | null
+          planned_shipping_method_id?: string | null
           quote_id?: string | null
           reactivated_at?: string | null
           reactivated_by_user_id?: string | null
@@ -1912,6 +1925,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_accounts_planned_shipping_method_id_fkey"
+            columns: ["planned_shipping_method_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_methods"
             referencedColumns: ["id"]
           },
           {
@@ -6507,6 +6527,75 @@ export type Database = {
         }
         Relationships: []
       }
+      website_hero_cutouts: {
+        Row: {
+          auto_approved: boolean
+          coverage: number | null
+          created_at: string
+          cutout_path: string | null
+          flags: string[]
+          height: number | null
+          id: string
+          model: string
+          qa_status: string
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_height: number | null
+          source_sha256: string
+          source_url: string
+          source_width: number | null
+          status: string
+          toolchain: Json
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          auto_approved?: boolean
+          coverage?: number | null
+          created_at?: string
+          cutout_path?: string | null
+          flags?: string[]
+          height?: number | null
+          id?: string
+          model: string
+          qa_status: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_height?: number | null
+          source_sha256: string
+          source_url: string
+          source_width?: number | null
+          status: string
+          toolchain?: Json
+          updated_at?: string
+          width?: number | null
+        }
+        Update: {
+          auto_approved?: boolean
+          coverage?: number | null
+          created_at?: string
+          cutout_path?: string | null
+          flags?: string[]
+          height?: number | null
+          id?: string
+          model?: string
+          qa_status?: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_height?: number | null
+          source_sha256?: string
+          source_url?: string
+          source_width?: number | null
+          status?: string
+          toolchain?: Json
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: []
+      }
       website_import_batches: {
         Row: {
           created: number | null
@@ -7380,6 +7469,7 @@ export type Database = {
         Returns: Json
       }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
+      deactivate_shipping_rate: { Args: { p_id: string }; Returns: Json }
       decline_web_layaway_reservation_atomic: {
         Args: {
           p_account_id: string
@@ -7678,6 +7768,7 @@ export type Database = {
           schedule_id: string
         }[]
       }
+      get_hero_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_provider: { Args: never; Returns: Json }
       get_monthly_analytics: {
@@ -7724,6 +7815,7 @@ export type Database = {
           total_amount: number
         }[]
       }
+      get_shipping_rates: { Args: never; Returns: Json }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
       get_top_outstanding_customers: {
         Args: never
@@ -7771,6 +7863,25 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      hero_cutout_mode: { Args: never; Returns: string }
+      hero_cutout_record: { Args: { p: Json }; Returns: Json }
+      hero_cutout_source_ok: { Args: { p_url: string }; Returns: boolean }
+      hero_cutouts_for_site: {
+        Args: { p_urls: string[] }
+        Returns: {
+          hero_cutout: Json
+          source_url: string
+        }[]
+      }
+      hero_cutouts_known: {
+        Args: never
+        Returns: {
+          coverage: number
+          source_sha256: string
+          source_url: string
+          status: string
+        }[]
       }
       insert_lot_and_extend: {
         Args: {
@@ -7842,6 +7953,15 @@ export type Database = {
           p_services?: number
           p_shipping?: number
           p_term_months: number
+        }
+        Returns: Json
+      }
+      list_hero_cutouts: {
+        Args: {
+          p_filter: string
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
         }
         Returns: Json
       }
@@ -8191,6 +8311,15 @@ export type Database = {
         Args: { p_invoice_number: string }
         Returns: Json
       }
+      review_hero_cutout: {
+        Args: {
+          p_action: string
+          p_expected_status: string
+          p_note?: string
+          p_source_url: string
+        }
+        Returns: Json
+      }
       review_media_cutout: {
         Args: {
           p_action: string
@@ -8248,6 +8377,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_hero_cutout_mode: {
+        Args: { p_expected_mode?: string; p_mode: string }
+        Returns: Json
+      }
       set_media_cutout_provider: {
         Args: {
           p_expected_provider?: string
@@ -8266,6 +8399,14 @@ export type Database = {
       }
       set_page365_inventory_interval: {
         Args: { p_expected?: number; p_minutes: number }
+        Returns: Json
+      }
+      set_shipping_rate: {
+        Args: {
+          p_country: string
+          p_fee_jpy: number
+          p_min_subtotal_jpy: number
+        }
         Returns: Json
       }
       set_web_payment_reminders: {
