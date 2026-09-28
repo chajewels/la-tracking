@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ImageOff, Loader2, Lock, Play, RefreshCw, Scissors, Upload } from "lucide-react";
+import { ChevronDown, Clock, Globe, ImageOff, Loader2, Lock, Play, RefreshCw, Scissors, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { formatPHTDisplay } from "@/lib/date-utils";
 import { storefrontPreview } from "@/theme/tokens";
@@ -25,7 +25,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  addTestBatch, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
+  addTestBatch, almostNothingKept, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
   CUTOUT_PROVIDER_KEY as PROVIDER_KEY, CUTOUT_TABS_KEY as TABS_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
   type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, DEFAULT_PRICE_USD, describeFlag, estimateCost, FILTERS,
   formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isCapped, isCompleted, isLocked, isPublishable,
@@ -38,13 +38,16 @@ import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 /**
  * Website → Photos: automatic background removal (docs/MEDIA-CUTOUTS.md).
  *
- * Every photo added to the catalogue is queued (keyed by its URL, so the
- * Catalog save's delete-and-reinsert of media rows never loses a verdict).
- * The worker runs every minute and obeys the switch here — Off / Test / On,
- * failing to Off — and the monthly limit. Each result gets an automatic
- * verdict; only OK / Auto-fixed / Approved will ever be shown on the website
- * (PR 2). Staff approve, re-run, reject or upload their own cut-out here.
- * Everything is manage_website_catalog and audited.
+ * Every photo of a PUBLISHED product is queued (keyed by its URL, so the
+ * Catalog save's delete-and-reinsert of media rows never loses a verdict);
+ * photos of unpublished products wait ("Waiting for publish") and are queued
+ * once when the product is published (migration 20261011100000, enforced in
+ * the database). The worker runs every minute and obeys the switch here —
+ * Off / Test / On, failing to Off — and the monthly limit. Each result gets an
+ * automatic verdict; only OK / Auto-fixed / Approved will ever be shown on the
+ * website (PR 2). Staff approve, re-run, reject, keep the original or upload
+ * their own cut-out here. Completed is final. Everything is
+ * manage_website_catalog and audited.
  */
 
 const PAGE = CUTOUT_PAGE_SIZE;
@@ -52,7 +55,7 @@ const PAGE = CUTOUT_PAGE_SIZE;
 function statusVariant(s: CutoutRow["status"]): "default" | "secondary" | "destructive" | "outline" {
   if (s === "ok" || s === "approved") return "default";
   if (s === "needs_review" || s === "failed") return "destructive";
-  if (s === "auto_fixed") return "secondary";
+  if (s === "auto_fixed" || s === "kept_original") return "secondary";
   return "outline";
 }
 
@@ -149,9 +152,10 @@ export function MediaCutoutSettingsCard() {
           )}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Every website photo gets a transparent cut-out and a uniform chalk-background version for the catalogue.
-          The original is never changed. Photos are checked automatically; anything doubtful waits for you below,
-          and only OK, auto-fixed and approved photos will be used on the website.
+          Every photo of a published product gets a transparent cut-out and a uniform chalk-background version for
+          the catalogue — photos of unpublished products wait until the product is published. The original is never
+          changed. Photos are checked automatically; anything doubtful waits for you below, and only OK, auto-fixed
+          and approved photos will be used on the website.
         </p>
       </CardHeader>
       <CardContent className="space-y-5 pt-5 text-sm">
@@ -320,7 +324,7 @@ export function MediaCutoutSettingsCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Turn background removal on for every photo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every queued photo will be sent to {PROVIDER_LABEL[provider]} — main photos of live products first — up to
+              Every queued photo of a published product will be sent to {PROVIDER_LABEL[provider]} — main photos first — up to
               {" "}{data?.cap.toLocaleString()} a month (at most about {formatUsd(estimateCost(data?.cap ?? 0, price))}). Doubtful
               results wait here for review; nothing unapproved is shown on the website.
             </AlertDialogDescription>
@@ -371,11 +375,16 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
   isAdmin: boolean;
 }) {
   const inFlight = ["submitted", "ready", "processing"].includes(row.job_state);
-  // CUT ONCE (migration 20261010100000): Completed and Rejected are locked,
-  // a photo at its paid-call limit needs the owner. Only an admin reopens,
-  // one paid call at a time; the database refuses everything else.
+  // CUT ONCE (migration 20261010100000) + PUBLISH GATE (20261011100000):
+  // Completed (incl. Kept original) is final for everyone; Rejected is locked
+  // (an admin can try once more); a photo at its paid-call limit needs the
+  // owner; a photo of an unpublished product waits. The database enforces all
+  // of it.
   const completed = isCompleted(row.status);
+  const kept = row.status === "kept_original";
   const rejected = row.status === "rejected";
+  const waiting = row.job_state === "waiting";
+  const keepFirst = !completed && !inFlight && almostNothingKept(row.flags);
   const held = !!row.hold_reason;
   const capped = isCapped(row);
   const paid = row.paid_calls ?? 0;
@@ -400,12 +409,20 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
         <span className="font-medium">{row.product ? `${row.product.sku} · ${row.product.name}` : "Photo no longer used by a product"}</span>
         <Badge variant={statusVariant(row.status)}>{STATUS_LABEL[row.status]}</Badge>
         {inFlight && <Badge variant="outline">Processing…</Badge>}
+        {waiting && (
+          <Badge variant="outline" className="gap-1" data-testid="cutout-waiting"><Clock className="h-3 w-3" /> Waiting for publish</Badge>
+        )}
         {row.job_state === "queued" && row.status !== "pending" && <Badge variant="outline">Queued again</Badge>}
         {row.test_batch && <Badge variant="outline">{row.test_batch}</Badge>}
         {isLocked(row.status) && !inFlight && row.job_state !== "queued" && (
           <Badge variant="outline" className="gap-1" data-testid="cutout-locked"><Lock className="h-3 w-3" /> Locked</Badge>
         )}
         {held && <Badge variant="destructive">Needs owner</Badge>}
+        {typeof row.published === "boolean" && (
+          <Badge variant={row.published ? "secondary" : "outline"} className="gap-1" data-testid="cutout-published">
+            <Globe className="h-3 w-3" /> {row.published ? "Product published" : "Product not published"}
+          </Badge>
+        )}
         <span className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-paid-calls">
           Paid calls: {paid} of {limit}
         </span>
@@ -447,12 +464,28 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
         </p>
       )}
       {held && <p className="text-xs text-destructive" data-testid="cutout-hold-reason">Needs owner: {row.hold_reason}</p>}
+      {waiting && (
+        <p className="text-xs text-muted-foreground">
+          Not sent: its product is not published. It is cut once, automatically, when the product is published — no cost until then.
+        </p>
+      )}
+      {keepFirst && (
+        <p className="text-xs text-warning" data-testid="cutout-keep-hint">
+          Almost nothing of the piece was kept. Keeping the original photo is usually the right call.
+        </p>
+      )}
       {row.last_error && row.status === "failed" && !held && <p className="text-xs text-muted-foreground">Last error: {row.last_error}</p>}
       {row.review_note && <p className="text-xs text-muted-foreground">Note: {row.review_note}</p>}
 
       <div className="flex flex-wrap gap-2" data-testid="cutout-actions">
-        {!held && !rejected && (
-          <Button size="sm" disabled={busy || inFlight || !row.cutout_path || row.status === "approved"}
+        {keepFirst && (
+          <Button size="sm" disabled={busy} onClick={() => onAct(row, "keep_original")}>
+            Keep original
+          </Button>
+        )}
+        {!held && !rejected && !kept && (
+          <Button size="sm" variant={keepFirst ? "outline" : "default"}
+                  disabled={busy || inFlight || !row.cutout_path || row.status === "approved"}
                   onClick={() => onAct(row, "approve")}>
             Approve
           </Button>
@@ -471,12 +504,17 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {!rejected && (
+        {!rejected && !kept && !held && (
           <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "reject")}>
-            {held ? "Keep the normal photo" : "Reject"}
+            Reject
           </Button>
         )}
-        {!completed && (
+        {!completed && !keepFirst && (
+          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "keep_original")}>
+            Keep original
+          </Button>
+        )}
+        {(!completed || kept) && (
           <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "own_cutout")}>
             <Upload className="mr-1 h-3.5 w-3.5" /> Upload my own cut-out
           </Button>
@@ -484,11 +522,6 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
         {row.last_rerun?.cutout_path && !rejected && (
           <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "use_rerun")}>
             Use the re-run
-          </Button>
-        )}
-        {isAdmin && completed && (
-          <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "unlock_recut")}>
-            <Lock className="mr-1 h-3.5 w-3.5" /> Unlock and re-cut
           </Button>
         )}
         {isAdmin && rejected && (
@@ -507,9 +540,18 @@ function CutoutItem({ row, onAct, busy, isAdmin }: {
           The website shows the normal photo — nothing more to do. You can upload your own cut-out for free.
         </p>
       )}
-      {!isAdmin && (completed || rejected || held) && (
+      {kept && (
+        <p className="text-[11px] text-muted-foreground" data-testid="cutout-kept">
+          Kept original — the website shows the normal photo. Completed: it is never cut or sent again. You can still
+          upload your own cut-out for free.
+        </p>
+      )}
+      {completed && !kept && (
+        <p className="text-[11px] text-muted-foreground" data-testid="cutout-final">Completed is final — it is never sent again.</p>
+      )}
+      {!isAdmin && (rejected || held) && (
         <p className="text-[11px] text-muted-foreground" data-testid="cutout-admin-only">
-          {held ? "Only an admin can allow another paid call." : "Locked. Only an admin can send it for another paid cut."}
+          {held ? "Only an admin can allow another paid call." : "Locked. Only an admin can try it once more."}
         </p>
       )}
       {!held && !isLocked(row.status) && capped && (
@@ -527,7 +569,7 @@ export function MediaCutoutReviewCard() {
   const [filter, setFilter] = useState<CutoutFilter>("needs_review");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [dialog, setDialog] = useState<{ row: CutoutRow; action: "reject" | "own_cutout" } | null>(null);
+  const [dialog, setDialog] = useState<{ row: CutoutRow; action: "reject" | "own_cutout" | "keep_original" } | null>(null);
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -560,18 +602,20 @@ export function MediaCutoutReviewCard() {
       }
       return review(v.row.source_url, v.action, { note: v.note, ownUrl, expected: v.row.status });
     },
-    onSuccess: (_out, v) => {
+    onSuccess: (out, v) => {
       const words: Record<ReviewAction, string> = {
         approve: "Approved.", reject: "Rejected — the website keeps the original photo.",
         rerun: "Queued again. The current version stays until the new one passes.",
         rerun_high_detail: "Queued again in high detail. The current version stays until the new one passes.",
         use_rerun: "The re-run is now the approved version.",
         own_cutout: "Uploaded. It is processed on the next run (within 2 minutes) and lands approved.",
-        unlock_recut: "Unlocked for one paid re-cut. It is sent on the next run; the current version stays unless the new one passes.",
+        keep_original: "Kept the original photo. It is completed and will never be cut — no cost.",
         retry_once: "Queued for one more paid try. The website keeps the normal photo unless the new cut-out passes.",
         override_cap: "One more paid call allowed. It is sent on the next run.",
       };
-      toast.success(words[v.action]);
+      toast.success(out.waiting_for_publish
+        ? "Saved. Its product is not published, so it waits — it is sent once the product is published."
+        : words[v.action]);
       setDialog(null); setPaidConfirm(null); setNote(""); setFile(null);
     },
     onError: e => toast.error(refusalText(e)),
@@ -583,21 +627,21 @@ export function MediaCutoutReviewCard() {
   });
 
   const onAct = (row: CutoutRow, action: ReviewAction) => {
-    if (action === "reject" || action === "own_cutout") { setNote(""); setFile(null); setDialog({ row, action }); return; }
-    if (action === "unlock_recut" || action === "retry_once" || action === "override_cap") {
+    if (action === "reject" || action === "own_cutout" || action === "keep_original") {
+      setNote(""); setFile(null); setDialog({ row, action }); return;
+    }
+    if (action === "retry_once" || action === "override_cap") {
       setNote(""); setPaidConfirm({ row, action }); return;
     }
     act.mutate({ row, action });
   };
   const costText = price == null ? "unknown — set the price per photo above" : `about $${price}`;
   const PAID_TITLE: Record<PaidReopenAction, string> = {
-    unlock_recut: "Unlock and re-cut this photo?",
     retry_once: "Try this rejected photo once more?",
     override_cap: "Allow one more paid call?",
   };
   const paidWhy = (c: { row: CutoutRow; action: PaidReopenAction }) => {
     const paid = c.row.paid_calls ?? 0;
-    if (c.action === "unlock_recut") return "It is completed. The current version stays on the website unless the new cut-out passes.";
     if (c.action === "retry_once") return "It was rejected. The website keeps the normal photo unless the new cut-out passes.";
     return `It stopped after ${paid} paid call${paid === 1 ? "" : "s"}, the limit for one photo.`;
   };
@@ -615,9 +659,10 @@ export function MediaCutoutReviewCard() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Reject to keep the
-          original, Re-run to try again (the current version stays until the new one passes), or upload your own cut-out.
-          Every photo is cut once: Completed and Rejected photos are locked, and a photo stops after 2 paid calls.
+          Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Keep original to
+          leave the photo uncut (free, final), Reject, Re-run to try again, or upload your own cut-out. Only photos of
+          published products are cut. Every photo is cut once: Completed is final, Rejected is locked, and a photo
+          stops after 2 paid calls.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-4 text-sm">
@@ -642,6 +687,7 @@ export function MediaCutoutReviewCard() {
         {activeTotals && (
           <p className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-tab-totals">
             {FILTERS.find(f => f.value === filter)?.label}: {activeTotals.count.toLocaleString()} photo{activeTotals.count === 1 ? "" : "s"}
+            {activeTotals.kept_original ? ` (${activeTotals.kept_original.toLocaleString()} kept original)` : ""}
             {" "}· {activeTotals.paid_calls.toLocaleString()} paid call{activeTotals.paid_calls === 1 ? "" : "s"}
             {price != null ? ` (about $${(Math.round(activeTotals.paid_calls * price * 100) / 100).toFixed(2)})` : ""}
           </p>
@@ -651,6 +697,15 @@ export function MediaCutoutReviewCard() {
 
         {list.isLoading && <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>}
         {list.isError && <p className="text-muted-foreground">{refusalText(list.error)}</p>}
+        {filter === "waiting" && (
+          <p className="text-xs text-muted-foreground" data-testid="cutout-waiting-help">
+            Photos of products that are not published. Nothing is sent and nothing is spent; each is cut once when its
+            product is published. Keep original works here too.
+          </p>
+        )}
+        {filter === "queue" && (
+          <p className="text-xs text-muted-foreground">Only photos of published products are in the queue.</p>
+        )}
         {list.data && rows.length === 0 && (
           <p className="py-6 text-center text-muted-foreground" data-testid="cutout-empty">Nothing here.</p>
         )}
@@ -671,11 +726,16 @@ export function MediaCutoutReviewCard() {
       <Dialog open={!!dialog} onOpenChange={o => { if (!o) setDialog(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{dialog?.action === "reject" ? "Reject this cut-out?" : "Upload your own cut-out"}</DialogTitle>
+            <DialogTitle>
+              {dialog?.action === "reject" ? "Reject this cut-out?"
+                : dialog?.action === "keep_original" ? "Keep the original photo?" : "Upload your own cut-out"}
+            </DialogTitle>
             <DialogDescription>
               {dialog?.action === "reject"
                 ? "The website keeps showing the original photo. You can re-run or upload your own later."
-                : "A PNG or WebP with a transparent background. It gets the same chalk catalogue version and is approved."}
+                : dialog?.action === "keep_original"
+                  ? "The photo stays uncut and the website shows the normal photo. It moves to Completed as “Kept original”, is never sent again, and costs nothing."
+                  : "A PNG or WebP with a transparent background. It gets the same chalk catalogue version and is approved."}
             </DialogDescription>
           </DialogHeader>
           {dialog?.action === "own_cutout" && (
@@ -688,7 +748,7 @@ export function MediaCutoutReviewCard() {
             <Button disabled={act.isPending || (dialog?.action === "own_cutout" && !file)}
                     onClick={() => dialog && act.mutate({ row: dialog.row, action: dialog.action, note, file })}>
               {act.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-              {dialog?.action === "reject" ? "Reject" : "Upload"}
+              {dialog?.action === "reject" ? "Reject" : dialog?.action === "keep_original" ? "Keep original" : "Upload"}
             </Button>
           </DialogFooter>
         </DialogContent>

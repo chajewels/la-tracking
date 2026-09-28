@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,7 +13,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CatalogBulkBar } from "@/components/website/CatalogBulkBar";
 import { CatalogSearchBar } from "@/components/website/CatalogSearchBar";
 import {
-  type CatalogFilters, filterProducts, filtersFromParams, productTypeCounts, withFilters,
+  type CatalogFilters, type CatalogTab, filterProducts, filtersFromParams, groupByType, hasActiveFilters, productTypeCounts,
+  scopeToView, statusesForTab, tabCounts, tabOf, tabOfProduct, viewFromParams, withFilters, withView,
 } from "@/lib/catalog-search";
 import { missingText, publishMissing } from "@/lib/page365-drafts";
 import { hiddenByPage365Note } from "@/lib/page365-inventory";
@@ -37,9 +38,16 @@ import {
  * save and remove mutations, the bulk Japanese pass, the import trigger and
  * the template download.
  *
- * Search, filters and the product-type tabs (2026-09-27) live in the URL —
- * ?q=&type=&category=&status=&stock= — and combine with ?view=page365-drafts
- * and ?product=<id>. Filtering is client-side over the WHOLE catalog: the
+ * Published / Unpublished (2026-09-28): two top-level tabs, ?view=published
+ * (default) | unpublished; ?view=page365-drafts is a narrower Unpublished
+ * view. "Published" = status "active", the same test the website API and the
+ * cut-out publish gate use (src/lib/catalog-search.ts isPublished). Inside a
+ * tab the products are grouped under their product types (website_collections
+ * order, then "No product type"; a product in several types shows under each).
+ *
+ * Search and filters (2026-09-27) live in the URL —
+ * ?q=&type=&category=&status=&stock= — work within the open tab, and combine
+ * with ?view= and ?product=<id>. Filtering is client-side over the WHOLE catalog: the
  * list is read in pages (PostgREST returns at most 1,000 rows per request),
  * so a search never runs over a silently truncated list. Rules:
  * src/lib/catalog-search.ts.
@@ -66,7 +74,9 @@ export default function ProductsCard() {
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
-  const draftsView = searchParams.get("view") === "page365-drafts";
+  const view = viewFromParams(searchParams);
+  const tab: CatalogTab = tabOf(view);
+  const draftsView = view === "page365-drafts";
 
   const collections = useQuery({
     queryKey: ["website-collections"],
@@ -147,11 +157,9 @@ export default function ProductsCard() {
     };
   }), [products.data]);
 
-  // ?view=page365-drafts (from "Landed in Catalog"): only the unpublished Page365 products.
-  const scoped = useMemo(
-    () => (draftsView ? rows.filter((p) => p.page365_product_id != null && p.status === "draft") : rows),
-    [rows, draftsView],
-  );
+  // The open tab: Published, Unpublished, or (from "Landed in Catalog",
+  // ?view=page365-drafts) only the unpublished Page365 products.
+  const scoped = useMemo(() => scopeToView(rows, view), [rows, view]);
 
   // Search + filters, from the URL. The box writes ?q= after a short pause so
   // typing stays smooth and a refresh or shared link keeps the search.
@@ -185,24 +193,38 @@ export default function ProductsCard() {
   };
   const visible = useMemo(() => filterProducts(scoped, filters), [scoped, filters]);
   const typeCounts = useMemo(() => productTypeCounts(scoped, filters), [scoped, filters]);
-  const statuses = useMemo(() => {
-    const seen = new Set<string>(["active", "draft", "archived"]);
-    for (const p of rows) if (p.status) seen.add(String(p.status));
-    return [...seen];
-  }, [rows]);
+  const tabTotals = useMemo(() => tabCounts(rows, filters), [rows, filters]);
+  const statuses = useMemo(() => statusesForTab(tab, rows.map((p) => String(p.status ?? ""))), [tab, rows]);
+  const typeOptions = useMemo(
+    () => (collections.data ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })),
+    [collections.data],
+  );
+  // Under product-type headings; with a type filter, only that group.
+  const groups = useMemo(
+    () => groupByType(visible, typeOptions).filter((g) => !filters.type || g.id === filters.type),
+    [visible, typeOptions, filters.type],
+  );
+  const filtering = hasActiveFilters(filters);
   const selectedRows = useMemo(() => visible.filter((p) => picked.has(p.id)), [visible, picked]);
-  const clearParam = (key: string) => setSearchParams(prev => {
-    const n = new URLSearchParams(prev);
-    n.delete(key);
-    return n;
-  }, { replace: true });
+  const setView = (v: "published" | "unpublished") => {
+    setPicked(new Set());
+    setSearchParams((prev) => withView(prev, v), { replace: false });
+  };
+  const jumpTo = (typeId: string) =>
+    document.getElementById(`catalog-group-${typeId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const noun = draftsView ? "unpublished Page365 products" : `${tab} products`;
 
   // ?product=<id> (links from "Landed in Catalog"): open that product once loaded.
   const deepLinked = searchParams.get("product");
   useEffect(() => {
     if (!deepLinked || !products.data) return;
     const p = rows.find((r) => r.id === deepLinked);
-    clearParam("product");
+    // The product's own tab is opened behind the dialog (drafts stay under Unpublished).
+    setSearchParams((prev) => {
+      const n = p && tabOfProduct(p) !== tabOf(viewFromParams(prev)) ? withView(prev, tabOfProduct(p)) : new URLSearchParams(prev);
+      n.delete("product");
+      return n;
+    }, { replace: true });
     if (p) openEdit(p);
     else toast({ title: "Product not found", description: "It may have been removed.", variant: "destructive" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -566,11 +588,30 @@ export default function ProductsCard() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {rows.length > 0 && (
+            <div className="flex gap-1 border-b border-border px-4 pt-3" role="tablist" aria-label="Published or not" data-testid="catalog-publish-tabs">
+              {(["published", "unpublished"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  onClick={() => { if (view !== t) setView(t); }}
+                  className={
+                    "-mb-px whitespace-nowrap border-b-2 px-3 pb-2 text-sm font-medium transition-colors " +
+                    (tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {t === "published" ? "Published" : "Unpublished"} ({tabTotals[t]})
+                </button>
+              ))}
+            </div>
+          )}
           {draftsView && (
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs">
               <Badge variant="outline">Unpublished Page365 products only ({visible.length})</Badge>
               <span className="text-muted-foreground">Not on the website. Set origin and category, then select and Publish.</span>
-              <Button size="sm" variant="ghost" onClick={() => clearParam("view")}>Show all products</Button>
+              <Button size="sm" variant="ghost" onClick={() => setView("unpublished")}>Show all unpublished</Button>
             </div>
           )}
           {rows.length > 0 && (
@@ -580,12 +621,14 @@ export default function ProductsCard() {
               filters={filters}
               onFiltersChange={setFilters}
               onClear={clearFilters}
-              types={(collections.data ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))}
+              types={typeOptions}
               categories={(categories.data ?? []).map((c) => ({ id: c.id, name: c.name }))}
               statuses={statuses}
               counts={typeCounts}
               shown={visible.length}
               total={scoped.length}
+              noun={noun}
+              onJump={jumpTo}
             />
           )}
           {canManage && (
@@ -608,9 +651,17 @@ export default function ProductsCard() {
             <div className="py-16 text-center text-sm text-muted-foreground">
               No products yet. Add your first piece to publish it on the website.
             </div>
+          ) : scoped.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground" data-testid="catalog-tab-empty">
+              {draftsView
+                ? "No unpublished Page365 products."
+                : tab === "published"
+                  ? "No published products yet. Publish one from the Unpublished tab."
+                  : "Nothing unpublished — every product is on the website."}
+            </div>
           ) : visible.length === 0 ? (
             <div className="space-y-3 py-16 text-center text-sm text-muted-foreground" data-testid="catalog-no-match">
-              <p>No products match.</p>
+              <p>No {noun} match.</p>
               <Button variant="outline" size="sm" onClick={clearFilters}>Clear search and filters</Button>
             </div>
           ) : (
@@ -640,84 +691,105 @@ export default function ProductsCard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map((p: any) => (
-                  <TableRow key={p.id} className="cursor-pointer" onClick={() => openEdit(p)}>
-                    {canManage && (
-                      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          aria-label={`Select ${p.sku}`}
-                          checked={picked.has(p.id)}
-                          onCheckedChange={(v) => setPicked((prev) => {
-                            const n = new Set(prev);
-                            if (v === true) n.add(p.id); else n.delete(p.id);
-                            return n;
-                          })}
-                        />
-                      </TableCell>
-                    )}
-                    <TableCell className="font-medium">
-                      {p.name}
-                      {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {p.sku}
-                      {p.page365_sync_disabled && (
-                        <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground" title="Don't sync with Page365">
-                          Not synced
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {metalsLabel(p.metals, p.karat)}
-                      {itemKindFrom(p.item_kind) !== "jewelry" && (
-                        <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground">
-                          {ITEM_KIND_LABEL[itemKindFrom(p.item_kind)]}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {p.condition === "Preloved"
-                        ? <Badge variant="secondary">Preloved</Badge>
-                        : <span className="text-muted-foreground">New</span>}
-                    </TableCell>
-                    <TableCell>
-                      {p.origin === "JAPAN" ? "Made in Japan"
-                        : p.origin === "BRAND" ? (p.brand || <span className="text-warning">Branded — no brand name</span>)
-                        : p.origin === "OTHER" ? <span className="text-muted-foreground">Other</span>
-                        : <span className="text-muted-foreground">Unknown</span>}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{p.fromPrice ? yen(p.fromPrice) : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {p.fromPrice ? peso(p.fromPrice) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{p.variantCount}</TableCell>
-                    <TableCell className="text-right tabular-nums">{p.stock}</TableCell>
-                    <TableCell>
-                      <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
-                      {p.status === "draft" && publishMissing(p).length > 0 && (
-                        <div className="mt-0.5 text-[10px] text-warning">{missingText(publishMissing(p))}</div>
-                      )}
-                      {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id)) && (
-                        <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="catalog-hidden-by-page365">
-                          {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id))}
+                {groups.map((g) => (g.rows.length === 0 && filtering ? null : (
+                  <Fragment key={g.id}>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40" data-testid="catalog-group">
+                      <TableCell colSpan={canManage ? 12 : 11} className="py-2" id={`catalog-group-${g.id}`}>
+                        <div className="sticky left-3 inline-flex items-baseline gap-2 scroll-mt-4">
+                          <span className="text-sm font-semibold" data-testid="catalog-group-name">{g.name}</span>
+                          <span className="text-xs tabular-nums text-muted-foreground" data-testid="catalog-group-count">
+                            {g.rows.length} {g.rows.length === 1 ? "product" : "products"}
+                          </span>
                         </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {canManage && (
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm(`Remove ${p.name} from the website catalog?`)) remove.mutate(p.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                    {g.rows.length === 0 && (
+                      <TableRow data-testid="catalog-group-empty">
+                        <TableCell colSpan={canManage ? 12 : 11} className="py-3 text-xs text-muted-foreground">
+                          <span className="sticky left-3">No {noun} of this type.</span>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {g.rows.map((p: any) => (
+                  <TableRow key={`${g.id}:${p.id}`} className="cursor-pointer" onClick={() => openEdit(p)}>
+                        {canManage && (
+                          <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              aria-label={`Select ${p.sku}`}
+                              checked={picked.has(p.id)}
+                              onCheckedChange={(v) => setPicked((prev) => {
+                                const n = new Set(prev);
+                                if (v === true) n.add(p.id); else n.delete(p.id);
+                                return n;
+                              })}
+                            />
+                          </TableCell>
+                        )}
+                        <TableCell className="font-medium">
+                          {p.name}
+                          {p.name_ja && <div className="text-xs font-normal text-muted-foreground" lang="ja">{p.name_ja}</div>}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {p.sku}
+                          {p.page365_sync_disabled && (
+                            <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground" title="Don't sync with Page365">
+                              Not synced
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {metalsLabel(p.metals, p.karat)}
+                          {itemKindFrom(p.item_kind) !== "jewelry" && (
+                            <Badge variant="outline" className="ml-1.5 text-[10px] text-muted-foreground">
+                              {ITEM_KIND_LABEL[itemKindFrom(p.item_kind)]}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {p.condition === "Preloved"
+                            ? <Badge variant="secondary">Preloved</Badge>
+                            : <span className="text-muted-foreground">New</span>}
+                        </TableCell>
+                        <TableCell>
+                          {p.origin === "JAPAN" ? "Made in Japan"
+                            : p.origin === "BRAND" ? (p.brand || <span className="text-warning">Branded — no brand name</span>)
+                            : p.origin === "OTHER" ? <span className="text-muted-foreground">Other</span>
+                            : <span className="text-muted-foreground">Unknown</span>}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{p.fromPrice ? yen(p.fromPrice) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {p.fromPrice ? peso(p.fromPrice) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{p.variantCount}</TableCell>
+                        <TableCell className="text-right tabular-nums">{p.stock}</TableCell>
+                        <TableCell>
+                          <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
+                          {p.status === "draft" && publishMissing(p).length > 0 && (
+                            <div className="mt-0.5 text-[10px] text-warning">{missingText(publishMissing(p))}</div>
+                          )}
+                          {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id)) && (
+                            <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="catalog-hidden-by-page365">
+                              {hiddenByPage365Note(p.status, hiddenByPage365.data?.get(p.id))}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {canManage && (
+                            <Button
+                              variant="ghost" size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Remove ${p.name} from the website catalog?`)) remove.mutate(p.id);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </Fragment>
+                )))}
               </TableBody>
             </Table>
           )}

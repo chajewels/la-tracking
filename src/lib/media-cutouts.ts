@@ -1,6 +1,8 @@
 import { supabase } from '@/integrations/supabase/client';
 import { callUntypedRpc } from '@/lib/untyped-rpc';
-import { describeFlag, PUBLISHABLE_STATUSES, type CutoutStatus } from '../../supabase/functions/_shared/cutout-qa.ts';
+import {
+  COVERAGE_MIN, describeFlag, PUBLISHABLE_STATUSES, type CutoutStatus as QaStatus,
+} from '../../supabase/functions/_shared/cutout-qa.ts';
 import { BUCKET, type CutoutMode } from '../../supabase/functions/_shared/media-cutout-rules.ts';
 import {
   DEFAULT_PRICE_USD, estimateCost, type ProviderName, readPriceSetting, readProviderSetting,
@@ -14,7 +16,14 @@ import {
  */
 
 export { DEFAULT_PRICE_USD, describeFlag, estimateCost, PUBLISHABLE_STATUSES };
-export type { CutoutMode, CutoutStatus, ProviderName };
+export type { CutoutMode, ProviderName };
+
+/**
+ * The verdicts the Hub can see: the worker's (cutout-qa.ts) plus
+ * 'kept_original' — "Keep original" (migration 20261011100000): Completed,
+ * uncut, the website shows the normal photo. Never one of PUBLISHABLE_STATUSES.
+ */
+export type CutoutStatus = QaStatus | 'kept_original';
 
 /** Who removes the backgrounds (migration 20261007100000_media_cutout_photoroom). */
 export interface CutoutProviderSetting {
@@ -64,7 +73,8 @@ export interface CutoutRow {
   source_kind: 'page365' | 'staff';
   priority: number;
   test_batch: string | null;
-  job_state: 'queued' | 'submitted' | 'ready' | 'processing' | 'done' | 'error';
+  /** 'waiting' = Waiting for publish: its product is not published, so it is never sent (20261011100000). */
+  job_state: 'queued' | 'waiting' | 'submitted' | 'ready' | 'processing' | 'done' | 'error';
   status: CutoutStatus;
   flags: string[];
   rerun: boolean;
@@ -88,6 +98,8 @@ export interface CutoutRow {
   updated_at: string;
   product: { id: string; sku: string; name: string; slug: string; status: string } | null;
   product_count: number;
+  /** Publish gate (migration 20261011100000): any product using this photo is published. Absent until it has run. */
+  published?: boolean;
   /** Cut once (migration 20261010100000). Absent until it has run. */
   paid_calls?: number;
   paid_call_limit?: number;
@@ -99,7 +111,8 @@ export interface CutoutRow {
 
 /** Every tab's photos and the paid calls they cost (get_media_cutout_tab_totals). */
 export interface CutoutTabTotals {
-  tabs: Record<string, { count: number; paid_calls: number }>;
+  /** completed also carries kept_original (how many of them were kept uncut). */
+  tabs: Record<string, { count: number; paid_calls: number; kept_original?: number }>;
   is_admin: boolean;
   per_photo_limit: number;
   provider: ProviderName;
@@ -119,6 +132,7 @@ export const FILTERS = [
   { value: 'failed', label: 'Failed' },
   { value: 'auto_fixed', label: 'Auto-fixed' },
   { value: 'queue', label: 'In the queue' },
+  { value: 'waiting', label: 'Waiting for publish' },
   { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'test', label: 'Test batch' },
@@ -127,16 +141,36 @@ export const FILTERS = [
 export type CutoutFilter = (typeof FILTERS)[number]['value'];
 
 /**
- * The three ADMIN actions that spend money on a photo the rules have closed:
+ * The two ADMIN actions that spend money on a photo the rules have closed:
  * each allows exactly ONE more paid call and is audited with the estimated
- * cost (review_media_cutout, migration 20261010100000).
+ * cost (review_media_cutout). There is no reopen for a Completed photo:
+ * "Unlock and re-cut" was removed (owner rule 2026-09-28, migration
+ * 20261011100000 — Completed is final; the database refuses it).
  */
-export type PaidReopenAction = 'unlock_recut' | 'retry_once' | 'override_cap';
-export type ReviewAction = 'approve' | 'reject' | 'rerun' | 'rerun_high_detail' | 'use_rerun' | 'own_cutout' | PaidReopenAction;
+export type PaidReopenAction = 'retry_once' | 'override_cap';
+export type ReviewAction =
+  | 'approve' | 'reject' | 'rerun' | 'rerun_high_detail' | 'use_rerun' | 'own_cutout' | 'keep_original' | PaidReopenAction;
 
-/** CUT ONCE: a Completed (passed / approved) or Rejected photo is never sent again without an admin reopening it. */
-export const isCompleted = (s: CutoutStatus) => s === 'ok' || s === 'auto_fixed' || s === 'approved';
+/**
+ * COMPLETED IS FINAL: passed, approved or kept original — never sent again,
+ * by anyone. Rejected is locked too, but an admin can try it once more.
+ */
+export const isCompleted = (s: CutoutStatus) => s === 'ok' || s === 'auto_fixed' || s === 'approved' || s === 'kept_original';
 export const isLocked = (s: CutoutStatus) => isCompleted(s) || s === 'rejected';
+
+/**
+ * The checks say almost nothing of the piece was kept: the cut-out's coverage
+ * is under the minimum, or it kept under half of what the photo shows. Keep
+ * original is then the main button.
+ */
+export function almostNothingKept(flags: readonly string[]): boolean {
+  return flags.some(f => {
+    const [kind, value] = f.split(':');
+    const n = Number(value);
+    if (!Number.isFinite(n)) return false;
+    return (kind === 'coverage' && n < COVERAGE_MIN) || (kind === 'detail_loss' && n < 0.5);
+  });
+}
 /** At (or over) its paid-call limit, or stopped there: only an admin can allow another call. */
 export const isCapped = (r: Pick<CutoutRow, 'paid_calls' | 'paid_call_limit' | 'hold_reason'>) =>
   !!r.hold_reason || (r.paid_calls ?? 0) >= (r.paid_call_limit ?? 2);
@@ -149,12 +183,13 @@ export const STATUS_LABEL: Record<CutoutStatus, string> = {
   approved: 'Approved',
   rejected: 'Rejected',
   failed: 'Failed',
+  kept_original: 'Kept original',
 };
 
 export const MODE_TEXT: Record<CutoutMode, string> = {
   off: 'Off — nothing is sent. New photos wait in the queue.',
   test: 'Test — only photos in a test batch are processed.',
-  on: 'On — every queued photo is processed, main photos of live products first.',
+  on: 'On — every queued photo of a published product is processed, main photos first. Photos of unpublished products wait.',
 };
 
 class RpcRefusal extends Error {
@@ -216,7 +251,7 @@ export const setSettings = (mode: CutoutMode | null, cap: number | null, expecte
   });
 
 export const review = (sourceUrl: string, action: ReviewAction, opts: { note?: string; ownUrl?: string; expected?: CutoutStatus } = {}) =>
-  rpc<{ ok: boolean; status: CutoutStatus }>('review_media_cutout', {
+  rpc<{ ok: boolean; status: CutoutStatus; job_state?: CutoutRow['job_state']; waiting_for_publish?: boolean }>('review_media_cutout', {
     p_source_url: sourceUrl, p_action: action, p_note: opts.note?.trim() || null,
     p_own_cutout_url: opts.ownUrl ?? null, p_expected_status: opts.expected ?? null,
   });
@@ -286,11 +321,12 @@ export function refusalText(err: unknown): string {
     case 'batch_name_required': return 'Give the test batch a name (up to 60 characters).';
     case 'skus_required_max_100': return 'Paste between 1 and 100 SKUs.';
     case 'setting_missing': return 'Background removal is not set up yet — the migration has not been run.';
-    case 'locked': return 'This photo is finished (completed or rejected) and is not sent again. An admin can reopen it.';
+    case 'locked': return 'This photo is finished and is not sent again. A rejected photo can be tried once more by an admin.';
+    case 'completed_is_final': return 'This photo is completed. Completed is final: it is never sent again.';
+    case 'already_completed': return 'This photo is already completed — there is nothing to keep.';
     case 'needs_owner': return 'This photo stopped at its paid-call limit. Only an admin can allow another call.';
     case 'paid_call_cap': return 'This photo has used all its paid calls. Only an admin can allow another call.';
     case 'admin_only': return 'Only an admin can spend another paid call on this photo.';
-    case 'not_completed': return 'Unlock and re-cut is for completed photos only.';
     case 'not_rejected': return 'Try once more is for rejected photos only.';
     case 'not_capped': return 'This photo has not reached its paid-call limit.';
     default: return `Could not save: ${err.code}`;
