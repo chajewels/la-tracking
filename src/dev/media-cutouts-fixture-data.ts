@@ -51,7 +51,7 @@ const row = (over: Partial<CutoutRow>): CutoutRow => ({
   cutout_path: 'website/derived/aa/r1/cutout.webp', catalog_path: 'website/derived/aa/r1/catalog.webp',
   catalog_small_path: 'website/derived/aa/r1/catalog-small.webp', hero_usable: true, timings: { total: 480 },
   last_rerun: null, review_note: null, reviewed_at: null, finished_at: '2026-10-05T03:14:00Z',
-  updated_at: '2026-10-05T03:14:00Z', product: null, product_count: 1,
+  updated_at: '2026-10-05T03:14:00Z', product: null, product_count: 1, published: true,
   paid_calls: 1, paid_call_limit: 2, recut_allowed: false, hold_reason: null, held_at: null, ...over,
 });
 
@@ -79,17 +79,22 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
   const tabs: CutoutTabTotals = {
     is_admin: role !== 'staff', per_photo_limit: 2, provider: 'replicate', price_usd: 0.005,
     tabs: {
-      needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 },
+      // Publish gate (20261011100000), the snapshot's shape: 120 of the queue wait for publish.
+      needs_review: { count: 15, paid_calls: 15 }, needs_owner: { count: 2, paid_calls: 4 },
       failed: { count: 495, paid_calls: 0 }, auto_fixed: { count: 10, paid_calls: 10 },
-      queue: { count: 376, paid_calls: 6 }, completed: { count: 110, paid_calls: 110 },
+      queue: { count: 250, paid_calls: 0 }, waiting: { count: 120, paid_calls: 0 },
+      completed: { count: 111, paid_calls: 110, kept_original: 1 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
     },
   };
   seed(CUTOUT_TABS_KEY, tabs);
   const n = (sku: string, name: string) => ({ id: sku, sku, name, slug: sku.toLowerCase(), status: 'active' });
   seed([CUTOUT_LIST_KEY, 'completed', '', 0], {
-    total: 2,
+    total: 3,
     rows: [
+      row({ source_url: drawn('original', false, false) + '#B1203', status: 'kept_original', provider: 'photoroom', hero_usable: false,
+            flags: ['coverage:0.012'], review_note: 'The photo is fine as it is', reviewed_at: '2026-09-28T05:00:00Z',
+            product: n('B1203', 'K18 Snake Chain Bracelet') }),
       row({ source_url: drawn('original', false, false), status: 'approved', provider: 'replicate', reviewed_at: '2026-09-28T02:00:00Z',
             product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
       row({ source_url: drawn('original', true, false), status: 'ok', provider: 'replicate', paid_calls: 2, priority: 1,
@@ -109,8 +114,10 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
                  held_at: '2026-09-28T03:10:00Z', product: n('C1395', 'Casio G-SHOCK Full Metal Series Solar') })],
   });
   seed([CUTOUT_LIST_KEY, 'needs_review', '', 0], {
-    total: 3,
+    total: 4,
     rows: [
+      row({ source_url: drawn('original', false, false) + '#N3380', status: 'needs_review', flags: ['coverage:0.012'], paid_calls: 1,
+            product: { id: 'p6', sku: 'N3380', name: 'K18 Petite Chain Necklace 40cm', slug: 'n3380', status: 'active' } }),
       row({ source_url: drawn('original', false, true), status: 'needs_review',
             flags: ['edge_touch:bottom,left,right', 'interior_hole:0.054', 'uncertain:0.52'], source_w: 1440, source_h: 1440,
             product: { id: 'p5', sku: 'C1395', name: 'Casio G-SHOCK Full Metal Series Solar', slug: 'c1395', status: 'active' } }),
@@ -128,6 +135,17 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
                  catalog_small_path: 'website/derived/c0983/r1/catalog-small.webp', source_w: 1440, source_h: 1440,
                  last_rerun: { status: 'needs_review', flags: ['soft_matte:0.12'], cutout_path: 'website/derived/c0983/r2/cutout.webp' },
                  product: { id: 'p3', sku: 'C0983', name: 'Van Cleef & Arpels La Collection Watch', slug: 'c0983', status: 'active' } })],
+  });
+  seed([CUTOUT_LIST_KEY, 'waiting', '', 0], {
+    total: 2,
+    rows: [
+      row({ source_url: drawn('original', false, false) + '#R4410', status: 'pending', job_state: 'waiting', published: false, paid_calls: 0,
+            cutout_path: null, catalog_path: null, catalog_small_path: null, finished_at: null, test_batch: null,
+            product: { id: 'd1', sku: 'R4410', name: 'Preloved Pt900 Solitaire Ring', slug: 'r4410', status: 'draft' } }),
+      row({ source_url: drawn('original', true, false) + '#E2201', status: 'pending', job_state: 'waiting', published: false, paid_calls: 0,
+            priority: 1, cutout_path: null, catalog_path: null, catalog_small_path: null, finished_at: null, test_batch: null,
+            product: { id: 'd2', sku: 'E2201', name: 'K18 Diamond Stud Earrings', slug: 'e2201', status: 'draft' } }),
+    ],
   });
   seed([CUTOUT_LIST_KEY, 'failed', '', 0], {
     total: 1,

@@ -48,17 +48,34 @@ a tick (§2 "SPEED").
 - **A re-run never makes things worse.** While it runs the published version
   stays. If it comes back worse (needs_review / failed) the published version
   stays and the new result is parked in `last_rerun` ("Use the re-run").
-- **CUT ONCE (owner rule 2026-09-28, migration 20261010100000).** Every photo
-  is cut once; decisions are final unless the owner deliberately reopens them;
+- **PUBLISH GATE (owner rule 2026-09-28, migration 20261011100000).** A photo
+  is cut ONLY while its product is published. "Published" =
+  `website_products.status = 'active'` (enum `website_product_status`
+  draft | active | archived) — the one test the `website` API serves products
+  by (`supabase/functions/website/index.ts`, `.eq("status", "active")`). A
+  photo (one source URL) is published when ANY product using it is:
+  `media_cutout_url_published(url)`. Details: §1b.
+- **CUT ONCE (owner rule 2026-09-28, migration 20261010100000; Completed made
+  final by 20261011100000).** Every photo is cut once; decisions are final;
   costs are visible and capped.
-  - **Completed** (`ok` / `auto_fixed` / `approved` — what the website shows)
-    and **Rejected** photos are LOCKED: the database refuses to queue them
-    (`trg_guard_media_cutout_cut_once`, every writer incl. the SQL Editor) and
-    `media_cutout_submit_batch` never hands them out. Plain Re-run is refused
-    (`locked`). Only an ADMIN reopens, one paid call at a time, audited with the
-    estimated cost: **Unlock and re-cut** (Completed, `unlock_recut`), **Try
-    once more** (Rejected, `retry_once`). Upload my own cut-out stays free on a
-    rejected photo; keeping the normal photo is the default (no action).
+  - **Completed** (`ok` / `auto_fixed` / `approved` — what the website shows —
+    and `kept_original`) is FINAL: the database refuses to queue it for EVERY
+    writer and role, the admin override and the SQL Editor included
+    (`trg_guard_media_cutout_cut_once`), and `media_cutout_submit_batch` never
+    hands it out. There is no reopen: **Unlock and re-cut was removed**
+    (`unlock_recut` answers `completed_is_final`). **Rejected** is locked too;
+    only an ADMIN's **Try once more** (`retry_once`) sends it again, one paid
+    call, audited with the estimated cost. Upload my own cut-out stays free on
+    a rejected or kept-original photo.
+  - **Keep original** (`keep_original`, any `manage_website_catalog` user): on
+    any photo not yet Completed and not being processed — Needs review, Needs
+    owner, Failed, Rejected, Waiting for publish, In the queue. The photo stays
+    uncut, status `kept_original` (Completed, "Kept original"), `hero_usable =
+    false`, locked, zero cost, audited (`estimated_cost_usd 0`). The storefront
+    shows the normal photo because `kept_original` is not one of the statuses
+    it may show; the hero can tell it apart by the status. When the checks say
+    almost nothing was kept (`coverage` under the minimum, or `detail_loss`
+    under 0.5) Keep original is the main button.
   - **Per-photo cap: 2 paid calls** (`paid_calls` / `paid_call_limit`).
     `paid_calls` counts every successful submit AND every failed submit,
     automatic retries included; a failed status check (poll) or processing
@@ -72,7 +89,8 @@ a tick (§2 "SPEED").
     held photo. (Known edge: a URL forgotten by housekeeping after 30 days
     unused and later re-added is treated as new.)
   - Approve and Reject are final decisions: they cancel a pending re-run.
-- **Only `ok`, `auto_fixed`, `approved` may ever be shown** (PR 2 sends only
+- **Only `ok`, `auto_fixed`, `approved` may ever be shown** (never
+  `kept_original`) (PR 2 sends only
   these; everything else is `null` to the storefront).
 - **The switch fails to OFF.** `system_settings.media_cutout_mode` =
   `off | test | on`; anything else reads `off`. The monthly cap reads `0` when
@@ -103,6 +121,38 @@ a tick (§2 "SPEED").
   stored.
 - **Store credit / money / loyalty: untouched.** This feature has no financial
   surface.
+
+## 1b. PUBLISH GATE (migration 20261011100000)
+
+- `job_state = 'waiting'` = **Waiting for publish**: recorded, never sent, not
+  in the queue, costs nothing. It has its own tab and count; the queue tab and
+  count show only publish-eligible photos (published, or already at the
+  provider).
+- **In the database, for every writer:** the guard writes a row that ENTERS
+  the queue for an unpublished photo as `waiting` instead — so the enqueue
+  trigger, the test batch, Re-run, the admin actions and the worker's retries
+  queue nothing for an unpublished product without any of them changing.
+  `media_cutout_submit_batch` re-checks every run (queued ↔ waiting follow the
+  products) and hands out published photos only.
+- **Publish** (`trg_website_product_cutout_publish_gate`, `website_products`
+  AFTER UPDATE OF status — the Catalog save/publish, `website_publish_products`,
+  Page365 hide-follow all write there): the product's photos not yet cut are
+  queued ONCE — waiting rows, photos never recorded, and failed rows below
+  their paid-call limit, not held and not an own cut-out. Completed, Rejected,
+  Kept original, Needs review (its result waits for staff) and Needs owner are
+  never queued.
+- **Unpublish / archive:** its queued, not-yet-sent photos go to `waiting` — no
+  paid call, no failure, not counted. A photo already sent finishes normally:
+  one still in the worker's hand when the product was unpublished is accepted
+  by `media_cutout_sync_result` / `media_cutout_error` from `waiting`.
+- **A photo added to a published product** (`trg_website_media_cutout_publish_gate`)
+  queues a waiting row. It never re-queues failed ones — the Catalog save
+  re-inserts media rows on every save; that is not a publish.
+- Both triggers turn errors into a WARNING: a publish or a photo save never
+  fails because of cut-outs; the submit batch is the backstop.
+- The Photoroom-402 failures: only those of published products can be sent
+  again (Re-run, or a re-publish); a Re-run of an unpublished photo waits
+  (`waiting_for_publish: true`).
 
 ## 2. Flow
 
@@ -383,12 +433,17 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   now (one tick as the signed-in user), and the **test batch**: paste up to 100
   SKUs + a name (+ "main photo only") → `add_media_cutout_test_batch`.
 - **Photos to check**: filters Needs review (default) · Needs owner · Failed ·
-  Auto-fixed · In the queue · Completed · Rejected · Test batch · All (each
+  Auto-fixed · In the queue · Waiting for publish · Completed · Rejected · Test
+  batch · All (each
   with its photo count; the open tab shows its paid calls and their estimated
   cost; "This month: X of Y paid calls" above them); search SKU / name /
-  batch. Every row shows "Paid calls: n of 2". Completed and Rejected rows are
-  Locked (no Re-run); Needs owner rows show the reason. The admin-only
-  Unlock and re-cut / Try once more / Allow one more paid call open a confirm
+  batch. Every row shows "Paid calls: n of 2" and "Product published / not
+  published". Completed rows are final ("Completed is final"; Kept original is
+  labelled); Rejected rows are Locked (no Re-run); Needs owner rows show the
+  reason; Waiting-for-publish rows say why they are not sent. **Keep original**
+  (confirmed, free) is on every photo not yet Completed — the main button when
+  almost nothing was kept. The admin-only
+  Try once more / Allow one more paid call open a confirm
   naming the provider, "1 paid call, about $…" and the photo's paid calls so
   far (`get_media_cutout_tab_totals` gives the price and the admin flag). Each row: Original → cut-out on the dark hero stage → catalogue
   square, status, flags in plain words, and **Approve / Re-run (or high
@@ -422,6 +477,28 @@ Sixth tab of `/website` (docs/WEBSITE-WORKSPACE.md), `manage_website_catalog`
   even while the switch is Off.
 - Bell `media_cutout_cap_near` opens this tab.
 - Dev preview: `/__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff]`.
+
+## 7c. Database objects (migration 20261011100000_media_cutouts_publish_gate.sql)
+
+`job_state` gains `waiting`, `status` gains `kept_original` (CHECKs replaced by
+named ones). New: `media_cutout_url_published`, `media_cutout_queue_published`,
+`media_cutout_dequeue_unpublished` (service role), trigger functions
+`media_cutout_follow_product_publish` / `media_cutout_follow_media_publish`,
+triggers `trg_website_product_cutout_publish_gate` (website_products) and
+`trg_website_media_cutout_publish_gate` (website_product_media). Redefined,
+md5-guarded against the live cut_once bodies (PR 1's for housekeeping):
+`guard_media_cutout_cut_once`, `media_cutout_submit_batch`,
+`media_cutout_sync_result`, `media_cutout_error`, `media_cutout_housekeeping`,
+`list_media_cutouts` (+ `waiting`, `kept_original`, per-row `published`),
+`get_media_cutout_tab_totals` (+ `waiting`, `completed.kept_original`),
+`review_media_cutout` (+ `keep_original`; `unlock_recut` →
+`completed_is_final`). One-time cleanup: queued photos of unpublished
+products → waiting; queued re-cuts of Completed photos cancelled; before /
+after counts in one `audit_logs` row (`media_cutouts_publish_gate`). No
+edge-function change. Proven locally by
+`docs/sql/20261011_media_cutouts_publish_gate_local_tests.sql` (G1–G13), the
+live-shaped `…_snapshot.sql` + `…_verify.sql`, with the cut_once suite run as
+the baseline BEFORE it (its Unlock and re-cut cases are what this replaces).
 
 ## 7b. Database objects (migration 20261010100000_media_cutouts_cut_once.sql)
 

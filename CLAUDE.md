@@ -1638,9 +1638,12 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     unmatched, duplicate, busy or non-transparent file.
   - Automation never overwrites approved/rejected; only ok / auto_fixed /
     approved may be shown on the website.
-  - CUT ONCE (2026-09-28): Completed/Rejected photos are locked (DB guard);
-    max 2 paid calls per photo, then Needs owner; only an admin reopens, one
-    audited paid call. Never bypass in SQL. docs/MEDIA-CUTOUTS.md "CUT ONCE".
+  - CUT ONCE (2026-09-28): max 2 paid calls/photo, then Needs owner.
+    COMPLETED (incl. kept_original) IS FINAL for every role — no re-cut path;
+    Rejected: admin Try once more only. Keep original = free, audited, final.
+    PUBLISH GATE: cut ONLY while the product is published (status 'active');
+    else job_state 'waiting'. DB-enforced; never bypass in SQL.
+    docs/MEDIA-CUTOUTS.md "CUT ONCE" / "PUBLISH GATE".
   - PROVIDER = PHOTOROOM (owner, 2026-09-27): system_settings.
     media_cutout_provider photoroom|fal|replicate fails to photoroom; fal and
     Replicate are called ONLY when selected there. Provider + price change
