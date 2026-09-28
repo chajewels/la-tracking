@@ -1,35 +1,44 @@
 /**
- * Frontend portal link builder for Phase B email/password auth.
+ * Frontend portal link builder.
  *
- * A USABLE TOKEN WINS, whatever the customer's auth state (changed
- * 2026-09-15):
- *   1. a valid, unexpired token → token-bearing URL
- *   2. otherwise auth_user_id   → bare URL (they can sign in)
- *   3. otherwise                → /portal home
+ * THE RULE (2026-09-28 — identical in the backend twin):
+ *   1. portal_password_at set              → bare URL (sign-in), intent honoured
+ *   2. else a live (active, unexpired) token → token URL, intent honoured
+ *   3. else auth_user_id set                → bare URL, intent honoured
+ *   4. else                                 → https://portal.chajewelsjp.com/portal
  *
- * It used to branch on auth_user_id first. `/auth/customer` sets
- * auth_user_id on any storefront sign-in, and the storefront signs
- * customers in with a magic link — so a legacy token customer who
- * signed in there became "linked" without ever choosing a password,
- * and every Hub link to them switched to a bare URL asking for one.
- * A token URL works either way, so preferring it costs a
- * password-holder nothing.
+ * WHY portal_password_at AND NOT auth_user_id. auth_user_id does NOT mean
+ * "has a portal password". The storefront signs customers in by MAGIC LINK
+ * and website POST /auth/customer sets auth_user_id on any storefront
+ * sign-in, so a token customer who only ever used the storefront is
+ * "linked" without ever choosing a password. Supabase also stores a random
+ * encrypted_password for OTP-created users, so auth.users cannot tell the
+ * two apart either. The only reliable marker is the one PortalSetup's
+ * signUp leaves behind (user_metadata.full_name); customers.portal_password_at
+ * was backfilled from it on 2026-09-28 and setup-customer-account stamps it
+ * from then on.
+ *
+ * History: before 2026-09-15 auth_user_id won (magic-link customers were sent
+ * to a password form they could not use). PR #70/#71 made any live token win
+ * instead — but setting a password never retires the token, so password
+ * customers kept getting token links. The password marker now wins; a live
+ * token still wins over a bare auth_user_id.
+ *
+ * PIN LINE: every token link opens the portal PIN gate, so a message shows
+ * the PIN line iff the built URL is a token URL (isTokenLink) and a PIN
+ * exists — never keyed on auth_user_id.
  *
  * The backend has a parallel implementation at
- * supabase/functions/_shared/portal-link.ts. Both files must be
- * kept in sync — same logic, different runtimes (Deno vs Vite).
- *
- * The frontend version is pure: caller passes already-loaded
- * customer data (auth_user_id + optional portal_token). For
- * customers who lack a token AND lack auth_user_id, the URL
- * falls back to the portal home (/portal) regardless of intent,
- * matching backend behavior — the loyalty page requires auth to
- * render, so token-less unauthenticated visitors land at portal
- * home (Messenger token recovery flow).
+ * supabase/functions/_shared/portal-link.ts. Both files must be kept in
+ * sync — same logic, different runtimes (Deno vs Vite).
  *
  * Usage:
  *   const url = getPortalLinkForCustomer(
- *     { auth_user_id: customer.auth_user_id, portal_token: tokenRow?.token },
+ *     {
+ *       auth_user_id: customer.auth_user_id,
+ *       portal_password_at: customer.portal_password_at,
+ *       portal_token: tokenRow?.token,
+ *     },
  *     'portal'
  *   );
  */
@@ -40,6 +49,8 @@ export type PortalIntent = 'portal' | 'loyalty';
 
 export interface CustomerForLink {
   auth_user_id: string | null;
+  /** When the customer chose a portal password at /portal/setup. NULL = none. */
+  portal_password_at?: string | null;
   portal_token?: string | null;
   /**
    * The token's expiry, when the caller knows it. `undefined` means
@@ -56,21 +67,19 @@ function tokenExpired(expiresAt?: string | null): boolean {
   return !Number.isNaN(t) && t < Date.now();
 }
 
+/** True when a built portal URL carries a token (and so opens the PIN gate). */
+export function isTokenLink(url: string): boolean {
+  return url.includes('?token=');
+}
+
 /**
- * Build the appropriate portal URL based on the customer's auth
- * state and intent.
+ * Build the portal URL for a customer and intent. See the file header for
+ * the rule and why it keys on portal_password_at.
  *
- * Rules:
- *   - If customer.auth_user_id is set → bare URL (email/password)
- *   - If null and portal_token present → token-bearing URL
- *   - If null and no token available → /portal home fallback
- *     (regardless of intent — see file header)
+ * The caller is responsible for passing only an active token; supply
+ * token_expires_at to have expiry checked here.
  *
- * The caller is responsible for ensuring portal_token is a valid,
- * non-expired, active token. This function does not validate the
- * token.
- *
- * @param customer Object with auth_user_id and optional portal_token
+ * @param customer auth_user_id, portal_password_at and optional portal_token
  * @param intent 'portal' (default) or 'loyalty'
  * @returns Fully-qualified portal URL string
  */
@@ -80,17 +89,22 @@ export function getPortalLinkForCustomer(
 ): string {
   const path = intent === 'loyalty' ? '/loyalty' : '/portal';
 
-  // 1. A usable token wins, linked or not — it works either way.
+  // 1. They chose a portal password → the sign-in page.
+  if (customer.portal_password_at) {
+    return `${PORTAL_BASE}${path}`;
+  }
+
+  // 2. A live token works whatever else is true (magic-link customers too).
   if (customer.portal_token && !tokenExpired(customer.token_expires_at)) {
     return `${PORTAL_BASE}${path}?token=${encodeURIComponent(customer.portal_token)}`;
   }
 
-  // 2. No usable token, but they can sign in. Honours the intent.
+  // 3. No token, but they have a sign-in. Honours the intent.
   if (customer.auth_user_id) {
     return `${PORTAL_BASE}${path}`;
   }
 
-  // 3. Nothing to authenticate with → /portal home regardless of intent. The
+  // 4. Nothing to authenticate with → /portal home regardless of intent. The
   // loyalty page requires auth to render, so token-less unauthenticated
   // visitors land at the portal home (Messenger token recovery flow). Matches
   // backend buildPortalLinkForCustomerId.

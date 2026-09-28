@@ -5599,3 +5599,39 @@ docs/OPEN-BUGS.md.
 Do not reintroduce: a record-only migration is captured from pg_get_functiondef on live,
 never written from memory or intent; an in-place patch migration does not count as a record
 for the audit, so follow it with the body written out.
+
+### Portal password customers got token links; magic-link customers lost the PIN line (2026-09-28)
+
+**Symptom.** Customers who had chosen a portal password still received token links
+(`/portal?token=…`) in CSR reminder, penalty, payment and loyalty messages — the link
+opened the PIN gate instead of their sign-in. And customers who had only signed in on the
+storefront by magic link got token links with **no PIN line**, although every token link
+opens the PIN gate (src/pages/CustomerPortal.tsx PIN gate).
+
+**Root cause.** PR #70/#71 (2026-09-15) made any live token win over `auth_user_id` in
+both link builders, to stop magic-link storefront customers being sent to a password form.
+But setting a password never retires the token, so password customers kept getting token
+links (40 of them held a live token). Separately, every PIN line was gated on
+`!auth_user_id`, and `auth_user_id` does not mean "has a password": website POST
+/auth/customer sets it on any storefront magic-link sign-in, so 47 magic-link customers
+who still get token links had the PIN line suppressed. Supabase stores a random
+`encrypted_password` for OTP-created users, so `auth.users` cannot tell them apart either.
+
+**Marker.** Only PortalSetup's `signUp` writes `user_metadata.full_name`. The owner added
+`customers.portal_password_at` on live and backfilled it from
+`auth.users.created_at WHERE raw_user_meta_data ? 'full_name'` (UPDATE 89; 138 migrated =
+89 portal-password + 49 magic-link-only; unmigrated_with_password 0). Recorded as
+`20261010300000_customers_portal_password_at.sql`. setup-customer-account stamps it from
+now on (link update and new-customer insert).
+
+**Fix.** Both builders (`src/lib/portal-link.ts`, `_shared/portal-link.ts`): password →
+bare URL; else live token → token URL; else auth_user_id → bare URL; else /portal.
+`buildPortalLinkForCustomerId` reads the customer first. PIN line everywhere =
+`isTokenLink(url) && pin`. Monitoring and penalty follow-up load the flags through
+`src/lib/portal-link-customers.ts` (paged; ~905 customers was near the 1000-row cap) under
+their own query keys. Directory pill: Migrated (password) / Web sign-in (auth, no password)
+/ Token-based. Test: development/portal-link.test.ts (CI).
+
+**Do not reintroduce:** never key a portal link or a PIN line on `auth_user_id`; never
+treat `auth_user_id` as "has a password". Edge functions using the shared module go live
+only when Lovable redeploys them.

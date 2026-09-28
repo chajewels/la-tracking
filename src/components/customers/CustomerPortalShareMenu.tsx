@@ -27,6 +27,9 @@ interface Props {
   messengerLink?: string | null;
   customerEmail?: string | null;
   authUserId?: string | null;
+  /** customers.portal_password_at — set only when they chose a portal
+   *  password. auth_user_id alone can be a storefront magic-link sign-in. */
+  portalPasswordAt?: string | null;
   setupLinkSentAt?: string | null;
 }
 
@@ -62,6 +65,7 @@ export default function CustomerPortalShareMenu({
   messengerLink,
   customerEmail,
   authUserId,
+  portalPasswordAt,
   setupLinkSentAt,
 }: Props) {
   const { user } = useAuth();
@@ -82,6 +86,14 @@ export default function CustomerPortalShareMenu({
   const [customerPin, setCustomerPin] = useState<string>('----');
 
   const fetchToken = async () => {
+    // A password customer is sent the sign-in page, never a token. Everyone
+    // else — including storefront magic-link sign-ins — needs their token.
+    if (portalPasswordAt) {
+      setToken(null);
+      setExpiresAt(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from('customer_portal_tokens')
@@ -105,7 +117,8 @@ export default function CustomerPortalShareMenu({
     setLoading(false);
   };
 
-  useEffect(() => { fetchToken(); }, [customerId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchToken(); }, [customerId, portalPasswordAt]);
 
   useEffect(() => {
     setLocalSetupSentAt(setupLinkSentAt ?? null);
@@ -125,8 +138,10 @@ export default function CustomerPortalShareMenu({
   }, [customerId]);
 
   useEffect(() => {
-    if (!customerId || authUserId) {
-      // Skip check if already migrated (no conflict possible) or no customer ID
+    if (!customerId || portalPasswordAt) {
+      // Skip check if they already chose a password (no setup to send) or no
+      // customer ID. A magic-link sign-in (auth_user_id, no password) is still
+      // checked: the RPC ignores the customer's own login.
       setEmailConflict(null);
       setConflictCheckFailed(false);
       setConflictLoading(false);
@@ -150,7 +165,7 @@ export default function CustomerPortalShareMenu({
       }
       setConflictLoading(false);
     })();
-  }, [customerId, authUserId]);
+  }, [customerId, portalPasswordAt]);
 
   const generateToken = async () => {
     setGenerating(true);
@@ -194,9 +209,13 @@ export default function CustomerPortalShareMenu({
     setGenerating(false);
   };
 
-  const portalUrl = (authUserId || token)
+  const portalUrl = (portalPasswordAt || authUserId || token)
     ? getPortalLinkForCustomer(
-        { auth_user_id: authUserId ?? null, portal_token: token },
+        {
+          auth_user_id: authUserId ?? null,
+          portal_password_at: portalPasswordAt ?? null,
+          portal_token: token,
+        },
         'portal'
       )
     : null;
@@ -268,9 +287,13 @@ export default function CustomerPortalShareMenu({
             <CardTitle className="text-sm font-display flex items-center gap-2">
               <Link2 className="h-4 w-4 text-primary" /> Customer Portal
             </CardTitle>
-            {authUserId ? (
+            {portalPasswordAt ? (
               <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-[10px]">
                 Migrated
+              </Badge>
+            ) : authUserId ? (
+              <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-[10px]">
+                Web sign-in
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px]">
@@ -280,7 +303,7 @@ export default function CustomerPortalShareMenu({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {authUserId ? (
+          {portalPasswordAt ? (
             <>
               <p className="text-xs text-muted-foreground">
                 Customer signs in with email and password.

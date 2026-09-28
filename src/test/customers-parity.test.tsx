@@ -244,13 +244,33 @@ describe(`at ${width}px`, () => {
       expect(screen.getAllByText("🧪 TEST")).toHaveLength(1);
     });
 
-    it("a customer with a portal auth account shows Migrated (table on desktop, card on phone)", async () => {
-      h.tables.customers = directory.map((c) => (c.id === "c-99" ? { ...c, auth_user_id: "u-99" } : { ...c, auth_user_id: null }));
+    it("a customer with a portal password shows Migrated (table on desktop, card on phone)", async () => {
+      h.tables.customers = directory.map((c) =>
+        c.id === "c-99"
+          ? { ...c, auth_user_id: "u-99", portal_password_at: "2026-06-01T00:00:00Z" }
+          : { ...c, auth_user_id: null, portal_password_at: null });
       renderAt("/customers", <Customers />);
       await waitFor(() => expect(shownIds()).toHaveLength(50));
       fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "Villa" } });
       await waitFor(() => expect(shownIds()).toEqual(["c-99"]));
       expect(screen.getByText("Migrated")).toBeInTheDocument();
+      expect(screen.queryByText("Token-based")).not.toBeInTheDocument();
+      expect(screen.queryByText("Web sign-in")).not.toBeInTheDocument();
+    });
+
+    // auth_user_id without a password is a storefront magic-link sign-in: they
+    // never chose a password, so they are not "Migrated" (2026-09-28).
+    it("a customer with an auth account but no portal password shows Web sign-in", async () => {
+      h.tables.customers = directory.map((c) =>
+        c.id === "c-99"
+          ? { ...c, auth_user_id: "u-99", portal_password_at: null }
+          : { ...c, auth_user_id: null, portal_password_at: null });
+      renderAt("/customers", <Customers />);
+      await waitFor(() => expect(shownIds()).toHaveLength(50));
+      fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "Villa" } });
+      await waitFor(() => expect(shownIds()).toEqual(["c-99"]));
+      expect(screen.getByText("Web sign-in")).toBeInTheDocument();
+      expect(screen.queryByText("Migrated")).not.toBeInTheDocument();
       expect(screen.queryByText("Token-based")).not.toBeInTheDocument();
     });
 

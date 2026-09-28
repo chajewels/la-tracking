@@ -35,7 +35,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/calculations';
 import { daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
-import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
+import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
 import type { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
 
@@ -97,15 +98,21 @@ export function generatePenaltyReminderMessage(
   portalToken?: string | null,
   authUserId?: string | null,
   customerPin?: string | null,
+  portalPasswordAt?: string | null,
 ): string {
   const dueStr = new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(installmentAmount, currency);
   const penaltyStr = formatCurrency(penaltyAmount, currency);
   const balanceStr = formatCurrency(remainingBalance, currency);
-  const portalUrl = (authUserId || portalToken)
-    ? getPortalLinkForCustomer({ auth_user_id: authUserId ?? null, portal_token: portalToken })
+  const portalUrl = (authUserId || portalToken || portalPasswordAt)
+    ? getPortalLinkForCustomer({
+        auth_user_id: authUserId ?? null,
+        portal_password_at: portalPasswordAt ?? null,
+        portal_token: portalToken,
+      })
     : null;
-  const pinLine = (portalToken && !authUserId && customerPin)
+  // PIN line iff the link is a token link (it opens the PIN gate) and a PIN exists.
+  const pinLine = (portalUrl && isTokenLink(portalUrl) && customerPin)
     ? `\n🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}`
     : '';
   const portalLink = portalUrl
@@ -150,6 +157,7 @@ export interface PenaltyAlertItem {
   portalToken?: string | null;
   messengerLink?: string | null;
   authUserId?: string | null;
+  portalPasswordAt?: string | null;
   mobileNumber?: string | null;
   customerPin?: string | null;
 }
@@ -243,39 +251,12 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     },
   });
 
-  // Fetch portal tokens AND auth_user_id per customer
+  // Portal link facts per customer (live token, auth_user_id,
+  // portal_password_at, PIN) — paged; see src/lib/portal-link-customers.ts.
+  // Own queryKey: Monitoring.tsx caches its own copy.
   const { data: portalTokens } = useQuery({
-    queryKey: ['portal-tokens-with-auth'],
-    queryFn: async () => {
-      const [tokensRes, customersRes] = await Promise.all([
-        supabase
-          .from('customer_portal_tokens')
-          .select('customer_id, token, expires_at')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('customers')
-          .select('id, auth_user_id'),
-      ]);
-      if (tokensRes.error) throw tokensRes.error;
-      if (customersRes.error) throw customersRes.error;
-      const authMap = new Map<string, string | null>();
-      for (const c of customersRes.data || []) {
-        authMap.set(c.id, c.auth_user_id);
-      }
-      const map = new Map<string, { token: string | null; authUserId: string | null }>();
-      for (const t of tokensRes.data || []) {
-        if (map.has(t.customer_id)) continue;
-        if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
-        map.set(t.customer_id, { token: t.token, authUserId: authMap.get(t.customer_id) ?? null });
-      }
-      for (const [customerId, authUserId] of authMap.entries()) {
-        if (!authUserId) continue;
-        if (map.has(customerId)) continue;
-        map.set(customerId, { token: null, authUserId });
-      }
-      return map;
-    },
+    queryKey: ['penalty-portal-tokens-with-auth'],
+    queryFn: fetchPortalAuthByCustomer,
   });
 
   // Fetch penalty-stage CSR notifications
@@ -310,7 +291,13 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
       const tokenRow = portalTokens?.get(a.customerId);
       const _digits = (a.mobileNumber ?? '').replace(/\D/g, '');
       const customerPin = _digits.length >= 4 ? _digits.slice(-4) : null;
-      return { ...a, portalToken: tokenRow?.token ?? null, authUserId: tokenRow?.authUserId ?? null, customerPin };
+      return {
+        ...a,
+        portalToken: tokenRow?.token ?? null,
+        authUserId: tokenRow?.authUserId ?? null,
+        portalPasswordAt: tokenRow?.portalPasswordAt ?? null,
+        customerPin,
+      };
     });
   }, [penaltyAlerts, portalTokens]);
 
@@ -449,7 +436,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     const msg = generatePenaltyReminderMessage(
       alert.stage, alert.customer, alert.invoice, alert.dueDate,
       alert.installmentAmount, alert.penaltyAmount, alert.remainingBalance,
-      alert.currency, alert.portalToken, alert.authUserId, alert.customerPin,
+      alert.currency, alert.portalToken, alert.authUserId, alert.customerPin, alert.portalPasswordAt,
     );
     setMessengerDialog({ alert, message: msg });
     setCopied(false);
@@ -480,10 +467,14 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
 
   const handleCopyPortalLink = async () => {
     if (!messengerDialog) return;
-    const { authUserId, portalToken } = messengerDialog.alert;
-    if (!authUserId && !portalToken) return;
+    const { authUserId, portalToken, portalPasswordAt } = messengerDialog.alert;
+    if (!authUserId && !portalToken && !portalPasswordAt) return;
     try {
-      const portalUrl = getPortalLinkForCustomer({ auth_user_id: authUserId ?? null, portal_token: portalToken });
+      const portalUrl = getPortalLinkForCustomer({
+        auth_user_id: authUserId ?? null,
+        portal_password_at: portalPasswordAt ?? null,
+        portal_token: portalToken,
+      });
       await navigator.clipboard.writeText(portalUrl);
       setCopiedPortal(true);
       toast.success('Portal link copied!');
@@ -798,14 +789,18 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                   Copy & Open Messenger
                 </Button>
               )}
-              {(messengerDialog?.alert.portalToken || messengerDialog?.alert.authUserId) && (
+              {(messengerDialog?.alert.portalToken || messengerDialog?.alert.authUserId || messengerDialog?.alert.portalPasswordAt) && (
                 <>
                   <Button variant="outline" className="gap-2 text-xs" onClick={handleCopyPortalLink}>
                     {copiedPortal ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
                     {copiedPortal ? 'Copied!' : 'Copy Portal Link'}
                   </Button>
                   <Button variant="outline" className="gap-2 text-xs" asChild>
-                    <a href={getPortalLinkForCustomer({ auth_user_id: messengerDialog?.alert.authUserId ?? null, portal_token: messengerDialog?.alert.portalToken })} target="_blank" rel="noopener noreferrer">
+                    <a href={getPortalLinkForCustomer({
+                      auth_user_id: messengerDialog?.alert.authUserId ?? null,
+                      portal_password_at: messengerDialog?.alert.portalPasswordAt ?? null,
+                      portal_token: messengerDialog?.alert.portalToken,
+                    })} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-3.5 w-3.5" />
                       Open Portal
                     </a>

@@ -28,7 +28,10 @@ export function buildCustomerDirectoryFixtures(empty = false) {
     email: i % 6 === 0 ? `customer${i}@example.com` : null,
     notes: null,
     location: LOCATIONS[i % LOCATIONS.length],
-    auth_user_id: null,
+    // All three portal pills: Migrated (chose a password), Web sign-in
+    // (storefront magic link: auth_user_id, no password), Token-based.
+    auth_user_id: i % 7 === 1 || i % 7 === 2 ? `fixture-auth-${i}` : null,
+    portal_password_at: i % 7 === 1 ? '2026-06-01T00:00:00Z' : null,
   }));
   return [DEMO_CUSTOMER, MIXED_SCRIPT_CUSTOMER, ...base];
 }

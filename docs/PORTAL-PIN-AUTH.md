@@ -28,3 +28,14 @@
     verify-portal-pin — deployed 2026-04-21
     set-portal-pin    — deployed 2026-04-21
 
+## PIN LINE IN STAFF MESSAGES (verified 2026-09-28)
+
+  Every token link (/portal?token=… or /loyalty?token=…) opens the PIN gate
+  (src/pages/CustomerPortal.tsx). So a message shows the "🔐 Your portal PIN
+  is the last 4 digits…" line iff the link it carries is a token link
+  (isTokenLink in src/lib/portal-link.ts) and the customer has a PIN
+  (>= 4 mobile digits). It is NEVER keyed on auth_user_id — storefront
+  magic-link customers have auth_user_id and still get token links. Which
+  link a customer gets: CLAUDE.md "PORTAL LINK RULE".
+  (The SHA-256 sections above are NOT re-verified here; CLAUDE.md says PINs
+  moved to customer_pins with PBKDF2 — treat those sections as stale.)

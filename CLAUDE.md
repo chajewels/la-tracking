@@ -753,7 +753,7 @@ All values come from computeLayaway() in business-rules.ts
   Inv # [invoiceNumber]
   View your updated account and payment schedule here:
   🔗 [portalLink]
-  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only for legacy token-link customers — omitted when auth_user_id is set)
+  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only when [portalLink] is a token link — see PORTAL LINK RULE)
   Next payment: [nextDueMonth] — ₱ [nextMonthAmount]
   Thank you for your continued trust in Cha Jewels! 🧡
 
@@ -766,7 +766,7 @@ All values come from computeLayaway() in business-rules.ts
     Inv #[num] — [label]: ₱ [amount]
   View your accounts here:
   🔗 [portalLink]
-  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only for legacy token-link customers — omitted when auth_user_id is set)
+  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only when [portalLink] is a token link — see PORTAL LINK RULE)
   Next payments:
     [label] — [nextDueMonth]: ₱ [nextDueAmount]
     [label] — [nextDueMonth]: ₱ [nextDueAmount]
@@ -786,6 +786,18 @@ All values come from computeLayaway() in business-rules.ts
   View your account here:
   🔗 [portalLink]
   Thank you for your continued trust in Cha Jewels! 🧡
+
+### PORTAL LINK RULE (both builders: src/lib/portal-link.ts, _shared/portal-link.ts)
+
+  1. customers.portal_password_at set    → bare URL (sign-in), intent honoured
+  2. else a live (active, unexpired) token → token URL, intent honoured
+  3. else auth_user_id set                → bare URL, intent honoured
+  4. else                                 → https://portal.chajewelsjp.com/portal
+  auth_user_id does NOT mean "has a password" — storefront magic-link sign-ins
+  set it. portal_password_at is stamped only by setup-customer-account.
+  PIN line: shown iff the built URL is a token link (isTokenLink) and a PIN
+  exists; never keyed on auth_user_id. History: docs/FIXED-BUGS.md
+  "Portal password customers got token links" (2026-09-28).
 
 ## Monthly Row Display Rules
 
