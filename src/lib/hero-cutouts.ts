@@ -1,5 +1,6 @@
 import { callUntypedRpc } from '@/lib/untyped-rpc';
 import { publicUrl } from '@/lib/media-cutouts';
+import { supabase } from '@/integrations/supabase/client';
 
 /**
  * Website → Photos → Hero cut-outs (docs/HERO-CUTOUTS.md; migration
@@ -82,7 +83,12 @@ export function describeHeroFlag(flag: string): string {
     case 'edge_touch': return `The piece is cut by the photo's edge (${value.replace(/,/g, ', ')}); that side is faded.`;
     case 'coverage': return `The piece fills an unusual share of the photo (${Math.round(Number(value) * 100)} %).`;
     case 'low_res': return `The photo is too small for the hero (${value.replace('x', ' × ')} px; at least 1200 px on the long side).`;
-    case 'interior_hole': return `Part of the piece was erased from inside it (${value} px) — e.g. a dial or a stone.`;
+    case 'interior_hole': {
+      // qa.py writes the erased SHARE of the piece (0–1), not pixels.
+      const n = Number(value);
+      const share = Number.isFinite(n) && n > 0 && n <= 1 ? ` (${Math.round(n * 1000) / 10} % of the piece)` : '';
+      return `Part of the piece was erased from inside it${share} — e.g. a dial or a stone.`;
+    }
     case 'relative_coverage': return `This photo kept far less of the piece than the main photo (${Math.round(Number(value) * 100)} % of it).`;
     case 'api_error': return `The cut-out could not be made (${value}).`;
     default: return flag;
@@ -128,6 +134,86 @@ export function heroActions(row: Pick<HeroRow, 'status' | 'qa_status'>): { appro
 }
 
 export const heroCutoutUrl = (row: Pick<HeroRow, 'cutout_path'>) => publicUrl(row.cutout_path);
+
+/**
+ * The checks' flags in the fewest plain words, for the zoom viewer's info
+ * panel (the longer describeHeroFlag stays underneath as the detail).
+ * Values as the storefront workflow writes them (scripts/hero-cutouts/
+ * pipeline.py, qa.py): coverage and relative_coverage are shares 0–1,
+ * interior_hole is the erased share of the piece, low_res is W×H px.
+ */
+export function heroFlagPlain(flag: string): string {
+  const [key, value = ''] = flag.split(':');
+  const n = Number(value);
+  const pct = (x: number) => `${x < 0.1 ? Math.round(x * 1000) / 10 : Math.round(x * 100)} %`;
+  switch (key) {
+    case 'low_res': return `Photo is small (${value.replace('x', '×')})`;
+    case 'interior_hole':
+      return `Possible hole erased inside the piece${Number.isFinite(n) && n > 0 && n <= 1 ? ` (${pct(n)} of the piece)` : ''}`;
+    case 'relative_coverage':
+      return `Much less of the piece than the main photo${Number.isFinite(n) && value ? ` (${pct(n)} of it)` : ''}`;
+    case 'extra_objects': return Number(value) > 1 ? `Extra objects in the picture (${value})` : 'Extra object in the picture';
+    case 'edge_touch': return `Piece touches the photo edge${value ? ` (${value.replace(/,/g, ', ')})` : ''}`;
+    case 'coverage':
+      // pipeline.py flags coverage outside 3–85 %: say which way it is off.
+      if (!Number.isFinite(n) || !value) return 'Unusual share of the photo';
+      return n > 0.5 ? `Piece fills almost the whole photo (${pct(n)})` : `Piece fills very little of the photo (${pct(n)})`;
+    case 'api_error': return `The cut-out could not be made (${value})`;
+    default: return flag;
+  }
+}
+
+/** What the viewer shows about the photo's product: photo order and categories. */
+export interface HeroPhotoContext { photos: string[]; categories: string[] }
+
+type ContextVariant = { sort?: number | null; website_product_media?: { url: string; sort?: number | null }[] | null };
+
+/**
+ * The product's photos in the storefront workflow's order (scripts/hero-cutouts/
+ * run.py all_images: variants in order, every photo stable-sorted by `sort`,
+ * each URL once) — so "photo 2" here is the workflow's photo 2.
+ */
+export function heroPhotoOrder(variants: ContextVariant[]): string[] {
+  const media = [...variants]
+    .sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0))
+    .flatMap(v => [...(v.website_product_media ?? [])].sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0)));
+  media.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
+  const out: string[] = [];
+  for (const m of media) if (m.url && !out.includes(m.url)) out.push(m.url);
+  return out;
+}
+
+export function heroPhotoNumber(url: string, ctx: HeroPhotoContext | undefined): number | null {
+  const i = ctx?.photos.indexOf(url) ?? -1;
+  return i >= 0 ? i + 1 : null;
+}
+
+type ContextReader = (productId: string) => Promise<HeroPhotoContext>;
+let contextReader: ContextReader = async (productId) => {
+  const { data, error } = await supabase
+    .from('website_products' as never)
+    .select(
+      'id, website_product_variants(sort, website_product_media(url, sort)), '
+      + 'website_category_products(category:website_categories!website_category_products_category_id_fkey(name, sort_order))',
+    )
+    .eq('id', productId)
+    .maybeSingle();
+  if (error) throw error;
+  const p = (data ?? {}) as {
+    website_product_variants?: ContextVariant[] | null;
+    website_category_products?: { category: { name: string; sort_order: number | null } | null }[] | null;
+  };
+  const categories = (p.website_category_products ?? [])
+    .map(c => c.category)
+    .filter((c): c is { name: string; sort_order: number | null } => !!c)
+    .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0))
+    .map(c => c.name);
+  return { photos: heroPhotoOrder(p.website_product_variants ?? []), categories };
+};
+/** DEV FIXTURE ONLY: answer the viewer's product read in memory. */
+export function setHeroContextForFixture(r: ContextReader) { contextReader = r; }
+export const HERO_CONTEXT_KEY = 'hero-cutout-photo-context';
+export const fetchHeroPhotoContext = (productId: string) => contextReader(productId);
 
 export function heroRefusalText(err: unknown): string {
   if (!(err instanceof RpcRefusal)) return err instanceof Error ? err.message : String(err);
