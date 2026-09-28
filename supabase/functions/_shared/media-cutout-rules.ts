@@ -109,3 +109,27 @@ export const TICK = {
   /** Stop starting new work after this much wall time. */
   budgetMs: 45_000,
 } as const;
+
+/**
+ * WORKING COPY (2026-09-29, NL366). Large originals (e.g. 1.7 MB, 3000+ px
+ * Page365 JPEGs from 2024) made the process step decode two full-size images
+ * and hit the 2 s CPU limit twice → Failed, both paid calls spent. Every
+ * stored output is at most CUTOUT_SIZES_PATH_A.catalog (1200 px), so nothing
+ * needs more than WORKING_MAX_PX on its long side.
+ *
+ * For a photo in our own public storage this returns Supabase's image
+ * transformation of it: fit inside WORKING_MAX_PX², same format, never
+ * enlarged (verified live 2026-09-29: 1.8 MB JPEG → 331 KB; a 771×1028 PNG
+ * came back the same size). The provider is sent this URL and the process
+ * step decodes it, so the provider's result has the same framing and a
+ * bounded size. Any other URL is returned unchanged. The original is never
+ * modified and its sha256 is still taken from the untouched file.
+ */
+export const WORKING_MAX_PX = 1600;
+
+export function workingUrl(sourceUrl: string): string {
+  const m = /^(https:\/\/[^/]+)\/storage\/v1\/object\/public\/([^?#]+)$/.exec(sourceUrl);
+  if (!m) return sourceUrl;
+  return `${m[1]}/storage/v1/render/image/public/${m[2]}` +
+    `?width=${WORKING_MAX_PX}&height=${WORKING_MAX_PX}&resize=contain&format=origin`;
+}

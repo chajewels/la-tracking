@@ -71,7 +71,10 @@ export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId 
           Try once more
         </Button>
       )}
-      {isAdmin && held && !isLocked(row.status) && (
+      {/* Also on a FAILED photo at its paid-call limit (NL366, 2026-09-29):
+          review_media_cutout's override_cap already accepts that state, but
+          the button only showed for Needs owner, leaving no way forward. */}
+      {isAdmin && (held || (capped && row.status === "failed")) && !isLocked(row.status) && (
         <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "override_cap")}>
           Allow one more paid call
         </Button>
