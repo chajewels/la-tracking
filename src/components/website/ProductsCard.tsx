@@ -232,7 +232,7 @@ export default function ProductsCard() {
   function place(sp: URLSearchParams): URLSearchParams {
     return placementFor(sp, rows, typeOptions);
   }
-  const setView = (v: "published" | "unpublished") => {
+  const setView = (v: "published" | "unpublished" | "sold-out") => {
     setPicked(new Set());
     setSearchParams((prev) => place(withView(prev, v)), { replace: false });
   };
@@ -635,7 +635,7 @@ export default function ProductsCard() {
         <CardContent className="p-0">
           {rows.length > 0 && (
             <div className="flex gap-1 border-b border-border px-4 pt-3" role="tablist" aria-label="Published or not" data-testid="catalog-publish-tabs">
-              {(["published", "unpublished"] as const).map((t) => (
+              {(["published", "unpublished", "sold-out"] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -647,7 +647,7 @@ export default function ProductsCard() {
                     (tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")
                   }
                 >
-                  {t === "published" ? "Published" : "Unpublished"} ({tabTotals[t]})
+                  {t === "published" ? "Published" : t === "unpublished" ? "Unpublished" : "Sold out"} ({tabTotals[t]})
                 </button>
               ))}
             </div>
