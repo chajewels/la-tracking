@@ -59,8 +59,15 @@ ASTAG = re.compile(r'\bAS\s+(\$[A-Za-z_]*\$)', re.I)
 
 
 def normalise(body: str) -> str:
-    """The comparator: collapse every run of whitespace to one space, then trim."""
-    return re.sub(r'\s+', ' ', body).strip()
+    """The comparator: collapse every run of whitespace to one space, then trim.
+
+    Must match the live side exactly: Postgres's regexp_replace(prosrc, '\\s+', ' ', 'g')
+    then btrim(). Postgres \\s is ASCII whitespace only, while Python's \\s on a str is
+    Unicode-aware, so a body carrying U+3000 (ideographic space — page365_metals_from_text
+    splits on it) used to hash differently on each side and read as drift when the two were
+    byte-identical (2026-09-28). ASCII class and a space-only trim, like btrim().
+    """
+    return re.sub(r'[ \t\n\r\f\v]+', ' ', body).strip(' ')
 
 
 def scan(repo_dir: str):
