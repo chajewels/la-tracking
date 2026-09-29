@@ -40,11 +40,20 @@ One active product by slug; 404 otherwise.
 
 ### Product shape
 `{ id, sku, slug, name, name_en, name_ja, karat, metals, weight_g,
-description_en, description_ja, status, condition, origin, brand, updated_at,
+description_en, description_ja, status, condition, origin, brand,
+item_type, video_url, video_poster_url, updated_at,
 product_variants: [{ id, size, stone, price_jpy, price_php, stock_qty,
 down_payment_jpy?, down_payment_php?, down_payment_pct?,
 product_media: [{ url, alt }] }], category_slugs: string[] }`
 
+- `item_type` (2026-09-29, D2-1): `"Jewelry" | "Watch" | "Accessory"`, from
+  `website_products.item_kind`; `null` if the Hub holds anything else. The
+  storefront's grid Type filter reads it.
+- `video_url` / `video_poster_url` (2026-09-29, D2-1): the product's MP4 and a
+  still taken from it on upload (Hub: Website → Catalog → Edit product →
+  Video). Both `null` when there is no video; `video_poster_url` is `null`
+  whenever `video_url` is, and may be `null` on its own (the browser could not
+  read a frame). Public https URLs in the `promotions` bucket.
 - `stock_qty` is the Hub's one stock figure. Besides website orders and staff
   edits, a **Page365 invoice imported into the Hub** reduces it (and a cancelled
   or expired import gives it back) — 2026-09-26, docs/PAGE365-IMPORT.md

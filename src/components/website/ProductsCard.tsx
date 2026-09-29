@@ -1,3 +1,4 @@
+import { uploadProductVideo } from "@/lib/product-video";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -319,6 +320,9 @@ export default function ProductsCard() {
       savedEn: p.description_en ?? "",
       status: p.status ?? "draft",
       page365SyncDisabled: p.page365_sync_disabled === true,
+      videoUrl: p.video_url ?? null,
+      videoPosterUrl: p.video_poster_url ?? null,
+      videoColumns: "video_url" in p,
       collectionIds: ((p.website_collection_products ?? []) as any[]).map((c) => c.collection_id),
       categoryIds: ((p.website_category_products ?? []) as any[]).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
@@ -446,6 +450,10 @@ export default function ProductsCard() {
         // refused publication without a category (trg_page365_draft_publish_guard).
         status: goingLive ? "draft" : f.status,
         page365_sync_disabled: f.page365SyncDisabled,
+        // Only once the columns exist (or a video was added): see videoColumns.
+        ...(f.videoColumns || f.videoUrl
+          ? { video_url: f.videoUrl, video_poster_url: f.videoUrl ? f.videoPosterUrl : null }
+          : {}),
       };
 
       let productId = f.id;
@@ -579,6 +587,24 @@ export default function ProductsCard() {
       });
     } catch (e: any) {
       toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setUploadingKey(null);
+    }
+  }
+
+  async function uploadVideo(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setUploadingKey("video");
+    try {
+      const { video_url, video_poster_url } = await uploadProductVideo(file);
+      setForm((f) => ({ ...f, videoUrl: video_url, videoPosterUrl: video_poster_url }));
+      toast({
+        title: "Video added",
+        description: video_poster_url ? "Save the product to put it on the website." : "Uploaded without a still frame (this browser could not read the clip). Save the product to put it on the website.",
+      });
+    } catch (e: any) {
+      toast({ title: "Video upload failed", description: e.message, variant: "destructive" });
     } finally {
       setUploadingKey(null);
     }
@@ -911,6 +937,7 @@ export default function ProductsCard() {
         onSave={() => save.mutate(form)}
         onRegenerateJapanese={regenerateJapanese}
         onUploadMedia={uploadMedia}
+        onUploadVideo={uploadVideo}
         onPatchVariant={patchVariant}
       />
     </>
