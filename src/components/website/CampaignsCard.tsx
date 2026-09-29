@@ -30,7 +30,8 @@ import {
   AUDIENCE_LABEL, CAMPAIGN_AUDIENCES, CAMPAIGN_SELECT, LAYAWAY_HINT, MAX_CAMPAIGN_PRODUCTS,
   SEND_RATE_PER_HOUR,
   STATUS_LABEL, campaignPayload, emptyCampaign, estimateText, isCancellable, isEditable,
-  isInFlight, isLayawayError, progressText, recipientCount, statusOf, toDraft, validateCampaign,
+  isInFlight, isLayawayError, progressText, campaignReach, parseTestResponse, statusOf, toDraft, validateCampaign,
+  type CampaignContent, type RenderedTest,
 } from "@/components/website/newsletter-campaigns";
 
 /**
@@ -124,11 +125,11 @@ export function CampaignsCard() {
   const [preview, setPreview] = useState<"en" | "ja" | null>(null);
   const [translating, setTranslating] = useState(false);
   const [layawayBlocked, setLayawayBlocked] = useState(false);
-  const [testHtml, setTestHtml] = useState<string | null>(null);
+  const [testRendered, setTestRendered] = useState<RenderedTest[] | null>(null);
   const [confirmSend, setConfirmSend] = useState<CampaignRow | CampaignDraft | null>(null);
 
   const open = (d: CampaignDraft | null) => {
-    setDraft(d); setPreview(null); setLayawayBlocked(false); setTestHtml(null);
+    setDraft(d); setPreview(null); setLayawayBlocked(false); setTestRendered(null);
   };
   const patch = (p: Partial<CampaignDraft>) =>
     setDraft((d) => {
@@ -139,8 +140,12 @@ export function CampaignsCard() {
       return { ...d, ...p };
     });
 
-  const audienceCount = (a: CampaignAudience) => recipientCount(subscribers.data ?? [], a);
-  const draftCount = draft ? audienceCount(draft.audience) : 0;
+  // What campaign-queue will actually queue for this audience and this text:
+  // active, not a test customer, and not skipped for language (a copy of the
+  // server's rule — see campaignLangFor). `send` is the number staff approve.
+  const reachOf = (a: CampaignAudience, c: CampaignContent) => campaignReach(subscribers.data ?? [], a, c);
+  const draftReach = draft ? reachOf(draft.audience, draft) : { send: 0, skipped: 0 };
+  const draftCount = draftReach.send;
 
   const audit = (id: string, action: string, value: unknown) =>
     supabase.from("audit_logs").insert([{
@@ -193,7 +198,7 @@ export function CampaignsCard() {
       const detail = res ? await res.json().catch(() => null) : null;
       throw new Error(detail?.error ?? detail?.message ?? error.message);
     }
-    const body = (data ?? {}) as { ok?: boolean; error?: string; message?: string; html?: string };
+    const body = (data ?? {}) as { ok?: boolean; error?: string; message?: string };
     if (body.ok === false || body.error) {
       throw new Error(body.error ?? body.message ?? "Sending is not available.");
     }
@@ -207,11 +212,21 @@ export function CampaignsCard() {
       const id = await persist(d);
       const body = await callQueue(id, email);
       qc.invalidateQueries({ queryKey: ["newsletter-campaigns"] });
-      return { html: body.html ?? null, email };
+      return { ...parseTestResponse(body), email };
     },
-    onSuccess: ({ html, email }) => {
-      setTestHtml(html);
-      toast({ title: `Test sent to ${email}`, description: html ? "The rendered email is shown below." : undefined });
+    onSuccess: ({ rendered, sent, reason, email }) => {
+      setTestRendered(rendered.length ? rendered : null);
+      const shown = rendered.length ? "The rendered email is shown below." : "No rendered email came back.";
+      if (sent) {
+        toast({ title: `Test sent to ${email}`, description: shown });
+      } else {
+        // campaign-queue renders the test even while sending is off; say so
+        // instead of claiming it was sent.
+        toast({
+          title: "Test not sent — sending is off",
+          description: `${reason ?? "The newsletter sender is not enabled."} ${shown}`,
+        });
+      }
     },
     onError: (e: Error) => toast({ title: "Could not send the test", description: e.message, variant: "destructive" }),
   });
@@ -226,9 +241,14 @@ export function CampaignsCard() {
       const subject = isRow
         ? (target as CampaignRow).subject_en ?? (target as CampaignRow).subject_ja
         : (target as CampaignDraft).subject_en || (target as CampaignDraft).subject_ja;
-      await callQueue(id);
+      const queued = (await callQueue(id)) as { total?: unknown; skipped?: unknown };
+      // Record what the queue actually took (its own total), next to what the
+      // dialog promised, so a mismatch is visible in the audit log.
       await audit(id, "send_newsletter_campaign", {
-        subject, audience, recipients: audienceCount(audience),
+        subject, audience,
+        recipients: typeof queued.total === "number" ? queued.total : null,
+        skipped_for_language: typeof queued.skipped === "number" ? queued.skipped : null,
+        shown_in_dialog: reachOf(audience, target).send,
       });
       return id;
     },
@@ -448,7 +468,7 @@ export function CampaignsCard() {
                       <SelectContent>
                         {CAMPAIGN_AUDIENCES.map((a) => (
                           <SelectItem key={a} value={a}>
-                            {AUDIENCE_LABEL[a]} ({audienceCount(a)})
+                            {AUDIENCE_LABEL[a]} ({reachOf(a, draft).send})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -456,7 +476,10 @@ export function CampaignsCard() {
                     <p className="text-[11px] text-muted-foreground">
                       {subscribers.isLoading
                         ? "Counting subscribers…"
-                        : `Reaches ${draftCount} subscriber${draftCount === 1 ? "" : "s"} — ${estimateText(draftCount)}.`}
+                        : `Reaches ${draftCount} subscriber${draftCount === 1 ? "" : "s"} — ${estimateText(draftCount)}.`
+                          + (draftReach.skipped > 0
+                            ? ` ${draftReach.skipped} left out: no text in a language they can receive.`
+                            : "")}
                     </p>
                   </div>
                   <div className="space-y-1.5">
@@ -570,17 +593,19 @@ export function CampaignsCard() {
                   </ul>
                 )}
 
-                {testHtml && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Test email as it was sent</Label>
+                {testRendered && testRendered.map((r) => (
+                  <div key={r.lang} className="space-y-1.5" data-testid={`test-preview-${r.lang}`}>
+                    <Label className="text-xs text-muted-foreground">
+                      Test email ({r.lang === "ja" ? "Japanese" : "English"}) — {r.sent ? "as it was sent" : "rendered, not sent"}: {r.subject}
+                    </Label>
                     {/* sandbox="" — no scripts, no same-origin. This is rendered
                         email from the function; it is displayed, never trusted. */}
                     <iframe
-                      title="Test email preview" sandbox="" srcDoc={testHtml}
+                      title={`Test email preview (${r.lang})`} sandbox="" srcDoc={r.html}
                       className="h-80 w-full rounded-md border border-border bg-white"
                     />
                   </div>
-                )}
+                ))}
 
                 <div className="flex flex-wrap items-center gap-2 pb-2">
                   <Button type="button" disabled={!canManage || errors.length > 0 || busy}
@@ -618,13 +643,20 @@ export function CampaignsCard() {
                   const audience = ("status" in confirmSend
                     ? ((confirmSend.audience ?? "all") as CampaignAudience)
                     : confirmSend.audience);
-                  const n = audienceCount(audience);
+                  const reach = reachOf(audience, confirmSend);
+                  const n = reach.send;
                   return (
                     <>
                       <p>
                         It goes to <span className="font-medium text-foreground">{n} subscriber{n === 1 ? "" : "s"}</span>
                         {" "}({AUDIENCE_LABEL[audience]}), taking {estimateText(n)}.
                       </p>
+                      {reach.skipped > 0 && (
+                        <p className="text-muted-foreground">
+                          {reach.skipped} other subscriber{reach.skipped === 1 ? " is" : "s are"} left out: the
+                          campaign has no text in a language they can receive.
+                        </p>
+                      )}
                       <p className="text-muted-foreground">
                         Sending starts in the background. It can be cancelled while it runs, but
                         anything already delivered cannot be recalled.

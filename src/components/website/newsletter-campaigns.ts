@@ -142,6 +142,67 @@ export function recipientsFor(
 export const recipientCount = (subscribers: NewsletterSubscriberRow[], audience: CampaignAudience) =>
   recipientsFor(subscribers, audience).length;
 
+/** The text fields that decide which language a subscriber is sent. */
+export type CampaignContent = Pick<CampaignRow, "subject_en" | "subject_ja" | "body_en" | "body_ja">;
+
+const filled = (s: string | null | undefined) => !!(s && s.trim());
+const hasLang = (c: CampaignContent, lang: "en" | "ja") =>
+  lang === "ja" ? filled(c.subject_ja) && filled(c.body_ja) : filled(c.subject_en) && filled(c.body_en);
+
+/**
+ * Which language one subscriber is sent, or "skip" — a copy of recipientLang()
+ * in supabase/functions/_shared/newsletter/render.tsx, which is what
+ * campaign-queue applies when it queues the send. The two MUST stay identical:
+ * the confirm dialog promises this number (Lovable scan 2026-09-29).
+ * Own language if the campaign has it; otherwise the other one — except a
+ * Japanese subscriber is never sent an English-only campaign about layaway.
+ */
+export function campaignLangFor(c: CampaignContent, subscriberLang: string | null): "en" | "ja" | "skip" {
+  const own = subscriberLang === "ja" ? "ja" : "en";
+  if (hasLang(c, own)) return own;
+  const other = own === "ja" ? "en" : "ja";
+  if (!hasLang(c, other)) return "skip";
+  if (own === "ja" && `${c.subject_en ?? ""} ${c.body_en ?? ""}`.toLowerCase().includes("layaway")) return "skip";
+  return other;
+}
+
+/**
+ * How many of this audience campaign-queue will actually queue (`send`) and
+ * how many it will leave out for language (`skipped`). `send` is the number
+ * the Send button and the confirm dialog show — the same figure the queue
+ * stores as the campaign's total.
+ */
+export function campaignReach(
+  subscribers: NewsletterSubscriberRow[], audience: CampaignAudience, content: CampaignContent,
+): { send: number; skipped: number } {
+  let send = 0, skipped = 0;
+  for (const s of recipientsFor(subscribers, audience)) {
+    if (campaignLangFor(content, s.lang) === "skip") skipped++; else send++;
+  }
+  return { send, skipped };
+}
+
+/** One rendered test email, as campaign-queue returns it (one per language). */
+export interface RenderedTest { lang: "en" | "ja"; subject: string; html: string; sent: boolean }
+
+/**
+ * campaign-queue's test-mode answer: `{ mode: "test", sent, provider, rendered: [...] }`.
+ * There is no top-level `html` — the rendered emails are inside `rendered`.
+ */
+export function parseTestResponse(body: unknown): { rendered: RenderedTest[]; sent: boolean; reason: string | null } {
+  const b = (body ?? {}) as {
+    sent?: unknown; rendered?: unknown; provider?: { reason?: unknown; message?: unknown };
+  };
+  const rendered = Array.isArray(b.rendered)
+    ? b.rendered.filter((r): r is RenderedTest =>
+        !!r && typeof r === "object" && typeof (r as RenderedTest).html === "string" && (r as RenderedTest).html.length > 0)
+    : [];
+  const sent = b.sent === true && rendered.some((r) => r.sent === true);
+  const reason = typeof b.provider?.message === "string" ? b.provider.message
+    : typeof b.provider?.reason === "string" ? b.provider.reason : null;
+  return { rendered, sent, reason };
+}
+
 /** Whole hours this many recipients take at SEND_RATE_PER_HOUR. */
 export function estimateHours(recipients: number): number {
   if (recipients <= 0) return 0;

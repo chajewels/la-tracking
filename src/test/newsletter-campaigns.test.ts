@@ -3,6 +3,7 @@ import type { NewsletterSubscriberRow } from "@/components/website/newsletter-ty
 import {
   SEND_RATE_PER_HOUR, campaignPayload, emptyCampaign, estimateHours, estimateText,
   isCancellable, isEditable, isLayawayError, progressText, recipientCount, statusOf,
+  campaignLangFor, campaignReach, parseTestResponse,
   toDraft, validateCampaign, type CampaignRow,
 } from "@/components/website/newsletter-campaigns";
 
@@ -187,5 +188,72 @@ describe("progressText", () => {
 
   it("shows a dash before anything has been queued", () => {
     expect(progressText(row({}))).toBe("—");
+  });
+});
+
+/**
+ * Lovable scan 2026-09-29: the confirm dialog must show what campaign-queue
+ * will queue. campaignLangFor is a copy of the server's recipientLang
+ * (supabase/functions/_shared/newsletter/render.tsx); these cases pin it.
+ */
+const en = { subject_en: "New arrivals", body_en: "Rings", subject_ja: null, body_ja: null };
+const both = { subject_en: "New", body_en: "Rings", subject_ja: "新作", body_ja: "指輪" };
+const jaOnly = { subject_en: null, body_en: null, subject_ja: "新作", body_ja: "指輪" };
+const enLayaway = { subject_en: "Layaway offer", body_en: "Pay in 3 months", subject_ja: "", body_ja: "" };
+
+describe("campaignLangFor (mirror of the server rule)", () => {
+  it("sends each subscriber her own language when the campaign has it", () => {
+    expect(campaignLangFor(both, "en")).toBe("en");
+    expect(campaignLangFor(both, "ja")).toBe("ja");
+  });
+  it("falls back to the other language", () => {
+    expect(campaignLangFor(en, "ja")).toBe("en");
+    expect(campaignLangFor(jaOnly, "en")).toBe("ja");
+  });
+  it("never sends a Japanese subscriber an English-only layaway campaign", () => {
+    expect(campaignLangFor(enLayaway, "ja")).toBe("skip");
+    expect(campaignLangFor(enLayaway, "en")).toBe("en");
+  });
+  it("treats blank text as missing and any other lang as English", () => {
+    expect(campaignLangFor({ subject_en: " ", body_en: "x", subject_ja: null, body_ja: null }, "en")).toBe("skip");
+    expect(campaignLangFor(en, "fr")).toBe("en");
+  });
+});
+
+describe("campaignReach", () => {
+  it("counts what will be queued and what is skipped for language", () => {
+    const list = [sub({ lang: "en" }), sub({ lang: "ja" }), sub({ lang: "ja" })];
+    expect(campaignReach(list, "all", enLayaway)).toEqual({ send: 1, skipped: 2 });
+    expect(campaignReach(list, "all", both)).toEqual({ send: 3, skipped: 0 });
+  });
+  it("still excludes test customers and the unsubscribed", () => {
+    const list = [sub(), sub({ unsubscribed_at: "2026-02-01" }),
+      sub({ customers: { id: "c1", full_name: "T", is_test: true } })];
+    expect(campaignReach(list, "all", en)).toEqual({ send: 1, skipped: 0 });
+  });
+});
+
+describe("parseTestResponse (campaign-queue test mode)", () => {
+  it("reads the per-language rendered list — there is no top-level html", () => {
+    const r = parseTestResponse({
+      mode: "test", sent: true, provider: { enabled: true, reason: "ok", message: "ok" },
+      rendered: [{ lang: "en", subject: "S", html: "<p>x</p>", sent: true }],
+    });
+    expect(r.rendered).toHaveLength(1);
+    expect(r.sent).toBe(true);
+  });
+  it("reports not sent, with the sender's own sentence, while sending is off", () => {
+    const r = parseTestResponse({
+      mode: "test", sent: false,
+      provider: { enabled: false, reason: "missing_api_key", message: "Add the API key." },
+      rendered: [{ lang: "en", subject: "S", html: "<p>x</p>", sent: false }],
+    });
+    expect(r.sent).toBe(false);
+    expect(r.reason).toBe("Add the API key.");
+    expect(r.rendered[0].html).toBe("<p>x</p>");
+  });
+  it("tolerates an empty or odd body", () => {
+    expect(parseTestResponse(null)).toEqual({ rendered: [], sent: false, reason: null });
+    expect(parseTestResponse({ html: "<p>old shape</p>" }).rendered).toEqual([]);
   });
 });
