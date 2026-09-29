@@ -18,6 +18,11 @@ import { type CatalogFilters, NO_PRODUCT_TYPE, hasActiveFilters } from "@/lib/ca
  * still narrows the list to one type). Everything counts within the open tab.
  * Since the types became collapsible sections (closed by default), a chip opens
  * its type and closes the others; Open all / Close all sit beside the chips.
+ *
+ * Since 2026-09-29 (owner: "save space") the chips are the ONLY way to pick a
+ * type: the list no longer prints a heading per type, a type with no products
+ * gets no chip, an open type's chip is highlighted (aria-pressed) and clicking
+ * it again closes it.
  */
 
 // Radix Select cannot hold "" as an item value.
@@ -46,18 +51,22 @@ interface Props {
   /** Sections open / sections listed, to disable Open all or Close all when there is nothing to do. */
   openCount?: number;
   groupCount?: number;
+  /** Type ids open now: their chips are highlighted and a click closes them. */
+  openIds?: ReadonlySet<string>;
+  /** Close one open type (its chip clicked again). */
+  onClose?: (typeId: string) => void;
 }
 
 export function CatalogSearchBar({
   query, onQueryChange, filters, onFiltersChange, onClear, types, categories, statuses, counts, shown, total,
-  noun = "products", onJump, onOpenAll, onCloseAll, openCount = 0, groupCount = 0,
+  noun = "products", onJump, onOpenAll, onCloseAll, openCount = 0, groupCount = 0, openIds, onClose,
 }: Props) {
   const active = hasActiveFilters({ ...filters, q: query });
   // The groups on screen: every type, or only the one the type filter picked.
   const chips: Array<{ value: string; label: string; count: number }> = [
     ...types.map((t) => ({ value: t.id, label: t.name, count: counts.byType.get(t.id) ?? 0 })),
     { value: NO_PRODUCT_TYPE, label: "No product type", count: counts.none },
-  ].filter((c) => !filters.type || c.value === filters.type);
+  ].filter((c) => (!filters.type || c.value === filters.type) && c.count > 0);
 
   return (
     <div className="space-y-3 border-b border-border px-4 py-3" data-testid="catalog-search-bar">
@@ -113,26 +122,31 @@ export function CatalogSearchBar({
         </div>
       </div>
 
-      {((onJump && chips.length > 1) || onOpenAll || onCloseAll) && (
+      {((onJump && chips.length > 0) || onOpenAll || onCloseAll) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {onJump && chips.length > 1 && (
-        <nav className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1" aria-label="Jump to a product type" data-testid="catalog-type-jump">
-          <span className="shrink-0 text-xs text-muted-foreground">Jump to</span>
+        {onJump && chips.length > 0 && (
+        <nav className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1" aria-label="Choose a product type" data-testid="catalog-type-jump">
+          <span className="shrink-0 text-xs text-muted-foreground">Show</span>
           <div className="-mx-1 flex min-w-0 gap-1.5 overflow-x-auto px-1 pb-1">
-            {chips.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                disabled={c.count === 0}
-                onClick={() => onJump(c.value)}
-                className={cn(
-                  "shrink-0 whitespace-nowrap rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors",
-                  "hover:border-primary/60 hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:border-border",
-                )}
-              >
-                {c.label} ({c.count})
-              </button>
-            ))}
+            {chips.map((c) => {
+              const on = !!openIds?.has(c.value);
+              return (
+                <button
+                  key={c.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => (on && onClose ? onClose(c.value) : onJump(c.value))}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-colors",
+                    on
+                      ? "border-primary bg-primary/15 text-foreground"
+                      : "border-border text-muted-foreground hover:border-primary/60 hover:text-foreground",
+                  )}
+                >
+                  {c.label} ({c.count})
+                </button>
+              );
+            })}
           </div>
         </nav>
         )}
