@@ -226,6 +226,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       // on a single create key would wrongly lock out someone who holds the
       // other. The toggle on the screen only offers the type the user can make.
       else if (path.startsWith('/page365/')) return can('create_cash_order') || can('create_account');
+      // Website orders PR 4: the review screen for a website draft (docs/WEB-ORDER-DRAFTS.md).
+      else if (path.startsWith('/orders/review/website/')) return can('confirm_web_order_ready');
       // The Website workspace carries two independent jobs — the shop and the
       // words on the site — behind one route. Gating it on a single key would
       // lock out whoever holds only the other, so the route opens for either
