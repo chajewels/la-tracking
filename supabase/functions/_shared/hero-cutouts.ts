@@ -8,10 +8,21 @@ import { jsonResponse } from "./cors.ts";
  * workflow). Separate from Photoroom: nothing here reads or writes the
  * Photoroom record, the `cutout` field or any _shared/cutout-* code.
  *
- * Only three SQL functions are used, all service role:
+ * The SQL functions used, all service role:
  *   hero_cutouts_for_site(text[])  read side: hero_cutout on every product_media
  *   hero_cutouts_known()           GET  /hero-cutouts (workflow)
  *   hero_cutout_record(jsonb)      POST /hero-cutouts (workflow)
+ *   hero_photo_source()            read side: which source the hero uses
+ *   hero_lineup_rows(text[])       read side: hero_place per product (category route)
+ *
+ * HERO PICKS / HERO ORDER (docs/HERO-PICKS.md, migrations 20261013100000 and
+ * 20261016100000): once system_settings.hero_photo_source = product_ticks,
+ * hero_cutouts_for_site answers with the owner-ticked PRODUCT cut-out instead
+ * of the hero record — its file lives under the product cut-out paths and the
+ * row carries picked_at (the tick time the hero orders pieces by). On
+ * hero_record the rows, and so this payload, are exactly as before: a product
+ * cut-out path is accepted ONLY on a row that carries picked_at, which only
+ * the product_ticks branch sends.
  * Nothing here approves or rejects: that is review_hero_cutout, the owner's,
  * from the Hub.
  *
@@ -36,6 +47,12 @@ const QA_STATUSES = new Set(["ok", "auto_fixed", "needs_review", "failed"]);
 const SHA256_RE = /^[0-9a-f]{64}$/;
 /** The table's cutout_path CHECK, verbatim. */
 export const HERO_PATH_RE = /^website\/derived\/hero\/[0-9a-f]{32}\/[0-9a-f]{8}\/cutout\.webp$/;
+/**
+ * A product cut-out (website_media_cutouts.cutout_path, _shared/media-cutout-rules.ts
+ * derivedPaths): website/derived/<32 hex>/r<run>-<8 hex>/cutout.webp. Runs from
+ * before 2026-09-27 have no -<8 hex>. Only ever accepted on a ticked row (picked_at).
+ */
+export const PRODUCT_CUTOUT_PATH_RE = /^website\/derived\/[0-9a-f]{32}\/r[0-9]{1,4}(?:-[0-9a-f]{8})?\/cutout\.webp$/;
 
 type AnyRec = Record<string, unknown>;
 
@@ -47,6 +64,50 @@ export interface HeroClient {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from: (bucket: string) => any;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Hero order (20261016100000): hero_place on /catalog/categories/:slug
+// ---------------------------------------------------------------------------
+
+/**
+ * Sets `hero_place` on every product of ONE category's response — only while
+ * the hero uses ticked product cut-outs. hero_lineup_rows is THE running order
+ * (docs/HERO-PICKS.md "Running order"): per category, the ticked pieces that
+ * can show (published, a usable ticked photo, a variant in stock), oldest tick
+ * first, ties in the Hub's category order. `hero_place` = 1..n for those
+ * pieces (1–3 are on the slide, the rest wait), `null` for every other product.
+ *
+ * On hero_record (or when the switch cannot be read) the field is NOT added:
+ * the response stays exactly as before. Never throws; if the switch says
+ * product_ticks but the order cannot be read, every product gets null (logged)
+ * and the storefront orders by hero_cutout.picked_at instead.
+ */
+export async function attachHeroPlaces(supabase: HeroClient, products: (AnyRec | null)[], categoryId: unknown): Promise<void> {
+  const list = products.filter((p): p is AnyRec => !!p);
+  if (!list.length || typeof categoryId !== "string") return;
+  try {
+    const { data: source, error: sErr } = await supabase.rpc("hero_photo_source");
+    if (sErr || source !== "product_ticks") return;
+  } catch {
+    return;
+  }
+  for (const p of list) p.hero_place = null;
+  try {
+    const { data, error } = await supabase.rpc("hero_lineup_rows", { p_extra: null });
+    if (error) {
+      console.error("[website] hero_lineup_rows failed; hero_place = null", error.code ?? "", error.message ?? "");
+      return;
+    }
+    const byProduct = new Map<string, number>();
+    for (const r of (Array.isArray(data) ? data : []) as AnyRec[]) {
+      if (r?.category_id === categoryId && typeof r.product_id === "string" && posInt(r.place)) byProduct.set(r.product_id, r.place);
+    }
+    for (const p of list) p.hero_place = byProduct.get(p.id as string) ?? null;
+  } catch (e) {
+    for (const p of list) p.hero_place = null;
+    console.error("[website] hero_lineup_rows threw; hero_place = null", (e as Error)?.message ?? String(e));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,19 +137,33 @@ export function heroKeyOk(provided: string | null, expected: string | undefined 
 
 export type HeroCutoutOut =
   | { status: "approved"; url: string; width: number; height: number }
+  | { status: "approved"; url: string; width: number; height: number; picked_at: string }
   | { status: "held" }
   | { status: "rejected" }
   | null;
 
 const posInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v > 0;
 
-/** One hero_cutouts_for_site row → the payload. A file URL for approved only. */
+/** An ISO timestamp as Postgres sends it in jsonb (timestamptz). */
+const isTimestamp = (v: unknown): v is string =>
+  typeof v === "string" && v.length <= 40 && /^\d{4}-\d{2}-\d{2}T/.test(v) && !Number.isNaN(Date.parse(v));
+
+/**
+ * One hero_cutouts_for_site row → the payload. A file URL for approved only.
+ * With picked_at (hero_photo_source = product_ticks): the ticked product
+ * cut-out, and picked_at passed through. Without it: the hero record, as before.
+ */
 export function heroCutoutFor(row: unknown, publicUrl: (path: string) => string): HeroCutoutOut {
   const h = row as AnyRec | null | undefined;
   if (!h || typeof h !== "object") return null;
   if (h.status === "approved") {
     const path = h.path;
-    if (typeof path !== "string" || !HERO_PATH_RE.test(path) || !posInt(h.width) || !posInt(h.height)) return null;
+    if (typeof path !== "string" || !posInt(h.width) || !posInt(h.height)) return null;
+    if ("picked_at" in h) {
+      if (!isTimestamp(h.picked_at) || !PRODUCT_CUTOUT_PATH_RE.test(path)) return null;
+      return { status: "approved", url: publicUrl(path), width: h.width, height: h.height, picked_at: h.picked_at };
+    }
+    if (!HERO_PATH_RE.test(path)) return null;
     return { status: "approved", url: publicUrl(path), width: h.width, height: h.height };
   }
   if (h.status === "held") return { status: "held" };

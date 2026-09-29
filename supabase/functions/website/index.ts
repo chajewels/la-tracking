@@ -15,7 +15,7 @@ import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
-import { attachHeroCutouts, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
+import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
 /**
  * Public website API (server-to-server).
@@ -646,6 +646,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .map((r) => shapeProduct(r.product, fx))
         .filter((p): p is AnyRec => p !== null);
       await attachHeroCutouts(supabase, shaped);
+      // Hero order (20261016100000): hero_place, only while the hero uses ticked cut-outs.
+      await attachHeroPlaces(supabase, shaped, (category as AnyRec).id);
       await attachDownPayments(supabase, shaped, fx);
       const products = await attachCategorySlugs(supabase, shaped);
 

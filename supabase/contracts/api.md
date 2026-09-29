@@ -30,6 +30,24 @@ unpublished) plus `products`: active products shaped exactly as
 `/catalog/collections/:slug`, ordered by `website_category_products.sort_order`
 then product name.
 
+**`hero_place`** (2026-09-29, hero order; docs/HERO-PICKS.md "Running order")
+— on this route only, and ONLY while the Hub's hero uses ticked product
+cut-outs (`system_settings.hero_photo_source = product_ticks`). Absent
+otherwise: on `hero_record` (today) the response is exactly as before.
+- `hero_place`: integer ≥ 1 or `null`, on every product of the response. It is
+  the Hub's running order for this category's hero slide (`hero_lineup_rows`):
+  the ticked pieces that can show (published, a usable ticked photo, a variant
+  in stock), **oldest tick first**, ties in the category's Hub order. Places
+  1–3 are on the slide; higher places wait their turn; `null` = not on this
+  slide (not ticked, sold, unpublished, or no usable ticked photo).
+- The storefront's hero slide for a category = the products with a
+  `hero_place`, sorted by it, first 3. Never fill a slide with a product whose
+  `hero_place` is `null` (no fallback to untagged pieces). A product listed in
+  two categories can have different places on each.
+- If the Hub cannot read the order, every `hero_place` is `null` (logged): order
+  the slide by the earliest `hero_cutout.picked_at` among the piece's photos
+  instead (stable sort, so ties keep this response's order).
+
 ### GET /catalog/products?featured=1&limit=8
 Active products, newest first, `limit` capped at 5000. With
 `?fields=slug,updated_at,...` returns only the requested fields (allowlist:
@@ -87,6 +105,25 @@ product_media: [{ url, alt }] }], category_slugs: string[] }`
     need are present. Present on every product-shaped response
     (`/catalog/products`, `/catalog/products/:slug`, `/catalog/collections/:slug`,
     `/catalog/categories/:slug`); never on the `?fields=` slug list.
+- `product_media[].hero_cutout` (hero cut-outs, 2026-09-26; hero picks
+  2026-09-29) — the hero's own cut-out for that photo, on every product-shaped
+  response, never used on product pages or cards:
+  - `null` — no hero cut-out may be shown for this photo.
+  - `{ status: "approved", url, width, height }` — the hero record's approved
+    cut-out (the original tool). This is the only form while
+    `hero_photo_source = hero_record` (today).
+  - `{ status: "approved", url, width, height, picked_at }` — ONLY while
+    `hero_photo_source = product_ticks`: the product cut-out an admin ticked
+    "Use on hero", and `picked_at` (ISO timestamp) = when it was ticked. A
+    piece's place in the queue is its EARLIEST `picked_at` (the Hub already
+    leaves out photos that are no longer usable). Untick + tick again = a new
+    `picked_at`. In this mode no `held` / `rejected` is ever sent, and a photo
+    without a tick is `null`.
+  - `{ status: "held" }` / `{ status: "rejected" }` — hero record only: a
+    cut-out that is not approved (show the whole photo; `held` photos after the
+    first may be skipped).
+  - `url` is a public https URL in the `promotions` bucket; `width` / `height`
+    are the cut-out's pixel size.
 - `category_slugs` lists the published categories the product belongs to;
   empty array when uncategorised. Present on `/catalog/products` and
   `/catalog/collections/:slug` (and `/catalog/categories/:slug`) results.
