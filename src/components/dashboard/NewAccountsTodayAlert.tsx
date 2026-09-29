@@ -40,12 +40,12 @@ export default function NewAccountsTodayAlert() {
           </p>
         </div>
         <div className="flex gap-2 mt-1">
-          <Link to={ROUTES.CUSTOMERS} className="flex-1">
+          <Link to={`${ROUTES.SALES}?tab=layaway&new=today`} className="flex-1">
             <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs">
               View Layaway <ArrowRight className="h-3 w-3" />
             </Button>
           </Link>
-          <Link to="/customers?tab=cash" className="flex-1">
+          <Link to={`${ROUTES.SALES}?tab=cash&new=today`} className="flex-1">
             <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs">
               View Cash Orders <ArrowRight className="h-3 w-3" />
             </Button>
