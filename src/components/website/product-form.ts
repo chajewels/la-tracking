@@ -102,6 +102,14 @@ export interface ProductForm {
    *  the Page365 inventory fetch always skips this product and an invoice
    *  import never moves its stock. Default off. */
   page365SyncDisabled: boolean;
+  /** The piece's MP4 (website_products.video_url), shown in the website gallery. Null = none. */
+  videoUrl: string | null;
+  /** A still from the clip, taken on upload (website_products.video_poster_url). */
+  videoPosterUrl: string | null;
+  /** The loaded row carries the video columns (migration 20261015100000 applied).
+   *  Until then the save leaves them out, so a release ahead of the apply cannot
+   *  break saving products. */
+  videoColumns: boolean;
   collectionIds: string[];
   /** website_category_products, in the order picked. */
   categoryIds: string[];
@@ -116,7 +124,7 @@ export const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", name_ja: "", savedName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", savedEn: "",
-  status: "draft", page365SyncDisabled: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
+  status: "draft", page365SyncDisabled: false, videoUrl: null, videoPosterUrl: null, videoColumns: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
 });
 
 export const slugify = (s: string) =>

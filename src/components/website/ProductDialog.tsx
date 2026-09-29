@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Film, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { VIDEO_MAX_BYTES } from "@/lib/product-video";
 import { MultiPick } from "@/components/website/MultiPick";
 import {
   CONDITION_VALUES, ConditionValue, ORIGIN_LABELS, ORIGIN_VALUES, OriginValue,
@@ -32,7 +33,7 @@ import {
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
   translating, uploadingKey, peso, saving, onSave, onRegenerateJapanese,
-  onUploadMedia, onPatchVariant,
+  onUploadMedia, onPatchVariant, onUploadVideo,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -49,6 +50,8 @@ export default function ProductDialog({
   onRegenerateJapanese: () => void;
   onUploadMedia: (variantIndex: number, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
+  /** Upload the product's MP4 (one per product). Absent = no video section. */
+  onUploadVideo?: (files: FileList | null) => void;
 }) {
   const formId = useId();
   return (
@@ -265,6 +268,49 @@ export default function ProductDialog({
                 />
               </div>
             </div>
+
+            {onUploadVideo && (
+              <div className="space-y-2" data-testid="product-video">
+                <Label>Video (360°)</Label>
+                <p className="text-xs text-muted-foreground">
+                  One MP4 per product, up to {Math.round(VIDEO_MAX_BYTES / 1024 / 1024)} MB. The website shows it muted and
+                  looping as the third item in the gallery. A still frame is taken from the clip automatically.
+                </p>
+                {form.videoUrl ? (
+                  <div className="flex flex-wrap items-start gap-3">
+                    <video
+                      src={form.videoUrl}
+                      poster={form.videoPosterUrl ?? undefined}
+                      className="h-28 w-28 rounded bg-muted object-cover"
+                      muted loop playsInline controls preload="metadata"
+                      aria-label="Product video preview"
+                    />
+                    <div className="space-y-2 text-xs text-muted-foreground">
+                      <p>{form.videoPosterUrl ? "Still frame ready." : "No still frame — the website shows a play button instead."}</p>
+                      <div className="flex gap-2">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 hover:text-foreground">
+                          {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                          Replace video
+                          <input type="file" accept="video/mp4" className="hidden" onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
+                        </label>
+                        <Button
+                          type="button" variant="ghost" size="sm" className="text-destructive"
+                          onClick={() => setForm((f) => ({ ...f, videoUrl: null, videoPosterUrl: null }))}
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove video
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+                    {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+                    {uploadingKey === "video" ? "Uploading video…" : "Add video (MP4)"}
+                    <input type="file" accept="video/mp4" className="hidden" disabled={uploadingKey === "video"} onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
+                  </label>
+                )}
+              </div>
+            )}
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
