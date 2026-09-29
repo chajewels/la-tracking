@@ -5648,3 +5648,43 @@ development/portal-link.test.ts and development/portal-auth-amr.test.ts (CI).
 treat `auth_user_id` as "has a password"; never date a marker without checking when the
 code that writes it shipped; never count a "recovery" session as proof of a password.
 Edge functions using the shared modules go live only when Lovable redeploys them.
+
+### Loyalty revokes refused: the account-note trigger compared the enum with 'restored' (2026-09-29)
+
+**Symptom.** Lovable scan 2026-09-29: forfeits left the customer's points in place.
+Manual forfeit of TEST-900013 (2026-09-26) logged `revoke-loyalty-points failed (500)`; the
+ledger has no `revoked` row after 2026-08-25.
+
+**Cause.** `note_loyalty_transaction()` (AFTER INSERT on `loyalty_transactions`) has
+`CASE NEW.transaction_type WHEN 'restored' …`. 'restored' is not a value of
+`loyalty_transaction_type`, so every row that reaches the CASE (any type except
+earned/redeemed, with an account_id or cash_order_id) fails 22P02 and the INSERT is rolled
+back. `revoke_loyalty_points` therefore raises; the forfeit functions swallow it, and
+`cancel_cash_order_atomic` / `terminate_web_order_atomic` (no handler) would refuse the whole
+cancel. Reproduced on live in a rolled-back transaction. Affected so far: TEST-900013 only
+(TEST-900008/-900009 were cancelled 2026-09-13, before spend reversal existed — not this
+bug). No real customer.
+
+**Fix.** `20261014100000_loyalty_note_trigger_text_case.sql`: `CASE NEW.transaction_type::text`.
+Body from live (md5 2dc3585289f475f4af5bcf987687238e); only that edit.
+
+**Do not reintroduce:** never compare an enum column with a literal that is not a value of
+the enum — cast the subject to text, or check `pg_enum` first.
+
+### Newsletter queue ignored test customers; revoke answered 404 for non-members (2026-09-29)
+
+**Symptom.** Lovable scan 2026-09-29: (a) `campaign-queue` snapshotted recipients with only
+`unsubscribed_at IS NULL`, so a test customer's subscription could be mailed although the Hub's
+count (and docs/NEWSLETTER-SUBSCRIBERS.md §4) excludes it; (b) `revoke-loyalty-points` answered
+404 "loyalty_member not found" for a non-member (invoice 18871, forfeited 2026-09-27), which the
+forfeit functions log as a failure although nothing was owed back.
+
+**Fix.** (a) The snapshot embeds `customers:customer_id (is_test)` and drops `is_test = true`;
+a subscriber with no customer is kept. The Hub side (count = what the queue takes, language
+skips shown, test preview from `rendered[]`) is PR #267. (b) A non-member now gets
+`200 { ok: true, no_op: true, reason: "not_a_member" }`. The function also moved to
+`_shared/cors.ts` + `_shared/handler.ts` (requireAuth with service role allowed, then
+requirePermission 'loyalty_revoke_points') — same callers, same gate; a denied user now reads
+"Access denied" instead of "loyalty_revoke_points permission required".
+
+**Do not reintroduce:** the queue snapshot and the Hub count must apply the same audience rule.
