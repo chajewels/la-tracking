@@ -124,13 +124,21 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
+    // Same audience rule as the Hub's count (docs/NEWSLETTER-SUBSCRIBERS.md §4):
+    // active = unsubscribed_at IS NULL; a TEST customer's subscription is
+    // excluded; a subscriber with no customer is KEPT. The confirm dialog
+    // promises this number, so the snapshot must apply the same filter
+    // (Lovable scan 2026-09-29, finding L4).
     let subs = supabase
       .from("newsletter_subscribers")
-      .select("id, lang")
+      .select("id, lang, customers:customer_id (is_test)")
       .is("unsubscribed_at", null);
     if (c.audience === "en" || c.audience === "ja") subs = subs.eq("lang", c.audience);
-    const { data: subscribers, error: sErr } = await subs;
+    const { data: allSubscribers, error: sErr } = await subs;
     if (sErr) throw sErr;
+    const subscribers = (allSubscribers ?? []).filter(
+      (s: { customers?: { is_test?: boolean | null } | null }) => s.customers?.is_test !== true,
+    );
 
     const rows: Array<{ campaign_id: string; subscriber_id: string; lang: string; status: string }> = [];
     let pending = 0;

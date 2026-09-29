@@ -5670,3 +5670,21 @@ Body from live (md5 2dc3585289f475f4af5bcf987687238e); only that edit.
 
 **Do not reintroduce:** never compare an enum column with a literal that is not a value of
 the enum — cast the subject to text, or check `pg_enum` first.
+
+### Newsletter queue ignored test customers; revoke answered 404 for non-members (2026-09-29)
+
+**Symptom.** Lovable scan 2026-09-29: (a) `campaign-queue` snapshotted recipients with only
+`unsubscribed_at IS NULL`, so a test customer's subscription could be mailed although the Hub's
+count (and docs/NEWSLETTER-SUBSCRIBERS.md §4) excludes it; (b) `revoke-loyalty-points` answered
+404 "loyalty_member not found" for a non-member (invoice 18871, forfeited 2026-09-27), which the
+forfeit functions log as a failure although nothing was owed back.
+
+**Fix.** (a) The snapshot embeds `customers:customer_id (is_test)` and drops `is_test = true`;
+a subscriber with no customer is kept. The Hub side (count = what the queue takes, language
+skips shown, test preview from `rendered[]`) is PR #267. (b) A non-member now gets
+`200 { ok: true, no_op: true, reason: "not_a_member" }`. The function also moved to
+`_shared/cors.ts` + `_shared/handler.ts` (requireAuth with service role allowed, then
+requirePermission 'loyalty_revoke_points') — same callers, same gate; a denied user now reads
+"Access denied" instead of "loyalty_revoke_points permission required".
+
+**Do not reintroduce:** the queue snapshot and the Hub count must apply the same audience rule.
