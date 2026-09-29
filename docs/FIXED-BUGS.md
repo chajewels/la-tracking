@@ -5735,3 +5735,32 @@ service-role edge functions.
 A customer-session read of this view would compute `allocated` from allocations the customer
 cannot see — any customer-facing schedule read goes through a service-role function.
 
+
+### A revoke re-promoted a stepped-down loyalty member (2026-09-29)
+
+**Symptom.** After a cancel / forfeit / DP void / delete, `revoke_loyalty_points` re-derived the
+tier from lifetime spend unconditionally. A member stepped down by the 180-day rule (current tier
+BELOW the spend tier on purpose, LOYALTY RULE 11) was moved back UP, the step-down was cleared and
+the ledger said "Tier downgraded". Seen once, on the Test Customer (Radiant → Elite, 2026-09-29
+01:51 UTC). Exposed: 4 real members stepped down to Glimmer.
+
+**Fix.** PR #280 (release #281), migration `20261017100000_revoke_never_promotes.sql`, applied on
+live 2026-09-29 14:03 JST after drift audit + preview + owner approval. A revoke moves the member
+to the spend tier only when it is BELOW the current tier; otherwise tier, `is_downgraded` and
+`downgrade_spend_baseline` stay. Rest of the body unchanged (md5 guard 8a54322d… → 0433a3f7…).
+After-checks: one function, grants f/f/t, the 4 stepped-down members unchanged, integrity report
+1 row. Rollback-only test: docs/sql/20261017_revoke_no_promote_verify.sql (T).
+
+**Do not reintroduce:** a revoke never raises a tier. Owner rule: a cancellation never undoes a
+step-down. Test Customer was left at Elite (owner did not ask to restore it).
+
+### Unpaid orders reset the 180-day loyalty clock (2026-09-29)
+
+**Symptom.** `loyalty-inactivity-check` counted every open order as activity — including a new
+layaway whose downpayment never arrived and a pending cash order with no payment — so an unpaid
+order could delay a step-down. Owner rule: an order resets the clock only once money is received;
+a paid order later cancelled still counts. No member was affected on 2026-09-29 (0 found).
+
+**Fix.** The order-date read in `loyalty-inactivity-check` now also requires `total_paid > 0`.
+Paid-then-cancelled orders keep counting through `loyalty_members.last_purchase_at`, which the
+award path writes only when money is received.
