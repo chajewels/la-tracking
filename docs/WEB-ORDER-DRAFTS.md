@@ -300,3 +300,23 @@ templates / `reservation-emails.ts`).
 (Services landing), `development/email-encoding.test.ts` (new template
 variants render clean), `development/layaway-english.test.ts`,
 `src/test/peso-cash.test.ts` (every order email passes the currency).
+
+## W2-7 — a part-paid web cash order at its deadline (2026-09-29)
+
+Migration `20261019100000_w2_7_part_paid_web_orders.sql` (md5-guarded from live,
+Bug #280) + `auto-expire-cash-orders`.
+
+- `expire_web_order_atomic` locks the order and refuses `part_paid_released`
+  when `web_released_at` is set (the order has received a real payment —
+  loyalty redemptions never count, store credit does). Every other refusal is
+  still `terminate_web_order_atomic`'s.
+- `web_payment_reminder_eligible`: the cash branch adds
+  `o.web_released_at IS NULL` — a part-paid web order is not chased. The TS
+  mirror (`_shared/web-payment-reminder-rules.ts`) holds only the timing rules,
+  so it needs no change.
+- `auto-expire-cash-orders` leaves released web orders out of its candidates
+  (`.or(source_channel.is.null,source_channel.neq.web,web_released_at.is.null)`),
+  so they never take a place in the run's quota.
+- Staff still cancel such an order by hand when needed (the existing Cancel,
+  with its refund decision). Mirrors layaway: `expire_web_layaway_atomic`
+  already refuses once any payment exists.
