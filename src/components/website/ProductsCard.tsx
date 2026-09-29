@@ -206,13 +206,14 @@ export default function ProductsCard() {
     [collections.data],
   );
   const filtering = hasActiveFilters(filters);
-  // Under product-type headings; with a type filter, only that group; while
-  // searching or filtering, types without a match are left out.
+  // Grouped by product type; with a type filter, only that group. A type with
+  // no products (in this tab, after search and filters) is left out — it has
+  // no chip either (owner 2026-09-29: "save space").
   const groups = useMemo(
     () => groupByType(visible, typeOptions)
       .filter((g) => !filters.type || g.id === filters.type)
-      .filter((g) => !filtering || g.rows.length > 0),
-    [visible, typeOptions, filters.type, filtering],
+      .filter((g) => g.rows.length > 0),
+    [visible, typeOptions, filters.type],
   );
   // Which sections are open and the page each shows (URL: ?open=, ?pg=).
   const openIds = useMemo(() => openFromParams(searchParams), [searchParams]);
@@ -221,6 +222,7 @@ export default function ProductsCard() {
     () => groups.map((g) => ({ group: g, open: openIds.has(g.id), slice: pageSlice(g.rows, pageOf.get(g.id) ?? 1) })),
     [groups, openIds, pageOf],
   );
+  const openCount = sections.filter((s) => s.open).length;
   // The rows on screen now: the current page of every open section. "Select
   // all" selects exactly these (a product in two open types counts once).
   const shownIds = useMemo(
@@ -254,7 +256,7 @@ export default function ProductsCard() {
   };
   useEffect(() => {
     if (!jumping || !openIds.has(jumping.id)) return;
-    document.getElementById(`catalog-group-${jumping.id}`)?.scrollIntoView?.({ behavior: "smooth", block: jumping.block });
+    (document.getElementById(`catalog-group-${jumping.id}`) ?? document.getElementById(`catalog-group-body-${jumping.id}`))?.scrollIntoView?.({ behavior: "smooth", block: jumping.block });
     setJumping(null);
   }, [jumping, openIds]);
   const noun = draftsView ? "unpublished Page365 products" : `${tab} products`;
@@ -674,9 +676,11 @@ export default function ProductsCard() {
               total={scoped.length}
               noun={noun}
               onJump={jumpTo}
+              openIds={openIds}
+              onClose={toggleGroup}
               onOpenAll={() => setOpenGroups(groups.map((g) => g.id))}
               onCloseAll={() => setOpenGroups([])}
-              openCount={sections.filter((s) => s.open).length}
+              openCount={openCount}
               groupCount={sections.length}
             />
           )}
@@ -713,6 +717,10 @@ export default function ProductsCard() {
               <p>No {noun} match.</p>
               <Button variant="outline" size="sm" onClick={clearFilters}>Clear search and filters</Button>
             </div>
+          ) : !sections.some((s) => s.open) ? (
+            <div className="py-12 text-center text-sm text-muted-foreground" data-testid="catalog-pick-type">
+              Pick a product type above to see its products.
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -741,8 +749,12 @@ export default function ProductsCard() {
                   <TableHead />
                 </TableRow>
               </TableHeader>
-              {sections.map(({ group: g, open: isOpen, slice }) => (
+              {sections.filter((s) => s.open).map(({ group: g, open: isOpen, slice }) => (
                 <Fragment key={g.id}>
+                  {/* A heading only when two or more types are open (Open all, or a
+                      search matching several): with one, its highlighted chip says
+                      which type this is. Closed types print nothing (owner 2026-09-29). */}
+                  {openCount > 1 && (
                   <TableBody>
                     <TableRow className="bg-muted/40 hover:bg-muted/40" data-testid="catalog-group">
                       <TableCell colSpan={canManage ? 12 : 11} className="scroll-mt-20 p-0" id={`catalog-group-${g.id}`}>
@@ -765,8 +777,9 @@ export default function ProductsCard() {
                       </TableCell>
                     </TableRow>
                   </TableBody>
+                  )}
                   {isOpen && (
-                  <TableBody id={`catalog-group-body-${g.id}`} data-testid="catalog-group-body">
+                  <TableBody id={`catalog-group-body-${g.id}`} className="scroll-mt-20" data-testid="catalog-group-body">
                     {g.rows.length === 0 && (
                       <TableRow data-testid="catalog-group-empty">
                         <TableCell colSpan={canManage ? 12 : 11} className="py-3 text-xs text-muted-foreground">

@@ -16,14 +16,25 @@ const bar = (over: Partial<Parameters<typeof CatalogSearchBar>[0]> = {}) => {
 };
 
 describe("Catalog search bar (grouped list)", () => {
-  it("the type chips jump to a group; an empty group's chip is disabled; there is no 'All' filter chip", () => {
+  it("chips pick a type; an empty type gets no chip; there is no 'All' chip", () => {
     const onJump = bar();
     const nav = screen.getByTestId("catalog-type-jump");
     expect(within(nav).queryByRole("button", { name: /^All/ })).toBeNull();
-    expect(within(nav).getByRole("button", { name: "Necklaces (0)" })).toBeDisabled();
+    expect(within(nav).queryByRole("button", { name: /^Necklaces/ })).toBeNull();
     fireEvent.click(within(nav).getByRole("button", { name: "Rings (4)" }));
     fireEvent.click(within(nav).getByRole("button", { name: "No product type (1)" }));
     expect(onJump.mock.calls).toEqual([["rings"], [NO_PRODUCT_TYPE]]);
+  });
+
+  it("an open type's chip is pressed and clicking it closes that type", () => {
+    const onClose = vi.fn();
+    const onJump = bar({ openIds: new Set(["rings"]), onClose });
+    const nav = screen.getByTestId("catalog-type-jump");
+    expect(within(nav).getByRole("button", { name: "Rings (4)" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(nav).getByRole("button", { name: "No product type (1)" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(within(nav).getByRole("button", { name: "Rings (4)" }));
+    expect(onClose).toHaveBeenCalledWith("rings");
+    expect(onJump).not.toHaveBeenCalled();
   });
 
   it("counts are said for the open tab", () => {
@@ -41,8 +52,9 @@ describe("Catalog search bar (grouped list)", () => {
     expect(screen.getByRole("combobox", { name: "Status" })).toBeInTheDocument();
   });
 
-  it("with a type filter only that group's chip is left, so no jump bar", () => {
+  it("with a type filter only that type's chip is left", () => {
     bar({ filters: { ...EMPTY_FILTERS, type: "rings" } });
-    expect(screen.queryByTestId("catalog-type-jump")).toBeNull();
+    const nav = screen.getByTestId("catalog-type-jump");
+    expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual(["Rings (4)"]);
   });
 });
