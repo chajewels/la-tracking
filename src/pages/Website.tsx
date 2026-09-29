@@ -18,6 +18,7 @@ import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesC
 import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard";
 import { SettingsCard } from "@/components/website/SettingsCard";
 import { ReservationModeCard } from "@/components/website/ReservationModeCard";
+import { CheckoutModeCard } from "@/components/website/CheckoutModeCard";
 import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
@@ -70,6 +71,7 @@ const isWebsiteTab = (v: string | null): v is WebsiteTab =>
  */
 export const WEBSITE_SETTINGS_SECTIONS = {
   orderConfirmation: "order-confirmation",
+  websiteOrders: "website-orders",
   paymentDetails: "payment-details",
   paymentReminders: "payment-reminders",
   shippingFees: "shipping-fees",
@@ -188,6 +190,12 @@ export default function Website() {
             <TabsContent value="settings" className="mt-5 space-y-6" tabIndex={-1}>
               <section id={WEBSITE_SETTINGS_SECTIONS.orderConfirmation} className="scroll-mt-20">
                 <ReservationModeCard />
+              </section>
+              {/* Website-orders PR 8: staff confirm every website order first
+                  (web_checkout_mode). Read-only for non-admins; the RPC
+                  re-checks the admin role and audits the change. */}
+              <section id={WEBSITE_SETTINGS_SECTIONS.websiteOrders} className="scroll-mt-20">
+                <CheckoutModeCard />
               </section>
               {/* Admin only: live bank/GCash details shown to customers at
                   checkout. PaymentMethodsTab keeps its own admins-only gate
