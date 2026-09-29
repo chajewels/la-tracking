@@ -320,3 +320,30 @@ Bug #280) + `auto-expire-cash-orders`.
 - Staff still cancel such an order by hand when needed (the existing Cancel,
   with its refund decision). Mirrors layaway: `expire_web_layaway_atomic`
   already refuses once any payment exists.
+
+## PR 8 — the switch on Website → Settings (2026-09-29)
+
+**Card:** Website → Settings → "Website orders (staff confirm first)"
+(`src/components/website/CheckoutModeCard.tsx`, words in `checkout-mode.ts`),
+directly under "Order confirmation (reserve first)", section id
+`website-orders`. Frontend only: `get_web_checkout_mode` /
+`set_web_checkout_mode` already existed (PR 3). No SQL, no edge function.
+
+- **Who:** everyone who can open the Settings tab sees the state; only an
+  ADMIN gets the switch, and `set_web_checkout_mode` re-checks the admin ROLE
+  (no permission override grants it) and writes the audit row. The guard
+  trigger refuses every other write. Never flip it in SQL or a migration.
+- **Off** (`order`): a checkout creates the order at once, as before;
+  reserve-first still applies when it is on.
+  **On** (`draft`): every checkout waits in Sales → Website orders → To
+  confirm; the piece is held, no bank details, nothing to pay until Confirm.
+  Draft mode takes over new checkouts whatever reserve-first says.
+- **Switching back to Off** strands nothing: only CREATING a draft reads the
+  switch (`create_web_draft_atomic`). Drafts already waiting can still be
+  confirmed or declined, and lapse at 72 hours as usual. The dialog says so,
+  with the current waiting count (it re-reads the state when it opens).
+- The write sends `p_expected` = the state the admin saw; a second admin's
+  stale click is refused (`stale`).
+- Tests: `src/test/checkout-mode-card.test.tsx`. Harness:
+  `/__fixtures?view=hub&at=/website?tab=settings&checkout=draft&drafts=3`
+  (`&roles=staff` for the read-only view).

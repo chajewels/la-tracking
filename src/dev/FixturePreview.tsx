@@ -64,6 +64,7 @@ import { seedMediaCutouts } from './media-cutouts-fixture-data';
 import { seedHeroCutouts } from './hero-cutouts-fixture-data';
 import HeroCutoutsFixture from './HeroCutoutsFixture';
 import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
+import { CHECKOUT_MODE_KEY } from '@/components/website/checkout-mode';
 import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
 import {
@@ -341,6 +342,13 @@ export default function FixturePreview() {
     // are admin-only there; &roles=staff shows they are absent.
     if (view === 'hub') {
       const hubAdmin = (searchParams.get('roles') ?? 'admin').split(',').some((r) => r.trim() === 'admin');
+      // Website-orders PR 8: the "staff confirm first" switch. &checkout=draft
+      // shows it on; &drafts=N the waiting count.
+      seed([...CHECKOUT_MODE_KEY], {
+        found: true, mode: searchParams.get('checkout') === 'draft' ? 'draft' : 'order',
+        updated_at: '2026-09-29T08:43:20Z', updated_by_user_id: null, updated_by_name: null,
+        can_change: hubAdmin, drafts_to_confirm: Number(searchParams.get('drafts') ?? 0),
+      });
       seed([...RESERVATION_MODE_KEY], {
         enabled: true, updated_at: '2026-09-24T01:15:00Z', updated_by_user_id: 'fixture-admin',
         updated_by_name: 'Fixture Admin', can_change: hubAdmin, awaiting_total: 0,
