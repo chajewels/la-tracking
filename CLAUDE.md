@@ -2160,3 +2160,9 @@ Customer / Amount), non-blocking relative to the tracking output.
        stay 0.
   - After any DROP + CREATE FUNCTION, re-assert its REVOKE/GRANT in the same
     migration (the default ACL grants PUBLIC; 2026-09-24).
+  - RLS policies call auth.uid() / is_staff() / has_role() inside a scalar
+    sub-select — (SELECT is_staff((SELECT auth.uid()))) — never bare (a bare
+    call runs once per row; 8 s timeouts, 2026-09-29, PR #265).
+  - Every view in public is created WITH (security_invoker = true); a view
+    owned by postgres without it bypasses RLS (schedule_with_actuals leak,
+    2026-09-29, PR #266).
