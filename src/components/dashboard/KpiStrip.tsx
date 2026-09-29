@@ -170,6 +170,7 @@ export default function KpiStrip({
           countUpValue={redemptionsUnavailable ? undefined : redemptions?.thisMonthCount ?? 0}
           subtitle="This month"
           icon={Gift}
+          href={`${ROUTES.LOYALTY_ADMIN}?tab=redemptions`}
           sparkline={
             !redemptionsUnavailable && redemptions && redemptions.series.length >= 2
               ? { points: redemptions.series, label: 'Redemptions per month, last 6 months' }
