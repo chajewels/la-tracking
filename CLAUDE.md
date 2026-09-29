@@ -1880,7 +1880,9 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     (`active`, `overdue`, `completed`, `extension_active`,
     `reactivated`); cash status IN (`completed`, `pending`). NEVER
     `cancelled` / `forfeited` / `final_forfeited` (layaway) or
-    `cancelled` / `expired` (cash).
+    `cancelled` / `expired` (cash). AND money received (total_paid > 0):
+    an unpaid order never resets the 180-day clock; a paid order later
+    cancelled still counts (owner rule 2026-09-29).
 
   - `loyalty-inactivity-check` (pg_cron job 16, 180-day) now derives
     `effectiveLastPurchase = GREATEST(stored last_purchase_at, MAX

@@ -4,42 +4,6 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### revoke_loyalty_points re-promotes a stepped-down member and labels it "downgraded" (found 2026-09-29)
-
-  After revoking, the function re-derives the tier from lifetime spend UNCONDITIONALLY:
-  `SELECT id … FROM loyalty_tiers WHERE min_spend_jpy <= v_new_cumulative …`, and if that differs
-  from `current_tier_id` it sets the new tier, `is_downgraded = false`,
-  `downgrade_spend_baseline = NULL`, and writes a `tier_changed` row noted
-  "Tier downgraded: <old> → <new> — points revoked". For a member stepped down by the 180-day
-  inactivity rule (current tier BELOW the spend tier) a revoke therefore UNDOES the step-down and
-  moves them UP, with a "downgraded" label — against LOYALTY RULE 11 (step-down holds until
-  requalify_spend_jpy is met).
-
-  Seen once: 2026-09-29 01:51 UTC, Test Customer (CJ-2026-05088, is_test) — revoke of
-  TEST-900013 moved Radiant (stepped down) → Elite; bell "Loyalty tier changed"; no email.
-  Exposure: 4 real members currently `is_downgraded = true`; any revoke on their orders
-  (cancel, forfeit, void DP, delete) would re-promote them. No real member affected yet
-  (the only revoke-driven tier_changed row ever is the test one).
-
-  **Fix pattern:** start from live pg_get_functiondef (md5-guarded). When
-  `v_member.is_downgraded`, never raise the tier: new tier = LEAST(spend tier, current tier) and
-  keep the step-down fields; only lower `current_tier_id` when spend falls below the current
-  tier's minimum. Word the note by direction (up/down). Needs owner approval — loyalty money
-  path. The edge function's tier-revoked email compares pre/post tier names and must be checked
-  in the same change.
-
-  **Status 2026-09-29: fix written, NOT yet applied** —
-  `supabase/migrations/20261017100000_revoke_never_promotes.sql` (md5-guarded against live
-  8a54322d…; new body 0433a3f7…). A revoke moves the member to the spend tier only when it is
-  BELOW the current tier; otherwise tier and step-down fields are untouched. The "Tier downgraded"
-  note is now always true, and the edge function's tier email (fires on any current_tier_id
-  change) can only fire on a real downgrade — no edge change needed. Rollback-only test on live
-  (docs/sql/20261017_revoke_no_promote_verify.sql (T)): stepped-down Glimmer stays Glimmer
-  (still stepped down, no tier row); Elite whose spend falls to ¥3.95M → Radiant with one row;
-  Radiant with an Elite spend tier stays Radiant. Move this entry to FIXED-BUGS once applied.
-  Open question (not in this fix): requalify progress is cumulative − baseline, so revoking an
-  order bought BEFORE the step-down lowers progress below 0; the baseline is left as is.
-
 ### daily-reconciliation has not completed since 2026-09-23: next_reconciliation_batch is not on live (found 2026-09-28)
 
   `20260923100000_reconciliation_batch_cursor.sql` was merged but never applied:
