@@ -103,6 +103,12 @@ export interface ServiceJobPrefill {
   notes?: string;
   /** Shown once under Service Type when the kind did not map to a type. */
   hint?: string;
+  /**
+   * Website orders PR 6 (W2-6): the fee staff ALREADY AGREED as a service line
+   * on the website order's review screen — a number a person typed, never one
+   * derived from the customer's size. Editable in the dialog.
+   */
+  serviceFee?: number;
 }
 
 interface ServiceJobDialogProps {
@@ -238,7 +244,7 @@ export default function ServiceJobDialog({
       setServiceType(pre?.serviceType ?? '');
       // Always empty. See ServiceJobPrefill — the customer's size is in notes.
       setServiceDescription('');
-      setServiceFee('');
+      setServiceFee(pre?.serviceFee != null && Number.isFinite(pre.serviceFee) ? String(Math.round(pre.serviceFee)) : '');
       setServiceStatus('Logged');
       setNotes(pre?.notes ?? '');
       setEstimatedCompletion('');

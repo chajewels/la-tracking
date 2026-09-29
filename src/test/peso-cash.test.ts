@@ -270,7 +270,7 @@ describe("order emails print the order's currency (D1)", () => {
   });
 
   it.each([
-    ["supabase/functions/_shared/reservation-emails.ts", 4],
+    ["supabase/functions/_shared/reservation-emails.ts", 7], // 4 order emails + 3 draft emails (website orders PR 6)
     ["supabase/functions/auto-expire-cash-orders/index.ts", 1],
     ["supabase/functions/cancel-cash-order/index.ts", 1],
     ["supabase/functions/review-payment-submission/index.ts", 1],

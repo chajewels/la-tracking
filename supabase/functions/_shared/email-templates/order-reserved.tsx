@@ -24,6 +24,12 @@ export interface OrderReservedProps {
   /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
   currency?: OrderCurrency
   orderUrl: string | null
+  /**
+   * Website orders PR 6: a DRAFT checkout. Shipping may not be known yet
+   * (shippingJpy null) and staff may add a service or a discount when they
+   * confirm, so the total is provisional. Absent reads exactly as before.
+   */
+  provisional?: boolean
 }
 
 export const orderReservedSubject = (reference: string) =>
@@ -35,12 +41,14 @@ const COPY = {
     intro: (ref: string) => `ご注文番号 ${ref} を承りました。ありがとうございます。ただいまスタッフがお品物を確認しております。`,
     next: '確認が取れ次第、お支払い方法とお振込先をメールでご案内いたします。',
     nothingYet: '現時点でお支払いの必要はございません。お振込先はご案内メールと、アカウントページのご注文詳細でお知らせします。',
+    provisional: '送料とご依頼のサービス料金は、確認の際に加算いたします。確定した合計金額はご案内メールでお知らせします。',
   },
   en: {
     heading: 'We have your order',
     intro: (ref: string) => `Thank you — we have received order ${ref}. Our staff are now confirming your piece.`,
     next: 'As soon as it is confirmed we will email you how to pay and where to send the transfer.',
     nothingYet: 'There is nothing to pay yet. The payment details will be in that email and on this order in your account.',
+    provisional: 'Shipping, and any service you asked for, are added when we confirm. The final total will be in that email.',
   },
 } as const
 
@@ -51,6 +59,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primar
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
+      {p.provisional && <Text style={muted}>{c.provisional}</Text>}
       <Text style={text}>{c.next}</Text>
       <Text style={notice}>{c.nothingYet}</Text>
       {p.orderUrl && (
