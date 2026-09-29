@@ -1857,6 +1857,8 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
      basis (loyalty_order_spend_basis). NEVER use loyalty_jpy_amount as the
      reversal basis; NEVER honour revoke_loyalty_points' p_spend_jpy (ignored).
      Exactly ONE revoke_loyalty_points (10 args) — never add a second overload.
+     A revoke only ever LOWERS a tier, never raises it: a member stepped down by
+     the 180-day rule keeps the lower tier and the step-down fields (20261017100000).
      A reversal that cannot be sourced (no earned/revoked row, money WAS
      received) raises audit + bell 'loyalty_reversal_unsourced' and RETURNS,
      never refuses. An order that received NO money stays silent — a

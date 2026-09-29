@@ -28,6 +28,18 @@
   path. The edge function's tier-revoked email compares pre/post tier names and must be checked
   in the same change.
 
+  **Status 2026-09-29: fix written, NOT yet applied** —
+  `supabase/migrations/20261017100000_revoke_never_promotes.sql` (md5-guarded against live
+  8a54322d…; new body 0433a3f7…). A revoke moves the member to the spend tier only when it is
+  BELOW the current tier; otherwise tier and step-down fields are untouched. The "Tier downgraded"
+  note is now always true, and the edge function's tier email (fires on any current_tier_id
+  change) can only fire on a real downgrade — no edge change needed. Rollback-only test on live
+  (docs/sql/20261017_revoke_no_promote_verify.sql (T)): stepped-down Glimmer stays Glimmer
+  (still stepped down, no tier row); Elite whose spend falls to ¥3.95M → Radiant with one row;
+  Radiant with an Elite spend tier stays Radiant. Move this entry to FIXED-BUGS once applied.
+  Open question (not in this fix): requalify progress is cumulative − baseline, so revoking an
+  order bought BEFORE the step-down lowers progress below 0; the baseline is left as is.
+
 ### daily-reconciliation has not completed since 2026-09-23: next_reconciliation_batch is not on live (found 2026-09-28)
 
   `20260923100000_reconciliation_batch_cursor.sql` was merged but never applied:
