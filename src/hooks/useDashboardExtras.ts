@@ -31,43 +31,63 @@ export function useMonthlyCollected() {
 }
 
 export interface RedemptionsKpi {
+  /** Points redeemed this PHT month (confirmed redemptions only). */
+  thisMonthPoints: number;
+  lastMonthPoints: number;
+  /** How many confirmed redemptions made up thisMonthPoints. */
   thisMonthCount: number;
-  lastMonthCount: number;
-  /** Monthly counts, oldest→newest, last 6 months. */
+  /** Points redeemed per month, oldest→newest, last 6 PHT months. */
   series: number[];
 }
 
+const phtMonth = (d: Date | string) =>
+  Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit' }).format(new Date(d));
+
+/**
+ * Loyalty Redemptions KPI (owner rule 2026-09-29): the POINTS redeemed in the
+ * current month — confirmed redemptions only (pending may still be cancelled;
+ * cancelled never counted). Months are PHT.
+ *
+ * The earlier version filtered status NOT IN ("cancelled","voided"), but
+ * loyalty_redemption_status is {pending, confirmed, cancelled}: 'voided' is not
+ * a value of the enum, so PostgREST refused the whole query and the card read
+ * "—" for every user.
+ */
 export function useRedemptionsKpi() {
   return useQuery({
     queryKey: ['dashboard-redemptions-kpi'],
     staleTime: 5 * 60_000,
     retry: false, // RLS denial should degrade to "—" quickly, not retry-loop
     queryFn: async (): Promise<RedemptionsKpi> => {
-      const since = new Date();
-      since.setMonth(since.getMonth() - 5);
-      since.setDate(1);
+      // Six PHT months, current one last.
+      const now = new Date();
+      const [y, m] = phtMonth(now).split('-').map(Number);
+      const months: string[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(Date.UTC(y, m - 1 - i, 1));
+        months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      }
+      // PHT midnight of the first month's first day.
+      const since = new Date(`${months[0]}-01T00:00:00+08:00`).toISOString();
       const { data, error } = await supabase
         .from('loyalty_redemptions')
-        .select('id, created_at, status')
-        .gte('created_at', since.toISOString())
-        .not('status', 'in', '("cancelled","voided")');
+        .select('points_redeemed, created_at')
+        .gte('created_at', since)
+        .eq('status', 'confirmed');
       if (error) throw error;
 
-      const byMonth = new Map<string, number>();
+      const points = new Map<string, number>();
+      const counts = new Map<string, number>();
       for (const row of data ?? []) {
-        const key = String(row.created_at).slice(0, 7);
-        byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
+        const key = phtMonth(String(row.created_at));
+        points.set(key, (points.get(key) ?? 0) + Number(row.points_redeemed ?? 0));
+        counts.set(key, (counts.get(key) ?? 0) + 1);
       }
-      const months: string[] = [];
-      const cursor = new Date(since);
-      for (let i = 0; i < 6; i++) {
-        months.push(cursor.toISOString().slice(0, 7));
-        cursor.setMonth(cursor.getMonth() + 1);
-      }
-      const series = months.map(m => byMonth.get(m) ?? 0);
+      const series = months.map((mo) => points.get(mo) ?? 0);
       return {
-        thisMonthCount: series[5] ?? 0,
-        lastMonthCount: series[4] ?? 0,
+        thisMonthPoints: series[5] ?? 0,
+        lastMonthPoints: series[4] ?? 0,
+        thisMonthCount: counts.get(months[5]) ?? 0,
         series,
       };
     },
