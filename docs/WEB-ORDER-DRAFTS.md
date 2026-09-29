@@ -107,3 +107,42 @@ points the request at the new order and keeps `web_draft_id` as history.
   is not in `materialize_web_draft_atomic` yet: it always uses the draft's
   customer. PR 4 adds it if the screen offers "Change".
 - Drafts are not in the realtime publication yet (PR 5, with the park area).
+
+## PR 4 — the review screen and Confirm (2026-09-29)
+
+- **Screen:** `/orders/review/website/:id` (`src/pages/WebOrderReview.tsx`),
+  permission `confirm_web_order_ready` (PermissionsContext fallback). Built to
+  look and work like the Page365 import review but as **its own page**: the
+  plan's "one component, two adapters" extraction was not done, so the live,
+  daily Page365 screen is not touched at all (plan risk 7). The two can be
+  merged later if wanted.
+- **Locked (W2-3):** customer (W2-4: no Change yet), pieces, prices, currency,
+  cash / layaway, term. **Editable:** shipping (JP prefilled from checkout;
+  empty and required when checkout left it for confirmation), service lines,
+  discount, courier (PH preselects Pabitbit; JP / other must be chosen — W2-10),
+  payment deadline (empty = the customer's 24h / 72h rule), notes, Trade
+  Program, loyalty product amount (empty = pieces − discount, yen).
+- **Money never computed in the browser:** every figure comes from
+  `confirm-web-draft` `{action:'preview'}`; Confirm sends the inputs only and
+  the server recomputes. Logic: `supabase/functions/_shared/web-draft-figures.ts`
+  (`computeWebDraftFigures`, tested in `src/test/web-draft-figures.test.ts`).
+  Layaway deposit + schedule = `layaway_quote(pieces − discount, term,
+  currency, PHT today, shipping, services)`; refused if not eligible, term
+  downgraded, or its total differs. Whole numbers only. Loyalty gate
+  `LOYALTY_AMOUNT_REQUIRED` as in create-cash-order / create-layaway-account.
+- **Server:** new edge function `confirm-web-draft` (verify_jwt, requireAuth +
+  `confirm_web_order_ready`): `preview` (writes nothing), `confirm` →
+  `materialize_web_draft_atomic` then the existing ready email
+  (`sendOrderReadyEmail` / `sendLayawayReadyEmail`), `decline` →
+  `decline_web_draft_atomic`. **Deviation from the plan:** a dedicated function
+  instead of a web branch inside create-cash-order / create-layaway-account, so
+  the live order-creation functions are not touched; it keeps their checks
+  (permissions again in SQL, loyalty gate, plan minimum via
+  `trg_enforce_plan_minimum`).
+- **Deferred to PR 6 (they need draft emails / draft service requests, which
+  arrive with the checkout side):** the customer email on "Can't supply", the
+  Services landing after Confirm (`?convert=1&fee=&return=`, W2-6), and
+  extending the ready emails with courier and service wording (service lines
+  already appear as item lines in the order).
+- **How staff reach the screen:** from the park area (PR 5). Until then only by
+  URL; there are no drafts while `web_checkout_mode = order`.
