@@ -20,7 +20,7 @@ import type { MonthlyAnalyticsRow, RedemptionsKpi } from '@/hooks/useDashboardEx
  *   - Collections This Month: summary figure + get_monthly_analytics trend.
  *   - Overdue: figure-only by design (no overdue history exists; deriving
  *     one client-side would recompute business state).
- *   - Loyalty Redemptions: row counts; degrades to "—" if RLS denies.
+ *   - Loyalty Redemptions: POINTS redeemed this PHT month (confirmed only); degrades to "—" if RLS denies.
  */
 
 interface KpiStripProps {
@@ -166,21 +166,26 @@ export default function KpiStrip({
       <motion.div className="grid" variants={staggerItem}>
         <StatCard
           title="Loyalty Redemptions"
-          value={redemptionsUnavailable ? '—' : (redemptions?.thisMonthCount ?? 0).toLocaleString('en-US')}
-          countUpValue={redemptionsUnavailable ? undefined : redemptions?.thisMonthCount ?? 0}
-          subtitle="This month"
+          value={redemptionsUnavailable ? '—' : `${(redemptions?.thisMonthPoints ?? 0).toLocaleString('en-US')} pts`}
+          countUpValue={redemptionsUnavailable ? undefined : redemptions?.thisMonthPoints ?? 0}
+          formatValue={(n: number) => `${Math.round(n).toLocaleString('en-US')} pts`}
+          subtitle={
+            redemptionsUnavailable || !redemptions
+              ? 'Points redeemed this month'
+              : `Points redeemed this month · ${redemptions.thisMonthCount} ${redemptions.thisMonthCount === 1 ? 'redemption' : 'redemptions'}`
+          }
           icon={Gift}
           href={`${ROUTES.LOYALTY_ADMIN}?tab=redemptions`}
           sparkline={
             !redemptionsUnavailable && redemptions && redemptions.series.length >= 2
-              ? { points: redemptions.series, label: 'Redemptions per month, last 6 months' }
+              ? { points: redemptions.series, label: 'Points redeemed per month, last 6 months' }
               : undefined
           }
           trend={
-            !redemptionsUnavailable && redemptions && redemptions.lastMonthCount > 0
+            !redemptionsUnavailable && redemptions && redemptions.lastMonthPoints > 0
               ? {
-                  value: `${Math.abs(redemptions.thisMonthCount - redemptions.lastMonthCount)} vs last mo`,
-                  positive: redemptions.thisMonthCount >= redemptions.lastMonthCount,
+                  value: `${Math.round(Math.abs(redemptions.thisMonthPoints - redemptions.lastMonthPoints) / redemptions.lastMonthPoints * 100)}% vs last mo`,
+                  positive: redemptions.thisMonthPoints >= redemptions.lastMonthPoints,
                 }
               : undefined
           }

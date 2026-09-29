@@ -134,8 +134,8 @@ export function buildMonthlyAnalytics(empty = false) {
 }
 
 export function buildRedemptionsKpi(empty = false) {
-  if (empty) return { thisMonthCount: 0, lastMonthCount: 0, series: [0, 0, 0, 0, 0, 0] };
-  return { thisMonthCount: 4, lastMonthCount: 2, series: [1, 0, 2, 3, 2, 4] };
+  if (empty) return { thisMonthPoints: 0, lastMonthPoints: 0, thisMonthCount: 0, series: [0, 0, 0, 0, 0, 0] };
+  return { thisMonthPoints: 119_520, lastMonthPoints: 104_290, thisMonthCount: 9, series: [28_215, 39_960, 48_780, 104_290, 95_000, 119_520] };
 }
 
 /** Needs Attention fixtures — overdue/due-soon schedule + expiring cash. */
