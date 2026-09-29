@@ -113,6 +113,8 @@ import {
  *                                     every permission granted)
  *     &reservations=1               → two layaway plans + two cash orders
  *                                     become unconfirmed web reservations
+ *     &webpark=1                    → Sales → Website orders seeded: 3 drafts to
+ *                                     confirm, 3 awaiting payment, 3 closed
  *   /__fixtures?view=hub&at=/sales?tab=payments  (or tab=waivers)
  *                                   → Sales → Payments / Waivers, seeded from
  *                                     sales-fixtures.ts (proof thumbnails are
@@ -213,6 +215,18 @@ export default function FixturePreview() {
         : view === 'hub' ? (hubReservations ? hubReservationQueue(accounts, cashOrders) : [])
         : buildReservationFixtures(),
     );
+    // Website orders PR 5: the park area (Sales → Website orders). &webpark=1
+    // seeds drafts to confirm, orders awaiting payment and closed ones; off, the
+    // park area is empty, as it is live while web_checkout_mode = 'order'.
+    {
+      const park = view === 'hub' && searchParams.get('webpark') === '1' && !empty
+        ? buildWebParkFixtures() : { open: [], closed: [], awaiting: [], closedOrders: [] };
+      seed(['web-drafts', 'open', 'all'], park.open);
+      seed(['web-drafts', 'closed', 'all'], park.closed);
+      seed(['web-park', 'awaiting'], park.awaiting);
+      seed(['web-park', 'closed'], park.closedOrders);
+      seed(['web-drafts', 'open', DEMO_CUSTOMER_ID], park.open.filter((d) => d.customer_id === DEMO_CUSTOMER_ID));
+    }
     // Sidebar footer health pills. The harness has no backend, so unseeded they
     // always read "unknown"; &health=unseeded shows that state on purpose.
     if (searchParams.get('health') !== 'unseeded') {
@@ -1216,6 +1230,43 @@ function TabsFixture() {
       </Tabs>
     </div>
   );
+}
+
+// ------------------------------------------------ website orders PR 5 fixtures
+function buildWebParkFixtures() {
+  const H = 3_600_000;
+  const iso = (h: number) => new Date(Date.now() + h * H).toISOString();
+  const draft = (over: Record<string, unknown>) => ({
+    id: 'fixture-draft-1', web_reference: 'CJ-W-900061', customer_id: DEMO_CUSTOMER_ID, customer_name: 'Demo Customer',
+    customer_is_test: false, mode: 'full' as const, term_months: null, currency: 'JPY' as const, total: 72_980,
+    shipping_pending: false, country: 'JP', status: 'to_confirm' as const, decline_reason: null, decided_at: null,
+    cash_order_id: null, layaway_account_id: null, created_at: iso(-3), open_service_requests: 0, ...over,
+  });
+  const order = (over: Record<string, unknown>) => ({
+    kind: 'cash_order' as const, id: 'fixture-cash-0003', reference: 'CJ-W-900058', customer_id: DEMO_CUSTOMER_ID,
+    customer_name: 'Demo Customer', customer_is_test: false, currency: 'JPY' as const, total_amount: 48_800,
+    amount_due: 48_800, plan_months: null, status: 'pending', transfer_due_at: iso(4), created_at: iso(-30),
+    reminder_sent: true, pending_submission: false, ...over,
+  });
+  return {
+    open: [
+      draft({ created_at: iso(-30) }),
+      draft({ id: 'fixture-draft-2', web_reference: 'CJ-W-900063', customer_id: 'fixture-cust-x', customer_name: 'Maria Consolación Villanueva-Dela Cruz', mode: 'layaway', term_months: 6, currency: 'PHP', total: 126_000, shipping_pending: true, country: 'PH', open_service_requests: 1, created_at: iso(-5) }),
+      draft({ id: 'fixture-draft-3', web_reference: 'CJ-W-900064', customer_id: 'fixture-cust-t', customer_name: 'Test Customer', customer_is_test: true, total: 18_500, created_at: iso(-1) }),
+    ],
+    closed: [
+      draft({ id: 'fixture-draft-9', web_reference: 'CJ-W-900052', status: 'declined', decline_reason: 'Sold at the shop before we could confirm', decided_at: iso(-20), created_at: iso(-26) }),
+      draft({ id: 'fixture-draft-8', web_reference: 'CJ-W-900050', status: 'expired', decided_at: iso(-50), created_at: iso(-122) }),
+    ],
+    awaiting: [
+      order({}),
+      order({ kind: 'layaway', id: 'fixture-acct-0005', reference: 'CJ-W-900059', customer_name: 'Aiko Tanaka', total_amount: 400_000, amount_due: 120_000, plan_months: 6, status: 'active', transfer_due_at: iso(52), reminder_sent: false, pending_submission: true }),
+      order({ id: 'fixture-cash-0004', reference: 'CJ-W-900057', customer_name: 'Late Payer', transfer_due_at: iso(-2), reminder_sent: true }),
+    ],
+    closedOrders: [
+      order({ id: 'fixture-cash-0008', reference: 'CJ-W-900040', status: 'expired', created_at: iso(-200) }),
+    ],
+  };
 }
 
 // ------------------------------------------------ reserve-first A2 fixtures

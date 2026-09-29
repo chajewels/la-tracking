@@ -16,7 +16,11 @@ export interface AccountWithCustomer extends DbAccount {
 }
 
 // ── Scoped invalidation for better performance ──
-const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'customers', 'web-reservations'] as const;
+// 'web-drafts' / 'web-park' (website orders PR 5): the park area. The draft
+// tables are not in the realtime publication; a new draft still refreshes this
+// through its staff_notifications bell, a Confirm through cash_orders /
+// layaway_accounts, and the hooks poll every 60s for the rest.
+const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'customers', 'web-reservations', 'web-drafts', 'web-park'] as const;
 const PAYMENT_KEYS = ['payments', 'schedule', 'collections-upcoming-schedule', 'weekly-collections', 'aging-buckets', 'overdue-schedule', 'collections-forecast-6m', 'forecast-drilldown', 'operations-action-items', 'penalty-cap-audit'] as const;
 const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-followup-alerts', 'csr-notifications-penalty'] as const;
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;

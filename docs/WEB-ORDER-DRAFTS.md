@@ -106,7 +106,9 @@ points the request at the new order and keeps `web_draft_id` as history.
 - W2-4 (changing the customer on the review screen to an R11-matching account)
   is not in `materialize_web_draft_atomic` yet: it always uses the draft's
   customer. PR 4 adds it if the screen offers "Change".
-- Drafts are not in the realtime publication yet (PR 5, with the park area).
+- Drafts are not in the realtime publication. PR 5 chose not to add them (no
+  migration): the park area polls every 60s, and the events that matter already
+  refresh it (see PR 5 below).
 
 ## PR 4 — the review screen and Confirm (2026-09-29)
 
@@ -146,3 +148,53 @@ points the request at the new order and keeps `web_draft_id` as history.
   already appear as item lines in the order).
 - **How staff reach the screen:** from the park area (PR 5). Until then only by
   URL; there are no drafts while `web_checkout_mode = order`.
+
+## PR 5 — the park area: Sales → Website orders (2026-09-29)
+
+Hub frontend only — no migration, no edge function, no Lovable step.
+
+- **Where:** Sales → **Website orders** (`/sales?tab=web`, W2-1), shown only to
+  holders of `confirm_web_order_ready` (the draft tables' RLS key). Sidebar
+  sub-item with the same permission and a count badge.
+- **To confirm:** drafts `to_confirm`, oldest first — web reference (opens the
+  review screen), "Full payment" / "Layaway · N months", "Shipping to add"
+  (`shipping_jpy` NULL), "Service requested" (an open `service_requests` row with
+  `web_draft_id`), TEST, customer, provisional total, country, age (red at 24h)
+  and the 72h auto-cancel time. Actions: **Review**, **Can't supply** (reason
+  required → `confirm-web-draft` decline). Reservations from the old
+  reserve-first flow are listed too, marked **Old flow**, with their existing
+  Confirm / Can't supply (plan risk 5) until PR 10.
+- **Awaiting payment:** web orders confirmed (`ready_confirmed_at` set) with
+  `web_released_at` NULL and a live status. Nearest deadline first: badge
+  "Website — awaiting payment", amount due (cash balance / layaway deposit),
+  deadline + countdown (red under 6h or passed), "Reminder sent" /
+  "No reminder yet" (`web_payment_reminders` status sent), and a note when a
+  payment submission is waiting (INVARIANT 12 freeze). Action: **Open** (the
+  order page already has Record payment, Move deadline and Cancel).
+  **Deviation:** the plan listed those three as row actions; they stay on the
+  order page so no dialog is duplicated.
+- **Closed (W2-2):** declined / auto-cancelled drafts, and web orders cancelled,
+  expired or forfeited with `web_released_at` NULL. Never in the Cash / Layaway
+  lists.
+- **Cash / Layaway lists (R7):** a web order is hidden until `web_released_at`
+  is set (`showInSalesLists`, `src/lib/web-park.ts`); a `completed` order is
+  never hidden. The "Awaiting confirmation" channel chip is removed (those rows
+  are in Website orders now); a link "Unpaid website orders are in Website
+  orders →" is shown to holders of the permission. Hub orders are untouched.
+  `useAccounts` itself is NOT filtered, so Record payment, the command palette
+  and every report still see parked orders (W2-8: no report change).
+- **Sidebar pill "To confirm · N"** counts drafts + old-flow reservations and
+  now opens Sales → Website orders. **Dashboard card** is renamed "Website
+  orders to confirm" and lists drafts (Review / Can't supply) then old-flow
+  reservations. **Command palette** finds drafts by CJ-W reference or name, and
+  layaway / cash orders by CJ-W reference too.
+- **Customer page (W2-8):** a "Website orders to confirm" block with that
+  customer's drafts; plans and cash orders still awaiting payment carry the
+  "Website — awaiting payment" badge.
+- **Refresh:** query keys `web-drafts` and `web-park` are in `CORE_KEYS`, so a
+  realtime change on `cash_orders` / `layaway_accounts` / `staff_notifications`
+  refetches them (a new draft rings a bell; Confirm writes an order); the hooks
+  also poll every 60s. The review screen and the decline dialog invalidate them.
+- **Dev preview:** `/__fixtures?view=hub&webpark=1&at=/sales?tab=web`.
+- **Tests:** `src/test/web-park.test.tsx` (rules + screen),
+  `src/test/web-reservations.test.tsx` (Dashboard card with drafts).

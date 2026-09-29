@@ -36,6 +36,7 @@ import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
 import { animate, useReducedMotion } from 'framer-motion';
 import { useWebReservations } from '@/hooks/use-supabase-data';
+import { useWebDrafts } from '@/hooks/use-web-park';
 import { cn } from '@/lib/utils';
 import { transition } from '@/theme/motion';
 import { EmailHealthPill } from '@/components/system/EmailHealthIndicator';
@@ -61,7 +62,7 @@ export type SubMenuItem = {
   // instead of `${parentPath}?tab=${tab}`. Used for sub-items that are real
   // routes rather than tab states (e.g. Inquiries under CSR Operations).
   path?: string;
-  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests';
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests' | 'sales_web';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
@@ -93,6 +94,8 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Layaway', tab: 'layaway' },
       { label: 'Payments', tab: 'payments', badgeKey: 'sales_payments' },
       { label: 'Waivers', tab: 'waivers' },
+      // Website orders PR 5: the park area (drafts to confirm, orders awaiting payment).
+      { label: 'Website orders', tab: 'web', badgeKey: 'sales_web', permFilter: (can) => can('confirm_web_order_ready') },
     ],
   },
   {
@@ -279,7 +282,12 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   // easy to miss for a customer who has been told nothing yet.
   const canConfirmReservations = can('confirm_web_order_ready');
   const { data: reservations } = useWebReservations(canConfirmReservations);
-  const reservationCount = canConfirmReservations ? (reservations?.length ?? 0) : 0;
+  // Website orders PR 5: website drafts to confirm count too. Both land in
+  // Sales → Website orders → To confirm.
+  const { data: openDrafts } = useWebDrafts('open', canConfirmReservations);
+  const reservationCount = canConfirmReservations
+    ? (reservations?.length ?? 0) + (openDrafts?.length ?? 0)
+    : 0;
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
@@ -294,6 +302,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     monitoring_extensions: pendingExtensions ?? 0,
     loyalty_redemptions: pendingRedemptions ?? 0,
     services_requests: openServiceRequests ?? 0,
+    sales_web: reservationCount,
   };
 
   const { state, isMobile, setOpen, toggleSidebar } = useSidebar();
@@ -431,8 +440,8 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip={`To confirm · ${reservationCount}`}
-                  onClick={() => navigate(`${ROUTES.DASHBOARD}#reservations`)}
-                  aria-label={`${reservationCount} web reservation${reservationCount === 1 ? '' : 's'} to confirm`}
+                  onClick={() => navigate(`${ROUTES.SALES}?tab=web`)}
+                  aria-label={`${reservationCount} website order${reservationCount === 1 ? '' : 's'} to confirm`}
                   className="relative h-11 cursor-pointer rounded-md border border-warning/40 bg-warning/10 pl-3 pr-2 text-warning hover:bg-warning/20 hover:text-warning group-data-[collapsible=icon]:border-warning/50"
                 >
                   <Hourglass className="h-4 w-4 shrink-0" />

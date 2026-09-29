@@ -32,6 +32,13 @@ vi.mock("@/hooks/use-supabase-data", () => ({
   useSetAccountDeadlines: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactivateWebLayaway: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+// Website orders PR 5: the card also lists website drafts (none here unless set).
+let drafts: unknown[] = [];
+vi.mock("@/hooks/use-web-park", () => ({
+  useWebDrafts: () => ({ data: drafts }),
+  useInvalidateWebPark: () => vi.fn(),
+  declineWebDraft: vi.fn(),
+}));
 vi.mock("@/contexts/PermissionsContext", () => ({
   usePermissions: () => ({ can: (k: string) => (k === "confirm_web_order_ready" ? allowed : true) }),
 }));
@@ -46,6 +53,7 @@ beforeEach(() => {
   declineMutate.mockReset();
   previewState = { isLoading: false, isError: false };
   reservations = [];
+  drafts = [];
   allowed = true;
 });
 
@@ -265,11 +273,28 @@ describe("ReservationsAwaitingCard", () => {
   it("lists every reservation in the order given (oldest first) with inline actions", () => {
     reservations = [row("000001", "2026-09-23T00:00:00Z"), row("000002", "2026-09-24T00:00:00Z", "layaway")];
     render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    expect(screen.getByText("Reservations to confirm")).toBeInTheDocument();
-    const refs = screen.getAllByRole("link").map((a) => a.textContent);
+    expect(screen.getByText("Website orders to confirm")).toBeInTheDocument();
+    const refs = screen.getAllByRole("link").map((a) => a.textContent).filter((t) => t?.startsWith("CJ-W"));
     expect(refs).toEqual(["CJ-W-000001", "CJ-W-000002"]);
     expect(screen.getAllByRole("button", { name: /^confirm$/i })).toHaveLength(2);
     expect(screen.getByText(/over 8 months/)).toBeInTheDocument();
+  });
+
+  it("lists website drafts first, with Review and Can't supply, then the old flow", () => {
+    drafts = [{
+      id: "d1", web_reference: "CJ-W-900070", customer_id: "c1", customer_name: "Ana", customer_is_test: false,
+      mode: "layaway", term_months: 6, currency: "JPY", total: 400000, shipping_pending: true, country: "PH",
+      status: "to_confirm", decline_reason: null, decided_at: null, cash_order_id: null, layaway_account_id: null,
+      created_at: "2026-09-29T00:00:00Z", open_service_requests: 0,
+    }];
+    reservations = [row("000001", "2026-09-23T00:00:00Z")];
+    render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
+    const refs = screen.getAllByRole("link").map((a) => a.textContent).filter((t) => t?.startsWith("CJ-W"));
+    expect(refs).toEqual(["CJ-W-900070", "CJ-W-000001"]);
+    expect(screen.getByText("Layaway · 6 months")).toBeInTheDocument();
+    expect(screen.getByText("Shipping to add")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/orders/review/website/d1");
+    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("labels the plan type, never a payment state — no reservation reads as paid", () => {

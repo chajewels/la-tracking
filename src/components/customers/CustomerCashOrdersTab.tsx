@@ -13,6 +13,7 @@ import { CASH_ORDER_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useCustomerCashOrders, type CashOrderRow } from '@/hooks/useCustomerCashOrders';
+import { AWAITING_PAYMENT_BADGE, isAwaitingPayment } from '@/lib/web-park';
 
 // Same labels the old StatusBadge showed.
 const statusLabel: Record<string, string> = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired' };
@@ -48,6 +49,9 @@ export default memo(function CustomerCashOrdersTab({ customerId }: { customerId:
           </Link>
           {isTestCashOrder(o) && (
             <span className="inline-flex h-4 items-center rounded-md border border-info/20 bg-info/10 px-1.5 text-[9px] font-bold text-info">TEST</span>
+          )}
+          {isAwaitingPayment(o, 'cash_order') && (
+            <span className="inline-flex h-4 items-center whitespace-nowrap rounded-md border border-warning/30 bg-warning/10 px-1.5 text-[9px] font-semibold text-warning">{AWAITING_PAYMENT_BADGE}</span>
           )}
         </span>
       ),
@@ -181,6 +185,11 @@ export default memo(function CustomerCashOrdersTab({ customerId }: { customerId:
                       <p className="font-deco text-lg font-semibold leading-tight text-champagne [font-variant-numeric:lining-nums_tabular-nums]">
                         {order.source_channel === 'web' ? cashOrderRef(order) : `#${order.invoice_number}`}
                       </p>
+                      {isAwaitingPayment(order, 'cash_order') && (
+                        <span className="mt-1 inline-flex items-center rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                          {AWAITING_PAYMENT_BADGE}
+                        </span>
+                      )}
                       {order.item_description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]" title={order.item_description}>
                           {order.item_description}
