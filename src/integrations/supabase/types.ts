@@ -6599,6 +6599,38 @@ export type Database = {
         }
         Relationships: []
       }
+      website_hero_picks: {
+        Row: {
+          id: string
+          picked_at: string
+          picked_by: string | null
+          picked_via: string
+          source_url: string
+        }
+        Insert: {
+          id?: string
+          picked_at?: string
+          picked_by?: string | null
+          picked_via: string
+          source_url: string
+        }
+        Update: {
+          id?: string
+          picked_at?: string
+          picked_by?: string | null
+          picked_via?: string
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_hero_picks_source_url_fkey"
+            columns: ["source_url"]
+            isOneToOne: true
+            referencedRelation: "website_media_cutouts"
+            referencedColumns: ["source_url"]
+          },
+        ]
+      }
       website_import_batches: {
         Row: {
           created: number | null
@@ -7796,6 +7828,7 @@ export type Database = {
         }[]
       }
       get_hero_cutout_overview: { Args: never; Returns: Json }
+      get_hero_lineup: { Args: never; Returns: Json }
       get_media_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_provider: { Args: never; Returns: Json }
       get_media_cutout_tab_totals: { Args: never; Returns: Json }
@@ -7911,6 +7944,30 @@ export type Database = {
           status: string
         }[]
       }
+      hero_lineup_rows: {
+        Args: { p_extra?: string[] }
+        Returns: {
+          category_id: string
+          first_picked_at: string
+          place: number
+          product_id: string
+          reason: string
+          state: string
+        }[]
+      }
+      hero_photo_source: { Args: never; Returns: string }
+      hero_pick_reason: {
+        Args: {
+          p_cutout_h: number
+          p_cutout_path: string
+          p_cutout_w: number
+          p_published: boolean
+          p_status: string
+        }
+        Returns: string
+      }
+      hero_picks_carry_over: { Args: { p_apply?: boolean }; Returns: Json }
+      hero_product_counts: { Args: { p_extra?: string[] }; Returns: Json }
       insert_lot_and_extend: {
         Args: {
           p_amount: number
@@ -8431,6 +8488,14 @@ export type Database = {
       }
       set_hero_cutout_mode: {
         Args: { p_expected_mode?: string; p_mode: string }
+        Returns: Json
+      }
+      set_hero_photo_source: {
+        Args: { p_expected_source?: string; p_source: string }
+        Returns: Json
+      }
+      set_hero_pick: {
+        Args: { p_pick: boolean; p_source_url: string }
         Returns: Json
       }
       set_media_cutout_provider: {
