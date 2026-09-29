@@ -11,6 +11,8 @@ export interface CashOrderRow {
   invoice_number: string;
   source_channel?: string | null;
   web_reference?: string | null;
+  ready_confirmed_at?: string | null;
+  web_released_at?: string | null;
   currency: Currency;
   total_amount: number;
   total_paid: number;
@@ -29,7 +31,7 @@ export function useCustomerCashOrders(customerId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders')
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, ready_confirmed_at, web_released_at')
         .eq('customer_id', customerId!)
         .order('created_at', { ascending: false });
       if (error) throw error;

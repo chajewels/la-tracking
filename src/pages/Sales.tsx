@@ -11,16 +11,20 @@ import AccountList from './AccountList';
 import PaymentsHub from './PaymentsHub';
 import Waivers from './Waivers';
 import Page365ImportDialog from '@/components/page365/Page365ImportDialog';
+import WebOrdersPark from '@/components/web-orders/WebOrdersPark';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 const MemoCashOrdersList = memo(CashOrdersList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
 const MemoAccountList = memo(AccountList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
 const MemoPaymentsHub = memo(PaymentsHub) as FC<{ embedded?: boolean; searchValue?: string }>;
 const MemoWaivers = memo(Waivers);
 
-type SalesTabKey = 'cash' | 'layaway' | 'payments' | 'waivers';
-const VALID_TABS: SalesTabKey[] = ['cash', 'layaway', 'payments', 'waivers'];
+// 'web' = Website orders (website orders PR 5): the park area, shown only to
+// holders of confirm_web_order_ready (the draft tables' RLS key).
+type SalesTabKey = 'cash' | 'layaway' | 'payments' | 'waivers' | 'web';
+const VALID_TABS: SalesTabKey[] = ['cash', 'layaway', 'payments', 'waivers', 'web'];
 const DEFAULT_TAB: SalesTabKey = 'cash';
-const TAB_LABEL: Record<SalesTabKey, string> = { cash: 'Cash', layaway: 'Layaway', payments: 'Payments', waivers: 'Waivers' };
+const TAB_LABEL: Record<SalesTabKey, string> = { cash: 'Cash', layaway: 'Layaway', payments: 'Payments', waivers: 'Waivers', web: 'Website orders' };
 
 interface SalesProps {
   embedded?: boolean;
@@ -28,9 +32,13 @@ interface SalesProps {
 
 export default function Sales({ embedded = false }: SalesProps = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { can } = usePermissions();
+  const canWeb = can('confirm_web_order_ready');
+  const allowedTab = (t: SalesTabKey | null): t is SalesTabKey =>
+    !!t && VALID_TABS.includes(t) && (t !== 'web' || canWeb);
   const [tab, setTabState] = useState<SalesTabKey>(() => {
     const urlTab = searchParams.get('tab') as SalesTabKey | null;
-    return urlTab && VALID_TABS.includes(urlTab) ? urlTab : DEFAULT_TAB;
+    return allowedTab(urlTab) ? urlTab : DEFAULT_TAB;
   });
   // One search state per tab so a query typed on Cash doesn't bleed
   // into Layaway / Payments / Waivers when the user switches tabs.
@@ -38,6 +46,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
   const [layawaySearch, setLayawaySearch] = useState('');
   const [paymentsSearch, setPaymentsSearch] = useState('');
   const [waiversSearch, setWaiversSearch] = useState('');
+  const [webSearch, setWebSearch] = useState('');
   // The "From Page365" split-button item lives in WorkspaceSplitButton, which is
   // rendered inside the toolbar and has no path back here. The repo's existing
   // convention for that (open-new-customer-dialog, open-trade-in-dialog) is a
@@ -56,11 +65,11 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
   useEffect(() => {
     const urlTab = searchParams.get('tab') as SalesTabKey | null;
-    if (urlTab && VALID_TABS.includes(urlTab) && urlTab !== tab) {
+    if (allowedTab(urlTab) && urlTab !== tab) {
       setTabState(urlTab);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, canWeb]);
 
   useEffect(() => {
     const open = () => setPage365Open(true);
@@ -86,7 +95,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
           <PageHeaderBand
             crumbs={[{ label: 'Hub', to: ROUTES.DASHBOARD }, { label: 'Sales', to: ROUTES.SALES }, { label: TAB_LABEL[tab] }]}
             title="Sales"
-            subtitle="Cash orders, layaway accounts, payments, and waivers"
+            subtitle="Cash orders, layaway accounts, payments, waivers, and website orders"
           />
         )}
 
@@ -96,6 +105,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             tab === 'layaway' ? layawaySearch :
             tab === 'payments' ? paymentsSearch :
             tab === 'waivers' ? waiversSearch :
+            tab === 'web' ? webSearch :
             ''
           }
           onSearchChange={
@@ -103,6 +113,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             tab === 'layaway' ? setLayawaySearch :
             tab === 'payments' ? setPaymentsSearch :
             tab === 'waivers' ? setWaiversSearch :
+            tab === 'web' ? setWebSearch :
             () => {}
           }
           searchPlaceholder={
@@ -110,6 +121,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             tab === 'layaway' ? 'Search layaway accounts...' :
             tab === 'payments' ? 'Search payments...' :
             tab === 'waivers' ? 'Search waivers...' :
+            tab === 'web' ? 'Search CJ-W reference or customer...' :
             'Search...'
           }
           onExport={handleExport}
@@ -133,6 +145,11 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
           <TabsContent value="waivers" className="mt-5">
             <MemoWaivers embedded search={waiversSearch} />
           </TabsContent>
+          {canWeb && (
+            <TabsContent value="web" className="mt-5">
+              <WebOrdersPark search={webSearch} />
+            </TabsContent>
+          )}
         </Tabs>
 
         <Page365ImportDialog open={page365Open} onOpenChange={setPage365Open} />

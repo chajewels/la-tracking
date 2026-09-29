@@ -26,6 +26,7 @@ import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
+import { showInSalesLists } from '@/lib/web-park';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -60,6 +61,7 @@ interface CashOrderRow {
   payment_status: string | null;
   transfer_due_at: string | null;
   ready_confirmed_at: string | null;
+  web_released_at: string | null;
 }
 
 // Display order for the status tabs. Only statuses PRESENT in the data get a
@@ -79,7 +81,9 @@ const statusLabel: Record<string, string> = {
 // everything else is staff-entered or a marketplace sync. 'awaiting' (reserve-
 // first A2) is the web reservations nobody has confirmed yet.
 type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+// 'awaiting' is no longer offered (website orders PR 5): an unpaid web order is
+// not in this list at all — it waits in Sales → Website orders.
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
 const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 const PAGE_SIZE = 50;
 
@@ -90,7 +94,7 @@ function useCashOrders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('cash_orders' as any)
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, ready_confirmed_at, customers(id, full_name, messenger_link)')
+        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, ready_confirmed_at, web_released_at, customers(id, full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as CashOrderRow[];
@@ -108,6 +112,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   const navigate = useNavigate();
   const { roles } = useAuth();
   const { can } = usePermissions();
+  const canSeeWebOrders = can('confirm_web_order_ready');
   const isAdmin = roles.includes('admin' as never);
 
   const searchRef = useRef('');
@@ -145,7 +150,10 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   // phones keep the cards.
   const isMobile = useIsMobile();
 
-  const { data: orders, isLoading } = useCashOrders();
+  const { data: allOrders, isLoading } = useCashOrders();
+  // R7 (website orders PR 5): a web order joins this list only once its first
+  // payment is confirmed (web_released_at). Until then it is in Website orders.
+  const orders = useMemo(() => (allOrders || []).filter(showInSalesLists), [allOrders]);
 
   const sortAccessors = useMemo(() => ({
     balance: (o: CashOrderRow) => Number(o.remaining_balance),
@@ -398,6 +406,11 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
               </button>
             ))}
           </div>
+          {canSeeWebOrders && (
+            <Link to="/sales?tab=web" className="self-center text-xs text-muted-foreground hover:text-primary">
+              Unpaid website orders are in Website orders →
+            </Link>
+          )}
           {isAdmin && (
             <button
               onClick={() => setHideTest(!hideTest)}

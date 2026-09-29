@@ -538,7 +538,7 @@ describe(`at ${width}px`, () => {
         'account_services * [["in","account_id",["a-1"]]]',
         // Header badge counts cash orders too (same query + cache as the Cash
         // Orders tab), so the page now reads them on open (2026-09-24).
-        'cash_orders id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference [["eq","customer_id","c-1"]]',
+        'cash_orders id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, ready_confirmed_at, web_released_at [["eq","customer_id","c-1"]]',
         'customer_portal_tokens token, expires_at [["eq","customer_id","c-1"],["eq","is_active",true]]',
         'customers * [["eq","id","c-1"]]',
         'layaway_accounts * [["eq","customer_id","c-1"]]',
@@ -716,7 +716,7 @@ describe(`at ${width}px`, () => {
       await screen.findAllByText(/19200/);
       expect(reads()).toContainEqual({
         target: "cash_orders",
-        payload: "id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference",
+        payload: "id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, ready_confirmed_at, web_released_at",
         filters: [["eq", "customer_id", "c-1"]],
       });
       const hrefs = Array.from(document.querySelectorAll("a")).map((a) => a.getAttribute("href"));

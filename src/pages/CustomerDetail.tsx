@@ -28,6 +28,8 @@ import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 import AICustomerInsightsDialog from '@/components/ai/AICustomerInsightsDialog';
 import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab';
+import CustomerWebDrafts from '@/components/web-orders/CustomerWebDrafts';
+import { AWAITING_PAYMENT_BADGE, isAwaitingPayment } from '@/lib/web-park';
 import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
 import CustomerStoreCreditTab from '@/components/customers/CustomerStoreCreditTab';
 import { formatCurrency } from '@/lib/calculations';
@@ -798,6 +800,9 @@ export default function CustomerDetail() {
           />
         )}
 
+        {/* Website orders PR 5 (W2-8): this customer's website orders still to confirm. */}
+        {customerId && <CustomerWebDrafts customerId={customerId} />}
+
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
           const currency = account.currency as Currency;
@@ -824,6 +829,9 @@ export default function CustomerDetail() {
                     pulse={effectiveStatus === 'overdue'}
                   />
                   <span className={factPill}>{currency}</span>
+                  {isAwaitingPayment(account as { source_channel?: string | null; web_released_at?: string | null; ready_confirmed_at?: string | null; status?: string | null }, 'layaway') && (
+                    <StatusPill size="md" label={AWAITING_PAYMENT_BADGE} tone="warning" />
+                  )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                   {account.status !== 'completed' && account.status !== 'forfeited' && remainingBalance > 0 && (
