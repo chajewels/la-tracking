@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Banknote, FileText, Navigation, User } from 'lucide-react';
+import { Banknote, FileText, Globe, Navigation, User } from 'lucide-react';
 import {
   CommandDialog,
   CommandEmpty,
@@ -14,6 +14,7 @@ import { DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useAccounts, useCustomers } from '@/hooks/use-supabase-data';
+import { useWebDrafts } from '@/hooks/use-web-park';
 import { useQueryClient } from '@tanstack/react-query';
 import { sidebarItems, isCategory, type MenuItem } from '@/components/layout/AppSidebar';
 import { formatCurrency } from '@/lib/calculations';
@@ -69,6 +70,8 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
   // Cash orders: cached-only (the list page's query); no extra fetch here.
   const cashOrders = queryClient.getQueryData<any[]>(['cash-orders']) ?? [];
+  // Website orders PR 5: drafts to confirm are searchable by CJ-W reference.
+  const { data: drafts } = useWebDrafts('open', can('confirm_web_order_ready'));
 
   const navEntries = useMemo<NavEntry[]>(() => {
     const out: NavEntry[] = [];
@@ -107,6 +110,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
     return (accounts ?? [])
       .filter((a: any) =>
         String(a.invoice_number ?? '').toLowerCase().includes(q) ||
+        String(a.web_reference ?? '').toLowerCase().includes(q) ||
         String(a.customers?.full_name ?? '').toLowerCase().includes(q))
       .slice(0, 6);
   }, [accounts, q]);
@@ -125,9 +129,17 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
     return cashOrders
       .filter((o: any) =>
         String(o.invoice_number ?? '').toLowerCase().includes(q) ||
+        String(o.web_reference ?? '').toLowerCase().includes(q) ||
         String(o.customers?.full_name ?? '').toLowerCase().includes(q))
       .slice(0, 5);
   }, [cashOrders, q]);
+
+  const draftMatches = useMemo(() => {
+    if (!q) return [];
+    return (drafts ?? [])
+      .filter((d) => d.web_reference.toLowerCase().includes(q) || d.customer_name.toLowerCase().includes(q))
+      .slice(0, 5);
+  }, [drafts, q]);
 
   const go = (path: string) => {
     onDone();
@@ -137,7 +149,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   return (
     <>
       <DialogTitle className="sr-only">Command palette</DialogTitle>
-      <CommandInput placeholder="Jump to a page, account, customer, or cash order…" value={query} onValueChange={setQuery} />
+      <CommandInput placeholder="Jump to a page, account, customer, cash order, or CJ-W reference…" value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>Nothing matches. Try an invoice #, a customer name, or a page.</CommandEmpty>
         {navMatches.length > 0 && (
@@ -174,6 +186,17 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
                 <Banknote className="mr-2 h-3.5 w-3.5 text-gold-300" />
                 <span className="tabular-nums">#{o.invoice_number}</span>
                 <span className="mx-1.5 text-muted-foreground truncate">{o.customers?.full_name}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        {draftMatches.length > 0 && (
+          <CommandGroup heading="Website orders to confirm">
+            {draftMatches.map((d) => (
+              <CommandItem key={d.id} value={`${d.web_reference} ${d.customer_name} website order`} onSelect={() => go(`/orders/review/website/${d.id}`)}>
+                <Globe className="mr-2 h-3.5 w-3.5 text-warning" />
+                <span className="tabular-nums">{d.web_reference}</span>
+                <span className="mx-1.5 text-muted-foreground truncate">{d.customer_name}</span>
               </CommandItem>
             ))}
           </CommandGroup>

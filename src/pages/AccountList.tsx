@@ -34,6 +34,8 @@ import PageHeaderBand from '@/components/layout/PageHeaderBand';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
+import { showInSalesLists } from '@/lib/web-park';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { toast } from '@/components/ui/use-toast';
 
 const statusStyles: Record<string, string> = {
@@ -95,7 +97,9 @@ const isTestInvoice = (inv: string | null | undefined) => (inv || '').startsWith
 // 'awaiting' (reserve-first A2): web reservations nobody has confirmed yet —
 // the same option, and the same words, as the cash order list.
 type ChannelFilter = 'all' | 'web' | 'hub' | 'awaiting';
-const channelOptions: ChannelFilter[] = ['all', 'web', 'hub', 'awaiting'];
+// 'awaiting' is no longer offered (website orders PR 5): an unpaid web plan is
+// not in this list at all — it waits in Sales → Website orders.
+const channelOptions: ChannelFilter[] = ['all', 'web', 'hub'];
 const channelLabels: Record<ChannelFilter, string> = { all: 'All', web: 'Web', hub: 'Hub / DM', awaiting: 'Awaiting confirmation' };
 
 type AccountRefFields = {
@@ -181,7 +185,14 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const navigate = useNavigate();
   // Desktop shows each open folder as a ledger table; phones keep the cards.
   const isMobile = useIsMobile();
-  const { data: accounts, isLoading } = useAccounts();
+  const canSeeWebOrders = usePermissions().can('confirm_web_order_ready');
+  const { data: allAccounts, isLoading } = useAccounts();
+  // R7 (website orders PR 5): a web plan joins this list only once its first
+  // payment is confirmed (web_released_at). Until then it is in Website orders.
+  const accounts = useMemo(
+    () => (allAccounts || []).filter((a) => showInSalesLists(a as { source_channel?: string | null; web_released_at?: string | null; status?: string | null })),
+    [allAccounts],
+  );
 
   useEffect(() => {
     const s = searchParams.get('status');
@@ -669,6 +680,11 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
               </button>
             ))}
           </div>
+          {canSeeWebOrders && (
+            <Link to="/sales?tab=web" className="self-center text-xs text-muted-foreground hover:text-primary">
+              Unpaid website orders are in Website orders →
+            </Link>
+          )}
           <button
             onClick={() => setHideTest(!hideTest)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
