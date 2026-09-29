@@ -238,6 +238,13 @@ Deno.serve(async (req) => {
   // aggregate into a per-customer max. Excluded statuses NEVER count as
   // activity: layaway cancelled/forfeited/final_forfeited; cash
   // cancelled/expired.
+  //
+  // PAID ORDERS ONLY (owner rule 2026-09-29): an order resets the 180-day
+  // clock only once money has been received on it (total_paid > 0). A new
+  // layaway whose downpayment has not arrived, or a pending cash order with no
+  // payment, is NOT activity. A paid order that is later cancelled keeps the
+  // clock reset through loyalty_members.last_purchase_at, which the award path
+  // writes only when money is received.
   const LAYAWAY_SUCCESSFUL = [
     "active",
     "overdue",
@@ -261,6 +268,7 @@ Deno.serve(async (req) => {
         .from(table)
         .select("customer_id, order_date")
         .in("status", statuses)
+        .gt("total_paid", 0)
         .not("order_date", "is", null)
         .range(from, to);
       if (error) throw error;
