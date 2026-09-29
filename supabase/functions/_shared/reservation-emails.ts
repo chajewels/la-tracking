@@ -1,7 +1,7 @@
 import * as React from "npm:react@18.3.1";
 import {
   pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
-  type SendStorefrontEmailResult,
+  STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
 } from "./storefront-email.ts";
 import { regionForCurrency, transferMethods } from "./transfer-methods.ts";
 import type { OrderEmailItem, OrderEmailMethod } from "./email-templates/order-shared.tsx";
@@ -42,7 +42,7 @@ export type ReservationEmailResult = SendStorefrontEmailResult | { sent: false; 
 async function loadOrder(supabase: Db, orderId: string) {
   const { data: order } = await supabase
     .from("cash_orders")
-    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, customers(email, is_test)")
+    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, customers(email, is_test)")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return null;
@@ -81,7 +81,7 @@ async function loadOrder(supabase: Db, orderId: string) {
 async function loadPlan(supabase: Db, accountId: string) {
   const { data: plan } = await supabase
     .from("layaway_accounts")
-    .select("id, web_reference, invoice_number, currency, total_amount, downpayment_amount, payment_plan_months, transfer_due_at, customers(email, is_test)")
+    .select("id, web_reference, invoice_number, currency, total_amount, downpayment_amount, payment_plan_months, transfer_due_at, planned_shipping_method_id, customers(email, is_test)")
     .eq("id", accountId)
     .maybeSingle();
   if (!plan) return null;
@@ -92,6 +92,18 @@ async function loadPlan(supabase: Db, accountId: string) {
     currency: (String((plan as AnyRec).currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
+}
+
+/**
+ * Website orders PR 6: the courier staff chose on the review screen, by name.
+ * null when none was chosen (every order made before PR 4) — no line then.
+ */
+async function courierName(supabase: Db, methodId: unknown): Promise<string | null> {
+  if (!methodId) return null;
+  const { data } = await supabase
+    .from("shipping_methods").select("provider_name, title").eq("id", String(methodId)).maybeSingle();
+  const row = (data ?? null) as AnyRec | null;
+  return row ? String(row.provider_name ?? row.title ?? "") || null : null;
 }
 
 async function guarded(label: string, fn: () => Promise<ReservationEmailResult>): Promise<ReservationEmailResult> {
@@ -181,6 +193,7 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string): Promise<Rese
         region: regionForCurrency(currency),
         orderUrl: storefrontOrderUrl(orderId),
         variant: "ready",
+        courier: await courierName(supabase, o.order.planned_shipping_method_id),
       }),
     });
   });
@@ -214,6 +227,13 @@ export function sendLayawayReadyEmail(
       }));
     }
     const methods = await transferMethods(supabase, p.currency);
+    // Website orders PR 6: what the plan is for. Product lines carry a
+    // variant; the service lines staff added on the review screen do not.
+    const { data: lineRows } = await supabase
+      .from("layaway_account_items").select("title, variant_id").eq("account_id", accountId).order("created_at");
+    const lines = (lineRows ?? []) as AnyRec[];
+    const pieces = lines.filter((l) => l.variant_id).map((l) => String(l.title ?? "")).filter(Boolean);
+    const services = lines.filter((l) => !l.variant_id).map((l) => String(l.title ?? "")).filter(Boolean);
     return await sendStorefrontEmail({
       to: p.to,
       subject: layawayReadySubject(p.reference),
@@ -232,6 +252,9 @@ export function sendLayawayReadyEmail(
         region: regionForCurrency(p.currency),
         planUrl: storefrontLayawayUrl(accountId),
         variant: "ready",
+        pieces,
+        services,
+        courier: await courierName(supabase, p.plan.planned_shipping_method_id),
       }),
     });
   });
@@ -314,6 +337,169 @@ export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): 
         totalJpy: Number(o.order.total_amount ?? 0),
         currency: o.currency,
         shopUrl: storefrontShopUrl(),
+      }),
+    });
+  });
+}
+
+// ─────────────────────────────────────────── website orders PR 6: DRAFTS
+//
+// A draft (web_order_drafts) is a checkout staff have not confirmed yet. It is
+// not an order, so these build the email from the draft and its lines. The
+// same templates as the old reserve-first flow, with the provisional note.
+// Keys are per DRAFT id, so a draft's "reserved" and "declined" mails can never
+// collide with an order's.
+
+/** The storefront page for a draft (storefront PR 7: /checkout/complete/d/:id). */
+export function storefrontDraftUrl(draftId: string): string {
+  return `${STOREFRONT_PUBLIC_URL}/checkout/complete/d/${encodeURIComponent(draftId)}`;
+}
+
+async function loadDraft(supabase: Db, draftId: string) {
+  const { data: draft } = await supabase
+    .from("web_order_drafts")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, customers(email, is_test)")
+    .eq("id", draftId)
+    .maybeSingle();
+  if (!draft) return null;
+  const { data: lines } = await supabase
+    .from("web_order_draft_lines")
+    .select("website_product_id, title, qty, line_total_jpy")
+    .eq("draft_id", draftId)
+    .order("created_at");
+  const ids = [...new Set(((lines ?? []) as AnyRec[]).map((l) => l.website_product_id).filter(Boolean))];
+  const { data: prods } = ids.length
+    ? await supabase.from("website_products").select("id, name, name_ja").in("id", ids)
+    : { data: [] as AnyRec[] };
+  const byId = new Map<string, AnyRec>(((prods ?? []) as AnyRec[]).map((p) => [String(p.id), p]));
+  const items: OrderEmailItem[] = ((lines ?? []) as AnyRec[]).map((l) => {
+    const pr = l.website_product_id ? byId.get(String(l.website_product_id)) : undefined;
+    const title = String(l.title ?? "");
+    const name = pr?.name ? String(pr.name) : "";
+    const title_ja = name && pr?.name_ja && title.startsWith(name) ? String(pr.name_ja) + title.slice(name.length) : null;
+    return { title, title_ja, qty: Number(l.qty ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
+  });
+  const d = draft as AnyRec;
+  const customer = d.customers as AnyRec | null;
+  return {
+    draft: d,
+    items,
+    reference: String(d.web_reference ?? ""),
+    // Draft money is in the settlement currency (converted once at checkout).
+    currency: (String(d.settlement_currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
+    lang: pickLang(d.customer_lang),
+    to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
+  };
+}
+
+/** Checkout in draft mode: "we have your order / layaway request". Nothing to pay yet. */
+export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<ReservationEmailResult> {
+  return guarded("draft-reserved", async () => {
+    const d = await loadDraft(supabase, draftId);
+    if (!d) return { sent: false, reason: "not_found" };
+    if (d.draft.mode === "layaway") {
+      return await sendStorefrontEmail({
+        to: d.to,
+        subject: layawayReservedSubject(d.reference),
+        label: "layaway-reserved",
+        reference: d.reference,
+        idempotencyKey: `draft-reserved-${draftId}`,
+        element: React.createElement(LayawayReservedEmail, {
+          reference: d.reference,
+          currency: d.currency,
+          totalAmount: Number(d.draft.total ?? 0),
+          deposit: Number(d.draft.deposit ?? 0),
+          termMonths: Number(d.draft.term_months ?? 0),
+          planUrl: storefrontDraftUrl(draftId),
+          provisional: true,
+        }),
+      });
+    }
+    return await sendStorefrontEmail({
+      to: d.to,
+      subject: orderReservedSubject(d.reference),
+      label: "order-reserved",
+      reference: d.reference,
+      idempotencyKey: `draft-reserved-${draftId}`,
+      element: React.createElement(OrderReservedEmail, {
+        lang: d.lang,
+        reference: d.reference,
+        items: d.items,
+        shippingJpy: d.draft.shipping === null || d.draft.shipping === undefined ? null : Number(d.draft.shipping),
+        totalJpy: Number(d.draft.total ?? 0),
+        currency: d.currency,
+        orderUrl: storefrontDraftUrl(draftId),
+        provisional: true,
+      }),
+    });
+  });
+}
+
+/**
+ * A draft ended unconfirmed: staff pressed "Can't supply" (declined, with the
+ * reason) or 72 hours passed (lapsed). Nothing was ever paid.
+ */
+export function sendDraftClosedEmail(
+  supabase: Db,
+  draftId: string,
+  kind: "declined" | "lapsed",
+  reason?: string | null,
+): Promise<ReservationEmailResult> {
+  return guarded(`draft-${kind}`, async () => {
+    const d = await loadDraft(supabase, draftId);
+    if (!d) return { sent: false, reason: "not_found" };
+    const shippingJpy = d.draft.shipping === null || d.draft.shipping === undefined ? null : Number(d.draft.shipping);
+    if (d.draft.mode === "layaway") {
+      const label = kind === "lapsed" ? "layaway-reservation-lapsed" : "layaway-declined";
+      return await sendStorefrontEmail({
+        to: d.to,
+        subject: layawayDeclinedSubject(d.reference, kind),
+        label,
+        reference: d.reference,
+        idempotencyKey: `draft-${kind}-${draftId}`,
+        element: React.createElement(LayawayDeclinedEmail, {
+          reference: d.reference,
+          kind,
+          reason: reason ?? null,
+          shopUrl: storefrontShopUrl(),
+        }),
+      });
+    }
+    if (kind === "lapsed") {
+      return await sendStorefrontEmail({
+        to: d.to,
+        subject: orderReservationLapsedSubject(d.reference),
+        label: "order-reservation-lapsed",
+        reference: d.reference,
+        idempotencyKey: `draft-lapsed-${draftId}`,
+        element: React.createElement(OrderReservationLapsedEmail, {
+          lang: d.lang,
+          reference: d.reference,
+          items: d.items,
+          shippingJpy,
+          totalJpy: Number(d.draft.total ?? 0),
+          currency: d.currency,
+          shopUrl: storefrontShopUrl(),
+        }),
+      });
+    }
+    return await sendStorefrontEmail({
+      to: d.to,
+      subject: orderCancelledSubject(d.reference),
+      label: "order-cancelled",
+      reference: d.reference,
+      idempotencyKey: `draft-declined-${draftId}`,
+      element: React.createElement(OrderCancelledEmail, {
+        lang: d.lang,
+        reference: d.reference,
+        items: d.items,
+        shippingJpy,
+        totalJpy: Number(d.draft.total ?? 0),
+        currency: d.currency,
+        reason: reason ?? "",
+        refundStatus: null,
+        refundNote: null,
+        orderUrl: null,
       }),
     });
   });

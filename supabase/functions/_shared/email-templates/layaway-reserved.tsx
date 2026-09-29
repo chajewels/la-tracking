@@ -23,6 +23,12 @@ export interface LayawayReservedProps {
   deposit: number
   termMonths: number
   planUrl: string | null
+  /**
+   * Website orders PR 6: a DRAFT checkout — the deposit and schedule are final
+   * only when we confirm, and may then include shipping and any service.
+   * Absent reads exactly as before.
+   */
+  provisional?: boolean
 }
 
 export const layawayReservedSubject = (reference: string) =>
@@ -50,6 +56,12 @@ export const LayawayReservedEmail = (p: LayawayReservedProps) => (
           As soon as it is confirmed we will email you the deposit, where to send it and your
           payment schedule. The schedule starts from the day we confirm.
         </Text>
+        {p.provisional && (
+          <Text style={muted}>
+            These figures are provisional. The deposit and schedule are final when we confirm, and
+            may then include shipping and any service you asked for.
+          </Text>
+        )}
         <Text style={notice}>
           There is nothing to pay yet. The payment details will be in that email and on this plan
           in your account.

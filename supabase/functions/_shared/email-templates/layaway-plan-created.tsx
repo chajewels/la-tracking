@@ -34,6 +34,15 @@ export interface LayawayPlanCreatedProps {
    * Absent reads exactly as it always has.
    */
   variant?: 'placed' | 'ready'
+  /**
+   * Website orders PR 6 (ready emails from the review screen). All optional;
+   * absent reads exactly as before. English only, like every layaway email.
+   * pieces: the item titles; services: the service lines staff added (their
+   * amounts are already inside totalAmount); courier: who ships it.
+   */
+  pieces?: string[]
+  services?: string[]
+  courier?: string | null
 }
 
 export const layawayPlanCreatedSubject = (reference: string) =>
@@ -68,6 +77,11 @@ const Content = ({ p }: { p: LayawayPlanCreatedProps }) => {
         reference={p.reference} totalAmount={p.totalAmount} deposit={p.deposit}
         termMonths={p.termMonths} currency={p.currency}
       />
+      {p.pieces && p.pieces.length > 0 && <Text style={muted}>Your piece: {p.pieces.join(', ')}</Text>}
+      {p.services && p.services.length > 0 && (
+        <Text style={muted}>The total includes the service we agreed: {p.services.join(', ')}.</Text>
+      )}
+      {p.courier && <Text style={muted}>Shipping by: {p.courier}</Text>}
       <Text style={text}>
         {c.deposit(formatMoney(p.deposit, p.currency), formatDeadline(p.transferDueAt, p.region, 'en'))}
       </Text>

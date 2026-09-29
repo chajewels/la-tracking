@@ -215,7 +215,21 @@ export default function WebOrderReview() {
       if (email && !email.sent) toast.warning('The order is confirmed, but the email to the customer was not sent. Send the payment details on Messenger.');
       qc.invalidateQueries({ queryKey: ['web-draft', id] });
       for (const key of ['web-drafts', 'web-park', 'web-reservations']) qc.invalidateQueries({ queryKey: [key] });
-      navigate(res.entity_type === 'cash_order' ? `/cash-orders/${res.entity_id}` : `/accounts/${res.entity_id}`);
+      const orderPath = res.entity_type === 'cash_order' ? `/cash-orders/${res.entity_id}` : `/accounts/${res.entity_id}`;
+      // W2-6: the draft carried a service request — open it on Services with
+      // the job dialog ready and the agreed service fee filled in, then come
+      // back to the order.
+      const reqs = Array.isArray(res.service_requests) ? (res.service_requests as { id: string }[]) : [];
+      if (reqs.length > 0) {
+        // The server's own figure: the service lines' total, in the order currency.
+        const fee = Number((res.figures as AnyRec | undefined)?.services ?? 0);
+        const q = new URLSearchParams({ tab: 'requests', open: reqs[0].id, convert: '1', return: orderPath });
+        if (fee > 0) q.set('fee', String(fee));
+        toast.info('The customer asked for a service — create the service job now.');
+        navigate(`/services?${q.toString()}`);
+        return;
+      }
+      navigate(orderPath);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

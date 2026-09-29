@@ -36,7 +36,13 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 vi.mock("@/components/layout/AppLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 const toastOk = vi.fn();
-vi.mock("sonner", () => ({ toast: { success: (...a: unknown[]) => toastOk(...a), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: (...a: unknown[]) => toastOk(...a), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+
+import { useLocation } from "react-router-dom";
+function LocationProbe() {
+  const loc = useLocation();
+  return <p data-testid="services-landing">{loc.pathname + loc.search}</p>;
+}
 
 import WebOrderReview from "@/pages/WebOrderReview";
 
@@ -48,6 +54,7 @@ function mount() {
         <Routes>
           <Route path="/orders/review/website/:id" element={<WebOrderReview />} />
           <Route path="/cash-orders/:id" element={<p>cash order page</p>} />
+          <Route path="/services" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -118,6 +125,29 @@ describe("review screen", () => {
     expect(body).toMatchObject({ draft_id: "d1", shipping: 800, discount: 0, planned_shipping_method_id: "m-pab" });
     expect(body).not.toHaveProperty("total");
     expect(body).not.toHaveProperty("total_amount");
+  });
+
+  it("W2-6: a draft that carried a service request lands on Services with the job ready and the agreed fee", async () => {
+    draft = { ...draft, country: "PH" };
+    invoke.mockImplementation(async (_name: string, { body }: { body: Rec }) => {
+      if (body.action === "preview") return { data: preview, error: null };
+      return {
+        data: { ok: true, entity_type: "cash_order", entity_id: "o1", email: { sent: true },
+          figures: { ...preview, services: 3000 }, service_requests: [{ id: "sr1", kind: "resize" }] },
+        error: null,
+      };
+    });
+    mount();
+    await waitFor(() => expect(screen.getByTestId("web-review-confirm")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("web-review-confirm"));
+    const landing = await screen.findByTestId("services-landing");
+    const url = new URL(`http://x${landing.textContent}`);
+    expect(url.pathname).toBe("/services");
+    expect(url.searchParams.get("tab")).toBe("requests");
+    expect(url.searchParams.get("open")).toBe("sr1");
+    expect(url.searchParams.get("convert")).toBe("1");
+    expect(url.searchParams.get("fee")).toBe("3000");
+    expect(url.searchParams.get("return")).toBe("/cash-orders/o1");
   });
 
   it("a closed draft shows why and offers no Confirm", async () => {

@@ -93,6 +93,9 @@ function storefrontFixtures(): Fixture[] {
     for (const currency of CURRENCIES) {
       const k = `${lang}-${currency}`
       add('order-reserved.tsx', `order-reserved ${k}`, el(OrderReservedEmail, { lang, currency, ...base, orderUrl }))
+      // Website orders PR 6: a draft — shipping still to be added, provisional note.
+      add('order-reserved.tsx', `order-reserved ${k} draft`, el(OrderReservedEmail, { lang, currency, ...base, shippingJpy: null, orderUrl, provisional: true }))
+      add('order-confirmation.tsx', `order-confirmation ${k} ready courier`, el(OrderConfirmationEmail, { lang, currency, ...base, methods, transferDueAt: due, region: 'OVERSEAS', orderUrl, variant: 'ready', courier: 'Pabitbit' }))
       for (const variant of ['placed', 'ready'])
         for (const region of ['JP', 'OVERSEAS'])
           add('order-confirmation.tsx', `order-confirmation ${k} ${variant} ${region}`, el(OrderConfirmationEmail, { lang, currency, ...base, methods, transferDueAt: due, region, orderUrl, variant }))
@@ -106,6 +109,7 @@ function storefrontFixtures(): Fixture[] {
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])
         add('layaway-plan-created.tsx', `layaway-plan-created ${k} ${variant}`, el(LayawayPlanCreatedEmail, { ...plan, schedule, methods, transferDueAt: due, region: 'JP', planUrl, variant }))
+      add('layaway-plan-created.tsx', `layaway-plan-created ${k} ready extras`, el(LayawayPlanCreatedEmail, { ...plan, schedule, methods, transferDueAt: due, region: 'OVERSEAS', planUrl, variant: 'ready', pieces: ['K18 Diamond Pendant / 45cm'], services: ['Ring resize'], courier: 'Pabitbit' }))
       for (const isDeposit of [true, false])
         add('layaway-payment-received.tsx', `layaway-payment-received ${k} deposit=${isDeposit}`, el(LayawayPaymentReceivedEmail, { reference: plan.reference, currency, isDeposit, amountReceived: 36000, remaining: 84000, schedule, nextDueDate: '2026-10-24', nextDueAmount: 28000, planUrl }))
       for (const final of [false, true])
@@ -113,6 +117,7 @@ function storefrontFixtures(): Fixture[] {
       add('layaway-expired.tsx', `layaway-expired ${k}`, el(LayawayExpiredEmail, { reference: plan.reference, currency, totalAmount: 120000, deposit: 36000, transferDueAt: due, region: 'JP', shopUrl }))
       if (lang === 'en') {
         add('layaway-reserved.tsx', `layaway-reserved ${currency}`, el(LayawayReservedEmail, { ...plan, planUrl }))
+        add('layaway-reserved.tsx', `layaway-reserved ${currency} draft`, el(LayawayReservedEmail, { ...plan, planUrl, provisional: true }))
         for (const kind of ['declined', 'lapsed'])
           add('layaway-declined.tsx', `layaway-declined ${currency} ${kind}`, el(LayawayDeclinedEmail, { reference: plan.reference, kind, reason: 'The piece did not pass our final inspection.', shopUrl }))
         add('layaway-deposit-due.tsx', `layaway-deposit-due ${currency}`, el(LayawayDepositDueEmail, { reference: plan.reference, currency, deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl }))

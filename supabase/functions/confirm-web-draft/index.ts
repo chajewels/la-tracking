@@ -13,8 +13,8 @@
 //     (order, schedule, lines, hold transferred — no second stock movement).
 //     Then the existing "ready — pay now" email goes out.
 //   action 'decline' — "Can't supply": decline_web_draft_atomic, reason
-//     required, stock back on sale. (The customer email for a declined draft
-//     comes with the draft emails in website-orders PR 6.)
+//     required, stock back on sale, then the customer is told why (PR 6:
+//     order-cancelled in her language, or layaway-declined in English).
 //
 // MONEY. Every figure a person types is in the ORDER's currency (the currency
 // the customer chose at checkout) and must be a whole number, like every
@@ -32,7 +32,7 @@
 
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
-import { sendLayawayReadyEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
+import { sendDraftClosedEmail, sendLayawayReadyEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 import { computeWebDraftFigures } from "../_shared/web-draft-figures.ts";
 
 type AnyRec = Record<string, unknown>;
@@ -70,7 +70,9 @@ Deno.serve(async (req) => {
       if (error) throw error;
       const r = (data ?? {}) as AnyRec;
       if (r.error) return jsonResponse(r, ERROR_STATUS[String(r.error)] ?? 400);
-      return jsonResponse(r);
+      // Never throws: the decline stands whether or not the mail goes out.
+      const email = await sendDraftClosedEmail(supabase, draftId, "declined", reason);
+      return jsonResponse({ ...r, email });
     }
 
     if (action !== "preview" && action !== "confirm") {
@@ -136,6 +138,17 @@ Deno.serve(async (req) => {
       ? await sendOrderReadyEmail(supabase, String(result.entity_id))
       : await sendLayawayReadyEmail(supabase, String(result.entity_id), (schedule ?? null) as never);
 
+    // W2-6: the service requests this draft carried (re-pointed to the new
+    // order by the RPC). The review screen opens Services on the first one so
+    // staff turn it into a job, with the service line's fee prefilled.
+    const { data: reqs } = await supabase
+      .from("service_requests")
+      .select("id, kind")
+      .eq("web_draft_id", draftId)
+      .in("status", ["requested", "received", "in_progress"])
+      .order("created_at");
+    const serviceRequests = ((reqs ?? []) as AnyRec[]).map((r) => ({ id: r.id, kind: r.kind }));
+
     console.log(JSON.stringify({
       confirm_web_draft: result.entity_type,
       draft: draftId,
@@ -145,7 +158,7 @@ Deno.serve(async (req) => {
       email: email.sent ? "sent" : (email as { reason?: string }).reason ?? "not_sent",
     }));
 
-    return jsonResponse({ ...result, figures, email });
+    return jsonResponse({ ...result, figures, email, service_requests: serviceRequests });
   } catch (err) {
     console.error("[confirm-web-draft] failed:", err);
     return jsonResponse({ error: (err as Error)?.message ?? "internal_error" }, 500);

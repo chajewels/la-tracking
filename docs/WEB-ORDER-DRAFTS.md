@@ -198,3 +198,105 @@ Hub frontend only — no migration, no edge function, no Lovable step.
 - **Dev preview:** `/__fixtures?view=hub&webpark=1&at=/sales?tab=web`.
 - **Tests:** `src/test/web-park.test.tsx` (rules + screen),
   `src/test/web-reservations.test.tsx` (Dashboard card with drafts).
+
+## PR 6 — the checkout, Hub side, behind the switch (2026-09-29)
+
+Edge functions only (plus the Hub Services landing). **Nothing changes live
+while `web_checkout_mode = 'order'`** — every new path is taken only in
+`'draft'` mode, which the owner switches on in PR 8 after the storefront
+(PR 7) is live. No migration: every SQL function it calls shipped in PR 3.
+
+### `website` (the Website API)
+
+- **Switch:** `checkoutDraftMode()` calls `web_checkout_mode()` (fails closed
+  to `'order'`; a read error is `'order'` too).
+- **`POST /checkout/quote` and `GET /checkout/quote/:id`** gain
+  `shipping_at_confirmation` and `provisional`. In draft mode a destination
+  with no published rate returns `shipping_jpy: null`,
+  `shipping_at_confirmation: true`, `requires_manual_quote: false`, and a
+  layaway quote is priced without shipping instead of refusing
+  `shipping_quote_required`. In order mode both are `false` and
+  `requires_manual_quote` is exactly as before, so old storefront builds keep
+  blocking safely.
+- **`POST /checkout/pay`** in draft mode calls `create_web_draft_atomic`
+  (before, and instead of, the two old writers) and answers
+  `{ draft_id, web_reference, mode, currency, total (provisional), total_jpy,
+  shipping_pending, deposit, term_months, provisional: true,
+  awaiting_confirmation: true, reservation_mode: true, transfer_due_at: null,
+  transfer_region, transfer_methods: [] }` — never `order_id` / `account_id`,
+  never bank details. New error codes: `agreement_missing` 400,
+  `unsupported_mode` 400, `checkout_mode_not_draft` 409 (only if the switch
+  flips back between the two reads). Then the "we have your order / layaway
+  request" email, built from the draft, with the provisional note.
+- **`GET /drafts`** (the customer's drafts, newest first) and
+  **`GET /drafts/:id`** (one draft + its pieces + the address snapshot),
+  scoped by `customer_id`. Each draft carries `kind: 'draft'`, `status`,
+  provisional money in the settlement currency, `shipping_pending`,
+  `decline_reason` (declined only — the reason the customer was told), and
+  `order_id` / `account_id` once confirmed (W2-9: the storefront redirects).
+  **Deviation from plan §4.3:** drafts are NOT merged into `GET /orders` /
+  `GET /layaway`, so those keep their exact shape for storefront builds that
+  predate drafts; PR 7 reads `/drafts` beside them.
+- **`GET /me`** `records` gains `drafts` (open drafts) and the blank-account
+  bell requires all three to be 0.
+- **Service requests (W2-5):** `POST /me/service-requests` accepts `draft_id`
+  (exactly one of `cash_order_id` / `layaway_plan_id` / `draft_id`; the draft
+  must be the customer's and still `to_confirm`, else `draft_closed` 409). Both
+  service-request reads return `draft_id`.
+
+### Emails (`_shared/reservation-emails.ts`, keyed per DRAFT id)
+
+- `sendDraftReservedEmail` — at checkout: `order-reserved` (customer's
+  language, provisional note, shipping "—" when still to be added) or
+  `layaway-reserved` (English, provisional note). Key `draft-reserved-<id>`.
+- `sendDraftClosedEmail(kind)` — `declined` (staff "Can't supply", with the
+  reason: `order-cancelled` / `layaway-declined`) or `lapsed` (72 hours:
+  `order-reservation-lapsed` / `layaway-reservation-lapsed`). Key
+  `draft-<kind>-<id>`.
+- Draft links go to the storefront page `/checkout/complete/d/<draft_id>`
+  (built in PR 7).
+- **Ready emails** (after Confirm, also the old flow): `courier` line when the
+  order has `planned_shipping_method_id`; a layaway ready email also lists the
+  pieces and the agreed service lines by name (their amounts are already in
+  the total). All layaway copy stays English.
+
+### Other functions
+
+- **`confirm-web-draft`:** "Can't supply" now emails the customer; Confirm
+  returns the draft's open `service_requests`.
+- **`web-reservation-sweep`:** also runs `expire_web_drafts_atomic(72)`, sends
+  the lapsed email, raises bell `web_draft_auto_cancelled`, and lists drafts
+  unconfirmed for 24 hours in the sales@ reminder (stamped on
+  `web_order_drafts.reservation_reminded_at`, Hub link to the review screen).
+- **Deviation:** `decline-web-reservation` is NOT extended to drafts — the Hub
+  declines a draft through `confirm-web-draft` (PR 4/5), so a second path
+  would only duplicate it.
+
+### Hub: the Services landing (W2-6)
+
+After Confirm, if the draft carried an open service request, the review screen
+opens `/services?tab=requests&open=<id>&convert=1&fee=<services total>&return=<order page>`:
+the request drawer opens with the job dialog already open, the fee prefilled
+from the service lines staff typed (editable; `ServiceJobPrefill.serviceFee`),
+and after the job is saved and linked it returns to the new order. A person
+still saves the job — the dialog is never skipped.
+
+### Not in PR 6
+
+- **W2-7 (part-paid web cash order at its deadline)** needs the SQL
+  reminder predicate changed as well as `auto-expire-cash-orders`, so it is its
+  own small PR with a migration; it is independent of drafts.
+
+### Deploy set
+
+`website`, `web-reservation-sweep`, `confirm-web-draft`,
+`confirm-web-order-ready`, `decline-web-reservation`,
+`preview-transactional-email` (the last three only bundle the changed
+templates / `reservation-emails.ts`).
+
+### Tests
+
+`src/test/web-orders-pr6.test.ts` (source guards), `src/test/web-order-review.test.tsx`
+(Services landing), `development/email-encoding.test.ts` (new template
+variants render clean), `development/layaway-english.test.ts`,
+`src/test/peso-cash.test.ts` (every order email passes the currency).
