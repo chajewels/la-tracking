@@ -35,6 +35,7 @@ import DataTable, { type DataTableColumn } from '@/components/data-table/DataTab
 import { useIsMobile } from '@/hooks/use-mobile';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { showInSalesLists } from '@/lib/web-park';
+import { isCreatedTodayPHT, NEW_TODAY_PARAM, NEW_TODAY_VALUE } from '@/lib/new-today';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { toast } from '@/components/ui/use-toast';
 
@@ -168,6 +169,12 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
   const [filterChannel, setFilterChannel] = useState<ChannelFilter>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
   const [filterPeriod, setFilterPeriod] = useState<string>(searchParams.get('period') || '');
+  // ?new=today — from the Dashboard "New Accounts Today" card.
+  const newToday = searchParams.get(NEW_TODAY_PARAM) === NEW_TODAY_VALUE;
+  const clearNewToday = () => {
+    searchParams.delete(NEW_TODAY_PARAM);
+    setSearchParams(searchParams, { replace: true });
+  };
   const [hideTest, setHideTest] = useState(true);
   // Per-folder open/close override (empty => use default open logic) and the
   // per-folder "show all" reveal beyond the FOLDER_CARD_CAP.
@@ -219,9 +226,10 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const matchesChannel = matchesAccountChannel(a, filterChannel);
     const matchesTest = !hideTest || !isTestInvoice(a.invoice_number);
-    return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
+    const matchesNew = !newToday || isCreatedTodayPHT(a.created_at);
+    return matchesSearch && matchesCurrency && matchesChannel && matchesTest && matchesNew;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [accounts, filterTick, filterCurrency, filterChannel, hideTest]);
+  }), [accounts, filterTick, filterCurrency, filterChannel, hideTest, newToday]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
     const matchesSearch = !searchRef.current || matchesAccountSearch(a, searchRef.current);
@@ -235,9 +243,10 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
           (a.updated_at || '').startsWith(todayStr)
         : a.status === filterStatus;
     const matchesTest = !hideTest || !isTestInvoice(a.invoice_number);
-    return matchesSearch && matchesCurrency && matchesChannel && matchesStatus && matchesTest;
+    const matchesNew = !newToday || isCreatedTodayPHT(a.created_at);
+    return matchesSearch && matchesCurrency && matchesChannel && matchesStatus && matchesTest && matchesNew;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [accounts, filterTick, filterCurrency, filterChannel, filterStatus, filterPeriod, hideTest]);
+  }), [accounts, filterTick, filterCurrency, filterChannel, filterStatus, filterPeriod, hideTest, newToday]);
 
   // Tab counts (status grouping of preStatusFiltered) + ordered tab list.
   const { tabs, tabCounts } = useMemo(() => {
@@ -680,6 +689,16 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
               </button>
             ))}
           </div>
+          {newToday && (
+            <button
+              type="button"
+              onClick={clearNewToday}
+              className="inline-flex items-center gap-1.5 self-center rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-xs font-medium text-warning hover:bg-warning/20"
+              aria-label="Show all, not only today's new ones"
+            >
+              New today only <span aria-hidden>×</span>
+            </button>
+          )}
           {canSeeWebOrders && (
             <Link to="/sales?tab=web" className="self-center text-xs text-muted-foreground hover:text-primary">
               Unpaid website orders are in Website orders →

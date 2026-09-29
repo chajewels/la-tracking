@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Plus, Search, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -27,6 +27,7 @@ import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { showInSalesLists } from '@/lib/web-park';
+import { isCreatedTodayPHT, NEW_TODAY_PARAM, NEW_TODAY_VALUE } from '@/lib/new-today';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -136,6 +137,14 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   const [filterStatus, setFilterStatus] = useState<CashOrderStatus>('all');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterChannel, setFilterChannel] = useState<ChannelFilter>('all');
+  // ?new=today — from the Dashboard "New Accounts Today" card.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const newToday = searchParams.get(NEW_TODAY_PARAM) === NEW_TODAY_VALUE;
+  const clearNewToday = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete(NEW_TODAY_PARAM);
+    setSearchParams(next, { replace: true });
+  };
   const [hideTest, setHideTest] = useState(true);
   const [page, setPage] = useState(0);
   // List-kit state: sort, card density, keyboard navigation.
@@ -178,9 +187,10 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       || (filterChannel === 'awaiting' ? isAwaitingConfirmation(o, 'cash_order')
         : filterChannel === 'web' ? isWeb : !isWeb);
     const matchesTest = !hideTest || !isTestCashOrder(o);
-    return matchesSearch && matchesCurrency && matchesChannel && matchesTest;
+    const matchesNew = !newToday || isCreatedTodayPHT(o.created_at);
+    return matchesSearch && matchesCurrency && matchesChannel && matchesTest && matchesNew;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [orders, filterTick, filterCurrency, filterChannel, hideTest]);
+  }), [orders, filterTick, filterCurrency, filterChannel, hideTest, newToday]);
 
   const filtered = useMemo(
     () => preStatusFiltered.filter(o => filterStatus === 'all' || o.status === filterStatus),
@@ -406,6 +416,16 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
               </button>
             ))}
           </div>
+          {newToday && (
+            <button
+              type="button"
+              onClick={clearNewToday}
+              className="inline-flex items-center gap-1.5 self-center rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-xs font-medium text-warning hover:bg-warning/20"
+              aria-label="Show all, not only today's new ones"
+            >
+              New today only <span aria-hidden>×</span>
+            </button>
+          )}
           {canSeeWebOrders && (
             <Link to="/sales?tab=web" className="self-center text-xs text-muted-foreground hover:text-primary">
               Unpaid website orders are in Website orders →
