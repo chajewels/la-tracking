@@ -1,5 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { callUntypedRpc } from '@/lib/untyped-rpc';
+import { errorMessage } from '@/lib/error-message';
+import { type HeroPhotoSource, type HeroTabTotals, readHeroPhotoSource } from '@/lib/hero-picks';
 import {
   COVERAGE_MIN, describeFlag, PUBLISHABLE_STATUSES, type CutoutStatus as QaStatus,
 } from '../../supabase/functions/_shared/cutout-qa.ts';
@@ -113,6 +115,10 @@ export interface CutoutRow {
   /** Set = "Needs owner": stopped at the paid-call limit; the reason in plain words. */
   hold_reason?: string | null;
   held_at?: string | null;
+  /** Hero picks (migration 20261013100000): ticked "Use on hero". Absent until it has run — the tick is then not shown. */
+  hero_pick?: boolean;
+  /** Why it cannot be on the hero (hero_pick_reason); null = it can. */
+  hero_pick_blocker?: string | null;
 }
 
 export type CutoutErrorKind = 'account' | 'provider' | 'result_expired' | 'photo';
@@ -126,12 +132,15 @@ export const RETURNED_REASON: Record<Exclude<CutoutErrorKind, 'photo'>, string> 
 
 /** Every tab's photos and the paid calls they cost (get_media_cutout_tab_totals). */
 export interface CutoutTabTotals {
-  /** completed also carries kept_original (how many of them were kept uncut). */
-  tabs: Record<string, { count: number; paid_calls: number; kept_original?: number }>;
+  /** completed also carries kept_original (how many of them were kept uncut);
+   *  hero (20261013100000) carries usable / products_on_hero / published_left_out. */
+  tabs: Record<string, { count: number; paid_calls: number; kept_original?: number } & Partial<HeroTabTotals>>;
   is_admin: boolean;
   per_photo_limit: number;
   provider: ProviderName;
   price_usd: number | null;
+  /** The hero switch (20261013100000); null before it has run. */
+  hero_photo_source: HeroPhotoSource | null;
 }
 
 /** React Query keys (the dev fixture seeds the same ones). The list key is
@@ -151,6 +160,8 @@ export const FILTERS = [
   { value: 'rejected', label: 'Rejected' },
   { value: 'test', label: 'Test batch' },
   { value: 'all', label: 'All' },
+  // Shown only once migration 20261013100000 has run (the totals then carry it).
+  { value: 'hero', label: 'Hero' },
 ] as const;
 export type CutoutFilter = (typeof FILTERS)[number]['value'];
 
@@ -250,6 +261,7 @@ export async function getTabTotals(): Promise<CutoutTabTotals> {
     per_photo_limit: typeof raw.per_photo_limit === 'number' ? raw.per_photo_limit : 2,
     provider,
     price_usd: readPriceSetting(raw.price_usd, provider),
+    hero_photo_source: readHeroPhotoSource(raw.hero_photo_source),
   };
 }
 
@@ -343,7 +355,7 @@ export async function uploadOwnCutout(file: File): Promise<string> {
 
 /** A refusal code in plain words; any other error keeps its own message. */
 export function refusalText(err: unknown): string {
-  if (!(err instanceof RpcRefusal)) return err instanceof Error ? err.message : String(err);
+  if (!(err instanceof RpcRefusal)) return errorMessage(err);
   switch (err.code) {
     case 'permission_denied': return 'You need the "Manage website catalog" permission for this.';
     case 'stale': return 'Someone changed this a moment ago. The list has been refreshed — check it and try again.';

@@ -1,9 +1,48 @@
-import { ChevronDown, RefreshCw, Upload } from "lucide-react";
+import { useContext, useId } from "react";
+import { ChevronDown, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cutoutRowState, isLocked, type CutoutRow, type ReviewAction } from "@/lib/media-cutouts";
+import { blockerText } from "@/lib/hero-picks";
+import { HeroPickContext, type HeroPickControl } from "@/components/website/hero-pick-context";
+
+/** "Use on hero": unticking is always allowed; ticking only a usable cut-out; admin only. */
+function HeroPickToggle({ row, hero }: { row: CutoutRow; hero: HeroPickControl }) {
+  const id = useId();
+  const picked = row.hero_pick === true;
+  const reason = blockerText(row.hero_pick_blocker);
+  const saving = hero.pendingUrl === row.source_url;
+  // Unticking is always allowed; ticking only a usable cut-out.
+  const disabled = !hero.isAdmin || saving || hero.pendingUrl !== null || (!picked && !!reason);
+  const note = !hero.isAdmin
+    ? "Only an admin can choose the hero photos."
+    : picked && reason ? `Ticked, but not on the hero: ${reason}.`
+    : !picked && reason ? `Can't be on the hero: ${reason}.`
+    : null;
+  return (
+    <div className="flex basis-full flex-wrap items-center gap-x-2 gap-y-1" data-testid="hero-pick">
+      <label
+        htmlFor={id}
+        className={"inline-flex h-9 items-center gap-2 rounded-md border border-border px-2.5 text-sm "
+          + (disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:border-primary/60")}
+      >
+        <Checkbox
+          id={id}
+          checked={picked}
+          disabled={disabled}
+          onCheckedChange={v => hero.onPick(row, v === true)}
+          aria-describedby={note ? `${id}-note` : undefined}
+        />
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden />}
+        Use on hero
+      </label>
+      {note && <span id={`${id}-note`} className="text-xs text-muted-foreground" data-testid="hero-pick-note">{note}</span>}
+    </div>
+  );
+}
 
 /**
  * The review buttons for one photo on Website → Photos. Rendered by the row
@@ -18,6 +57,7 @@ export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId 
   testId?: string;
 }) {
   const { inFlight, completed, kept, rejected, keepFirst, held, capped } = cutoutRowState(row);
+  const hero = useContext(HeroPickContext);
   return (
     <div className="flex flex-wrap gap-2" data-testid={testId}>
       {keepFirst && (
@@ -79,6 +119,7 @@ export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId 
           Allow one more paid call
         </Button>
       )}
+      {hero && row.hero_pick !== undefined && <HeroPickToggle row={row} hero={hero} />}
     </div>
   );
 }
