@@ -7,7 +7,7 @@ import {
 import { storefrontPreview } from '@/theme/tokens';
 
 /**
- * Seed for /__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff] — Website → Photos
+ * Seed for /__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff][&source=product_ticks] — Website → Photos
  * (MediaCutoutsFixture.tsx) with seeded data (docs/MEDIA-CUTOUTS.md). No binary images in the repo: the
  * promotions bucket's public URLs are stubbed with drawn stand-ins (a gold
  * ring; an inset square where the photo had a second object).
@@ -44,7 +44,34 @@ function stubPromotions() {
   s.__cutoutStub = true;
 }
 
-const row = (over: Partial<CutoutRow>): CutoutRow => ({
+// Hero picks (20261013100000): the same rule as hero_pick_reason, for the fixture's rows only.
+function heroBlocker(r: Pick<CutoutRow, 'status' | 'cutout_path' | 'published'>): string | null {
+  if (r.status === 'kept_original') return 'kept_original';
+  if (r.status === 'rejected') return 'rejected';
+  if (!['ok', 'auto_fixed', 'approved'].includes(r.status)) return 'not_completed';
+  if (!r.cutout_path) return 'no_cutout_file';
+  if (r.published === false) return 'not_published';
+  return null;
+}
+
+// The carry-over preview (hero_picks_carry_over) answers from here in the fixture; every other RPC is untouched.
+function stubHeroRpc() {
+  const c = supabase as unknown as { rpc: (fn: string, args?: Record<string, unknown>) => unknown; __heroStub?: boolean };
+  if (c.__heroStub) return;
+  const original = c.rpc.bind(c);
+  c.rpc = (fn: string, args?: Record<string, unknown>) => {
+    if (fn !== 'hero_picks_carry_over' || args?.p_apply) return original(fn, args);
+    return Promise.resolve({ error: null, data: {
+      ok: true, applied: false, approved_hero: 58, already_ticked: 3, to_tick: 44,
+      left_out: { kept_original: 2, not_completed: 5, not_published: 4 },
+      products_now: { published_in_stock: 303, products_on_hero: 2, published_left_out: 301 },
+      products_after: { published_in_stock: 303, products_on_hero: 41, published_left_out: 262 },
+    } });
+  };
+  c.__heroStub = true;
+}
+
+const row = (over: Partial<CutoutRow>): CutoutRow => withHero({
   id: 'x', source_url: BASE + 'page365/1/1-1.jpg', source_kind: 'page365', priority: 0, test_batch: 'Test 30',
   job_state: 'done', status: 'ok', flags: [], rerun: false, own_cutout_url: null, provider: 'photoroom',
   model: 'photoroom/v1/segment', attempts: 0, last_error: null, source_w: 1512, source_h: 1512, output_kind: 'baked',
@@ -52,11 +79,13 @@ const row = (over: Partial<CutoutRow>): CutoutRow => ({
   catalog_small_path: 'website/derived/aa/r1/catalog-small.webp', hero_usable: true, timings: { total: 480 },
   last_rerun: null, review_note: null, reviewed_at: null, finished_at: '2026-10-05T03:14:00Z',
   updated_at: '2026-10-05T03:14:00Z', product: null, product_count: 1, published: true,
-  paid_calls: 1, paid_call_limit: 2, recut_allowed: false, hold_reason: null, held_at: null, ...over,
+  paid_calls: 1, paid_call_limit: 2, recut_allowed: false, hold_reason: null, held_at: null, hero_pick: false, ...over,
 });
+const withHero = (r: CutoutRow): CutoutRow => ({ ...r, hero_pick_blocker: r.hero_pick_blocker !== undefined ? r.hero_pick_blocker : heroBlocker(r) });
 
-export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | null = null) {
+export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | null = null, source: string | null = null) {
   stubPromotions();
+  stubHeroRpc();
   const seed = (key: readonly unknown[], data: unknown) => {
     qc.setQueryDefaults(key as unknown[], { staleTime: Infinity, gcTime: Infinity, retry: false, refetchInterval: false });
     qc.setQueryData(key as unknown[], data);
@@ -78,6 +107,7 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
   // Cut once (20261010100000): the 2026-09-28 shape — Replicate at $0.005.
   const tabs: CutoutTabTotals = {
     is_admin: role !== 'staff', per_photo_limit: 2, provider: 'replicate', price_usd: 0.005,
+    hero_photo_source: source === 'product_ticks' ? 'product_ticks' : 'hero_record',
     tabs: {
       // Provider errors (20261012100000), the live-shaped snapshot after the SQL: published products only;
       // Failed = genuine photo problems. 'waiting' is counted for SQL use; the card does not show it.
@@ -86,6 +116,8 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
       queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
       completed: { count: 111, paid_calls: 110, kept_original: 1 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 209, paid_calls: 154 },
+      // Hero picks (20261013100000): three ticks, one no longer usable (its product was unpublished).
+      hero: { count: 3, paid_calls: 3, usable: 2, products_on_hero: 2, published_left_out: 301, published_in_stock: 303 },
     },
   };
   seed(CUTOUT_TABS_KEY, tabs);
@@ -97,9 +129,20 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
             flags: ['coverage:0.012'], review_note: 'The photo is fine as it is', reviewed_at: '2026-09-28T05:00:00Z',
             product: n('B1203', 'K18 Snake Chain Bracelet') }),
       row({ source_url: drawn('original', false, false), status: 'approved', provider: 'replicate', reviewed_at: '2026-09-28T02:00:00Z',
-            product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
+            hero_pick: true, product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
       row({ source_url: drawn('original', true, false), status: 'ok', provider: 'replicate', paid_calls: 2, priority: 1,
             product: n('R3341', 'Preloved Platinum Baguette Cocktail Ring') }),
+    ],
+  });
+  seed([CUTOUT_LIST_KEY, 'hero', '', 0], {
+    total: 3,
+    rows: [
+      row({ source_url: drawn('original', false, false), status: 'approved', provider: 'replicate', hero_pick: true,
+            product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
+      row({ source_url: drawn('original', true, false) + '#AL1234', status: 'ok', provider: 'replicate', hero_pick: true, priority: 1,
+            product: n('AL1234', 'Diamond eternity ring PT900') }),
+      row({ source_url: drawn('original', false, false) + '#E1053', status: 'auto_fixed', provider: 'replicate', hero_pick: true,
+            published: false, product: { ...n('E1053', 'Hoop earrings K18'), status: 'draft' } }),
     ],
   });
   seed([CUTOUT_LIST_KEY, 'rejected', '', 0], {
