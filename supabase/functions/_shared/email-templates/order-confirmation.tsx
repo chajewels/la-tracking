@@ -30,6 +30,11 @@ export interface OrderConfirmationProps {
    * exactly as it always has.
    */
   variant?: 'placed' | 'ready'
+  /**
+   * Website orders PR 6: the courier staff chose on the review screen
+   * ("Pabitbit", "Yamato Transport"…). Absent = no line, as before.
+   */
+  courier?: string | null
 }
 
 export const orderConfirmationSubject = (reference: string) =>
@@ -45,6 +50,7 @@ const COPY = {
     payHeading: 'お振込先',
     deadline: (when: string) => `お振込期限：${when}`,
     deadlineNote: '期限を過ぎたご注文は自動的にキャンセルとなり、商品は再び販売されます。',
+    courier: (name: string) => `配送：${name}`,
   },
   en: {
     heading: 'Thank you for your order',
@@ -52,6 +58,7 @@ const COPY = {
     payHeading: 'Where to transfer',
     deadline: (when: string) => `Transfer by: ${when}`,
     deadlineNote: 'After the deadline the order is cancelled automatically and the piece goes back on sale.',
+    courier: (name: string) => `Shipping by: ${name}`,
   },
 } as const
 
@@ -76,6 +83,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
+      {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.payHeading}</Text>
       <MethodCards methods={p.methods} lang={lang} />
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>

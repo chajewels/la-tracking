@@ -47,6 +47,11 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
   const [statusChip, setStatusChip] = useState<StatusChip>('All');
   const [openRequest, setOpenRequest] = useState<ServiceRequestRow | null>(null);
   const consumedOpenParam = useRef(false);
+  // Website orders PR 6 (W2-6): ?open=<id>&convert=1&fee=<n>&return=<path>,
+  // sent by the website-order review screen after Confirm.
+  const [landing, setLanding] = useState<{ convert: boolean; fee: number | null; returnTo: string | null }>({
+    convert: false, fee: null, returnTo: null,
+  });
 
   const { data: requests = [], isLoading, isError } = useQuery<ServiceRequestRow[]>({
     queryKey: ['service-requests'],
@@ -70,9 +75,17 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
     const match = requests.find((r) => r.id === openParam);
     if (!match) return;
     consumedOpenParam.current = true;
+    const feeRaw = searchParams.get('fee');
+    const fee = feeRaw !== null && feeRaw.trim() !== '' && Number.isFinite(Number(feeRaw)) ? Number(feeRaw) : null;
+    const ret = searchParams.get('return');
+    setLanding({
+      convert: searchParams.get('convert') === '1',
+      fee,
+      returnTo: ret && ret.startsWith('/') && !ret.startsWith('//') ? ret : null,
+    });
     setOpenRequest(match);
     const next = new URLSearchParams(searchParams);
-    next.delete('open');
+    for (const k of ['open', 'convert', 'fee', 'return']) next.delete(k);
     setSearchParams(next, { replace: true });
   }, [openParam, requests, searchParams, setSearchParams]);
 
@@ -202,7 +215,13 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
         )}
       </div>
 
-      <ServiceRequestDrawer request={openRequest} onClose={() => setOpenRequest(null)} />
+      <ServiceRequestDrawer
+        request={openRequest}
+        onClose={() => { setOpenRequest(null); setLanding({ convert: false, fee: null, returnTo: null }); }}
+        autoConvert={landing.convert}
+        agreedFee={landing.fee}
+        returnTo={landing.returnTo}
+      />
     </div>
   );
 }

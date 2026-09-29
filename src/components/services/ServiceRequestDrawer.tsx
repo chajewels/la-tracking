@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -30,6 +30,15 @@ import {
 interface Props {
   request: ServiceRequestRow | null;
   onClose: () => void;
+  /**
+   * Website orders PR 6 (W2-6): arriving from Confirm on a website order that
+   * carried this request. Opens the job dialog straight away (a person still
+   * saves it), prefilled with the agreed service fee, and returns to the new
+   * order once the job is linked.
+   */
+  autoConvert?: boolean;
+  agreedFee?: number | null;
+  returnTo?: string | null;
 }
 
 /**
@@ -54,7 +63,8 @@ interface Props {
  * request to `received`. A job is money (SERVICES RULE), so a person makes
  * that call and the dialog is never skipped.
  */
-export default function ServiceRequestDrawer({ request, onClose }: Props) {
+export default function ServiceRequestDrawer({ request, onClose, autoConvert = false, agreedFee = null, returnTo = null }: Props) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
   const { can } = usePermissions();
@@ -121,9 +131,16 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
 
   // Memoised so the dialog's open-time hydration reads one stable object.
   const prefill = useMemo(
-    () => (request ? buildServiceJobPrefill(request) : null),
-    [request],
+    () => (request
+      ? { ...buildServiceJobPrefill(request), ...(agreedFee != null ? { serviceFee: agreedFee } : {}) }
+      : null),
+    [request, agreedFee],
   );
+
+  // W2-6: open the job dialog once, when the drawer arrives from Confirm.
+  useEffect(() => {
+    if (autoConvert && request && !request.service_job_id && canEdit) setJobDialogOpen(true);
+  }, [autoConvert, request, canEdit]);
 
   /**
    * Link the job the dialog just created back to this request.
@@ -161,6 +178,8 @@ export default function ServiceRequestDrawer({ request, onClose }: Props) {
       qc.invalidateQueries({ queryKey: ['service-requests-open-count'] });
       qc.invalidateQueries({ queryKey: ['service-requests-by-target'] });
       onClose();
+      // Back to the order the website draft became (only an in-app path).
+      if (returnTo && returnTo.startsWith('/')) navigate(returnTo);
     },
     onError: (err: Error) => {
       // The job itself was created — say so, rather than implying it was lost.

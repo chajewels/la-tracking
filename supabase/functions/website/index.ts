@@ -10,7 +10,7 @@ import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
-import { sendLayawayReservedEmail, sendOrderReservedEmail } from "../_shared/reservation-emails.ts";
+import { sendDraftReservedEmail, sendLayawayReservedEmail, sendOrderReservedEmail } from "../_shared/reservation-emails.ts";
 import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, readReservationMode, reservationFlags,
   type ReservationKind,
@@ -310,7 +310,45 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   full_not_layaway: 400,
   below_plan_minimum: 409,
   fx_rate_missing: 503,
+  // Website orders PR 6 (draft mode): create_web_draft_atomic's refusals.
+  agreement_missing: 400,
+  unsupported_mode: 400,
+  checkout_mode_not_draft: 409,
 };
+
+/**
+ * WEBSITE ORDERS PR 6: what a customer may see of their own draft. Money is in
+ * the settlement currency and PROVISIONAL (shipping may be added — shipping
+ * null — and staff may add a service or discount when they confirm).
+ * decline_reason is the reason the customer is told; staff notes never leave.
+ */
+const DRAFT_FIELDS =
+  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id";
+
+function shapeDraft(d: AnyRec): AnyRec {
+  return {
+    id: d.id,
+    kind: "draft",
+    web_reference: d.web_reference,
+    status: d.status,
+    mode: d.mode,
+    term_months: d.term_months ?? null,
+    currency: String(d.settlement_currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
+    subtotal: d.subtotal,
+    shipping: d.shipping ?? null,
+    shipping_pending: d.shipping === null || d.shipping === undefined,
+    total: d.total,
+    deposit: d.deposit ?? null,
+    schedule: d.schedule ?? null,
+    provisional: d.status === "to_confirm",
+    decline_reason: d.status === "declined" ? (d.decline_reason ?? null) : null,
+    created_at: d.created_at,
+    decided_at: d.decided_at ?? null,
+    // Set once staff confirm: the storefront redirects to the real order.
+    order_id: d.cash_order_id ?? null,
+    account_id: d.layaway_account_id ?? null,
+  };
+}
 
 /** What a customer may see of their own layaway plan. */
 /**
@@ -397,6 +435,22 @@ async function transferAvailable(supabase: any, currency: string): Promise<boole
  * With it off, nothing below changes: p_reserve is not even sent.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * WEBSITE ORDERS PR 6: the checkout switch (system_settings.web_checkout_mode,
+ * read through the SQL function web_checkout_mode(), which FAILS CLOSED to
+ * 'order'). 'draft' = a checkout writes a DRAFT that staff confirm on the Hub
+ * review screen (docs/WEB-ORDER-DRAFTS.md); 'order' = today's path, unchanged.
+ * A read failure is 'order' too: the old path is the safe one.
+ */
+async function checkoutDraftMode(supabase: any): Promise<boolean> {
+  const { data, error } = await supabase.rpc("web_checkout_mode");
+  if (error) {
+    console.warn("[website] web_checkout_mode read failed — treating as 'order':", error.message ?? error);
+    return false;
+  }
+  return data === "draft";
+}
+
 async function reservationModeOn(supabase: any): Promise<boolean> {
   const { data, error } = await supabase
     .from("system_settings").select("value").eq("key", "web_reservation_mode").maybeSingle();
@@ -1136,6 +1190,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         { count: orderCount },
         { count: sameEmailRows },
         portalUrl,
+        { count: draftCount },
       ] = await Promise.all([
         supabase.from("customer_addresses")
           .select("id, label, recipient_name, line1, line2, city, region, postal_code, country, phone, is_default")
@@ -1160,10 +1215,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // for a legacy one, and the bare URL when no valid token remains. It is
         // the single source of portal links; this route does not build its own.
         buildPortalLinkForCustomerId(supabase, String(customer.id), "portal"),
+        // Website orders PR 6: open drafts count as a record, or a customer
+        // whose only checkout is still a draft raises a false blank-account bell.
+        supabase.from("web_order_drafts")
+          .select("id", { count: "exact", head: true }).eq("customer_id", customer.id).eq("status", "to_confirm"),
       ]);
       if (addrErr) throw addrErr;
 
-      const records = { layaway: layawayCount ?? 0, orders: orderCount ?? 0 };
+      const records = { layaway: layawayCount ?? 0, orders: orderCount ?? 0, drafts: draftCount ?? 0 };
       const sharesEmail = (sameEmailRows ?? 0) > 0;
 
       // A SIGN-IN THAT REACHES A RECORD WITH NOTHING ON IT IS REPORTED, NOT
@@ -1175,7 +1234,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // told something truthful and non-technical instead (storefront copy).
       // Deduped to one bell per customer per day, the same way
       // recordEmailAttempt throttles its refusal alert.
-      if (records.layaway === 0 && records.orders === 0 && sharesEmail) {
+      if (records.layaway === 0 && records.orders === 0 && records.drafts === 0 && sharesEmail) {
         try {
           const { count: recent } = await supabase
             .from("staff_notifications")
@@ -1346,6 +1405,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const shipping = await shippingFor(supabase, String(address.country ?? ""), subtotal);
       const total = subtotal + (shipping ?? 0);
+      // WEBSITE ORDERS PR 6: in draft mode a destination with no published rate
+      // is no longer a dead end — staff add the shipping on the review screen
+      // (R4). In 'order' mode nothing changes, so an old storefront build keeps
+      // blocking safely.
+      const draftMode = await checkoutDraftMode(supabase);
+      const shippingAtConfirmation = draftMode && shipping === null;
 
       // The rate the customer is shown is the rate they are charged: it is
       // captured on the quote, and the quote's 30-minute life is the only window
@@ -1389,7 +1454,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const orderDate = phtToday();
       let layaway: AnyRec | null = null;
       if (mode === "layaway") {
-        if (shipping === null) return jsonResponse({ error: "shipping_quote_required" }, 400);
+        // Draft mode: priced without shipping and marked provisional; the
+        // review screen re-runs layaway_quote with the shipping staff add.
+        if (shipping === null && !shippingAtConfirmation) return jsonResponse({ error: "shipping_quote_required" }, 400);
         const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
           p_price: subtotalSettle,
           p_term_months: termMonths,
@@ -1507,8 +1574,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
             }
           : null,
         // null shipping means we do not ship there at a published rate — the
-        // storefront must stop and ask, never assume free.
-        requires_manual_quote: shipping === null,
+        // storefront must stop and ask, never assume free. In draft mode it is
+        // "added when we confirm" instead (shipping_at_confirmation), and the
+        // checkout may continue; every figure is then provisional.
+        requires_manual_quote: shipping === null && !shippingAtConfirmation,
+        shipping_at_confirmation: shippingAtConfirmation,
+        provisional: draftMode,
         // Lets the payment step render the real methods, and hide transfer
         // entirely rather than offering one that /checkout/pay would refuse.
         // Methods are region-scoped here, not filtered in the browser: the
@@ -1608,6 +1679,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         subtotalSettle = totalSettle - (shippingSettle ?? 0);
       }
 
+      // Website orders PR 6: same flags as POST /checkout/quote.
+      const readDraftMode = await checkoutDraftMode(supabase);
       let layawayOut: AnyRec | null = null;
       if (String(row.mode ?? "full") === "layaway") {
         const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
@@ -1664,7 +1737,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         shipping_settlement: shippingSettle,
         total_settlement: totalSettle,
         layaway: layawayOut,
-        requires_manual_quote: shippingJpy === null,
+        requires_manual_quote: shippingJpy === null && !readDraftMode,
+        shipping_at_confirmation: readDraftMode && shippingJpy === null,
+        provisional: readDraftMode,
         transfer_region: regionForCurrency(settlement),
         transfer_methods: reserveQuote ? [] : methods,
         transfer_available: methods.length > 0,
@@ -1716,6 +1791,59 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           currency: quoteSettlement,
           region: regionForCurrency(quoteSettlement),
         }, 409);
+      }
+
+      // ── WEBSITE ORDERS PR 6: draft mode ───────────────────────────────────
+      // With system_settings.web_checkout_mode = 'draft' a checkout writes a
+      // DRAFT (create_web_draft_atomic): the piece is held, nothing is booked,
+      // no bank details. Staff confirm it on the Hub review screen, which
+      // creates the real order and sends the "ready — pay now" email. Off
+      // ('order', the default and any read failure) falls through to today's
+      // path below, untouched.
+      if (await checkoutDraftMode(supabase)) {
+        // The signed agreement, exactly as the layaway path below reads it.
+        const draftAgrVersion = String(body.agreement_version ?? "").trim() || null;
+        const draftAgrRaw = String(body.agreement_signed_at ?? "").trim();
+        const draftAgrAt = draftAgrRaw && !Number.isNaN(Date.parse(draftAgrRaw))
+          ? new Date(draftAgrRaw).toISOString()
+          : null;
+        const { data: dr, error: drErr } = await supabase.rpc("create_web_draft_atomic", {
+          p_customer_id: customer.id,
+          p_quote_id: quoteId,
+          p_lang: lang,
+          p_agreement_version: draftAgrVersion,
+          p_agreement_signed_at: draftAgrAt,
+        });
+        if (drErr) throw drErr;
+        const draft = (dr ?? {}) as AnyRec;
+        if (draft.error) {
+          const status = CHECKOUT_ERROR_STATUS[String(draft.error)] ?? 400;
+          console.warn("website draft refused", requestId, String(draft.error));
+          return jsonResponse({ ...draft, request_id: requestId }, status);
+        }
+        // "We have your order / layaway request" — built from the draft. Never
+        // throws: the draft exists whether or not the mail goes out.
+        await sendDraftReservedEmail(supabase, String(draft.draft_id));
+        const draftCurrency = String(draft.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+        return jsonResponse(scrub({
+          draft_id: draft.draft_id,
+          web_reference: draft.web_reference,
+          mode: draft.mode,
+          currency: draftCurrency,
+          // Provisional: shipping may still be added (shipping_pending), and
+          // services and a discount may be added when staff confirm.
+          total: draft.total,
+          total_jpy: draft.total_jpy,
+          shipping_pending: draft.shipping_pending === true,
+          deposit: draft.deposit ?? null,
+          term_months: draft.term_months ?? null,
+          provisional: true,
+          awaiting_confirmation: true,
+          reservation_mode: true,
+          transfer_due_at: null,
+          transfer_region: regionForCurrency(draftCurrency),
+          transfer_methods: [],
+        }));
       }
 
       // ── Layaway: a reservation, not a purchase ────────────────────────────
@@ -1958,6 +2086,62 @@ async function handle(req: Request, requestId: string): Promise<Response> {
      * plan and points the customer at the portal instead of rendering a form
      * that would 404.
      */
+
+    // ── WEBSITE ORDERS PR 6: a customer's DRAFTS ────────────────────────────
+    // A draft is a checkout staff have not confirmed (web_order_drafts). It
+    // has its own reads so GET /orders and GET /layaway keep their exact shape
+    // for storefront builds that predate drafts. Scoped by customer_id, as
+    // every read here. Once confirmed, order_id / account_id point at the real
+    // order — the storefront redirects there (W2-9).
+    //
+    // GET /drafts — open (to_confirm) and recently closed drafts, newest first.
+    if (req.method === "GET" && segments[0] === "drafts" && !segments[1]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const { data, error } = await supabase
+        .from("web_order_drafts")
+        .select(DRAFT_FIELDS)
+        .eq("customer_id", customer.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return jsonResponse(scrub(((data ?? []) as AnyRec[]).map(shapeDraft)));
+    }
+
+    // GET /drafts/:id — one draft, with its pieces.
+    if (req.method === "GET" && segments[0] === "drafts" && segments[1] && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const { data: draft, error } = await supabase
+        .from("web_order_drafts")
+        .select(`${DRAFT_FIELDS}, ship_to_snapshot`)
+        .eq("id", decodeURIComponent(segments[1]))
+        .eq("customer_id", customer.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!draft) return notFound();
+      const { data: lines, error: lineErr } = await supabase
+        .from("web_order_draft_lines")
+        .select("id, variant_id, website_product_id, title, sku, qty, unit_price_jpy, line_total_jpy, image_url")
+        .eq("draft_id", (draft as AnyRec).id)
+        .order("created_at");
+      if (lineErr) throw lineErr;
+      const items = await withJapaneseTitles(
+        supabase,
+        await resolveItemImages(
+          supabase,
+          ((lines ?? []) as AnyRec[]).map(({ website_product_id, qty, ...l }) => ({ ...l, quantity: qty, product_id: website_product_id ?? null })),
+        ),
+      );
+      return jsonResponse(scrub({
+        draft: { ...shapeDraft(draft as AnyRec), ship_to_address: shipToAddress((draft as AnyRec).ship_to_snapshot, null) },
+        items,
+      }));
+    }
 
     // GET /orders — this customer's orders, newest first.
     if (req.method === "GET" && segments[0] === "orders" && !segments[1]) {
@@ -2233,15 +2417,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data, error } = await supabase
         .from("service_requests")
-        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, customer_note, created_at, updated_at")
+        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, web_draft_id, customer_note, created_at, updated_at")
         .eq("customer_id", customer.id)
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
 
       return jsonResponse(((data ?? []) as AnyRec[]).map((row) => {
-        const { layaway_account_id, ...rest } = row;
-        return { ...rest, layaway_plan_id: layaway_account_id ?? null };
+        const { layaway_account_id, web_draft_id, ...rest } = row;
+        return { ...rest, layaway_plan_id: layaway_account_id ?? null, draft_id: web_draft_id ?? null };
       }));
     }
 
@@ -2269,11 +2453,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Exactly one target, and it must be this customer's.
       const cashOrderId = String(body.cash_order_id ?? "").trim();
       const layawayPlanId = String(body.layaway_plan_id ?? "").trim();
-      if ((cashOrderId ? 1 : 0) + (layawayPlanId ? 1 : 0) !== 1) {
+      // Website orders PR 6 (W2-5): a request may target a DRAFT the customer
+      // still has open; Confirm re-points it to the real order.
+      const draftId = String(body.draft_id ?? "").trim();
+      if ((cashOrderId ? 1 : 0) + (layawayPlanId ? 1 : 0) + (draftId ? 1 : 0) !== 1) {
         return jsonResponse({ error: "exactly_one_target_required" }, 400);
       }
       let targetInvoiceNumber: string | null = null;
-      if (cashOrderId) {
+      if (draftId) {
+        const { data: dr, error: dErr } = await supabase
+          .from("web_order_drafts").select("id, invoice_seq, status")
+          .eq("id", draftId).eq("customer_id", customer.id).maybeSingle();
+        if (dErr) throw dErr;
+        if (!dr) return notFound();
+        if ((dr as AnyRec).status !== "to_confirm") return jsonResponse({ error: "draft_closed", status: (dr as AnyRec).status }, 409);
+        targetInvoiceNumber = String((dr as AnyRec).invoice_seq ?? "") || null;
+      } else if (cashOrderId) {
         const { data: order, error: oErr } = await supabase
           .from("cash_orders").select("id, invoice_number")
           .eq("id", cashOrderId).eq("customer_id", customer.id).maybeSingle();
@@ -2311,9 +2506,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           item_title: itemTitle,
           cash_order_id: cashOrderId || null,
           layaway_account_id: layawayPlanId || null,
+          web_draft_id: draftId || null,
           status: "requested",
         })
-        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, customer_note, created_at, updated_at")
+        .select("id, kind, status, item_title, details, ring_size, cash_order_id, layaway_account_id, web_draft_id, customer_note, created_at, updated_at")
         .single();
       if (iErr) throw iErr;
 
@@ -2334,14 +2530,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
             kind,
             cash_order_id: cashOrderId || null,
             layaway_account_id: layawayPlanId || null,
+            web_draft_id: draftId || null,
           },
         });
       } catch (notifyErr) {
         console.warn("[website] service_request_created notification failed (non-blocking):", notifyErr);
       }
 
-      const { layaway_account_id, ...rest } = created as AnyRec;
-      return jsonResponse({ ...rest, layaway_plan_id: layaway_account_id ?? null });
+      const { layaway_account_id, web_draft_id, ...rest } = created as AnyRec;
+      return jsonResponse({ ...rest, layaway_plan_id: layaway_account_id ?? null, draft_id: web_draft_id ?? null });
     }
 
     // POST /newsletter — public subscribe. x-api-key only; a customer session
