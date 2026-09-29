@@ -53,7 +53,7 @@ export function MultiPick({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[280px] p-0" align="start">
+        <PopoverContent className="w-[320px] max-w-[calc(100vw-2rem)] p-0" align="start">
           <Command>
             <CommandInput placeholder={placeholder} />
             <CommandList>
@@ -64,7 +64,7 @@ export function MultiPick({
                   return (
                     <CommandItem key={o.id} value={`${o.label} ${o.hint ?? ""}`} onSelect={() => toggle(o.id)}>
                       <Check className={cn("mr-2 h-4 w-4", on ? "opacity-100" : "opacity-0")} />
-                      <span className="flex-1 truncate">{o.label}</span>
+                      <span className="flex-1 break-words">{o.label}</span>
                       {o.hint && <span className="ml-2 truncate text-xs text-muted-foreground" lang="ja">{o.hint}</span>}
                     </CommandItem>
                   );

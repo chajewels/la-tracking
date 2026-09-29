@@ -96,7 +96,9 @@ export default function ProductDialog({
                   buttonLabel="Add jewelry type"
                   placeholder="Search product types…"
                   emptyText="No jewelry type matches."
-                  options={collections.map((c) => ({ id: c.id, label: c.name, hint: c.name_ja }))}
+                  // English only (owner 2026-09-29): the Japanese name beside it truncated the
+                  // English and left staff guessing which one was which.
+                  options={collections.map((c) => ({ id: c.id, label: c.name }))}
                   value={form.collectionIds}
                   onChange={(collectionIds) => setForm((f) => ({ ...f, collectionIds }))}
                 />
@@ -108,7 +110,7 @@ export default function ProductDialog({
                   buttonLabel="Add category"
                   placeholder="Search categories…"
                   emptyText="No category matches."
-                  options={categories.map((c) => ({ id: c.id, label: c.published ? c.name : `${c.name} (unpublished)`, hint: c.name_ja }))}
+                  options={categories.map((c) => ({ id: c.id, label: c.published ? c.name : `${c.name} (unpublished)` }))}
                   value={form.categoryIds}
                   onChange={(categoryIds) => setForm((f) => ({ ...f, categoryIds }))}
                 />
