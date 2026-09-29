@@ -42,6 +42,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
 - docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
+- docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4)
@@ -1484,6 +1485,11 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     and converts in the Hub; peso term minimums are min_amount_php. Full text:
     docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS".
   - Web layaways are NEVER hard-deleted (trg_prevent_web_layaway_delete).
+  - WEB ORDER DRAFTS (2026-09-29, PR 3, dormant; docs/WEB-ORDER-DRAFTS.md): written
+    ONLY by the *_web_draft_atomic functions. page365_web_holds MUST count held
+    draft lines; Confirm (materialize_web_draft_atomic) transfers the hold and
+    never moves stock. web_checkout_mode changes ONLY via set_web_checkout_mode
+    (admin, audited); never 'draft' before website-orders PRs 4–7 are live.
 
 ## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
 
