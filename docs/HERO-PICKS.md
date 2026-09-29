@@ -123,9 +123,19 @@ live and was not edited):
 
 What PR 3 and PR 4 must do with it:
 
-- **PR 3 (edge):** pass `picked_at` through in `heroCutoutFor` (product cut-out
-  path). Optionally attach the Hub's `place` from `hero_lineup_rows` per
-  category so the storefront does not re-derive ties.
+- **PR 3 (edge) — built 2026-09-29** (`_shared/hero-cutouts.ts`,
+  `website/index.ts`, contract `supabase/contracts/api.md`):
+  - `heroCutoutFor` accepts a product cut-out path (`PRODUCT_CUTOUT_PATH_RE`,
+    `website/derived/<32 hex>/r<run>[-<8 hex>]/cutout.webp`) ONLY on a row that
+    carries `picked_at`, and passes `picked_at` through. Only the
+    `product_ticks` branch of `hero_cutouts_for_site` sends `picked_at`, so on
+    `hero_record` the payload is byte-for-byte as before (a product path
+    without `picked_at` is refused).
+  - `attachHeroPlaces` (category route only): reads `hero_photo_source()`; on
+    `product_ticks` sets `hero_place` on every product from `hero_lineup_rows`
+    for that category (`null` when not on the slide); on `hero_record` or an
+    unreadable switch the field is not added. The Hub's place removes the
+    collation tie-break difference below.
 - **PR 4 (storefront, `lib/hero-deck.ts`):** on ticked cut-outs, a slide's pool
   = pieces with at least one photo carrying a hero cut-out; sort by the
   earliest `picked_at` among them (stable sort, so ties keep the Hub's order),

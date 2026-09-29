@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { File as NodeFile, Blob as NodeBlob } from "node:buffer";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  attachHeroCutouts, handleHeroCutouts, heroCutoutFor, heroCutoutPath, heroKeyOk, HERO_MAX_FILE_BYTES, HERO_PATH_RE,
+  attachHeroCutouts, attachHeroPlaces, handleHeroCutouts, heroCutoutFor, PRODUCT_CUTOUT_PATH_RE, heroCutoutPath, heroKeyOk, HERO_MAX_FILE_BYTES, HERO_PATH_RE,
   isAlreadyExists, isWebp, timingSafeEqual, validateHeroMeta,
 } from "../../supabase/functions/_shared/hero-cutouts.ts";
 
@@ -399,6 +399,108 @@ describe("read side: hero_cutout on every product_media entry, approved-only fil
 });
 
 // ---------------------------------------------------------------------------
+describe("hero order (20261016100000): the ticked product cut-out and picked_at", () => {
+  const url = (n: number) => `https://abc.supabase.co/storage/v1/object/public/promotions/website/p/${n}.jpg`;
+  const HERO = `website/derived/hero/${"b".repeat(32)}/${"c".repeat(8)}/cutout.webp`;
+  const PROD = `website/derived/${"d".repeat(32)}/r1-${"e".repeat(8)}/cutout.webp`;
+  const OLD = `website/derived/${"d".repeat(32)}/r2/cutout.webp`;
+  const T = "2026-09-29T04:02:00.123456+00:00";
+  const pub = (p: string) => `https://abc.supabase.co/storage/v1/object/public/promotions/${p}`;
+
+  it("product_ticks: the product cut-out's file and picked_at, passed through", () => {
+    expect(heroCutoutFor({ status: "approved", path: PROD, width: 1200, height: 900, picked_at: T }, pub))
+      .toEqual({ status: "approved", url: pub(PROD), width: 1200, height: 900, picked_at: T });
+    // A run from before 2026-09-27 (no -<8 hex>) is a product cut-out too.
+    expect(heroCutoutFor({ status: "approved", path: OLD, width: 10, height: 10, picked_at: T }, pub))
+      .toEqual({ status: "approved", url: pub(OLD), width: 10, height: 10, picked_at: T });
+  });
+
+  it("hero_record: EXACTLY as before — no picked_at, and a product path without picked_at is refused", () => {
+    expect(heroCutoutFor({ status: "approved", path: HERO, width: 339, height: 204 }, pub))
+      .toEqual({ status: "approved", url: pub(HERO), width: 339, height: 204 });
+    expect(heroCutoutFor({ status: "approved", path: PROD, width: 1200, height: 900 }, pub)).toBeNull();
+  });
+
+  it("a ticked row is refused unless picked_at is a timestamp and the path a product cut-out", () => {
+    const f = vi.fn(pub);
+    for (const bad of [
+      { status: "approved", path: HERO, width: 1, height: 1, picked_at: T },          // hero path on a ticked row
+      { status: "approved", path: PROD, width: 1, height: 1, picked_at: null },       // no time
+      { status: "approved", path: PROD, width: 1, height: 1, picked_at: "yesterday" },
+      { status: "approved", path: PROD, width: 0, height: 1, picked_at: T },          // no size
+      { status: "approved", path: `${PROD}/../x`, width: 1, height: 1, picked_at: T },
+      { status: "approved", path: `website/derived/${"d".repeat(32)}/master.png`, width: 1, height: 1, picked_at: T },
+    ]) expect(heroCutoutFor(bad, f)).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+    expect(PRODUCT_CUTOUT_PATH_RE.test(HERO)).toBe(false);
+  });
+
+  it("attachHeroCutouts carries picked_at onto the ticked photo only", async () => {
+    const ps = [{ id: "1", product_variants: [{ product_media: [{ url: url(1), alt: null }, { url: url(2), alt: null }] }] }];
+    const { c } = client(() => ({ data: [{ source_url: url(1), hero_cutout: { status: "approved", path: PROD, width: 5, height: 6, picked_at: T } }], error: null }));
+    await attachHeroCutouts(c, ps);
+    const m = ps[0].product_variants[0].product_media as Record<string, unknown>[];
+    expect(m[0].hero_cutout).toEqual({ status: "approved", url: pub(PROD), width: 5, height: 6, picked_at: T });
+    expect(m[1].hero_cutout).toBeNull();
+  });
+});
+
+describe("hero order: hero_place on a category response", () => {
+  const CAT = "cat-rings";
+  const products = () => [{ id: "p1" }, { id: "p2" }, { id: "p3" }, { id: "p4" }] as Record<string, unknown>[];
+  const lineup = [
+    { category_id: CAT, product_id: "p3", place: 1, state: "on_hero", reason: null },
+    { category_id: CAT, product_id: "p1", place: 2, state: "on_hero", reason: null },
+    { category_id: CAT, product_id: "p4", place: 4, state: "waiting", reason: null },
+    { category_id: CAT, product_id: "p2", place: null, state: "not_showing", reason: "sold" },
+    { category_id: "cat-watches", product_id: "p2", place: 1, state: "on_hero", reason: null }, // another slide
+  ];
+  const rpcFor = (source: unknown, rows: unknown = lineup) => (fn: string) =>
+    fn === "hero_photo_source" ? { data: source, error: null } : { data: rows, error: null };
+
+  it("product_ticks: THE order from hero_lineup_rows, for this category only", async () => {
+    const ps = products();
+    const { c, calls } = client(rpcFor("product_ticks"));
+    await attachHeroPlaces(c, ps, CAT);
+    expect(ps.map((p) => p.hero_place)).toEqual([2, null, 1, 4]);
+    expect(calls.rpc).toEqual([["hero_photo_source", undefined], ["hero_lineup_rows", { p_extra: null }]]);
+  });
+
+  it("hero_record: the field is not added at all, and the order is never read", async () => {
+    const ps = products();
+    const { c, calls } = client(rpcFor("hero_record"));
+    await attachHeroPlaces(c, ps, CAT);
+    expect(ps.every((p) => !("hero_place" in p))).toBe(true);
+    expect(calls.rpc.map(([fn]) => fn)).toEqual(["hero_photo_source"]);
+  });
+
+  it("the switch cannot be read → nothing added (fail to today's output)", async () => {
+    const ps = products();
+    const { c } = client(() => ({ data: null, error: { code: "42883", message: "function does not exist" } }));
+    await attachHeroPlaces(c, ps, CAT);
+    expect(ps.every((p) => !("hero_place" in p))).toBe(true);
+    const t = { rpc: vi.fn(async () => { throw new Error("network"); }), storage: { from: vi.fn() } };
+    await attachHeroPlaces(t, ps, CAT);
+    expect(ps.every((p) => !("hero_place" in p))).toBe(true);
+  });
+
+  it("product_ticks but the order fails → every hero_place null, never a guess", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const ps = products();
+    const { c } = client((fn) => fn === "hero_photo_source" ? { data: "product_ticks", error: null } : { data: null, error: { message: "boom" } });
+    await attachHeroPlaces(c, ps, CAT);
+    expect(ps.map((p) => p.hero_place)).toEqual([null, null, null, null]);
+  });
+
+  it("no products / no category id → no call", async () => {
+    const { c, calls } = client(rpcFor("product_ticks"));
+    await attachHeroPlaces(c, [], CAT);
+    await attachHeroPlaces(c, products(), undefined);
+    expect(calls.rpc).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("source: wiring and boundaries", () => {
   const index = src(INDEX);
   const mod = src(MODULE);
@@ -409,6 +511,13 @@ describe("source: wiring and boundaries", () => {
     expect(code(index).match(/await attachHeroCutouts\(supabase, /g)).toHaveLength(4);
   });
 
+  it("hero_place is attached on the category route only", () => {
+    const c = code(index);
+    expect(c.match(/await attachHeroPlaces\(supabase, /g)).toHaveLength(1);
+    const route = c.slice(c.indexOf('segments[1] === "categories" && segments[2]'), c.indexOf('segments[1] === "products" && segments[2]'));
+    expect(route).toContain("await attachHeroPlaces(supabase, shaped, (category as AnyRec).id);");
+  });
+
   it("the route sits behind the global x-api-key check", () => {
     const c = code(index);
     expect(c.indexOf('Deno.env.get("WEBSITE_API_KEY")')).toBeGreaterThan(0);
@@ -416,9 +525,9 @@ describe("source: wiring and boundaries", () => {
     expect(c).toContain('Deno.env.get("HERO_CUTOUT_KEY")');
   });
 
-  it("only the three service-role functions; never approve/reject, never Photoroom", () => {
+  it("only the five service-role functions; never approve/reject, never Photoroom", () => {
     const rpcs = [...code(mod).matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(rpcs).toEqual(["hero_cutout_record", "hero_cutouts_for_site", "hero_cutouts_known"]);
+    expect(rpcs).toEqual(["hero_cutout_record", "hero_cutouts_for_site", "hero_cutouts_known", "hero_lineup_rows", "hero_photo_source"]);
     for (const s of [code(mod), code(index)]) {
       expect(s).not.toContain("set_hero_cutout_mode");
       expect(s).not.toContain("website_media_cutouts");
