@@ -131,6 +131,11 @@ Deno.serve(async (req) => {
       .not("expires_at", "is", null)
       .lt("expires_at", nowIso)
       .gt("remaining_balance", 0)
+      // W2-7 (website orders): a WEB order that has received a real payment
+      // (web_released_at) is never expired by the clock — part-paid, it waits
+      // for the rest. expire_web_order_atomic refuses it too
+      // ('part_paid_released'); this keeps such orders out of the quota.
+      .or("source_channel.is.null,source_channel.neq.web,web_released_at.is.null")
       .order("expires_at", { ascending: true })
       .limit(MAX_ORDERS_PER_RUN + frozenIds.size);
 
