@@ -90,6 +90,7 @@ const LoyaltyAdmin = lazy(() => import("./pages/LoyaltyAdmin"));
 const ExecutiveDashboard = lazy(() => import("./pages/ExecutiveDashboard"));
 const NewCashOrder = lazy(() => import("./pages/NewCashOrder"));
 const Page365Review = lazy(() => import("./pages/Page365Review"));
+const WebOrderReview = lazy(() => import("./pages/WebOrderReview"));
 const CashOrderDetail = lazy(() => import("./pages/CashOrderDetail"));
 const Help = lazy(() => import("./pages/Help"));
 const Services = lazy(() => import("./pages/Services"));
@@ -222,6 +223,7 @@ const App = () => (
                 <Route path="/cash-orders" element={<Navigate to="/sales?tab=cash" replace />} />
                 <Route path="/cash-orders/new" element={<Protected><NewCashOrder /></Protected>} />
                 <Route path="/page365/review/:draftId" element={<Protected><Page365Review /></Protected>} />
+                <Route path="/orders/review/website/:id" element={<Protected><WebOrderReview /></Protected>} />
                 <Route path="/cash-orders/:id" element={<Protected><CashOrderDetail /></Protected>} />
                 {/* Legacy routes — redirect to the combined hub */}
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
