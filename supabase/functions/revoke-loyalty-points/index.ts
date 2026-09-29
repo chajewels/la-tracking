@@ -1,21 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
-import { checkPermission } from "../_shared/check-permission.ts";
+import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+const json = jsonResponse;
 
 type TriggerEvent =
   | "void_layaway"
@@ -59,28 +49,21 @@ const REASON_BODY: Record<RevokeReason, string> = {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = corsPreflight(req);
+  if (preflight) return preflight;
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    // 1. Auth — service-role (inter-function calls) OR a user holding
+    //    loyalty_revoke_points (Bug #203 Batch D; matrix-driven). Shared
+    //    helpers per CLAUDE.md "SHARED-HELPER CONVENTION" (moved from the
+    //    inline copy 2026-09-29, Lovable scan finding L1).
+    const ctx = await requireAuth(req, { allowServiceRole: true });
+    if (ctx instanceof Response) return ctx;
+    const denied = await requirePermission(ctx, "loyalty_revoke_points");
+    if (denied) return denied;
+    const supabase = ctx.supabase;
+    const createdByUserId: string | null = ctx.user?.id ?? null;
     const gate = createLoyaltyEmailGate(supabase);
-
-    // 1. Auth — service-role (inter-function calls) OR admin Bearer JWT
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthorized" }, 401);
-    const token = authHeader.replace("Bearer ", "");
-    let createdByUserId: string | null = null;
-    if (!isServiceRole(token)) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) return json({ error: "Unauthorized" }, 401);
-      // Permission gate (Bug #203 Batch D: matrix-driven access — user JWT path only, service_role unchanged)
-      const allowed = await checkPermission(supabase, user.id, "loyalty_revoke_points");
-      if (!allowed) return json({ error: "loyalty_revoke_points permission required" }, 403);
-      createdByUserId = user.id;
-    }
 
     // 2. Parse + validate body
     const body = await req.json().catch(() => ({}));
@@ -140,7 +123,11 @@ Deno.serve(async (req) => {
         .eq("customer_id", customer_id!)
         .maybeSingle();
       if (!memberLookup) {
-        return json({ error: "loyalty_member not found for customer_id" }, 404);
+        // Not a loyalty member: the order earned nothing, so there is nothing
+        // to reverse. That is the correct outcome, not a failure — answer 200
+        // so the forfeit/void callers stop logging it as an error (Lovable
+        // scan 2026-09-29, invoice 18871).
+        return json({ ok: true, no_op: true, reason: "not_a_member" });
       }
       memberId = memberLookup.id;
     }
