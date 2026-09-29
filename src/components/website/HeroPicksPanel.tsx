@@ -13,6 +13,7 @@ import {
   blockerText, carryOver, type CarryOverResult, HERO_SOURCE_LABEL, HERO_SOURCE_TEXT, type HeroPhotoSource,
   heroPickRefusalText, type HeroTabTotals, setHeroPhotoSource,
 } from "@/lib/hero-picks";
+import { HeroLineupPanel } from "@/components/website/HeroLineupPanel";
 
 /**
  * Website → Photos → Hero tab (migration 20261013100000, docs/HERO-PICKS.md):
@@ -22,6 +23,10 @@ import {
  * will show); and the one-time carry-over of the approved hero cut-outs
  * (preview, then apply; pressing it twice ticks nothing twice). The switch and
  * the carry-over are ADMIN only — the database checks the role again.
+ *
+ * 20261016100000 (owner 2026-09-29): pieces go on a slide in the ORDER THEY
+ * WERE TICKED, at most 3 per category; the counts are the slides (on the hero
+ * now / waiting their turn), and HeroLineupPanel shows each category.
  */
 export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
   totals: HeroTabTotals;
@@ -60,6 +65,7 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
   });
 
   const after = preview?.products_after;
+  const waiting = totals.hero_waiting;
   const toTick = preview?.to_tick ?? 0;
   const leftOut = Object.entries(preview?.left_out ?? {}).filter(([, n]) => (n ?? 0) > 0);
 
@@ -70,12 +76,12 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
           <Sparkles className="h-4 w-4 text-primary" aria-hidden /> Hero photos
         </h3>
         <p className="text-xs text-muted-foreground">
-          Tick "Use on hero" on a finished product cut-out to put that photo on the website hero (up to 4 per piece, in
-          the photos' order). Only an admin can tick.
+          Tick "Use on hero" on a finished product cut-out to put its piece on the website hero. Each category slide
+          shows up to 3 ticked pieces, oldest tick first; extra ticks wait their turn. Only an admin can tick.
         </p>
       </div>
 
-      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3" data-testid="hero-picks-counts">
+      <dl className={`grid grid-cols-1 gap-2 ${waiting === undefined ? "sm:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-4"}`} data-testid="hero-picks-counts">
         <div className="rounded border border-border p-2">
           <dt className="text-xs text-muted-foreground">Ticked photos</dt>
           <dd className="text-lg font-medium tabular-nums">{totals.count.toLocaleString()}</dd>
@@ -88,10 +94,17 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
           <dd className="text-lg font-medium tabular-nums">{totals.products_on_hero.toLocaleString()}</dd>
           <dd className="text-[11px] text-muted-foreground">of {totals.published_in_stock.toLocaleString()} published and in stock</dd>
         </div>
+        {waiting !== undefined && (
+          <div className="rounded border border-border p-2">
+            <dt className="text-xs text-muted-foreground">Waiting their turn</dt>
+            <dd className="text-lg font-medium tabular-nums">{waiting.toLocaleString()}</dd>
+            <dd className="text-[11px] text-muted-foreground">ticked, in stock, slide full</dd>
+          </div>
+        )}
         <div className="rounded border border-border p-2">
           <dt className="text-xs text-muted-foreground">Published products left out</dt>
           <dd className="text-lg font-medium tabular-nums">{totals.published_left_out.toLocaleString()}</dd>
-          <dd className="text-[11px] text-muted-foreground">no ticked photo yet</dd>
+          <dd className="text-[11px] text-muted-foreground">{waiting === undefined ? "no ticked photo yet" : "not on a slide (waiting ones included)"}</dd>
         </div>
       </dl>
 
@@ -119,6 +132,8 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
         )}
       </div>
 
+      <HeroLineupPanel usingTicks={source === "product_ticks"} />
+
       {isAdmin && (
         <div className="space-y-2" data-testid="hero-carry-over">
           <Button size="sm" variant="outline" onClick={() => loadPreview.mutate()} disabled={loadPreview.isPending || apply.isPending}>
@@ -145,7 +160,8 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
                   <>
                     <p className="tabular-nums">
                       Right now that is {totals.products_on_hero.toLocaleString()} of {totals.published_in_stock.toLocaleString()} published
-                      products in stock; {totals.published_left_out.toLocaleString()} would leave the hero until a photo is ticked.
+                      products in stock; {totals.published_left_out.toLocaleString()} would not be on the hero
+                      {waiting ? ` (${waiting.toLocaleString()} of them ticked and waiting their turn)` : " until a photo is ticked"}.
                     </p>
                     <p className="font-medium text-foreground">
                       Switch only once the website update for ticked cut-outs is live (the Hub edge function and the
@@ -191,7 +207,8 @@ export function HeroPicksPanel({ totals, source, isAdmin, onChanged }: {
                     {after && (
                       <p>
                         Products on the hero: {preview.products_now.products_on_hero.toLocaleString()} → {after.products_on_hero.toLocaleString()} of{" "}
-                        {after.published_in_stock.toLocaleString()} published in stock; {after.published_left_out.toLocaleString()} left out.
+                        {after.published_in_stock.toLocaleString()} published in stock; {after.published_left_out.toLocaleString()} left out
+                        {after.hero_waiting ? ` (${after.hero_waiting.toLocaleString()} waiting their turn)` : ""}. New ticks go after the ones already ticked.
                       </p>
                     )}
                     <p>
