@@ -1683,7 +1683,9 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     record; changed ONLY via set_hero_photo_source, admin, audited; never in a
     migration or SQL). Usable = hero_pick_reason NULL: ok/auto_fixed/approved,
     file + size, product published. One rule for hero, banner and menu
-    thumbnails. hero_usable stays unused.
+    thumbnails. hero_usable stays unused. ORDER (20261016100000, owner
+    2026-09-29): per category, ticked pieces oldest tick first, max 3, never an
+    untagged fallback; hero_lineup_rows is THE order (storefront mirrors it).
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 

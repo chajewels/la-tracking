@@ -18,6 +18,8 @@ let isAdmin: boolean;
 let withHero: boolean;
 let source: string;
 let failPick: string | null;
+let lineup: Record<string, unknown> | "missing";
+let heroWaiting: number | undefined;
 
 vi.mock("@/lib/untyped-rpc", () => ({
   callUntypedRpc: async (fn: string, args?: Record<string, unknown>) => {
@@ -29,11 +31,17 @@ vi.mock("@/lib/untyped-rpc", () => ({
       return {
         tabs: {
           needs_review: { count: 1, paid_calls: 1 }, completed: { count: listRows.length, paid_calls: listRows.length },
-          ...(withHero ? { hero: { count: 3, paid_calls: 3, usable: 2, products_on_hero: 2, published_left_out: 301, published_in_stock: 303 } } : {}),
+          ...(withHero ? { hero: { count: 3, paid_calls: 3, usable: 2, products_on_hero: 2, published_left_out: 301, published_in_stock: 303,
+                                   ...(heroWaiting === undefined ? {} : { hero_waiting: heroWaiting }) } } : {}),
         },
         is_admin: isAdmin, per_photo_limit: 2, provider: "replicate", price_usd: "0.005",
         ...(withHero ? { hero_photo_source: source } : {}),
       };
+    }
+    if (fn === "get_hero_lineup") {
+      // Before 20261016100000 PostgREST answers with a plain error object.
+      if (lineup === "missing") throw { message: "Could not find the function public.get_hero_lineup without parameters in the schema cache", code: "PGRST202" };
+      return lineup;
     }
     if (fn === "list_media_cutouts") return { total: listRows.length, rows: listRows.map(r => ({ ...r })) };
     if (fn === "set_hero_pick") {
@@ -96,7 +104,25 @@ beforeEach(() => {
   withHero = true;
   source = "hero_record";
   failPick = null;
+  lineup = "missing";
+  heroWaiting = undefined;
 });
+
+const piece = (sku: string, place: number | null, state: string, reason: string | null = null) => ({
+  product_id: `id-${sku}`, sku, name: `Piece ${sku}`, slug: sku.toLowerCase(), place, state, reason,
+  first_picked_at: "2026-09-29T01:00:00Z", photo: { source_url: `https://cdn.test/src/${sku}.jpg`, thumb_path: `website/derived/${sku}/catalog-small.webp` },
+});
+const LINEUP = {
+  hero_photo_source: "hero_record", slide_limit: 3,
+  categories: [
+    { id: "c1", slug: "preloved-jewelry", name: "Preloved Jewelry",
+      on_hero: [piece("R3", 1, "on_hero"), piece("R1", 2, "on_hero"), piece("R5", 3, "on_hero")],
+      waiting: [piece("R2", 4, "waiting"), piece("R4", 5, "waiting")],
+      not_showing: [piece("R9", null, "not_showing", "sold")] },
+    { id: "c2", slug: "preloved-watches", name: "Preloved Watches", on_hero: [], waiting: [], not_showing: [] },
+  ],
+  no_category: [piece("X1", null, "not_showing", "no_category")],
+};
 
 describe("Use on hero — the tick", () => {
   it("before the migration: no tick and no Hero tab", async () => {
@@ -212,8 +238,8 @@ describe("Hero tab", () => {
     expect(within(panel).getByTestId("hero-source-badge")).toHaveTextContent("Hero record (approved hero cut-outs)");
     fireEvent.click(within(panel).getByRole("radio", { name: "Ticked product cut-outs" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByTestId("hero-source-confirm")).toHaveTextContent("shows ONLY product cut-outs ticked");
-    expect(dialog).toHaveTextContent("Right now that is 2 of 303 published products in stock; 301 would leave the hero");
+    expect(within(dialog).getByTestId("hero-source-confirm")).toHaveTextContent("shows ONLY pieces with a product cut-out ticked");
+    expect(dialog).toHaveTextContent("Right now that is 2 of 303 published products in stock; 301 would not be on the hero until a photo is ticked");
     expect(calls.some(c => c.fn === "set_hero_photo_source")).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -253,5 +279,83 @@ describe("Hero tab", () => {
     expect(within(panel).queryByTestId("hero-carry-over")).toBeNull();
     expect(within(panel).getByRole("radio", { name: "Ticked product cut-outs" })).toBeDisabled();
     expect(panel).toHaveTextContent("Only an admin can change this.");
+  });
+});
+
+describe("Hero tab — the running order (20261016100000)", () => {
+  it("per category: on the website now (n/3), waiting in tick order, not showing with the reason", async () => {
+    lineup = LINEUP;
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    const panel = await screen.findByTestId("hero-lineup");
+    expect(panel).toHaveTextContent("The website still uses the hero record. This is what it will show once you switch");
+    const jewelry = within(panel).getByTestId("hero-lineup-preloved-jewelry");
+    expect(jewelry).toHaveTextContent("Would show 3/3");
+    const skus = within(jewelry).getAllByTestId("hero-lineup-piece").map(li => li.textContent ?? "");
+    expect(skus.map(t => t.match(/R\d/)?.[0])).toEqual(["R3", "R1", "R5", "R2", "R4", "R9"]);
+    expect(jewelry).toHaveTextContent("Waiting their turn (2)");
+    expect(jewelry).toHaveTextContent("sold out — it comes back to its place if it is back in stock");
+    const watches = within(panel).getByTestId("hero-lineup-preloved-watches");
+    expect(watches).toHaveTextContent("Would show 0/3");
+    expect(watches).toHaveTextContent("it never falls back to untagged pieces");
+    expect(within(panel).getByTestId("hero-lineup-no-category")).toHaveTextContent("X1");
+  });
+
+  it("on ticked cut-outs it says the website shows these now", async () => {
+    lineup = { ...LINEUP, hero_photo_source: "product_ticks" };
+    source = "product_ticks";
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    expect(await screen.findByTestId("hero-lineup")).toHaveTextContent("The website hero shows these now: up to 3 ticked pieces per category, oldest tick first");
+    expect(screen.getByTestId("hero-lineup-preloved-jewelry")).toHaveTextContent("On the website 3/3");
+  });
+
+  it("before the migration: no running order, the rest of the tab still works", async () => {
+    lineup = "missing";
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    const panel = await screen.findByTestId("hero-picks-panel");
+    await waitFor(() => expect(calls.some(c => c.fn === "get_hero_lineup")).toBe(true));
+    expect(within(panel).queryByTestId("hero-lineup")).toBeNull();
+    expect(panel).not.toHaveTextContent("Could not find the function");
+    expect(within(panel).getByTestId("hero-picks-counts")).not.toHaveTextContent("Waiting their turn");
+  });
+
+  it("a failed refresh keeps the last answer on screen", async () => {
+    lineup = LINEUP;
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    await screen.findByTestId("hero-lineup");
+    lineup = "missing";
+    const before = calls.filter(c => c.fn === "get_hero_lineup").length;
+    // Force a refetch through a tick (refreshAll), which now fails.
+    const row = (await screen.findAllByTestId("hero-pick"))[0].closest("[data-testid]") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { hidden: true }));
+    await waitFor(() => expect(calls.filter(c => c.fn === "get_hero_lineup").length).toBeGreaterThan(before));
+    expect(screen.getByTestId("hero-lineup-preloved-jewelry")).toHaveTextContent("Would show 3/3");
+  });
+
+  it("the counts are the slides: on the hero, waiting their turn, left out", async () => {
+    lineup = LINEUP;
+    heroWaiting = 2;
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    const counts = await screen.findByTestId("hero-picks-counts");
+    expect(counts).toHaveTextContent("Waiting their turn2ticked, in stock, slide full");
+    expect(counts).toHaveTextContent("Published products left out301not on a slide (waiting ones included)");
+    fireEvent.click(within(screen.getByTestId("hero-picks-panel")).getByRole("radio", { name: "Ticked product cut-outs" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("301 would not be on the hero (2 of them ticked and waiting their turn)");
+  });
+
+  it("a tick refreshes the running order", async () => {
+    lineup = LINEUP;
+    wrap(<MediaCutoutReviewCard />);
+    await openTab(/^Hero/);
+    await screen.findByTestId("hero-lineup");
+    const before = calls.filter(c => c.fn === "get_hero_lineup").length;
+    const row = (await screen.findAllByTestId("hero-pick"))[0].closest("[data-testid]") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { hidden: true }));
+    await waitFor(() => expect(calls.some(c => c.fn === "set_hero_pick")).toBe(true));
+    await waitFor(() => expect(calls.filter(c => c.fn === "get_hero_lineup").length).toBeGreaterThan(before));
   });
 });
