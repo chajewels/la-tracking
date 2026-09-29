@@ -4,7 +4,13 @@
 -- migration and a scenario inside ONE transaction that ALWAYS ends in
 -- RAISE EXCEPTION 'RESULT …' — the result is in the error text and NOTHING is
 -- kept. Build (T) by pasting the migration WITHOUT its BEGIN; / COMMIT; lines
--- between the $MIGRATION$ markers.
+-- between the $MIGRATION$ markers — or, as run on 2026-09-29, fetch the file at
+-- its commit with SELECT net.http_get('https://raw.githubusercontent.com/
+-- chajewels/la-tracking/<commit>/supabase/migrations/20261018100000_web_order_drafts.sql'),
+-- check md5(content) against `md5sum` of the file, strip BEGIN;/COMMIT; and
+-- EXECUTE it (the exact committed bytes, nothing retyped).
+-- NOTE: a sequence is not transactional — the preview's test draft burns ONE
+-- web order number (a gap, which is by design for this sequence).
 -- ============================================================================
 
 -- (P.1) The three bodies this file replaces are the live ones.
