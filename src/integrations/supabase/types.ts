@@ -320,6 +320,7 @@ export type Database = {
           transfer_due_at: string | null
           updated_at: string
           web_reference: string | null
+          web_released_at: string | null
         }
         Insert: {
           accepted_by_user_id?: string | null
@@ -385,6 +386,7 @@ export type Database = {
           transfer_due_at?: string | null
           updated_at?: string
           web_reference?: string | null
+          web_released_at?: string | null
         }
         Update: {
           accepted_by_user_id?: string | null
@@ -450,6 +452,7 @@ export type Database = {
           transfer_due_at?: string | null
           updated_at?: string
           web_reference?: string | null
+          web_released_at?: string | null
         }
         Relationships: [
           {
@@ -1805,6 +1808,7 @@ export type Database = {
           transfer_due_at: string | null
           updated_at: string
           web_reference: string | null
+          web_released_at: string | null
         }
         Insert: {
           accepted_by_user_id?: string | null
@@ -1863,6 +1867,7 @@ export type Database = {
           transfer_due_at?: string | null
           updated_at?: string
           web_reference?: string | null
+          web_released_at?: string | null
         }
         Update: {
           accepted_by_user_id?: string | null
@@ -1921,6 +1926,7 @@ export type Database = {
           transfer_due_at?: string | null
           updated_at?: string
           web_reference?: string | null
+          web_released_at?: string | null
         }
         Relationships: [
           {
@@ -5388,6 +5394,7 @@ export type Database = {
           staff_note: string | null
           status: string
           updated_at: string
+          web_draft_id: string | null
         }
         Insert: {
           cash_order_id?: string | null
@@ -5404,6 +5411,7 @@ export type Database = {
           staff_note?: string | null
           status?: string
           updated_at?: string
+          web_draft_id?: string | null
         }
         Update: {
           cash_order_id?: string | null
@@ -5420,6 +5428,7 @@ export type Database = {
           staff_note?: string | null
           status?: string
           updated_at?: string
+          web_draft_id?: string | null
         }
         Relationships: [
           {
@@ -5448,6 +5457,13 @@ export type Database = {
             columns: ["service_job_id"]
             isOneToOne: false
             referencedRelation: "service_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_requests_web_draft_id_fkey"
+            columns: ["web_draft_id"]
+            isOneToOne: false
+            referencedRelation: "web_order_drafts"
             referencedColumns: ["id"]
           },
         ]
@@ -6231,6 +6247,235 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      web_order_draft_lines: {
+        Row: {
+          created_at: string
+          draft_id: string
+          hold_state: string
+          id: string
+          image_url: string | null
+          line_total_jpy: number
+          qty: number
+          released_at: string | null
+          sku: string | null
+          title: string
+          transferred_at: string | null
+          unit_price_jpy: number
+          variant_id: string | null
+          website_product_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          draft_id: string
+          hold_state?: string
+          id?: string
+          image_url?: string | null
+          line_total_jpy: number
+          qty: number
+          released_at?: string | null
+          sku?: string | null
+          title: string
+          transferred_at?: string | null
+          unit_price_jpy: number
+          variant_id?: string | null
+          website_product_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string
+          hold_state?: string
+          id?: string
+          image_url?: string | null
+          line_total_jpy?: number
+          qty?: number
+          released_at?: string | null
+          sku?: string | null
+          title?: string
+          transferred_at?: string | null
+          unit_price_jpy?: number
+          variant_id?: string | null
+          website_product_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "web_order_draft_lines_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "web_order_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_draft_lines_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_draft_lines_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      web_order_drafts: {
+        Row: {
+          agreement_signed_at: string | null
+          agreement_version: string | null
+          cash_order_id: string | null
+          country: string | null
+          created_at: string
+          customer_id: string
+          customer_lang: string | null
+          decided_at: string | null
+          decided_by: string | null
+          decline_reason: string | null
+          deposit: number | null
+          fx_rate: number | null
+          fx_rate_date: string | null
+          gift_note: string | null
+          id: string
+          invoice_seq: number
+          layaway_account_id: string | null
+          mode: string
+          order_type: string
+          quote_id: string
+          recipient_name: string | null
+          recipient_phone: string | null
+          reservation_reminded_at: string | null
+          schedule: Json | null
+          settlement_currency: string
+          ship_to_address_id: string | null
+          ship_to_snapshot: Json | null
+          shipping: number | null
+          shipping_jpy: number | null
+          status: string
+          subtotal: number
+          subtotal_jpy: number
+          term_months: number | null
+          total: number
+          total_jpy: number
+          updated_at: string
+          web_reference: string
+        }
+        Insert: {
+          agreement_signed_at?: string | null
+          agreement_version?: string | null
+          cash_order_id?: string | null
+          country?: string | null
+          created_at?: string
+          customer_id: string
+          customer_lang?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decline_reason?: string | null
+          deposit?: number | null
+          fx_rate?: number | null
+          fx_rate_date?: string | null
+          gift_note?: string | null
+          id?: string
+          invoice_seq: number
+          layaway_account_id?: string | null
+          mode: string
+          order_type?: string
+          quote_id: string
+          recipient_name?: string | null
+          recipient_phone?: string | null
+          reservation_reminded_at?: string | null
+          schedule?: Json | null
+          settlement_currency?: string
+          ship_to_address_id?: string | null
+          ship_to_snapshot?: Json | null
+          shipping?: number | null
+          shipping_jpy?: number | null
+          status?: string
+          subtotal: number
+          subtotal_jpy: number
+          term_months?: number | null
+          total: number
+          total_jpy: number
+          updated_at?: string
+          web_reference: string
+        }
+        Update: {
+          agreement_signed_at?: string | null
+          agreement_version?: string | null
+          cash_order_id?: string | null
+          country?: string | null
+          created_at?: string
+          customer_id?: string
+          customer_lang?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decline_reason?: string | null
+          deposit?: number | null
+          fx_rate?: number | null
+          fx_rate_date?: string | null
+          gift_note?: string | null
+          id?: string
+          invoice_seq?: number
+          layaway_account_id?: string | null
+          mode?: string
+          order_type?: string
+          quote_id?: string
+          recipient_name?: string | null
+          recipient_phone?: string | null
+          reservation_reminded_at?: string | null
+          schedule?: Json | null
+          settlement_currency?: string
+          ship_to_address_id?: string | null
+          ship_to_snapshot?: Json | null
+          shipping?: number | null
+          shipping_jpy?: number | null
+          status?: string
+          subtotal?: number
+          subtotal_jpy?: number
+          term_months?: number | null
+          total?: number
+          total_jpy?: number
+          updated_at?: string
+          web_reference?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "web_order_drafts_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_layaway_account_id_fkey"
+            columns: ["layaway_account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "checkout_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_ship_to_address_id_fkey"
+            columns: ["ship_to_address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       web_payment_reminders: {
         Row: {
@@ -7504,6 +7749,16 @@ export type Database = {
         }
         Returns: Json
       }
+      create_web_draft_atomic: {
+        Args: {
+          p_agreement_signed_at?: string
+          p_agreement_version?: string
+          p_customer_id: string
+          p_lang?: string
+          p_quote_id: string
+        }
+        Returns: Json
+      }
       create_web_layaway_atomic: {
         Args: {
           p_agreement_signed_at?: string
@@ -7529,6 +7784,15 @@ export type Database = {
       }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       deactivate_shipping_rate: { Args: { p_id: string }; Returns: Json }
+      decline_web_draft_atomic: {
+        Args: {
+          p_draft_id: string
+          p_reason: string
+          p_source?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       decline_web_layaway_reservation_atomic: {
         Args: {
           p_account_id: string
@@ -7575,6 +7839,10 @@ export type Database = {
         Returns: number
       }
       expire_unconfirmed_web_reservations_atomic: {
+        Args: { p_hours?: number; p_limit?: number }
+        Returns: Json
+      }
+      expire_web_drafts_atomic: {
         Args: { p_hours?: number; p_limit?: number }
         Returns: Json
       }
@@ -7912,6 +8180,7 @@ export type Database = {
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
+      get_web_checkout_mode: { Args: never; Returns: Json }
       get_web_payment_reminders: { Args: never; Returns: Json }
       get_web_reservation_mode: { Args: never; Returns: Json }
       has_permission: {
@@ -8083,6 +8352,16 @@ export type Database = {
       }
       manual_forfeit_layaway_atomic: {
         Args: { p_account_id: string; p_source?: string; p_user_id?: string }
+        Returns: Json
+      }
+      materialize_web_draft_atomic: {
+        Args: {
+          p_draft_id: string
+          p_order: Json
+          p_schedule?: Json
+          p_service_lines?: Json
+          p_user_id: string
+        }
         Returns: Json
       }
       media_cutout_allow_pairs: { Args: { p_url: string }; Returns: boolean }
@@ -8526,6 +8805,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_web_checkout_mode: {
+        Args: { p_expected?: string; p_mode: string }
+        Returns: Json
+      }
       set_web_payment_reminders: {
         Args: {
           p_expected_mode?: string
@@ -8593,6 +8876,7 @@ export type Database = {
         }
         Returns: Json
       }
+      web_checkout_mode: { Args: never; Returns: string }
       web_deposit_deadline_hours: {
         Args: { p_customer_id: string; p_exclude_order?: string }
         Returns: number
