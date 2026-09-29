@@ -7084,6 +7084,8 @@ export type Database = {
           slug: string
           status: Database["public"]["Enums"]["website_product_status"]
           updated_at: string
+          video_poster_url: string | null
+          video_url: string | null
           weight_g: number | null
         }
         Insert: {
@@ -7107,6 +7109,8 @@ export type Database = {
           slug: string
           status?: Database["public"]["Enums"]["website_product_status"]
           updated_at?: string
+          video_poster_url?: string | null
+          video_url?: string | null
           weight_g?: number | null
         }
         Update: {
@@ -7130,6 +7134,8 @@ export type Database = {
           slug?: string
           status?: Database["public"]["Enums"]["website_product_status"]
           updated_at?: string
+          video_poster_url?: string | null
+          video_url?: string | null
           weight_g?: number | null
         }
         Relationships: []
