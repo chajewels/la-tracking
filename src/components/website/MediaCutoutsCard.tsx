@@ -33,7 +33,7 @@ import CutoutViewer, { type ViewerImage } from "@/components/website/CutoutViewe
 import CutoutActionButtons from "@/components/website/CutoutActionButtons";
 import { HeroPickContext, type HeroPickControl } from "@/components/website/hero-pick-context";
 import { HeroPicksPanel } from "@/components/website/HeroPicksPanel";
-import { heroPickRefusalText, type HeroTabTotals, setHeroPick } from "@/lib/hero-picks";
+import { HERO_LINEUP_KEY, heroPickRefusalText, type HeroTabTotals, setHeroPick } from "@/lib/hero-picks";
 import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 
 /**
@@ -548,6 +548,7 @@ export function MediaCutoutReviewCard() {
     qc.invalidateQueries({ queryKey: [LIST_KEY] }),
     qc.invalidateQueries({ queryKey: OVERVIEW_KEY }),
     qc.invalidateQueries({ queryKey: TABS_KEY }),
+    qc.invalidateQueries({ queryKey: HERO_LINEUP_KEY }),
   ]);
 
   const act = useMutation({

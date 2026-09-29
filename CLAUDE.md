@@ -1683,7 +1683,9 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     record; changed ONLY via set_hero_photo_source, admin, audited; never in a
     migration or SQL). Usable = hero_pick_reason NULL: ok/auto_fixed/approved,
     file + size, product published. One rule for hero, banner and menu
-    thumbnails. hero_usable stays unused.
+    thumbnails. hero_usable stays unused. ORDER (20261016100000, owner
+    2026-09-29): per category, ticked pieces oldest tick first, max 3, never an
+    untagged fallback; hero_lineup_rows is THE order (storefront mirrors it).
 
 ## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
 
@@ -2160,3 +2162,9 @@ Customer / Amount), non-blocking relative to the tracking output.
        stay 0.
   - After any DROP + CREATE FUNCTION, re-assert its REVOKE/GRANT in the same
     migration (the default ACL grants PUBLIC; 2026-09-24).
+  - RLS policies call auth.uid() / is_staff() / has_role() inside a scalar
+    sub-select — (SELECT is_staff((SELECT auth.uid()))) — never bare (a bare
+    call runs once per row; 8 s timeouts, 2026-09-29, PR #265).
+  - Every view in public is created WITH (security_invoker = true); a view
+    owned by postgres without it bypasses RLS (schedule_with_actuals leak,
+    2026-09-29, PR #266).

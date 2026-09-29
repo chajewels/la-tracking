@@ -5688,3 +5688,50 @@ requirePermission 'loyalty_revoke_points') — same callers, same gate; a denied
 "Access denied" instead of "loyalty_revoke_points permission required".
 
 **Do not reintroduce:** the queue snapshot and the Hub count must apply the same audience rule.
+
+### Staff screens timed out at 8 s: RLS staff checks ran once per row (2026-09-29)
+
+**Symptom.** Lovable scan 2026-09-29 (L3): Finance, account and schedule screens hit the
+`authenticated` statement_timeout (8 s). `fc_cfo_insights()` took 113 ms as postgres but
+2,362 ms as an admin user; pg_stat_statements showed the fc_* RPCs and list reads cancelled at
+≈7,99x ms.
+
+**Root cause.** 43 policies on the 11 busiest tables (account_services, cash_orders, customers,
+layaway_accounts, layaway_schedule, payment_allocations, payment_submission_allocations,
+payment_submissions, payments, penalty_fees, reminder_logs) called `is_staff(auth.uid())` /
+`has_role(auth.uid(), …)` / `auth.uid()` bare, so Postgres evaluated them for every row scanned.
+
+**Fix.** PR #265, migration `20261014200000_rls_staff_check_once.sql` (applied on live
+2026-09-29 ~10:00 JST): each call wrapped in a scalar sub-select —
+`(SELECT is_staff((SELECT auth.uid())))` — so it runs once per statement as an InitPlan. Same
+policy names, commands, roles and permissive flags; only the expressions changed. Proof on live:
+48 policies before and after, exactly 43 changed, 0 changes other than the wrap; row counts seen
+by an admin and by a customer identical before and after; `fc_cfo_insights` as admin 2,362 ms →
+185 ms.
+
+**Do not reintroduce:** a new or edited RLS policy writes `(SELECT auth.uid())` and
+`(SELECT is_staff((SELECT auth.uid())))`, never the bare call. 210 policies on ~104 other tables
+still use the bare form (backlog #28) — wrap them if those screens slow down.
+
+### Any signed-in customer could read every schedule row through schedule_with_actuals (2026-09-29)
+
+**Symptom.** Lovable scan 2026-09-29 (L2, security): as a signed-in portal customer,
+`SELECT count(*) FROM layaway_schedule` returned 0 (RLS working) but
+`SELECT count(*) FROM schedule_with_actuals` returned 9,223 — every customer's schedule. The two
+`live_agent` users (timesheet-only, no Hub page permissions) could read them too.
+
+**Root cause.** The view is owned by postgres and had no `security_invoker`, so every read ran
+with the owner's rights and skipped RLS on layaway_schedule, payment_allocations and payments.
+
+**Fix.** PR #266, migration `20261014300000_schedule_with_actuals_security_invoker.sql`
+(applied on live 2026-09-29 ~10:22 JST, after #265): `ALTER VIEW … SET (security_invoker =
+true)`. Definition and grants unchanged. Through the view after the fix: admin 9,223 rows (same
+totals), customer CJ-2026-00248 200 (own only), live_agent 0. SECURITY DEFINER readers
+(get_forecast_6m, get_aging_buckets, get_forecast_drilldown) are unaffected; staff full read
+25 ms. Only staff screens read the view with a user session; the portal and storefront use
+service-role edge functions.
+
+**Do not reintroduce:** every view in `public` is created `WITH (security_invoker = true)`.
+A customer-session read of this view would compute `allocated` from allocations the customer
+cannot see — any customer-facing schedule read goes through a service-role function.
+

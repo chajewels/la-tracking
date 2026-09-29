@@ -5,6 +5,7 @@ import {
   type CutoutRow, type CutoutTabTotals,
 } from '@/lib/media-cutouts';
 import { storefrontPreview } from '@/theme/tokens';
+import { HERO_LINEUP_KEY, type HeroLineup, type HeroLineupPiece } from '@/lib/hero-picks';
 
 /**
  * Seed for /__fixtures/?view=media-cutouts[&mode=off|test|on][&role=staff][&source=product_ticks] — Website → Photos
@@ -117,10 +118,36 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
       completed: { count: 111, paid_calls: 110, kept_original: 1 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 209, paid_calls: 154 },
       // Hero picks (20261013100000): three ticks, one no longer usable (its product was unpublished).
-      hero: { count: 3, paid_calls: 3, usable: 2, products_on_hero: 2, published_left_out: 301, published_in_stock: 303 },
+      // Hero order (20261016100000): the slides — 4 on, 2 waiting their turn.
+      hero: { count: 8, paid_calls: 8, usable: 7, products_on_hero: 4, hero_waiting: 2, published_left_out: 299, published_in_stock: 303 },
     },
   };
   seed(CUTOUT_TABS_KEY, tabs);
+  // Hero order (20261016100000): get_hero_lineup, the running order per category.
+  const lp = (sku: string, name: string, place: number | null, state: HeroLineupPiece['state'],
+              reason: HeroLineupPiece['reason'], mins: number): HeroLineupPiece => ({
+    product_id: sku, sku, name, slug: sku.toLowerCase(), place, state, reason,
+    first_picked_at: new Date(Date.UTC(2026, 8, 29, 1, mins)).toISOString(),
+    photo: { source_url: BASE + `page365/${sku}.jpg`, thumb_path: `website/derived/${sku.toLowerCase()}/r1/catalog-small.webp` },
+  });
+  const lineup: HeroLineup = {
+    hero_photo_source: source === 'product_ticks' ? 'product_ticks' : 'hero_record', slide_limit: 3,
+    categories: [
+      { id: 'c1', slug: 'preloved-jewelry', name: 'Preloved Jewelry',
+        on_hero: [lp('R7828', 'Preloved 18K Diamond Eternity Ring', 1, 'on_hero', null, 2),
+                  lp('E1053', 'Preloved Pt900 Diamond Stud Earrings', 2, 'on_hero', null, 5),
+                  lp('N2210', 'Preloved K18 Ruby Pendant Necklace', 3, 'on_hero', null, 9)],
+        waiting: [lp('R8001', 'Preloved K18YG Sapphire Ring', 4, 'waiting', null, 14),
+                  lp('B3302', 'Preloved K18 Tennis Bracelet', 5, 'waiting', null, 20)],
+        not_showing: [lp('R7011', 'Preloved Pt950 Solitaire Ring', null, 'not_showing', 'sold', 1)] },
+      { id: 'c2', slug: 'preloved-watches', name: 'Preloved Watches',
+        on_hero: [lp('W2527', 'Preloved Rolex Datejust 36', 1, 'on_hero', null, 30)], waiting: [], not_showing: [] },
+      { id: 'c3', slug: 'preloved-designer-accessories', name: 'Preloved Designer Accessories',
+        on_hero: [], waiting: [], not_showing: [lp('AL1234', 'Preloved Designer Wallet', null, 'not_showing', 'not_published', 12)] },
+    ],
+    no_category: [],
+  };
+  seed(HERO_LINEUP_KEY, lineup);
   const n = (sku: string, name: string) => ({ id: sku, sku, name, slug: sku.toLowerCase(), status: 'active' });
   seed([CUTOUT_LIST_KEY, 'completed', '', 0], {
     total: 3,
