@@ -5,6 +5,7 @@ import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -322,6 +323,7 @@ export default function AccountDetail() {
   const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
   const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const { can: canPerm } = usePermissions();
+  const [reviewLinkOpen, setReviewLinkOpen] = useState(false);
   const can = (action: string) => canPerm(action);
 
   const runHealthCheck = async () => {
@@ -2567,6 +2569,22 @@ export default function AccountDetail() {
               {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
               {copied ? 'Copied!' : 'Copy Message'}
             </Button>
+            {account.status === 'completed' && canPerm('send_review_invite') && (
+              <>
+                <Button onClick={() => setReviewLinkOpen(true)} variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+                  <Star className="h-3.5 w-3.5 mr-1" /> Copy review message
+                </Button>
+                <ReviewLinkDialog
+                  open={reviewLinkOpen}
+                  onOpenChange={setReviewLinkOpen}
+                  kind="layaway"
+                  orderId={account.id}
+                  customerId={account.customer_id}
+                  customerName={account.customers?.full_name}
+                  fallbackPiece={account.notes}
+                />
+              </>
+            )}
             {account.customers?.messenger_link && (
               <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">

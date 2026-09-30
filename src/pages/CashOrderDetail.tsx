@@ -52,6 +52,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import { loyaltyHintJpy } from '@/lib/loyalty-hint';
 import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
@@ -378,6 +379,7 @@ export default function CashOrderDetail() {
   const qc = useQueryClient();
   const { roles, loading: authLoading } = useAuth();
   const { can } = usePermissions();
+  const [reviewLinkOpen, setReviewLinkOpen] = useState(false);
   const rolesArr = roles as any[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
@@ -1951,6 +1953,22 @@ export default function CashOrderDetail() {
               {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
               {copied ? 'Copied!' : 'Copy Message'}
             </Button>
+            {order.status === 'completed' && can('send_review_invite') && (
+              <>
+                <Button onClick={() => setReviewLinkOpen(true)} variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+                  <Star className="h-3.5 w-3.5 mr-1" /> Copy review message
+                </Button>
+                <ReviewLinkDialog
+                  open={reviewLinkOpen}
+                  onOpenChange={setReviewLinkOpen}
+                  kind="cash"
+                  orderId={order.id}
+                  customerId={order.customer_id}
+                  customerName={order.customers?.full_name}
+                  fallbackPiece={order.item_description || order.notes}
+                />
+              </>
+            )}
             {order.customers?.messenger_link && (
               <a href={order.customers.messenger_link} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
