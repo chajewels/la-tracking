@@ -1,3 +1,4 @@
+import { useMessagePools, pickLine, fillLine } from '@/lib/message-lines';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -69,6 +70,7 @@ export default function CustomerPortalShareMenu({
   setupLinkSentAt,
 }: Props) {
   const { user } = useAuth();
+  const messagePools = useMessagePools();
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -229,7 +231,7 @@ export default function CustomerPortalShareMenu({
 
   const shareMessenger = () => {
     if (portalUrl) {
-      window.open(`https://m.me/?text=${encodeURIComponent(`Hi ${customerName}! Here's your Cha Jewels Hub portal: ${portalUrl}`)}`, '_blank');
+      window.open(`https://m.me/?text=${encodeURIComponent(fillLine(pickLine(messagePools, 'portal_link_share', 'full'), { name: customerName, link: portalUrl }))}`, '_blank');
     }
   };
 
@@ -419,7 +421,7 @@ export default function CustomerPortalShareMenu({
                         variant="outline"
                         onClick={() => {
                           const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(customerEmail)}`;
-                          const message = `Hi ${customerName}! Set up your Cha Jewels portal access here: ${setupUrl}`;
+                          const message = fillLine(pickLine(messagePools, 'portal_setup_invite', 'full'), { name: customerName, link: setupUrl });
                           window.open(`https://m.me/?text=${encodeURIComponent(message)}`, '_blank');
                         }}
                         className="gap-1.5"
