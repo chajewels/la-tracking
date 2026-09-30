@@ -62,7 +62,7 @@ export type SubMenuItem = {
   // instead of `${parentPath}?tab=${tab}`. Used for sub-items that are real
   // routes rather than tab states (e.g. Inquiries under CSR Operations).
   path?: string;
-  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests' | 'sales_web';
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests' | 'sales_web' | 'website_reviews';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
@@ -137,6 +137,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
       { label: 'Page365 stock', tab: 'page365-stock', permFilter: (can) => can('manage_website_catalog') },
       { label: 'Photos', tab: 'photos', permFilter: (can) => can('manage_website_catalog') },
+      { label: 'Reviews', tab: 'reviews', badgeKey: 'website_reviews', permFilter: (can) => can('moderate_reviews') },
     ],
   },
 
