@@ -24,6 +24,7 @@ import { Page365InventoryCard } from "@/components/website/Page365InventoryCard"
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
 import { MediaCutoutReviewCard, MediaCutoutSettingsCard } from "@/components/website/MediaCutoutsCard";
 import { HeroCutoutsCard } from "@/components/website/HeroCutoutsCard";
+import { ReviewsCard } from "@/components/website/ReviewsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
@@ -57,8 +58,10 @@ import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
  *                      docs/MEDIA-CUTOUTS.md; and the HERO cut-outs, original
  *                      tool only, approve / reject / go-live ADMIN only —
  *                      docs/HERO-CUTOUTS.md)
+ *   reviews          → moderate_reviews  (customer reviews: approve / reject /
+ *                      hide — docs/SCHEMA-FACTS.md "Product reviews")
  */
-export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock", "photos"] as const;
+export const WEBSITE_TABS = ["catalog", "content", "audience", "settings", "page365-stock", "photos", "reviews"] as const;
 export type WebsiteTab = (typeof WEBSITE_TABS)[number];
 
 const isWebsiteTab = (v: string | null): v is WebsiteTab =>
@@ -97,6 +100,7 @@ export default function Website() {
    * opened it also renders at least one card.
    */
   const canAudience = canCatalog || canContent;
+  const canReviews = can("moderate_reviews") || isAdmin;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTabState] = useState<WebsiteTab>(() => {
@@ -159,6 +163,7 @@ export default function Website() {
             {canContent && <TabsTrigger value="settings">Settings</TabsTrigger>}
             {canCatalog && <TabsTrigger value="page365-stock">Page365 stock</TabsTrigger>}
             {canCatalog && <TabsTrigger value="photos">Photos</TabsTrigger>}
+            {canReviews && <TabsTrigger value="reviews">Reviews</TabsTrigger>}
           </TabsList>
 
           {canCatalog && (
@@ -240,6 +245,12 @@ export default function Website() {
               <MediaCutoutReviewCard />
               {/* The hero's own cut-outs (original tool), apart from Photoroom's (docs/HERO-CUTOUTS.md). */}
               <HeroCutoutsCard />
+            </TabsContent>
+          )}
+
+          {canReviews && (
+            <TabsContent value="reviews" className="mt-5 space-y-6" tabIndex={-1}>
+              <ReviewsCard />
             </TabsContent>
           )}
         </Tabs>
