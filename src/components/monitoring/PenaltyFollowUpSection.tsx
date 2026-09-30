@@ -192,6 +192,7 @@ interface PenaltyFollowUpSectionProps {
 export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount = 0 }: PenaltyFollowUpSectionProps) {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
+  const messagePools = useMessagePools();
   const [activeStage, setActiveStage] = useState<PenaltyStage | null>(null);
   const [notifFilter, setNotifFilter] = useState<PenaltyNotifFilter>('all');
   const [messengerDialog, setMessengerDialog] = useState<{ alert: PenaltyAlertItem; message: string } | null>(null);
