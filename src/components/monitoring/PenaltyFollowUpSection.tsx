@@ -1,3 +1,4 @@
+import { useMessagePools, pickLine, fillLine, type MessagePools } from '@/lib/message-lines';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -99,6 +100,7 @@ export function generatePenaltyReminderMessage(
   authUserId?: string | null,
   customerPin?: string | null,
   portalPasswordAt?: string | null,
+  pools?: MessagePools,
 ): string {
   const dueStr = new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(installmentAmount, currency);
@@ -119,22 +121,27 @@ export function generatePenaltyReminderMessage(
     ? `\n\nYou may view and pay here:\n${portalUrl}${pinLine}`
     : '';
 
+  const poolType = `penalty_${stage.toLowerCase()}`;
+  const lineVars = { name: customer, invoice, due_date: dueStr };
+  const opening = fillLine(pickLine(pools, poolType, 'opening'), lineVars);
+  const closing = fillLine(pickLine(pools, poolType, 'closing'), lineVars);
+
   const templates: Record<PenaltyStage, string> = {
-    P1: `✨ Cha Jewels Payment Reminder\n\nHi ${customer}! 👋\n\nThis is a gentle reminder that your payment for:\n\nINV #${invoice}\nAmount Due: ${amtStr}\nDue Date: ${dueStr}\n\nis now 7 days overdue.\n\nA small penalty has already been applied (${penaltyStr}). We encourage you to settle soon to avoid additional charges.\nRemaining balance: ${balanceStr}${portalLink}\n\nThank you for your continued trust 💛\n— Cha Jewels 💎`,
+    P1: `✨ Cha Jewels Payment Reminder\n\n${opening}\n\nINV #${invoice}\nAmount Due: ${amtStr}\nDue Date: ${dueStr}\n\nis now 7 days overdue.\n\nA small penalty has already been applied (${penaltyStr}). We encourage you to settle soon to avoid additional charges.\nRemaining balance: ${balanceStr}${portalLink}\n\n${closing}\n— Cha Jewels 💎`,
 
-    P2: `✨ Cha Jewels Follow-Up Reminder\n\nHi ${customer},\n\nYour payment for INV #${invoice} is now 14 days overdue (due ${dueStr}) and penalties are increasing.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nWe kindly request your prompt attention to this matter.${portalLink}\n\nThank you! 💛\n— Cha Jewels 💎`,
+    P2: `✨ Cha Jewels Follow-Up Reminder\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\nThank you! 💛\n— Cha Jewels 💎`,
 
-    P3: `Cha Jewels – Strong Reminder\n\nHi ${customer},\n\nYour layaway payment for INV #${invoice} is now 1 month overdue (due ${dueStr}). Immediate action is advised.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us to discuss your payment plan.${portalLink}\n\n— Cha Jewels 💎`,
+    P3: `Cha Jewels – Strong Reminder\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
 
-    P4: `Cha Jewels – Escalation Notice\n\nHi ${customer},\n\nIMPORTANT: Your payment for INV #${invoice} has been overdue for over 6 weeks (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease settle immediately to avoid account risk.${portalLink}\n\n— Cha Jewels 💎`,
+    P4: `Cha Jewels – Escalation Notice\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
 
-    P5: `⚠️ Cha Jewels – URGENT Reminder\n\nDear ${customer},\n\nYour layaway payment for INV #${invoice} is now 2 months overdue (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nYour account is significantly overdue with penalties. Immediate payment is required.${portalLink}\n\n— Cha Jewels 💎`,
+    P5: `⚠️ Cha Jewels – URGENT Reminder\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
 
-    P6: `⚠️ Cha Jewels – FINAL WARNING\n\nDear ${customer},\n\nThis is your FINAL WARNING regarding INV #${invoice} (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nFurther action will be taken if not settled immediately.${portalLink}\n\n— Cha Jewels 💎`,
+    P6: `⚠️ Cha Jewels – FINAL WARNING\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
 
-    P7: `🚨 Cha Jewels – CRITICAL Escalation\n\nDear ${customer},\n\nYour layaway account for INV #${invoice} is 3 months overdue (due ${dueStr}) and at HIGH RISK of forfeiture.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us IMMEDIATELY to resolve your account.${portalLink}\n\n— Cha Jewels 💎`,
+    P7: `🚨 Cha Jewels – CRITICAL Escalation\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
 
-    P8: `🚨 Cha Jewels – FINAL NOTICE (Pre-Forfeit)\n\nDear ${customer},\n\nYour layaway account for INV #${invoice} has been overdue since ${dueStr} and is SUBJECT FOR FORFEITURE if not settled immediately.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nThis is your final notice before permanent account forfeiture.${portalLink}\n\n— Cha Jewels 💎`,
+    P8: `🚨 Cha Jewels – FINAL NOTICE (Pre-Forfeit)\n\n${opening}\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\n${closing}${portalLink}\n\n— Cha Jewels 💎`,
   };
 
   return templates[stage];
@@ -185,6 +192,7 @@ interface PenaltyFollowUpSectionProps {
 export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount = 0 }: PenaltyFollowUpSectionProps) {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
+  const messagePools = useMessagePools();
   const [activeStage, setActiveStage] = useState<PenaltyStage | null>(null);
   const [notifFilter, setNotifFilter] = useState<PenaltyNotifFilter>('all');
   const [messengerDialog, setMessengerDialog] = useState<{ alert: PenaltyAlertItem; message: string } | null>(null);
@@ -437,6 +445,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
       alert.stage, alert.customer, alert.invoice, alert.dueDate,
       alert.installmentAmount, alert.penaltyAmount, alert.remainingBalance,
       alert.currency, alert.portalToken, alert.authUserId, alert.customerPin, alert.portalPasswordAt,
+      messagePools,
     );
     setMessengerDialog({ alert, message: msg });
     setCopied(false);

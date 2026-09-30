@@ -1,3 +1,4 @@
+import { useMessagePools, pickLine, fillLine } from '@/lib/message-lines';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
@@ -73,6 +74,7 @@ function phtToIso(value: string): string | null {
 }
 
 export default function NewAccount() {
+  const messagePools = useMessagePools();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: customers } = useCustomers();
@@ -705,8 +707,7 @@ export default function NewAccount() {
           allLines.push({ inv: sp.invoice_number, amt: sp.amount, completed: sp.completed, currency: acctCurrency });
         }
 
-        let msg = `Dear ${customerName},\n\n`;
-        msg += `Thank you for your payment. ${formatCurrency(totalReceived, currency)} has been received.\n\n`;
+        let msg = `${fillLine(pickLine(messagePools, 'new_account_split_payment', 'opening'), { name: customerName })} ${formatCurrency(totalReceived, currency)} has been received.\n\n`;
         
         for (const line of allLines) {
           msg += `Inv # ${line.inv} - ${formatCurrency(line.amt, line.currency)}`;
@@ -715,7 +716,7 @@ export default function NewAccount() {
         }
         
         msg += `\n━━━━━━━━━━━━━━━━━━\n`;
-        msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+        msg += `\n${fillLine(pickLine(messagePools, 'new_account_split_payment', 'closing'), { name: customerName })}`;
 
         setSplitMessageDialog(msg);
       } else {

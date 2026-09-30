@@ -24,6 +24,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { alertTypeConfig, type AlertType, type AccountBucket, daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
+import { pickLine, fillLine, type MessagePools } from '@/lib/message-lines';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 
 export interface AlertItem {
@@ -74,7 +75,9 @@ function bucketToStage(bucket: AccountBucket): ReminderStage | null {
   return null;
 }
 
-export function generateReminderMessage(alert: AlertItem): string {
+export function generateReminderMessage(alert: AlertItem, pools?: MessagePools): string {
+  const ml = (type: string, part: string, days_ago?: string) =>
+    fillLine(pickLine(pools, type, part), { name: alert.customer, invoice: alert.invoice, due_date: dueStr, days_ago });
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(alert.amount, alert.currency);
   const portalUrl = hasPortalAccess(alert) ? portalUrlFor(alert) : null;
@@ -87,22 +90,22 @@ export function generateReminderMessage(alert: AlertItem): string {
     : '';
 
   if (alert.type === 'overdue') {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties.${portalLink}${pinLine}\n\nThank you! 💎`;
+    return `${ml('reminder_overdue', 'opening', `${alert.daysOverdue} days ago`)}\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties.${portalLink}${pinLine}\n\n${ml('reminder_overdue', 'closing')}`;
   } else if (alert.type === 'grace_period') {
     const graceEnd = new Date(alert.dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const portalLine = portalUrl ? `\n\nSettle your payment here:\n${portalUrl}` : '';
-    return `⏳ Cha Jewels Grace Period Reminder\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago).\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}${pinLine}\n\nThank you for choosing Cha Jewels 💛`;
+    return `⏳ Cha Jewels Grace Period Reminder\n\n${ml('reminder_grace', 'opening', `${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago`)}\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}${pinLine}\n\n${ml('thanks_choosing', 'closing')}`;
   } else if (alert.type === 'due_today') {
     const dueDate = new Date(alert.dueDate);
     const graceEnd = new Date(dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const portalLine = portalUrl ? `\n\nSecure your account by completing your payment here:\n${portalUrl}` : '';
-    return `⚠️ Cha Jewels Payment Due Today\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} is due TODAY, ${dueStr}.\n\nAmount Due: ${amtStr}\n\nTo avoid any inconvenience, we highly encourage you to settle your payment today.\n\nYou are still within your 7-day grace period until ${graceEndStr}, after which penalties may apply.${portalLine}${pinLine}\n\nThank you for choosing Cha Jewels 💛`;
+    return `⚠️ Cha Jewels Payment Due Today\n\n${ml('reminder_due_today', 'opening')}\n\nAmount Due: ${amtStr}\n\nTo avoid any inconvenience, we highly encourage you to settle your payment today.\n\nYou are still within your 7-day grace period until ${graceEndStr}, after which penalties may apply.${portalLine}${pinLine}\n\n${ml('thanks_choosing', 'closing')}`;
   } else {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}${portalLink}${pinLine}\n\nThank you for staying on track! 💎`;
+    return `${ml('reminder_upcoming', 'opening')}\n\nAmount due: ${amtStr}${portalLink}${pinLine}\n\n${ml('reminder_upcoming', 'closing')}`;
   }
 }
 
@@ -110,9 +113,11 @@ interface ReminderCardProps {
   alert: AlertItem;
   notifMap: Map<string, { notified_by_name: string; notified_at: string }>;
   onOpenMessenger: (alert: AlertItem, message: string) => void;
+  /** message_lines pools (undefined → today's text). */
+  pools?: MessagePools;
 }
 
-export default function ReminderCard({ alert, notifMap, onOpenMessenger }: ReminderCardProps) {
+export default function ReminderCard({ alert, notifMap, onOpenMessenger, pools }: ReminderCardProps) {
   const [copiedPortal, setCopiedPortal] = useState(false);
 
   const config = alertTypeConfig[alert.type];
@@ -138,7 +143,7 @@ export default function ReminderCard({ alert, notifMap, onOpenMessenger }: Remin
   };
 
   const handleCopyMessage = async () => {
-    const msg = generateReminderMessage(alert);
+    const msg = generateReminderMessage(alert, pools);
     try {
       await navigator.clipboard.writeText(msg);
       toast.success('Reminder message copied!');
@@ -213,7 +218,7 @@ export default function ReminderCard({ alert, notifMap, onOpenMessenger }: Remin
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-info"
             title="Generate Messenger message"
-            onClick={() => onOpenMessenger(alert, generateReminderMessage(alert))}
+            onClick={() => onOpenMessenger(alert, generateReminderMessage(alert, pools))}
           >
             <MessageCircle className="h-4 w-4" />
           </Button>

@@ -275,6 +275,7 @@ If CLI is on the wrong account: `firebase login:use sales@chajewelsjp.com` first
 - tier_changed emission (commit 0272587)
 - approve_redemption_atomic PL/pgSQL RPC (verified fixed 2026-06-08)
 - Website API — 2026-09-30: GET /me loyalty gains lifetime_jpy, next_tier, next_threshold_jpy, to_next_jpy (null on top tier / reduced level); GET /orders and GET /drafts rows gain first_item {title,title_ja,image_url} and item_count. Storefront step 4 (PR #200) consumes them.
+- Random Copy Message lines — code live, seed docs/sql/20261001100000_message_lines_seed.sql not applied yet (all messages use line 1 until applied).
 - Product reviews PR-R1 (code, not deployed; migration not applied): website GET /reviews, GET|POST /review-invite/:token; new function translate-review; Hub "Copy review message" on completed orders and Website → Reviews. See docs/SCHEMA-FACTS.md "Product reviews".
 
 ## Edge Functions Deployed

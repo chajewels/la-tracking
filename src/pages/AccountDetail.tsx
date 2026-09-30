@@ -64,6 +64,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import { getProofSignedUrl } from '@/lib/proof-url';
+import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
@@ -142,6 +143,8 @@ export default function AccountDetail() {
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
+  const messagePools = useMessagePools();
+  const pickMsg = useStablePicker(messagePools);
   const [awardingLoyalty, setAwardingLoyalty] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
@@ -777,11 +780,10 @@ export default function AccountDetail() {
 
   const message = useMemo(() => {
   if (!account) return '';
+  const ml = (type: string, part: string) => fillLine(pickMsg(type, part), { name: account.customers?.full_name });
 
   // ══════════════════════════════════════════════════════════════════════
-  // 🔒 OFFICIAL CHA JEWELS CUSTOMER MESSAGE TEMPLATE — LOCKED
-  //    DO NOT modify structure, wording, order, spacing, or symbols.
-  //    Future fixes must adjust VALUES ONLY, never the format.
+  // 🔒 Figures, structure, links, PIN line, headers and policy sentences are LOCKED. Only the opening/closing words come from message_lines (src/lib/message-lines.ts); fallback = today's text.
   // ══════════════════════════════════════════════════════════════════════
 
   // Use computed values from summary (BUG 1, 3, 6 fix)
@@ -848,14 +850,14 @@ export default function AccountDetail() {
     message += `Status: PERMANENTLY FORFEITED\n`;
     message = appendSummaryBlock(message);
     message += `\nYour account is permanently forfeited.\nNo further reactivation or negotiation is allowed.\n`;
-    message += `\nFor any questions, please contact Cha Jewels directly.`;
+    message += `\n${ml('contact_us', 'closing')}`;
   } else if (isForfeited) {
     message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: FORFEITED\n`;
     message = appendSummaryBlock(message);
     message += `\nNo further installment payments are being accepted for this account.\n`;
-    message += `\nFor any questions, please contact Cha Jewels directly.`;
+    message += `\n${ml('contact_us', 'closing')}`;
   } else if (isExtension) {
     message += `🔄 REACTIVATION NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
@@ -872,7 +874,7 @@ export default function AccountDetail() {
     }
     message += `\nMonthly Payment:\n`;
     message = appendScheduleLines(message);
-    message += `\nPlease settle promptly to avoid permanent forfeiture. 💛`;
+    message += `\n${ml('extension_closing', 'closing')}`;
   } else if (isSettlement) {
     message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
@@ -918,10 +920,10 @@ export default function AccountDetail() {
         message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       }
     });
-    message += `\nFor any questions, please contact Cha Jewels directly. 💛`;
+    message += `\n${ml('settlement_contact', 'closing')}`;
   } else {
     // ═══════════════════════════════════════════════════════════════
-    // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — SESSION-AWARE TEMPLATES
+    // 🔒 Figures, structure, links, PIN line, headers and policy sentences are LOCKED. Only the opening/closing words come from message_lines (src/lib/message-lines.ts); fallback = today's text.
     //    Template A = single payment, Template B = split payment
     // ═══════════════════════════════════════════════════════════════
 
@@ -977,14 +979,14 @@ export default function AccountDetail() {
       if (sessionPayments.length === 1) {
         // ── TEMPLATE A — SINGLE PAYMENT ──
         const sp = sessionPayments[0];
-        message += `Thank you for your payment. ${formatCurrency(sp.amount, currency)} has been received.\n\n`;
+        message += `${ml('payment_received', 'opening')} ${formatCurrency(sp.amount, currency)} has been received.\n\n`;
         message += `Inv # ${account.invoice_number}\n`;
         if (portalUrl) {
           message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
         }
         if (pinLine) message += pinLine;
         message += buildNextPaymentLine(isDownpaymentOnly);
-        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+        message += `\n\n${ml('thanks_trust', 'closing')}`;
       } else {
         // ── TEMPLATE B — SPLIT PAYMENT ──
         // Only include actual session payments (never DP — it's recorded at account creation, not in-session)
@@ -992,7 +994,7 @@ export default function AccountDetail() {
         const sessionTotal = sessionOnly.reduce((s, p) => s + p.amount, 0);
         const count = sessionOnly.length;
 
-        message += `Thank you for your payments. A total of ${formatCurrency(sessionTotal, currency)} has been received across ${count} payments:\n\n`;
+        message += `${ml('payment_received_multi', 'opening')} A total of ${formatCurrency(sessionTotal, currency)} has been received across ${count} payments:\n\n`;
 
         sessionOnly.forEach((sp) => {
           if (sp.monthLabel && sp.ordinal) {
@@ -1008,7 +1010,7 @@ export default function AccountDetail() {
         }
         if (pinLine) message += pinLine;
         message += buildNextPaymentLine(false);
-        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+        message += `\n\n${ml('thanks_trust', 'closing')}`;
       }
     } else {
       // ── FALLBACK — no session payments ──
@@ -1018,7 +1020,7 @@ export default function AccountDetail() {
       //  next payment line to be permanently suppressed for any account whose last
       //  payment was ever made via multi-invoice, regardless of when it happened.)
       if (mostRecentPayment) {
-        message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
+        message += `${ml('payment_received', 'opening')} ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
       }
       message += `Inv # ${account.invoice_number}\n`;
       if (portalUrl) {
@@ -1026,11 +1028,11 @@ export default function AccountDetail() {
       }
       if (pinLine) message += pinLine;
       message += buildNextPaymentLine(false);
-      message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+      message += `\n\n${ml('thanks_trust', 'closing')}`;
     }
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId, portalPasswordAt, account?.customers?.mobile_number]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId, portalPasswordAt, account?.customers?.mobile_number, pickMsg]);
 
 
   if (accountLoading) {

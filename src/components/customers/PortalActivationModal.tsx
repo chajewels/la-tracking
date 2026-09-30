@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Copy, ExternalLink, MessageCircle, Send, Link2, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 
 const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
@@ -16,12 +17,10 @@ interface Props {
   customerPin: string;
 }
 
-function generateActivationMessage(customerName: string, portalUrl: string, customerPin: string): string {
+function generateActivationMessage(portalUrl: string, customerPin: string, opening: string, closing: string): string {
   return `✨ Cha Jewels Customer Portal is Ready
 
-Hi ${customerName} 💛
-
-Your Cha Jewels Hub Portal has been successfully created.
+${opening}
 
 You can now view your account details anytime, including:
 
@@ -39,7 +38,7 @@ For your security, please do not share this link with others.
 
 You may also use the portal to submit your payment proof after completing your transfer.
 
-If you have any questions or need assistance, feel free to message us anytime.
+${closing}
 
 Thank you for trusting Cha Jewels —
 Everyday Layaway, Cha Jewels All the Way 💎`;
@@ -50,7 +49,15 @@ export default function PortalActivationModal({ open, onOpenChange, customerName
   const [copiedLink, setCopiedLink] = useState(false);
 
   const portalUrl = `${PORTAL_BASE}/portal?token=${token}`;
-  const message = generateActivationMessage(customerName, portalUrl, customerPin);
+  const messagePools = useMessagePools();
+  // Picked once per open (resetKey = open), so preview = copy = m.me = wa.me.
+  const pickMsg = useStablePicker(messagePools, open);
+  const message = generateActivationMessage(
+    portalUrl,
+    customerPin,
+    fillLine(pickMsg('portal_activation', 'opening'), { name: customerName }),
+    fillLine(pickMsg('portal_activation', 'closing'), { name: customerName }),
+  );
 
   const copyMessage = () => {
     navigator.clipboard.writeText(message);

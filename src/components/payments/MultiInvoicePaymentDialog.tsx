@@ -1,3 +1,4 @@
+import { useMessagePools, pickLine, fillLine } from '@/lib/message-lines';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink, AlertTriangle, Upload, X, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -139,6 +140,7 @@ export default function MultiInvoicePaymentDialog({
   initialInvoice,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
+  const messagePools = useMessagePools();
   const { roles, user, profile } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
@@ -422,7 +424,7 @@ export default function MultiInvoicePaymentDialog({
   const buildConfirmationMessage = (results: AccountResult[]) => {
     const primaryCurrency = (selectedAccounts[0]?.currency || 'PHP') as Currency;
     const N = selectedAccounts.length;
-    let msg = `Thank you for your payment. A total of ${formatCurrency(totalAllocated, primaryCurrency)} has been received across ${N} account${N !== 1 ? 's' : ''}:\n\n`;
+    let msg = `${fillLine(pickLine(messagePools, 'payment_received', 'opening'), { name: customerName })} A total of ${formatCurrency(totalAllocated, primaryCurrency)} has been received across ${N} account${N !== 1 ? 's' : ''}:\n\n`;
 
     // Line per paid account
     const fullyPaidIds: string[] = [];
@@ -468,7 +470,7 @@ export default function MultiInvoicePaymentDialog({
       msg += nextPayments.join('\n') + '\n';
     }
 
-    msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+    msg += `\n${fillLine(pickLine(messagePools, 'thanks_trust', 'closing'), { name: customerName })}`;
     return msg;
   };
 
