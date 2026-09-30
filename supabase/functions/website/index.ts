@@ -101,7 +101,7 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     .eq("customer_id", customerId)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null, reduced: false, earned_tier: null, regain_jpy: null };
+  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null, reduced: false, earned_tier: null, regain_jpy: null, lifetime_jpy: 0, next_tier: null, next_threshold_jpy: null, to_next_jpy: null };
   const row = data as AnyRec;
   const tier = row.loyalty_tiers as AnyRec | null;
   const earned = row.earned as AnyRec | null;
@@ -115,6 +115,26 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     const since = baseline == null ? 0 : Math.max(0, Number(row.cumulative_spend_jpy ?? 0) - baseline);
     regain = Math.max(0, Number(earned.requalify_spend_jpy) - since);
   }
+  // Storefront step 4 (2026-09-30): lifetime spend and the next level up.
+  // While the level is reduced the regain figure covers that state, so the
+  // next_* fields stay null; on the top level there is no higher tier.
+  const lifetimeJpy = Number(row.cumulative_spend_jpy ?? 0);
+  let nextTier: string | null = null;
+  let nextThreshold: number | null = null;
+  if (!reduced) {
+    const { data: next, error: nextErr } = await supabase
+      .from("loyalty_tiers")
+      .select("name, min_spend_jpy")
+      .gt("min_spend_jpy", lifetimeJpy)
+      .order("min_spend_jpy", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (nextErr) throw nextErr;
+    if (next) {
+      nextTier = String((next as AnyRec).name ?? "") || null;
+      nextThreshold = Number((next as AnyRec).min_spend_jpy);
+    }
+  }
   return {
     enrolled: true,
     points: Number(row.remaining_points ?? 0),
@@ -125,6 +145,10 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     reduced,
     earned_tier: reduced ? (earned?.name ?? null) : null,
     regain_jpy: regain,
+    lifetime_jpy: lifetimeJpy,
+    next_tier: nextTier,
+    next_threshold_jpy: nextThreshold,
+    to_next_jpy: nextThreshold == null ? null : Math.max(0, Math.round(nextThreshold - lifetimeJpy)),
   };
 }
 
