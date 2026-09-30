@@ -14,6 +14,7 @@ import IllustratedState from '@/components/shared/LedgerIllustration';
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import AppLayout from '@/components/layout/AppLayout';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
@@ -53,6 +54,8 @@ import {
 const factPill = 'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground';
 
 export default function CustomerDetail() {
+  const messagePools = useMessagePools();
+  const pickMsg = useStablePicker(messagePools);
   const { customerId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
@@ -303,11 +306,11 @@ export default function CustomerDetail() {
 
   // Build consolidated message across only active/open accounts
   const buildConsolidatedMessage = () => {
+    const ml = (type: string, part: string) => fillLine(pickMsg(type, part), { name: customer.full_name });
     // If no active accounts, return a clean completion message
     if (activeAccounts.length === 0) {
-      let msg = `Dear ${customer.full_name},\n\n`;
-      msg += `All your layaway accounts have been completed. 🎉\n\n`;
-      msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
+      let msg = `${ml('accounts_all_completed', 'opening')}\n\n`;
+      msg += ml('thanks_business', 'closing');
       return msg;
     }
 
@@ -352,7 +355,7 @@ export default function CustomerDetail() {
 
     // Multi-invoice payment header
     if (latestPaymentEvent.length > 1 && thankYouParts.length > 0) {
-      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+      msg += `${ml('payment_received', 'opening')} ${thankYouParts.join(' and ')} has been received.\n\n`;
       latestPaymentEvent.forEach((payment: any) => {
         msg += `Inv # ${payment.invoice_number} - ${formatCurrency(Number(payment.amount_paid), payment.currency)}\n`;
       });
@@ -361,7 +364,7 @@ export default function CustomerDetail() {
 
     // Single-invoice single-payment: add "Thank you" greeting if not already added by multi-invoice header
     if (latestPaymentEvent.length <= 1 && thankYouParts.length > 0) {
-      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+      msg += `${ml('payment_received', 'opening')} ${thankYouParts.join(' and ')} has been received.\n\n`;
     }
 
     // Only iterate active accounts (excludes completed/cancelled)
@@ -410,7 +413,7 @@ export default function CustomerDetail() {
       const laMonthLabel = lastSchedDate ? `LA ${lastSchedDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
 
       // ══════════════════════════════════════════════════════════════════════
-      // 🔒 OFFICIAL CHA JEWELS CUSTOMER MESSAGE TEMPLATE — LOCKED
+      // 🔒 Figures, structure, links, PIN line, headers and policy sentences are LOCKED. Only the opening/closing words come from message_lines (src/lib/message-lines.ts); fallback = today's text.
       // ══════════════════════════════════════════════════════════════════════
 
       const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
@@ -461,7 +464,7 @@ export default function CustomerDetail() {
       msg += `\n`;
     }
 
-    msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
+    msg += ml('thanks_business', 'closing');
     return msg;
   };
 
