@@ -34,6 +34,7 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
+import { usePendingReviewCount } from '@/hooks/usePendingReviewCount';
 import { animate, useReducedMotion } from 'framer-motion';
 import { useWebReservations } from '@/hooks/use-supabase-data';
 import { useWebDrafts } from '@/hooks/use-web-park';
@@ -278,6 +279,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
   const { count: openServiceRequests } = useServiceRequestCount();
+  const { count: pendingReviews } = usePendingReviewCount();
   // Reserve-first (A2): web reservations nobody has confirmed. Shown on every
   // page, above the menu, to whoever can act on them — the bell alone is too
   // easy to miss for a customer who has been told nothing yet.
@@ -304,6 +306,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     loyalty_redemptions: pendingRedemptions ?? 0,
     services_requests: openServiceRequests ?? 0,
     sales_web: reservationCount,
+    website_reviews: pendingReviews,
   };
 
   const { state, isMobile, setOpen, toggleSidebar } = useSidebar();
