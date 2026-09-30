@@ -503,6 +503,34 @@ type WebsiteClient = Parameters<typeof customerForAuthUser>[0];
 // in-memory per isolate. Separate maps so the two limits are independent.
 const newsletterHits = new Map<string, number[]>();
 const contactHits = new Map<string, number[]>();
+// POST /review-invite/:token — its own map, so reviews and forms never share a budget.
+const reviewHits = new Map<string, number[]>();
+
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** "Maria Santos Cruz" -> "Maria C." ; single word -> that word. */
+function reviewDisplayName(fullName: unknown): string {
+  const parts = String(fullName ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "Customer";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
+}
+
+const REVIEW_PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const REVIEW_PHOTO_MAX = 5 * 1024 * 1024;
+
+/** First product photo (variant sort, then media sort), or null. */
+function firstProductImage(p: AnyRec | null): string | null {
+  const variants = ((p?.product_variants ?? []) as AnyRec[]).slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
+  for (const v of variants) {
+    const media = ((v.product_media ?? []) as AnyRec[]).slice().sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
+    if (media[0]?.url) return String(media[0].url);
+  }
+  return null;
+}
 
 // Returns true when the IP is over 5 posts in 10 minutes (and records the hit
 // when it is not). Per-isolate, so a dampener against bursts, not a hard
@@ -2633,6 +2661,189 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { layaway_account_id, web_draft_id, ...rest } = created as AnyRec;
       return jsonResponse({ ...rest, layaway_plan_id: layaway_account_id ?? null, draft_id: web_draft_id ?? null });
+    }
+
+    // GET /reviews?product=<slug>&limit=<n<=50>&lang=<en|ja> — APPROVED reviews
+    // only, newest approved first, plus { count, average } for the same filter.
+    // Never returns customer, order, email or ip fields.
+    if (req.method === "GET" && segments[0] === "reviews" && !segments[1]) {
+      const slug = (url.searchParams.get("product") ?? "").trim();
+      const lang = (url.searchParams.get("lang") ?? "en").trim().toLowerCase() === "ja" ? "ja" : "en";
+      const limitRaw = Number(url.searchParams.get("limit") ?? 20);
+      const limit = Math.min(50, Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 20));
+
+      let productId: string | null = null;
+      if (slug) {
+        const { data: prod, error: pErr } = await supabase
+          .from("website_products").select("id").eq("slug", slug).eq("status", "active").maybeSingle();
+        if (pErr) throw pErr;
+        if (!prod) return jsonResponse({ reviews: [], count: 0, average: null });
+        productId = String((prod as AnyRec).id);
+      }
+
+      let listQ = supabase
+        .from("product_reviews")
+        .select("id, rating, body_original, body_en, body_ja, original_language, display_name, piece_name, photo_urls, reviewed_at, product:website_products(slug, name, status)")
+        .eq("status", "approved")
+        .order("reviewed_at", { ascending: false })
+        .limit(limit);
+      let statsQ = supabase.from("product_reviews").select("rating").eq("status", "approved");
+      if (productId) {
+        listQ = listQ.eq("website_product_id", productId);
+        statsQ = statsQ.eq("website_product_id", productId);
+      }
+      const [{ data: rows, error: lErr }, { data: ratings, error: sErr }] = await Promise.all([listQ, statsQ]);
+      if (lErr) throw lErr;
+      if (sErr) throw sErr;
+
+      const all = (ratings ?? []) as AnyRec[];
+      const count = all.length;
+      const average = count ? Math.round((all.reduce((t, r) => t + Number(r.rating ?? 0), 0) / count) * 10) / 10 : null;
+
+      const reviews = ((rows ?? []) as AnyRec[]).map((r) => {
+        const prod = r.product as AnyRec | null;
+        const body = lang === "ja"
+          ? r.body_ja
+          : (r.original_language === "ja" ? r.body_en : r.body_original);
+        return {
+          id: r.id,
+          rating: r.rating,
+          body: body ?? null,
+          display_name: r.display_name,
+          piece_name: r.piece_name,
+          product: prod && prod.status === "active" ? { slug: prod.slug, name: prod.name } : null,
+          photos: r.photo_urls ?? [],
+          approved_at: r.reviewed_at,
+        };
+      });
+      return jsonResponse({ reviews, count, average });
+    }
+
+    // GET /review-invite/:token — is this personal review link usable?
+    // A revoked invite reads as not_found.
+    if (req.method === "GET" && segments[0] === "review-invite" && segments[1] && !segments[2]) {
+      const tokenHash = await sha256Hex(segments[1]);
+      const { data: inv, error: iErr } = await supabase
+        .from("review_invites")
+        .select("id, piece_name, expires_at, used_at, revoked_at, customer:customers(full_name), product:website_products(slug, name, status, " + VARIANT_SELECT + ")")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (iErr) throw iErr;
+      const empty = { first_name: null, piece_name: null, product: null };
+      if (!inv || (inv as AnyRec).revoked_at) return jsonResponse({ status: "not_found", ...empty });
+      const row = inv as AnyRec;
+      const status = row.used_at ? "used" : new Date(String(row.expires_at)).getTime() <= Date.now() ? "expired" : "valid";
+      const prod = row.product as AnyRec | null;
+      const firstName = String((row.customer as AnyRec | null)?.full_name ?? "").trim().split(/\s+/)[0] || null;
+      return jsonResponse({
+        status,
+        first_name: firstName,
+        piece_name: row.piece_name,
+        product: prod && prod.status === "active"
+          ? { slug: prod.slug, name: prod.name, image: firstProductImage(prod) }
+          : null,
+      });
+    }
+
+    // POST /review-invite/:token (multipart/form-data: rating, body, photos[0..4]).
+    // Claim the invite atomically, upload photos to the PRIVATE bucket, insert a
+    // pending review. Any failure after the claim releases it.
+    if (req.method === "POST" && segments[0] === "review-invite" && segments[1] && !segments[2]) {
+      const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+      if (rateLimited(reviewHits, ip)) return jsonResponse({ error: "rate_limited" }, 429);
+
+      const form = await req.formData().catch(() => null);
+      if (!form) return jsonResponse({ error: "invalid_body" }, 400);
+      const rating = Number(form.get("rating"));
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) return jsonResponse({ error: "invalid_rating" }, 400);
+      const text = String(form.get("body") ?? "").trim();
+      if (text.length < 10) return jsonResponse({ error: "body_too_short" }, 400);
+      if (text.length > 2000) return jsonResponse({ error: "body_too_long" }, 400);
+      const photos = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
+      if (photos.length > 4) return jsonResponse({ error: "too_many_photos" }, 400);
+      for (const f of photos) {
+        if (!REVIEW_PHOTO_TYPES[f.type]) return jsonResponse({ error: "photo_type" }, 400);
+        if (f.size > REVIEW_PHOTO_MAX) return jsonResponse({ error: "photo_too_large" }, 400);
+      }
+
+      const tokenHash = await sha256Hex(segments[1]);
+      const { data: inv, error: iErr } = await supabase
+        .from("review_invites")
+        .select("id, used_at, revoked_at, expires_at")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (iErr) throw iErr;
+      if (!inv || (inv as AnyRec).revoked_at) return jsonResponse({ error: "not_found" }, 404);
+      if ((inv as AnyRec).used_at) return jsonResponse({ error: "already_used" }, 409);
+      if (new Date(String((inv as AnyRec).expires_at)).getTime() <= Date.now()) return jsonResponse({ error: "expired" }, 410);
+
+      const nowIso = new Date().toISOString();
+      const { data: claimed, error: cErr } = await supabase
+        .from("review_invites")
+        .update({ used_at: nowIso })
+        .eq("id", (inv as AnyRec).id)
+        .is("used_at", null)
+        .is("revoked_at", null)
+        .gt("expires_at", nowIso)
+        .select("id, customer_id, cash_order_id, layaway_account_id, website_product_id, piece_name")
+        .maybeSingle();
+      if (cErr) throw cErr;
+      if (!claimed) return jsonResponse({ error: "already_used" }, 409);
+      const invite = claimed as AnyRec;
+
+      const reviewId = crypto.randomUUID();
+      const uploaded: string[] = [];
+      try {
+        for (let i = 0; i < photos.length; i++) {
+          const f = photos[i];
+          const path = `${reviewId}/${i + 1}.${REVIEW_PHOTO_TYPES[f.type]}`;
+          const { error: upErr } = await supabase.storage.from("review-uploads")
+            .upload(path, new Uint8Array(await f.arrayBuffer()), { contentType: f.type, upsert: false });
+          if (upErr) throw upErr;
+          uploaded.push(path);
+        }
+
+        const { data: cust, error: custErr } = await supabase
+          .from("customers").select("full_name").eq("id", invite.customer_id).maybeSingle();
+        if (custErr) throw custErr;
+        const displayName = reviewDisplayName((cust as AnyRec | null)?.full_name);
+
+        const { error: insErr } = await supabase.from("product_reviews").insert({
+          id: reviewId,
+          invite_id: invite.id,
+          customer_id: invite.customer_id,
+          cash_order_id: invite.cash_order_id ?? null,
+          layaway_account_id: invite.layaway_account_id ?? null,
+          website_product_id: invite.website_product_id ?? null,
+          piece_name: invite.piece_name,
+          rating,
+          body_original: text,
+          display_name: displayName,
+          upload_paths: uploaded,
+          status: "pending",
+          submitted_ip_hash: ip === "unknown" ? null : await sha256Hex(ip),
+        });
+        if (insErr) throw insErr;
+
+        try {
+          await supabase.from("staff_notifications").insert({
+            type: "review_submitted",
+            title: "New customer review",
+            body: `${String((cust as AnyRec | null)?.full_name ?? displayName)} reviewed ${String(invite.piece_name)} (${rating}★) — Website → Reviews`,
+            customer_id: invite.customer_id,
+            metadata: { review_id: reviewId, rating, link: "/website?tab=reviews" },
+          });
+        } catch (notifyErr) {
+          console.warn("[website] review_submitted notification failed (non-blocking):", notifyErr);
+        }
+        return jsonResponse({ ok: true });
+      } catch (err) {
+        const e = err as { message?: string; code?: string };
+        console.error("website review submit failed", requestId, e?.code ?? "", e?.message ?? err);
+        if (uploaded.length) await supabase.storage.from("review-uploads").remove(uploaded).catch(() => {});
+        await supabase.from("review_invites").update({ used_at: null }).eq("id", invite.id);
+        return jsonResponse({ error: "server_error", request_id: requestId }, 500);
+      }
     }
 
     // POST /newsletter — public subscribe. x-api-key only; a customer session
