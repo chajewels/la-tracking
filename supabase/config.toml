@@ -200,6 +200,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.translate-product-description]
     verify_jwt = true
+  [functions.translate-review]
+    verify_jwt = true
   [functions.page365-fetch-order]
     verify_jwt = true
   [functions.page365-inventory-fetch]

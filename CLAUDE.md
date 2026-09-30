@@ -257,6 +257,8 @@ Reference docs (read the relevant one when a task touches that area):
   - DB-enforced: every new test customer MUST be flagged customers.is_test = true;
     enforce_test_invoice_prefix() then prefixes TEST- automatically.
 
+## PRODUCT REVIEWS (PR-R1, 2026-09-30): order-linked invites, owner approval before anything is public — docs/SCHEMA-FACTS.md "Product reviews".
+
 ## SHIPPING FEES & COURIERS — NON-NEGOTIABLE (2026-09-27; docs/SHIPPING-FEES.md)
 
   - Charged on the pieces subtotal; highest active threshold reached applies.
