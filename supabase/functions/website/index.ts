@@ -2725,13 +2725,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const tokenHash = await sha256Hex(segments[1]);
       const { data: inv, error: iErr } = await supabase
         .from("review_invites")
-        .select("id, piece_name, expires_at, used_at, revoked_at, customer:customers(full_name), product:website_products(slug, name, status, " + VARIANT_SELECT + ")")
+        .select(`id, piece_name, expires_at, used_at, revoked_at, customer:customers(full_name), product:website_products(slug, name, status, ${VARIANT_SELECT})`)
         .eq("token_hash", tokenHash)
         .maybeSingle();
       if (iErr) throw iErr;
       const empty = { first_name: null, piece_name: null, product: null };
-      if (!inv || (inv as AnyRec).revoked_at) return jsonResponse({ status: "not_found", ...empty });
-      const row = inv as AnyRec;
+      const row = inv as unknown as AnyRec | null;
+      if (!row || row.revoked_at) return jsonResponse({ status: "not_found", ...empty });
       const status = row.used_at ? "used" : new Date(String(row.expires_at)).getTime() <= Date.now() ? "expired" : "valid";
       const prod = row.product as AnyRec | null;
       const firstName = String((row.customer as AnyRec | null)?.full_name ?? "").trim().split(/\s+/)[0] || null;
