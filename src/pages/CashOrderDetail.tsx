@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles, Trash2,
+  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings, Copy, Check, Sparkles, Trash2, Star,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { cashOrderRef, cashOrderRefLabel, isWebOrder } from '@/lib/order-reference';
