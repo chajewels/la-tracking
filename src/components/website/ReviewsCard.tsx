@@ -152,7 +152,8 @@ function ReviewItem({ row, invoice }: { row: Row; invoice?: string }) {
     },
   });
 
-  const translate = async () => {
+  /** Returns true on success. silent=true skips the failure toast (auto mode). */
+  const translate = async (opts: { silent?: boolean } = {}): Promise<boolean> => {
     setTranslating(true);
     try {
       const { data, error } = await supabase.functions.invoke("translate-review", { body: { review_id: row.id } });
@@ -164,15 +165,49 @@ function ReviewItem({ row, invoice }: { row: Row; invoice?: string }) {
       setJa(String(data?.body_ja ?? ""));
       setEn(String(data?.body_en ?? ""));
       setLang(data?.original_language ?? null);
+      return true;
     } catch (e) {
-      toast({ title: "Translation failed", description: (e as Error).message, variant: "destructive" });
+      if (!opts.silent) {
+        toast({ title: "Translation failed", description: (e as Error).message, variant: "destructive" });
+      }
+      return false;
     } finally { setTranslating(false); }
+  };
+
+  /**
+   * functions.invoke carries the user JWT, so the automatic call must wait for
+   * the session to be restored after a hard page load (10s cap).
+   */
+  const waitForSession = async (): Promise<void> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let sub: { unsubscribe(): void } | null = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        sub?.unsubscribe();
+        resolve();
+      };
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+        if (s) finish();
+      });
+      sub = subscription;
+      const timer = setTimeout(finish, 10_000);
+    });
   };
 
   useEffect(() => {
     if (row.status === "pending" && !row.body_ja && !autoTried.current) {
       autoTried.current = true;
-      void translate();
+      void (async () => {
+        await waitForSession();
+        // First attempt is silent; only if the retry also fails does the toast show.
+        if (await translate({ silent: true })) return;
+        setTimeout(() => { void translate(); }, 2000);
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.id]);
@@ -293,7 +328,7 @@ function ReviewItem({ row, invoice }: { row: Row; invoice?: string }) {
 
       <div className="flex flex-wrap gap-2">
         {editable && (
-          <Button size="sm" variant="outline" onClick={translate} disabled={translating || busy}>
+          <Button size="sm" variant="outline" onClick={() => void translate()} disabled={translating || busy}>
             {translating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Languages className="h-3.5 w-3.5 mr-1" />}
             Re-translate
           </Button>
