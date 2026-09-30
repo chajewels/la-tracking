@@ -328,7 +328,7 @@ function ReviewItem({ row, invoice }: { row: Row; invoice?: string }) {
 
       <div className="flex flex-wrap gap-2">
         {editable && (
-          <Button size="sm" variant="outline" onClick={translate} disabled={translating || busy}>
+          <Button size="sm" variant="outline" onClick={() => void translate()} disabled={translating || busy}>
             {translating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Languages className="h-3.5 w-3.5 mr-1" />}
             Re-translate
           </Button>
