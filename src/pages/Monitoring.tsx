@@ -36,6 +36,7 @@ import {
   getNextUnpaidDueDate, classifyAccountBucket,
   type AlertType, type AccountBucket,
 } from '@/lib/business-rules';
+import { useMessagePools } from '@/lib/message-lines';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
 import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
 
@@ -70,6 +71,7 @@ export default function Monitoring() {
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const messagePools = useMessagePools();
 
   type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'notifications' | 'audit' | 'portal-links';
   const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
@@ -644,6 +646,7 @@ export default function Monitoring() {
                 key={`${alert.accountId}-${alert.dueDate}-${idx}`}
                 alert={alert}
                 notifMap={notifMap}
+                pools={messagePools}
                 onOpenMessenger={(a, msg) => { setMessengerDialog({ alert: a, message: msg }); setCopied(false); }}
               />
             ))}
