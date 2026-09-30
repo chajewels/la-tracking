@@ -960,6 +960,7 @@ export default function CashOrderDetail() {
   const message = useMemo(() => {
     if (!order) return '';
     const cur = order.currency as Currency;
+    const ml = (type: string, part: string) => fillLine(pickMsg(type, part), { name: order.customers?.full_name });
     const hasAuthMeans = !!portalPasswordAt || !!authUserId || !!portalToken;
     const portalUrl = hasAuthMeans
       ? getPortalLinkForCustomer(
