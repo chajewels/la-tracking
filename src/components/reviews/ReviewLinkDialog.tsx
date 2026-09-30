@@ -165,7 +165,7 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg min-w-0 [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Star className="h-4 w-4 text-primary" /> Review link</DialogTitle>
           <DialogDescription>A personal one-order link. The customer needs no sign-in; the review waits for owner approval.</DialogDescription>
@@ -179,26 +179,26 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="review-piece">Piece name</Label>
-              <Input id="review-piece" value={piece} maxLength={200} onChange={(e) => setPiece(e.target.value)} />
+              <Input id="review-piece" className="w-full min-w-0" value={piece} maxLength={200} onChange={(e) => setPiece(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="review-product">Website piece (optional)</Label>
               {productId ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                  <span className="truncate">{productLabel || productId}</span>
-                  <Button size="sm" variant="ghost" onClick={() => { setProductId(null); setProductLabel(""); }}>Clear</Button>
+                <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{productLabel || productId}</span>
+                  <Button size="sm" variant="ghost" className="shrink-0" onClick={() => { setProductId(null); setProductLabel(""); }}>Clear</Button>
                 </div>
               ) : (
                 <>
-                  <Input id="review-product" placeholder="Search by SKU or name" value={search} onChange={(e) => setSearch(e.target.value)} />
+                  <Input id="review-product" className="w-full min-w-0" placeholder="Search by SKU or name" value={search} onChange={(e) => setSearch(e.target.value)} />
                   {!!products?.length && (
                     <div className="max-h-40 overflow-y-auto rounded-md border border-border">
                       {products.map((p) => (
                         <button key={p.id} type="button"
-                          className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+                          className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-muted"
                           onClick={() => { setProductId(p.id); setProductLabel(`${p.sku} — ${p.name}`); setSearch(""); }}>
                           {p.sku} — {p.name}
                         </button>
