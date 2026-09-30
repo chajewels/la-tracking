@@ -156,6 +156,13 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       },
     ],
   },
+  {
+    module: 'Reviews',
+    permissions: [
+      { key: 'send_review_invite', label: 'Send Review Link', description: 'Create a review link from a completed order and copy the message' },
+      { key: 'moderate_reviews', label: 'Moderate Reviews', description: 'Approve, reject and hide customer reviews (Website → Reviews)' },
+    ],
+  },
 ];
 
 const ADMIN_LOCKED = ['admin_settings', 'manage_team', 'view_dashboard'];
