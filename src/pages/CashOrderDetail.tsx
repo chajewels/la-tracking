@@ -48,6 +48,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
+import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
@@ -950,6 +951,8 @@ export default function CashOrderDetail() {
   const authUserId = portalAuth?.authUserId ?? null;
   const portalPasswordAt = portalAuth?.portalPasswordAt ?? null;
   const [copied, setCopied] = useState(false);
+  const messagePools = useMessagePools();
+  const pickMsg = useStablePicker(messagePools);
   const [awardingLoyalty, setAwardingLoyalty] = useState(false);
   const deleteCashOrder = useDeleteCashOrder();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -993,18 +996,18 @@ export default function CashOrderDetail() {
         : `⛔ NOTICE: This order has EXPIRED.\n\n`;
       msg += `${cashOrderRefLabel(order)}\n`;
       msg += `Status: ${order.status === 'cancelled' ? 'CANCELLED' : 'EXPIRED'}\n`;
-      msg += `\nFor any questions, please contact Cha Jewels directly.`;
+      msg += `\n${ml('contact_us', 'closing')}`;
       return msg;
     }
 
     if (order.status === 'completed') {
-      msg += `Thank you for your payment. ${formatCurrency(Number(order.total_paid), cur)} has been received.\n\n`;
+      msg += `${ml('payment_received', 'opening')} ${formatCurrency(Number(order.total_paid), cur)} has been received.\n\n`;
       msg += `${cashOrderRefLabel(order)}\n`;
       msg += `Status: FULLY PAID\n`;
       msg = appendItemLines(msg);
       if (portalUrl) msg += `\nView your order details here:\n🔗 ${portalUrl}\n`;
       if (pinLine) msg += pinLine;
-      msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+      msg += `\n${ml('thanks_trust', 'closing')}`;
       return msg;
     }
 
@@ -1021,9 +1024,9 @@ export default function CashOrderDetail() {
       });
       msg += `\nPlease complete payment by: ${exp}\n`;
     }
-    msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+    msg += `\n${ml('thanks_trust', 'closing')}`;
     return msg;
-  }, [order, orderItems, portalToken, authUserId, portalPasswordAt]);
+  }, [order, orderItems, portalToken, authUserId, portalPasswordAt, pickMsg]);
 
   const handleCopyMessage = () => {
     navigator.clipboard.writeText(message);
