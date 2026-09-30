@@ -1531,3 +1531,11 @@ supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
 - Staff notification type `review_submitted` (→ Website → Reviews).
   Audit rows: `product_review / approve | reject | hide | show`.
 - Website API: GET /reviews, GET /review-invite/:token, POST /review-invite/:token.
+
+## message_lines (Random Copy Message lines, 2026-10-01)
+
+- Table `public.message_lines` (message_type, part, body, active, sort). Only the opening/closing words of Copy Message / Messenger prefills come from it; line sort=1 of each pool = today's text = the code fallback (src/lib/message-lines.ts FALLBACK). Read by the Hub via an untyped cast (not in generated types).
+- 25 types / 37 pools: payment_received:opening, payment_received_multi:opening, thanks_trust:closing, thanks_business:closing, accounts_all_completed:opening, new_account_split_payment:opening+closing, contact_us:closing, settlement_contact:closing, extension_closing:closing, portal_activation:opening+closing, portal_link_share:full, portal_setup_invite:full, reminder_upcoming:opening+closing, reminder_due_today:opening, reminder_grace:opening, thanks_choosing:closing, reminder_overdue:opening+closing, penalty_p1..penalty_p8:opening+closing.
+- Placeholders: {name} {first_name} {invoice} {due_date} {days_ago} {link}. Required-once per pool: portal_link_share/portal_setup_invite {link}; reminder_upcoming/due_today {invoice},{due_date}; reminder_grace/overdue {invoice},{due_date},{days_ago}; penalty_p2..p8 openings {invoice},{due_date}. Any other {token} or a missing/duplicated required one → line skipped.
+- Picked once per page/dialog open (useStablePicker) so preview = copy.
+- Seed: docs/sql/20261001100000_message_lines_seed.sql — NOT applied yet.
