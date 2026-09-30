@@ -274,6 +274,7 @@ If CLI is on the wrong account: `firebase login:use sales@chajewelsjp.com` first
 - Phase B email/password auth (100% complete)
 - tier_changed emission (commit 0272587)
 - approve_redemption_atomic PL/pgSQL RPC (verified fixed 2026-06-08)
+- Website API — 2026-09-30: GET /me loyalty gains lifetime_jpy, next_tier, next_threshold_jpy, to_next_jpy (null on top tier / reduced level); GET /orders and GET /drafts rows gain first_item {title,title_ja,image_url} and item_count. Storefront step 4 (PR #200) consumes them.
 
 ## Edge Functions Deployed
 - ai-command-parser (Gemini 2.5 Flash primary, GPT-5-mini fallback)

@@ -101,7 +101,7 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     .eq("customer_id", customerId)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null, reduced: false, earned_tier: null, regain_jpy: null };
+  if (!data) return { enrolled: false, points: 0, tier: null, multiplier: null, reduced: false, earned_tier: null, regain_jpy: null, lifetime_jpy: 0, next_tier: null, next_threshold_jpy: null, to_next_jpy: null };
   const row = data as AnyRec;
   const tier = row.loyalty_tiers as AnyRec | null;
   const earned = row.earned as AnyRec | null;
@@ -115,6 +115,26 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     const since = baseline == null ? 0 : Math.max(0, Number(row.cumulative_spend_jpy ?? 0) - baseline);
     regain = Math.max(0, Number(earned.requalify_spend_jpy) - since);
   }
+  // Storefront step 4 (2026-09-30): lifetime spend and the next level up.
+  // While the level is reduced the regain figure covers that state, so the
+  // next_* fields stay null; on the top level there is no higher tier.
+  const lifetimeJpy = Number(row.cumulative_spend_jpy ?? 0);
+  let nextTier: string | null = null;
+  let nextThreshold: number | null = null;
+  if (!reduced) {
+    const { data: next, error: nextErr } = await supabase
+      .from("loyalty_tiers")
+      .select("name, min_spend_jpy")
+      .gt("min_spend_jpy", lifetimeJpy)
+      .order("min_spend_jpy", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (nextErr) throw nextErr;
+    if (next) {
+      nextTier = String((next as AnyRec).name ?? "") || null;
+      nextThreshold = Number((next as AnyRec).min_spend_jpy);
+    }
+  }
   return {
     enrolled: true,
     points: Number(row.remaining_points ?? 0),
@@ -125,6 +145,10 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
     reduced,
     earned_tier: reduced ? (earned?.name ?? null) : null,
     regain_jpy: regain,
+    lifetime_jpy: lifetimeJpy,
+    next_tier: nextTier,
+    next_threshold_jpy: nextThreshold,
+    to_next_jpy: nextThreshold == null ? null : Math.max(0, Math.round(nextThreshold - lifetimeJpy)),
   };
 }
 
@@ -2107,7 +2131,42 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return jsonResponse(scrub(((data ?? []) as AnyRec[]).map(shapeDraft)));
+      const drafts = (data ?? []) as AnyRec[];
+      // Storefront step 4 (2026-09-30): first piece + line count per draft,
+      // one lines query for the whole page — never a query per draft.
+      const draftIds = drafts.map((d) => String(d.id));
+      const { data: draftLines, error: dlErr } = draftIds.length
+        ? await supabase
+            .from("web_order_draft_lines")
+            .select("draft_id, variant_id, website_product_id, title, image_url, created_at")
+            .in("draft_id", draftIds)
+            .order("created_at", { ascending: true })
+        : { data: [], error: null };
+      if (dlErr) throw dlErr;
+      const firstByDraft = new Map<string, AnyRec>();
+      const countByDraft = new Map<string, number>();
+      for (const l of (draftLines ?? []) as AnyRec[]) {
+        const key = String(l.draft_id);
+        countByDraft.set(key, (countByDraft.get(key) ?? 0) + 1);
+        if (!firstByDraft.has(key)) firstByDraft.set(key, l);
+      }
+      const firstDraftLines = await withJapaneseTitles(
+        supabase,
+        await resolveItemImages(
+          supabase,
+          [...firstByDraft.values()].map(({ website_product_id, ...l }) => ({ ...l, product_id: website_product_id ?? null })),
+        ),
+      );
+      const firstItemByDraft = new Map<string, AnyRec>();
+      for (const l of firstDraftLines) firstItemByDraft.set(String(l.draft_id), l);
+      return jsonResponse(scrub(drafts.map((d) => {
+        const first = firstItemByDraft.get(String(d.id));
+        return {
+          ...shapeDraft(d),
+          first_item: first ? { title: first.title ?? null, title_ja: first.title_ja ?? null, image_url: first.image_url ?? null } : null,
+          item_count: countByDraft.get(String(d.id)) ?? 0,
+        };
+      })));
     }
 
     // GET /drafts/:id — one draft, with its pieces.
@@ -2157,7 +2216,42 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return jsonResponse(scrub(((data ?? []) as unknown as AnyRec[]).map((o) => withReservationFlags(o, "cash_order"))));
+      const orders = (data ?? []) as unknown as AnyRec[];
+      // Storefront step 4 (2026-09-30): first piece + line count per order,
+      // one lines query for the whole page — never a query per order.
+      const orderIds = orders.map((o) => String(o.id));
+      const { data: orderLines, error: olErr } = orderIds.length
+        ? await supabase
+            .from("cash_order_items")
+            .select("cash_order_id, variant_id, product_id, website_product_id, title, image_url, created_at")
+            .in("cash_order_id", orderIds)
+            .order("created_at", { ascending: true })
+        : { data: [], error: null };
+      if (olErr) throw olErr;
+      const firstByOrder = new Map<string, AnyRec>();
+      const countByOrder = new Map<string, number>();
+      for (const l of (orderLines ?? []) as AnyRec[]) {
+        const key = String(l.cash_order_id);
+        countByOrder.set(key, (countByOrder.get(key) ?? 0) + 1);
+        if (!firstByOrder.has(key)) firstByOrder.set(key, l);
+      }
+      const firstOrderLines = await withJapaneseTitles(
+        supabase,
+        await resolveItemImages(
+          supabase,
+          [...firstByOrder.values()].map(({ website_product_id, ...l }) => ({ ...l, product_id: l.product_id ?? website_product_id ?? null })),
+        ),
+      );
+      const firstItemByOrder = new Map<string, AnyRec>();
+      for (const l of firstOrderLines) firstItemByOrder.set(String(l.cash_order_id), l);
+      return jsonResponse(scrub(orders.map((o) => {
+        const first = firstItemByOrder.get(String(o.id));
+        return {
+          ...withReservationFlags(o, "cash_order"),
+          first_item: first ? { title: first.title ?? null, title_ja: first.title_ja ?? null, image_url: first.image_url ?? null } : null,
+          item_count: countByOrder.get(String(o.id)) ?? 0,
+        };
+      })));
     }
 
     // GET /orders/:id — one of this customer's orders, with its lines.
