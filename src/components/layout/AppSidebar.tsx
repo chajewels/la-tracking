@@ -34,6 +34,7 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
 import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
+import { usePendingReviewCount } from '@/hooks/usePendingReviewCount';
 import { animate, useReducedMotion } from 'framer-motion';
 import { useWebReservations } from '@/hooks/use-supabase-data';
 import { useWebDrafts } from '@/hooks/use-web-park';
@@ -62,7 +63,7 @@ export type SubMenuItem = {
   // instead of `${parentPath}?tab=${tab}`. Used for sub-items that are real
   // routes rather than tab states (e.g. Inquiries under CSR Operations).
   path?: string;
-  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests' | 'sales_web';
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments' | 'services_requests' | 'sales_web' | 'website_reviews';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
@@ -137,6 +138,7 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Settings', tab: 'settings', permFilter: (can) => can('manage_website_content') },
       { label: 'Page365 stock', tab: 'page365-stock', permFilter: (can) => can('manage_website_catalog') },
       { label: 'Photos', tab: 'photos', permFilter: (can) => can('manage_website_catalog') },
+      { label: 'Reviews', tab: 'reviews', badgeKey: 'website_reviews', permFilter: (can) => can('moderate_reviews') },
     ],
   },
 
@@ -277,6 +279,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
   const { count: openServiceRequests } = useServiceRequestCount();
+  const { count: pendingReviews } = usePendingReviewCount();
   // Reserve-first (A2): web reservations nobody has confirmed. Shown on every
   // page, above the menu, to whoever can act on them — the bell alone is too
   // easy to miss for a customer who has been told nothing yet.
@@ -303,6 +306,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     loyalty_redemptions: pendingRedemptions ?? 0,
     services_requests: openServiceRequests ?? 0,
     sales_web: reservationCount,
+    website_reviews: pendingReviews,
   };
 
   const { state, isMobile, setOpen, toggleSidebar } = useSidebar();
