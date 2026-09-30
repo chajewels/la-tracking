@@ -3175,6 +3175,39 @@ export type Database = {
         }
         Relationships: []
       }
+      message_lines: {
+        Row: {
+          active: boolean
+          body: string
+          created_at: string
+          id: string
+          message_type: string
+          part: string
+          sort: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          body: string
+          created_at?: string
+          id?: string
+          message_type: string
+          part: string
+          sort?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          body?: string
+          created_at?: string
+          id?: string
+          message_type?: string
+          part?: string
+          sort?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       newsletter_campaign_recipients: {
         Row: {
           campaign_id: string
@@ -4813,6 +4846,103 @@ export type Database = {
         }
         Relationships: []
       }
+      product_reviews: {
+        Row: {
+          body_en: string | null
+          body_ja: string | null
+          body_original: string
+          cash_order_id: string | null
+          created_at: string
+          customer_id: string
+          display_name: string
+          id: string
+          invite_id: string
+          layaway_account_id: string | null
+          original_language: string | null
+          photo_urls: string[]
+          piece_name: string
+          rating: number
+          reject_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_ip_hash: string | null
+          updated_at: string
+          upload_paths: string[]
+          website_product_id: string | null
+        }
+        Insert: {
+          body_en?: string | null
+          body_ja?: string | null
+          body_original: string
+          cash_order_id?: string | null
+          created_at?: string
+          customer_id: string
+          display_name: string
+          id?: string
+          invite_id: string
+          layaway_account_id?: string | null
+          original_language?: string | null
+          photo_urls?: string[]
+          piece_name: string
+          rating: number
+          reject_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_ip_hash?: string | null
+          updated_at?: string
+          upload_paths?: string[]
+          website_product_id?: string | null
+        }
+        Update: {
+          body_en?: string | null
+          body_ja?: string | null
+          body_original?: string
+          cash_order_id?: string | null
+          created_at?: string
+          customer_id?: string
+          display_name?: string
+          id?: string
+          invite_id?: string
+          layaway_account_id?: string | null
+          original_language?: string | null
+          photo_urls?: string[]
+          piece_name?: string
+          rating?: number
+          reject_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_ip_hash?: string | null
+          updated_at?: string
+          upload_paths?: string[]
+          website_product_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_reviews_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_reviews_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: true
+            referencedRelation: "review_invites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_reviews_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           barcode: string | null
@@ -5174,6 +5304,80 @@ export type Database = {
             columns: ["schedule_id"]
             isOneToOne: false
             referencedRelation: "schedule_with_actuals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      review_invites: {
+        Row: {
+          cash_order_id: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          expires_at: string
+          id: string
+          layaway_account_id: string | null
+          piece_name: string
+          revoked_at: string | null
+          token_hash: string
+          used_at: string | null
+          website_product_id: string | null
+        }
+        Insert: {
+          cash_order_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          expires_at: string
+          id?: string
+          layaway_account_id?: string | null
+          piece_name: string
+          revoked_at?: string | null
+          token_hash: string
+          used_at?: string | null
+          website_product_id?: string | null
+        }
+        Update: {
+          cash_order_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          expires_at?: string
+          id?: string
+          layaway_account_id?: string | null
+          piece_name?: string
+          revoked_at?: string | null
+          token_hash?: string
+          used_at?: string | null
+          website_product_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_invites_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_invites_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_invites_layaway_account_id_fkey"
+            columns: ["layaway_account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_invites_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
             referencedColumns: ["id"]
           },
         ]
