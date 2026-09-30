@@ -1505,3 +1505,29 @@ Migration 20261006100000_media_cutouts.sql; rules in docs/MEDIA-CUTOUTS.md.
   `system_setting / add_media_cutout_test_batch`,
   `website_media_cutout / review_media_cutout:<action>`.
 
+
+## Product reviews (PR-R1, 2026-09-30 — migration staged, not applied)
+
+Staged SQL: docs/sql/20261020100000_product_reviews_r1.sql (intended as
+supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
+
+- `review_invites` — one personal review link per ORDER (exactly one of
+  cash_order_id / layaway_account_id), created by staff from a COMPLETED order.
+  Only `token_hash` (sha256 hex) is stored, never the raw token. 30-day expiry;
+  `used_at` set by the website function when the review is claimed; `revoked_at`
+  when staff "Make a new link". One open invite per order (partial unique index).
+- `product_reviews` — one per invite. status pending → approved | rejected;
+  approved ↔ hidden. `upload_paths` = private bucket paths; `photo_urls` = public
+  copies, filled only on approval, emptied on hide. `body_ja` required to approve;
+  `body_en` only when `original_language = 'ja'`. Public API returns approved only.
+- `message_lines` — random Copy Message lines (message_type, part
+  opening|closing|full). Seeded: 8 'review_invite' / 'full' lines with
+  {first_name}, {piece}, {link}.
+- Buckets: `review-uploads` (PRIVATE, customer photos pre-approval, no public
+  policy) and `review-photos` (PUBLIC, approved copies). 5 MB, jpeg/png/webp.
+- Permissions: `send_review_invite` (admin, staff, csr) — "Copy review message"
+  on completed orders; `moderate_reviews` (admin) — Website → Reviews and the
+  translate-review function. Matrix module "Reviews".
+- Staff notification type `review_submitted` (→ Website → Reviews).
+  Audit rows: `product_review / approve | reject | hide | show`.
+- Website API: GET /reviews, GET /review-invite/:token, POST /review-invite/:token.
