@@ -99,7 +99,7 @@ export function ReviewsCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <Tabs value={status} onValueChange={(v) => setStatus(v as ReviewStatus)}>
-          <TabsList>
+          <TabsList className="h-auto flex-wrap">
             {STATUSES.map((s) => (
               <TabsTrigger key={s} value={s} className="gap-1.5">
                 {LABEL[s]}
