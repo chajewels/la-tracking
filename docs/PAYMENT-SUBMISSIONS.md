@@ -116,3 +116,12 @@ batch entry path).
 
 HTTP 429 returned on cap exceeded. Frontend handler in
 RecordPaymentDialog.tsx parses error.message containing 'Too many'.
+
+### record-multi-payment uses the batch RPC (2026-10-02)
+
+`record-multi-payment` requires `batch_key` on a real submit (400 without it;
+preview exempt) and writes all legs with ONE `insert_payment_submissions_batch`
+call (`p_source = 'multi_invoice'`), after the preview loop. A refusal from the
+RPC comes back as 409 (`duplicate_submission_detected`, SQLSTATE 23505) or 400
+(its own message); nothing is inserted. The per-leg `payment_submissions`
+insert + audit loop is gone.
