@@ -312,3 +312,36 @@ cancelled-branch mirror, zero-total guard.
 
 ### Not in scope
 - PHP store credit is never mirrored (the Shopify store is JPY-only).
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Shopify cancellation, refunds, terminal 'cancelled' and p_source (STORE CREDIT)
+
+- When cancelling in Shopify, ALWAYS choose "Later" (no refund). "Original
+  payment method" refunds cash; "Store credit" uses SHOPIFY's separate credit
+  ledger. Either one double-pays the customer on top of the Hub credit.
+  Partial refunds MUST be done via Edit order → Update order ONLY; NEVER the
+  Refund page (all three of its methods move value on Shopify's side — the
+  real-cash gate will block the Hub mint and the customer gets paid through
+  the wrong ledger).
+- Shopify partial refunds auto-mint Hub credit (source_type
+  shopify_partial_refund, keyed per refund id); the "You owe the customer"
+  banner in Shopify is permanent and cosmetic — never settle it.
+- cash_orders 'cancelled' is TERMINAL. Every status writer in shopify-webhook
+  must chain .neq("status","cancelled") — fetch-time status checks are racy
+  (proven SH-1017/SH-1018). Payment arriving for a cancelled order books
+  nothing; staff notification shopify_paid_after_cancel handles it manually.
+
+### WEB ORDERS — refund decision and terminate_web_order_atomic
+
+- WEB ORDERS (source_channel='web', 2026-09-13): cancelling a PAID web order
+  records a REFUND DECISION (cash_orders.refund_status: refund_issued /
+  refund_pending / store_credit_issued / no_refund + refund_note). Store
+  credit is minted ONLY for store_credit_issued — never automatically; a
+  refund is never also credit and no_refund is a forfeiture. The one
+  terminal RPC is terminate_web_order_atomic (expired | cancelled): points
+  reversal, credit decision, status, stock back on sale, note, audit — one
+  transaction, once. Web orders are NEVER hard-deleted (trigger
+  trg_prevent_web_order_delete); cancel is the only exit.

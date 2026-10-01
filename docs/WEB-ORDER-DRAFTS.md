@@ -389,3 +389,19 @@ Storefront (PR after the deploy): drops `quoteIsReservation` and the
 `web_reservation_mode` settings reader; "Reserve first, pay after." is shown
 unconditionally.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### WEB ORDER DRAFTS — the only checkout path
+
+- WEB ORDER DRAFTS (2026-09-29, PR 3; LIVE and THE ONLY CHECKOUT PATH since
+  PR 10, 2026-10-01; docs/WEB-ORDER-DRAFTS.md): written ONLY by the
+  *_web_draft_atomic functions. page365_web_holds MUST count held draft
+  lines; Confirm (materialize_web_draft_atomic) transfers the hold and never
+  moves stock. web_checkout_mode is 'draft' and stays so: set_web_checkout_mode
+  (admin, audited) refuses 'order' (mode_retired); never change it in SQL.
+  The reserve-first path (web_reservation_mode, confirm-web-order-ready,
+  decline-web-reservation, the old-flow RPCs) is DROPPED — never re-add a
+  checkout that writes an order or plan directly.

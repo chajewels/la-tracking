@@ -191,3 +191,34 @@ UPDATE system_settings SET value = '"owner_only"'::jsonb WHERE key = 'cart_remin
 - `development/email-encoding.test.ts` — renders every form, both languages.
 - `src/test/cart-reminders.test.tsx` (vitest, CI) — the rules, the plumbing
   names, the source pins.
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Cart reminders — the full rule text
+
+- PROMOTIONAL, so: opt-in only (customer_email_consents kind 'cart_reminder',
+  checkbox OFF by default), the append-only consent record
+  (customer_email_consent_events — never UPDATE/DELETE; a trigger refuses),
+  the full sender block (COMPANY_ADDRESS + opt-out link + sales@) in every
+  email. ONE email per cart cycle (UNIQUE cycle_id), never within 7 days of
+  the last, never when an order exists since the cart changed.
+- SQL decides WHO and WHEN (cart_reminder_candidates / claim_cart_reminder
+  under lock); cart-reminder-sweep only renders and sends through
+  sendStorefrontEmail. Switch cart_reminders_mode off|owner_only|on
+  (fail-closed; seeded off), cart_reminder_idle_minutes (1440).
+- ONE LANGUAGE PER EMAIL. THE JAPANESE EMAIL NEVER MENTIONS LAYAWAY, a
+  deposit or a reserve figure, in any stage (JA + a layaway quote renders the
+  stage-A yen-only form). JA_FORBIDDEN in _shared/cart-reminder-rules.ts;
+  development/cart-reminder-ja.test.ts renders every form (CI).
+- EVERY MONEY FIGURE IS THE HUB'S, recomputed at send time: variantPricePhp,
+  attachDownPayments (the reserve line, only with BOTH deposits),
+  planLayawayQuote -> layaway_quote (the stage-B plan; a refusal falls back to
+  the stage-A form, never an invented plan). No percentage, rate or
+  conversion in the template or sender (src/test/cart-reminders.test.tsx).
+- The opt-out link (GET /cart-reminders/unsubscribe, always "unsubscribed")
+  touches ONLY the consent row — never suppressed_emails. A PROVIDER
+  unsubscribe (handle-email-suppression / handle-email-events) withdraws our
+  consent for that address and rings bell cart_reminder_unsubscribed, because
+  it may now hold her ORDER emails back.

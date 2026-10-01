@@ -80,3 +80,57 @@
     waterfall; process-loyalty-redemption's downpayment path stays
     inline (DP payments never allocate to schedule).
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### INVARIANT 11 — DP allocation (mechanics, void path, audit_account v_dp_allocated)
+
+  allocate_payment_atomic: for a DP payment it computes the excess
+  over downpayment_amount (counting prior non-voided DP payments) and
+  feeds ONLY that excess into the existing waterfall; the required
+  portion is recorded as a payment (INVARIANT 1) with no allocation.
+  DP detection: reference_number starts with 'DP-' OR remarks ILIKE
+  '%down%' (non-voided).
+  Void path (void-payment) already unwinds correctly: it deletes the
+  voided payment's allocations and recomputes each affected schedule
+  row's paid_amount from remaining non-voided allocations — a voided
+  excess-bearing DP therefore reverses its Month 1+ allocation
+  automatically. No void-path change was needed.
+  audit_account still subtracts DP overage from v_sum_pending, but
+  only the UNALLOCATED portion — GREATEST(0, overage - v_dp_allocated),
+  where v_dp_allocated is summed from payment_allocations over the DP
+  payments. Post-#250 the excess lives in schedule rows and is already
+  counted, so that term normally evaluates to 0 and the outcome matches
+  "no longer subtracts"; the mechanism does not, and the difference
+  matters to anyone reading or rebuilding the function. (The
+  v_dp_allocated refinement is SQL-Editor-only work on top of Bug #233;
+  its live body is recorded in
+  supabase/migrations/20260917070200_record_live_drifted_functions.sql.)
+  See Bug #160 (edit-payment-amount guard) and Bug #250 in
+  docs/FIXED-BUGS.md.
+
+### CACHE-STALENESS TEST (payment allocation)
+
+CACHE-STALENESS TEST (added 2026-05-23 — prevents the misdiagnosis logged in OPEN-BUGS "Schedule cache staleness"):
+  Because total_due_amount is the GROSS (above) and per-row remaining is
+  total_due_amount − paid_amount (= actual_remaining = total_due − allocated
+  in the view), total_due_amount ≠ actual_remaining on a non-paid row is
+  EXPECTED whenever any payment is allocated — that gap is the payment, NOT
+  drift. A row is genuinely stale ONLY when:
+    total_due_amount ≠ base_installment_amount + penalty_amount + carried_amount
+  Repair a genuine stale row by resetting total_due_amount to that GROSS sum
+  (leave paid_amount / allocated untouched). NEVER flatten total_due_amount to
+  actual_remaining — that overwrites the gross and breaks void/restore.
+
+### Processing an existing partially_paid row (total_due_amount semantics)
+
+When processing an existing partially_paid row in edge functions:
+  total_due_amount holds the FULL amount owed (base + penalty + carried),
+  independent of paid_amount. Remaining for the row is computed as
+  total_due_amount - paid_amount at read time.
+
+  audit_account() Check 12 enforces this semantic by subtracting
+  paid_amount from total_due_amount for partially_paid rows when
+  summing pending months.
