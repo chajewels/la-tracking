@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import * as edge from "../../supabase/functions/_shared/web-reservation-rules.ts";
 import * as hub from "@/lib/web-reservations";
 
@@ -9,53 +8,28 @@ import * as hub from "@/lib/web-reservations";
  * Reserve-first A2 (2026-09-24). The rules the edge functions run
  * (_shared/web-reservation-rules.ts, imported by relative path as
  * web-order-gaps.test.ts does) and their Hub twin (src/lib/web-reservations.ts),
- * plus the three Hub components staff act through.
+ * plus the DeadlinesCard state a reservation shows.
  *
  * Every one of these fails silently if wrong: a Hub plan read as "awaiting"
  * blocks a real customer's portal payment; a switch read fail-OPEN starts
- * taking reservations nobody asked for; a confirm dialog that states the wrong
- * deadline promises the customer a date the server will not honour.
+ * taking reservations nobody asked for.
+ *
+ * Website orders PR 10 (2026-10-01) retired the reserve-first checkout and its
+ * Confirm / Can't supply UI (ReservationActions, ReservationsAwaitingCard); the
+ * tests of those components and of the removed helpers left with them.
  */
 
 // ------------------------------------------------------------------ mocks
-const confirmMutate = vi.fn();
-const declineMutate = vi.fn();
-let previewState: { data?: unknown; isLoading: boolean; isError: boolean; error?: unknown } = { isLoading: false, isError: false };
-let reservations: unknown[] = [];
-let allowed = true;
-
 vi.mock("@/hooks/use-supabase-data", () => ({
-  useConfirmWebOrderReady: () => ({ mutateAsync: confirmMutate, isPending: false }),
-  useDeclineWebReservation: () => ({ mutateAsync: declineMutate, isPending: false }),
-  usePreviewWebOrderReady: () => previewState,
-  useWebReservations: () => ({ data: reservations }),
   useSetAccountDeadlines: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactivateWebLayaway: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
-// Website orders PR 5: the card also lists website drafts (none here unless set).
-let drafts: unknown[] = [];
-vi.mock("@/hooks/use-web-park", () => ({
-  useWebDrafts: () => ({ data: drafts }),
-  useInvalidateWebPark: () => vi.fn(),
-  declineWebDraft: vi.fn(),
-}));
 vi.mock("@/contexts/PermissionsContext", () => ({
-  usePermissions: () => ({ can: (k: string) => (k === "confirm_web_order_ready" ? allowed : true) }),
+  usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
-import ReservationActions from "@/components/reservations/ReservationActions";
-import ReservationsAwaitingCard from "@/components/reservations/ReservationsAwaitingCard";
 import DeadlinesCard from "@/components/accounts/DeadlinesCard";
-
-beforeEach(() => {
-  confirmMutate.mockReset();
-  declineMutate.mockReset();
-  previewState = { isLoading: false, isError: false };
-  reservations = [];
-  drafts = [];
-  allowed = true;
-});
 
 // ------------------------------------------------------------------ rules
 const web = (over: Record<string, unknown> = {}) => ({ source_channel: "web", ready_confirmed_at: null, status: "pending", payment_status: "awaiting_confirmation", ...over });
@@ -98,16 +72,6 @@ describe("what counts as a reservation", () => {
   });
 });
 
-describe("the switch reads fail-closed", () => {
-  it("is on only for true or the string 'true'", () => {
-    expect(edge.readReservationMode(true)).toBe(true);
-    expect(edge.readReservationMode("true")).toBe(true);
-    for (const v of [false, "false", null, undefined, 1, "1", "TRUE", "yes", {}, []]) {
-      expect(edge.readReservationMode(v)).toBe(false);
-    }
-  });
-});
-
 describe("timing", () => {
   const created = "2026-09-24T00:00:00.000Z";
   it("auto-cancels 72 hours after checkout", () => {
@@ -130,15 +94,6 @@ describe("timing", () => {
 });
 
 describe("refusals", () => {
-  it("maps each code to the status the Hub reads", () => {
-    expect(edge.reservationRefusalStatus("not_found")).toBe(404);
-    expect(edge.reservationRefusalStatus("permission_denied")).toBe(403);
-    expect(edge.reservationRefusalStatus("user_identity_required")).toBe(401);
-    for (const c of ["already_confirmed", "not_live", "already_paid", "payment_exists", "schedule_not_pristine", "submission_pending"]) {
-      expect(edge.reservationRefusalStatus(c)).toBe(409);
-    }
-    expect(edge.reservationRefusalStatus("bad_entity_type")).toBe(400);
-  });
 
   it("says the payment refusal in one code everywhere", () => {
     expect(edge.NOT_READY_FOR_PAYMENT).toBe("not_ready_for_payment");
@@ -165,7 +120,6 @@ describe("the Hub twin agrees with the edge rules", () => {
     expect(hub.RESERVATION_AUTO_CANCEL_HOURS).toBe(edge.RESERVATION_AUTO_CANCEL_HOURS);
     expect(hub.RESERVATION_REMIND_HOURS).toBe(edge.RESERVATION_REMIND_HOURS);
     expect(hub.RESERVATION_LIVE_STATUS).toEqual(edge.RESERVATION_LIVE_STATUS);
-    for (const h of [24, 72, 48, 0, null]) expect(hub.deadlineHoursLabel(h)).toBe(edge.deadlineHoursLabel(h));
     for (const k of ["cash_order", "layaway"] as const) expect(hub.reservationKindLabel(k)).toBe(edge.reservationKindLabel(k));
   });
 });
@@ -216,96 +170,6 @@ describe("staff payment guard (every staff payment path refuses an unconfirmed r
 });
 
 // ------------------------------------------------------------ components
-describe("ReservationActions", () => {
-  it("states the deadline the customer will get before staff confirm", async () => {
-    previewState = { isLoading: false, isError: false, data: { preview: true, awaiting_confirmation: true, deadline_hours: 72, transfer_due_at: "2026-09-27T05:00:00.000Z" } };
-    confirmMutate.mockResolvedValue({ ok: true, transfer_due_at: "2026-09-27T05:00:00.000Z", deadline_hours: 72, email: { sent: true } });
-    render(<ReservationActions entityType="cash_order" entityId="o1" reference="CJ-W-000123" />);
-    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
-    expect(await screen.findByText(/72 hours \(returning customer\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Sep 27, 2026/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /confirm and email the customer/i }));
-    await waitFor(() => expect(confirmMutate).toHaveBeenCalledWith({ entity_type: "cash_order", entity_id: "o1" }));
-  });
-
-  it("says the schedule is re-dated when it is a layaway", async () => {
-    previewState = { isLoading: false, isError: false, data: { preview: true, awaiting_confirmation: true, deadline_hours: 24, transfer_due_at: "2026-09-25T05:00:00.000Z" } };
-    render(<ReservationActions entityType="layaway" entityId="a1" reference="CJ-W-000124" />);
-    fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
-    expect(await screen.findByText(/24 hours \(first order\)/)).toBeInTheDocument();
-    expect(screen.getByText(/send the deposit/)).toBeInTheDocument();
-    expect(screen.getByText(/re-dated to start from today/)).toBeInTheDocument();
-  });
-
-  it("will not decline without a reason, and sends the trimmed one", async () => {
-    declineMutate.mockResolvedValue({ ok: true, email: { sent: true } });
-    render(<ReservationActions entityType="cash_order" entityId="o1" reference="CJ-W-000123" />);
-    fireEvent.click(screen.getByRole("button", { name: /can.t supply/i }));
-    const submit = await screen.findByRole("button", { name: /cancel reservation/i });
-    expect(submit).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/reason for the customer/i), { target: { value: "  " } });
-    expect(submit).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/reason for the customer/i), { target: { value: "  Failed inspection  " } });
-    expect(submit).not.toBeDisabled();
-    fireEvent.click(submit);
-    await waitFor(() => expect(declineMutate).toHaveBeenCalledWith({ entity_type: "cash_order", entity_id: "o1", reason: "Failed inspection" }));
-  });
-});
-
-describe("ReservationsAwaitingCard", () => {
-  const row = (id: string, created_at: string, kind: "cash_order" | "layaway" = "cash_order") => ({
-    kind, id, reference: `CJ-W-${id}`, customer_name: `Customer ${id}`, customer_is_test: false,
-    total_amount: 72980, currency: "JPY", plan_months: kind === "layaway" ? 8 : null, created_at,
-  });
-
-  it("renders nothing when no reservation is waiting — the switch-off Dashboard is unchanged", () => {
-    const { container } = render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("renders nothing for a role that cannot act", () => {
-    allowed = false;
-    reservations = [row("000001", "2026-09-24T00:00:00Z")];
-    const { container } = render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("lists every reservation in the order given (oldest first) with inline actions", () => {
-    reservations = [row("000001", "2026-09-23T00:00:00Z"), row("000002", "2026-09-24T00:00:00Z", "layaway")];
-    render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    expect(screen.getByText("Website orders to confirm")).toBeInTheDocument();
-    const refs = screen.getAllByRole("link").map((a) => a.textContent).filter((t) => t?.startsWith("CJ-W"));
-    expect(refs).toEqual(["CJ-W-000001", "CJ-W-000002"]);
-    expect(screen.getAllByRole("button", { name: /^confirm$/i })).toHaveLength(2);
-    expect(screen.getByText(/over 8 months/)).toBeInTheDocument();
-  });
-
-  it("lists website drafts first, with Review and Can't supply, then the old flow", () => {
-    drafts = [{
-      id: "d1", web_reference: "CJ-W-900070", customer_id: "c1", customer_name: "Ana", customer_is_test: false,
-      mode: "layaway", term_months: 6, currency: "JPY", total: 400000, shipping_pending: true, country: "PH",
-      status: "to_confirm", decline_reason: null, decided_at: null, cash_order_id: null, layaway_account_id: null,
-      created_at: "2026-09-29T00:00:00Z", open_service_requests: 0,
-    }];
-    reservations = [row("000001", "2026-09-23T00:00:00Z")];
-    render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    const refs = screen.getAllByRole("link").map((a) => a.textContent).filter((t) => t?.startsWith("CJ-W"));
-    expect(refs).toEqual(["CJ-W-900070", "CJ-W-000001"]);
-    expect(screen.getByText("Layaway · 6 months")).toBeInTheDocument();
-    expect(screen.getByText("Shipping to add")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/orders/review/website/d1");
-    expect(screen.getByText("2")).toBeInTheDocument();
-  });
-
-  it("labels the plan type, never a payment state — no reservation reads as paid", () => {
-    reservations = [row("000001", "2026-09-23T00:00:00Z"), row("000002", "2026-09-24T00:00:00Z", "layaway")];
-    render(<MemoryRouter><ReservationsAwaitingCard /></MemoryRouter>);
-    expect(screen.getByText("Full payment")).toBeInTheDocument();
-    expect(screen.getByText("Layaway")).toBeInTheDocument();
-    expect(screen.queryByText(/paid in full/i)).not.toBeInTheDocument();
-  });
-});
-
 describe("DeadlinesCard on a reservation", () => {
   it("says there is no deadline yet and offers no Change", () => {
     render(

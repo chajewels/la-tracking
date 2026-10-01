@@ -14,7 +14,7 @@ Added 2026-09-21.
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
-| Settings | `settings` | ReservationModeCard ("Order confirmation (reserve first)"), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
+| Settings | `settings` | a static "Website orders" note (PR 10, 2026-10-01 — the reserve-first and checkout-mode cards are retired), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
 | Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK"); "Create drafts" from new Page365 codes (added 2026-09-28, "DRAFTS") |
 | Photos | `photos` | MediaCutoutSettingsCard, MediaCutoutReviewCard | `manage_website_catalog` — automatic background removal: the Off / Test / On switch, the monthly limit, the test batch, and the review queue (approve / re-run / reject / own cut-out). Added 2026-10-05, docs/MEDIA-CUTOUTS.md |
 
@@ -179,7 +179,7 @@ The Products card has a search box, filters and a row of product-type tabs
 | `contact_inquiries` | ContactInquiriesCard (read + triage only) | audience |
 | `fx_rates` | not edited here; ProductsCard reads the latest row for the peso hint | catalog |
 | `website_settings` | SettingsCard | settings |
-| `system_settings.web_reservation_mode` | ReservationModeCard (admin writes) | settings |
+| `system_settings.web_checkout_mode` | no card since PR 10 (2026-10-01); `set_web_checkout_mode` refuses `order` | settings |
 | `transfer_payment_methods` | PaymentMethodsTab (admin only) | settings |
 | `system_settings.web_payment_reminders_*` | PaymentRemindersCard (admin only) | settings |
 
@@ -567,8 +567,6 @@ src/components/website/TestimonialsCard.tsx
 src/components/website/NewsletterSubscribersCard.tsx
 src/components/website/WholesaleInquiriesCard.tsx
 src/components/website/ContactInquiriesCard.tsx
-src/components/website/ReservationModeCard.tsx       reserve-first switch (docs/RESERVE-FIRST.md)
-src/components/website/reservation-mode.ts           its copy + refusal words
 src/components/website/SettingsCard.tsx              the Settings tab's "Site settings" card
 src/components/settings/PaymentMethodsTab.tsx        Settings tab → Payment details (admin only)
 src/components/settings/PaymentRemindersCard.tsx     Settings tab → Payment reminders (admin only)

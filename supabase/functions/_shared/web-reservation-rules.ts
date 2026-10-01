@@ -10,6 +10,13 @@
  * (docs/RESERVE-FIRST.md). Hub-created rows also carry NULL there — A1 only
  * stamps web rows — so every predicate here checks the channel first. Getting
  * that wrong would block payment on every Hub layaway in the portal.
+ *
+ * WEBSITE ORDERS PR 10 (2026-10-01): the reserve-first checkout path is
+ * retired — every checkout is a draft, and materialize_web_draft_atomic stamps
+ * ready_confirmed_at on the order it creates. These predicates still decide
+ * awaiting_confirmation / ready_for_payment for the storefront and the Hub
+ * pills; readReservationMode and reservationRefusalStatus are gone with the
+ * switch and the two confirm/decline functions.
  */
 
 export type ReservationKind = "cash_order" | "layaway";
@@ -73,16 +80,6 @@ export function reservationFlags(row: ReservationRow | null | undefined, kind: R
   };
 }
 
-/**
- * system_settings.web_reservation_mode, read FAIL-CLOSED to today's flow: only
- * a JSON true (or the string "true", the way php_jpy_rate is stored as a
- * string) switches reservations on. Anything else — absent, null, false, a
- * typo — is off, so a broken setting can never start taking reservations.
- */
-export function readReservationMode(value: unknown): boolean {
-  return value === true || value === "true";
-}
-
 /** Whole hours since creation, floored; 0 for a bad or future timestamp. */
 export function reservationAgeHours(createdAt: string | null | undefined, now: Date = new Date()): number {
   const t = createdAt ? new Date(createdAt).getTime() : NaN;
@@ -104,33 +101,6 @@ export function isDueForReminder(
 ): boolean {
   if (row.reservation_reminded_at) return false;
   return reservationAgeHours(row.created_at, now) >= RESERVATION_REMIND_HOURS;
-}
-
-/**
- * HTTP status for a confirm_web_order_ready_atomic / decline refusal.
- * 404 for what is not there, 403/401 for who is asking, 409 for a state the
- * order is no longer in, 400 otherwise.
- */
-export function reservationRefusalStatus(error: string): number {
-  if (error === "not_found") return 404;
-  if (error === "permission_denied") return 403;
-  if (error === "user_identity_required") return 401;
-  if ([
-    "already_confirmed", "not_live", "already_paid", "payment_exists", "schedule_not_pristine",
-    "not_web_order", "not_web_layaway", "submission_pending", "already_terminal", "not_pending_or_paid",
-  ].includes(error)) return 409;
-  return 400;
-}
-
-/**
- * The deadline wording staff see before confirming: 24 hours for a first
- * order, 72 for a returning customer. Hours come from the server
- * (web_deposit_deadline_hours) — never guessed here.
- */
-export function deadlineHoursLabel(hours: number | null | undefined): string {
-  if (!Number.isFinite(Number(hours)) || Number(hours) <= 0) return "the standard deadline";
-  const h = Math.round(Number(hours));
-  return `${h} hours${h === 24 ? " (first order)" : h === 72 ? " (returning customer)" : ""}`;
 }
 
 /**

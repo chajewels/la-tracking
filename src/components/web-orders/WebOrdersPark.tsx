@@ -12,25 +12,23 @@ import {
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/calculations';
 import { formatPHTDisplay } from '@/lib/date-utils';
-import {
-  RESERVATION_REMIND_HOURS, formatReservationAge, reservationAgeHours, reservationAutoCancelAt, reservationKindLabel,
-} from '@/lib/web-reservations';
+import { RESERVATION_REMIND_HOURS, formatReservationAge, reservationAgeHours } from '@/lib/web-reservations';
 import {
   AWAITING_PAYMENT_BADGE, DRAFT_AUTO_CANCEL_HOURS, draftClosedLabel, draftKindLabel, formatCountdown, hoursUntil,
 } from '@/lib/web-park';
-import { useWebReservations } from '@/hooks/use-supabase-data';
 import {
   declineWebDraft, useInvalidateWebPark, useWebAwaitingPayment, useWebClosedUnpaid, useWebDrafts,
   type ParkedOrderRow, type WebDraftRow,
 } from '@/hooks/use-web-park';
-import ReservationActions from '@/components/reservations/ReservationActions';
 
 /**
  * Sales → Website orders (website orders PR 5, docs/WEB-ORDER-DRAFTS.md).
  *
- *   To confirm        — website drafts waiting for staff (Review / Can't supply),
- *                       plus any reservation from the old reserve-first flow
- *                       ("Old flow", same Confirm / Can't supply as before).
+ *   To confirm        — website drafts waiting for staff (Review / Can't supply).
+ *                       Every website checkout is a draft; the old reserve-first
+ *                       flow (orders written at checkout and confirmed with
+ *                       confirm-web-order-ready) was retired by PR 10 on
+ *                       2026-10-01, so this tab lists drafts only.
  *   Awaiting payment  — confirmed web orders with no payment yet. They reach the
  *                       Cash / Layaway lists only when the first payment is
  *                       confirmed (web_released_at).
@@ -145,30 +143,6 @@ function DraftRow({ d }: { d: WebDraftRow }) {
   );
 }
 
-function OldFlowRow({ r }: { r: { kind: 'cash_order' | 'layaway'; id: string; reference: string; customer_name: string; customer_is_test: boolean; total_amount: number; currency: 'JPY' | 'PHP'; plan_months: number | null; created_at: string } }) {
-  const hours = reservationAgeHours(r.created_at);
-  const cancelAt = reservationAutoCancelAt(r.created_at);
-  return (
-    <li className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between" data-testid="park-old-flow">
-      <div className="min-w-0 space-y-0.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to={kindHref(r.kind, r.id)} className="font-mono text-sm font-bold text-card-foreground hover:text-primary">{r.reference}</Link>
-          <span className={`${pill} border-border text-muted-foreground`}>{reservationKindLabel(r.kind)}</span>
-          <span className={`${pill} border-border bg-muted text-muted-foreground`}>Old flow</span>
-          {r.customer_is_test && <span className={testPill}>🧪 TEST</span>}
-        </div>
-        <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-          {r.customer_name} · {formatCurrency(r.total_amount, r.currency)}{r.plan_months ? ` over ${r.plan_months} months` : ''}
-        </p>
-        <p className={`text-xs ${hours >= RESERVATION_REMIND_HOURS ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>
-          Waiting {formatReservationAge(r.created_at)}{cancelAt && <> · auto-cancels {formatPHTDisplay(cancelAt)}</>}
-        </p>
-      </div>
-      <ReservationActions entityType={r.kind} entityId={r.id} reference={r.reference} compact />
-    </li>
-  );
-}
-
 function AwaitingRow({ o }: { o: ParkedOrderRow }) {
   const left = hoursUntil(o.transfer_due_at);
   const urgent = left !== null && left < 6;
@@ -221,7 +195,6 @@ function matches(q: string, reference: string, name: string): boolean {
 export default function WebOrdersPark({ search = '' }: { search?: string }) {
   const [tab, setTab] = useState<'confirm' | 'awaiting' | 'closed'>('confirm');
   const draftsQ = useWebDrafts('open');
-  const oldFlowQ = useWebReservations();
   const awaitingQ = useWebAwaitingPayment();
   const closedDraftsQ = useWebDrafts('closed', tab === 'closed');
   const closedOrdersQ = useWebClosedUnpaid(tab === 'closed');
@@ -229,12 +202,11 @@ export default function WebOrdersPark({ search = '' }: { search?: string }) {
   const filterOrders = <T extends { reference: string; customer_name: string }>(rows?: T[]) =>
     rows?.filter((o) => matches(search, o.reference, o.customer_name));
   const drafts = { ...draftsQ, data: filterDrafts(draftsQ.data) };
-  const oldFlow = { ...oldFlowQ, data: filterOrders(oldFlowQ.data) };
   const awaiting = { ...awaitingQ, data: filterOrders(awaitingQ.data) };
   const closedDrafts = { ...closedDraftsQ, data: filterDrafts(closedDraftsQ.data) };
   const closedOrders = { ...closedOrdersQ, data: filterOrders(closedOrdersQ.data) };
 
-  const toConfirmCount = (drafts.data?.length ?? 0) + (oldFlow.data?.length ?? 0);
+  const toConfirmCount = drafts.data?.length ?? 0;
   const awaitingCount = awaiting.data?.length ?? 0;
 
   return (
@@ -255,14 +227,13 @@ export default function WebOrdersPark({ search = '' }: { search?: string }) {
         </TabsList>
 
         <TabsContent value="confirm" className="mt-4">
-          {drafts.isLoading || oldFlow.isLoading ? <Loading /> : drafts.isError ? (
+          {drafts.isLoading ? <Loading /> : drafts.isError ? (
             <EmptyLine text="Could not load website orders. Refresh the page." />
           ) : toConfirmCount === 0 ? (
             <EmptyLine text="Nothing to confirm." />
           ) : (
             <ul className="divide-y divide-border rounded-xl border border-gold-500/15 bg-card px-4">
               {(drafts.data ?? []).map((d) => <DraftRow key={d.id} d={d} />)}
-              {(oldFlow.data ?? []).map((r) => <OldFlowRow key={`${r.kind}-${r.id}`} r={r} />)}
             </ul>
           )}
         </TabsContent>

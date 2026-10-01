@@ -41,7 +41,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-VERCEL.md — Vercel storefront integration: `website` API contract, revalidation chain, the three secrets, go-live checklist
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
-- docs/RESERVE-FIRST.md — reserve first, pay after staff confirm: the A1 RPC contract and what A2 built (switch system_settings.web_reservation_mode)
+- docs/RESERVE-FIRST.md — RETIRED by website orders PR 10 (2026-10-01): the A1/A2 reserve-first path; kept as history. Every checkout is a draft (docs/WEB-ORDER-DRAFTS.md "PR 10")
 - docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path
@@ -1489,11 +1489,15 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     and converts in the Hub; peso term minimums are min_amount_php. Full text:
     docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS".
   - Web layaways are NEVER hard-deleted (trg_prevent_web_layaway_delete).
-  - WEB ORDER DRAFTS (2026-09-29, PR 3, dormant; docs/WEB-ORDER-DRAFTS.md): written
-    ONLY by the *_web_draft_atomic functions. page365_web_holds MUST count held
-    draft lines; Confirm (materialize_web_draft_atomic) transfers the hold and
-    never moves stock. web_checkout_mode changes ONLY via set_web_checkout_mode
-    (admin, audited); never 'draft' before website-orders PRs 4–7 are live.
+  - WEB ORDER DRAFTS (2026-09-29, PR 3; LIVE and THE ONLY CHECKOUT PATH since
+    PR 10, 2026-10-01; docs/WEB-ORDER-DRAFTS.md): written ONLY by the
+    *_web_draft_atomic functions. page365_web_holds MUST count held draft
+    lines; Confirm (materialize_web_draft_atomic) transfers the hold and never
+    moves stock. web_checkout_mode is 'draft' and stays so: set_web_checkout_mode
+    (admin, audited) refuses 'order' (mode_retired); never change it in SQL.
+    The reserve-first path (web_reservation_mode, confirm-web-order-ready,
+    decline-web-reservation, the old-flow RPCs) is DROPPED — never re-add a
+    checkout that writes an order or plan directly.
 
 ## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
 
@@ -1814,7 +1818,9 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     rejection history; writes an audit row; sends no customer notification;
     touches no payments/allocations/schedule/cash_orders.
   - Web reservations: every submit and confirm path refuses an unconfirmed
-    reservation with 409 not_ready_for_payment (docs/RESERVE-FIRST.md).
+    reservation (a web order whose ready_confirmed_at is NULL) with 409
+    not_ready_for_payment. Since PR 10 (2026-10-01) only a draft can be
+    unconfirmed — materialize_web_draft_atomic stamps ready_confirmed_at.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
