@@ -703,12 +703,20 @@ describe(`at ${width}px`, () => {
     });
 
     it("Copy Message copies the same consolidated message", async () => {
-      const writeText = vi.fn();
-      Object.assign(navigator, { clipboard: { writeText } });
-      await open();
-      fireEvent.click(button(/Copy Message/));
-      expect(writeText).toHaveBeenCalledTimes(1);
-      expect(writeText.mock.calls[0][0]).toMatchSnapshot();
+      // The "next monthly payment" line is picked from today's date, so the
+      // clock is pinned to a day between the paid 1st month (Sep 01) and the
+      // 2nd (Oct 01); unpinned, the snapshot broke on 2026-10-02.
+      vi.useFakeTimers({ now: new Date("2026-09-15T12:00:00+08:00"), toFake: ["Date"] });
+      try {
+        const writeText = vi.fn();
+        Object.assign(navigator, { clipboard: { writeText } });
+        await open();
+        fireEvent.click(button(/Copy Message/));
+        expect(writeText).toHaveBeenCalledTimes(1);
+        expect(writeText.mock.calls[0][0]).toMatchSnapshot();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("Cash Orders tab reads the same query and links each order and New Cash Order", async () => {

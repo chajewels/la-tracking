@@ -1768,3 +1768,13 @@ Trade Program, staff_notifications triggers, and Finance Overview
 KPIs are the canonical examples — see TRADE PROGRAM section above
 (both tables carry `is_trade`) and the staff_notifications trigger
 inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
+
+## extension_requests anon token policies — dropped (2026-10-02)
+
+The two `anon` policies "Token customers can insert/view own extension_requests"
+tested the token against `customer_portal_tokens`, which has RLS on and no anon
+policy — so for anon the EXISTS was always empty and both failed closed (the
+Bug #165 pattern). They never granted anything; the portal writes through
+`request-extension` and reads through `customer-portal` (service role). Dropped
+in migration 20261025100000 so the table no longer carries a policy that only
+looks like an anon write path. `extension_requests.portal_token` stays.

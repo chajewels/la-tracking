@@ -89,3 +89,15 @@ The only statements that ever inserted rates are the identical seeds in
 `docs/sql/20261008_shipping_fees_couriers_local_stub.sql` +
 `_local_tests.sql` (throwaway Postgres; run once as a rebuild and once with
 `shipfees.as_live=yes`). Frontend: `src/test/shipping-fees.test.tsx`.
+
+## Tracking deep links (2026-10-02, housekeeping)
+
+- `src/lib/tracking-link.ts` is the ONE builder for a carrier's "Track parcel"
+  link (Hub ShipmentTrackingCard, portal PortalTrackingRow): spaces, full-width
+  spaces and hyphens are stripped from the number before the template is
+  filled (letters stay — EMS codes are EJ…JP). A template without
+  `{tracking_code}` or with `supports_deeplink = false` is a landing page.
+- Yamato deep-links to the Kuroneko Members parcel page
+  `https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=<digits>`
+  (verified with a real parcel; the old toi.kuronekoyamato.co.jp form ignores
+  GET parameters). Migration 20261025100000.
