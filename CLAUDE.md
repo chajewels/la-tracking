@@ -1780,7 +1780,10 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
   - ONLY confirmed submissions appear in Proof of Payment.
   - PROOF REQUIRED on EVERY submit path (portal and staff; 400 "Proof of
     payment is required"; previews exempt) and to CONFIRM (400). Bulk import
-    rows need proof too.
+    rows need proof too: one batch proof, or the row's own proof_url.
+  - BATCHES (bulk import, multi-invoice) go through insert_payment_submissions_batch
+    in one transaction, idempotent on batch_key (docs/PAYMENT-SUBMISSIONS.md
+    "BATCH INSERT"). Never loop single inserts for a batch.
   - RESTORE (reject_submission permission): rejected → submitted only; keeps
     rejection history; writes an audit row; sends no customer notification;
     touches no payments/allocations/schedule/cash_orders.

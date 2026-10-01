@@ -71,8 +71,24 @@
     and cash-order confirm branches.
     Staff can attach/replace proof on a pending submission directly from
     the Submissions tab (proof-only action; layaway + cash).
-    BulkPaymentImport requires proof per row — proofless bulk rows are
-    rejected.
+    BulkPaymentImport (rebuilt 2026-10-01): ONE proof per batch, uploaded
+    first to payment-proofs/bulk-import/<batch_key>/; a row may carry its
+    own https proof_url (optional 6th CSV column) which wins over the batch
+    proof. A row with neither is refused by the database.
+
+  BATCH INSERT — insert_payment_submissions_batch (migration 20261020100000,
+    owner-approved plan 2026-10-01): one transaction, all rows or none;
+    idempotent on p_batch_key (= the submissions' reference_number — a retry
+    with the same key inserts nothing and returns the existing ids); the
+    per-account advisory lock + 30-minute same-amount duplicate check of
+    insert_payment_submission_guarded, except rows of the same batch never
+    count as each other's duplicates; NO 24-hour rate cap (owner D-1:
+    caller is admin/finance); one audit_logs row per submission
+    (staff_bulk_import_submitted | staff_multi_payment_submitted). Callers:
+    Bulk Payment Import (browser, has_permission bulk_payment_import) and
+    record-multi-payment (service role, is_staff(p_user_id)). The payments
+    table is still written only by review-payment-submission, one confirm
+    at a time ("Confirm all in this batch" = later step, owner D-3).
 
   2026-06-06: record-payment + record-multi-payment now set sender_name
     at payment_submissions insert (staff name from user_metadata/email),
