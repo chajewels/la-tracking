@@ -24,7 +24,6 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendClaimedCartReminder } from "../_shared/cart-reminder-emails.ts";
 import { cartReminderFinishStatus, readCartReminderMode } from "../_shared/cart-reminder-rules.ts";
-import { readReservationMode } from "../_shared/web-reservation-rules.ts";
 import type { FxRate } from "../_shared/website-down-payments.ts";
 
 type AnyRec = Record<string, unknown>;
@@ -62,11 +61,13 @@ Deno.serve(async (req) => {
 
   try {
     const { data: settings, error: setErr } = await supabase
-      .from("system_settings").select("key, value").in("key", ["cart_reminders_mode", "web_reservation_mode"]);
+      .from("system_settings").select("key, value").in("key", ["cart_reminders_mode"]);
     if (setErr) throw setErr;
     const byKey = new Map(((settings ?? []) as AnyRec[]).map((s) => [String(s.key), s.value]));
     const mode = readCartReminderMode(byKey.get("cart_reminders_mode"));
-    const reserveFirst = readReservationMode(byKey.get("web_reservation_mode"));
+    // WEBSITE ORDERS PR 10 (2026-10-01): every checkout is reserved first and
+    // confirmed by staff — the "we reserve and confirm" sentence is always on.
+    const reserveFirst = true;
 
     let purged: number | null = null;
     if (now.getUTCHours() === PURGE_UTC_HOUR) {

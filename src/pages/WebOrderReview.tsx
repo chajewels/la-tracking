@@ -214,7 +214,7 @@ export default function WebOrderReview() {
       toast.success(`${draft.web_reference} confirmed${email?.sent ? ' — the customer was emailed the payment details' : ''}.`);
       if (email && !email.sent) toast.warning('The order is confirmed, but the email to the customer was not sent. Send the payment details on Messenger.');
       qc.invalidateQueries({ queryKey: ['web-draft', id] });
-      for (const key of ['web-drafts', 'web-park', 'web-reservations']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['web-drafts', 'web-park']) qc.invalidateQueries({ queryKey: [key] });
       const orderPath = res.entity_type === 'cash_order' ? `/cash-orders/${res.entity_id}` : `/accounts/${res.entity_id}`;
       // W2-6: the draft carried a service request — open it on Services with
       // the job dialog ready and the agreed service fee filled in, then come
@@ -245,7 +245,7 @@ export default function WebOrderReview() {
       if (error) throw new Error(problemText(String((await readFnBody(error))?.error ?? error.message)));
       toast.success('Declined. The piece is back on sale.');
       qc.invalidateQueries({ queryKey: ['web-draft', id] });
-      for (const key of ['web-drafts', 'web-park', 'web-reservations']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['web-drafts', 'web-park']) qc.invalidateQueries({ queryKey: [key] });
       setShowDecline(false);
     } catch (e) {
       toast.error((e as Error).message);

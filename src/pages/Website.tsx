@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe } from "lucide-react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Globe, Hourglass } from "lucide-react";
 import PageMeta from "@/components/seo/PageMeta";
 import AppLayout from "@/components/layout/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ROUTES } from "@/constants/routes";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import ProductsCard from "@/components/website/ProductsCard";
@@ -17,8 +19,6 @@ import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscr
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
 import { ContactInquiriesCard } from "@/components/website/ContactInquiriesCard";
 import { SettingsCard } from "@/components/website/SettingsCard";
-import { ReservationModeCard } from "@/components/website/ReservationModeCard";
-import { CheckoutModeCard } from "@/components/website/CheckoutModeCard";
 import { Page365StockCard } from "@/components/website/Page365StockCard";
 import { Page365InventoryCard } from "@/components/website/Page365InventoryCard";
 import { Page365InventoryScheduleCard } from "@/components/website/Page365InventoryScheduleCard";
@@ -73,7 +73,6 @@ const isWebsiteTab = (v: string | null): v is WebsiteTab =>
  * /website?tab=settings#payment-details (SettingsPage).
  */
 export const WEBSITE_SETTINGS_SECTIONS = {
-  orderConfirmation: "order-confirmation",
   websiteOrders: "website-orders",
   paymentDetails: "payment-details",
   paymentReminders: "payment-reminders",
@@ -193,14 +192,29 @@ export default function Website() {
 
           {canContent && (
             <TabsContent value="settings" className="mt-5 space-y-6" tabIndex={-1}>
-              <section id={WEBSITE_SETTINGS_SECTIONS.orderConfirmation} className="scroll-mt-20">
-                <ReservationModeCard />
-              </section>
-              {/* Website-orders PR 8: staff confirm every website order first
-                  (web_checkout_mode). Read-only for non-admins; the RPC
-                  re-checks the admin role and audits the change. */}
+              {/* Website orders PR 10 (2026-10-01): every website checkout is a
+                  draft confirmed by staff. The reserve-first switch and the
+                  checkout-mode card are gone (web_checkout_mode stays 'draft');
+                  this static note replaces both. The section id is kept so an
+                  old deep link still lands here. */}
               <section id={WEBSITE_SETTINGS_SECTIONS.websiteOrders} className="scroll-mt-20">
-                <CheckoutModeCard />
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                      <Hourglass className="h-4 w-4 text-primary" />
+                      Website orders
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <p className="text-muted-foreground">
+                      Every website checkout waits in Sales → Website orders → To confirm until staff confirm it.
+                      The piece is held, the customer pays nothing until then.
+                    </p>
+                    <Link to={`${ROUTES.SALES}?tab=web`} className="inline-block font-medium text-primary hover:underline">
+                      Open Website orders
+                    </Link>
+                  </CardContent>
+                </Card>
               </section>
               {/* Admin only: live bank/GCash details shown to customers at
                   checkout. PaymentMethodsTab keeps its own admins-only gate

@@ -17,22 +17,15 @@ const EMAILS = "supabase/functions/_shared/reservation-emails.ts";
 describe("the checkout switch", () => {
   const src = code(WEBSITE);
 
-  it("reads web_checkout_mode through the SQL function and treats anything but 'draft' (or an error) as 'order'", () => {
-    const fn = src.slice(src.indexOf("async function checkoutDraftMode("), src.indexOf("async function reservationModeOn("));
-    expect(fn).toMatch(/rpc\("web_checkout_mode"\)/);
-    expect(fn).toMatch(/if \(error\) \{[\s\S]*return false;/);
-    expect(fn).toMatch(/return data === "draft";/);
-  });
-
-  it("pay: the draft branch runs BEFORE either old writer, and the old writers are untouched", () => {
+  // WEBSITE ORDERS PR 10 (2026-10-01): the switch is no longer read by the
+  // website function — every checkout is a draft. The old writers are gone.
+  it("pay: the draft writer is the ONLY checkout writer; the old writers and the switch read are gone", () => {
     const pay = src.slice(src.indexOf('segments[1] === "pay"'));
-    const draft = pay.indexOf('rpc("create_web_draft_atomic", {');
-    const layaway = pay.indexOf('rpc("create_web_layaway_atomic", {');
-    const order = pay.indexOf('rpc("create_web_order_atomic", {');
-    expect(draft).toBeGreaterThan(0);
-    expect(draft).toBeLessThan(layaway);
-    expect(draft).toBeLessThan(order);
-    expect(pay.slice(0, draft)).toMatch(/if \(await checkoutDraftMode\(supabase\)\) \{/);
+    expect(pay).toMatch(/rpc\("create_web_draft_atomic", \{/);
+    expect(src).not.toMatch(/rpc\("create_web_layaway_atomic"/);
+    expect(src).not.toMatch(/rpc\("create_web_order_atomic"/);
+    expect(src).not.toMatch(/checkoutDraftMode|reservationModeOn|web_checkout_mode|readReservationMode/);
+    expect(src).not.toMatch(/p_reserve/);
   });
 
   it("a draft response carries draft_id and never an order_id / account_id or bank details", () => {
@@ -43,10 +36,11 @@ describe("the checkout switch", () => {
     expect(resp).toMatch(/transfer_methods: \[\]/);
   });
 
-  it("quote: shipping is 'added at confirmation' only in draft mode; order mode still requires a manual quote", () => {
-    expect(src).toMatch(/const shippingAtConfirmation = draftMode && shipping === null;/);
-    expect(src).toMatch(/if \(shipping === null && !shippingAtConfirmation\) return jsonResponse\(\{ error: "shipping_quote_required" \}, 400\);/);
-    expect(src).toMatch(/requires_manual_quote: shipping === null && !shippingAtConfirmation,/);
+  it("quote: a destination with no published rate is 'added at confirmation', never a dead end", () => {
+    expect(src).toMatch(/const shippingAtConfirmation = shipping === null;/);
+    expect(src).not.toMatch(/shipping_quote_required" \}, 400\)/);
+    expect(src).toMatch(/requires_manual_quote: false,/);
+    expect(src).toMatch(/shipping_at_confirmation: shippingJpy === null,/);
   });
 });
 
