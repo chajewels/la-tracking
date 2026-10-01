@@ -22,9 +22,9 @@ import { JA_FORBIDDEN, planFiguresFromQuote, reminderForm, type ReminderForm } f
 
 const full: CartReminderItem = {
   name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', stone: 'Akoya pearl', qty: 1,
-  price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 30,
+  price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 0.3,
 }
-const noPhpDp: CartReminderItem = { name: 'Plain band', qty: 2, price_jpy: 30000, price_php: 11919, down_payment_jpy: 9000, down_payment_php: null, down_payment_pct: 30 }
+const noPhpDp: CartReminderItem = { name: 'Plain band', qty: 2, price_jpy: 30000, price_php: 11919, down_payment_jpy: 9000, down_payment_php: null, down_payment_pct: 0.3 }
 const noRate: CartReminderItem = { name: 'Chain', qty: 1, price_jpy: 12000, price_php: null }
 const plan = { currency: 'JPY' as const, deposit: 20400, monthly: 15867, lastMonth: 15866, termMonths: 3, total: 68000 }
 const base = { reserveFirst: true, cartUrl: 'https://www.chajewelsjp.com/cart/restore', unsubscribeUrl: 'https://www.chajewelsjp.com/cart-reminders/unsubscribe?token=t' }

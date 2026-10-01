@@ -126,7 +126,7 @@ function storefrontFixtures(): Fixture[] {
     }
   }
   // Cart reminders (stages A/B): one language per email, every money form.
-  const cartItems = [{ name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', stone: 'Akoya pearl', qty: 1, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 30 }]
+  const cartItems = [{ name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', stone: 'Akoya pearl', qty: 1, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 0.3 }]
   const cartPlan = { currency: 'JPY', deposit: 20400, monthly: 15867, lastMonth: 15866, termMonths: 3, total: 68000 }
   for (const lang of LANGS)
     for (const form of ['stage_a', 'full_jpy', 'full_php', 'layaway'])
