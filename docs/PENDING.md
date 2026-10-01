@@ -1000,13 +1000,27 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
 
 ## PAYMENT REMINDERS — AFTER THE HUB PR (filed 2026-10-04)
 
-- Owner: run 20261004100000 after the Lovable deploy; acceptance in
-  `owner_only`; then switch to `on` in Website → Settings → Payment reminders
-  (moved from Settings → General in website-orders PR 1).
+- DONE 2026-10-02 06:16 PHT: migration 20261004100000 applied, acceptance ran
+  in `owner_only`, and the owner switched the mode to `on` in Website →
+  Settings → Payment reminders (audited; "0 due right now" at the flip).
 - Open bug found while building it: Japanese storefront emails can arrive with
   U+FFFD in place of a character (renderAsync stream decoding) — docs/OPEN-BUGS.md.
 - Not built, by decision: quiet hours (plan §2k: send on time); a second
   reminder for the same deadline; reminders for Hub-made orders (D14);
   `email_delivery_report` expecting reminders (D9); stage E "still interested?"
   (D16).
-- Next in the plan: cart reminders (stages A/B), a separate PR.
+- Cart reminders (stages A/B) shipped 2026-10-01 (docs/CART-REMINDERS.md).
+
+## POST-PR-10 FOLLOW-UPS — CLOSED 2026-10-02
+
+- Website-orders PRs 1–10 live; reserve-first retired (docs/WEB-ORDER-DRAFTS.md "PR 10").
+- PermissionMatrix label → "Confirm / decline website orders" (#314). CLAUDE.md
+  trimmed under 100 KB (71 blocks moved verbatim to docs/). Storefront site
+  description "…shipping worldwide" (storefront #244).
+- RLS: all 210 public policies with bare auth.uid() / helper calls rewritten as
+  scalar sub-selects — migration 20261024100000, applied (0 bare left of 311);
+  docs/MIGRATIONS.md "RLS scalar sub-selects".
+- Still open, owner decisions: "site content into the Hub" (which pages/strings
+  move — unscoped); media cut-out follow-ups (b/c/e/f/h, docs/MEDIA-CUTOUTS.md);
+  bulk payment import PR #302 (PARKED until launch); `web-reservation-sweep` /
+  `web_reservation_expiring` names are historical (rename only if wanted).

@@ -34,7 +34,6 @@ import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payme
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
-import ReservationPanel from '@/components/reservations/ReservationPanel';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
@@ -1495,17 +1494,6 @@ export default function AccountDetail() {
         </div>
         </div>
         </div>
-
-        {/* Reserve-first (A2): unconfirmed web reservation — Confirm / Can't supply. */}
-        {awaitingReservation && (
-          <ReservationPanel
-            entityType="layaway"
-            entityId={account.id}
-            reference={webFields.web_reference ?? account.invoice_number}
-            createdAt={account.created_at}
-            canAct={canPerm('confirm_web_order_ready')}
-          />
-        )}
 
         {/* The deposit deadline. A field staff set and move while the plan is
             live, never a computed rule. */}

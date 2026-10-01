@@ -11,6 +11,7 @@ import { OrderReservationLapsedEmail, orderReservationLapsedSubject } from './or
 import { OrderPaymentDueEmail, orderPaymentDueSubject } from './order-payment-due.tsx'
 import { LayawayDepositDueEmail, layawayDepositDueSubject } from './layaway-deposit-due.tsx'
 import type { OrderEmailMethod } from './order-shared.tsx'
+import { CartReminderEmail, cartReminderSubject } from './cart-reminder.tsx'
 
 /**
  * PREVIEWS FOR THE STOREFRONT EMAILS (reserve-first A2, 2026-09-24).
@@ -56,6 +57,14 @@ const schedule = [
 const orderUrl = 'https://www.chajewelsjp.com/account/orders/preview'
 const planUrl = 'https://www.chajewelsjp.com/account/layaway/preview'
 const shopUrl = 'https://www.chajewelsjp.com'
+const cartUrl = 'https://www.chajewelsjp.com/cart/restore'
+const unsubscribeUrl = 'https://www.chajewelsjp.com/cart-reminders/unsubscribe?token=preview'
+const cartItems = [
+  {
+    name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', size: null, stone: 'Akoya pearl', qty: 1,
+    image_url: null, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 0.3,
+  },
+]
 
 export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
   'storefront-order-reserved-ja': {
@@ -157,5 +166,35 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     component: LayawayDepositDueEmail,
     subject: layawayDepositDueSubject('CJ-W-000124'),
     previewData: { reference: 'CJ-W-000124', currency: 'JPY', deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl },
+  },
+  // Cart reminders (stages A/B, docs/CART-REMINDERS.md). ONE language per
+  // email. The figures below are sample Hub output, the shape
+  // cart-reminder-emails.ts attaches at send time (never computed in-template).
+  'storefront-cart-reminder-ja': {
+    displayName: 'Cart reminder — stage A (JA, yen only)',
+    component: CartReminderEmail,
+    subject: cartReminderSubject('ja'),
+    previewData: { lang: 'ja', form: 'stage_a', items: cartItems, reserveFirst: true, reachedCheckout: false, cartUrl, unsubscribeUrl },
+  },
+  'storefront-cart-reminder-en': {
+    displayName: 'Cart reminder — stage A (EN, ¥ (₱) + reserve line)',
+    component: CartReminderEmail,
+    subject: cartReminderSubject('en'),
+    previewData: { lang: 'en', form: 'stage_a', items: cartItems, reserveFirst: true, reachedCheckout: false, cartUrl, unsubscribeUrl },
+  },
+  'storefront-cart-reminder-en-layaway': {
+    displayName: 'Cart reminder — stage B, layaway chosen (EN, plan panel)',
+    component: CartReminderEmail,
+    subject: cartReminderSubject('en'),
+    previewData: {
+      lang: 'en', form: 'layaway', items: cartItems, reserveFirst: true, reachedCheckout: true, cartUrl, unsubscribeUrl,
+      plan: { currency: 'JPY', deposit: 20400, monthly: 15867, lastMonth: 15866, termMonths: 3, total: 68000 },
+    },
+  },
+  'storefront-cart-reminder-ja-php': {
+    displayName: 'Cart reminder — stage B, full payment in pesos (JA)',
+    component: CartReminderEmail,
+    subject: cartReminderSubject('ja'),
+    previewData: { lang: 'ja', form: 'full_php', items: cartItems, reserveFirst: true, reachedCheckout: true, cartUrl, unsubscribeUrl },
   },
 }

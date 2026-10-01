@@ -867,3 +867,146 @@ minutes between reads (their scenarios are 30-minute reads) and pass on top of P
 never early, never late, no overlap, manual skip; the edge wiring; the migration's
 load-bearing clauses; the card).
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### STOCK
+
+- STOCK (2026-09-26; updated 2026-09-28 PR 2; docs/PAGE365-IMPORT.md "STOCK"
+  and "PR 2"): PAGE365 IS THE STOCK MASTER. With system_settings.
+  page365_stock_mode = 'inventory_sync' (live) an import NEVER changes website
+  stock: page365_apply_stock (service role, lines from the STORED DRAFT, never
+  the browser) CLAIMS each line in page365_stock_lines, matches it (FIRST WORD
+  = exactly ONE website_products.sku with exactly ONE variant; else a FLAG,
+  never a guess; service/resize skipped) and records it as 'page365_master'.
+  'invoice' mode = the #195 decrement (claim, stock_qty >= q, held/released
+  via trigger page365_stock_follow_order) — the ROLLBACK only. Former held
+  lines are 'absorbed': cancel / expire / forfeit / delete of such an order
+  returns NOTHING. Never edit page365_stock_follow_order's body (absorbed and
+  page365_master rely on it acting only on held/released). Resolving a flag
+  needs a note and never moves stock. Never write page365_stock_lines or its
+  stock by hand.
+
+### "DON'T SYNC WITH PAGE365"
+
+- "DON'T SYNC WITH PAGE365" (2026-09-28): website_products.
+  page365_sync_disabled, switched in Catalog by manage_website_catalog only
+  (audited). A switched-off product is ALWAYS skipped: fetch category
+  'not_synced', never proposed, never applied (apply reads the switch LIVE),
+  photos never copied, and an invoice import never moves its stock in either
+  mode. Never set it in a migration.
+
+### INVENTORY FETCH
+
+- INVENTORY FETCH (2026-09-27; docs/PAGE365-IMPORT.md "INVENTORY"): staff
+  read the whole Page365 catalogue (page365-inventory-fetch, chunked,
+  resumable, <= 4 req/s) and apply ticked rows. TARGET = max(0, Page365
+  available - page365_web_holds - page365_invoice_holds) — a website-reserved
+  piece is never put back on sale; unpaid imported Page365 invoices are held
+  off while page365_hold_unpaid_invoices is true (open question: does an
+  unpaid Page365 invoice lower `available`? — safe either way). Match per
+  VARIANT on the code (first word; multi-variant listings use variant names),
+  exact, never fuzzy. Decreases pre-ticked; increases need a tick and are sent
+  as increases. page365_inventory_apply is COMPARE-AND-SET (stock_qty = seen
+  at fetch, else changed_since_fetch), only on a 'ready' run (a partial/failed
+  read — outage, count drop > 20 % — applies nothing). #195 'held' variants
+  are EXCLUDED only in 'invoice' mode. Prices reported, never repriced;
+  Hub-only flagged, zeroed ONLY by HIDE-FOLLOW below. New codes LAND by
+  themselves, unpublished (see AUTO-LAND). Photos: every photo of
+  a matched product, one row per (variant, page365_photo_id), staff photos
+  never touched; the Catalog save must carry page365_photo_id through (else
+  duplicates). An invoice line keeps ONE main photo and reuses the catalogue's
+  stored copy when there is one. Customer reviews are never stored.
+
+### AUTO-LAND
+
+- AUTO-LAND (2026-09-26 owner decision, replaces "Create drafts"; docs/
+  PAGE365-IMPORT.md "AUTO-LAND"): page365_inventory_finish of a READY
+  (complete) read calls page365_inventory_land_run — every NEW code with
+  Page365 available > 0, not "Don't sync with Page365" (read live), becomes
+  ONE Hub product (one variant), status DRAFT (NEVER published), origin
+  UNKNOWN (never guessed), sku = code, yen price and stock from the read,
+  item kind / metals only as printed, category only from a jewelry-type
+  Page365 category matching ONE Hub category, description only if clean;
+  recorded in page365_landings, whose photos the scheduled
+  page365-inventory-fetch copies (never while a read runs, <= 4/s). Sold-out
+  new codes never land. Nothing is refused for being incomplete: it lands and
+  shows "incomplete — needs …"; publishing is refused server-side
+  (website_publish_products, trg_page365_draft_publish_guard, CHECKs) until
+  filled. Every row not landed keeps its reason in result_note. A quick read
+  also opens every listing it never read before (plan_quick (d)), so a new
+  code lands within one interval; one back in stock lands at the nightly
+  full read. page365_inventory_create_drafts / _refresh_product are dropped.
+
+### SCHEDULE
+
+- SCHEDULE (2026-09-30, PR 3; docs/PAGE365-IMPORT.md "SCHEDULE"): pg_cron
+  page365-inventory-schedule (Vault key) wakes every 5 min and reads Page365
+  at the INTERVAL (below) whatever the switch says. system_settings.page365_inventory_auto_apply (default
+  OFF; changed ONLY by set_page365_inventory_auto_apply — manage_website_
+  catalog, audited; a guard trigger refuses SQL/PostgREST writes; never flip
+  it in a migration) lets page365_inventory_auto_apply_run apply DECREASES
+  AND INCREASES (PR 3c) from a SCHEDULED run that is 'ready', inside its
+  30-min window and not superseded — same target, compare-and-set, never a
+  switched-off product. Prices and re-publishing NEVER apply automatically
+  (new codes land unpublished, AUTO-LAND). A partial
+  or failed read applies nothing. One reader at a time: every chunk takes the
+  run's lease (page365_inventory_lease); the schedule skips a manual fetch.
+  At most one bell per scheduled run. Retention (14 days) never touches
+  audit_logs and keeps applied items.
+
+### INTERVAL
+
+- INTERVAL (2026-10-03, PR 3d; docs/PAGE365-IMPORT.md "INTERVAL"):
+  system_settings.page365_inventory_interval_minutes, ONLY 5/10/20/30 (CHECK;
+  seeded 30), changed ONLY by set_page365_inventory_interval
+  (manage_website_catalog, audited; guard trigger; never set it in a
+  migration). A scheduled read starts once (interval − 2.5 min) has passed
+  since the last scheduled start (shared scheduleEveryMs; SQL mirror
+  get_page365_inventory_interval next_check_at). A read still running is
+  resumed, never overlapped. The auto-apply 30-min window is a freshness
+  bound, NOT the cadence — it stays 30 at every interval. Never change the
+  cron schedule to change the cadence.
+
+### HIDE-FOLLOW
+
+- HIDE-FOLLOW (2026-10-01, PR 3b; docs/PAGE365-IMPORT.md "HIDE-FOLLOW"): a
+  product SEEN on Page365 (page365_product_presence, same code, complete
+  reads only) and then missing from 2 COMPLETE reads in a row AND last seen
+  >= 30 min before the read (PR 3d; any interval) -> stock 0 +
+  status 'draft' (page365_inventory_hide_item, compare-and-set). Never a
+  never-seen/Hub-only product, a switched-off one (read live) or an
+  unpublished one; never from a partial read. Automatic only through
+  page365_inventory_auto_apply_run under the same switch; else pre-ticked for
+  staff. NEVER re-published automatically ("Back in Page365" is a flag).
+  Orders untouched; audited per product and per run; one bell per run.
+
+### QUICK FETCH
+
+- QUICK FETCH (2026-10-02, PR 3c; docs/PAGE365-IMPORT.md "QUICK FETCH"):
+  scheduled reads and the default button are QUICK — the list plus pages of
+  listings that can hold a Hub product (page365_inventory_plan_quick; rest
+  'listed'); the first scheduled read after 02:00 PHT is FULL
+  (page365_inventory_next_kind), as is staff "Full fetch". A quick read also
+  opens listings never read before (AUTO-LAND). A quick read never counts a
+  switched-off product as missing. Never read with a second reader
+  (page365_inventory_reader lease).
+
+### ITEM TYPES + METAL STAMP
+
+- ITEM TYPES + METAL STAMP (owner decisions 2026-09-28 / 2026-09-26):
+  website_products.item_kind is EXACTLY jewelry | watch | accessory (JA 小物;
+  'other' was renamed). A metal stamp is required for JEWELRY only, and only
+  to PUBLISH: CHECK website_products_metals_jewelry applies to status active;
+  a jewelry draft may have none and shows "needs metal stamp". Never re-add
+  an every-product or creation-time stamp rule (website_products_metals_
+  nonempty is retired). Kind is read ONLY from what Page365 prints
+  (page365_item_kind_for, whole words): "watch(es)" -> watch; wallet, bag,
+  clutch, tote, purse, pouch, card/coin/key/pass case, key holder, belt,
+  scarf, sunglasses -> accessory; else jewelry; watch wins. Stamps: a printed
+  stamp with a gold colour code (K18WG, 750PG, 18KWG, K18g) is that stamp;
+  SV925 -> SILVER925 ("Silver 925"); a bare SV -> SILVER ("Silver", JA
+  シルバー; product metal only, not in the upload template); "0.750ct" is
+  no stamp.

@@ -52,3 +52,29 @@
   normalisation inline; the TS mirror is identityMatches() in
   _shared/reassign-owner-rules.ts.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### R5 — the full refusal list
+
+R5 Also refuse (with a plain-words reason): order already earned by ANY member (all markers from your section F, including an in-flight claim with transaction_id IS NULL, earned rows, order_earn/promo_bonus lots on the invoice incl. consumed/expired/revoked, bonus rows on the invoice); Shopify orders (SH- invoices or Shopify-sourced); split payment submissions covering more than one order; any non-cancelled loyalty redemption on the order; any store credit applied to or issued from the order; status closed (layaway: cancelled, forfeited, final_forfeited; cash: cancelled, expired); crossing is_test in either direction; same owner; not found.
+
+### R6 — catch-up award eligibility and the award point
+
+R6 Catch-up award for the NEW owner when: new owner is enrolled AND award point >= new owner's enrolled_at − grace days (system_settings.loyalty_enrollment_grace_days, default 3). Award point: layaway = earliest non-voided payments.created_at for the account matching the DP rule (reference_number LIKE 'DP-%' OR remarks ILIKE '%down%'), excluding LOYALTY-% rows; fallback = updated_at of the confirmed DP submission; never date_paid. Cash = completed_at; fallback = created_at of the payment that made it fully paid. Orders not yet at their award point: no catch-up (they earn normally later).
+
+### R7 — catch-up specifics
+
+R7 Catch-up specifics: current tier multiplier (ratchet as today), NO promo; emails/notifications as usual; member.last_purchase_at = GREATEST(existing, order_date) and prev_purchase_at shifts only if that value changes; the new lot expires_at = order_date + 180 days; the member's OTHER live lots are only ever extended: GREATEST(expires_at, order_date + 180 days) — never shortened. If order_date + 180 days is already past, still award (spend counts toward tier) — the points are born expired; the preview must say so.
+
+### R11 — identity match and the reassign_owner_unmatched override
+
+R11 IDENTITY MATCH. A reassign is allowed only if the target account matches the CURRENT owner on at least one of: full name, Facebook name (both: lower-case, trim, collapse spaces), mobile (last 10 digits, only when >= 10 digits), email (exact, case-insensitive) — the same normalisation as find_customer_matches. No match → refused: code different_customer_details, message "Different customer details — this order can only move to another account of the same customer. Contact the owner."
+   Exception: a user holding the permission reassign_owner_unmatched may move an order with NO matching detail (an order put on the wrong customer), only by explicitly choosing the override and with the required written reason; it is logged as an unmatched reassign. The override bypasses ONLY R11 — every other refusal (R1 points-account rule, earned order, closed status, Shopify, split submissions, redemptions/store credit, test↔real, same owner, loyalty amount) still applies.
+
+### "Section F" note
+
+("Section F" in R5 is the 2026-09-24 investigation report; its markers are
+the ones listed in the same rule, all checked by reassign_order_owner_atomic.)

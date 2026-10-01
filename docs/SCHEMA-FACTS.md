@@ -1540,4 +1540,233 @@ supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
 - 25 types / 37 pools: payment_received:opening, payment_received_multi:opening, thanks_trust:closing, thanks_business:closing, accounts_all_completed:opening, new_account_split_payment:opening+closing, contact_us:closing, settlement_contact:closing, extension_closing:closing, portal_activation:opening+closing, portal_link_share:full, portal_setup_invite:full, reminder_upcoming:opening+closing, reminder_due_today:opening, reminder_grace:opening, thanks_choosing:closing, reminder_overdue:opening+closing, penalty_p1..penalty_p8:opening+closing.
 - Placeholders: {name} {first_name} {invoice} {due_date} {days_ago} {link}. Required-once per pool: portal_link_share/portal_setup_invite {link}; reminder_upcoming/due_today {invoice},{due_date}; reminder_grace/overdue {invoice},{due_date},{days_ago}; penalty_p2..p8 openings {invoice},{due_date}. Any other {token} or a missing/duplicated required one → line skipped.
 - Picked once per page/dialog open (useStablePicker) so preview = copy.
-- Seed: docs/sql/20261001100000_message_lines_seed.sql — NOT applied yet.
+- Seed: docs/sql/20261001100000_message_lines_seed.sql — applied 2026-10-01 02:10 JST (222 rows + 8 review_invite).
+- EDITOR (2026-10-01): Hub → Settings → Message lines (admin; src/components/settings/MessageLinesTab.tsx, pure helpers src/lib/message-lines-admin.ts). Pools are fixed to what the code reads (37 + review_invite:full); lines are added, edited or switched off — NEVER deleted (no DELETE policy; a line a customer received stays traceable). LINE 1 OF EVERY POOL IS LOCKED (owner decision 2026-10-01) — today's wording = the code FALLBACK; the editor refuses to edit or switch it off. Save is refused with the reason when the readers' isValidLine would skip the line (same rule, with words). Every write logs audit_logs entity_type 'message_line' (create / update / activate / deactivate) with the old and new text, and invalidates the ['message_lines'] cache so the next Copy Message uses it. RLS: SELECT staff, UPDATE admin, INSERT admin (20261022100000_message_lines_admin_insert.sql). review_invite placeholders: {first_name} {piece} {link} ({link} required).
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Loyalty Product Amount (JPY) on account creation
+
+- Loyalty Product Amount (JPY) is REQUIRED when the selected customer has a loyalty tier (any tier), on BOTH layaway and cash-order creation. Enforced on two layers: frontend UX (NewAccount.tsx / NewCashOrder.tsx) and the authoritative edge function (create-layaway-account / create-cash-order return 400 LOYALTY_AMOUNT_REQUIRED). Optional for non-members. After creation it is editable in Manage Invoice (layaway EditAccountDialog and cash CashOrderDetail) with permission edit_loyalty_amount (admin + per-user override), and only until the order earns points: trg_guard_loyalty_jpy_amount refuses a signed-in user's change without the permission or once an 'earned' loyalty_transactions row exists for the order (service-role callers — redemption net-spend RPCs, shopify-webhook, derive_order_loyalty_jpy — are not gated). A Manage Invoice total change does NOT update it automatically; the field shows a "Use ¥Y" nudge (total − shipping, PHP ÷ rate) instead. Correcting an order that already earned points is a separate path (#19751 is the known case).
+
+### carry-over and accept-underpayment edge functions (CARRY-OVER RULES)
+
+carry-over edge function (updated 2026-04-19):
+  Endpoint: /functions/v1/carry-over
+
+  total_due_amount formula:
+    CORRECT: total_due_amount = existing_total_due_amount + shortfall
+    WRONG:   total_due_amount = base_installment_amount + shortfall
+    This preserves all previous Keep reductions on the destination row.
+  Body: { schedule_row_id, account_id }
+  Auth: Bearer token + confirm_payment permission via checkPermission (matrix-driven; overrides respected)
+  Steps:
+    1. Validates source row status === 'partially_paid'
+    2. Validates source row paid_amount > 0
+    3. Computes shortfall from source.paid_amount (NOT SUM of allocations)
+       shortfall = ceiling (base + penalty + carried) - paid_amount
+    4. Finds next row by installment_number + 1
+    5. Marks source row as 'paid' with paid_amount preserved
+    6. Writes carried_amount = shortfall to next row, clears carried_by_payment_id
+    7. Reverts step 5 if step 6 fails
+  Net effect: source row closes as paid, next row carries the shortfall
+
+accept-underpayment edge function:
+  Purpose: Records AUDIT LOG only when staff acknowledges an underpayment
+  What it does NOT do: Does NOT write carried_amount, does NOT mark source
+  row as paid, does NOT touch next row
+  Net DB effect: Zero row changes — audit log entry only
+
+### customer_addresses ids are load-bearing (the replace_customer_addresses incident)
+
+`customer_addresses` ids are load-bearing: `cash_orders.ship_to_address_id`
+and `checkout_quotes.ship_to_address_id` are both ON DELETE SET NULL, so
+deleting a row blanks the shipping address on every order and quote pointing
+at it — silently, with no error and nothing in any log. The original
+`replace_customer_addresses` did exactly that on EVERY checkout that sent an
+address (DELETE-then-INSERT with fresh uuids), and the storefront calls it on
+every one.
+
+### THE TWO STORES HAVE NOT DIVERGED (customer addresses)
+
+THE TWO STORES HAVE NOT DIVERGED, and that is worth keeping true. The Hub
+reads the flat columns on `customers`; the storefront reads
+`customer_addresses`. As of 2026-09-15 the drift is zero — the flat columns
+hold a COUNTRY in `location` and nothing else (879 rows), the table holds 1
+real row, and the 2026-09-10 backfill that manufactured 871 junk "addresses"
+from `location` was reverted the same day (20260910160000). Convergence is
+filed in docs/PENDING.md, not done. Never seed `customer_addresses` from the
+flat columns again.
+
+### Help Center screenshots — markdown reference, resolution and how to add one
+
+Markdown files in src/help-content/ reference screenshots by filename only:
+
+![alt text](Landing_page)
+
+Help.tsx's `img` component override on ReactMarkdown resolves relative filenames to the bucket's public URL via:
+
+supabase.storage.from('brand-assets').getPublicUrl(filename).data.publicUrl
+
+Absolute URLs (http://, https://, or /) pass through unchanged.
+
+All images are wrapped in a click-to-zoom lightbox (shadcn Dialog, 95vw/95vh max).
+
+To add a new screenshot for any Help section:
+1. Upload the file to the `brand-assets` bucket via Supabase Storage UI (no file extension)
+2. Reference it in markdown using just the filename (no extension)
+3. No code change required for the image to render
+
+### Customer Message Templates — SINGLE / SPLIT / FULLY PAID / BATCH PAYMENT
+
+SINGLE PAYMENT:
+Thank you for your payment. ₱ [amount] has been received.
+Inv # [invoiceNumber]
+View your updated account and payment schedule here:
+🔗 [portalLink]
+🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only when [portalLink] is a token link — see PORTAL LINK RULE)
+Next payment: [nextDueMonth] — ₱ [nextMonthAmount]
+Thank you for your continued trust in Cha Jewels! 🧡
+
+---
+
+SPLIT PAYMENT (2+ accounts same customer):
+Thank you for your payment. A total of ₱ [totalAmount]
+has been received across [N] accounts:
+  Inv #[num] — [label]: ₱ [amount]
+  Inv #[num] — [label]: ₱ [amount]
+View your accounts here:
+🔗 [portalLink]
+🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only when [portalLink] is a token link — see PORTAL LINK RULE)
+Next payments:
+  [label] — [nextDueMonth]: ₱ [nextDueAmount]
+  [label] — [nextDueMonth]: ₱ [nextDueAmount]
+Thank you for your continued trust in Cha Jewels! 🧡
+
+---
+
+FULLY PAID:
+Same as single but replace next payment line with:
+🎉 Your layaway is now fully paid! Thank you!
+
+---
+
+BATCH PAYMENT (individual account after multi-invoice):
+Your account has been updated.
+Inv # [invoiceNumber]
+View your account here:
+🔗 [portalLink]
+Thank you for your continued trust in Cha Jewels! 🧡
+
+### CHART TERMINOLOGY — metric definitions
+
+Consistent labels across the Finance dashboard. The underlying metrics are unchanged — only the labels were standardized.
+
+"Collected" / "Total Collected" = cash actually received, bucketed by PAYMENT DATE.
+  Source: get_monthly_analytics.collected_jpy (SUM payments by date_paid) and
+  get_collection_analytics.collected. Shown in: Overview Monthly Performance bar/stat,
+  and the Analytics "Collected vs Sales" chart.
+
+"Paid vs Due" chart = collection efficiency against the schedule.
+  "Paid" = collected_due (payments allocated to each month's installments, bucketed by
+  DUE month, capped at expected). "Due" = expected. Drives Best Month / Average Rate.
+  (Formerly mislabeled "Collected vs Expected", which collided with the cash "Collected".)
+
+"Penalties Collected" = penalty_fees WHERE status='paid'. Same metric on both Overview
+  and Analytics (Overview's former "Penalties Paid" was renamed to match).
+
+Forfeited — two DIFFERENT metrics, do not conflate:
+  "Total Forfeited" (Overview) = remaining balance LOST on forfeited/final_forfeited accounts.
+  "Recovered (Forfeited)" (Analytics) = cash COLLECTED from forfeited accounts before
+  forfeiture (6-month window, excludes final_settlement).
+
+### REALTIME SYNC — publication, mount and invalidation
+
+supabase_realtime publication now contains: payments,
+payment_allocations, layaway_schedule, layaway_accounts, penalty_fees,
+payment_submissions, account_services, financial_alerts,
+loyalty_members, loyalty_transactions, staff_notifications,
+service_jobs, trade_ins (2026-07-05 — the last two were repairs of
+SYNC_TABLES entries that had never been published, so their
+subscriptions were dead).
+
+useRealtimeSync (src/hooks/useRealtimeSync.ts) is rendered once at the
+App root (inside AuthProvider/PermissionsProvider, sibling of Routes,
+via the RealtimeSyncMount wrapper in src/App.tsx) and is gated on the
+internal-user predicate (session && roles.length > 0 — the same signal
+ProtectedRoute admits internal admin/staff/finance/csr users with). The
+customer portal and unauthenticated visitors never open a channel.
+
+On any postgres_changes event from the SYNC_TABLES it invalidates
+REALTIME_INVALIDATE_KEYS — the union of CORE_KEYS, PAYMENT_KEYS,
+MONITORING_KEYS, SUBMISSION_KEYS, SERVICES_KEYS, LOYALTY_KEYS,
+NOTIFICATION_KEYS, plus 'account' and 'customer-detail'
+— debounced 250ms so a burst of writes coalesces into one refetch
+round. Every actively-rendered internal dashboard card refetches live
+without a manual reload.
+
+### TEAM MEMBER LIFECYCLE
+
+Members are created via create-team-member (auth user + user_roles row).
+
+Deactivate / reactivate go through the same function:
+  action: 'deactivate' | 'reactivate'  (admin/manage_team gated)
+- deactivate: profiles.status='inactive' + auth ban (ban_duration set);
+  user_roles row KEPT so the member stays listed and reactivatable, and
+  historical attribution (created_by_user_id, audit logs, etc.) is
+  preserved. Self-deactivation is blocked.
+- reactivate: profiles.status='active' + auth unban.
+
+Effect on session: re-login is blocked immediately; any live session
+dies on next token refresh.
+
+user_status enum = active | inactive | suspended.
+
+There is no hard delete — it would orphan ~40 attribution columns,
+most without FKs. Deactivate is the supported delete-equivalent.
+
+create-team-member stamps user_metadata.is_team_member=true on the
+auth user; the on_auth_user_created → handle_new_user trigger inserts
+a profiles row ONLY when
+`COALESCE(NEW.raw_user_meta_data->>'is_team_member','false') = 'true'`
+(key present AND value true), so self-signup customers (Phase B) never
+get a profile and never leak into team lists (Bug #151).
+
+Session idle-timeout (2026-05-26): 2h inactivity auto sign-out with a
+5-minute warning modal, enforced in AuthContext for ALL authenticated
+sessions — both the internal app and the customer portal. Resets on
+mouse/key/click/scroll/touch. Frontend-enforced (Supabase Auth
+otherwise keeps sessions alive via token refresh).
+
+### FILL-PAYMENT-TRACKING — dated changes (2026-06-06 to 2026-09-11)
+
+2026-06-06: `fill-payment-tracking` now also generates the monthly
+tax-declaration file (`申告用フォーマット_MM Month YYYY`) into the
+Tax Account Drive folder from the same source upload — Overseas
+tab columns B/D/E, Japan tab columns B/D/G (Deposit date /
+Customer / Amount), non-blocking relative to the tracking output.
+
+2026-07-06: on success, fill-payment-tracking upserts its output sheet ID into system_settings.payment_tracking_sheet_id so append-payment-tracking always targets the newest generated sheet.
+
+2026-07-06: pre-cohort payment months are totalled into the first month column (merged by column), not dropped — Bug #246.
+
+2026-09-11: append-payment-tracking is now a per-invoice REWRITE (not additive). It locates the invoice across every sheet in system_settings.payment_tracking_sheets ([{id, cohort:"YYYY-MM"}], newest first) and rewrites G..(TOTAL-1) from get_tracking_for_invoices. Body: { invoice_number }. fill-payment-tracking prepends each generated sheet to that array; the scalar payment_tracking_sheet_id is kept for compatibility only. Callers must await the call (isolate shutdown killed unawaited appends).
+
+### DOMAIN ARCHITECTURE — FORBIDDEN PATTERNS
+
+FORBIDDEN PATTERNS (these are recurring violations):
+  - Telling a customer to visit app.chajewelsjp.com for any reason
+  - Suggesting app.chajewelsjp.com/portal/... as a test URL
+  - Including app.chajewelsjp.com in customer-facing emails, share
+    buttons, marketing copy, QR codes, or print materials
+  - Internal staff using portal.chajewelsjp.com for their work
+  - Mixing the two in walkthroughs or screenshots
+
+### ACCOUNT-SCOPE COVERAGE — canonical examples
+
+Trade Program, staff_notifications triggers, and Finance Overview
+KPIs are the canonical examples — see TRADE PROGRAM section above
+(both tables carry `is_trade`) and the staff_notifications trigger
+inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).

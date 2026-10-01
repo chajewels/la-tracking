@@ -47,3 +47,21 @@ export function formatPHTDisplay(d: Date | string): string {
     }).format(date) + ' PHT'
   );
 }
+
+/**
+ * Formats a value that may be a DATE-ONLY string ("2026-09-30", e.g.
+ * cash_orders.order_date) for display. A bare date has no time of day, so it
+ * must not go through formatPHTDisplay: new Date("2026-09-30") is UTC
+ * midnight, which PHT shows as "8:00 AM PHT" — a time nobody recorded
+ * (cash order timeline "Order placed", 2026-09-30). A date-only value is
+ * shown as its calendar day, with no time; anything else is a timestamp and
+ * takes the usual PHT display.
+ */
+export function formatPHTDateOrTime(d: Date | string): string {
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, day] = d.split('-').map(Number);
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+      .format(new Date(Date.UTC(y, m - 1, day)));
+  }
+  return formatPHTDisplay(d);
+}

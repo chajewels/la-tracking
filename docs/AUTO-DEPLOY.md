@@ -186,3 +186,16 @@ the new loyalty-tier-restored template entry. The auto-deploy workflow's
 _shared/** path filter is designed to handle this automatically but is currently
 disabled by the secrets issue (see Known broken above).
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### NOTE (corrected 2026-07-05): the GitHub Actions deploy workflow never deployed anything
+
+          NOTE (corrected 2026-07-05): the GitHub Actions workflow "Deploy Supabase
+          Edge Functions" was removed — investigation proved it NEVER deployed
+          anything (required secrets never existed and cannot be created under
+          Lovable Cloud; its green runs were 100% skipped steps). Lovable IDE is
+          the ONLY edge-function deploy path. Never assume GitHub CI deploys any
+          Supabase resource for this repo.

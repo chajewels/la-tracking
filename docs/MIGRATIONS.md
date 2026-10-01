@@ -121,3 +121,63 @@ can exceed 100% because actual_collected includes downpayment while
 expected_collected excludes it. Drives a noisy quality-degradation alert.
 Separate ticket if undesired.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### GUC bypass — the 2-HTTP-call anti-pattern and the atomic RPC pattern (Bug #39)
+
+DO NOT use the 2-HTTP-call pattern:
+  await supabase.rpc('set_config', {..., is_local: true});
+  await supabase.from(table).delete()/.update()/...;
+
+This pattern fails Bug #39: set_config(is_local: true) is
+SCOPED TO THE TRANSACTION of HTTP call 1. HTTP call 2 may use
+a different connection/transaction, so the GUC does not persist.
+The trigger fires, the write is blocked, and depending on the
+edge function's error handling, the failure may be silent.
+
+CORRECT pattern (single transaction guarantee):
+  CREATE FUNCTION xxx_atomic(...) RETURNS jsonb
+  LANGUAGE plpgsql SECURITY DEFINER AS $$
+  BEGIN
+    PERFORM set_config('app.your_guc', 'on', true);
+    INSERT INTO audit_table (...);  -- if applicable
+    DELETE FROM target_table WHERE ...;  -- or UPDATE/INSERT
+    RETURN jsonb_build_object('success', true);
+  END;
+  $$;
+
+  -- Edge function:
+  const { data, error } = await supabase.rpc('xxx_atomic', {...});
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+
+## RLS scalar sub-selects — the 2026-10-02 backfill (migration 20261024100000)
+
+Rule (CLAUDE.md "Migrations baseline & FUNCTION CHANGES"): inside a policy,
+`auth.uid()` / `is_staff()` / `has_role()` / `has_permission()` / `is_admin()`
+are always written as scalar sub-selects — `(SELECT is_staff((SELECT auth.uid())))` —
+so Postgres evaluates them once per statement (InitPlan), not once per row
+(8 s timeouts on the big tables, PR #265).
+
+`20261024100000_rls_scalar_subselects.sql` backfilled the 210 live policies that
+still carried bare calls, in one DO block: a pure text transform inserts the
+wrappers and ALTER POLICY re-applies each expression; roles, command and
+permissive flag are untouched. Assertions: policy count unchanged, ≥ 200
+rewritten, 0 bare calls left. Dry-run on live inside BEGIN … ROLLBACK first:
+311 policies, 210 rewritten, 0 meaning differences (unwrapping the inserted
+wrappers gave back the original text for every policy).
+
+Two things learned:
+- ALTER POLICY takes an exclusive lock on its table; Lovable's periodic schema
+  dump (`dumpFunc`, via Supavisor as postgres) held `audit_logs` for ~2 minutes
+  and blocked the dry-run twice. The migration sets `lock_timeout = '15s'` so a
+  busy table fails the whole block fast and clean — re-run it, nothing was
+  changed.
+- `pg_policies` deparses the wrappers as `( SELECT auth.uid() AS uid)` and
+  `( SELECT has_role(...) AS has_role)`; the bare-call census regex is
+  `(?<!SELECT )(auth\.uid\(\)|is_staff\(|has_role\(|has_permission\(|is_admin\()`
+  and must read 0 after the apply. New policies are written wrapped from the
+  start; a bare call is a review finding.

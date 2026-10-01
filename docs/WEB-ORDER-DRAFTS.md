@@ -161,9 +161,9 @@ Hub frontend only — no migration, no edge function, no Lovable step.
   (`shipping_jpy` NULL), "Service requested" (an open `service_requests` row with
   `web_draft_id`), TEST, customer, provisional total, country, age (red at 24h)
   and the 72h auto-cancel time. Actions: **Review**, **Can't supply** (reason
-  required → `confirm-web-draft` decline). Reservations from the old
-  reserve-first flow are listed too, marked **Old flow**, with their existing
-  Confirm / Can't supply (plan risk 5) until PR 10.
+  required → `confirm-web-draft` decline). (Until PR 10, 2026-10-01,
+  reservations from the old reserve-first flow were listed too, marked "Old
+  flow"; that path is retired — see "PR 10" below.)
 - **Awaiting payment:** web orders confirmed (`ready_confirmed_at` set) with
   `web_released_at` NULL and a live status. Nearest deadline first: badge
   "Website — awaiting payment", amount due (cash balance / layaway deposit),
@@ -292,7 +292,8 @@ still saves the job — the dialog is never skipped.
 `website`, `web-reservation-sweep`, `confirm-web-draft`,
 `confirm-web-order-ready`, `decline-web-reservation`,
 `preview-transactional-email` (the last three only bundle the changed
-templates / `reservation-emails.ts`).
+templates / `reservation-emails.ts`). (`confirm-web-order-ready` and
+`decline-web-reservation` were deleted by PR 10.)
 
 ### Tests
 
@@ -334,7 +335,8 @@ directly under "Order confirmation (reserve first)", section id
   (no permission override grants it) and writes the audit row. The guard
   trigger refuses every other write. Never flip it in SQL or a migration.
 - **Off** (`order`): a checkout creates the order at once, as before;
-  reserve-first still applies when it is on.
+  reserve-first still applies when it is on. **RETIRED by PR 10 (2026-10-01):**
+  `set_web_checkout_mode('order')` answers `mode_retired`; the card is gone.
   **On** (`draft`): every checkout waits in Sales → Website orders → To
   confirm; the piece is held, no bank details, nothing to pay until Confirm.
   Draft mode takes over new checkouts whatever reserve-first says.
@@ -347,3 +349,59 @@ directly under "Order confirmation (reserve first)", section id
 - Tests: `src/test/checkout-mode-card.test.tsx`. Harness:
   `/__fixtures?view=hub&at=/website?tab=settings&checkout=draft&drafts=3`
   (`&roles=staff` for the read-only view).
+
+## PR 10 — the reserve-first path retired (2026-10-01)
+
+Owner decisions 23:00 JST: D1 retire now (SQL-4 = 0 rows; the last old-flow
+reservations were two cancelled test orders on 25 Sep; the W2-12 one-month
+rollback window was waived), D2 remove the checkout-mode card and keep
+`web_checkout_mode()` answering `draft`, D3 the "Reserve first, pay after"
+copy and the cart-reminder "we reserve and confirm" sentence are always on.
+
+Migration `20261023100000_web_orders_pr10_cleanup.sql` (refuses to run while
+SQL-4 > 0 or the switch is not `draft`; md5-guarded patches):
+
+- DROPPED `confirm_web_order_ready_atomic`, `decline_web_layaway_reservation_atomic`,
+  `expire_unconfirmed_web_reservations_atomic`, `get_/set_/guard_web_reservation_mode`
+  and `trg_guard_web_reservation_mode`; the `web_reservation_mode` row is
+  deleted with an audit row (`retire_web_reservation_mode`).
+- `web_reservation_expiring_bells` now reads drafts only; `set_web_checkout_mode`
+  refuses `order` (`mode_retired`). `page365_web_holds` is unchanged: its
+  cash/layaway terms count orders MATERIALIZED from drafts, which still hold stock.
+- `ready_confirmed_at` stays: `materialize_web_draft_atomic` stamps it, and the
+  storefront's `awaiting_confirmation` / `ready_for_payment` flags read it.
+
+Edge functions: `confirm-web-order-ready` and `decline-web-reservation` are
+DELETED (config.toml blocks removed — Lovable must delete the deployments);
+`website` no longer reads either switch (`/checkout/pay` always writes a draft;
+`/content/settings.web_reservation_mode` is the constant `true`; quotes carry
+`reservation_mode: true`, `provisional: true`, `transfer_methods: []`,
+`requires_manual_quote: false`); `web-reservation-sweep` sweeps drafts only;
+`cart-reminder-sweep` sets `reserveFirst = true`.
+
+Hub: `ReservationActions` / `ReservationPanel` / `ReservationsAwaitingCard`,
+`ReservationModeCard`, `CheckoutModeCard`, `useWebReservations` and the
+"Old flow" park rows are gone; Website → Settings shows one static "Website
+orders" note with a link to the park. The permission key
+`confirm_web_order_ready` stays (it gates drafts).
+
+Storefront (PR after the deploy): drops `quoteIsReservation` and the
+`web_reservation_mode` settings reader; "Reserve first, pay after." is shown
+unconditionally.
+
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### WEB ORDER DRAFTS — the only checkout path
+
+- WEB ORDER DRAFTS (2026-09-29, PR 3; LIVE and THE ONLY CHECKOUT PATH since
+  PR 10, 2026-10-01; docs/WEB-ORDER-DRAFTS.md): written ONLY by the
+  *_web_draft_atomic functions. page365_web_holds MUST count held draft
+  lines; Confirm (materialize_web_draft_atomic) transfers the hold and never
+  moves stock. web_checkout_mode is 'draft' and stays so: set_web_checkout_mode
+  (admin, audited) refuses 'order' (mode_retired); never change it in SQL.
+  The reserve-first path (web_reservation_mode, confirm-web-order-ready,
+  decline-web-reservation, the old-flow RPCs) is DROPPED — never re-add a
+  checkout that writes an order or plan directly.

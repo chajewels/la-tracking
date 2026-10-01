@@ -111,3 +111,16 @@
   .dark and now alias the Deco Ledger family (--gold = gold-500,
   --gold-light = gold-300).
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### TWO CHECKS, both must be 0 (retired gold, token discipline)
+
+- TWO CHECKS, both must be 0:
+    1. retired gold, repo-wide, CASE-INSENSITIVE:
+       grep -rniE "#D4AF37|#E7D7A2|#E8C84A" src supabase/functions --include="*.tsx" --include="*.ts"
+    2. token discipline, src only (do NOT widen — email templates must inline
+       the canonical #C9A227):
+       grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"

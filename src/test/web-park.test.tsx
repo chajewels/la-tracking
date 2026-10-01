@@ -43,7 +43,8 @@ describe("what is parked", () => {
     expect(isAwaitingPayment(web(), "cash_order")).toBe(true);
     expect(isAwaitingPayment(web({ status: "active" }), "layaway")).toBe(true);
     expect(isAwaitingPayment(web({ status: "overdue" }), "layaway")).toBe(true);
-    // Not yet confirmed (old reserve-first flow) → To confirm, not Awaiting payment.
+    // A row still unconfirmed (ready_confirmed_at NULL, the retired reserve-first
+    // shape) is never "awaiting payment" — nothing is owed before confirmation.
     expect(isAwaitingPayment(web({ ready_confirmed_at: null }), "cash_order")).toBe(false);
     expect(isAwaitingPayment(web({ status: "expired" }), "cash_order")).toBe(false);
     expect(isAwaitingPayment(web({ status: "forfeited" }), "layaway")).toBe(false);
@@ -76,7 +77,6 @@ describe("what is parked", () => {
 type Rec = Record<string, unknown>;
 let openDrafts: Rec[] = [];
 let closedDrafts: Rec[] = [];
-let oldFlow: Rec[] = [];
 let awaiting: Rec[] = [];
 let closedOrders: Rec[] = [];
 const decline = vi.fn();
@@ -87,12 +87,6 @@ vi.mock("@/hooks/use-web-park", () => ({
   useWebClosedUnpaid: () => ({ data: closedOrders, isLoading: false, isError: false }),
   useInvalidateWebPark: () => vi.fn(),
   declineWebDraft: (...a: unknown[]) => decline(...a),
-}));
-vi.mock("@/hooks/use-supabase-data", () => ({
-  useWebReservations: () => ({ data: oldFlow, isLoading: false }),
-  useConfirmWebOrderReady: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useDeclineWebReservation: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  usePreviewWebOrderReady: () => ({ isLoading: false, isError: false }),
 }));
 vi.mock("@/contexts/PermissionsContext", () => ({ usePermissions: () => ({ can: () => true }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
@@ -117,7 +111,7 @@ function mount(search?: string) {
 }
 
 beforeEach(() => {
-  openDrafts = []; closedDrafts = []; oldFlow = []; awaiting = []; closedOrders = [];
+  openDrafts = []; closedDrafts = []; awaiting = []; closedOrders = [];
   decline.mockReset();
   decline.mockResolvedValue(undefined);
 });
@@ -136,11 +130,12 @@ describe("Sales → Website orders", () => {
     expect(within(row).getByRole("link", { name: "Review" })).toHaveAttribute("href", "/orders/review/website/d1");
   });
 
-  it("old-flow reservations are listed too, marked Old flow", () => {
-    oldFlow = [{ kind: "cash_order", id: "r1", reference: "CJ-W-000050", customer_name: "Old", customer_is_test: false, total_amount: 1000, currency: "JPY", plan_months: null, created_at: "2026-09-29T00:00:00Z" }];
+  it("To confirm lists drafts only — the old reserve-first flow is retired (PR 10)", () => {
+    openDrafts = [draft()];
     mount();
     expect(screen.getByText("To confirm · 1")).toBeInTheDocument();
-    expect(within(screen.getByTestId("park-old-flow")).getByText("Old flow")).toBeInTheDocument();
+    expect(screen.queryByText("Old flow")).toBeNull();
+    expect(screen.queryByTestId("park-old-flow")).toBeNull();
   });
 
   it("Can't supply needs a reason, then declines the draft", async () => {

@@ -253,7 +253,7 @@ jobs:
       # and the password-sign-in check behind portal_password_at
       # (development/portal-auth-amr.test.ts).
       - name: Email encoding + links + sign-in audience + layaway English + portal link + password sign-in (blocking)
-        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/auth-audience.test.ts development/layaway-english.test.ts development/portal-link.test.ts development/portal-auth-amr.test.ts
+        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/auth-audience.test.ts development/layaway-english.test.ts development/cart-reminder-ja.test.ts development/portal-link.test.ts development/portal-auth-amr.test.ts
 
   # --------------------------------------------------------------- housekeeping
   # Firebase Hosting allows a limited number of preview channels per site (50

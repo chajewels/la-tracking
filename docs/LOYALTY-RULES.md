@@ -209,3 +209,58 @@
     manual POSTs to sync-loyalty-to-sheet (Transactions rows 419/
     420 + Members row 485) — Supabase and sheet match.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Rule 1 — portal signup, duplicate block, enrollment paths
+
+1. Portal signup (setup-customer-account) creates the customers row and
+   auto-enrolls at Glimmer; an existing email only links. DUPLICATE BLOCK:
+   find_customer_matches on name / Facebook name / mobile / email; any match →
+   409 already_registered, nothing created, bell duplicate_signup_blocked. Same
+   rule on website POST /auth/customer and every Hub create path — no "create
+   anyway". EVERY enrollment path MUST set enrollment_source, write one
+   'enrolled' ledger row naming the source, send the 'enrolled' sheet event and
+   set synced_to_sheet_at on success. Customer-authed callers may send only
+   portal_join / storefront_checkout / storefront_join. website POST
+   /loyalty/join NEVER enrolls (it records a failed enrollment and raises bell
+   'loyalty_join_failed').
+
+### Rule 13 — reversal basis
+
+13. POINTS are reversed from surviving lots; SPEND from the order's own ledger
+   basis (loyalty_order_spend_basis). NEVER use loyalty_jpy_amount as the
+   reversal basis; NEVER honour revoke_loyalty_points' p_spend_jpy (ignored).
+   Exactly ONE revoke_loyalty_points (10 args) — never add a second overload.
+   A revoke only ever LOWERS a tier, never raises it: a member stepped down by
+   the 180-day rule keeps the lower tier and the step-down fields (20261017100000).
+   A reversal that cannot be sourced (no earned/revoked row, money WAS
+   received) raises audit + bell 'loyalty_reversal_unsourced' and RETURNS,
+   never refuses. An order that received NO money stays silent — a
+   loyalty_jpy_amount alone proves nothing (2026-09-24). Corrections that add
+   points are an 'earned' row + revoke-and-replace of the one active
+   order_earn lot, expiry preserved (never 'adjusted').
+
+### LOYALTY INACTIVITY — effectiveLastPurchase derivation and created_at contamination
+
+- `loyalty-inactivity-check` (pg_cron job 16, 180-day) now derives
+  `effectiveLastPurchase = GREATEST(stored last_purchase_at, MAX
+  successful order_date)` per member and measures the 166-day
+  warning + 180-day expiry against it. Read-only derivation — the
+  cron does NOT write `last_purchase_at` back. This guarantees a
+  member with a recent real order is never warned or expired even
+  if `award-loyalty-points` never fired for it. The customer's
+  `order_date` source is queried in one paginated pass per table
+  (`layaway_accounts` + `cash_orders`) and JS-aggregated to a
+  per-customer `Map<customer_id, Date>` — no N+1, no `.in(customerIds)`
+  URL-length risk (Bug #59 precedent).
+
+- `created_at` is the row INSERT/import timestamp (bulk import =
+  `2026-03-20`) — NEVER use `created_at` as an order/purchase
+  date. Use `order_date` (`layaway_accounts` & `cash_orders`)
+  and `date_paid` (`payments`). `customers.created_at` has the same
+  March-2026 import contamination — see docs/SCHEMA-FACTS.md
+  ("customers.created_at import contamination"; the Dashboard New
+  Customers trend clips at NEW_CUSTOMER_TREND_CUTOFF = 2026-04).

@@ -28,6 +28,7 @@ import { LayawayReservedEmail } from '../supabase/functions/_shared/email-templa
 import { LayawayPlanCreatedEmail } from '../supabase/functions/_shared/email-templates/layaway-plan-created.tsx'
 import { LayawayDeclinedEmail } from '../supabase/functions/_shared/email-templates/layaway-declined.tsx'
 import { LayawayDepositDueEmail } from '../supabase/functions/_shared/email-templates/layaway-deposit-due.tsx'
+import { CartReminderEmail } from '../supabase/functions/_shared/email-templates/cart-reminder.tsx'
 import { LayawayExpiredEmail } from '../supabase/functions/_shared/email-templates/layaway-expired.tsx'
 import { LayawayForfeitedEmail } from '../supabase/functions/_shared/email-templates/layaway-forfeited.tsx'
 import { LayawayPaymentReceivedEmail } from '../supabase/functions/_shared/email-templates/layaway-payment-received.tsx'
@@ -124,6 +125,12 @@ function storefrontFixtures(): Fixture[] {
       }
     }
   }
+  // Cart reminders (stages A/B): one language per email, every money form.
+  const cartItems = [{ name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', stone: 'Akoya pearl', qty: 1, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 0.3 }]
+  const cartPlan = { currency: 'JPY', deposit: 20400, monthly: 15867, lastMonth: 15866, termMonths: 3, total: 68000 }
+  for (const lang of LANGS)
+    for (const form of ['stage_a', 'full_jpy', 'full_php', 'layaway'])
+      add('cart-reminder.tsx', `cart-reminder ${lang} ${form}`, el(CartReminderEmail, { lang, form, items: cartItems, plan: cartPlan, reserveFirst: true, reachedCheckout: form !== 'stage_a', cartUrl: `${shopUrl}/cart/restore`, unsubscribeUrl: `${shopUrl}/cart-reminders/unsubscribe?token=demo` }))
   // Loyalty level emails are bilingual in one body (JA then EN).
   add('loyalty-level.tsx', 'loyalty-level warning', el(LevelWarningEmail, { customerName: '山田 花子', currentLevel: 'Radiant', nextLowerLevel: 'Glimmer', stepDownAt: new Date('2026-12-01T00:00:00Z'), daysLeft: 30, points: 1200, portalUrl: shopUrl }))
   add('loyalty-level.tsx', 'loyalty-level stepdown', el(LevelStepdownEmail, { customerName: '山田 花子', oldLevel: 'Radiant', newLevel: 'Glimmer', earnedLevel: 'Radiant', regainJpy: 150000, portalUrl: shopUrl }))

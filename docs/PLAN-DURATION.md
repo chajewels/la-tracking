@@ -88,3 +88,16 @@
   any non-configured count (e.g. deleting from 6→5 rows). Reverted in
   commit `29505ae` (2026-05-20). DO NOT REOPEN this approach.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### The ONLY plan-change path: change-payment-plan
+
+- The ONLY plan-change path: change-payment-plan (permission
+  change_payment_plan) → change_payment_plan_atomic, called only from Manage
+  Invoice. Active/overdue only; new plan 3/6/8; reason required. Pending
+  submissions do not block. FIXED rows 1..k are never touched; open rows are
+  UPDATED IN PLACE, never deleted and re-inserted (deleting cascades). apply
+  false = preview. restructure-account is NOT a plan-change path.

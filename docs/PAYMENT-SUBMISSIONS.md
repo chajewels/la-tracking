@@ -95,3 +95,24 @@
     so notify_submission_created staff-bell bodies no longer show
     "Unknown sender" for staff-recorded payments.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Payment submission rate limits — where each cap is implemented
+
+Implemented in record-payment/index.ts. DP caps filter the count by
+submission_type='downpayment' so DP and non-DP caps are independent
+(hitting the DP cap does not consume installment headroom and vice
+versa).
+
+submit-payment/index.ts uses a flat 3-cap for all submissions (no
+DP branch, no trade branch). Customer-portal DP submissions hit
+this cap at attempt 4 regardless of trade status.
+
+record-multi-payment/index.ts is uncapped (intentional — staff
+batch entry path).
+
+HTTP 429 returned on cap exceeded. Frontend handler in
+RecordPaymentDialog.tsx parses error.message containing 'Too many'.

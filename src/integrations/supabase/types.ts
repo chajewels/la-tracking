@@ -178,6 +178,53 @@ export type Database = {
         }
         Relationships: []
       }
+      cart_reminder_sends: {
+        Row: {
+          claimed_at: string
+          customer_id: string | null
+          cycle_id: string
+          detail: string | null
+          email: string
+          finished_at: string | null
+          id: string
+          items: Json
+          lang: string
+          status: string
+        }
+        Insert: {
+          claimed_at?: string
+          customer_id?: string | null
+          cycle_id: string
+          detail?: string | null
+          email: string
+          finished_at?: string | null
+          id?: string
+          items: Json
+          lang: string
+          status?: string
+        }
+        Update: {
+          claimed_at?: string
+          customer_id?: string | null
+          cycle_id?: string
+          detail?: string | null
+          email?: string
+          finished_at?: string | null
+          id?: string
+          items?: Json
+          lang?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cart_reminder_sends_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cash_order_items: {
         Row: {
           cash_order_id: string
@@ -949,6 +996,174 @@ export type Database = {
             foreignKeyName: "customer_analytics_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_cart_lines: {
+        Row: {
+          added_at: string
+          customer_id: string
+          qty: number
+          variant_id: string
+        }
+        Insert: {
+          added_at?: string
+          customer_id: string
+          qty: number
+          variant_id: string
+        }
+        Update: {
+          added_at?: string
+          customer_id?: string
+          qty?: number
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_cart_lines_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customer_carts"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_cart_lines_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_carts: {
+        Row: {
+          client_as_of: string | null
+          created_at: string
+          customer_id: string
+          cycle_id: string
+          cycle_started_at: string
+          lang: string
+          updated_at: string
+        }
+        Insert: {
+          client_as_of?: string | null
+          created_at?: string
+          customer_id: string
+          cycle_id?: string
+          cycle_started_at?: string
+          lang?: string
+          updated_at?: string
+        }
+        Update: {
+          client_as_of?: string | null
+          created_at?: string
+          customer_id?: string
+          cycle_id?: string
+          cycle_started_at?: string
+          lang?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_carts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_email_consent_events: {
+        Row: {
+          action: string
+          customer_id: string | null
+          email: string | null
+          id: number
+          kind: string
+          lang: string | null
+          metadata: Json
+          occurred_at: string
+          source: string
+          text_version: string | null
+        }
+        Insert: {
+          action: string
+          customer_id?: string | null
+          email?: string | null
+          id?: number
+          kind: string
+          lang?: string | null
+          metadata?: Json
+          occurred_at?: string
+          source: string
+          text_version?: string | null
+        }
+        Update: {
+          action?: string
+          customer_id?: string | null
+          email?: string | null
+          id?: number
+          kind?: string
+          lang?: string | null
+          metadata?: Json
+          occurred_at?: string
+          source?: string
+          text_version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_email_consent_events_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_email_consents: {
+        Row: {
+          consented_at: string | null
+          customer_id: string
+          kind: string
+          lang: string | null
+          opted_in: boolean
+          source: string
+          text_version: string | null
+          unsubscribe_token: string
+          updated_at: string
+          withdrawn_at: string | null
+        }
+        Insert: {
+          consented_at?: string | null
+          customer_id: string
+          kind: string
+          lang?: string | null
+          opted_in?: boolean
+          source: string
+          text_version?: string | null
+          unsubscribe_token?: string
+          updated_at?: string
+          withdrawn_at?: string | null
+        }
+        Update: {
+          consented_at?: string | null
+          customer_id?: string
+          kind?: string
+          lang?: string | null
+          opted_in?: boolean
+          source?: string
+          text_version?: string | null
+          unsubscribe_token?: string
+          updated_at?: string
+          withdrawn_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_email_consents_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -7894,6 +8109,20 @@ export type Database = {
         }
         Returns: Json
       }
+      cart_reminder_candidates: {
+        Args: { p_limit?: number }
+        Returns: {
+          customer_id: string
+          cycle_id: string
+          email: string
+          items: Json
+          lang: string
+          quote_currency: string
+          quote_mode: string
+          quote_term: number
+          unsubscribe_token: string
+        }[]
+      }
       change_payment_plan_atomic: {
         Args: {
           p_account_id: string
@@ -7912,6 +8141,16 @@ export type Database = {
         Args: { p_account_id: string; p_amount: number; p_date?: string }
         Returns: Json
       }
+      claim_cart_reminder: {
+        Args: {
+          p_customer_id: string
+          p_cycle_id: string
+          p_email: string
+          p_items: Json
+          p_lang: string
+        }
+        Returns: string
+      }
       claim_loyalty_award: {
         Args: { p_source_id: string; p_source_kind: string }
         Returns: boolean
@@ -7927,15 +8166,6 @@ export type Database = {
           p_transaction_id: string
         }
         Returns: undefined
-      }
-      confirm_web_order_ready_atomic: {
-        Args: {
-          p_entity_id: string
-          p_entity_type: string
-          p_note?: string
-          p_user_id: string
-        }
-        Returns: Json
       }
       consume_lots_fifo: {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
@@ -7997,15 +8227,6 @@ export type Database = {
         }
         Returns: Json
       }
-      decline_web_layaway_reservation_atomic: {
-        Args: {
-          p_account_id: string
-          p_reason: string
-          p_source?: string
-          p_user_id?: string
-        }
-        Returns: Json
-      }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
         Returns: Json
@@ -8041,10 +8262,6 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
-      }
-      expire_unconfirmed_web_reservations_atomic: {
-        Args: { p_hours?: number; p_limit?: number }
-        Returns: Json
       }
       expire_web_drafts_atomic: {
         Args: { p_hours?: number; p_limit?: number }
@@ -8226,6 +8443,10 @@ export type Database = {
           mobile_number: string
         }[]
       }
+      finish_cart_reminder: {
+        Args: { p_detail: string; p_id: string; p_status: string }
+        Returns: undefined
+      }
       finish_web_payment_reminder: {
         Args: { p_detail: string; p_id: string; p_status: string }
         Returns: undefined
@@ -8386,7 +8607,6 @@ export type Database = {
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       get_web_checkout_mode: { Args: never; Returns: Json }
       get_web_payment_reminders: { Args: never; Returns: Json }
-      get_web_reservation_mode: { Args: never; Returns: Json }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
         Returns: boolean
@@ -8805,6 +9025,7 @@ export type Database = {
           use_count: number
         }[]
       }
+      purge_stale_customer_carts: { Args: never; Returns: number }
       reactivate_layaway_atomic: {
         Args: {
           p_account_id: string
@@ -8969,6 +9190,16 @@ export type Database = {
         }
         Returns: Json
       }
+      set_cart_reminder_consent: {
+        Args: {
+          p_customer_id: string
+          p_lang: string
+          p_opt_in: boolean
+          p_source: string
+          p_text_version: string
+        }
+        Returns: Json
+      }
       set_hero_cutout_mode: {
         Args: { p_expected_mode?: string; p_mode: string }
         Returns: Json
@@ -9019,10 +9250,6 @@ export type Database = {
           p_mode: string
           p_owner_addresses?: Json
         }
-        Returns: Json
-      }
-      set_web_reservation_mode: {
-        Args: { p_enabled: boolean; p_expected?: boolean }
         Returns: Json
       }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
@@ -9136,6 +9363,23 @@ export type Database = {
       }
       website_publish_products: {
         Args: { p_product_ids: string[] }
+        Returns: Json
+      }
+      website_set_cart: {
+        Args: {
+          p_as_of: string
+          p_customer_id: string
+          p_lang: string
+          p_lines: Json
+        }
+        Returns: Json
+      }
+      withdraw_cart_reminder_by_email: {
+        Args: { p_email: string }
+        Returns: number
+      }
+      withdraw_cart_reminder_by_token: {
+        Args: { p_token: string }
         Returns: Json
       }
     }
