@@ -132,6 +132,36 @@ jobs:
       # its own `pr-<number>` channel so two open PRs never overwrite each
       # other's preview. --only main is the HOSTING TARGET name from
       # .firebaserc (target `main` -> site `chajewelslayaway`), not the branch.
+      # Channel quota (2026-10-02, PR #317 failed twice with HTTP 429 "channel
+      # quota reached"): every PR leaves a `pr-<n>` channel behind for its
+      # 30-day expiry, and a busy month fills the site's channel quota. Before
+      # creating a channel, delete the `pr-<n>` channels whose PR is already
+      # closed — nobody reviews those previews any more. Never touches
+      # `develop` or `live`. Best effort: a listing or delete failure is
+      # reported but never fails the build.
+      - name: Prune preview channels of closed PRs
+        if: >-
+          github.event_name == 'pull_request'
+          || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+              && github.ref == 'refs/heads/develop')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
+          firebase hosting:channel:list --site chajewelslayaway \
+            --project cha-jewels-la-tracking --non-interactive --json > channels.json || { echo "channel list failed"; cat channels.json; exit 0; }
+          for ch in $(jq -r '.result.channels[]?.name | split("/") | last | select(startswith("pr-"))' channels.json); do
+            n="${ch#pr-}"
+            state=$(gh api "repos/${{ github.repository }}/pulls/$n" --jq .state 2>/dev/null || echo unknown)
+            if [ "$state" = "closed" ]; then
+              echo "deleting $ch (PR #$n is closed)"
+              firebase hosting:channel:delete "$ch" --site chajewelslayaway \
+                --project cha-jewels-la-tracking --force --non-interactive || echo "delete of $ch failed (ignored)"
+            fi
+          done
+
       - name: Deploy to preview channel
         id: preview
         if: >-
@@ -161,7 +191,7 @@ jobs:
           firebase hosting:channel:deploy "$CHANNEL" \
             --only main \
             --project cha-jewels-la-tracking \
-            --expires 30d \
+            --expires 7d \
             --non-interactive --json > channel.json
           deploy_rc=$?
           set -e
