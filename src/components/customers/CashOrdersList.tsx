@@ -487,7 +487,11 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
           <IllustratedState
             kind="ledger"
             className="rounded-xl border border-gold-500/15 bg-card py-12"
-            text={searchRef.current || filterStatus !== 'all' ? 'No cash orders match — try clearing the search or filters.' : 'No cash orders yet — record the first one to get started.'}
+            text={newToday
+              ? 'No new cash orders today.'
+              : searchRef.current || filterStatus !== 'all' || filterCurrency !== 'all' || filterChannel !== 'all'
+                ? 'No cash orders match — try clearing the search or filters.'
+                : 'No cash orders yet — record the first one to get started.'}
             action={canCreate ? (
               <Link to="/cash-orders/new">
                 <Button size="sm" className="gold-gradient text-primary-foreground">

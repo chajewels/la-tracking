@@ -757,7 +757,14 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
           <IllustratedState
             kind="ledger"
             className="rounded-xl border border-gold-500/15 bg-card py-12"
-            text={searchRef.current || filterStatus !== 'all' ? 'No accounts match — try clearing the search or filters.' : 'No layaway accounts yet — create the first one to get started.'}
+            // The wording follows what is narrowing the list: "New today" says so,
+            // any search/filter says "match", and only an untouched list says "yet"
+            // (2026-09-30: a filtered "New today" read "No layaway accounts yet").
+            text={newToday
+              ? 'No new layaway accounts today.'
+              : searchRef.current || filterStatus !== 'all' || filterCurrency !== 'all' || filterChannel !== 'all' || filterPeriod
+                ? 'No accounts match — try clearing the search or filters.'
+                : 'No layaway accounts yet — create the first one to get started.'}
             action={!embedded ? (
               <Link to={ROUTES.NEW_ACCOUNT}>
                 <Button size="sm" className="gold-gradient text-primary-foreground">
