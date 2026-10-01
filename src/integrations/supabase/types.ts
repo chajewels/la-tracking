@@ -8167,15 +8167,6 @@ export type Database = {
         }
         Returns: undefined
       }
-      confirm_web_order_ready_atomic: {
-        Args: {
-          p_entity_id: string
-          p_entity_type: string
-          p_note?: string
-          p_user_id: string
-        }
-        Returns: Json
-      }
       consume_lots_fifo: {
         Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
         Returns: number
@@ -8236,15 +8227,6 @@ export type Database = {
         }
         Returns: Json
       }
-      decline_web_layaway_reservation_atomic: {
-        Args: {
-          p_account_id: string
-          p_reason: string
-          p_source?: string
-          p_user_id?: string
-        }
-        Returns: Json
-      }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
         Returns: Json
@@ -8280,10 +8262,6 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
-      }
-      expire_unconfirmed_web_reservations_atomic: {
-        Args: { p_hours?: number; p_limit?: number }
-        Returns: Json
       }
       expire_web_drafts_atomic: {
         Args: { p_hours?: number; p_limit?: number }
@@ -8629,7 +8607,6 @@ export type Database = {
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       get_web_checkout_mode: { Args: never; Returns: Json }
       get_web_payment_reminders: { Args: never; Returns: Json }
-      get_web_reservation_mode: { Args: never; Returns: Json }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
         Returns: boolean
@@ -9273,10 +9250,6 @@ export type Database = {
           p_mode: string
           p_owner_addresses?: Json
         }
-        Returns: Json
-      }
-      set_web_reservation_mode: {
-        Args: { p_enabled: boolean; p_expected?: boolean }
         Returns: Json
       }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
