@@ -1,7 +1,7 @@
 import { Check, Circle, Flag, AlertTriangle, Trophy, Banknote } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
-import { formatPHTDisplay } from '@/lib/date-utils';
+import { formatPHTDisplay, formatPHTDateOrTime } from '@/lib/date-utils';
 import { Currency } from '@/lib/types';
 import { ordinal } from '@/lib/business-rules';
 
@@ -199,7 +199,7 @@ export function CashOrderTimeline({ currency, orderDate, payments, status, termi
         <NodeDot tone="gold" icon={Flag} />
         <div className="pt-0.5">
           <p className="text-sm font-semibold text-card-foreground">Order placed</p>
-          {orderDate && <p className="text-xs text-muted-foreground">{formatPHTDisplay(orderDate)}</p>}
+          {orderDate && <p className="text-xs text-muted-foreground">{formatPHTDateOrTime(orderDate)}</p>}
         </div>
       </li>
       {payments.map(p => (
