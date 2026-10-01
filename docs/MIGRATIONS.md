@@ -121,3 +121,35 @@ can exceed 100% because actual_collected includes downpayment while
 expected_collected excludes it. Drives a noisy quality-degradation alert.
 Separate ticket if undesired.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### GUC bypass — the 2-HTTP-call anti-pattern and the atomic RPC pattern (Bug #39)
+
+DO NOT use the 2-HTTP-call pattern:
+  await supabase.rpc('set_config', {..., is_local: true});
+  await supabase.from(table).delete()/.update()/...;
+
+This pattern fails Bug #39: set_config(is_local: true) is
+SCOPED TO THE TRANSACTION of HTTP call 1. HTTP call 2 may use
+a different connection/transaction, so the GUC does not persist.
+The trigger fires, the write is blocked, and depending on the
+edge function's error handling, the failure may be silent.
+
+CORRECT pattern (single transaction guarantee):
+  CREATE FUNCTION xxx_atomic(...) RETURNS jsonb
+  LANGUAGE plpgsql SECURITY DEFINER AS $$
+  BEGIN
+    PERFORM set_config('app.your_guc', 'on', true);
+    INSERT INTO audit_table (...);  -- if applicable
+    DELETE FROM target_table WHERE ...;  -- or UPDATE/INSERT
+    RETURN jsonb_build_object('success', true);
+  END;
+  $$;
+
+  -- Edge function:
+  const { data, error } = await supabase.rpc('xxx_atomic', {...});
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);

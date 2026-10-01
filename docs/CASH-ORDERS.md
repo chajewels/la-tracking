@@ -206,3 +206,28 @@ currency and `customer_lang`, every transfer method) 6h before a 24h deadline or
 submission (INVARIANT 12) suppresses it. Hub-made cash orders never get one.
 The layaway-expired email is now always English (D17). Full rules:
 docs/WEB-PAYMENT-REMINDERS.md.
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### ORDER DELETION — why (the 19144 / 19278 deletions)
+
+Why: cash order 19144 (¥463,980, completed) was deleted 2026-08-26 and
+layaway 19278 (₱523,712, completed) on 2026-08-25, both through the Hub's
+Delete button under the shared sales@ login; their payment rows went with
+them and the money vanished from every report and receipt roster.
+
+### ORDER DELETION — the three enforcement layers and exemptions
+
+Enforced in three layers (migration 20260913110000_prevent_paid_order_delete):
+  1. BEFORE DELETE triggers trg_prevent_paid_layaway_delete /
+     trg_prevent_paid_cash_order_delete (prevent_paid_order_delete()) — no
+     bypass GUC, so SQL Editor deletes are refused too.
+  2. delete_account_atomic / delete_cash_order_atomic return
+     {error:'paid_order_delete_forbidden'} BEFORE touching child rows.
+  3. delete-account / delete-cash-order edge functions answer 409; the Hub
+     hides the Delete button on such orders and shows the rule instead.
+Exempt: orders of customers flagged is_test = true (scaffolding, not money).
+Unpaid, never-completed orders (typos, duplicates with ₱0/¥0 received) can
+still be deleted by admin as before.
