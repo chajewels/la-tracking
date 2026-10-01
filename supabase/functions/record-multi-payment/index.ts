@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
       preview_only,
       allocations: inputAllocations,
       proof_url,
+      batch_key,
     } = body as {
       customer_id: string;
       /** REQUIRED (F04). Enforced by validateAllocations, which rejects a
@@ -72,6 +73,10 @@ Deno.serve(async (req) => {
       preview_only?: boolean;
       allocations: Array<{ account_id: string; amount: number; is_downpayment?: boolean; carry_over?: boolean }>;
       proof_url?: string;
+      /** One key per press of the submit button (MultiInvoicePaymentDialog);
+       *  the whole batch is written under it in one transaction and a retry
+       *  with the same key books nothing twice. Required on a real submit. */
+      batch_key?: string;
     };
 
     // Validate input
@@ -86,6 +91,11 @@ Deno.serve(async (req) => {
     // non-empty proof_url. Preview writes nothing, so it is exempt.
     if (!preview_only && (typeof proof_url !== "string" || proof_url.trim().length === 0)) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (!preview_only && (typeof batch_key !== "string" || batch_key.trim().length < 8)) {
+      return new Response(JSON.stringify({ error: "batch_key is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -184,22 +194,18 @@ Deno.serve(async (req) => {
 
     const effectiveDate = date_paid || new Date().toISOString().split("T")[0];
     const effectiveMethod = payment_method || "cash";
-    const batchId = crypto.randomUUID();
+    // The batch key is the caller's (one per submit press); a preview has
+    // none and gets a throwaway id for its response only.
+    const batchId = batch_key?.trim() || crypto.randomUUID();
 
-    // TODO (deferred — needs an RPC, tracked as its own step): this loop is
-    // NOT atomic and NOT idempotent.
-    //   PARTIAL BATCH: each leg inserts its own payment_submissions row inside
-    //   the loop. A failure on leg 3 of 5 leaves legs 1-2 submitted and 3-5
-    //   not, with no rollback and no marker on the batch_id, so the reviewer
-    //   sees a batch that is short by two legs and nothing says why.
-    //   RETRY: batch_id is a fresh crypto.randomUUID() per call, so a client
-    //   retry after a timeout creates a SECOND full set of submissions for the
-    //   same money. Nothing dedupes them — the per-account advisory-lock guard
-    //   that record-payment gets from insert_payment_submission_guarded has no
-    //   equivalent here.
-    // Both need one transactional RPC that takes the whole batch plus a
-    // caller-supplied idempotency key. Deliberately NOT attempted in this step
-    // (F04 / #291 is validation only).
+    // This loop PREVIEWS every leg (allocate_payment_atomic p_preview:true)
+    // and writes nothing. The submissions are written below, after the loop,
+    // by ONE call to insert_payment_submissions_batch — all legs or none,
+    // idempotent on the batch key, with the per-account duplicate guard
+    // (migration 20261020100000, docs/PAYMENT-SUBMISSIONS.md "BATCH INSERT").
+    // Before 2026-10-02 each leg inserted its own row inside this loop: a
+    // failure on leg 3 of 5 left a half batch, and a retry after a timeout
+    // booked the same money twice.
     for (const inputAlloc of inputAllocations) {
       // The former `if (Number(inputAlloc.amount) <= 0) continue;` is GONE.
       // validateAllocations has already rejected every non-positive and
@@ -268,52 +274,39 @@ Deno.serve(async (req) => {
         new_remaining_balance: Math.max(0, newRemainingBalance),
         new_status: newStatus,
       });
+    }
 
-      // If not preview, create a pending payment_submissions row for every
-      // role (Bug #219). Direct writes to the payments table happen ONLY via
-      // review-payment-submission. The prior canConfirm direct-write branch
-      // was removed (Bug #218).
-      if (!preview_only) {
-        const { data: submission, error: subErr } = await supabase
-          .from("payment_submissions")
-          .insert({
-            account_id: inputAlloc.account_id,
-            customer_id: customer_id,
-            submitted_amount: amountForAccount,
-            payment_date: effectiveDate,
-            payment_method: effectiveMethod,
-            reference_number: batchId,
-            notes: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
-            status: "submitted",
-            submission_type: inputAlloc.is_downpayment ? 'downpayment' : 'installment',
-            sender_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
-            proof_url: proof_url!.trim(),
-          })
-          .select("id")
-          .single();
-        if (subErr) throw subErr;
-
-        // Audit write is best-effort, but NEVER silently ignored: the
-        // submission already exists, so failing the request here would leave
-        // the caller thinking nothing was booked. Log loudly instead.
-        const { error: auditErr } = await supabase.from("audit_logs").insert({
-          entity_type: "payment_submission",
-          entity_id: submission.id,
-          action: "staff_multi_payment_submitted",
-          new_value_json: {
-            batch_id: batchId,
-            amount: amountForAccount,
-            account_id: inputAlloc.account_id,
-          },
-          performed_by_user_id: userId,
+    // Non-preview: write the whole batch in one transaction.
+    if (!preview_only) {
+      const senderName = (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null;
+      const rows = inputAllocations.map((a, i) => ({
+        row: i + 1,
+        account_id: a.account_id,
+        amount: Number(a.amount),
+        date: effectiveDate,
+        method: effectiveMethod,
+        remarks: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
+        is_downpayment: !!a.is_downpayment,
+      }));
+      const { data: batch, error: batchErr } = await supabase.rpc("insert_payment_submissions_batch", {
+        p_batch_key: batchId,
+        p_proof_url: proof_url!.trim(),
+        p_rows: rows,
+        p_source: "multi_invoice",
+        p_sender_name: senderName,
+        p_user_id: userId,
+        p_force: false,
+      });
+      if (batchErr) {
+        // 23505 = the RPC's duplicate_submission_detected; everything else is
+        // its own refusal text (account closed, amount over balance, …).
+        const dup = (batchErr as any).code === "23505";
+        return new Response(JSON.stringify({ error: batchErr.message }), {
+          status: dup ? 409 : 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (auditErr) {
-          console.error(
-            `[multi-pay] audit_logs insert FAILED for submission ${submission.id} ` +
-              `(batch ${batchId}, account ${inputAlloc.account_id}): ${auditErr.message}`,
-          );
-        }
       }
+      console.log(`[multi-pay] batch ${batchId}: inserted=${batch?.inserted} count=${batch?.count}`);
     }
 
     // Non-preview: every account in the batch was submitted for confirmation.
