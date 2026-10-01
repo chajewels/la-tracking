@@ -210,3 +210,42 @@
     must stay behind the service-role claims gate +
     `verify_jwt = true`.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### CRON ORDERING RULE
+
+CRON ORDERING RULE — never violate (UTC): reminders 00:00 → penalty engine
+00:05 → auto-forfeit 00:10 → daily-reconciliation 00:20 (never before 00:15)
+→ loyalty-inactivity-check 00:25 → loyalty-award-sweep 00:35. The award sweep
+is DELIBERATELY its own job (time-boxed, resumes from a reconciliation_log
+cursor); never move it back inline into daily-reconciliation. daily-fx-rate
+(00:45) is independent and writes only fx_rates; `website` derives price_php
+at read time and NEVER stores a peso price. auto-expire-cash-orders (:40
+hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
+hourly. web-payment-reminder-sweep and web-reservation-expiring-bell run :13
+hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 min (2-59/5) and touches no
+account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every minute
+(* * * * *, since 20261007100000) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
+not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
+
+### EDGE FUNCTION SERVICE-ROLE AUTH PATTERN, SHARED-HELPER CONVENTION, verify-portal-pin
+
+EDGE FUNCTION SERVICE-ROLE AUTH PATTERN (locked): identify service callers by
+JWT claims — parseJwtClaims(token)?.role !== "service_role" → 401 — behind
+verify_jwt = true. NEVER token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+(Bug #168).
+SHARED-HELPER CONVENTION (locked): new functions, and any function edited for
+other reasons, MUST use _shared/cors.ts and _shared/handler.ts
+(requireAuth/requirePermission) instead of inline copies.
+NEVER accept the anon key as an internal bypass (it is in every bundle), and
+NEVER let a missing Authorization header skip the gate — 401 first. Functions
+that mutate account/financial state for a user MUST also check a real
+role/permission (403 on failure) (Bug #170). Never reintroduce an
+isInternalKey / anon-key bypass on any function.
+verify-portal-pin: public, no verify_jwt (intentional); PINs live in
+customer_pins (RLS, service_role only), PBKDF2-SHA256 100k iterations. Never
+revert to SHA-256; never add PIN columns back to customers.
+fix-account-totals: service-role claims gate + verify_jwt = true, always.

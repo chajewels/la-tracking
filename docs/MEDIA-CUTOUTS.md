@@ -645,3 +645,52 @@ the migration re-runs cleanly).
    holds; AL123 and R3110 held). Note the processing-time p95 on the card
    (pass: < 1,200 ms) and the month's usage.
 5. Switch back to **Off** (or leave Test) until PR 2.
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### "Upload from Photoroom"
+
+- "Upload from Photoroom" (Website → Photos, 2026-09-27): exports of a
+  Photoroom APP batch edit, matched by file name (product code = first word,
+  then photo number; both editable), applied ONLY as own_cutout through
+  review_media_cutout — no API call, no API images. Never auto-apply an
+  unmatched, duplicate, busy or non-transparent file.
+
+### CUT ONCE / PUBLISH GATE
+
+- CUT ONCE (2026-09-28): max 2 paid calls/photo, then Needs owner.
+  COMPLETED (incl. kept_original) IS FINAL for every role — no re-cut path;
+  Rejected: admin Try once more only. Keep original = free, audited, final.
+  PUBLISH GATE: cut ONLY while the product is published (status 'active');
+  else job_state 'waiting'. DB-enforced; never bypass in SQL. The Photos
+  card shows photos of PUBLISHED products only (no Waiting tab).
+  docs/MEDIA-CUTOUTS.md "CUT ONCE" / "PUBLISH GATE".
+
+### PROVIDER ERRORS
+
+- PROVIDER ERRORS (2026-09-28): Failed = a real PHOTO problem only.
+  Provider/account errors (HTTP 401/402/403/429/5xx, no provider
+  configured, provider result expired — media_cutout_error_kind) are never
+  Failed: the photo goes back by itself (queue / Waiting for publish, or
+  stays at poll/process). A refusal (401/402/403/429) is NOT a paid call;
+  5xx/timeouts still count. docs/MEDIA-CUTOUTS.md "PROVIDER ERRORS".
+
+### PROVIDER = REPLICATE
+
+- PROVIDER = REPLICATE men1scus/birefnet (selected + switch On since
+  2026-09-28 17:42 JST; the Photoroom plan is exhausted). system_settings.
+  media_cutout_provider photoroom|fal|replicate fails to photoroom (the
+  reader's default, not the live choice); a provider is called ONLY when
+  selected there. Provider + price change ONLY via set_media_cutout_provider
+  (audited, guard trigger).
+
+### media_cutout_mode off|test|on FAILS TO OFF
+
+- media_cutout_mode off|test|on FAILS TO OFF; invalid cap = 0. Off = no
+  provider call, poll, submit or housekeeping; the ONLY work while off is
+  finishing cut-outs staff uploaded themselves (own_cutout_url set — "Upload
+  my own cut-out" / "Upload from Photoroom", owner 2026-09-27); an unreadable
+  switch does nothing at all. Changed ONLY via set_media_cutout_settings
+  (audited, guard trigger); never in a migration or SQL.

@@ -67,3 +67,18 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
 - Section headers: Deco serif small caps + a trailing gold hairline.
 - No hover delay (immediate accordion switch) — can be revisited if jitter becomes an issue
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### LOCKED UI — the sliding gold ActivePill and the collapse/accordion behaviour
+
+- LOCKED UI: ONE active indicator — the sliding gold ActivePill; never
+  reintroduce the old parent border / sub-item accent. It FLIPs from its last
+  rect; never swap back to framer layoutId without a shared layout route.
+  The expanded group is seeded from the route on first render. Icon-only
+  collapse is remembered in localStorage 'cj-hub-sidebar-open' (every access
+  try/catch). Hover accordion, one parent open, no hover delay. Section
+  headers: Deco serif small caps + trailing gold hairline. Sub-item labels
+  are text-only.

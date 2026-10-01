@@ -280,3 +280,26 @@ notices cover every step-down the code actually performs.
 
 The English-only `loyalty-tier-downgrade` template is no longer sent by any
 function (kept in the registry for the Settings preview).
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Layer-2 DB-trigger award path — dropped 2026-05-16
+
+The Layer-2 DB triggers (trg_loyalty_on_cash_order_complete,
+trg_loyalty_on_layaway_complete) and function
+award_loyalty_points_on_complete() were DROPPED via
+migration 20260516000000_drop_layer2_loyalty_triggers.sql —
+they only INSERTed transaction rows without updating
+loyalty_members counters or creating point lots, producing
+ghost audit rows. Do NOT reintroduce a DB-trigger award path.
+
+### DP confirmation loyalty toast (added 2026-06-04)
+
+### DP confirmation loyalty toast (added 2026-06-04):
+DP confirmation loyalty toast: review-payment-submission captures award-loyalty-points responses for layaway DP confirms (single + split) and returns them as loyalty_awards[]; PaymentSubmissions.tsx toasts awarded results to the reviewer. Skips are silent; hard failures show a warning toast. Cash-order completion awards remain fire-and-forget (no toast).
+
+### new_order_discount net-spend rule (2026-05-26)
+
+process-loyalty-redemption reduces the target order's loyalty_jpy_amount by value_applied_jpy on approval (floored at 0) and restores it on void. award-loyalty-points is unchanged — it reads the already-net loyalty_jpy_amount, so both points and cumulative_spend_jpy accumulate on net of the discount, not gross. The cancel action (pending-only) never touches loyalty_jpy_amount.

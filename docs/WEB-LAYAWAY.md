@@ -165,3 +165,29 @@
   Web layaway accounts are NEVER hard-deleted (`trg_prevent_web_layaway_delete`),
   the same rule cash web orders already carry.
 
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### Currency is the customer's choice / web orders paid in full in pesos
+
+- Currency is the customer's choice; peso plans convert at the stored fx_rate
+  and the parts sum exactly. Web orders PAID IN FULL may settle in yen or
+  pesos too (2026-09-25): create_web_order_atomic converts total and shipping
+  once at the quote's fx_rate, half-up to a whole peso, and stores it in
+  cash_orders.fx_rate_used / fx_rate_date; item lines and loyalty_jpy_amount
+  stay YEN. EVERY peso figure the `website` function produces (catalog
+  price_php, full-payment and layaway checkout quotes, /layaway/quote) uses
+  the integer half-up in _shared/settlement.ts (twin: src/lib/web-settlement.ts),
+  never Math.round on floats. Mechanics: docs/CASH-ORDERS.md "WEB ORDERS IN PESOS".
+
+### DISPLAYED DOWN PAYMENTS COME FROM THE HUB
+
+- DISPLAYED DOWN PAYMENTS COME FROM THE HUB (2026-09-25): the storefront never
+  computes or converts money. Catalog down_payment_jpy/_php/_pct come from
+  website_down_payments (which calls layaway_quote — never a TypeScript copy
+  of the deposit rule), for the piece alone; a figure the Hub cannot produce
+  is OMITTED, never estimated. /layaway/quote takes { price_jpy, currency }
+  and converts in the Hub; peso term minimums are min_amount_php. Full text:
+  docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS".

@@ -193,3 +193,20 @@ dropped; `website_hero_cutouts` is never touched.
   live-shaped preview → migration → after-checks run, a tampered-live-function
   abort, and the earlier provider-errors and hero-record suites on top.
 - UI: `src/test/hero-picks-ui.test.tsx`.
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### HERO PICKS
+
+- HERO PICKS (20261013100000; docs/HERO-PICKS.md): the hero uses product
+  cut-outs an ADMIN ticked "Use on hero" (website_hero_picks; set_hero_pick /
+  hero_picks_carry_over, audited) — ONLY while system_settings.
+  hero_photo_source = 'product_ticks' (seeded 'hero_record' = today's hero
+  record; changed ONLY via set_hero_photo_source, admin, audited; never in a
+  migration or SQL). Usable = hero_pick_reason NULL: ok/auto_fixed/approved,
+  file + size, product published. One rule for hero, banner and menu
+  thumbnails. hero_usable stays unused. ORDER (20261016100000, owner
+  2026-09-29): per category, ticked pieces oldest tick first, max 3, never an
+  untagged fallback; hero_lineup_rows is THE order (storefront mirrors it).

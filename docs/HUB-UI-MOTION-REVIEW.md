@@ -68,3 +68,45 @@ Physical-phone checks and a pass on the Firebase PR preview with real data.
 ### Production exclusion of the harness
 
 The `/__fixtures` route is registered only under `import.meta.env.DEV`, via a dynamic import, so Vite drops it from production builds. After `npx vite build`, `grep -rlF -- "<s>" dist` returns no files for any of: `__fixtures`, `FixturePreview`, `ProductDialogFixture`, `DataTableFixture`, `TabsFixture`, `fixture-inquiries`, `fixture-product`, `fixture-acct`, `CJ-NK-0142`, `K18 Diamond Pendant Necklace`, `Hallmarked, inspected`, `Shipping to Manila`, `Wholesale pricing`, `account-detail`, `product-dialog`, `buildAccountFixtures`, `buildQuickViewFixture`.
+
+## Rules moved from CLAUDE.md (2026-10-02, verbatim)
+
+Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.
+
+### TYPECHECK — the canonical command and the false-green evidence
+
+5. TYPECHECK — the canonical command is:
+   npx tsc -p tsconfig.app.json --noEmit
+ This is the EXACT command CI runs on main pushes. NEVER use bare
+ `npx tsc --noEmit`: the root tsconfig.json is solution-style with
+ `"files": []` and checks ZERO files — it always exits 0, a false
+ green. Evidence: deploy #1896 (2026-07-07) failed at Typecheck on a
+ TransactionsTab error that bare `tsc --noEmit` had passed all
+ session long.
+
+ Canonical typecheck: `npx tsc -p tsconfig.app.json --noEmit` — exit 0
+ with no output as of 2026-09-11 (f31ab09). Any error is a regression;
+ there is no accepted baseline. (`tsc --noEmit` without -p is a
+ documented false green.)
+
+### KPI + CHART ANIMATION STANDARDS (set 2026-07-07)
+
+6. KPI + CHART ANIMATION STANDARDS (set 2026-07-07):
+ - KPI cards rendered with the shared StatCard pass countUpValue +
+   formatValue + staggerIndex uniformly; bespoke KPI values use
+   <AnimatedNumber> (src/components/shared/AnimatedNumber.tsx). Both
+   draw from theme/motion — a numeric KPI display without them is a
+   defect.
+ - KPI value DEFINITION: the primary headline figure of a titled
+   card. Table cells, rows, badges, and in-panel counts never
+   animate.
+ - Charts take useChartAnimation() props (800ms ease-out,
+   reduced-motion aware) on every recharts series element — an
+   unconfigured series is a defect.
+ - Dashboard data hooks use React Query with staleTime +
+   keepPreviousData — hand-rolled useEffect fetches and staleTime: 0
+   on dashboards are defects.
+ - Heavy pages (Executive Dashboard, Finance) are cache-prefetched at
+   app idle via usePrefetchHeavyPages, role-gated to the sidebar's own
+   visibility rules; new heavy dashboards join the prefetcher
+   (standard 2026-07-07).
