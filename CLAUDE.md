@@ -1715,6 +1715,35 @@ inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
     development/layaway-english.test.ts (CI). Exceptions: the registered
     company name in the footer and stored transfer-account details.
 
+## CART REMINDERS (STAGES A/B) — NON-NEGOTIABLE (added 2026-10-01)
+
+  Full text: docs/CART-REMINDERS.md. Migration 20261021100000_cart_reminders.sql.
+  - PROMOTIONAL, so: opt-in only (customer_email_consents kind 'cart_reminder',
+    checkbox OFF by default), the append-only consent record
+    (customer_email_consent_events — never UPDATE/DELETE; a trigger refuses),
+    the full sender block (COMPANY_ADDRESS + opt-out link + sales@) in every
+    email. ONE email per cart cycle (UNIQUE cycle_id), never within 7 days of
+    the last, never when an order exists since the cart changed.
+  - SQL decides WHO and WHEN (cart_reminder_candidates / claim_cart_reminder
+    under lock); cart-reminder-sweep only renders and sends through
+    sendStorefrontEmail. Switch cart_reminders_mode off|owner_only|on
+    (fail-closed; seeded off), cart_reminder_idle_minutes (1440).
+  - ONE LANGUAGE PER EMAIL. THE JAPANESE EMAIL NEVER MENTIONS LAYAWAY, a
+    deposit or a reserve figure, in any stage (JA + a layaway quote renders the
+    stage-A yen-only form). JA_FORBIDDEN in _shared/cart-reminder-rules.ts;
+    development/cart-reminder-ja.test.ts renders every form (CI).
+  - EVERY MONEY FIGURE IS THE HUB'S, recomputed at send time: variantPricePhp,
+    attachDownPayments (the reserve line, only with BOTH deposits),
+    planLayawayQuote -> layaway_quote (the stage-B plan; a refusal falls back to
+    the stage-A form, never an invented plan). No percentage, rate or
+    conversion in the template or sender (src/test/cart-reminders.test.tsx).
+  - The opt-out link (GET /cart-reminders/unsubscribe, always "unsubscribed")
+    touches ONLY the consent row — never suppressed_emails. A PROVIDER
+    unsubscribe (handle-email-suppression / handle-email-events) withdraws our
+    consent for that address and rings bell cart_reminder_unsubscribed, because
+    it may now hold her ORDER emails back.
+  - Stage D (payment reminders) reads NO cart-reminder data and never will.
+
 ## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
 
   A CHECKOUT NEVER DELETES A ROW THE CUSTOMER DID NOT ASK TO REMOVE.
