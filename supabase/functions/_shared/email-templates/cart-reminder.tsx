@@ -5,7 +5,7 @@ import type { Lang } from '../storefront-email.ts'
 import { COMPANY_ADDRESS, COMPANY_NAME } from '../transactional-email-templates/brand.ts'
 import { Panel, Row, block, blockGutter, button, buttonWrap, container, footer, h1, headerBar, label, main, muted, notice, rule, text, wordmark } from './order-shared.tsx'
 import { STOREFRONT_REPLY_TO } from '../storefront-email.ts'
-import { pesos, yen, yenWithPesos, type PlanFigures, type ReminderForm } from '../cart-reminder-rules.ts'
+import { percentFromFraction, pesos, yen, yenWithPesos, type PlanFigures, type ReminderForm } from '../cart-reminder-rules.ts'
 
 /**
  * CART REMINDER (stages A/B, docs/CART-REMINDERS.md). PROMOTIONAL: sent only
@@ -134,9 +134,11 @@ function linePrice(i: CartReminderItem, form: ReminderForm, lang: Lang, plan: Pl
 function reserveLine(i: CartReminderItem): string | null {
   const jpy = i.down_payment_jpy ?? null
   const php = i.down_payment_php ?? null
-  const pct = i.down_payment_pct ?? null
+  // The Hub's down_payment_pct is a SHARE (0.30), not a percentage: convert,
+  // never round it (the 2026-10-01 acceptance email read "0% down").
+  const pct = percentFromFraction(i.down_payment_pct)
   if (jpy === null || php === null || !Number.isFinite(jpy) || !Number.isFinite(php) || jpy <= 0 || php <= 0) return null
-  const pctText = pct !== null && Number.isFinite(pct) && pct > 0 ? ` — ${Math.round(pct)}% down —` : ' —'
+  const pctText = pct !== null ? ` — ${pct}% down —` : ' —'
   return `Or reserve with ${yenWithPesos(jpy, php)}${pctText} and pay the rest monthly at 0% interest.`
 }
 

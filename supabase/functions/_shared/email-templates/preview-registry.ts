@@ -62,7 +62,7 @@ const unsubscribeUrl = 'https://www.chajewelsjp.com/cart-reminders/unsubscribe?t
 const cartItems = [
   {
     name: 'Pearl drop earrings', name_ja: 'パールドロップピアス', size: null, stone: 'Akoya pearl', qty: 1,
-    image_url: null, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 30,
+    image_url: null, price_jpy: 68000, price_php: 27016, down_payment_jpy: 20400, down_payment_php: 8105, down_payment_pct: 0.3,
   },
 ]
 
