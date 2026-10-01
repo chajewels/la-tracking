@@ -153,3 +153,31 @@ CORRECT pattern (single transaction guarantee):
   const { data, error } = await supabase.rpc('xxx_atomic', {...});
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
+
+## RLS scalar sub-selects — the 2026-10-02 backfill (migration 20261024100000)
+
+Rule (CLAUDE.md "Migrations baseline & FUNCTION CHANGES"): inside a policy,
+`auth.uid()` / `is_staff()` / `has_role()` / `has_permission()` / `is_admin()`
+are always written as scalar sub-selects — `(SELECT is_staff((SELECT auth.uid())))` —
+so Postgres evaluates them once per statement (InitPlan), not once per row
+(8 s timeouts on the big tables, PR #265).
+
+`20261024100000_rls_scalar_subselects.sql` backfilled the 210 live policies that
+still carried bare calls, in one DO block: a pure text transform inserts the
+wrappers and ALTER POLICY re-applies each expression; roles, command and
+permissive flag are untouched. Assertions: policy count unchanged, ≥ 200
+rewritten, 0 bare calls left. Dry-run on live inside BEGIN … ROLLBACK first:
+311 policies, 210 rewritten, 0 meaning differences (unwrapping the inserted
+wrappers gave back the original text for every policy).
+
+Two things learned:
+- ALTER POLICY takes an exclusive lock on its table; Lovable's periodic schema
+  dump (`dumpFunc`, via Supavisor as postgres) held `audit_logs` for ~2 minutes
+  and blocked the dry-run twice. The migration sets `lock_timeout = '15s'` so a
+  busy table fails the whole block fast and clean — re-run it, nothing was
+  changed.
+- `pg_policies` deparses the wrappers as `( SELECT auth.uid() AS uid)` and
+  `( SELECT has_role(...) AS has_role)`; the bare-call census regex is
+  `(?<!SELECT )(auth\.uid\(\)|is_staff\(|has_role\(|has_permission\(|is_admin\()`
+  and must read 0 after the apply. New policies are written wrapped from the
+  start; a bare call is a review finding.
