@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { WebhookError, verifyWebhookRequest } from 'npm:@lovable.dev/webhooks-js'
+import { withdrawCartRemindersForAddress } from '../_shared/cart-reminder-unsubscribe.ts'
 
 // Suppression event payload sent by the Go API when Mailgun reports
 // a bounce, complaint, or unsubscribe.
@@ -100,6 +101,13 @@ Deno.serve(async (req) => {
       email_redacted: normalizedEmail[0] + '***@' + normalizedEmail.split('@')[1],
     })
     return jsonResponse({ error: 'Failed to write suppression' }, 500)
+  }
+
+  // 1b. Cart reminders (stages A/B): a provider unsubscribe also withdraws
+  // our promotional consent on that address and rings a staff bell, because
+  // the suppression above may now hold her ORDER emails back too.
+  if (payload.reason === 'unsubscribe') {
+    await withdrawCartRemindersForAddress(supabase, normalizedEmail, 'handle-email-suppression')
   }
 
   // 2. Append a new log entry for the suppression event (never update existing rows)

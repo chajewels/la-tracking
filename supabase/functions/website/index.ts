@@ -1243,6 +1243,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         { count: sameEmailRows },
         portalUrl,
         { count: draftCount },
+        { data: cartConsent, error: consentErr },
       ] = await Promise.all([
         supabase.from("customer_addresses")
           .select("id, label, recipient_name, line1, line2, city, region, postal_code, country, phone, is_default")
@@ -1271,8 +1272,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // whose only checkout is still a draft raises a false blank-account bell.
         supabase.from("web_order_drafts")
           .select("id", { count: "exact", head: true }).eq("customer_id", customer.id).eq("status", "to_confirm"),
+        // Cart reminders (stages A/B): the current consent state, so the
+        // account page shows the true toggle. Absent row = off.
+        supabase.from("customer_email_consents")
+          .select("opted_in").eq("customer_id", customer.id).eq("kind", "cart_reminder").maybeSingle(),
       ]);
       if (addrErr) throw addrErr;
+      if (consentErr) throw consentErr;
 
       const records = { layaway: layawayCount ?? 0, orders: orderCount ?? 0, drafts: draftCount ?? 0 };
       const sharesEmail = (sameEmailRows ?? 0) > 0;
@@ -1326,6 +1332,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // customer_cards arrives in step 3 (Square). Reported as false rather
         // than omitted so the storefront can render the account shell now.
         saved_card: false,
+        // The cart-reminder opt-in (docs/CART-REMINDERS.md). Promotional, so
+        // it is OFF until she ticks it; PUT /me/cart-reminders changes it.
+        cart_reminders: { opted_in: (cartConsent as AnyRec | null)?.opted_in === true },
       }));
     }
 
@@ -1355,6 +1364,83 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // The RPC reports validation failures in its payload, not by throwing.
       if (result.error) return jsonResponse({ error: result.error }, 400);
       return jsonResponse(scrub(result));
+    }
+
+    // ============================================ cart reminders (stages A/B)
+    // docs/CART-REMINDERS.md. The browser cookie stays authoritative; this is
+    // the server copy a reminder and a cross-device restore read. Every write
+    // is one SQL function; consent is recorded with the exact text version.
+
+    // GET /me/cart — the saved lines, for the sign-in merge and /cart/restore.
+    if (req.method === "GET" && segments[0] === "me" && segments[1] === "cart" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const { data, error } = await supabase
+        .from("customer_cart_lines")
+        .select("variant_id, qty, variant:website_product_variants(product:website_products(slug))")
+        .eq("customer_id", customer.id)
+        .order("added_at", { ascending: true });
+      if (error) throw error;
+      const lines = ((data ?? []) as AnyRec[]).map((l) => ({
+        variant_id: l.variant_id,
+        qty: Number(l.qty),
+        // The slug is joined at read time, never stored — slugs change.
+        slug: ((l.variant as AnyRec | null)?.product as AnyRec | null)?.slug ?? null,
+      })).filter((l) => l.slug);
+      return jsonResponse({ lines });
+    }
+
+    // PUT /me/cart — { lines: [{variant_id, qty}], lang, as_of }. Whole list;
+    // last write wins by as_of; updated_at moves only when the lines change,
+    // so a re-sync never pushes a reminder back.
+    if (req.method === "PUT" && segments[0] === "me" && segments[1] === "cart" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+      if (!Array.isArray(body.lines)) return jsonResponse({ error: "lines_must_be_array" }, 400);
+      const asOf = typeof body.as_of === "string" && !Number.isNaN(Date.parse(body.as_of)) ? body.as_of : null;
+      const { data, error } = await supabase.rpc("website_set_cart", {
+        p_customer_id: customer.id,
+        p_lines: body.lines,
+        p_lang: pickLang(body.lang),
+        p_as_of: asOf,
+      });
+      if (error) throw error;
+      const result = (data ?? {}) as AnyRec;
+      if (result.error) return jsonResponse({ error: result.error }, 400);
+      return jsonResponse(result);
+    }
+
+    // PUT /me/cart-reminders — { opted_in, source, lang, text_version }.
+    // Writes the current state AND one append-only consent event (the legal
+    // record: who, when, from where, in which language, which exact wording).
+    if (req.method === "PUT" && segments[0] === "me" && segments[1] === "cart-reminders" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+      if (typeof body.opted_in !== "boolean") return jsonResponse({ error: "opted_in_required" }, 400);
+      const source = String(body.source ?? "account");
+      if (!["account", "complete_profile", "checkout"].includes(source)) return jsonResponse({ error: "bad_source" }, 400);
+      const { data, error } = await supabase.rpc("set_cart_reminder_consent", {
+        p_customer_id: customer.id,
+        p_opt_in: body.opted_in,
+        p_source: source,
+        p_lang: pickLang(body.lang),
+        p_text_version: typeof body.text_version === "string" ? body.text_version.trim().slice(0, 64) : null,
+      });
+      if (error) throw error;
+      const result = (data ?? {}) as AnyRec;
+      if (result.error) return jsonResponse({ error: result.error }, 400);
+      return jsonResponse(result);
     }
 
     // ======================================================= checkout (step 2)
@@ -2952,6 +3038,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           .eq("unsubscribe_token", token)
           .is("unsubscribed_at", null);
         if (upErr) throw upErr;
+      }
+      return jsonResponse({ status: "unsubscribed" });
+    }
+
+    // GET /cart-reminders/unsubscribe?token=… — the link in every cart
+    // reminder. x-api-key only (no session: she may open it on any device).
+    // ALWAYS answers unsubscribed, whatever the token, so the page cannot be
+    // used to probe tokens. Touches ONLY the cart-reminder consent — never
+    // suppressed_emails, so her order emails continue.
+    if (req.method === "GET" && segments[0] === "cart-reminders" && segments[1] === "unsubscribe") {
+      const token = (url.searchParams.get("token") ?? "").trim();
+      if (/^[0-9a-fA-F-]{36}$/.test(token)) {
+        const { error: wErr } = await supabase.rpc("withdraw_cart_reminder_by_token", { p_token: token });
+        if (wErr) throw wErr;
       }
       return jsonResponse({ status: "unsubscribed" });
     }

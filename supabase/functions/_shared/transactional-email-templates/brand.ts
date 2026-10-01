@@ -38,3 +38,15 @@ export const INTERNAL_FOOTER = "Cha Jewels Hub · Payment & Loyalty Management";
 
 export const siteNameFor = (a: Audience): string =>
   a === "internal" ? INTERNAL_SITE_NAME : CUSTOMER_SITE_NAME;
+
+/**
+ * The REGISTERED postal address, as the storefront's tokusho page prints it
+ * (cha-jewels-web lib/content/legal.ts COMPANY_ADDRESS). A PROMOTIONAL email
+ * must carry the sender's full address (特定電子メール法 §4), so the cart
+ * reminder prints this, not the short CUSTOMER_FOOTER line. Change it here and
+ * in the storefront together.
+ */
+export const COMPANY_ADDRESS = {
+  en: "Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan",
+  ja: "〒124-0012 東京都葛飾区立石6-5-1 タイムマンション301",
+} as const;
