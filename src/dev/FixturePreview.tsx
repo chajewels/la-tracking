@@ -50,11 +50,8 @@ import { emptyProduct, emptyVariant, type ProductForm } from '@/components/websi
 import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionsContextForFixtures, usePermissions } from '@/contexts/PermissionsContext';
-import ReservationsAwaitingCard from '@/components/reservations/ReservationsAwaitingCard';
-import ReservationPanel from '@/components/reservations/ReservationPanel';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import ReassignOwnerFixture from './ReassignOwnerFixture';
-import { ReservationModeCard } from '@/components/website/ReservationModeCard';
 import { PaymentRemindersCard } from '@/components/settings/PaymentRemindersCard';
 import { PAYMENT_REMINDERS_KEY } from '@/components/settings/payment-reminders';
 import { SHIPPING_RATES_KEY } from '@/components/website/shipping-fees';
@@ -63,8 +60,6 @@ import MediaCutoutsFixture from './MediaCutoutsFixture';
 import { seedMediaCutouts } from './media-cutouts-fixture-data';
 import { seedHeroCutouts } from './hero-cutouts-fixture-data';
 import HeroCutoutsFixture from './HeroCutoutsFixture';
-import { RESERVATION_MODE_KEY } from '@/components/website/reservation-mode';
-import { CHECKOUT_MODE_KEY } from '@/components/website/checkout-mode';
 import { AuthContext, useAuth } from '@/contexts/AuthContext';
 import type { ReactNode } from 'react';
 import {
@@ -112,8 +107,6 @@ import {
  *   /__fixtures?view=hub&at=/        → real shell + pages at real paths
  *                                     (in-memory router; sidebar nav works;
  *                                     every permission granted)
- *     &reservations=1               → two layaway plans + two cash orders
- *                                     become unconfirmed web reservations
  *     &webpark=1                    → Sales → Website orders seeded: 3 drafts to
  *                                     confirm, 3 awaiting payment, 3 closed
  *   /__fixtures?view=hub&at=/sales?tab=payments  (or tab=waivers)
@@ -148,17 +141,6 @@ import {
  *                                     Japanese names and sold-out pieces (search/filters)
  *   /__fixtures?view=hub&at=/settings?tab=payment-details
  *                                   → the old link, redirected to the above
- *   /__fixtures?view=reservations   → reserve-first A2: Dashboard card,
- *                                     detail-page panels, DeadlinesCard
- *   /__fixtures?view=reservations-dashboard
- *                                   → Dashboard + sidebar "To confirm" pill
- *   /__fixtures?view=reservations-cash
- *                                   → CashOrdersList with reservations
- *   /__fixtures?view=reservation-mode[&on=1][&waiting=N][&role=staff]
- *                                   → Website → Settings reserve-first switch card
- *                                     (admin by default; role=staff = read-only)
- *   (the three reservations views grant every permission — the UI is gated
- *    on confirm_web_order_ready, and a fixture has no session)
  *   &empty=1                        → empty-state variant of any view
  */
 export default function FixturePreview() {
@@ -166,17 +148,11 @@ export default function FixturePreview() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') ?? 'accounts';
   const empty = searchParams.get('empty') === '1';
-  // Hub shim only: &reservations=1 turns a few seeded orders into website
-  // reservations awaiting confirmation. Off (the default) mirrors the live
-  // web_reservation_mode switch being FALSE — the queue is empty.
-  const hubReservations = view === 'hub' && searchParams.get('reservations') === '1';
 
   // Seed once, before the components mount, so their queries hit fresh cache.
   useState(() => {
     const accounts = empty ? [] : buildAccountFixtures();
     const cashOrders = empty ? [] : buildCashOrderFixtures();
-    // Before any seed: several seeds copy these rows.
-    if (hubReservations) markHubReservations(accounts as unknown as Array<Record<string, unknown>>, cashOrders as unknown as Array<Record<string, unknown>>);
     const seed = (key: unknown[], data: unknown) => {
       queryClient.setQueryDefaults(key, { staleTime: Infinity, gcTime: Infinity, retry: false });
       queryClient.setQueryData(key, data);
@@ -209,16 +185,9 @@ export default function FixturePreview() {
     seed(['dashboard-redemptions-kpi'], buildRedemptionsKpi(empty));
     seed(['needs-attention-schedule'], buildAttentionSchedule(empty));
     seed(['needs-attention-cash'], buildAttentionCash(empty));
-    // Reserve-first A2: the queue the sidebar pill and Dashboard card read.
-    seed(
-      ['web-reservations'],
-      empty ? []
-        : view === 'hub' ? (hubReservations ? hubReservationQueue(accounts, cashOrders) : [])
-        : buildReservationFixtures(),
-    );
     // Website orders PR 5: the park area (Sales → Website orders). &webpark=1
     // seeds drafts to confirm, orders awaiting payment and closed ones; off, the
-    // park area is empty, as it is live while web_checkout_mode = 'order'.
+    // park area is empty.
     {
       const park = view === 'hub' && searchParams.get('webpark') === '1' && !empty
         ? buildWebParkFixtures() : { open: [], closed: [], awaiting: [], closedOrders: [] };
@@ -325,34 +294,11 @@ export default function FixturePreview() {
         seed(['website-categories'], cs.categories);
       }
     }
-    if (view === 'reservations-cash') seed(['cash-orders'], [...buildReservationCashRows(), ...cashOrders]);
-    if (view === 'reservation-mode') {
-      const admin = searchParams.get('role') !== 'staff';
-      seed([...RESERVATION_MODE_KEY], {
-        enabled: searchParams.get('on') === '1',
-        updated_at: '2026-09-24T01:15:00Z',
-        updated_by_user_id: 'fixture-admin',
-        updated_by_name: 'Cynthia Largo',
-        can_change: admin,
-        awaiting_total: Number(searchParams.get('waiting') ?? 0),
-      });
-    }
     // Website → Settings (website-orders PR 1): the four sections, so
     // /website?tab=settings renders offline. Payment details and reminders
     // are admin-only there; &roles=staff shows they are absent.
     if (view === 'hub') {
       const hubAdmin = (searchParams.get('roles') ?? 'admin').split(',').some((r) => r.trim() === 'admin');
-      // Website-orders PR 8: the "staff confirm first" switch. &checkout=draft
-      // shows it on; &drafts=N the waiting count.
-      seed([...CHECKOUT_MODE_KEY], {
-        found: true, mode: searchParams.get('checkout') === 'draft' ? 'draft' : 'order',
-        updated_at: '2026-09-29T08:43:20Z', updated_by_user_id: null, updated_by_name: null,
-        can_change: hubAdmin, drafts_to_confirm: Number(searchParams.get('drafts') ?? 0),
-      });
-      seed([...RESERVATION_MODE_KEY], {
-        enabled: true, updated_at: '2026-09-24T01:15:00Z', updated_by_user_id: 'fixture-admin',
-        updated_by_name: 'Fixture Admin', can_change: hubAdmin, awaiting_total: 0,
-      });
       seed([...PAYMENT_REMINDERS_KEY], {
         found: true, mode: 'owner_only', owner_addresses: ['@example.com'],
         updated_at: '2026-10-04T01:15:00Z', updated_by_user_id: 'fixture-admin', updated_by_name: 'Fixture Admin',
@@ -428,10 +374,6 @@ export default function FixturePreview() {
     return <AllowAll><HubRouteShim at={searchParams.get('at') ?? '/'} roles={roles} /></AllowAll>;
   }
   if (view === 'cash') return <CashOrdersList />;
-  if (view === 'reservations') return <AllowAll><ReservationsFixture /></AllowAll>;
-  if (view === 'reservations-dashboard') return <AllowAll><Dashboard /></AllowAll>;
-  if (view === 'reservations-cash') return <AllowAll><CashOrdersList /></AllowAll>;
-  if (view === 'reservation-mode') return <ReservationModeFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'payment-reminders') return <PaymentRemindersFixture admin={searchParams.get('role') !== 'staff'} />;
   if (view === 'media-cutouts') return <MediaCutoutsFixture />;
   if (view === 'hero-cutouts') return <HeroCutoutsFixture />;
@@ -1277,66 +1219,7 @@ function buildWebParkFixtures() {
   };
 }
 
-// ------------------------------------------------ reserve-first A2 fixtures
-const HOUR = 3_600_000;
-const ago = (h: number) => new Date(Date.now() - h * HOUR).toISOString();
-
-function buildReservationFixtures() {
-  return [
-    { kind: 'cash_order', id: 'fixture-rsv-cash-1', reference: 'CJ-W-000131', customer_name: 'Aiko Tanaka', customer_is_test: false, total_amount: 72_980, currency: 'JPY', plan_months: null, created_at: ago(30) },
-    { kind: 'layaway', id: 'fixture-rsv-lay-1', reference: 'CJ-W-000134', customer_name: 'Maria Consolación Villanueva-Dela Cruz', customer_is_test: false, total_amount: 126_000, currency: 'PHP', plan_months: 8, created_at: ago(7) },
-    { kind: 'cash_order', id: 'fixture-rsv-cash-2', reference: 'CJ-W-000136', customer_name: 'Test Customer', customer_is_test: true, total_amount: 18_500, currency: 'JPY', plan_months: null, created_at: ago(1) },
-  ];
-}
-
-function buildReservationCashRows() {
-  return buildReservationFixtures().filter(r => r.kind === 'cash_order').map((r) => ({
-    id: r.id, invoice_number: r.reference.replace('CJ-W-', ''), currency: r.currency, total_amount: r.total_amount,
-    total_paid: 0, remaining_balance: r.total_amount, status: 'pending', order_date: r.created_at.slice(0, 10),
-    item_description: 'Web order', created_at: r.created_at, source_channel: 'web', web_reference: r.reference,
-    payment_status: 'awaiting_confirmation', transfer_due_at: null, ready_confirmed_at: null,
-    customers: { id: `${r.id}-cust`, full_name: r.customer_name, messenger_link: null },
-  }));
-}
-
-/** Hub shim: web reservations awaiting confirmation on real seeded rows, so the
- *  list pills, detail panels, sidebar count and Dashboard card all agree. */
-const HUB_RESERVATION_ACCOUNTS = ['fixture-acct-0001', 'fixture-acct-0002'];
-const HUB_RESERVATION_CASH = ['fixture-cash-0006', 'fixture-cash-0001'];
-
-function markHubReservations(accounts: Array<Record<string, unknown>>, cash: Array<Record<string, unknown>>) {
-  const mark = (row: Record<string, unknown>, n: number, hoursAgo: number) => {
-    row.source_channel = 'web';
-    row.web_reference = `CJ-W-${String(140 + n).padStart(6, '0')}`;
-    row.ready_confirmed_at = null;
-    row.created_at = ago(hoursAgo);
-  };
-  accounts.filter(a => HUB_RESERVATION_ACCOUNTS.includes(String(a.id))).forEach((a, i) => mark(a, i, 6 + i * 20));
-  cash.filter(o => HUB_RESERVATION_CASH.includes(String(o.id))).forEach((o, i) => mark(o, 10 + i, 3 + i * 27));
-}
-
-interface HubReservationRow {
-  id: string;
-  web_reference?: string | null;
-  customers?: { full_name?: string | null } | null;
-  total_amount: number;
-  currency: string;
-  payment_plan_months?: number;
-  created_at: string;
-}
-
-function hubReservationQueue(accounts: HubReservationRow[], cash: HubReservationRow[]) {
-  const pick = (rows: HubReservationRow[], ids: string[], kind: 'cash_order' | 'layaway') =>
-    rows.filter(r => ids.includes(r.id)).map(r => ({
-      kind, id: r.id, reference: r.web_reference ?? r.id, customer_name: r.customers?.full_name ?? 'A website customer',
-      customer_is_test: false, total_amount: Number(r.total_amount), currency: r.currency,
-      plan_months: kind === 'layaway' ? r.payment_plan_months ?? null : null, created_at: r.created_at,
-    }));
-  return [...pick(cash, HUB_RESERVATION_CASH, 'cash_order'), ...pick(accounts, HUB_RESERVATION_ACCOUNTS, 'layaway')]
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
-}
-
-/** Every permission granted — the reservation UI is gated, a fixture has no session. */
+/** Every permission granted — the hub UI is permission-gated, a fixture has no session. */
 function AllowAll({ children }: { children: ReactNode }) {
   const base = usePermissions();
   return (
@@ -1345,16 +1228,6 @@ function AllowAll({ children }: { children: ReactNode }) {
     >
       {children}
     </PermissionsContextForFixtures.Provider>
-  );
-}
-
-/** Website → Settings reserve-first card, with the role the fixture asks for. */
-function ReservationModeFixture({ admin }: { admin: boolean }) {
-  const base = useAuth();
-  return (
-    <AuthContext.Provider value={{ ...base, roles: admin ? ['admin'] : ['staff'] } as typeof base}>
-      <div className="mx-auto max-w-3xl p-4 sm:p-6"><ReservationModeCard /></div>
-    </AuthContext.Provider>
   );
 }
 
@@ -1367,21 +1240,6 @@ function PaymentRemindersFixture({ admin }: { admin: boolean }) {
         <OrderEmailHistory entityType="cash_order" entityId="fixture-web-order" />
       </div>
     </AuthContext.Provider>
-  );
-}
-
-function ReservationsFixture() {
-  const [cash, lay] = buildReservationFixtures();
-  return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
-      <ReservationsAwaitingCard />
-      <h3 className="text-sm font-semibold text-muted-foreground">Cash order detail — top of page</h3>
-      <ReservationPanel entityType="cash_order" entityId={cash.id} reference={cash.reference} createdAt={cash.created_at} canAct />
-      <DeadlinesCard entityType="cash_order" entityId={cash.id} status="pending" transferDueAt={null} reference={cash.reference} sourceChannel="web" awaitingConfirmation canEdit />
-      <h3 className="text-sm font-semibold text-muted-foreground">Layaway detail — top of page (no permission)</h3>
-      <ReservationPanel entityType="layaway" entityId={lay.id} reference={lay.reference} createdAt={lay.created_at} canAct={false} />
-      <DeadlinesCard entityType="layaway" entityId={lay.id} status="active" transferDueAt={null} reference={lay.reference} sourceChannel="web" awaitingConfirmation canEdit />
-    </div>
   );
 }
 

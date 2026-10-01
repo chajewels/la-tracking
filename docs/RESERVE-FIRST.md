@@ -1,4 +1,17 @@
-# Reserve first, pay after staff confirm
+# Reserve first, pay after staff confirm — RETIRED (website orders PR 10, 2026-10-01)
+
+**This path no longer exists.** Every website checkout is a DRAFT confirmed by
+staff (docs/WEB-ORDER-DRAFTS.md, "PR 10" for what was removed and why). The
+RPCs `confirm_web_order_ready_atomic`, `decline_web_layaway_reservation_atomic`
+and `expire_unconfirmed_web_reservations_atomic`, the switch
+`system_settings.web_reservation_mode` with its functions and guard, and the
+edge functions `confirm-web-order-ready` and `decline-web-reservation` were
+dropped by migration `20261023100000_web_orders_pr10_cleanup.sql`. What still
+stands from A1: `ready_confirmed_at` (now stamped by
+`materialize_web_draft_atomic`), the `awaiting_confirmation` /
+`ready_for_payment` flags, and the 409 `not_ready_for_payment` refusal on every
+payment path. The text below is kept as history.
+
 
 Owner-approved design, 2026-09-23. It applies to web cash orders and web layaways.
 It is split into two parts:

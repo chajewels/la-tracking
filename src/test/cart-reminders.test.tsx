@@ -159,7 +159,9 @@ describe("the sweep and the website routes", () => {
     expect(s).toMatch(/rpc\("claim_cart_reminder"/);
     expect(s).toMatch(/if \(!claimId\) \{/);
     expect(s).toMatch(/rpc\("finish_cart_reminder"/);
-    expect(s).toMatch(/readReservationMode\(byKey\.get\("web_reservation_mode"\)\)/);
+    // PR 10: the "we reserve and confirm" sentence is always on.
+    expect(s).toMatch(/const reserveFirst = true;/);
+    expect(s).not.toMatch(/web_reservation_mode/);
     expect(code("supabase/config.toml")).toMatch(/\[functions\.cart-reminder-sweep\]\s+verify_jwt = true/);
   });
 

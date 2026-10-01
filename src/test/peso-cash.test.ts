@@ -217,8 +217,9 @@ describe("peso layaway is unchanged", () => {
     expect(src).toMatch(/\} else \{\s+totalSettle = toSettle\(totalJpy\);\s+shippingSettle = shippingJpy === null \? null : toSettle\(shippingJpy\);\s+subtotalSettle = totalSettle - \(shippingSettle \?\? 0\);\s+\}/);
   });
 
-  it("the layaway pay response is untouched (currency and total from the plan)", () => {
-    expect(src).toMatch(/mode: "layaway",\s+account_id: plan\.account_id,\s+web_reference: plan\.web_reference,\s+currency,\s+total: plan\.total,/);
+  it("the pay response (PR 10: a draft, for layaway and full payment alike) carries the draft's currency and total", () => {
+    expect(src).toMatch(/const draftCurrency = String\(draft\.currency \?\? "JPY"\) === "PHP" \? "PHP" : "JPY";/);
+    expect(src).toMatch(/currency: draftCurrency,[\s\S]*?total: draft\.total,\s+total_jpy: draft\.total_jpy,/);
   });
 });
 
@@ -230,15 +231,9 @@ describe("the website accepts pesos for a full payment", () => {
     expect(src).toMatch(/if \(!\["JPY", "PHP"\]\.includes\(settlement\)\) return jsonResponse\(\{ error: "bad_currency" \}, 400\);/);
   });
 
-  it("the reserve-first reply is currency-aware and keeps total_jpy", () => {
-    expect(src).toMatch(/const placedCurrency = String\(result\.currency \?\? "JPY"\) === "PHP" \? "PHP" : "JPY";/);
-    expect(src).toMatch(/currency: placedCurrency,\s+total: placedTotal,\s+total_jpy: result\.total_jpy,\s+transfer_due_at: null,\s+transfer_region: regionForCurrency\(placedCurrency\),/);
+  it("the draft reply is currency-aware, keeps total_jpy and never hardcodes a region", () => {
+    expect(src).toMatch(/transfer_due_at: null,\s+transfer_region: regionForCurrency\(draftCurrency\),\s+transfer_methods: \[\],/);
     expect(src).not.toMatch(/regionForCurrency\("JPY"\)/);
-  });
-
-  it("the placed reply and its email use the order's own currency and total", () => {
-    expect(src).toMatch(/currency: orderCurrency,\s+total: orderTotal,\s+total_jpy: result\.total_jpy,/);
-    expect(src).toMatch(/totalJpy: orderTotal,\s+currency: orderCurrency === "PHP" \? "PHP" : "JPY",/);
   });
 });
 
@@ -274,7 +269,7 @@ describe("order emails print the order's currency (D1)", () => {
     ["supabase/functions/auto-expire-cash-orders/index.ts", 1],
     ["supabase/functions/cancel-cash-order/index.ts", 1],
     ["supabase/functions/review-payment-submission/index.ts", 1],
-    [WEBSITE, 1],
+    [WEBSITE, 0], // PR 10: the order-confirmation email moved to confirm-web-draft (materialize) — website sends none
   ] as const)("%s passes the order currency on every order email (%i)", (f, n) => {
     const src = code(f);
     const sends = src.match(/createElement\(Order[A-Za-z]+Email, \{[\s\S]*?\}\),/g) ?? [];

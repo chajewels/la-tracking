@@ -36,7 +36,6 @@ import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { useServiceRequestCount } from '@/hooks/useServiceRequestCount';
 import { usePendingReviewCount } from '@/hooks/usePendingReviewCount';
 import { animate, useReducedMotion } from 'framer-motion';
-import { useWebReservations } from '@/hooks/use-supabase-data';
 import { useWebDrafts } from '@/hooks/use-web-park';
 import { cn } from '@/lib/utils';
 import { transition } from '@/theme/motion';
@@ -281,17 +280,14 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
   const { count: newCashToday } = useNewCashOrdersTodayCount();
   const { count: openServiceRequests } = useServiceRequestCount();
   const { count: pendingReviews } = usePendingReviewCount();
-  // Reserve-first (A2): web reservations nobody has confirmed. Shown on every
-  // page, above the menu, to whoever can act on them — the bell alone is too
-  // easy to miss for a customer who has been told nothing yet.
-  const canConfirmReservations = can('confirm_web_order_ready');
-  const { data: reservations } = useWebReservations(canConfirmReservations);
-  // Website orders PR 5: website drafts to confirm count too. Both land in
-  // Sales → Website orders → To confirm.
-  const { data: openDrafts } = useWebDrafts('open', canConfirmReservations);
-  const reservationCount = canConfirmReservations
-    ? (reservations?.length ?? 0) + (openDrafts?.length ?? 0)
-    : 0;
+  // Website drafts nobody has confirmed (Sales → Website orders → To confirm).
+  // Shown on every page, above the menu, to whoever can act on them — the bell
+  // alone is too easy to miss for a customer who has been told nothing yet.
+  // Every website checkout is a draft since PR 10 (2026-10-01); the old
+  // reserve-first reservations no longer exist, so drafts are the whole count.
+  const canConfirmDrafts = can('confirm_web_order_ready');
+  const { data: openDrafts } = useWebDrafts('open', canConfirmDrafts);
+  const toConfirmCount = canConfirmDrafts ? (openDrafts?.length ?? 0) : 0;
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
@@ -306,7 +302,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     monitoring_extensions: pendingExtensions ?? 0,
     loyalty_redemptions: pendingRedemptions ?? 0,
     services_requests: openServiceRequests ?? 0,
-    sales_web: reservationCount,
+    sales_web: toConfirmCount,
     website_reviews: pendingReviews,
   };
 
@@ -435,30 +431,30 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-3 group-data-[collapsible=icon]:px-2" style={{ background: 'hsl(var(--sidebar-background))' }}>
-        {/* Reserve-first (A2): web reservations to confirm, above the menu for
-            whoever can act on them. Restyled to the sidebar system (serif
+        {/* Website drafts to confirm, above the menu for whoever can act on
+            them. Styled to the sidebar system (serif
             label, warning tone, gold hairline below); on the icon rail it is
             the hourglass with a count badge, a tooltip and the same label. */}
-        {reservationCount > 0 && (
+        {toConfirmCount > 0 && (
           <div className="mb-1">
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  tooltip={`To confirm · ${reservationCount}`}
+                  tooltip={`To confirm · ${toConfirmCount}`}
                   onClick={() => navigate(`${ROUTES.SALES}?tab=web`)}
-                  aria-label={`${reservationCount} website order${reservationCount === 1 ? '' : 's'} to confirm`}
+                  aria-label={`${toConfirmCount} website order${toConfirmCount === 1 ? '' : 's'} to confirm`}
                   className="relative h-11 cursor-pointer rounded-md border border-warning/40 bg-warning/10 pl-3 pr-2 text-warning hover:bg-warning/20 hover:text-warning group-data-[collapsible=icon]:border-warning/50"
                 >
                   <Hourglass className="h-4 w-4 shrink-0" />
                   <span className="flex-1 text-left font-deco text-[15px] font-semibold tracking-wide">To confirm</span>
                   <span className="inline-flex min-w-[1.4rem] items-center justify-center rounded-full border border-warning/40 bg-warning/20 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums group-data-[collapsible=icon]:hidden">
-                    {reservationCount}
+                    {toConfirmCount}
                   </span>
                   <span
                     aria-hidden
                     className="absolute right-0.5 top-0.5 hidden h-3.5 min-w-[0.875rem] items-center justify-center rounded-full bg-warning px-0.5 text-[8px] font-bold leading-none text-surface-0 tabular-nums group-data-[collapsible=icon]:flex"
                   >
-                    {reservationCount > 99 ? '99+' : reservationCount}
+                    {toConfirmCount > 99 ? '99+' : toConfirmCount}
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>

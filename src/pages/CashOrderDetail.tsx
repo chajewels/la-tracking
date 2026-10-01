@@ -33,7 +33,6 @@ import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
-import ReservationPanel from '@/components/reservations/ReservationPanel';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
@@ -1254,17 +1253,6 @@ export default function CashOrderDetail() {
           </div>
           </div>
         </div>
-
-        {/* Reserve-first (A2): unconfirmed web reservation — Confirm / Can't supply. */}
-        {awaitingReservation && (
-          <ReservationPanel
-            entityType="cash_order"
-            entityId={order.id}
-            reference={order.web_reference ?? order.invoice_number}
-            createdAt={order.created_at}
-            canAct={can('confirm_web_order_ready')}
-          />
-        )}
 
         {/* Amount card */}
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">

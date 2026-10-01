@@ -244,7 +244,7 @@ export function useWebClosedUnpaid(enabled = true) {
 export function useInvalidateWebPark() {
   const qc = useQueryClient();
   return () => {
-    for (const key of ['web-drafts', 'web-park', 'web-reservations', 'website-products', 'staff-notifications']) {
+    for (const key of ['web-drafts', 'web-park', 'website-products', 'staff-notifications']) {
       qc.invalidateQueries({ queryKey: [key] });
     }
   };
