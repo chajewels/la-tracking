@@ -752,7 +752,7 @@ All values come from computeLayaway() in business-rules.ts
 
 ### Customer Message Templates
 
-  Opening and closing words are picked at random per open from public.message_lines (owner decision 2026-10-01). The templates below are line 1 of each pool and the fallback. Figures, links, PIN line, headers, notices and policy sentences are fixed. Pools and placeholders: src/lib/message-lines.ts and docs/SCHEMA-FACTS.md.
+  Opening and closing words are picked at random per open from public.message_lines (owner decision 2026-10-01). The templates below are line 1 of each pool and the fallback. Figures, links, PIN line, headers, notices and policy sentences are fixed. Pools and placeholders: src/lib/message-lines.ts and docs/SCHEMA-FACTS.md. Lines are edited ONLY in Hub → Settings → Message lines (admin, audited; line 1 of every pool is locked = the code fallback; lines are switched off, never deleted).
 
   SINGLE PAYMENT:
   Thank you for your payment. ₱ [amount] has been received.
