@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
+import MessageLinesTab from '@/components/settings/MessageLinesTab';
 import StoreCreditReconciliationTab from '@/components/settings/StoreCreditReconciliationTab';
 import { EmailHealthCard } from '@/components/system/EmailHealthIndicator';
 import AppLayout from '@/components/layout/AppLayout';
@@ -110,8 +111,8 @@ export default function SettingsPage() {
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
 
-  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit';
-  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit'];
+  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features' | 'store-credit' | 'message-lines';
+  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features', 'store-credit', 'message-lines'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [settingsTab, setSettingsTabState] = useState<SettingsTabKey>(() => {
     const urlTab = searchParams.get('tab') as SettingsTabKey | null;
@@ -805,6 +806,13 @@ export default function SettingsPage() {
           {isAdmin && (
             <TabsContent value="features" className="mt-4">
               <FeatureTogglesTab />
+            </TabsContent>
+          )}
+
+          {/* ── MESSAGE LINES TAB (admin) ── */}
+          {isAdmin && (
+            <TabsContent value="message-lines" className="mt-4">
+              <MessageLinesTab />
             </TabsContent>
           )}
 
