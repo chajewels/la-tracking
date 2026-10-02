@@ -123,7 +123,7 @@ function SectionHeader({
 
 export default function SettingsTab() {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
 
   const settingsQuery = useLoyaltySettings();
@@ -153,8 +153,8 @@ export default function SettingsTab() {
     try {
       await updateMutation.mutateAsync({ key, newValue, oldValue });
       toast.success(`${key} updated`);
-    } catch (err: any) {
-      toast.error(err?.message || `Could not update ${key}`);
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || `Could not update ${key}`);
     }
   }
 

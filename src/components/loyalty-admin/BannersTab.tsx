@@ -76,7 +76,7 @@ function scheduleStatusLabel(
 
 export default function BannersTab() {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const canToggle = isAdmin || isFinance;
@@ -137,8 +137,8 @@ export default function BannersTab() {
         updates: { is_active: next },
       });
       toast.success(next ? 'Banner activated' : 'Banner paused');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not update banner');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not update banner');
     } finally {
       setTogglingId(null);
     }
@@ -149,8 +149,8 @@ export default function BannersTab() {
     try {
       await deleteMutation.mutateAsync(deleteTarget);
       toast.success('Banner deleted');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not delete banner');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not delete banner');
     } finally {
       setDeleteTarget(null);
     }

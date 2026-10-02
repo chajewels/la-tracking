@@ -65,8 +65,8 @@ export function useUpdateLoyaltyTier() {
         const oldDiff: Record<string, unknown> = {};
         const newDiff: Record<string, unknown> = {};
         for (const k of Object.keys(updates) as Array<keyof LoyaltyTierUpdate>) {
-          oldDiff[k] = (oldValues as any)[k];
-          newDiff[k] = (updates as any)[k];
+          oldDiff[k] = oldValues[k];
+          newDiff[k] = updates[k];
         }
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_tier',

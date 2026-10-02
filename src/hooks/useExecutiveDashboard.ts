@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
+
+type RpcReturns<F extends keyof Database['public']['Functions']> =
+  Database['public']['Functions'][F]['Returns'];
 
 // ONE refresh cadence for this page, and staleTime matches it deliberately.
 // It was refetchInterval 30s against staleTime 120s: refetchInterval fires
@@ -17,11 +21,11 @@ interface ExecData {
   netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number; delta_healthy: number; delta_at_risk: number; delta_critical: number; delta_pct: number } | null;
   coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number; projected_inflow_30d: number; projected_coverage_30d: number; projected_funding_gap: number } | null;
   atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
-  atRiskDetail: any[];
+  atRiskDetail: RpcReturns<'fc_at_risk_detail'>;
   penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number; penalty_pct_of_inflow: number } | null;
   penaltyDriven: { penalty_driven_count: number; pct_of_active: number; penalty_revenue_contribution: number } | null;
-  planPerformance: any[];
-  cohortTimeline: any[];
+  planPerformance: RpcReturns<'fc_plan_performance'>;
+  cohortTimeline: RpcReturns<'fc_cohort_timeline'>;
   cfoInsights: CfoInsight[];
   lastUpdated: Date;
   loading: boolean;
@@ -75,18 +79,18 @@ export const executiveDashboardQueryOptions = {
   placeholderData: keepPreviousData,
   queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
       const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci] = await Promise.all([
-        supabase.rpc('fc_portfolio_value' as any),
-        supabase.rpc('fc_gross_profit' as any),
-        supabase.rpc('fc_monthly_inflow' as any),
-        supabase.rpc('fc_net_exposure_risk' as any),
-        supabase.rpc('fc_coverage_ratio' as any),
-        supabase.rpc('fc_at_risk_accounts' as any),
-        supabase.rpc('fc_at_risk_detail' as any),
-        supabase.rpc('fc_penalty_revenue' as any),
-        supabase.rpc('fc_penalty_driven_accounts' as any),
-        supabase.rpc('fc_plan_performance' as any),
-        supabase.rpc('fc_cohort_timeline' as any),
-        supabase.rpc('fc_cfo_insights' as any),
+        supabase.rpc('fc_portfolio_value'),
+        supabase.rpc('fc_gross_profit'),
+        supabase.rpc('fc_monthly_inflow'),
+        supabase.rpc('fc_net_exposure_risk'),
+        supabase.rpc('fc_coverage_ratio'),
+        supabase.rpc('fc_at_risk_accounts'),
+        supabase.rpc('fc_at_risk_detail'),
+        supabase.rpc('fc_penalty_revenue'),
+        supabase.rpc('fc_penalty_driven_accounts'),
+        supabase.rpc('fc_plan_performance'),
+        supabase.rpc('fc_cohort_timeline'),
+        supabase.rpc('fc_cfo_insights'),
       ]);
 
       return {

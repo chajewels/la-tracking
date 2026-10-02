@@ -53,7 +53,7 @@ function bucketOf(p: LoyaltyPromoRow, today: string): Bucket {
 
 export default function PromotionsTab() {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const canToggle = isAdmin || isFinance;
@@ -114,8 +114,8 @@ export default function PromotionsTab() {
         updates: { is_active: next },
       });
       toast.success(next ? 'Promo activated' : 'Promo paused');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not update promo');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not update promo');
     } finally {
       setTogglingId(null);
     }
@@ -126,8 +126,8 @@ export default function PromotionsTab() {
     try {
       await deleteMutation.mutateAsync(deleteTarget);
       toast.success('Promo deleted');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not delete promo');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not delete promo');
     } finally {
       setDeleteTarget(null);
     }

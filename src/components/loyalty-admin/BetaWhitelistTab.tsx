@@ -36,7 +36,7 @@ function fmtDate(iso: string | null) {
 
 export default function BetaWhitelistTab() {
   const { roles, user } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
 
   const queryClient = useQueryClient();
@@ -78,8 +78,8 @@ export default function BetaWhitelistTab() {
       await queryClient.invalidateQueries({
         queryKey: ['customer-loyalty', hit.id],
       });
-    } catch (err: any) {
-      const msg = String(err?.message || '');
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string } | null)?.message || '');
       if (msg.toLowerCase().includes('duplicate')) {
         toast.message(`${hit.full_name} is already in the beta whitelist`);
       } else {
@@ -95,8 +95,8 @@ export default function BetaWhitelistTab() {
       await queryClient.invalidateQueries({
         queryKey: ['customer-loyalty', memberRow.customer_id],
       });
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not remove from beta whitelist');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not remove from beta whitelist');
     }
   }
 

@@ -79,7 +79,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
           p_birthday,
         }),
       });
-      const payload = await res.json().catch(() => ({} as any));
+      const payload = await res.json().catch(() => ({} as { error?: string }));
       if (!res.ok || payload?.error) {
         toast.error(payload?.error || `Failed to save birthday (HTTP ${res.status})`);
         return;
@@ -87,8 +87,8 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
       toast.success('Birthday saved');
       setEditingBirthday(false);
       onUpdated();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to save birthday');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to save birthday');
     } finally {
       setSavingBirthday(false);
     }
