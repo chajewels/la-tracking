@@ -42,8 +42,10 @@ cut-out paths and the hero has no cut-outs.
   one `audit_logs` row, revalidates the website; `trg_guard_hero_photo_source`
   refuses SQL / PostgREST writes. Never set it in a migration.
 - **`hero_pick_reason(status, path, w, h, published)`** — THE rule. `NULL` =
-  usable; otherwise `kept_original` | `rejected` | `not_completed` |
-  `no_cutout_file` | `not_published` (`no_cutout` when there is no cut-out row).
+  usable; otherwise `kept_original` | `rejected` | `not_approved` (passed the
+  checks, no staff Approve yet — approval first, 20261026100000) |
+  `not_completed` | `no_cutout_file` | `not_published` (`no_cutout` when there
+  is no cut-out row).
   Used by the tick, the carry-over, the site function and the lists.
 - **`set_hero_pick(url, pick)`** — admin role only. Ticking an unusable photo
   returns `{error: <reason>}`; unticking is always allowed. A change writes one
@@ -205,8 +207,9 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   hero_picks_carry_over, audited) — ONLY while system_settings.
   hero_photo_source = 'product_ticks' (seeded 'hero_record' = today's hero
   record; changed ONLY via set_hero_photo_source, admin, audited; never in a
-  migration or SQL). Usable = hero_pick_reason NULL: ok/auto_fixed/approved,
-  file + size, product published. One rule for hero, banner and menu
+  migration or SQL). Usable = hero_pick_reason NULL: APPROVED by staff
+  (approval first, 20261026100000 — ok/auto_fixed are not usable), file +
+  size, product published. One rule for hero, banner and menu
   thumbnails. hero_usable stays unused. ORDER (20261016100000, owner
   2026-09-29): per category, ticked pieces oldest tick first, max 3, never an
   untagged fallback; hero_lineup_rows is THE order (storefront mirrors it).

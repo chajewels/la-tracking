@@ -13,12 +13,14 @@ export type HeroPhotoSource = 'hero_record' | 'product_ticks';
 
 /** Why a cut-out cannot be on the hero (hero_pick_reason). null = it can. */
 export type HeroPickBlocker =
-  | 'no_cutout' | 'kept_original' | 'rejected' | 'not_completed' | 'no_cutout_file' | 'not_published';
+  | 'no_cutout' | 'kept_original' | 'rejected' | 'not_approved' | 'not_completed' | 'no_cutout_file' | 'not_published';
 
 export const HERO_PICK_BLOCKER_TEXT: Record<HeroPickBlocker, string> = {
   no_cutout: 'there is no cut-out for this photo',
   kept_original: 'the original photo was kept (no cut-out)',
   rejected: 'the cut-out was rejected',
+  // Approval first (20261026100000): passed the checks, but no staff Approve yet.
+  not_approved: 'the cut-out is not approved yet — approve it first',
   not_completed: 'the cut-out is not finished and approved yet',
   no_cutout_file: 'the cut-out has no file',
   not_published: 'its product is not published',

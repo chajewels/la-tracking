@@ -47,7 +47,9 @@ function HeroPickToggle({ row, hero }: { row: CutoutRow; hero: HeroPickControl }
 /**
  * The review buttons for one photo on Website → Photos. Rendered by the row
  * AND by the zoom viewer, so both always offer the same actions for the same
- * state and call the card's one onAct. Completed is final: no Re-run, ever.
+ * state and call the card's one onAct. Passed / Completed is final: no Re-run,
+ * ever. APPROVAL FIRST (20261026100000): a passed cut-out offers Approve /
+ * Reject and nothing else; the hero tick stays off until it is approved.
  */
 export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId = "cutout-actions" }: {
   row: CutoutRow;
@@ -56,7 +58,7 @@ export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId 
   isAdmin: boolean;
   testId?: string;
 }) {
-  const { inFlight, completed, kept, rejected, keepFirst, held, capped } = cutoutRowState(row);
+  const { inFlight, final, kept, rejected, keepFirst, held, capped } = cutoutRowState(row);
   const hero = useContext(HeroPickContext);
   return (
     <div className="flex flex-wrap gap-2" data-testid={testId}>
@@ -91,12 +93,12 @@ export default function CutoutActionButtons({ row, onAct, busy, isAdmin, testId 
           Reject
         </Button>
       )}
-      {!completed && !keepFirst && (
+      {!final && !keepFirst && (
         <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "keep_original")}>
           Keep original
         </Button>
       )}
-      {(!completed || kept) && (
+      {(!final || kept) && (
         <Button size="sm" variant="outline" disabled={busy || inFlight} onClick={() => onAct(row, "own_cutout")}>
           <Upload className="mr-1 h-3.5 w-3.5" /> Upload my own cut-out
         </Button>
