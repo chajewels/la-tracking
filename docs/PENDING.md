@@ -1035,8 +1035,13 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   its remarks say DP / down / downpayment (review-payment-submission).
 - Media cut-out follow-ups (b/c/e/f/h) CLOSED by the owner 2026-10-02: today's
   behaviour stays, auto-reload already off, Keep original for failed/broken cuts.
-  Open: whether every cut should need approval before it shows (today ok /
-  auto_fixed show without a staff decision, by the 2026-09-28 rules).
+- APPROVAL FIRST LIVE (owner 10:16 JST; PR #322 → release #323, main b25d51a9;
+  migration 20261026100000 applied 15:20 JST on the first attempt; storefront
+  #247 → #248, main bfe3b8b): only `approved` is shown or hero-tickable;
+  ok / auto_fixed wait in the new "To approve" tab. Verified live: reason('ok')
+  = not_approved, 34/34 hero ticks usable, hero_cutouts_for_site unchanged
+  (34 rows), To approve (1) on the Hub (25 ok rows in all, 1 of a published
+  product; the "26" in the migration header counted one orphaned row).
 - Still open, owner decisions: "site content into the Hub" (which pages/strings
   move — unscoped); `web-reservation-sweep` / `web_reservation_expiring` names
   are historical (rename only if wanted); S4 #36 lint `any` is 770 errors in
