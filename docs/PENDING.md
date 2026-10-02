@@ -1027,7 +1027,12 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   prunes pr-<n> preview channels of closed PRs (Firebase channel quota).
 - Bulk payment import LIVE (PR #318 supersedes #302; migration 20261020100000
   applied; record-multi-payment deployed) — un-parked by the owner 2026-10-02.
-  Live test with a real CSV + proof image still to run (Test Customer only).
+  Live-tested 2026-10-02 on test layaway TEST-900060: 2-row CSV + batch proof
+  → 2 submissions in one transaction, one batch key, proof on each, 2 audit
+  rows, no payments row; the same file again → whole batch refused by the
+  30-min duplicate guard, nothing imported; both submissions then rejected.
+  The CSV has no DP column: a row is a down payment at confirm time only when
+  its remarks say DP / down / downpayment (review-payment-submission).
 - Media cut-out follow-ups (b/c/e/f/h) CLOSED by the owner 2026-10-02: today's
   behaviour stays, auto-reload already off, Keep original for failed/broken cuts.
   Open: whether every cut should need approval before it shows (today ok /
