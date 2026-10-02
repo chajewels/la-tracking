@@ -6,13 +6,14 @@ import { Button } from '@/components/ui/button';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import Monogram from '@/components/shared/Monogram';
 import { CustomerOrderPills, CustomerPortalPill, portalPasswordAtOf } from '@/components/customers/CustomerDirectoryTable';
+import type { DbCustomer } from '@/hooks/use-supabase-data';
 
 interface CustomerCardProps {
-  customer: any;
+  customer: DbCustomer;
   activeCount: number;
   completedCount: number;
   tierName?: string | null;
-  onEdit: (c: any) => void;
+  onEdit: (c: DbCustomer) => void;
 }
 
 // Phones (and the directory below the desktop breakpoint). The edit pencil is

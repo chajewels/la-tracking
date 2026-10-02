@@ -78,14 +78,14 @@ export default function PromoBanner({ customerId = '', invoiceNumber = '' }: Pro
     (async () => {
       try {
         const [promoRes, catRes, assignRes, rateValue] = await Promise.all([
-          (supabase.from('promotions' as any) as any)
+          supabase.from('promotions')
             .select('id, title, description, media_url, media_type, link_url, display_order, expires_at, price, currency')
             .eq('is_active', true)
             .order('display_order', { ascending: true }),
-          (supabase.from('promo_categories' as any) as any)
+          supabase.from('promo_categories')
             .select('id, name, display_order')
             .order('display_order', { ascending: true }),
-          (supabase.from('promo_category_assignments' as any) as any)
+          supabase.from('promo_category_assignments')
             .select('promo_id, category_id'),
           fetchPhpJpyRate(),
         ]);
@@ -233,7 +233,7 @@ export default function PromoBanner({ customerId = '', invoiceNumber = '' }: Pro
       // Fire-and-forget; never let view tracking break the banner.
       Promise.all(
         payloads.map(p =>
-          (supabase.from('promo_views' as any) as any).insert(p),
+          supabase.from('promo_views').insert(p),
         ),
       ).catch(() => { /* swallow */ });
     } catch {

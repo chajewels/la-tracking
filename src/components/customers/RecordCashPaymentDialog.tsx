@@ -180,8 +180,8 @@ export default function RecordCashPaymentDialog({
       if (error) {
         let msg = error.message || 'Failed to submit payment';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const parsed = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as { context: { body?: BodyInit | null } }).context?.body) {
+            const parsed = await new Response((error as { context: { body?: BodyInit | null } }).context.body).json();
             if (parsed?.error) msg = parsed.error;
           }
         } catch { /* ignore parse */ }
