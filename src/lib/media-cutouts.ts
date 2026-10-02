@@ -133,8 +133,9 @@ export const RETURNED_REASON: Record<Exclude<CutoutErrorKind, 'photo'>, string> 
 /** Every tab's photos and the paid calls they cost (get_media_cutout_tab_totals). */
 export interface CutoutTabTotals {
   /** completed also carries kept_original (how many of them were kept uncut);
+   *  to_approve (20261026100000) carries auto_fixed (how many were cropped by the frame);
    *  hero (20261013100000) carries usable / products_on_hero / published_left_out. */
-  tabs: Record<string, { count: number; paid_calls: number; kept_original?: number } & Partial<HeroTabTotals>>;
+  tabs: Record<string, { count: number; paid_calls: number; kept_original?: number; auto_fixed?: number } & Partial<HeroTabTotals>>;
   is_admin: boolean;
   per_photo_limit: number;
   provider: ProviderName;
@@ -154,7 +155,9 @@ export const FILTERS = [
   { value: 'needs_review', label: 'Needs review' },
   { value: 'needs_owner', label: 'Needs owner' },
   { value: 'failed', label: 'Failed' },
-  { value: 'auto_fixed', label: 'Auto-fixed' },
+  // APPROVAL FIRST (migration 20261026100000, owner 2026-10-02): passed the
+  // checks (ok / auto_fixed), waiting for a staff Approve. Replaces "Auto-fixed".
+  { value: 'to_approve', label: 'To approve' },
   { value: 'queue', label: 'In the queue' },
   { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
@@ -177,11 +180,17 @@ export type ReviewAction =
   | 'approve' | 'reject' | 'rerun' | 'rerun_high_detail' | 'use_rerun' | 'own_cutout' | 'keep_original' | PaidReopenAction;
 
 /**
- * COMPLETED IS FINAL: passed, approved or kept original — never sent again,
- * by anyone. Rejected is locked too, but an admin can try it once more.
+ * APPROVAL FIRST (20261026100000): a cut-out that passed the checks (ok /
+ * auto_fixed) is "To approve" — nothing shows it and nothing ticks it for the
+ * hero until a staff member approves it. It is still FINAL for the cut-once
+ * rule: passed, approved or kept original are never sent again, by anyone.
+ * Completed = a staff decision (approved) or kept original. Rejected is
+ * locked too, but an admin can try it once more.
  */
-export const isCompleted = (s: CutoutStatus) => s === 'ok' || s === 'auto_fixed' || s === 'approved' || s === 'kept_original';
-export const isLocked = (s: CutoutStatus) => isCompleted(s) || s === 'rejected';
+export const isPassed = (s: CutoutStatus) => s === 'ok' || s === 'auto_fixed';
+export const isCompleted = (s: CutoutStatus) => s === 'approved' || s === 'kept_original';
+export const isFinal = (s: CutoutStatus) => isPassed(s) || isCompleted(s);
+export const isLocked = (s: CutoutStatus) => isFinal(s) || s === 'rejected';
 
 /**
  * The checks say almost nothing of the piece was kept: the cut-out's coverage
@@ -211,13 +220,18 @@ export const isCapped = (r: Pick<CutoutRow, 'paid_calls' | 'paid_call_limit' | '
 export function cutoutRowState(row: CutoutRow) {
   const inFlight = ['submitted', 'ready', 'processing'].includes(row.job_state);
   const completed = isCompleted(row.status);
+  const final = isFinal(row.status);
   return {
     inFlight,
     completed,
+    /** Passed the checks, waiting for Approve (approval first). */
+    toApprove: isPassed(row.status),
+    /** Cut once: never sent again (passed, approved or kept original). */
+    final,
     kept: row.status === 'kept_original',
     rejected: row.status === 'rejected',
     waiting: row.job_state === 'waiting',
-    keepFirst: !completed && !inFlight && almostNothingKept(row.flags),
+    keepFirst: !final && !inFlight && almostNothingKept(row.flags),
     held: !!row.hold_reason,
     capped: isCapped(row),
   };
@@ -225,8 +239,8 @@ export function cutoutRowState(row: CutoutRow) {
 
 export const STATUS_LABEL: Record<CutoutStatus, string> = {
   pending: 'Waiting',
-  ok: 'OK',
-  auto_fixed: 'Auto-fixed',
+  ok: 'To approve',
+  auto_fixed: 'To approve (auto-fixed)',
   needs_review: 'Needs review',
   approved: 'Approved',
   rejected: 'Rejected',
@@ -382,5 +396,5 @@ export function refusalText(err: unknown): string {
   }
 }
 
-/** A status the website may show (PR 2 sends only these to the storefront). */
+/** A status the website may show (PR 2 sends only these to the storefront): approved only (approval first). */
 export const isPublishable = (s: CutoutStatus) => (PUBLISHABLE_STATUSES as readonly string[]).includes(s);

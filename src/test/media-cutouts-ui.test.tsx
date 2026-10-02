@@ -225,7 +225,7 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
   const TABS = {
     tabs: {
       needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 495, paid_calls: 0 },
-      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 376, paid_calls: 6 }, completed: { count: 110, paid_calls: 112 },
+      to_approve: { count: 31, paid_calls: 31, auto_fixed: 10 }, queue: { count: 376, paid_calls: 6 }, completed: { count: 110, paid_calls: 112 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
     },
     is_admin: true, per_photo_limit: 2, provider: "replicate", price_usd: "0.005",
@@ -243,6 +243,11 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
     await openTab(/^Completed/);
     await waitFor(() => expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("Completed: 110 photos · 112 paid calls (about $0.56)"));
     expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "completed" });
+    // Approval first (20261026100000): the passed cut-outs have their own tab, with the auto-fixed count.
+    expect(screen.queryByRole("tab", { name: /Auto-fixed/ })).toBeNull();
+    await openTab(/^To approve/);
+    await waitFor(() => expect(screen.getByTestId("cutout-tab-totals")).toHaveTextContent("To approve: 31 photos (10 auto-fixed) · 31 paid calls"));
+    expect(calls.filter(c => c.fn === "list_media_cutouts").at(-1)?.args).toMatchObject({ p_filter: "to_approve" });
   });
 
   it("Completed is final (owner rule 2026-09-28): locked, no Re-run and NO Unlock and re-cut — not even for an admin", async () => {
@@ -258,12 +263,17 @@ describe("cut once (owner rule 2026-09-28): locked tabs, per-photo paid calls, a
     }
   });
 
-  it("Completed for a non-admin: the same — final, no reopen", async () => {
+  it("Passed (To approve) for a non-admin: approval first — Approve / Reject only, final, no reopen", async () => {
     tabTotals = { ...TABS, is_admin: false };
     Object.assign(listRows[0], { status: "ok", flags: [], paid_calls: 1 });
     wrap(<MediaCutoutReviewCard />);
     const row = await screen.findByTestId("cutout-row");
-    expect(await within(row).findByTestId("cutout-final")).toBeInTheDocument();
+    expect(await within(row).findByTestId("cutout-to-approve")).toHaveTextContent("nothing shows it until you Approve it");
+    expect(within(row).queryByTestId("cutout-final")).toBeNull();
+    expect(within(row).queryByText("Will be used on the website.")).toBeNull();
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(within(row).getByRole("button", { name: "Reject" })).toBeEnabled();
+    for (const name of [/Upload my own/, "Keep original"]) expect(within(row).queryByRole("button", { name })).toBeNull();
     expect(within(row).queryByTestId("cutout-admin-only")).toBeNull();
     expect(within(row).queryByRole("button", { name: /Unlock and re-cut/ })).toBeNull();
     expect(within(row).queryByRole("button", { name: /Re-run/ })).toBeNull();
@@ -321,7 +331,7 @@ describe("publish gate + Keep original (owner rules 2026-09-28)", () => {
   const TABS = {
     tabs: {
       needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 495, paid_calls: 0 },
-      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 250, paid_calls: 0 }, waiting: { count: 120, paid_calls: 0 },
+      to_approve: { count: 31, paid_calls: 31, auto_fixed: 10 }, queue: { count: 250, paid_calls: 0 }, waiting: { count: 120, paid_calls: 0 },
       completed: { count: 113, paid_calls: 112, kept_original: 3 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 1002, paid_calls: 139 },
     },
@@ -448,7 +458,7 @@ describe("provider errors (owner rule 2026-09-28): Failed = photo problems only;
   const TABS = {
     tabs: {
       needs_review: { count: 14, paid_calls: 14 }, needs_owner: { count: 2, paid_calls: 4 }, failed: { count: 2, paid_calls: 2 },
-      auto_fixed: { count: 10, paid_calls: 10 }, queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
+      to_approve: { count: 31, paid_calls: 31, auto_fixed: 10 }, queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
       completed: { count: 130, paid_calls: 129, kept_original: 1 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 217, paid_calls: 170 },
     },

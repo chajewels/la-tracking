@@ -58,8 +58,8 @@ a tick (§2 "SPEED").
 - **CUT ONCE (owner rule 2026-09-28, migration 20261010100000; Completed made
   final by 20261011100000).** Every photo is cut once; decisions are final;
   costs are visible and capped.
-  - **Completed** (`ok` / `auto_fixed` / `approved` — what the website shows —
-    and `kept_original`) is FINAL: the database refuses to queue it for EVERY
+  - **Completed** (`approved` — what the website shows — and `kept_original`;
+    since 2026-10-02 `ok` / `auto_fixed` are "To approve", equally final) is FINAL: the database refuses to queue it for EVERY
     writer and role, the admin override and the SQL Editor included
     (`trg_guard_media_cutout_cut_once`), and `media_cutout_submit_batch` never
     hands it out. There is no reopen: **Unlock and re-cut was removed**
@@ -89,9 +89,19 @@ a tick (§2 "SPEED").
     held photo. (Known edge: a URL forgotten by housekeeping after 30 days
     unused and later re-added is treated as new.)
   - Approve and Reject are final decisions: they cancel a pending re-run.
-- **Only `ok`, `auto_fixed`, `approved` may ever be shown** (never
-  `kept_original`) (PR 2 sends only
-  these; everything else is `null` to the storefront).
+- **APPROVAL FIRST (owner decision 2026-10-02, 10:16 JST; migration
+  20261026100000). Only `approved` may ever be shown** on the website (PR 2
+  sends only that; everything else is `null` to the storefront) **or ticked
+  for the hero** (`hero_pick_reason` → `not_approved`). A cut-out that passed
+  the checks (`ok` / `auto_fixed`) waits in the **To approve** tab (replaces
+  the Auto-fixed tab) until a staff member presses Approve or Reject; it is
+  still FINAL for cut once (never sent again). Completed = `approved` +
+  `kept_original`. Why: until 2026-10-02 a passed cut-out counted as Completed
+  and was hero-tickable with no staff decision ("many go straight to
+  Completed without approve" — owner). The website did not change with the
+  migration: the API never sent product cut-outs (PR 2 not built) and every
+  hero tick was already on an approved row (the migration refuses otherwise).
+  `PUBLISHABLE_STATUSES` (`_shared/cutout-qa.ts`) is `["approved"]`.
 - **The switch fails to OFF.** `system_settings.media_cutout_mode` =
   `off | test | on`; anything else reads `off`. The monthly cap reads `0` when
   invalid. Both change ONLY through `set_media_cutout_settings`
@@ -260,8 +270,8 @@ processed in test and on modes (no provider call, no cost).
 | status | shown on the website (PR 2) |
 |---|---|
 | pending | no — not processed yet (treated like `null`) |
-| ok | yes |
-| auto_fixed | yes — cropped by the frame; hero fades the cut side, catalogue runs it to the edge |
+| ok | no — **To approve** (approval first, 2026-10-02): waits for a staff Approve |
+| auto_fixed | no — **To approve**; cropped by the frame (hero fades the cut side, catalogue runs it to the edge) once approved |
 | needs_review | no — held for staff |
 | approved | yes — staff decision |
 | rejected | no — staff decision; the original is shown |

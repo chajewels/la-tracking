@@ -14,6 +14,8 @@ import {
   capLeft, derivedPaths, isCutoutSource, OWN_CUTOUT_RE, readCutoutCap, readCutoutMode, RETRY_BACKOFF_MINUTES, MAX_RETRIES,
   shouldRingCapBell, storagePathOf,
 } from "../../supabase/functions/_shared/media-cutout-rules.ts";
+import { isCompleted, isLocked, isPassed } from "@/lib/media-cutouts";
+import { blockerText } from "@/lib/hero-picks";
 import {
   falProvider, falRequestBody, isRetryableStatus, pickProvider, ProviderError, replicateProvider, scrub,
 } from "../../supabase/functions/_shared/cutout-provider.ts";
@@ -196,8 +198,15 @@ describe("rules", () => {
     expect(findRegions(ds).regions).toHaveLength(2);
   });
 
-  it("only ok / auto_fixed / approved are publishable; every flag reads as plain words", () => {
-    expect(PUBLISHABLE_STATUSES).toEqual(["ok", "auto_fixed", "approved"]);
+  it("approval first: only approved is publishable; passed is To approve and still final; every flag reads as plain words", () => {
+    // Approval first (owner 2026-10-02, migration 20261026100000): only a staff Approve publishes.
+    expect(PUBLISHABLE_STATUSES).toEqual(["approved"]);
+    expect(["ok", "auto_fixed"].map(isPassed)).toEqual([true, true]);
+    expect(["approved", "kept_original", "needs_review"].map(isPassed)).toEqual([false, false, false]);
+    expect(["approved", "kept_original"].map(isCompleted)).toEqual([true, true]);
+    expect(["ok", "auto_fixed"].map(isCompleted)).toEqual([false, false]);
+    expect(["ok", "auto_fixed", "approved", "kept_original", "rejected"].map(isLocked)).toEqual([true, true, true, true, true]);
+    expect(blockerText("not_approved")).toBe("the cut-out is not approved yet — approve it first");
     expect(describeFlag("low_res:418x370")).toBe("Too small: 418 × 370 px (at least 800 px needed)");
     expect(describeFlag("extra_objects:1")).toMatch(/second object/);
     expect(describeFlag("edge_touch:top,bottom")).toMatch(/top, bottom/);

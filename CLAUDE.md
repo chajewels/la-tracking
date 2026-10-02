@@ -60,14 +60,8 @@ Reference docs (read the relevant one when a task touches that area):
   docs/SCHEMA-FACTS-CUSTOMER-CODE.md
 - Moved out of CLAUDE.md on 2026-10-02 (verbatim, under the heading "Rules
   moved from CLAUDE.md (2026-10-02, verbatim)"; CLAUDE.md keeps the one-line
-  rules and a pointer): the docs above marked "rules moved 2026-10-02", plus
-  docs/GIT-WORKFLOW.md (new: git-workflow rationale and incidents),
-  docs/HUB-UI-MOTION-REVIEW.md, docs/BRAND-STYLE.md, docs/CART-REMINDERS.md,
-  docs/CRON-AND-EDGE-AUTH.md, docs/LOVABLE-VERIFICATION.md,
-  docs/LOYALTY-RULES.md, docs/MIGRATIONS.md, docs/PAGE365-IMPORT.md,
-  docs/PAYMENT-SUBMISSIONS.md, docs/PENALTY-AND-FORFEITURE.md,
-  docs/PLAN-DURATION.md, docs/REASSIGN-OWNER.md, docs/RECONCILIATION.md,
-  docs/SIDEBAR.md, docs/WEB-LAYAWAY.md
+  rules and a pointer): every doc named in a "Rules moved" pointer below, plus
+  docs/GIT-WORKFLOW.md (new: git-workflow rationale and incidents).
 - SIZE LIMIT: keep this file under 100k characters (Claude Code stops loading
   it at 150k; trimmed to under 100k on 2026-10-02). Long reference text goes to docs/; rules stay here.
 
@@ -1302,8 +1296,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     call; never auto-apply an unmatched, duplicate, busy or non-transparent file.
     Full text of this and the next three rules: docs/MEDIA-CUTOUTS.md "Rules
     moved from CLAUDE.md".
-  - Automation never overwrites approved/rejected; only ok / auto_fixed /
-    approved may be shown on the website.
+  - APPROVAL FIRST (owner 2026-10-02, migration 20261026100000): ok /
+    auto_fixed = "To approve"; ONLY `approved` is ever shown on the website or
+    ticked for the hero. Automation never overwrites approved/rejected.
   - CUT ONCE / PUBLISH GATE: max 2 paid calls per photo, then Needs owner;
     COMPLETED is FINAL for every role; cut ONLY while the product is published
     (status 'active'), DB-enforced, never bypassed in SQL.

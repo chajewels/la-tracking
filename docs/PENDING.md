@@ -1020,7 +1020,24 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
 - RLS: all 210 public policies with bare auth.uid() / helper calls rewritten as
   scalar sub-selects — migration 20261024100000, applied (0 bare left of 311);
   docs/MIGRATIONS.md "RLS scalar sub-selects".
+- Housekeeping 2026-10-02 (PR #317, migration 20261025100000 applied): landing
+  for members without the dashboard (S3 #15); Yamato tracking deep link +
+  tracking-number normalisation (S4 #26, docs/SHIPPING-FEES.md); two dead anon
+  policies on extension_requests dropped; hero_pick_reason ACL (S4 #32); CI
+  prunes pr-<n> preview channels of closed PRs (Firebase channel quota).
+- Bulk payment import LIVE (PR #318 supersedes #302; migration 20261020100000
+  applied; record-multi-payment deployed) — un-parked by the owner 2026-10-02.
+  Live-tested 2026-10-02 on test layaway TEST-900060: 2-row CSV + batch proof
+  → 2 submissions in one transaction, one batch key, proof on each, 2 audit
+  rows, no payments row; the same file again → whole batch refused by the
+  30-min duplicate guard, nothing imported; both submissions then rejected.
+  The CSV has no DP column: a row is a down payment at confirm time only when
+  its remarks say DP / down / downpayment (review-payment-submission).
+- Media cut-out follow-ups (b/c/e/f/h) CLOSED by the owner 2026-10-02: today's
+  behaviour stays, auto-reload already off, Keep original for failed/broken cuts.
+  Open: whether every cut should need approval before it shows (today ok /
+  auto_fixed show without a staff decision, by the 2026-09-28 rules).
 - Still open, owner decisions: "site content into the Hub" (which pages/strings
-  move — unscoped); media cut-out follow-ups (b/c/e/f/h, docs/MEDIA-CUTOUTS.md);
-  bulk payment import PR #302 (PARKED until launch); `web-reservation-sweep` /
-  `web_reservation_expiring` names are historical (rename only if wanted).
+  move — unscoped); `web-reservation-sweep` / `web_reservation_expiring` names
+  are historical (rename only if wanted); S4 #36 lint `any` is 770 errors in
+  118 files (a project, not housekeeping).

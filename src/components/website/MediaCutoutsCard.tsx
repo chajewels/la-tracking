@@ -45,10 +45,12 @@ import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
  * once when the product is published (migration 20261011100000, enforced in
  * the database). The worker runs every minute and obeys the switch here —
  * Off / Test / On, failing to Off — and the monthly limit. Each result gets an
- * automatic verdict; only OK / Auto-fixed / Approved will ever be shown on the
- * website (PR 2). Staff approve, re-run, reject, keep the original or upload
- * their own cut-out here — on the row or in the zoom viewer, which offers the
- * row's own buttons. Completed is final. Everything is
+ * automatic verdict; APPROVAL FIRST (owner 2026-10-02, migration
+ * 20261026100000): a cut-out that passed the checks is "To approve", and only
+ * an APPROVED cut-out will ever be shown on the website (PR 2) or ticked for
+ * the hero. Staff approve, re-run, reject, keep the original or upload their
+ * own cut-out here — on the row or in the zoom viewer, which offers the row's
+ * own buttons. Passed and Completed are final (cut once). Everything is
  * manage_website_catalog and audited. Since 20261013100000 an admin also ticks
  * "Use on hero" on a finished cut-out (row and viewer), and the Hero tab counts
  * the ticks, holds the hero switch and the one-time carry-over
@@ -58,9 +60,9 @@ import CutoutBulkUpload from "@/components/website/CutoutBulkUpload";
 const PAGE = CUTOUT_PAGE_SIZE;
 
 function statusVariant(s: CutoutRow["status"]): "default" | "secondary" | "destructive" | "outline" {
-  if (s === "ok" || s === "approved") return "default";
+  if (s === "approved") return "default";
   if (s === "needs_review" || s === "failed") return "destructive";
-  if (s === "auto_fixed" || s === "kept_original") return "secondary";
+  if (s === "ok" || s === "auto_fixed" || s === "kept_original") return "secondary";
   return "outline";
 }
 
@@ -159,8 +161,8 @@ export function MediaCutoutSettingsCard() {
         <p className="text-xs text-muted-foreground">
           Every photo of a published product gets a transparent cut-out and a uniform chalk-background version for
           the catalogue — photos of unpublished products wait until the product is published. The original is never
-          changed. Photos are checked automatically; anything doubtful waits for you below, and only OK, auto-fixed
-          and approved photos will be used on the website.
+          changed. Photos are checked automatically; anything doubtful waits in Needs review, a cut-out that passed
+          waits in To approve, and only a photo you approved is used on the website or the hero.
         </p>
       </CardHeader>
       <CardContent className="space-y-5 pt-5 text-sm">
@@ -397,7 +399,7 @@ function CutoutItem({ row, onAct, busy, isAdmin, onOpen }: {
   /** Opens the card's zoom viewer on this photo; a result key picks the picture, none = the first. */
   onOpen: (key?: string) => void;
 }) {
-  const { inFlight, completed, kept, rejected, waiting, keepFirst, held, capped } = cutoutRowState(row);
+  const { inFlight, completed, toApprove, kept, rejected, waiting, keepFirst, held, capped } = cutoutRowState(row);
   // A provider / account error sent it back (migration 20261012100000).
   const returned = !held && row.status !== "failed" && !!row.last_error && !!row.error_kind && row.error_kind !== "photo"
     && ["queued", "submitted", "ready"].includes(row.job_state);
@@ -492,6 +494,11 @@ function CutoutItem({ row, onAct, busy, isAdmin, onOpen }: {
       )}
       {completed && !kept && (
         <p className="text-[11px] text-muted-foreground" data-testid="cutout-final">Completed is final — it is never sent again.</p>
+      )}
+      {toApprove && (
+        <p className="text-[11px] text-muted-foreground" data-testid="cutout-to-approve">
+          Passed the checks — nothing shows it until you Approve it (or Reject it). It is never sent again.
+        </p>
       )}
       {!isAdmin && (rejected || held) && (
         <p className="text-[11px] text-muted-foreground" data-testid="cutout-admin-only">
@@ -699,11 +706,12 @@ export function MediaCutoutReviewCard() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Original → cut-out on the dark hero stage → uniform catalogue version. Approve to use it, Keep original to
-          leave the photo uncut (free, final), Reject, Re-run to try again, or upload your own cut-out. Only photos of
-          published products are cut and shown here — a photo of an unpublished product appears once its product is
-          published. Every photo is cut once: Completed is final, Rejected is locked, and a photo stops after 2 paid
-          calls.
+          Original → cut-out on the dark hero stage → uniform catalogue version. Approval first: a cut-out that passes
+          the checks waits in To approve — only an approved cut-out is ever shown or used on the hero. Approve to use
+          it, Keep original to leave the photo uncut (free, final), Reject, Re-run to try again, or upload your own
+          cut-out. Only photos of published products are cut and shown here — a photo of an unpublished product
+          appears once its product is published. Every photo is cut once: a passed or Completed photo is final,
+          Rejected is locked, and a photo stops after 2 paid calls.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-4 text-sm">
@@ -729,6 +737,7 @@ export function MediaCutoutReviewCard() {
           <p className="text-xs tabular-nums text-muted-foreground" data-testid="cutout-tab-totals">
             {FILTERS.find(f => f.value === filter)?.label}: {activeTotals.count.toLocaleString()} photo{activeTotals.count === 1 ? "" : "s"}
             {activeTotals.kept_original ? ` (${activeTotals.kept_original.toLocaleString()} kept original)` : ""}
+            {activeTotals.auto_fixed ? ` (${activeTotals.auto_fixed.toLocaleString()} auto-fixed)` : ""}
             {" "}· {activeTotals.paid_calls.toLocaleString()} paid call{activeTotals.paid_calls === 1 ? "" : "s"}
             {price != null ? ` (about $${(Math.round(activeTotals.paid_calls * price * 100) / 100).toFixed(2)})` : ""}
           </p>

@@ -13,8 +13,12 @@
 export type CutoutStatus =
   | "pending" | "ok" | "auto_fixed" | "needs_review" | "approved" | "rejected" | "failed";
 
-/** The statuses whose files the website may show (PR 2 sends only these). */
-export const PUBLISHABLE_STATUSES: readonly CutoutStatus[] = ["ok", "auto_fixed", "approved"];
+/**
+ * The statuses whose files the website may show (PR 2 sends only these).
+ * APPROVAL FIRST (owner 2026-10-02, migration 20261026100000): only a staff
+ * Approve publishes — ok / auto_fixed wait in "To approve".
+ */
+export const PUBLISHABLE_STATUSES: readonly CutoutStatus[] = ["approved"];
 
 /** Alpha at or above this is "the piece". */
 export const ALPHA_ON = 128;
