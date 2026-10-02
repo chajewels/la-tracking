@@ -47,7 +47,7 @@ export const CATEGORIES_QUERY_KEY = ["website-categories"] as const;
 
 export async function fetchCategories(): Promise<WebsiteCategory[]> {
   const { data, error } = await supabase
-    .from("website_categories" as any)
+    .from("website_categories")
     .select(CATEGORY_FIELDS)
     .order("sort_order")
     .order("name");
@@ -162,10 +162,10 @@ export function CategoriesEditor() {
         published: f.published,
       };
       if (f.id) {
-        const { error } = await supabase.from("website_categories" as any).update(payload).eq("id", f.id);
+        const { error } = await supabase.from("website_categories").update(payload).eq("id", f.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("website_categories" as any).insert(payload);
+        const { error } = await supabase.from("website_categories").insert(payload);
         if (error) throw error;
       }
     },
@@ -175,7 +175,7 @@ export function CategoriesEditor() {
 
   const togglePublished = useMutation({
     mutationFn: async ({ id, published }: { id: string; published: boolean }) => {
-      const { error } = await supabase.from("website_categories" as any).update({ published }).eq("id", id);
+      const { error } = await supabase.from("website_categories").update({ published }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_d, v) => { toast({ title: v.published ? "Category published" : "Category unpublished" }); invalidate(); },
@@ -186,14 +186,14 @@ export function CategoriesEditor() {
   const remove = useMutation({
     mutationFn: async (c: WebsiteCategory) => {
       const { count, error: countErr } = await supabase
-        .from("website_category_products" as any)
+        .from("website_category_products")
         .select("product_id", { count: "exact", head: true })
         .eq("category_id", c.id);
       if (countErr) throw countErr;
       if ((count ?? 0) > 0) {
         throw new Error(`${count} product${count === 1 ? " is" : "s are"} assigned to ${c.name}. Remove it from those products first.`);
       }
-      const { error } = await supabase.from("website_categories" as any).delete().eq("id", c.id);
+      const { error } = await supabase.from("website_categories").delete().eq("id", c.id);
       if (error) throw error;
     },
     onSuccess: () => { toast({ title: "Category removed" }); invalidate(); },

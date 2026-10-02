@@ -44,11 +44,11 @@ export function JewelryTypesCard() {
     queryKey: ["website-collections"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_collections" as any)
+        .from("website_collections")
         .select("id, slug, name, name_ja, description, description_ja, hero_media")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as any[];
+      return data ?? [];
     },
   });
 
@@ -64,7 +64,7 @@ export function JewelryTypesCard() {
       if (!name) throw new Error("Give the type a name.");
       const description = newDescription.trim();
       const ja = await japaneseFor({ name, description: description || undefined });
-      const { error } = await supabase.from("website_collections" as any).insert({
+      const { error } = await supabase.from("website_collections").insert({
         name, slug: slugify(name), description: description || null, ...ja,
       });
       if (error) throw error;
@@ -73,14 +73,14 @@ export function JewelryTypesCard() {
       toast({ title: "Type added" });
       setNewName(""); setNewDescription(""); invalidate();
     },
-    onError: (e: any) => toast({ title: "Could not add type", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not add type", description: e.message, variant: "destructive" }),
   });
 
   /** Writes the typed text as it is — no translation on save. */
   const saveRow = useMutation({
     mutationFn: async ({ id, draft }: { id: string; draft: TypeDraft }) => {
       setBusyId(id);
-      const { error } = await supabase.from("website_collections" as any)
+      const { error } = await supabase.from("website_collections")
         .update({
           description: draft.description.trim() || null,
           name_ja: draft.name_ja.trim() || null,
@@ -90,18 +90,18 @@ export function JewelryTypesCard() {
       if (error) throw error;
     },
     onSuccess: (_d, v) => { toast({ title: "Type saved" }); clearDraft(v.id); invalidate(); },
-    onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
     onSettled: () => setBusyId(null),
   });
 
   const saveHero = useMutation({
     mutationFn: async ({ id, hero_media }: { id: string; hero_media: string | null }) => {
-      const { error } = await supabase.from("website_collections" as any)
+      const { error } = await supabase.from("website_collections")
         .update({ hero_media }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_d, v) => { toast({ title: v.hero_media ? "Hero image saved" : "Hero image removed" }); invalidate(); },
-    onError: (e: any) => toast({ title: "Could not save hero image", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not save hero image", description: e.message, variant: "destructive" }),
   });
 
   /**
@@ -118,7 +118,7 @@ export function JewelryTypesCard() {
       if (out.name_ja) update.name_ja = out.name_ja;
       if (description.trim() && out.description_ja) update.description_ja = out.description_ja;
       if (!Object.keys(update).length) throw new Error("Translation came back empty.");
-      const { error } = await supabase.from("website_collections" as any)
+      const { error } = await supabase.from("website_collections")
         .update(update)
         .eq("id", id);
       if (error) throw error;
@@ -136,17 +136,17 @@ export function JewelryTypesCard() {
       });
       invalidate();
     },
-    onError: (e: any) => toast({ title: "Could not translate", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not translate", description: e.message, variant: "destructive" }),
     onSettled: () => setBusyId(null),
   });
 
   const removeType = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("website_collections" as any).delete().eq("id", id);
+      const { error } = await supabase.from("website_collections").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { toast({ title: "Type removed" }); invalidate(); },
-    onError: (e: any) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -178,7 +178,7 @@ export function JewelryTypesCard() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(types.data ?? []).map((t: any) => {
+            {(types.data ?? []).map((t) => {
               const saved: TypeDraft = {
                 description: t.description ?? "", name_ja: t.name_ja ?? "", description_ja: t.description_ja ?? "",
               };

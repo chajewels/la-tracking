@@ -35,8 +35,7 @@ import {
  * is read-only rather than hidden: knowing what the site currently says is
  * useful to anyone who can see this tab.
  *
- * website_settings is absent from src/integrations/supabase/types.ts, so it is
- * reached through the `as any` table cast every website_* table uses.
+ * website_settings is in src/integrations/supabase/types.ts, so it is queried typed.
  */
 
 interface SettingRow {
@@ -59,7 +58,7 @@ export function SettingsCard() {
     queryKey: ["website-settings"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_settings" as any)
+        .from("website_settings")
         .select("key, value, kind, public, updated_at")
         .order("key");
       if (error) throw error;
@@ -112,7 +111,7 @@ export function SettingsCard() {
       }));
 
       const { error } = await supabase
-        .from("website_settings" as any)
+        .from("website_settings")
         .upsert(payload as never, { onConflict: "key" });
       if (error) throw error;
 
