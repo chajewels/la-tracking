@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
 
 export type BannerType = 'featured' | 'promo';
 
@@ -155,10 +156,10 @@ export function useCreateLoyaltyBanner() {
       if (user && data) {
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_banner',
-          entity_id: (data as any).id,
+          entity_id: (data as { id: string }).id,
           action: 'banner_created',
           performed_by_user_id: user.id,
-          new_value_json: { ...payload, id: (data as any).id },
+          new_value_json: { ...payload, id: (data as { id: string }).id },
         });
       }
       return data as { id: string };
@@ -192,8 +193,8 @@ export function useUpdateLoyaltyBanner() {
         const oldDiff: Record<string, unknown> = {};
         const newDiff: Record<string, unknown> = {};
         for (const k of Object.keys(input.updates)) {
-          oldDiff[k] = (input.oldValues as any)[k];
-          newDiff[k] = (input.updates as any)[k];
+          oldDiff[k] = input.oldValues[k as keyof typeof input.oldValues];
+          newDiff[k] = input.updates[k as keyof typeof input.updates];
         }
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_banner',
@@ -234,7 +235,7 @@ export function useDeleteLoyaltyBanner() {
           entity_id: oldValues.id,
           action: 'banner_deleted',
           performed_by_user_id: user.id,
-          old_value_json: oldValues as any,
+          old_value_json: oldValues as unknown as Json,
         });
       }
     },

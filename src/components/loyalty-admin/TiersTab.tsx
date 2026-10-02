@@ -138,7 +138,7 @@ function TierCard({ tier, canEdit, onEdit }: TierCardProps) {
 
 export default function TiersTab() {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
 
   const { data: tiers, isLoading, isError } = useLoyaltyTiers();

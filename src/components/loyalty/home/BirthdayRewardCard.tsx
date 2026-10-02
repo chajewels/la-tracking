@@ -34,15 +34,15 @@ export default function BirthdayRewardCard({
         },
         body: JSON.stringify({ token: portalToken || undefined, action: 'redeem_birthday' }),
       });
-      const payload = await res.json().catch(() => ({} as any));
+      const payload = await res.json().catch(() => ({} as { error?: string }));
       if (!res.ok || payload?.error) {
         toast.error(payload?.error || `Failed to claim birthday reward (HTTP ${res.status})`);
         return;
       }
       toast.success(`🎂 ${bonus.toLocaleString('en-US')} birthday points added!`);
       onClaimed();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to claim birthday reward');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to claim birthday reward');
     } finally {
       setClaiming(false);
     }

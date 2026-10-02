@@ -60,7 +60,7 @@ function fmtStock(r: LoyaltyRewardRow): { label: string; tone: 'normal' | 'low' 
 
 export default function RewardsTab() {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const canToggle = isAdmin || isFinance;
@@ -124,8 +124,8 @@ export default function RewardsTab() {
         updates: { is_active: next },
       });
       toast.success(next ? 'Reward activated' : 'Reward paused');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not update reward');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not update reward');
     } finally {
       setTogglingId(null);
     }
@@ -136,8 +136,8 @@ export default function RewardsTab() {
     try {
       await deleteMutation.mutateAsync(deleteTarget);
       toast.success('Reward deleted');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not delete reward');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not delete reward');
     } finally {
       setDeleteTarget(null);
     }

@@ -12,6 +12,13 @@ const BENEFIT_KEYS = [
   'loyalty.benefitGifts',
 ];
 
+/** join-loyalty-program response fields this prompt reads. */
+interface JoinLoyaltyResponse {
+  member_id: string;
+  already_enrolled?: boolean;
+  enrolled?: boolean;
+}
+
 export interface LoyaltyJoinPromptProps {
   portalToken: string;
   customerId: string;
@@ -30,10 +37,10 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
       });
       if (error) throw error;
 
-      const memberId = (data as any)?.member_id;
-      if ((data as any)?.already_enrolled) {
+      const memberId = (data as JoinLoyaltyResponse)?.member_id;
+      if ((data as JoinLoyaltyResponse)?.already_enrolled) {
         toast.success(pt('loyalty.alreadyMember'));
-      } else if ((data as any)?.enrolled) {
+      } else if ((data as JoinLoyaltyResponse)?.enrolled) {
         toast.success(pt('loyalty.welcomeJoin'));
       } else {
         toast.success(pt('loyalty.joinedGeneric'));
@@ -41,8 +48,8 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
 
       await queryClient.invalidateQueries({ queryKey: ['loyalty-access', customerId] });
       onJoined?.(memberId);
-    } catch (err: any) {
-      toast.error(err?.message || pt('loyalty.errJoin'));
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || pt('loyalty.errJoin'));
     } finally {
       setJoining(false);
     }
