@@ -208,7 +208,7 @@ describe("edge + catalog wiring", () => {
   });
   it("the product dialog writes 'active' after categories", () => {
     const pc = code(src("src/components/website/ProductsCard.tsx"));
-    const cat = pc.indexOf('from("website_category_products" as any)');
+    const cat = pc.indexOf('from("website_category_products")');
     const live = pc.indexOf('.update({ status: "active" }');
     expect(cat).toBeGreaterThan(-1);
     expect(live).toBeGreaterThan(cat);

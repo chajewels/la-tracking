@@ -585,25 +585,30 @@ export default function AccountDetail() {
 
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
-  const scheduleItems = schedule || [];
+  // One array, two views of it (no-explicit-any merge, 2026-10-03):
+  // scheduleList keeps the hook's generated row type for the components that
+  // take it; scheduleItems is the same object typed as the business-rules view
+  // row the schedule helpers in this file take. Types only.
+  const scheduleList = schedule || [];
+  const scheduleItems = scheduleList as unknown as ScheduleRow[];
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
   const todayStr = getPHTToday();
   const hasUnpaidPastDue = scheduleItems.some(
-    (item: ScheduleRow) => !isRowPaid(item) && item.due_date <= todayStr
+    (item) => !isRowPaid(item) && item.due_date <= todayStr
   );
   // Grace period: current overdue month has no UNPAID penalties yet, within
   // 7 days of due date, and no OTHER row on the account is overdue/partially_paid.
   // Grace resets once the account is fully caught up (no unpaid penalties, no
   // overdue/partial rows), matching the server-side penalty-engine rule.
   const overdueRows = scheduleItems.filter(
-    (item: ScheduleRow) => !isRowPaid(item) && item.due_date <= todayStr
+    (item) => !isRowPaid(item) && item.due_date <= todayStr
   );
-  const overdueRowIds = new Set(overdueRows.map((r: ScheduleRow) => r.id));
+  const overdueRowIds = new Set(overdueRows.map((r) => r.id));
   const hasPenaltiesOnOverdueRows = (penalties || []).some(
     (p) => (p.status === 'unpaid' || p.status === 'waived') && overdueRowIds.has(p.schedule_id)
   );
   const hasOtherUnpaidRows = scheduleItems.some(
-    (item: ScheduleRow) =>
+    (item) =>
       !isRowPaid(item) &&
       !overdueRowIds.has(item.id) &&
       (item.status === 'overdue' || item.status === 'partially_paid')
@@ -611,7 +616,7 @@ export default function AccountDetail() {
   const isInGracePeriod = overdueRows.length > 0
     && !hasPenaltiesOnOverdueRows
     && !hasOtherUnpaidRows
-    && overdueRows.every((r: ScheduleRow) => {
+    && overdueRows.every((r) => {
       const daysSinceDue = Math.floor(
         (Date.now() - new Date(r.due_date + 'T00:00:00Z').getTime()) / 86400000
       );
@@ -693,8 +698,8 @@ export default function AccountDetail() {
 
   const timelineInstallments: TimelineInstallment[] = useMemo(() =>
     scheduleItems
-      .filter((item: ScheduleRow) => item.status !== 'cancelled')
-      .map((item: ScheduleRow) => ({
+      .filter((item) => item.status !== 'cancelled')
+      .map((item) => ({
         id: item.id,
         installmentNumber: Number(item.installment_number),
         dueDate: item.due_date,
@@ -1244,7 +1249,7 @@ export default function AccountDetail() {
             </div>
             {/* Forfeiture Notification Warning Banner */}
             {(() => {
-              const warning = getForfeitureWarning(account.status, scheduleItems);
+              const warning = getForfeitureWarning(account.status, scheduleList);
               if (!warning) return null;
               return (
                 <div className="mt-2 p-3 rounded-lg border border-orange-500/30 bg-orange-500/5">
@@ -1265,7 +1270,7 @@ export default function AccountDetail() {
             })()}
             {/* Single next due date for near-forfeiture penalized accounts */}
             {(() => {
-              const followUp = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
+              const followUp = getUpcomingFollowUpDates(account.status, scheduleList, 1);
               if (!followUp || followUp.dates.length === 0) return null;
               const nextDate = followUp.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
               return (
@@ -1362,7 +1367,7 @@ export default function AccountDetail() {
                   accountId={account.id}
                   currency={currency}
                   remainingBalance={paymentEligibleBalance}
-                  schedule={scheduleItems}
+                  schedule={scheduleList}
                   invoiceNumber={account.invoice_number}
                   downpaymentRemaining={dpRemainingAmount}
                   onPaymentRecorded={handlePaymentRecorded}
@@ -1372,7 +1377,7 @@ export default function AccountDetail() {
                   currency={currency}
                   remainingBalance={paymentEligibleBalance}
                   payFullBalance
-                  schedule={scheduleItems}
+                  schedule={scheduleList}
                   invoiceNumber={account.invoice_number}
                   downpaymentRemaining={dpRemainingAmount}
                   onPaymentRecorded={handlePaymentRecorded}
@@ -2544,7 +2549,7 @@ export default function AccountDetail() {
             invoiceNumber={account.invoice_number}
             currency={currency}
             penalties={waivablePenalties.map(p => {
-              const schedItem = scheduleItems.find((s: ScheduleRow) => s.id === p.schedule_id);
+              const schedItem = scheduleItems.find((s) => s.id === p.schedule_id);
               return {
                 id: p.id,
                 scheduleId: p.schedule_id,
@@ -2730,7 +2735,7 @@ export default function AccountDetail() {
           paymentAmount={restoreTarget?.amount || 0}
           paymentDate={restoreTarget?.date || ''}
           currency={account.currency as Currency}
-          schedule={scheduleItems}
+          schedule={scheduleList}
           onRestore={async (paymentId, selectedScheduleIds) => {
             try {
               await restorePayment.mutateAsync({

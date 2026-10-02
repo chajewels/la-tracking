@@ -549,8 +549,7 @@ export default function ProductsCard() {
       // (sort_order, not sort). Never the collection payload.
       // Kept as `as any`: src/test/page365-drafts.test.tsx ("writes 'active' after
       // categories") anchors on this exact text. Drop it when that test is updated.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: delCatErr } = await supabase.from("website_category_products" as any)
+      const { error: delCatErr } = await supabase.from("website_category_products")
         .delete().eq("product_id", productId);
       if (delCatErr) throw delCatErr;
       if (f.categoryIds.length) {
