@@ -1,7 +1,16 @@
 import { Activity, Gavel, Scale, Bell, XCircle } from 'lucide-react';
 
+/** The dashboard-summary counts this panel reads (a subset of useDashboardSummary's data). */
+interface SystemHealthSummary {
+  total_penalties_applied: number;
+  total_penalties_waived: number;
+  reminder_total: number;
+  reminder_failed: number;
+  reminder_success: number;
+}
+
 interface SystemHealthProps {
-  summary: any;
+  summary: SystemHealthSummary | null | undefined;
 }
 
 export default function SystemHealthPanel({ summary }: SystemHealthProps) {
@@ -12,8 +21,8 @@ export default function SystemHealthPanel({ summary }: SystemHealthProps) {
     { label: 'Reminders Failed', value: summary?.reminder_failed ?? 0, icon: XCircle, color: 'text-destructive' },
   ];
 
-  const successRate = summary?.reminder_total > 0
-    ? Math.round((summary.reminder_success / summary.reminder_total) * 100)
+  const successRate = (summary?.reminder_total as number) > 0
+    ? Math.round((summary!.reminder_success / summary!.reminder_total) * 100)
     : 100;
 
   return (

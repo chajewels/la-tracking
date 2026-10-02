@@ -204,7 +204,7 @@ export function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: 
           method.phone         && { lbl:'Phone',     val:method.phone,    copy:`${method.id}-phone` },
           method.email         && { lbl:'Email',     val:method.email },
           method.recipientAddress && { lbl:'Address', val:method.recipientAddress },
-        ].filter(Boolean).map((row: any, i) => (
+        ].filter(Boolean).map((row: { lbl: string; val: string; copy?: string; mono?: boolean }, i) => (
           <div key={i} className="flex items-center justify-between py-2" style={{borderBottom:`1px solid ${P.s2}`}}>
             <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flexShrink:0}}>{row.lbl}:</span>
             <span className="flex items-center gap-2 min-w-0 ml-2">

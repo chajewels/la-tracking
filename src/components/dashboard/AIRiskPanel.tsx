@@ -8,9 +8,12 @@ import { Link } from 'react-router-dom';
 import { useAccounts, useCustomers, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
+import type { Tables } from '@/integrations/supabase/types';
+
+type RiskScheduleRow = Pick<Tables<'layaway_schedule'>, 'account_id' | 'due_date' | 'status'>;
 
 // ── Risk assessment ──
-function assessRisk(account: AccountWithCustomer, schedules: any[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
+function assessRisk(account: AccountWithCustomer, schedules: RiskScheduleRow[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
   const acctSchedules = schedules.filter(s => s.account_id === account.id);
   const today = getPHTToday();
   const overdueItems = acctSchedules.filter(s => s.due_date < today && ['pending', 'partially_paid'].includes(s.status));
@@ -83,8 +86,8 @@ function useAIData() {
   // Schedules join through the filtered accounts, so test-account rows
   // become unreachable without filtering that query separately.
   return {
-    accounts: (accounts || []).filter(a => (a as any).is_test === false),
-    customers: (customers || []).filter(c => (c as any).is_test === false),
+    accounts: (accounts || []).filter(a => a.is_test === false),
+    customers: (customers || []).filter(c => c.is_test === false),
     schedules: schedules || [],
     isLoading: aL || cL || sL,
   };

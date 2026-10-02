@@ -8,6 +8,8 @@ import { toast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+type RolePermissionRow = ReturnType<typeof usePermissions>['allPermissions'][number];
+
 export const ROLES = ['admin', 'staff', 'finance', 'csr', 'live_agent'] as const;
 
 export const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string; section?: string; description?: string }[] }[] = [
@@ -196,7 +198,7 @@ function RoleMatrix({
   updating,
   onToggle,
 }: {
-  allPermissions: any[];
+  allPermissions: RolePermissionRow[];
   updating: string | null;
   onToggle: (role: string, key: string, current: boolean) => void;
 }) {
@@ -287,7 +289,7 @@ function MemberMatrix({
   allPermissions,
   members,
 }: {
-  allPermissions: any[];
+  allPermissions: RolePermissionRow[];
   members: TeamMember[];
 }) {
   const queryClient = useQueryClient();
@@ -350,8 +352,8 @@ function MemberMatrix({
       toast({
         title: `${findPermissionLabel(key)}: ${newGranted ? 'Enabled' : 'Disabled'} (custom override) for ${selectedMember.full_name}`,
       });
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Error', description: (e as { message?: string }).message, variant: 'destructive' });
     }
     setSaving(null);
   };
@@ -370,8 +372,8 @@ function MemberMatrix({
       await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
       toast({ title: `Reset to role default for ${selectedMember.full_name}` });
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Error', description: (e as { message?: string }).message, variant: 'destructive' });
     }
     setSaving(null);
   };
@@ -389,8 +391,8 @@ function MemberMatrix({
       await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
       toast({ title: `Reset all to role defaults for ${selectedMember.full_name}` });
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Error', description: (e as { message?: string }).message, variant: 'destructive' });
     }
     setResettingAll(false);
   };
@@ -554,17 +556,17 @@ export default function PermissionMatrixTab() {
       // Aggregate ALL roles per user — mirror backend checkPermission OR logic
       // (admin+finance, staff+admin, etc.). last-write-wins would mask composite roles.
       const roleMap: Record<string, string[]> = {};
-      (rolesRes.data || []).forEach((r: any) => {
+      (rolesRes.data || []).forEach((r) => {
         if (!roleMap[r.user_id]) roleMap[r.user_id] = [];
         roleMap[r.user_id].push(r.role);
       });
       return (profilesRes.data || [])
-        .map((p: any) => ({
+        .map((p) => ({
           user_id: p.user_id,
           full_name: p.full_name,
           roles: roleMap[p.user_id] || [],
         }))
-        .filter((p: any) => p.roles.length > 0);
+        .filter((p) => p.roles.length > 0);
     },
   });
 

@@ -58,6 +58,14 @@ export default function CommandPalette() {
   );
 }
 
+/** The fields the palette reads from the cash-orders list page's cached rows. */
+interface CachedCashOrder {
+  id: string;
+  invoice_number?: string | null;
+  web_reference?: string | null;
+  customers?: { full_name?: string | null } | null;
+}
+
 function PaletteContent({ onDone }: { onDone: () => void }) {
   const navigate = useNavigate();
   const { roles } = useAuth();
@@ -69,7 +77,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   const { data: customers } = useCustomers();
   const queryClient = useQueryClient();
   // Cash orders: cached-only (the list page's query); no extra fetch here.
-  const cashOrders = queryClient.getQueryData<any[]>(['cash-orders']) ?? [];
+  const cashOrders = queryClient.getQueryData<CachedCashOrder[]>(['cash-orders']) ?? [];
   // Website orders PR 5: drafts to confirm are searchable by CJ-W reference.
   const { data: drafts } = useWebDrafts('open', can('confirm_web_order_ready'));
 
@@ -108,7 +116,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   const accountMatches = useMemo(() => {
     if (!q) return [];
     return (accounts ?? [])
-      .filter((a: any) =>
+      .filter((a) =>
         String(a.invoice_number ?? '').toLowerCase().includes(q) ||
         String(a.web_reference ?? '').toLowerCase().includes(q) ||
         String(a.customers?.full_name ?? '').toLowerCase().includes(q))
@@ -118,7 +126,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   const customerMatches = useMemo(() => {
     if (!q) return [];
     return (customers ?? [])
-      .filter((c: any) =>
+      .filter((c) =>
         String(c.full_name ?? '').toLowerCase().includes(q) ||
         String(c.customer_code ?? '').toLowerCase().includes(q))
       .slice(0, 5);
@@ -127,7 +135,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
   const cashMatches = useMemo(() => {
     if (!q) return [];
     return cashOrders
-      .filter((o: any) =>
+      .filter((o: CachedCashOrder) =>
         String(o.invoice_number ?? '').toLowerCase().includes(q) ||
         String(o.web_reference ?? '').toLowerCase().includes(q) ||
         String(o.customers?.full_name ?? '').toLowerCase().includes(q))
@@ -166,7 +174,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
           <>
             <CommandSeparator />
             <CommandGroup heading="Layaway accounts">
-              {accountMatches.map((a: any) => (
+              {accountMatches.map((a) => (
                 <CommandItem key={a.id} value={`${a.invoice_number} ${a.customers?.full_name ?? ""} account`} onSelect={() => go(`/accounts/${a.id}`)}>
                   <FileText className="mr-2 h-3.5 w-3.5 text-gold-300" />
                   <span className="tabular-nums">#{a.invoice_number}</span>
@@ -181,7 +189,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
         )}
         {cashMatches.length > 0 && (
           <CommandGroup heading="Cash orders">
-            {cashMatches.map((o: any) => (
+            {cashMatches.map((o: CachedCashOrder) => (
               <CommandItem key={o.id} value={`${o.invoice_number} ${o.customers?.full_name ?? ""} cash`} onSelect={() => go(`/cash-orders/${o.id}`)}>
                 <Banknote className="mr-2 h-3.5 w-3.5 text-gold-300" />
                 <span className="tabular-nums">#{o.invoice_number}</span>
@@ -203,7 +211,7 @@ function PaletteContent({ onDone }: { onDone: () => void }) {
         )}
         {customerMatches.length > 0 && (
           <CommandGroup heading="Customers">
-            {customerMatches.map((c: any) => (
+            {customerMatches.map((c) => (
               <CommandItem key={c.id} value={`${c.full_name} ${c.customer_code ?? ""} customer`} onSelect={() => go(`/customers/${c.id}`)}>
                 <User className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
                 {c.full_name}

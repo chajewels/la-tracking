@@ -13,6 +13,24 @@ import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@
 import { Link } from 'react-router-dom';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
 import { WAIVER_STATUS_LABEL } from '@/components/shared/status-tone';
+import type { Tables } from '@/integrations/supabase/types';
+
+/** One entry of a waiver audit row's new_value_json.penalties_waived. */
+interface WaivedPenaltyEntry {
+  penalty_fee_id?: string;
+  stage?: string;
+  cycle?: number | string;
+  amount?: number | string;
+}
+
+/** The new_value_json written by the waiver approve/reject paths. */
+interface WaiverAuditDetails {
+  penalties_waived?: WaivedPenaltyEntry[];
+  total_waived?: number | string | null;
+  notes?: string | null;
+}
+
+type WaiverAuditLog = Omit<Tables<'audit_logs'>, 'new_value_json'> & { new_value_json: WaiverAuditDetails | null };
 
 // ── Penalty Audit ──
 export function PenaltyAuditTab() {
@@ -67,7 +85,7 @@ export function PenaltyAuditTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {(penalties || []).map((p: any) => {
+            {(penalties || []).map((p) => {
               const acc = p.layaway_accounts;
               const sched = p.layaway_schedule;
               const currency = (acc?.currency || 'PHP') as Currency;
@@ -127,7 +145,7 @@ export function OverdueDebugTab() {
       if (error) throw error;
 
       // Canonical per-row remaining from the view (DISPLAY RULES). Helpers below still use raw rows.
-      const schedIds = (accounts || []).flatMap((a: any) => (a.layaway_schedule || []).map((s: any) => s.id));
+      const schedIds = (accounts || []).flatMap((a) => (a.layaway_schedule || []).map((s) => s.id));
       let remainingById: Record<string, number> = {};
       if (schedIds.length) {
         const { data: sva, error: e2 } = await supabase
@@ -135,7 +153,7 @@ export function OverdueDebugTab() {
           .select('id, actual_remaining')
           .in('id', schedIds);
         if (e2) throw e2;
-        remainingById = Object.fromEntries((sva || []).map((r: any) => [r.id, Number(r.actual_remaining ?? 0)]));
+        remainingById = Object.fromEntries((sva || []).map((r) => [r.id, Number(r.actual_remaining ?? 0)]));
       }
       return { accounts: accounts || [], remainingById };
     },
@@ -152,16 +170,16 @@ export function OverdueDebugTab() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">{accounts.length} overdue account(s)</p>
-      {accounts.map((acc: any) => {
+      {accounts.map((acc) => {
         const schedules = (acc.layaway_schedule || [])
-          .filter((s: any) => s.status !== 'cancelled')
-          .sort((a: any, b: any) => Number(a.installment_number) - Number(b.installment_number));
+          .filter((s) => s.status !== 'cancelled')
+          .sort((a, b) => Number(a.installment_number) - Number(b.installment_number));
         const penalties = acc.penalty_fees || [];
         const nextDue = getNextUnpaidDueDate(schedules);
         const overdueDays = nextDue ? daysOverdueFromToday(nextDue) : 0;
-        const activePenalties = penalties.filter((p: any) => p.status !== 'waived');
-        const unpaidPenalties = penalties.filter((p: any) => p.status === 'unpaid');
-        const waivedPenalties = penalties.filter((p: any) => p.status === 'waived');
+        const activePenalties = penalties.filter((p) => p.status !== 'waived');
+        const unpaidPenalties = penalties.filter((p) => p.status === 'unpaid');
+        const waivedPenalties = penalties.filter((p) => p.status === 'waived');
         const currency = acc.currency as Currency;
 
         return (
@@ -189,7 +207,7 @@ export function OverdueDebugTab() {
               </div>
               <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Unpaid Penalties</p>
-                <p className="font-semibold text-destructive">{unpaidPenalties.length} ({formatCurrency(unpaidPenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0), currency)})</p>
+                <p className="font-semibold text-destructive">{unpaidPenalties.length} ({formatCurrency(unpaidPenalties.reduce((s: number, p) => s + Number(p.penalty_amount), 0), currency)})</p>
               </div>
               <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Waived</p>
@@ -198,7 +216,7 @@ export function OverdueDebugTab() {
             </div>
 
             <div className="text-[10px] text-muted-foreground space-y-0.5">
-              {schedules.slice(0, 8).map((s: any) => {
+              {schedules.slice(0, 8).map((s) => {
                 const paid = isEffectivelyPaid(s);
                 const cache = Number(s.total_due_amount);
                 const canonical = remainingById[s.id] ?? cache;
@@ -236,16 +254,16 @@ export function WaiverAuditTab() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
-      return (data || []) as any[];
+      return (data || []) as WaiverAuditLog[];
     },
   });
 
   const accountIds = useMemo(
-    () => [...new Set((auditLogs || []).map((l: any) => l.entity_id).filter(Boolean))] as string[],
+    () => [...new Set((auditLogs || []).map((l) => l.entity_id).filter(Boolean))] as string[],
     [auditLogs],
   );
   const userIds = useMemo(
-    () => [...new Set((auditLogs || []).map((l: any) => l.performed_by_user_id).filter(Boolean))] as string[],
+    () => [...new Set((auditLogs || []).map((l) => l.performed_by_user_id).filter(Boolean))] as string[],
     [auditLogs],
   );
   const penaltyFeeIds = useMemo(() => {
@@ -267,7 +285,7 @@ export function WaiverAuditTab() {
         .select('id, invoice_number, currency, customers(full_name)')
         .in('id', accountIds)
         .filter('is_test', 'eq', false);
-      return (data || []) as any[];
+      return data || [];
     },
   });
 
@@ -279,7 +297,7 @@ export function WaiverAuditTab() {
         .from('profiles')
         .select('user_id, full_name')
         .in('user_id', userIds);
-      return (data || []) as any[];
+      return data || [];
     },
   });
 
@@ -291,13 +309,13 @@ export function WaiverAuditTab() {
         .from('penalty_fees')
         .select('id, penalty_date, penalty_stage, penalty_cycle')
         .in('id', penaltyFeeIds);
-      return (data || []) as any[];
+      return data || [];
     },
   });
 
-  const accountMap  = useMemo(() => new Map((accounts      || []).map((a: any) => [a.id,       a])), [accounts]);
-  const profileMap  = useMemo(() => new Map((waiverProfiles|| []).map((p: any) => [p.user_id,  p])), [waiverProfiles]);
-  const penaltyMap  = useMemo(() => new Map((penaltyFees   || []).map((pf: any) => [pf.id,     pf])), [penaltyFees]);
+  const accountMap  = useMemo(() => new Map((accounts      || []).map((a) => [a.id,       a] as const)), [accounts]);
+  const profileMap  = useMemo(() => new Map<string | null, NonNullable<typeof waiverProfiles>[number]>((waiverProfiles|| []).map((p) => [p.user_id,  p] as const)), [waiverProfiles]);
+  const penaltyMap  = useMemo(() => new Map<string | undefined, NonNullable<typeof penaltyFees>[number]>((penaltyFees   || []).map((pf) => [pf.id,     pf] as const)), [penaltyFees]);
 
   if (logsLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}</div>;
 
@@ -309,15 +327,15 @@ export function WaiverAuditTab() {
         </div>
       ) : (
         (auditLogs || [])
-          .filter((log: any) => accounts === undefined || accountMap.has(log.entity_id))
-          .map((log: any) => {
-          const details        = log.new_value_json || {};
+          .filter((log) => accounts === undefined || accountMap.has(log.entity_id))
+          .map((log) => {
+          const details: WaiverAuditDetails = log.new_value_json || {};
           const isApproval     = log.action.includes('approved');
-          const penaltiesWaived: any[] = details.penalties_waived || [];
+          const penaltiesWaived: WaivedPenaltyEntry[] = details.penalties_waived || [];
           const account        = accountMap.get(log.entity_id);
           const approver       = profileMap.get(log.performed_by_user_id);
-          const customerName   = (account as any)?.customers?.full_name;
-          const symbol         = (account as any)?.currency === 'JPY' ? '¥' : '₱';
+          const customerName   = account?.customers?.full_name;
+          const symbol         = account?.currency === 'JPY' ? '¥' : '₱';
 
           return (
             <div key={log.id} className={`rounded-lg border p-4 space-y-3 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
@@ -347,7 +365,7 @@ export function WaiverAuditTab() {
                     to={`/accounts/${log.entity_id}`}
                     className="font-mono text-xs font-semibold text-primary hover:underline"
                   >
-                    #{(account as any).invoice_number}
+                    #{account.invoice_number}
                   </Link>
                 ) : log.entity_id ? (
                   <span className="font-mono text-xs text-muted-foreground">{log.entity_id.slice(0, 8)}…</span>
@@ -365,7 +383,7 @@ export function WaiverAuditTab() {
               {/* ── Per-penalty rows ── */}
               {penaltiesWaived.length > 0 && (
                 <div className="space-y-1">
-                  {penaltiesWaived.map((p: any, i: number) => {
+                  {penaltiesWaived.map((p: WaivedPenaltyEntry, i: number) => {
                     const pf = penaltyMap.get(p.penalty_fee_id);
                     const stage = p.stage || pf?.penalty_stage || '—';
                     const cycle = p.cycle ?? pf?.penalty_cycle ?? '';

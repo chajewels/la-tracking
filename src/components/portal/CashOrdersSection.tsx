@@ -158,7 +158,7 @@ export default function CashOrdersSection({
     }
     const db = portalDbRef.current ?? supabase;
     const orderIds = cashOrders.map(o => o.id);
-    const { data } = await (db as any)
+    const { data } = await (db as typeof supabase)
       .from('payment_submissions')
       .select('id, cash_order_id, submitted_amount, payment_method, status')
       .in('cash_order_id', orderIds)
@@ -174,7 +174,7 @@ export default function CashOrdersSection({
 
   const handleCancelSubmission = useCallback(async (submissionId: string) => {
     const db = portalDbRef.current ?? supabase;
-    await (db as any)
+    await (db as typeof supabase)
       .from('payment_submissions')
       .update({ status: 'cancelled' })
       .eq('id', submissionId);
