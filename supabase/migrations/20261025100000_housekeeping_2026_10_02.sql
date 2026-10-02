@@ -35,9 +35,11 @@ DROP POLICY IF EXISTS "Token customers can view own extension_requests" ON publi
 -- parameters, which is why it stayed a landing page. Data row, so a migration
 -- (shipping_methods has no editor).
 -- ---------------------------------------------------------------------------
+-- supports_deeplink is GENERATED ALWAYS AS (tracking_url_template LIKE
+-- '%{tracking_code}%') on live and cannot be set directly (first apply attempt
+-- failed with 428C9); the new template makes it true by itself.
 UPDATE public.shipping_methods
    SET tracking_url_template = 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno={tracking_code}',
-       supports_deeplink = true,
        notes = 'Kuroneko Members parcel page; digits only (the Hub strips hyphens/spaces). Verified with a real parcel 2026-10-02.',
        updated_at = now()
  WHERE id = 'aaf61b27-9b7b-426b-a26b-632a69726ba4'
