@@ -47,6 +47,11 @@ interface CashOrderLineItem {
 }
 
 // Status tint for the picker (products are pre-filtered to non-archived).
+// A FunctionsHttpError carries the raw Response on .context; only .body is read.
+interface FunctionsErrorWithContext {
+  context?: { body?: BodyInit | null };
+}
+
 function productStatusBadgeClass(status: string): string {
   if (status === 'active') return 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30';
   if (status === 'draft') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
@@ -69,7 +74,7 @@ export default function NewCashOrder() {
   const { roles, loading: authLoading } = useAuth();
   const { can, loading: permLoading } = usePermissions();
   const { data: customers } = useCustomers();
-  const rolesArr = roles as any[];
+  const rolesArr: string[] = roles;
   const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance') || rolesArr.includes('staff');
 
   // Permission gate — driven by role_permissions via usePermissions().can()
@@ -235,7 +240,7 @@ export default function NewCashOrder() {
         .or(`full_name.ilike.%${term}%,mobile_number.ilike.%${term}%`)
         .order('full_name', { ascending: true })
         .limit(10);
-      setCustomerResults(((data as any) || []) as DbCustomer[]);
+      setCustomerResults((data || []) as DbCustomer[]);
       setCustomerSearching(false);
     }, 300);
     return () => {
@@ -348,8 +353,8 @@ export default function NewCashOrder() {
         // Try to extract detailed error message from the FunctionsHttpError body
         let msg = error.message || 'Failed to create cash order';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context!.body).json();
             if (body?.error) msg = body.error;
           }
         } catch { /* ignore parse errors */ }

@@ -23,6 +23,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import {
@@ -52,6 +53,44 @@ const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'due_3_days', label: 'Due in 3 Days' },
   { key: 'due_7_days', label: 'Due in 7 Days' },
 ];
+
+// One schedule_with_actuals row as the alert builder reads it, with its
+// embedded layaway_accounts (+ customers). View columns are nullable in the
+// generated types but are always present on a real schedule row.
+interface MonitoringScheduleRow {
+  id: string;
+  account_id: string;
+  due_date: string;
+  computed_status: string | null;
+  total_due_amount: number;
+  actual_remaining: number | null;
+  layaway_accounts: {
+    id: string;
+    invoice_number: string;
+    currency: string;
+    status: string;
+    customer_id: string;
+    remaining_balance: number | null;
+    customers: { full_name: string; messenger_link: string | null } | null;
+  } | null;
+}
+
+// extension_requests row with the embedded account the panel renders.
+interface ExtensionRequestRow {
+  id: string;
+  reason: string | null;
+  requested_at: string;
+  status: string | null;
+  layaway_accounts: {
+    id: string;
+    invoice_number: string;
+    currency: string;
+    remaining_balance: number | null;
+    status: string;
+    customer_id: string;
+    customers: { full_name: string } | null;
+  } | null;
+}
 
 function bucketToStage(bucket: AccountBucket): string | null {
   if (bucket === 'due_7_days') return '7_DAYS';
@@ -171,7 +210,7 @@ export default function Monitoring() {
     const accountMap = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
       if (remainingDue(row) <= 0) continue;
-      const acctId = (row as any).account_id as string;
+      const acctId = row.account_id as string;
       const existing = accountMap.get(acctId);
       if (!existing || row.due_date < existing.due_date) accountMap.set(acctId, row);
     }
@@ -186,8 +225,8 @@ export default function Monitoring() {
       toast.success(`Reminders processed: ${data?.sent || 0} sent`);
       queryClient.invalidateQueries({ queryKey: ['reminder-logs'] });
       queryClient.invalidateQueries({ queryKey: ['reminder-actionable'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate reminders');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to generate reminders');
     } finally {
       setReminderGenerating(false);
     }
@@ -195,7 +234,7 @@ export default function Monitoring() {
 
   const remIconMap = { overdue: AlertTriangle, due_today: Clock, upcoming: Bell };
 
-  const renderRemScheduleGroup = (items: any[], type: 'overdue' | 'due_today' | 'upcoming') => {
+  const renderRemScheduleGroup = (items: Array<(typeof remCategorized)['overdue'][number]>, type: 'overdue' | 'due_today' | 'upcoming') => {
     if (items.length === 0) return null;
     const config = alertTypeConfig[type];
     const Icon = remIconMap[type];
@@ -206,7 +245,7 @@ export default function Monitoring() {
           <h4 className="text-xs font-semibold text-card-foreground uppercase tracking-wider">{config.label}</h4>
           <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{items.length}</Badge>
         </div>
-        {items.map((item: any) => {
+        {items.map((item) => {
           const acct = item.layaway_accounts;
           const customer = acct?.customers;
           const cur = acct?.currency as Currency;
@@ -267,9 +306,9 @@ export default function Monitoring() {
       if (overdueRes.error) throw overdueRes.error;
       if (upcomingRes.error) throw upcomingRes.error;
 
-      const map = new Map<string, any>();
+      const map = new Map<string, MonitoringScheduleRow>();
       for (const item of [...(overdueRes.data || []), ...(upcomingRes.data || [])]) {
-        map.set(item.id!, item);
+        map.set(item.id!, item as MonitoringScheduleRow);
       }
       return [...map.values()];
     },
@@ -282,7 +321,7 @@ export default function Monitoring() {
     queryFn: async () => {
       const PAGE_SIZE = 1000;
       let from = 0;
-      let allRows: any[] = [];
+      let allRows: Pick<Tables<'csr_notifications'>, 'schedule_id' | 'reminder_stage' | 'notified_by_name' | 'notified_at'>[] = [];
       while (true) {
         const { data, error } = await supabase
           .from('csr_notifications')
@@ -323,9 +362,9 @@ export default function Monitoring() {
   const alerts: AlertItem[] = useMemo(() => {
     if (!scheduleItems) return [];
 
-    const byAccount = new Map<string, any[]>();
+    const byAccount = new Map<string, MonitoringScheduleRow[]>();
     for (const s of scheduleItems) {
-      const acc = (s as any).layaway_accounts;
+      const acc = s.layaway_accounts;
       if (!acc) continue;
       const list = byAccount.get(acc.id) || [];
       list.push(s);
@@ -334,16 +373,18 @@ export default function Monitoring() {
 
     const result: AlertItem[] = [];
     for (const [accountId, items] of byAccount.entries()) {
-      const acc = (items[0] as any).layaway_accounts;
-      const nextDue = getNextUnpaidDueDate(items);
+      const acc = items[0].layaway_accounts!;
+      // schedule_with_actuals rows carry no status / paid_amount columns; they
+      // were passed here untyped before and still are (no runtime change).
+      const nextDue = getNextUnpaidDueDate(items as unknown as Parameters<typeof getNextUnpaidDueDate>[0]);
       if (!nextDue) continue;
 
       const bucket = classifyAccountBucket(nextDue);
       if (bucket === 'fully_paid' || bucket === 'future') continue;
 
       const nextItem = items
-        .filter((s: any) => s.computed_status !== 'paid' && s.computed_status !== 'cancelled')
-        .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date))[0];
+        .filter((s) => s.computed_status !== 'paid' && s.computed_status !== 'cancelled')
+        .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
 
       if (!nextItem) continue;
 
@@ -470,8 +511,8 @@ export default function Monitoring() {
       } else {
         throw new Error(data?.error || 'Unknown error');
       }
-    } catch (err: any) {
-      toast.error(`Failed to send reminders: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Failed to send reminders: ${(err as Error).message}`);
     } finally {
       setSending(false);
     }
@@ -713,7 +754,7 @@ export default function Monitoring() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                    {reminderLogs.map((log: any) => {
+                    {reminderLogs.map((log) => {
                       const customer = log.customers;
                       const account = log.layaway_accounts;
                       const isSent = log.delivery_status === 'sent';
@@ -825,14 +866,14 @@ function ExtensionRequestsPanel() {
     queryKey: ['extension-requests', filter],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('extension_requests' as any)
+        .from('extension_requests')
         .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id, customers(full_name))')
         .filter('layaway_accounts.is_test', 'eq', false)
         .eq('status', filter === 'pending' ? 'pending' : 'approved')
         .order('requested_at', { ascending: false });
 
       if (error) throw error;
-      return (data || []) as any[];
+      return (data || []) as unknown as ExtensionRequestRow[];
     },
   });
 
@@ -881,7 +922,7 @@ function ExtensionRequestsPanel() {
               </tr>
             </thead>
             <tbody>
-              {requests.map((req: any) => {
+              {requests.map((req) => {
                 const acct = req.layaway_accounts;
                 const customerName = acct?.customers?.full_name || '—';
                 const invoiceNumber = acct?.invoice_number || '—';

@@ -132,8 +132,8 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
       for (const key of MUTATION_INVALIDATION_KEYS) qc.invalidateQueries({ queryKey: [key] });
       qc.invalidateQueries({ queryKey: ['waivers-page'] });
       setUnwaiveTarget(null);
-    } catch (err: any) {
-      toast.error(err.message || 'Unwaive failed');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Unwaive failed');
     } finally {
       setUnwaiving(false);
     }
@@ -239,7 +239,7 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
           const { error: waiverErr } = await supabase
             .from('penalty_waiver_requests')
             .update({
-              status: 'rejected' as any,
+              status: 'rejected',
               rejected_at: new Date().toISOString(),
               approved_by_user_id: user.id,
             })
@@ -270,8 +270,8 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
       setActionDialog(null);
       setNotes('');
       setSelectedWaiverIds(new Set());
-    } catch (err: any) {
-      toast.error(err.message || 'Action failed');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Action failed');
     } finally {
       setSubmitting(false);
     }

@@ -43,6 +43,7 @@ import {
   topOutstandingCustomersQueryOptions,
 } from '@/hooks/financeQueryOptions';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
@@ -51,6 +52,18 @@ const MemoPaymentVault = memo(PaymentVault) as FC<{ embedded?: boolean }>;
 import {
   assessRisk, predictCompletion, assessCLV, riskStyles,
 } from '@/lib/business-rules';
+
+// One card in the Collections 6-month forecast strip.
+interface ForecastCard {
+  key: string;
+  label: string;
+  daysAway: number;
+  isOldest: boolean;
+  isCurrent: boolean;
+  hasOlder: boolean;
+  jpy: number;
+  count: number;
+}
 
 export default function Finance() {
   const chartAnim = useChartAnimation();
@@ -101,7 +114,7 @@ export default function Finance() {
   const { data: rawAccounts } = useAccounts();
   const accounts = useMemo(
     () => (rawAccounts ?? []).filter(
-      (a: any) => a.is_test === false
+      (a) => a.is_test === false
     ),
     [rawAccounts]
   );
@@ -132,7 +145,7 @@ export default function Finance() {
     if (!drilldownRaw) return [];
     const q = drillSearch.toLowerCase().trim();
     if (!q) return drilldownRaw;
-    return drilldownRaw.filter((row: any) => {
+    return drilldownRaw.filter((row) => {
       const inv = String(row.invoice_number ?? '').toLowerCase();
       const name = String(row.customer_name ?? '').toLowerCase();
       return inv.includes(q) || name.includes(q);
@@ -170,7 +183,7 @@ export default function Finance() {
     };
 
     // Current month -> +5 (six individual cards)
-    const cards: any[] = Array.from({ length: 6 }, (_, i) => {
+    const cards: ForecastCard[] = Array.from({ length: 6 }, (_, i) => {
       const monthStart = addMonths(startOfMonth(now), i);
       const key = format(monthStart, 'yyyy-MM');
       return { key, ...labelFor(monthStart), isOldest: false, isCurrent: i === 0, hasOlder: false, ...(agg[key] ?? { jpy: 0, count: 0 }) };
@@ -219,7 +232,7 @@ export default function Finance() {
     queryFn: async () => {
       const { data, error } = await supabase.from('profiles').select('user_id, full_name');
       if (error) throw error;
-      return new Map((data || []).map((p: any) => [p.user_id, p.full_name]));
+      return new Map((data || []).map((p) => [p.user_id, p.full_name]));
     },
   });
 
@@ -391,7 +404,7 @@ export default function Finance() {
         if (isValid(d)) cashByMonth.set(format(d, 'MMM yy'), Number(c.cash_jpy) || 0);
       });
     }
-    return collectionAnalytics.map((m: any) => ({
+    return collectionAnalytics.map((m) => ({
       month: m.month,
       collected: Number(m.collected) || 0,
       sales: (salesByMonth.get(m.month) ?? 0) + (cashByMonth.get(m.month) ?? 0),
@@ -424,11 +437,11 @@ export default function Finance() {
   const totalForfeitedCollected = useMemo(() => {
     if (!accounts?.length) return 0;
     return accounts
-      .filter((a: any) =>
+      .filter((a) =>
         (a.status === 'forfeited' || a.status === 'final_forfeited') &&
         (isAllMode || a.currency === currencyFilter)
       )
-      .reduce((sum: number, a: any) => {
+      .reduce((sum: number, a) => {
         const collected = Number(a.total_paid ?? 0);
         return sum + (isAllMode ? toJpy(collected, a.currency as Currency) : collected);
       }, 0);
@@ -440,7 +453,7 @@ export default function Finance() {
   const { data: allSchedules } = useQuery({
     queryKey: ['all-schedules-analytics'],
     queryFn: async () => {
-      const allItems: any[] = [];
+      const allItems: Tables<'layaway_schedule'>[] = [];
       let from = 0;
       const pageSize = 1000;
       while (true) {
@@ -467,11 +480,11 @@ export default function Finance() {
       const { data: roles, error: rErr } = await supabase.from('user_roles').select('*');
       if (rErr) throw rErr;
       return (profiles || [])
-        .map((p: any) => ({
+        .map((p) => ({
           ...p,
-          role: (roles || []).find((r: any) => r.user_id === p.user_id)?.role,
+          role: (roles || []).find((r) => r.user_id === p.user_id)?.role,
         }))
-        .filter((p: any) => p.role);
+        .filter((p) => p.role);
     },
     enabled: tab === 'analytics' && !!session,
   });
@@ -483,7 +496,7 @@ export default function Finance() {
 
   const risks = useMemo(() =>
     activeAccounts.map(a => {
-      const acctSchedules = (allSchedules || []).filter((s: any) => s.account_id === a.id);
+      const acctSchedules = (allSchedules || []).filter((s) => s.account_id === a.id);
       return {
         accountId: a.id,
         customerName: a.customers?.full_name || 'Unknown',
@@ -496,16 +509,16 @@ export default function Finance() {
   );
 
   const clvs = useMemo(() =>
-    (customers || []).map((c: any) => {
+    (customers || []).map((c) => {
       const custAccounts = (accounts || []).filter(a => a.customer_id === c.id);
       return { customerId: c.id, customerName: c.full_name, ...assessCLV(custAccounts) };
-    }).sort((x: any, y: any) => y.score - x.score),
+    }).sort((x, y) => y.score - x.score),
     [customers, accounts]
   );
 
   const completions = useMemo(() =>
     activeAccounts.map(a => {
-      const acctSchedules = (allSchedules || []).filter((s: any) => s.account_id === a.id);
+      const acctSchedules = (allSchedules || []).filter((s) => s.account_id === a.id);
       const risk = assessRisk(acctSchedules);
       const pred = predictCompletion(Number(a.total_paid), Number(a.total_amount), risk.score);
       return { accountId: a.id, customerName: a.customers?.full_name || 'Unknown', invoiceNumber: a.invoice_number, ...pred };
@@ -524,7 +537,7 @@ export default function Finance() {
       if (error) throw error;
       const counts = new Map<string, number>();
       for (const row of (data || [])) {
-        const uid = (row as any).reviewer_user_id as string;
+        const uid = row.reviewer_user_id as string;
         counts.set(uid, (counts.get(uid) || 0) + 1);
       }
       return counts;
@@ -541,7 +554,7 @@ export default function Finance() {
       if (error) throw error;
       const counts = new Map<string, number>();
       for (const row of (data || [])) {
-        const aid = (row as any).account_id as string;
+        const aid = row.account_id as string;
         if (aid) counts.set(aid, (counts.get(aid) || 0) + 1);
       }
       return counts;
@@ -551,19 +564,19 @@ export default function Finance() {
 
   const csrPerformance = useMemo(() => {
     const staff = profilesWithRoles || [];
-    const payments = (allPayments || []).filter((p: any) => !p.voided_at);
+    const payments = (allPayments || []).filter((p) => !p.voided_at);
     const accts = accounts || [];
-    return staff.map((s: any) => {
-      const userPayments = payments.filter((p: any) => p.entered_by_user_id === s.user_id);
-      const totalCollected = userPayments.reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
-      const accountIds = new Set(userPayments.map((p: any) => p.account_id));
+    return staff.map((s) => {
+      const userPayments = payments.filter((p) => p.entered_by_user_id === s.user_id);
+      const totalCollected = userPayments.reduce((sum: number, p) => sum + Number(p.amount_paid), 0);
+      const accountIds = new Set(userPayments.map((p) => p.account_id));
       const createdAccounts = accts.filter(a => a.created_by_user_id === s.user_id);
       const overdueAccountIds = new Set(
         (allSchedules || [])
-          .filter((sc: any) => sc.due_date < todayStr() && ['pending', 'partially_paid'].includes(sc.status))
-          .map((sc: any) => sc.account_id)
+          .filter((sc) => sc.due_date < todayStr() && ['pending', 'partially_paid'].includes(sc.status))
+          .map((sc) => sc.account_id)
       );
-      const recoveries = userPayments.filter((p: any) => overdueAccountIds.has(p.account_id)).length;
+      const recoveries = userPayments.filter((p) => overdueAccountIds.has(p.account_id)).length;
       const reviewedCount = submissionsReviewed?.get(s.user_id) || 0;
       const handledAccountIds = new Set([...accountIds, ...createdAccounts.map(a => a.id)]);
       let submissionsHandled = 0;
@@ -573,7 +586,7 @@ export default function Finance() {
         }
       }
       return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries, reviewedCount, submissionsHandled };
-    }).sort((x: any, y: any) => y.totalCollected - x.totalCollected);
+    }).sort((x, y) => y.totalCollected - x.totalCollected);
   }, [profilesWithRoles, allPayments, accounts, allSchedules, submissionsReviewed, allSubmissions]);
 
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
@@ -1105,7 +1118,7 @@ export default function Finance() {
                   <Crown className="h-4 w-4 text-primary" /> Customer Lifetime Value
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
-                  {clvs.slice(0, 20).map((clv: any) => (
+                  {clvs.slice(0, 20).map((clv) => (
                     <Link key={clv.customerId} to={`/customers/${clv.customerId}`}>
                       <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
                         <div className="flex items-center gap-3">
@@ -1134,7 +1147,7 @@ export default function Finance() {
                   <p className="text-sm text-muted-foreground text-center py-4">No team members yet</p>
                 ) : (
                   <div className="space-y-4">
-                    {csrPerformance.map((csr: any, i: number) => (
+                    {csrPerformance.map((csr, i: number) => (
                       <div key={csr.userId} className="p-4 rounded-lg border border-border">
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-3">
@@ -1319,7 +1332,7 @@ export default function Finance() {
                     </tr>
                   </thead>
                   <tbody>
-                    {drilldownRows.map((row: any) => {
+                    {drilldownRows.map((row) => {
                       const amountDue = Number(row.actual_remaining);
                       const jpyEq = Math.round(toJpy(amountDue, row.currency as Currency));
                       const isOverdue = row.computed_status === 'overdue' || (row.due_date < collToday && row.computed_status !== 'paid');

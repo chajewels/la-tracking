@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useCustomers, useAccountsLight, useCashOrdersLight } from '@/hooks/use-supabase-data';
+import { useCustomers, useAccountsLight, useCashOrdersLight, type DbCustomer } from '@/hooks/use-supabase-data';
 import { buildAccountStatsMap, customerCountLabel } from '@/lib/customer-account-stats';
 
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,7 +44,7 @@ export default function Customers() {
         .select('customer_id, current_tier:current_tier_id(name)');
       if (error) throw error;
       const map = new Map<string, string>();
-      for (const row of (data ?? []) as any[]) {
+      for (const row of (data ?? [])) {
         const name = row.current_tier?.name as string | undefined;
         if (row.customer_id && name) map.set(row.customer_id, name);
       }
@@ -118,7 +118,7 @@ export default function Customers() {
     locationType: 'japan' as LocationType, country: '',
   });
 
-  const openEdit = useCallback((c: any) => {
+  const openEdit = useCallback((c: DbCustomer) => {
     const parsed = parseLocation(c.location);
     setEditId(c.id);
     setEditForm({

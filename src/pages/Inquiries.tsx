@@ -1066,7 +1066,7 @@ export default function Inquiries() {
       // Reads the VIEW (base table + accumulated_inquiry_count), now present
       // under Views in types.ts so no cast is needed. The Demand Map
       // deliberately reads the BASE TABLE.
-      let q: any = client
+      let q = client
         .from('product_inquiries_with_accumulated')
         .select('*', { count: 'exact' })
         // Must be the exact reverse of the view's window ORDER BY

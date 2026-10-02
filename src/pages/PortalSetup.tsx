@@ -108,8 +108,9 @@ export default function PortalSetup() {
         setErrorMessage(result.error || pt('auth.errLinkFailed'));
         setState('error-conflict');
       }
-    } catch (err: any) {
-      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+    } catch (err: unknown) {
+      const errName = (err as Error | null | undefined)?.name;
+      if (errName === 'TimeoutError' || errName === 'AbortError') {
         setErrorMessage(pt('auth.errLinkTimeout'));
       } else {
         setErrorMessage(pt('auth.errNetwork'));
