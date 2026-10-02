@@ -8697,6 +8697,18 @@ export type Database = {
         }
         Returns: Json
       }
+      insert_payment_submissions_batch: {
+        Args: {
+          p_batch_key: string
+          p_force?: boolean
+          p_proof_url: string
+          p_rows: Json
+          p_sender_name?: string
+          p_source?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       is_paid_or_completed_order: {
         Args: {
           p_customer_id: string
