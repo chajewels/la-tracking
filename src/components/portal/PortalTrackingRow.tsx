@@ -1,4 +1,5 @@
 import { palette, hslTriplets } from '@/theme/portal-tokens';
+import { buildTrackingUrl } from '@/lib/tracking-link';
 
 // Maison inline-style palette — mirrors the `M` objects in CustomerPortal.tsx
 // and CashOrdersSection.tsx. Sourced from portal-tokens.ts (single token
@@ -53,11 +54,7 @@ export default function PortalTrackingRow({
   // Deep link when the carrier's template carries the placeholder; otherwise
   // send them to the carrier's landing page. Either way the number is on
   // screen and selectable for manual entry.
-  const trackUrl = method
-    ? (method.supports_deeplink
-        ? method.tracking_url_template.replace('{tracking_code}', encodeURIComponent(trackingNumber))
-        : method.tracking_url_template)
-    : null;
+  const trackUrl = buildTrackingUrl(method, trackingNumber);
 
   return (
     <div

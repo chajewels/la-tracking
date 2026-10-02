@@ -328,6 +328,8 @@ Confirmed via `information_schema.columns` queries during Bug #193 cleanup. Use 
 
 **`payments` table columns** (full list, confirmed 2026-06-10): `id`, `account_id`, `amount_paid`, `currency`, `date_paid` (date type), `payment_method`, `reference_number`, `remarks`, `entered_by_user_id`, `created_at` (timestamp), `voided_at`, `voided_by_user_id`, `void_reason`, `submitted_by_type`, `submitted_by_name`. **No `paid_at` column** — use `date_paid` or `created_at`.
 
+**`insert_payment_submissions_batch(p_batch_key text, p_proof_url text, p_rows jsonb, p_source text, p_sender_name text, p_user_id uuid, p_force boolean) → jsonb`** (migration 20261020100000): inserts one pending `payment_submissions` row per element of `p_rows` in one transaction; `reference_number` = `p_batch_key` (idempotency key — a key that already has rows returns `inserted:false` and the existing ids); proof = row `proof_url` else `p_proof_url`, required; same per-account lock + 30-min duplicate guard as `insert_payment_submission_guarded` but rows of the same batch are not each other's duplicates; no rate cap; audit row per submission. SECURITY DEFINER; EXECUTE for authenticated + service_role only; caller = `coalesce(auth.uid(), p_user_id)`. Partial index `idx_payment_submissions_reference_number` (reference_number IS NOT NULL).
+
 **`payment_allocations` table columns**: `id`, `payment_id`, `schedule_id`, `allocation_type`, `allocated_amount`, `created_at`. **Only native payments** (from `record-payment` edge function) create rows here. Bulk-imported payments don't — see Bug #195.
 
 ### Phantom Payment Identification Pattern (verified 2026-06-11)
@@ -1768,3 +1770,13 @@ Trade Program, staff_notifications triggers, and Finance Overview
 KPIs are the canonical examples — see TRADE PROGRAM section above
 (both tables carry `is_trade`) and the staff_notifications trigger
 inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
+
+## extension_requests anon token policies — dropped (2026-10-02)
+
+The two `anon` policies "Token customers can insert/view own extension_requests"
+tested the token against `customer_portal_tokens`, which has RLS on and no anon
+policy — so for anon the EXISTS was always empty and both failed closed (the
+Bug #165 pattern). They never granted anything; the portal writes through
+`request-extension` and reads through `customer-portal` (service role). Dropped
+in migration 20261025100000 so the table no longer carries a policy that only
+looks like an anon write path. `extension_requests.portal_token` stays.

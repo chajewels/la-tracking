@@ -4,6 +4,12 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+/** Where a signed-in member lands when '/' is not theirs, most useful first. */
+export const LANDING_FALLBACKS = [
+  '/sales', '/customers', '/website', '/services', '/monitoring', '/inquiries',
+  '/finance', '/settings', '/timesheet', '/help',
+] as const;
+
 function AccessDenied() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-transparent">
@@ -58,6 +64,15 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     // Guard against a redirect loop: only redirect when they're NOT already on /timesheet.
     if (roles.includes('live_agent') && location.pathname !== '/timesheet') {
       return <Navigate to="/timesheet" replace />;
+    }
+    // Landing without the dashboard (backlog S3 #15, 2026-10-02): a member whose
+    // view_dashboard was switched off (a content-only or website-only member)
+    // used to sign in straight into Access Denied, whose only button leads back
+    // to '/'. Send them to the first workspace they CAN open instead; only a
+    // member who can open nothing at all sees Access Denied.
+    if (location.pathname === '/') {
+      const home = LANDING_FALLBACKS.find((p) => canAccessPage(p));
+      if (home) return <Navigate to={home} replace />;
     }
     return <AccessDenied />;
   }

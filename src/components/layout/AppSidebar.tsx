@@ -169,6 +169,9 @@ export const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Payment Tracking', tab: 'tracking', permFilter: (can) => can('admin_settings') },
       { label: 'Collections', tab: 'collections', permFilter: (can) => can('view_collections') },
       { label: 'Vault', tab: 'vault', permFilter: (can) => can('admin_settings') },
+      // A real route, not a Finance tab (owner decision D-4, 2026-10-01): the
+      // page existed but nothing linked to it.
+      { label: 'Bulk Payment Import', tab: 'bulk-import', path: ROUTES.BULK_PAYMENT_IMPORT, permFilter: (can) => can('bulk_payment_import') },
     ],
   },
 

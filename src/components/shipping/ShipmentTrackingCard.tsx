@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Truck, ExternalLink, Loader2, PackageCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { buildTrackingUrl } from '@/lib/tracking-link';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -72,15 +73,10 @@ export default function ShipmentTrackingCard({
   // Deep link only when the carrier's template carries the placeholder;
   // otherwise the template is a landing page and the number is shown for
   // manual entry.
-  const trackUrl = useMemo(() => {
-    if (!activeMethod || !trackingNumber) return null;
-    return activeMethod.supports_deeplink
-      ? activeMethod.tracking_url_template.replace(
-          '{tracking_code}',
-          encodeURIComponent(trackingNumber),
-        )
-      : activeMethod.tracking_url_template;
-  }, [activeMethod, trackingNumber]);
+  const trackUrl = useMemo(
+    () => buildTrackingUrl(activeMethod, trackingNumber),
+    [activeMethod, trackingNumber],
+  );
 
   // DB constraint: (tracking_number IS NULL) = (shipping_method_id IS NULL).
   // Save stays disabled until BOTH are present so we can never write half a pair.

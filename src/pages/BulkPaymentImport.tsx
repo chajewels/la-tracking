@@ -1,19 +1,40 @@
 import { useState, useCallback, useRef } from 'react';
-import { Upload, FileText, Download, CheckCircle, XCircle, Loader2, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Upload, FileText, Download, CheckCircle, XCircle, Loader2, RotateCcw, AlertTriangle, Paperclip } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
-interface ParsedRow {
+/**
+ * BULK PAYMENT IMPORT (rebuilt 2026-10-01, owner-approved plan).
+ *
+ * Every row becomes a PENDING payment_submissions row — never a payment —
+ * exactly like Record Payment: Admin/Finance confirm each one in Submissions.
+ * The whole file goes to the database in ONE call
+ * (insert_payment_submissions_batch, migration 20261020100000): all rows or
+ * none, and a retry with the same batch key inserts nothing twice.
+ *
+ * PROOF. The "proof required" rule applies here too. One proof image covers
+ * the batch; a row may carry its own in the optional 6th CSV column
+ * (proof_url, an https link to an already-uploaded image). Import is
+ * disabled until every row to import has a proof from one of the two.
+ *
+ * NOT here: the 3-per-24h submission cap (owner decision D-1 — the caller is
+ * admin/finance and a catch-up file has many rows for one account) and
+ * "Confirm all in this batch" (later step, D-3).
+ */
+export interface ParsedRow {
   rowNum: number;
   invoice_number: string;
   amount_paid: string;
   date_paid: string;
   payment_method: string;
   remarks: string;
+  /** Optional 6th column: this row's own proof image (https URL). */
+  proof_url: string;
 }
 
 interface ValidatedRow extends ParsedRow {
@@ -23,9 +44,13 @@ interface ValidatedRow extends ParsedRow {
   currency?: string;
 }
 
+/** Statuses record-payment accepts (its payableStatuses list) — kept identical. */
+const PAYABLE_STATUSES = ['active', 'overdue', 'extension_active', 'reactivated', 'final_settlement'];
+const MAX_ROWS = 500;
+
 type Step = 'upload' | 'preview' | 'done';
 
-function parseCSV(text: string): ParsedRow[] {
+export function parseCSV(text: string): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const rows: ParsedRow[] = [];
@@ -39,6 +64,7 @@ function parseCSV(text: string): ParsedRow[] {
       date_paid: cols[2] || '',
       payment_method: cols[3] || 'cash',
       remarks: cols[4] || '',
+      proof_url: cols[5] || '',
     });
   }
   return rows;
@@ -58,13 +84,19 @@ function downloadCSV(filename: string, headers: string[], rows: string[][]) {
 }
 
 export default function BulkPaymentImport() {
+  const { profile, user } = useAuth();
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const proofRef = useRef<HTMLInputElement>(null);
+  // One key per validated file. It is the submissions' reference_number and
+  // the idempotency key: a retry after a timeout re-sends the same key and
+  // the database answers with the rows it already has.
+  const batchKeyRef = useRef<string>('');
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [validated, setValidated] = useState<ValidatedRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; field: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -93,11 +125,16 @@ export default function BulkPaymentImport() {
         .in('invoice_number', invoiceNumbers);
       const acctMap = new Map((accounts || []).map(a => [a.invoice_number, a]));
 
+      if (rows.length > MAX_ROWS) {
+        toast.error(`At most ${MAX_ROWS} rows per file — split the file`);
+        return;
+      }
+      batchKeyRef.current = crypto.randomUUID();
       const result: ValidatedRow[] = rows.map(r => {
         const errs: string[] = [];
         const acct = acctMap.get(r.invoice_number);
         if (!acct) errs.push(`Invoice #${r.invoice_number} not found`);
-        else if (!['active', 'overdue', 'extension_active'].includes(acct.status))
+        else if (!PAYABLE_STATUSES.includes(acct.status))
           errs.push(`Account status is ${acct.status} — cannot accept payments`);
         const amt = parseFloat(r.amount_paid);
         if (!amt || amt <= 0) errs.push('Amount must be > 0');
@@ -105,6 +142,7 @@ export default function BulkPaymentImport() {
           errs.push(`Amount ${amt} exceeds remaining balance ${acct.remaining_balance}`);
         if (!r.date_paid || !/^\d{4}-\d{2}-\d{2}$/.test(r.date_paid))
           errs.push('Date must be YYYY-MM-DD format');
+        if (r.proof_url && !/^https:\/\//.test(r.proof_url)) errs.push('proof_url must be an https link');
         return {
           ...r,
           status: errs.length === 0 ? 'valid' as const : 'error' as const,
@@ -133,7 +171,7 @@ export default function BulkPaymentImport() {
     const acct = accounts?.[0];
     const errs: string[] = [];
     if (!acct) errs.push(`Invoice #${row.invoice_number} not found`);
-    else if (!['active', 'overdue', 'extension_active'].includes(acct.status))
+    else if (!PAYABLE_STATUSES.includes(acct.status))
       errs.push(`Account status is ${acct.status}`);
     const amt = parseFloat(row.amount_paid);
     if (!amt || amt <= 0) errs.push('Amount must be > 0');
@@ -141,6 +179,7 @@ export default function BulkPaymentImport() {
       errs.push(`Amount exceeds remaining balance`);
     if (!row.date_paid || !/^\d{4}-\d{2}-\d{2}$/.test(row.date_paid))
       errs.push('Date must be YYYY-MM-DD');
+    if (row.proof_url && !/^https:\/\//.test(row.proof_url)) errs.push('proof_url must be an https link');
     setValidated(prev => prev.map((r, i) => i === idx
       ? { ...r, status: errs.length === 0 ? 'valid' : 'error', errors: errs, accountId: acct?.id, currency: acct?.currency }
       : r));
@@ -157,49 +196,74 @@ export default function BulkPaymentImport() {
   const importedCount = validated.filter(r => r.status === 'imported').length;
   const skippedCount = validated.filter(r => r.status === 'skipped').length;
 
-  const handleImport = useCallback(async (onlyValid: boolean) => {
-    const toImport = onlyValid ? validated.filter(r => r.status === 'valid') : validated;
-    if (toImport.length === 0) { toast.error('No rows to import'); return; }
-    setImporting(true);
-    setImportProgress(0);
-    let imported = 0;
-    const updated = [...validated];
+  // Rows that would go in, and whether every one of them has a proof.
+  const rowsToImport = (onlyValid: boolean) => onlyValid ? validated.filter(r => r.status === 'valid') : validated;
+  const proofCovered = (onlyValid: boolean) => !!proofFile || rowsToImport(onlyValid).every(r => !!r.proof_url);
 
-    for (let i = 0; i < validated.length; i++) {
-      const row = validated[i];
-      if (onlyValid && row.status !== 'valid') {
-        updated[i] = { ...row, status: 'skipped' };
-        continue;
+  // Upload the batch proof to payment-proofs (same bucket and shape as
+  // RecordPaymentDialog) and return its public URL. Upload-first: the URL
+  // travels with every row that has no proof of its own.
+  const uploadBatchProof = async (): Promise<string> => {
+    if (!proofFile) return '';
+    const staffName = (profile?.full_name || user?.email || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
+    const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+    const fileName = `${staffName}_BulkImport_${new Date().toISOString().slice(0, 10)}_${Date.now().toString(36)}.${ext}`;
+    const storagePath = `bulk-import/${batchKeyRef.current}/${fileName}`;
+    const { error: uploadErr } = await supabase.storage
+      .from('payment-proofs')
+      .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
+    if (uploadErr) throw new Error(`Proof upload failed: ${uploadErr.message}`);
+    return supabase.storage.from('payment-proofs').getPublicUrl(storagePath).data.publicUrl;
+  };
+
+  const handleImport = useCallback(async (onlyValid: boolean) => {
+    const toImport = rowsToImport(onlyValid);
+    if (toImport.length === 0) { toast.error('No rows to import'); return; }
+    if (toImport.some(r => r.status === 'error')) { toast.error('Fix all errors first'); return; }
+    if (!proofCovered(onlyValid)) { toast.error('Attach the proof of payment for this batch'); return; }
+    setImporting(true);
+    try {
+      const batchProofUrl = await uploadBatchProof();
+      const rows = toImport.map(r => ({
+        row: r.rowNum,
+        invoice_number: r.invoice_number,
+        amount: parseFloat(r.amount_paid),
+        date: r.date_paid,
+        method: r.payment_method || 'cash',
+        remarks: `[Bulk import] row #${r.rowNum}${r.remarks ? ` — ${r.remarks}` : ''}`,
+        proof_url: r.proof_url || undefined,
+      }));
+      // Not yet in the generated types (regenerated on the next edge deploy),
+      // hence the `as never` casts — same idiom as transfer_payment_methods.
+      const { data, error } = await supabase.rpc('insert_payment_submissions_batch' as never, {
+        p_batch_key: batchKeyRef.current,
+        p_proof_url: batchProofUrl || null,
+        p_rows: rows,
+        p_source: 'bulk_import',
+        p_sender_name: profile?.full_name || user?.email || null,
+      } as never);
+      if (error) throw error;
+      const result = data as { inserted: boolean; count: number } | null;
+      const imported = new Set(toImport.map(r => r.rowNum));
+      setValidated(prev => prev.map(r => imported.has(r.rowNum)
+        ? { ...r, status: 'imported', errors: [] }
+        : { ...r, status: 'skipped' }));
+      setStep('done');
+      if (result && result.inserted === false) {
+        toast.info(`This batch was already submitted (${result.count} submissions) — nothing was added twice.`);
+      } else {
+        toast.success(`${toImport.length} payment${toImport.length !== 1 ? 's' : ''} submitted for confirmation`);
       }
-      if (row.status === 'error') {
-        updated[i] = { ...row, status: 'skipped' };
-        continue;
-      }
-      try {
-        const { error } = await supabase.functions.invoke('record-payment', {
-          body: {
-            account_id: row.accountId,
-            amount_paid: parseFloat(row.amount_paid),
-            date_paid: row.date_paid,
-            payment_method: row.payment_method || 'cash',
-            remarks: row.remarks || `Bulk import row #${row.rowNum}`,
-            submission_type: 'installment',
-          },
-        });
-        if (error) throw error;
-        updated[i] = { ...row, status: 'imported', errors: [] };
-        imported++;
-      } catch (err: any) {
-        updated[i] = { ...row, status: 'skipped', errors: [err.message || 'Import failed'] };
-      }
-      setImportProgress(Math.round(((i + 1) / validated.length) * 100));
-      setValidated([...updated]);
+    } catch (err: unknown) {
+      // The database refused the batch: NOTHING was inserted. Stay on the
+      // preview so the row it named can be fixed, then import again.
+      const msg = (err as Error)?.message || 'Import failed';
+      toast.error(msg.replace(/^duplicate_submission_detected:\s*/, ''), { duration: 10000 });
+    } finally {
+      setImporting(false);
     }
-    setValidated(updated);
-    setImporting(false);
-    setStep('done');
-    toast.success(`${imported} payment${imported !== 1 ? 's' : ''} imported`);
-  }, [validated]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validated, proofFile, profile, user]);
 
   const downloadErrors = () => {
     const errorRows = validated.filter(r => r.status === 'error');
@@ -221,8 +285,10 @@ export default function BulkPaymentImport() {
     setFile(null);
     setParsed([]);
     setValidated([]);
-    setImportProgress(0);
+    setProofFile(null);
+    batchKeyRef.current = '';
     if (fileRef.current) fileRef.current.value = '';
+    if (proofRef.current) proofRef.current.value = '';
   };
 
   const renderEditableCell = (row: ValidatedRow, idx: number, field: string, value: string, width = 'w-24') => {
@@ -268,7 +334,8 @@ export default function BulkPaymentImport() {
           <div className="rounded-xl border border-border bg-card p-6 space-y-4">
             <h2 className="text-lg font-semibold">Step 1 — Upload CSV</h2>
             <p className="text-sm text-muted-foreground">
-              CSV format: <code className="bg-muted px-1 rounded text-xs">invoice_number, amount_paid, date_paid, payment_method, remarks</code>
+              CSV format: <code className="bg-muted px-1 rounded text-xs">invoice_number, amount_paid, date_paid, payment_method, remarks, proof_url</code>
+              <span className="block mt-1">The last column is optional — an https link to that row's own proof image. Rows without one use the batch proof you attach in step 2.</span>
             </p>
             <div className="flex items-center gap-4">
               <label className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-6 py-4 text-sm text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
@@ -334,6 +401,22 @@ export default function BulkPaymentImport() {
                 </tbody>
               </table>
             </div>
+            <div className="rounded-lg border border-border bg-background/50 p-4 space-y-2">
+              <p className="text-sm font-medium flex items-center gap-2"><Paperclip className="h-4 w-4" /> Proof of payment for this batch</p>
+              <p className="text-xs text-muted-foreground">
+                Required. One image covers every row that has no proof_url of its own. Each row becomes a pending submission for Admin/Finance to confirm, exactly like Record Payment.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 rounded-md border border-dashed border-border px-4 py-2 text-sm text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
+                  <Upload className="h-4 w-4" />
+                  {proofFile ? proofFile.name : 'Choose proof image'}
+                  <input ref={proofRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => setProofFile(e.target.files?.[0] || null)} />
+                </label>
+                {validated.some(r => r.proof_url) && (
+                  <Badge variant="outline" className="text-xs">{validated.filter(r => r.proof_url).length} row{validated.filter(r => r.proof_url).length !== 1 ? 's' : ''} with their own proof_url</Badge>
+                )}
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2 pt-2">
               {errorCount > 0 && (
                 <Button variant="outline" size="sm" onClick={downloadErrors} className="gap-1.5">
@@ -341,7 +424,7 @@ export default function BulkPaymentImport() {
                 </Button>
               )}
               {validCount > 0 && errorCount > 0 && (
-                <Button size="sm" onClick={() => handleImport(true)} disabled={importing} className="gap-1.5 gold-gradient text-primary-foreground">
+                <Button size="sm" onClick={() => handleImport(true)} disabled={importing || !proofCovered(true)} title={!proofCovered(true) ? 'Attach the proof of payment first' : undefined} className="gap-1.5 gold-gradient text-primary-foreground">
                   {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
                   Import Valid Rows Only ({validCount})
                 </Button>
@@ -349,9 +432,9 @@ export default function BulkPaymentImport() {
               <Button
                 size="sm"
                 onClick={() => handleImport(false)}
-                disabled={importing || errorCount > 0}
+                disabled={importing || errorCount > 0 || !proofCovered(false)}
                 className="gap-1.5 gold-gradient text-primary-foreground"
-                title={errorCount > 0 ? 'Fix all errors first' : undefined}
+                title={errorCount > 0 ? 'Fix all errors first' : !proofCovered(false) ? 'Attach the proof of payment first' : undefined}
               >
                 {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
                 Import All ({validCount + errorCount})
@@ -361,12 +444,7 @@ export default function BulkPaymentImport() {
               </Button>
             </div>
             {importing && (
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full bg-primary transition-all rounded-full" style={{ width: `${importProgress}%` }} />
-                </div>
-                <span className="text-xs text-muted-foreground">{importProgress}%</span>
-              </div>
+              <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading the proof and submitting the whole batch in one step…</p>
             )}
           </div>
         )}
@@ -374,13 +452,16 @@ export default function BulkPaymentImport() {
         {/* Step 3 — Done */}
         {step === 'done' && (
           <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-            <h2 className="text-lg font-semibold">Step 3 — Import Complete</h2>
+            <h2 className="text-lg font-semibold">Step 3 — Submitted for confirmation</h2>
+            <p className="text-sm text-muted-foreground">
+              These rows are now pending submissions. Confirm them one by one in Finance → Submissions (proof is attached to each). Batch key: <code className="bg-muted px-1 rounded text-xs">{batchKeyRef.current}</code>
+            </p>
             <div className="flex flex-wrap gap-3">
               {importedCount > 0 && (
                 <div className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3">
                   <CheckCircle className="h-5 w-5 text-green-600" />
                   <span className="text-sm font-medium text-green-700 dark:text-green-400">
-                    {importedCount} payment{importedCount !== 1 ? 's' : ''} imported
+                    {importedCount} payment{importedCount !== 1 ? 's' : ''} submitted
                   </span>
                 </div>
               )}
@@ -413,7 +494,7 @@ export default function BulkPaymentImport() {
                       <td className="py-1.5 px-2">{row.amount_paid}</td>
                       <td className="py-1.5 px-2">{row.date_paid}</td>
                       <td className="py-1.5 px-2">
-                        {row.status === 'imported' && <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-[10px]">✅ Imported</Badge>}
+                        {row.status === 'imported' && <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-[10px]">✅ Submitted</Badge>}
                         {row.status === 'skipped' && <Badge className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">❌ Skipped</Badge>}
                       </td>
                       <td className="py-1.5 px-2 text-muted-foreground">{row.errors.join(', ') || '—'}</td>

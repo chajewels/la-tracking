@@ -145,6 +145,7 @@ export default function MultiInvoicePaymentDialog({
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const submittingRef = useRef(false);
+  const batchKeyRef = useRef<string>('');
 
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'input' | 'results' | 'message'>('input');
@@ -355,8 +356,13 @@ export default function MultiInvoicePaymentDialog({
         return;
       }
 
+      // One key per press of the submit button: record-multi-payment writes
+      // the whole batch under it in one transaction, and a retry after a
+      // timeout re-sends the same key, so the legs are never booked twice.
+      const batchKey = batchKeyRef.current || (batchKeyRef.current = crypto.randomUUID());
       const { data, error } = await supabase.functions.invoke('record-multi-payment', {
         body: {
+          batch_key: batchKey,
           customer_id: customerId,
           total_amount_paid: totalAllocated,
           date_paid: paymentDate,
@@ -475,6 +481,7 @@ export default function MultiInvoicePaymentDialog({
   };
 
   const resetAndClose = () => {
+    batchKeyRef.current = '';
     setSelectedIds(new Set());
     setAmounts({});
     setCarryOverMap({});
