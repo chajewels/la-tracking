@@ -61,6 +61,11 @@ export function describeEmailError(err: unknown): EmailErrorInfo {
   return { type, requestId, message: message.slice(0, 1000) };
 }
 
+/** Prefix once: the SDK message often already starts with it. */
+export function formatEmailErrorMessage(message: string): string {
+  return message.startsWith("Email API error:") ? message : `Email API error: ${message}`;
+}
+
 // deno-lint-ignore no-explicit-any
 function serviceClient(): any | null {
   const url = Deno.env.get("SUPABASE_URL");
@@ -109,7 +114,7 @@ export async function recordEmailAttempt(a: EmailAttempt): Promise<void> {
       template_name: a.template,
       recipient_email: a.recipient,
       status: a.status,
-      error_message: info ? `Email API error: ${info.message}` : null,
+      error_message: info ? formatEmailErrorMessage(info.message) : null,
       request_id: info?.requestId ?? null,
       channel: a.channel,
       // The partial unique index on idempotency_key covers pending/sent rows;

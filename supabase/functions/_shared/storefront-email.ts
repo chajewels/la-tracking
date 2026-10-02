@@ -1,7 +1,8 @@
 import * as React from 'npm:react@18.3.1'
 import { renderEmail } from './render-email.ts'
-import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0'
+import { EmailAPIError } from 'npm:@lovable.dev/email-js@0.1.0'
 import { recordEmailAttempt } from './email-log.ts'
+import { sendLovableEmailWithRetry } from './email-retry.ts'
 
 /**
  * Customer emails for chajewelsjp.com STOREFRONT orders.
@@ -154,7 +155,7 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
   try {
     const html = await renderEmail(args.element)
     const text = await renderEmail(args.element, { plainText: true })
-    await sendLovableEmail(
+    const r = await sendLovableEmailWithRetry(
       {
         to: email,
         from: STOREFRONT_FROM,
@@ -170,7 +171,8 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
       { apiKey, sendUrl: Deno.env.get('LOVABLE_SEND_URL') },
     )
     log('sent')
-    await recordEmailAttempt({ channel: 'storefront', template: label, recipient: email, status: 'sent', idempotencyKey: args.idempotencyKey, metadata: { reference } })
+    const retryMeta = r.retried ? { retried: true, first_error_type: r.firstErrorType } : {}
+    await recordEmailAttempt({ channel: 'storefront', template: label, recipient: email, status: 'sent', idempotencyKey: args.idempotencyKey, metadata: { reference, ...retryMeta } })
     return { sent: true }
   } catch (error) {
     if (error instanceof EmailAPIError && error.code === 'recipient_suppressed') {

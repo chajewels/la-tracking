@@ -1,6 +1,7 @@
 import * as React from 'npm:react@18.3.1'
 import { renderEmail } from '../render-email.ts'
-import { EmailAPIError, sendLovableEmail } from 'npm:@lovable.dev/email-js@0.1.0'
+import { EmailAPIError } from 'npm:@lovable.dev/email-js@0.1.0'
+import { sendLovableEmailWithRetry } from '../email-retry.ts'
 import { TEMPLATES } from './registry.ts'
 import { recordEmailAttempt } from '../email-log.ts'
 import { siteNameFor } from './brand.ts'
@@ -73,8 +74,9 @@ export async function sendTemplateEmail(
   // failed with the API error and request_id. A failure also raises the staff
   // bell the first time in a day. See _shared/email-log.ts.
   const idempotencyKey = options.idempotencyKey || crypto.randomUUID()
+  let retryMeta: Record<string, unknown> | null = null
   try {
-    await sendLovableEmail(
+    const r = await sendLovableEmailWithRetry(
       {
         to: recipient,
         from: `${siteNameFor(template.audience)} <noreply@${FROM_DOMAIN}>`,
@@ -89,6 +91,7 @@ export async function sendTemplateEmail(
       },
       { apiKey, sendUrl: Deno.env.get('LOVABLE_SEND_URL') }
     )
+    if (r.retried) retryMeta = { retried: true, first_error_type: r.firstErrorType }
   } catch (error) {
     if (error instanceof EmailAPIError && error.code === 'recipient_suppressed') {
       await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'suppressed', idempotencyKey })
@@ -98,6 +101,6 @@ export async function sendTemplateEmail(
     throw error
   }
 
-  await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'sent', idempotencyKey })
+  await recordEmailAttempt({ channel: 'hub', template: templateName, recipient, status: 'sent', idempotencyKey, metadata: retryMeta })
   return { sent: true }
 }
