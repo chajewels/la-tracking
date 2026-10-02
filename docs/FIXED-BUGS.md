@@ -5784,5 +5784,7 @@ award path writes only when money is received.
   "Customer NOT emailed — tell them the new deadline" (DeadlinesCard,
   CashOrderDetail).
 - Deploy: `revive-web-cash-order`, `reactivate-web-layaway` (they import the
-  shared helper; `confirm-web-draft` is unchanged in behaviour).
+  shared helper; `confirm-web-draft` is unchanged in behaviour). DEPLOYED
+  2026-10-02 15:5x JST from main c3bcb657 exactly (Lovable DEPLOY-ONLY message
+  umsg_01m3y7de8ze4arb68s9g3mh1z5; all source assertions matched). Release #325.
 
