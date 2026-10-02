@@ -637,7 +637,11 @@ export function useReactivateWebLayaway() {
         throw new Error(detailedMsg);
       }
       if (data?.error) throw new Error(String(data.error));
-      return data as { ok: true; web_reference: string | null; schedule_rows_restored: number; stock_lines_taken: number };
+      return data as {
+        ok: true; web_reference: string | null; schedule_rows_restored: number; stock_lines_taken: number;
+        /** 2026-10-02: the customer is emailed the plan again with the new deadline (non-blocking). */
+        email?: { sent: boolean; reason?: string };
+      };
     },
     onSuccess: () => {
       // The plan, its schedule and the website stock all moved.
@@ -691,6 +695,8 @@ export function useReviveWebCashOrder() {
         deadline_hours: number;
         stock_lines_taken: number;
         unheld_lines: number;
+        /** 2026-10-02: the customer is emailed the order again with the new deadline (non-blocking). */
+        email?: { sent: boolean; reason?: string };
       };
     },
     onSuccess: () => {

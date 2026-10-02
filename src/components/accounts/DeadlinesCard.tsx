@@ -228,8 +228,11 @@ export default function DeadlinesCard({
       });
       // Say what was actually held, not just that it worked: re-taking the stock
       // is the part that can quietly not happen.
+      // 2026-10-02: say whether the customer was told — before this the only
+      // email they had said the plan was cancelled.
+      const emailNote = result.email?.sent ? ' Customer emailed the new deadline.' : ' Customer NOT emailed — tell them the new deadline.';
       toast.success('Plan reactivated', {
-        description: `${result.stock_lines_taken} item line${result.stock_lines_taken === 1 ? '' : 's'} held again, ${result.schedule_rows_restored} instalment${result.schedule_rows_restored === 1 ? '' : 's'} restored.`,
+        description: `${result.stock_lines_taken} item line${result.stock_lines_taken === 1 ? '' : 's'} held again, ${result.schedule_rows_restored} instalment${result.schedule_rows_restored === 1 ? '' : 's'} restored.${emailNote}`,
       });
       setReviveOpen(false);
     } catch (err) {
