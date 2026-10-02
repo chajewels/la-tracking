@@ -65,19 +65,19 @@ export default function IssueStoreCreditDialog({
       if (error) {
         let msg = error.message || 'Failed to issue store credit';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const b = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as { context: { body?: BodyInit | null } }).context?.body) {
+            const b = await new Response((error as { context: { body?: BodyInit | null } }).context.body).json();
             if (b?.error) msg = b.error;
           }
         } catch { /* ignore */ }
         throw new Error(msg);
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error?: string }).error);
       toast.success(`Store credit issued — ${formatCurrency(amountNum, currency)}`);
       onIssued?.();
       close();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to issue store credit');
+    } catch (err: unknown) {
+      toast.error((err as Error | null | undefined)?.message || 'Failed to issue store credit');
       setSubmitting(false);
       setConfirming(false);
     }

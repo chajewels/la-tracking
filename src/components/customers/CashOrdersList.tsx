@@ -94,7 +94,7 @@ function useCashOrders() {
     staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('cash_orders' as any)
+        .from('cash_orders')
         .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at, source_channel, web_reference, payment_status, transfer_due_at, ready_confirmed_at, web_released_at, customers(id, full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
