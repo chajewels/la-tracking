@@ -5764,3 +5764,25 @@ a paid order later cancelled still counts. No member was affected on 2026-09-29 
 **Fix.** The order-date read in `loyalty-inactivity-check` now also requires `total_paid > 0`.
 Paid-then-cancelled orders keep counting through `loyalty_members.last_purchase_at`, which the
 award path writes only when money is received.
+
+### No customer email on revival (OPEN-BUGS item 1 of the #298 follow-ups, fixed 2026-10-02)
+
+- **Symptom:** `revive-web-cash-order` and `reactivate-web-layaway` brought an
+  expired web order / web layaway back with a NEW deadline and told the
+  customer nothing; the last email they had received said the order was
+  cancelled. The new deadline existed only on the storefront account page.
+- **Fix:** after the RPC succeeds each function sends the existing confirmation
+  content again — `sendOrderReadyEmail(supabase, id, { revived: true })` /
+  `sendLayawayReadyEmail(supabase, id, null, { revived: true })`
+  (`_shared/reservation-emails.ts`): pieces, where to send the transfer /
+  deposit, the restored schedule and the NEW deadline. Labels `order-revived` /
+  `layaway-revived`; the idempotency key carries the new deadline
+  (`order-revived-<id>-<transfer_due_at>`) because the confirmation's own key
+  was spent at confirm time and would have dropped the revival email silently.
+  Non-blocking: the revival stands whether or not the email sends; the response
+  carries `email: { sent, reason }` and the Hub toasts "Customer emailed" or
+  "Customer NOT emailed — tell them the new deadline" (DeadlinesCard,
+  CashOrderDetail).
+- Deploy: `revive-web-cash-order`, `reactivate-web-layaway` (they import the
+  shared helper; `confirm-web-draft` is unchanged in behaviour).
+

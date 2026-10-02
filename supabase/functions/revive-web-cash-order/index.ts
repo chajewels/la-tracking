@@ -18,12 +18,17 @@
 // Hub (non-web) cash orders keep the old revive path in CashOrderDetail; they
 // hold no website stock and have no payment_status.
 //
+// 2026-10-02: after the RPC the customer gets the order-confirmation email
+// again with the new deadline (sendOrderReadyEmail, revived) — before this
+// the only word they had was the cancellation email.
+//
 // Same gate as set-account-deadlines and reactivate-web-layaway: a valid staff
 // JWT plus `edit_account`. Reviving decides whether a customer keeps a piece.
 
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { reviveRefusalStatus } from "../_shared/web-order-rules.ts";
+import { sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -62,7 +67,15 @@ Deno.serve(async (req) => {
 
     const result = (data ?? {}) as Record<string, unknown>;
     if (result.error) return jsonResponse(result, reviveRefusalStatus(String(result.error)));
-    return jsonResponse(result);
+
+    // THE CUSTOMER IS TOLD (OPEN-BUGS "No customer email on revival", fixed
+    // 2026-10-02). Their last email said the order was cancelled; the order is
+    // live again with a NEW deadline that until now existed only on the
+    // storefront account page. The same confirmation content (pieces, where
+    // to send the transfer, the new deadline) goes out again. Non-blocking:
+    // the revival stands whether or not the email sends; the result says.
+    const email = await sendOrderReadyEmail(supabase, orderId, { revived: true });
+    return jsonResponse({ ...result, email });
   } catch (err) {
     console.error("[revive-web-cash-order] failed:", err);
     return jsonResponse({ error: (err as Error)?.message ?? "internal_error" }, 500);

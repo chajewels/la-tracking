@@ -470,8 +470,10 @@ export default function CashOrderDetail() {
       const unheld = res.unheld_lines > 0
         ? ` ${res.unheld_lines} line(s) have no catalog variant and could not be held.`
         : '';
+      // 2026-10-02: the revive sends the order email again with the new deadline.
+      const emailNote = res.email?.sent ? ' Customer emailed.' : ' Customer NOT emailed — tell them the new deadline.';
       toast.success(
-        `Order revived — the customer has until ${formatPHTDisplay(res.transfer_due_at)} (${res.deadline_hours}h rule). Stock re-held on ${res.stock_lines_taken} line(s).${unheld}`,
+        `Order revived — the customer has until ${formatPHTDisplay(res.transfer_due_at)} (${res.deadline_hours}h rule). Stock re-held on ${res.stock_lines_taken} line(s).${unheld}${emailNote}`,
       );
       setReviveReason('');
       setEditExpiryOpen(false);

@@ -21,12 +21,16 @@
 // set_account_deadlines make — a plan with money on it is a normal layaway and
 // follows the normal path.
 //
+// 2026-10-02: after the RPC the customer gets the plan email again with the
+// new deadline (sendLayawayReadyEmail, revived).
+//
 // Same gate as set-account-deadlines: a valid staff JWT plus `edit_account`.
 // Reactivating decides whether a customer keeps their piece, which is the same
 // weight of decision as moving the deadline in the first place.
 
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
+import { sendLayawayReadyEmail } from "../_shared/reservation-emails.ts";
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -94,7 +98,13 @@ Deno.serve(async (req) => {
         : 400;
       return jsonResponse(result, status);
     }
-    return jsonResponse(result);
+
+    // THE CUSTOMER IS TOLD (OPEN-BUGS "No customer email on revival", fixed
+    // 2026-10-02): the layaway-plan-created content again — deposit, where to
+    // send it, the restored schedule and the NEW deadline. Non-blocking; the
+    // result carries the outcome.
+    const email = await sendLayawayReadyEmail(supabase, accountId, null, { revived: true });
+    return jsonResponse({ ...result, email });
   } catch (err) {
     console.error("[reactivate-web-layaway] failed:", err);
     return jsonResponse({ error: (err as Error)?.message ?? "internal_error" }, 500);
