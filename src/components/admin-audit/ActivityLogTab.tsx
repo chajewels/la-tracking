@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import type { Tables } from '@/integrations/supabase/types';
 
 const PAGE_SIZE = 50;
 const ALL = '__all__';
@@ -19,16 +20,21 @@ type FilterOptions = {
   actors: { user_id: string; full_name: string | null }[];
 };
 
-function valToString(v: any): string {
+type AuditRow = Pick<
+  Tables<'audit_logs'>,
+  'id' | 'entity_type' | 'action' | 'entity_id' | 'old_value_json' | 'new_value_json' | 'performed_by_user_id' | 'created_at'
+>;
+
+function valToString(v: unknown): string {
   if (v === null || v === undefined) return '∅';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
 
-function buildDiff(oldJson: any, newJson: any): { key: string; before: any; after: any }[] {
+function buildDiff(oldJson: unknown, newJson: unknown): { key: string; before: unknown; after: unknown }[] {
   const DENY = new Set(['updated_at']);
-  const o = oldJson && typeof oldJson === 'object' ? oldJson : null;
-  const n = newJson && typeof newJson === 'object' ? newJson : null;
+  const o = oldJson && typeof oldJson === 'object' ? (oldJson as Record<string, unknown>) : null;
+  const n = newJson && typeof newJson === 'object' ? (newJson as Record<string, unknown>) : null;
   if (o && n) {
     const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter(k => !DENY.has(k));
     return keys
@@ -63,7 +69,7 @@ export default function ActivityLogTab() {
   });
 
   const actorMap = useMemo(
-    () => new Map((options?.actors || []).map(a => [a.user_id, a.full_name])),
+    () => new Map<string | null, string | null>((options?.actors || []).map(a => [a.user_id, a.full_name])),
     [options],
   );
 
@@ -79,7 +85,7 @@ export default function ActivityLogTab() {
             supabase.from('layaway_accounts').select('id').eq('invoice_number', term),
             supabase.from('cash_orders').select('id').eq('invoice_number', term),
           ]);
-          entityIds = [...(la || []).map((r: any) => r.id), ...(co || []).map((r: any) => r.id)];
+          entityIds = [...(la || []).map((r) => r.id), ...(co || []).map((r) => r.id)];
           if (entityIds.length === 0) entityIds = ['00000000-0000-0000-0000-000000000000'];
         } else {
           entityIds = [term];
@@ -98,7 +104,7 @@ export default function ActivityLogTab() {
       if (entityIds) q = q.in('entity_id', entityIds);
       const { data, error } = await q;
       if (error) throw error;
-      return data as any[];
+      return data as AuditRow[];
     },
   });
 
@@ -176,7 +182,7 @@ export default function ActivityLogTab() {
         <div className="space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
       ) : error ? (
         <div className="rounded-xl border border-destructive/40 bg-zinc-900 p-6 text-center text-sm text-destructive">
-          Failed to load activity log. {(error as any)?.message || ''}
+          Failed to load activity log. {(error as { message?: string } | null)?.message || ''}
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-8 text-center text-sm text-zinc-400">
@@ -197,7 +203,7 @@ export default function ActivityLogTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {rows.map((r: any) => {
+                {rows.map((r: AuditRow) => {
                   const isOpen = expandedId === r.id;
                   const diff = isOpen ? buildDiff(r.old_value_json, r.new_value_json) : [];
                   const isAccount = ACCOUNT_ENTITY_TYPES.has(r.entity_type) && r.entity_id;

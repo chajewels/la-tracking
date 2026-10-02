@@ -42,11 +42,11 @@ export default function PenaltyCapAuditPanel() {
 
       // Fetch overrides
       const { data: overrides } = await supabase
-        .from('penalty_cap_overrides' as any)
+        .from('penalty_cap_overrides')
         .select('account_id, is_active');
 
       const overrideSet = new Set(
-        (overrides || []).filter((o: any) => o.is_active).map((o: any) => o.account_id)
+        (overrides || []).filter((o) => o.is_active).map((o) => o.account_id)
       );
 
       return { accounts: accounts || [], overrideSet };
@@ -57,7 +57,7 @@ export default function PenaltyCapAuditPanel() {
     if (!data) return [];
     const { accounts, overrideSet } = data;
 
-    return (accounts as any[]).map((acc) => {
+    return accounts.map((acc) => {
       const currency = acc.currency as Currency;
       const planMonths = acc.payment_plan_months || 6;
       const cap = currency === 'PHP' ? 1000 : 2000;
@@ -65,22 +65,22 @@ export default function PenaltyCapAuditPanel() {
 
       // Only look at non-final installments (capped months)
       const lastCappedMonth = planMonths - 1;
-      const schedItemsCapped = ((acc.layaway_schedule || []) as any[]).filter(
-        (s: any) => s.installment_number <= lastCappedMonth && s.status !== 'cancelled'
+      const schedItemsCapped = (acc.layaway_schedule || []).filter(
+        (s) => s.installment_number <= lastCappedMonth && s.status !== 'cancelled'
       );
-      const schedIdsCapped = new Set(schedItemsCapped.map((s: any) => s.id));
+      const schedIdsCapped = new Set(schedItemsCapped.map((s) => s.id));
 
       // Count overdue months (past due, not paid)
       const today = getPHTToday();
       const overdueItems = schedItemsCapped.filter(
-        (s: any) => s.due_date < today && s.status !== 'paid'
+        (s) => s.due_date < today && s.status !== 'paid'
       );
 
       // Sum active (unpaid + paid) penalties for capped months only
-      const penaltiesCapped = ((acc.penalty_fees || []) as any[]).filter(
-        (p: any) => schedIdsCapped.has(p.schedule_id) && p.status !== 'waived'
+      const penaltiesCapped = (acc.penalty_fees || []).filter(
+        (p) => schedIdsCapped.has(p.schedule_id) && p.status !== 'waived'
       );
-      const totalPenalty = penaltiesCapped.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const totalPenalty = penaltiesCapped.reduce((s: number, p) => s + Number(p.penalty_amount), 0);
 
       let auditStatus: AuditRow['audit_status'] = 'OK';
       let auditNotes = 'Within acceptable range';
@@ -90,7 +90,7 @@ export default function PenaltyCapAuditPanel() {
         auditNotes = `Penalty exceeds recommended cap (${formatCurrency(totalPenalty, currency)} > ${formatCurrency(cap, currency)})`;
       } else {
         // Check for computation irregularities
-        const schedPenaltySum = schedItemsCapped.reduce((s: number, sc: any) => s + Number(sc.penalty_amount), 0);
+        const schedPenaltySum = schedItemsCapped.reduce((s: number, sc) => s + Number(sc.penalty_amount), 0);
         if (Math.abs(schedPenaltySum - totalPenalty) > 1) {
           auditStatus = 'CHECK_REQUIRED';
           auditNotes = 'Mismatch between schedule penalty and penalty_fees records';

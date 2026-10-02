@@ -8,8 +8,18 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { todayStr, categorizeByDueDate, remainingDue, alertTypeConfig } from '@/lib/business-rules';
 
+/** The dashboard-summary counts this panel reads (a subset of useDashboardSummary's data). */
+interface OperationsSummary {
+  due_7_days_count?: number;
+  due_3_days_count?: number;
+  due_today_count?: number;
+  overdue_accounts?: number;
+  penalties_today_count?: number;
+  pending_waivers_count?: number;
+}
+
 interface OperationsPanelProps {
-  summary: any;
+  summary: OperationsSummary | null | undefined;
   displayCurrency: Currency;
   countOnly?: boolean;
 }
@@ -70,7 +80,7 @@ export default function OperationsPanel({ summary, displayCurrency, countOnly = 
       {/* Action items */}
       {items.length > 0 && (
         <div className="space-y-2 max-h-80 overflow-y-auto">
-          {[...overdueItems, ...dueTodayItems, ...upcomingItems].slice(0, 8).map((item: any) => {
+          {[...overdueItems, ...dueTodayItems, ...upcomingItems].slice(0, 8).map((item) => {
             const acc = item.layaway_accounts;
             const cust = acc?.customers;
             const type = categorizeByDueDate(item.due_date);

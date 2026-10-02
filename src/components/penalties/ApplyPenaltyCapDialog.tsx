@@ -35,7 +35,7 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
 
       // Upsert override record
       const { error } = await supabase
-        .from('penalty_cap_overrides' as any)
+        .from('penalty_cap_overrides')
         .upsert({
           account_id: accountId,
           currency,
@@ -159,8 +159,8 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
 
       toast.success(`Penalty cap override applied — capped at ${capDisplay}`);
       setOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to apply override');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to apply override');
     } finally {
       setLoading(false);
     }

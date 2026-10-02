@@ -69,22 +69,22 @@ export default function AdjustPointsDialog({
       if (error) {
         let msg = error.message || 'Failed to adjust points';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const b = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as { context?: { body?: BodyInit | null } }).context?.body) {
+            const b = await new Response((error as { context: { body: BodyInit | null } }).context.body).json();
             if (b?.error) msg = b.error;
           }
         } catch { /* ignore */ }
         throw new Error(msg);
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
-      const newBal = (data as any)?.new_remaining_points;
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
+      const newBal = (data as { new_remaining_points?: number } | null)?.new_remaining_points;
       toast.success(
         `Points adjusted — new balance: ${Number(newBal ?? 0).toLocaleString()}`,
       );
       onSuccess();
       close();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to adjust points');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to adjust points');
       setSubmitting(false);
       setConfirming(false);
     }

@@ -195,12 +195,12 @@ export const EXCLUDED_STATUSES = ['forfeited', 'cancelled', 'final_forfeited'] a
 
 /** Check if account is operationally active. */
 export function isAccountActive(status: string): boolean {
-  return ACTIVE_STATUSES.includes(status as any);
+  return (ACTIVE_STATUSES as readonly string[]).includes(status);
 }
 
 /** Check if account should be excluded from counts/receivables. */
 export function isAccountExcluded(status: string): boolean {
-  return EXCLUDED_STATUSES.includes(status as any);
+  return (EXCLUDED_STATUSES as readonly string[]).includes(status);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -974,7 +974,7 @@ export function computeAccountSummary(params: {
       const penaltyAmount = Number(item.penalty_amount);
       const totalDue = Number(item.total_due_amount);
       const paidAmount = Number(item.paid_amount);
-      const isPaid = isEffectivelyPaid(item as any);
+      const isPaid = isEffectivelyPaid(item);
       const isPartialFlag = !isPaid && paidAmount > 0;
       const principalRemaining = Math.max(0, baseAmount - paidAmount);
       return {

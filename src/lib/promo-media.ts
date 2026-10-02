@@ -43,7 +43,7 @@ export async function fetchPhpJpyRate(): Promise<number> {
       .eq('key', 'php_jpy_rate')
       .maybeSingle();
     if (error || !data) return DEFAULT_PHP_JPY_RATE;
-    const raw = (data as any).value;
+    const raw = data.value;
     const num = typeof raw === 'number' ? raw : Number(JSON.parse(String(raw)));
     return Number.isFinite(num) && num > 0 ? num : DEFAULT_PHP_JPY_RATE;
   } catch {

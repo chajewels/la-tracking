@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 type Range = '6M' | '1Y' | 'All';
 interface RpcRow { month: string; cash_jpy: number; order_count: number; }
+interface CashChartRow { label: string; cash: number; count: number; }
 
 function fmtJpy(v: number): string {
   if (v >= 1_000_000) return `¥${(v / 1_000_000).toFixed(1)}M`;
@@ -16,7 +17,7 @@ function fmtJpy(v: number): string {
 }
 function fmtFull(v: number): string { return '¥' + Math.round(v).toLocaleString(); }
 
-const CashTooltip = ({ active, payload, label }: any) => {
+const CashTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-lg">
@@ -46,7 +47,7 @@ export default function MonthlyCashOrdersChart() {
   });
 
   const { chartData, total } = useMemo(() => {
-    if (!rows) return { chartData: [] as any[], total: 0 };
+    if (!rows) return { chartData: [] as CashChartRow[], total: 0 };
     const now = new Date();
     const cutoff =
       range === '6M' ? startOfMonth(subMonths(now, 5)) :

@@ -41,10 +41,10 @@ export default function AICustomerInsightsDialog({ customerId, customerName }: P
         body: { customer_id: customerId },
       });
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
       setResult(data as InsightResult);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate insights');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to generate insights');
     } finally {
       setLoading(false);
     }

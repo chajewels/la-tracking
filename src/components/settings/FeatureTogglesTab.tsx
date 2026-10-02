@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Zap, Loader2, Shield, Bell, CreditCard, Wrench, Users, BarChart3, Scale, Activity, FileText, Eye } from 'lucide-react';
+import { Zap, Loader2, Shield, Bell, CreditCard, Wrench, Users, BarChart3, Scale, Activity, FileText, Eye, type LucideIcon } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { toast } from '@/hooks/use-toast';
 
-const FEATURE_ICONS: Record<string, any> = {
+const FEATURE_ICONS: Record<string, LucideIcon> = {
   penalty_system: Shield,
   reminder_system: Bell,
   payment_submissions: CreditCard,

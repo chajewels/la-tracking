@@ -85,8 +85,8 @@ export default function NotifiedButton({
       }
 
       queryClient.invalidateQueries({ queryKey: ['csr-notifications'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to record notification');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to record notification');
     } finally {
       setSaving(false);
     }
