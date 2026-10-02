@@ -19,6 +19,12 @@ import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import { useOrderLoyaltyAward } from '@/hooks/useOrderLoyaltyAward';
 import LoyaltyAmountField from '@/components/loyalty/LoyaltyAmountField';
 import type { Currency } from '@/lib/types';
+import type { Json, TablesUpdate } from '@/integrations/supabase/types';
+
+/** Edge-function response body / error shapes read by fnErrorMessage. supabase-js
+ *  puts the HTTP Response on FunctionsHttpError.context. Types only. */
+type FnData = { error?: string };
+type FnError = { message?: string; context?: { json: () => Promise<FnData | null> } };
 
 interface ScheduleItem {
   id: string;
@@ -77,7 +83,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
   const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const isAdmin = (roles as any[]).includes('admin');
+  const isAdmin = roles.includes('admin');
   const { can } = usePermissions();
   const canEditSchedule = can('edit_schedule');
   const canEditLoyalty = can('edit_loyalty_amount');
@@ -198,12 +204,12 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
   };
 
   const fnErrorMessage = async (error: unknown, data: unknown): Promise<string> => {
-    if ((data as any)?.error) return (data as any).error;
+    if ((data as FnData | null | undefined)?.error) return (data as Required<FnData>).error;
     try {
-      const body = await (error as any)?.context?.json();
+      const body = await (error as FnError | null | undefined)?.context?.json();
       if (body?.error) return body.error;
     } catch { /* ignore */ }
-    return (error as any)?.message || 'Request failed';
+    return (error as FnError | null | undefined)?.message || 'Request failed';
   };
 
   const selectPlan = async (months: number) => {
@@ -221,10 +227,10 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
       const { data, error } = await supabase.functions.invoke('change-payment-plan', {
         body: { account_id: account.id, new_months: months, apply: false },
       });
-      if (error || (data as any)?.error) throw new Error(await fnErrorMessage(error, data));
+      if (error || (data as FnData | null | undefined)?.error) throw new Error(await fnErrorMessage(error, data));
       setPlanPreview(data as PlanPreview);
-    } catch (err: any) {
-      setPlanPreviewError(err.message || 'Could not preview this plan');
+    } catch (err: unknown) {
+      setPlanPreviewError((err as Error).message || 'Could not preview this plan');
     } finally {
       setPlanLoading(false);
     }
@@ -241,15 +247,15 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
       const { data, error } = await supabase.functions.invoke('change-payment-plan', {
         body: { account_id: account.id, new_months: planChoice, reason: planReason.trim(), apply: true },
       });
-      if (error || (data as any)?.error) throw new Error(await fnErrorMessage(error, data));
+      if (error || (data as FnData | null | undefined)?.error) throw new Error(await fnErrorMessage(error, data));
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['schedule', account.id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       toast.success(`Payment plan changed to ${planChoice} months`);
       setOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to change the payment plan');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to change the payment plan');
     } finally {
       setPlanApplying(false);
     }
@@ -290,9 +296,9 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             .eq('account_id', account.id)
             .is('voided_at', null),
         ]);
-        const activePenaltySum = (activePens || []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-        const serviceSum = (svcs || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
-        const totalPaid = (pays || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const activePenaltySum = (activePens || []).reduce((s: number, p) => s + Number(p.penalty_amount), 0);
+        const serviceSum = (svcs || []).reduce((s: number, sv) => s + Number(sv.amount), 0);
+        const totalPaid = (pays || []).reduce((s: number, p) => s + Number(p.amount_paid), 0);
         accountUpdates.remaining_balance = Math.max(
           0,
           Math.round((roundedTotal + activePenaltySum + serviceSum - totalPaid) * 100) / 100
@@ -325,17 +331,17 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
       accountUpdates.discount_value = discountInput === '' ? null : (parseFloat(discountInput) || 0);
       accountUpdates.shipping_fee = shippingFee;
       // Defensive guard: non-admins can never write total_amount from this dialog
-      if (!isAdmin) delete (accountUpdates as any).total_amount;
+      if (!isAdmin) delete accountUpdates.total_amount;
 
       if (Object.keys(accountUpdates).length > 0) {
         const { error } = await supabase
           .from('layaway_accounts')
-          .update(accountUpdates as any)
+          .update(accountUpdates as TablesUpdate<'layaway_accounts'>)
           .eq('id', account.id);
         if (error) throw error;
 
         // Audit log for account update
-        await (supabase.from('audit_logs') as any).insert([{
+        await supabase.from('audit_logs').insert([{
           entity_type: 'layaway_account',
           entity_id: account.id,
           action: 'update_account_details',
@@ -346,7 +352,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
             downpayment_amount: account.downpayment_amount,
             loyalty_jpy_amount: account.loyalty_jpy_amount,
           },
-          new_value_json: accountUpdates,
+          new_value_json: accountUpdates as Json,
           performed_by_user_id: userId || null,
         }]);
       }
@@ -395,12 +401,12 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
               .eq('id', scheduleId);
             if (error) throw error;
 
-            await (supabase.from('audit_logs') as any).insert([{
+            await supabase.from('audit_logs').insert([{
               entity_type: 'layaway_schedule',
               entity_id: scheduleId,
               action: 'update_due_date',
               old_value_json: { due_date: original.due_date },
-              new_value_json: { due_date: scheduleUpdate.due_date },
+              new_value_json: { due_date: scheduleUpdate.due_date as string },
               performed_by_user_id: userId || null,
             }]);
           }
@@ -433,7 +439,7 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
           });
         if (error) throw error;
 
-        await (supabase.from('audit_logs') as any).insert([{
+        await supabase.from('audit_logs').insert([{
           entity_type: 'layaway_schedule',
           entity_id: account.id,
           action: 'add_schedule_item',
@@ -450,8 +456,8 @@ export default function EditAccountDialog({ account, schedule, items }: EditAcco
 
       toast.success('Account details updated');
       setOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save changes');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to save changes');
     } finally {
       setSaving(false);
     }

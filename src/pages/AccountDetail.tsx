@@ -73,7 +73,9 @@ import {
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
   computeAccountSummary,
   isRowPaid, isRowPartial, getRowAllocated, getRowRemaining, getRowStatus, sumPendingRows,
+  type ScheduleViewRow,
 } from '@/lib/business-rules';
+import type { Tables } from '@/integrations/supabase/types';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -88,6 +90,36 @@ interface AccountItemRow {
   image_url: string | null;
   /** Web plan lines carry the variant; the photo is resolved from it. */
   variant_id?: string | null;
+}
+
+/** A useSchedule() row: schedule_with_actuals plus the legacy aliases the hook
+ *  adds (paid_amount = allocated, status = computed ?? db status,
+ *  total_due_amount = actual_remaining). Types only. */
+type ScheduleRow = ScheduleViewRow & {
+  status: string;
+  paid_amount: number | string;
+  total_due_amount: number | string;
+};
+
+/** What isDownpaymentPayment reads. payment_type / is_downpayment are legacy
+ *  import flags that are not columns on payments; kept so the check is unchanged. */
+type DownpaymentCandidate = Pick<Tables<'payments'>, 'reference_number' | 'remarks'> & {
+  payment_type?: string | null;
+  is_downpayment?: boolean | null;
+};
+
+/** audit_account RPC result (jsonb) as the Account Health dialog reads it. */
+interface HealthCheckItem {
+  label: string;
+  pass: boolean;
+  expected?: unknown;
+  stored?: unknown;
+}
+interface HealthCheckResult {
+  audit_skipped?: boolean;
+  skip_reason?: string | null;
+  checks?: HealthCheckItem[];
+  error?: string;
 }
 
 export default function AccountDetail() {
@@ -115,7 +147,7 @@ export default function AccountDetail() {
         .not('confirmed_payment_id', 'is', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as any[];
+      return data;
     },
   });
 
@@ -155,7 +187,7 @@ export default function AccountDetail() {
   // no date collisions, no first-write-wins. See Bug #161 in docs/FIXED-BUGS.md.
   const proofByPaymentId = useMemo(() => {
     const map = new Map<string, { url: string; sender: string }>();
-    (submissionProofs || []).forEach((s: any) => {
+    (submissionProofs || []).forEach((s) => {
       if (s.proof_url && s.confirmed_payment_id && !map.has(s.confirmed_payment_id)) {
         map.set(s.confirmed_payment_id, {
           url: s.proof_url as string,
@@ -168,7 +200,7 @@ export default function AccountDetail() {
 
   // ── Session payment tracking (state-based, per-account) ──
   const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
-  const confirmedPayments = (payments || []).filter((p: any) => !p.voided_at);
+  const confirmedPayments = (payments || []).filter((p) => !p.voided_at);
 
   // Reset session payments when navigating to a different account
   useEffect(() => {
@@ -193,7 +225,7 @@ export default function AccountDetail() {
       const { data: allocRows } = await supabase
         .from('payment_allocations')
         .select('id')
-        .in('payment_id', payRows.map((p: any) => p.id))
+        .in('payment_id', payRows.map((p) => p.id))
         .limit(1);
       if (cancelled || !allocRows || allocRows.length === 0) return;
       // Fire and forget — don't block UI or show errors to user
@@ -306,7 +338,7 @@ export default function AccountDetail() {
   const [editingPaidError, setEditingPaidError] = useState('');
   const [healthCheckOpen, setHealthCheckOpen] = useState(false);
   const [healthCheckLoading, setHealthCheckLoading] = useState(false);
-  const [healthCheckResult, setHealthCheckResult] = useState<any>(null);
+  const [healthCheckResult, setHealthCheckResult] = useState<HealthCheckResult | null>(null);
   const queryClient = useQueryClient();
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
     ['account', id],
@@ -319,9 +351,9 @@ export default function AccountDetail() {
     ['submission-proofs', id],
   ]);
   const { roles } = useAuth();
-  const isAdmin = (roles as any[]).includes('admin');
-  const isFinance = (roles as any[]).includes('finance');
-  const isStaff = (roles as any[]).includes('staff');
+  const isAdmin = roles.includes('admin');
+  const isFinance = roles.includes('finance');
+  const isStaff = roles.includes('staff');
   const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
   const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const { can: canPerm } = usePermissions();
@@ -336,9 +368,9 @@ export default function AccountDetail() {
         p_invoice_number: account.invoice_number,
       });
       if (error) throw error;
-      setHealthCheckResult(data);
-    } catch (err: any) {
-      toast.error('Health check failed: ' + (err.message || 'Unknown error'));
+      setHealthCheckResult(data as unknown as HealthCheckResult);
+    } catch (err: unknown) {
+      toast.error('Health check failed: ' + ((err as Error).message || 'Unknown error'));
     } finally {
       setHealthCheckLoading(false);
     }
@@ -388,8 +420,8 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       toast.success(`Invoice number updated to ${trimmed}`);
       setEditingInvoice(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update');
     } finally {
       setInvoiceSaving(false);
     }
@@ -418,8 +450,8 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       setEditingScheduleId(null);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update');
     } finally {
       setEditScheduleLoading(false);
     }
@@ -455,8 +487,8 @@ export default function AccountDetail() {
       setAddingInstallment(false);
       setNewInstDueDate('');
       setNewInstAmount('');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add installment');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to add installment');
     } finally {
       setNewInstSaving(false);
     }
@@ -486,8 +518,8 @@ export default function AccountDetail() {
       toast.success(`Installment #${deleteScheduleTarget.installment_number} removed`);
       setDeleteScheduleTarget(null);
       setDeleteScheduleError('');
-    } catch (err: any) {
-      setDeleteScheduleError(err.message || 'Failed to delete installment');
+    } catch (err: unknown) {
+      setDeleteScheduleError((err as Error).message || 'Failed to delete installment');
     } finally {
       setDeleteScheduleLoading(false);
     }
@@ -509,8 +541,8 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       setAcceptCarryTarget(null);
       setAcceptCarryReason('');
-    } catch (err: any) {
-      setAcceptCarryError(err.message || 'Failed to accept carry over');
+    } catch (err: unknown) {
+      setAcceptCarryError((err as Error).message || 'Failed to accept carry over');
     } finally {
       setAcceptCarryLoading(false);
     }
@@ -528,7 +560,7 @@ export default function AccountDetail() {
         .eq('schedule_id', scheduleId)
         .eq('allocation_type', 'installment');
       if (allocErr) throw allocErr;
-      const alloc = (allocs || []).sort((a: any, b: any) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
+      const alloc = (allocs || []).sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
       console.log('alloc found:', alloc);
       if (!alloc) throw new Error('No allocation found for this row');
       console.log('RPC call:', { allocation_id: alloc.id, amount: newAmount });
@@ -544,8 +576,8 @@ export default function AccountDetail() {
       setEditingPaidId(null);
       setEditingPaidAmount('');
       toast.success('Paid amount updated');
-    } catch (err: any) {
-      setEditingPaidError(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      setEditingPaidError((err as Error).message || 'Failed to update');
     } finally {
       setEditingPaidLoading(false);
     }
@@ -557,21 +589,21 @@ export default function AccountDetail() {
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
   const todayStr = getPHTToday();
   const hasUnpaidPastDue = scheduleItems.some(
-    (item: any) => !isRowPaid(item) && item.due_date <= todayStr
+    (item: ScheduleRow) => !isRowPaid(item) && item.due_date <= todayStr
   );
   // Grace period: current overdue month has no UNPAID penalties yet, within
   // 7 days of due date, and no OTHER row on the account is overdue/partially_paid.
   // Grace resets once the account is fully caught up (no unpaid penalties, no
   // overdue/partial rows), matching the server-side penalty-engine rule.
   const overdueRows = scheduleItems.filter(
-    (item: any) => !isRowPaid(item) && item.due_date <= todayStr
+    (item: ScheduleRow) => !isRowPaid(item) && item.due_date <= todayStr
   );
-  const overdueRowIds = new Set(overdueRows.map((r: any) => r.id));
+  const overdueRowIds = new Set(overdueRows.map((r: ScheduleRow) => r.id));
   const hasPenaltiesOnOverdueRows = (penalties || []).some(
-    (p: any) => (p.status === 'unpaid' || p.status === 'waived') && overdueRowIds.has(p.schedule_id)
+    (p) => (p.status === 'unpaid' || p.status === 'waived') && overdueRowIds.has(p.schedule_id)
   );
   const hasOtherUnpaidRows = scheduleItems.some(
-    (item: any) =>
+    (item: ScheduleRow) =>
       !isRowPaid(item) &&
       !overdueRowIds.has(item.id) &&
       (item.status === 'overdue' || item.status === 'partially_paid')
@@ -579,7 +611,7 @@ export default function AccountDetail() {
   const isInGracePeriod = overdueRows.length > 0
     && !hasPenaltiesOnOverdueRows
     && !hasOtherUnpaidRows
-    && overdueRows.every((r: any) => {
+    && overdueRows.every((r: ScheduleRow) => {
       const daysSinceDue = Math.floor(
         (Date.now() - new Date(r.due_date + 'T00:00:00Z').getTime()) / 86400000
       );
@@ -590,21 +622,21 @@ export default function AccountDetail() {
     : account?.status === 'overdue' && !hasUnpaidPastDue
       ? 'active'
       : (account?.status ?? 'active');
-  const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
+  const downpaymentAmount = Number(account?.downpayment_amount || 0);
 
   // Identify downpayment payments — check multiple fields since import sources vary
-  const isDownpaymentPayment = (p: any) =>
+  const isDownpaymentPayment = (p: DownpaymentCandidate) =>
     p.payment_type === 'downpayment' ||
     p.payment_type === 'dp' ||
     p.is_downpayment === true ||
     (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
     (p.remarks && String(p.remarks).toLowerCase().includes('down')) ||
     (p.remarks && String(p.remarks).toLowerCase().includes('dp'));
-  const dpPayments = (payments || []).filter((p: any) => !p.voided_at && isDownpaymentPayment(p));
-  const taggedDpPaid = dpPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  const dpPayments = (payments || []).filter((p) => !p.voided_at && isDownpaymentPayment(p));
+  const taggedDpPaid = dpPayments.reduce((s: number, p) => s + Number(p.amount_paid), 0);
   // For legacy accounts without tagged DP payments, infer DP as paid when total_paid covers it
-  const allActivePayments = (payments || []).filter((p: any) => !p.voided_at);
-  const totalPaidAll = allActivePayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  const allActivePayments = (payments || []).filter((p) => !p.voided_at);
+  const totalPaidAll = allActivePayments.reduce((s: number, p) => s + Number(p.amount_paid), 0);
   const dpPaidAmount = taggedDpPaid > 0 ? taggedDpPaid : (downpaymentAmount > 0 && totalPaidAll >= downpaymentAmount ? downpaymentAmount : 0);
   const dpRemainingAmount = Math.max(0, downpaymentAmount - dpPaidAmount);
   // Display-only: DP collected beyond downpayment_amount reduces the balance
@@ -650,7 +682,7 @@ export default function AccountDetail() {
   // already loads (schedule_with_actuals aliases, penalty_fees rows,
   // approved waiver reasons). No recomputation of money or penalty windows.
   const approvedWaivers = useMemo(
-    () => ((waiverRequests || []) as any[]).filter(w => w.approved_at),
+    () => (waiverRequests || []).filter(w => w.approved_at),
     [waiverRequests],
   );
   const waiverReasonByPenaltyId = useMemo(() => {
@@ -661,18 +693,18 @@ export default function AccountDetail() {
 
   const timelineInstallments: TimelineInstallment[] = useMemo(() =>
     scheduleItems
-      .filter((item: any) => item.status !== 'cancelled')
-      .map((item: any) => ({
+      .filter((item: ScheduleRow) => item.status !== 'cancelled')
+      .map((item: ScheduleRow) => ({
         id: item.id,
         installmentNumber: Number(item.installment_number),
         dueDate: item.due_date,
         base: Number(item.base_installment_amount),
-        allocated: getRowAllocated(item as any),
-        remaining: getRowRemaining(item as any),
+        allocated: getRowAllocated(item),
+        remaining: getRowRemaining(item),
         status: String(item.status),
         penalties: (penalties || [])
-          .filter((p: any) => p.schedule_id === item.id)
-          .map((p: any) => ({
+          .filter((p) => p.schedule_id === item.id)
+          .map((p) => ({
             id: p.id,
             amount: Number(p.penalty_amount),
             status: String(p.status),
@@ -727,7 +759,7 @@ export default function AccountDetail() {
   };
   const paymentBreakdownText = buildPaymentBreakdown();
 
-  const getMessageScheduleState = (item: any, idx: number) => {
+  const getMessageScheduleState = (item: ScheduleRow, idx: number) => {
     const state = summary.scheduleStates.find(s => s.installmentNumber === item.installment_number);
     if (state) {
       return {
@@ -746,7 +778,7 @@ export default function AccountDetail() {
   };
 
   const mostRecentPayment = activePayments.length > 0
-    ? [...activePayments].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+    ? [...activePayments].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
     : null;
 
   const isForfeited = account?.status === 'forfeited';
@@ -861,7 +893,7 @@ export default function AccountDetail() {
     message += `🔄 REACTIVATION NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Your account has been reactivated as a one-time consideration.\n`;
-    message += `You are given a final extension of 1 month${(account as any).extension_end_date ? ` (until ${new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
+    message += `You are given a final extension of 1 month${account.extension_end_date ? ` (until ${new Date(account.extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
     message += `Penalty charges will continue to apply based on the existing schedule.\n`;
     message += `No further extensions will be allowed.\n\n`;
     message = appendSummaryBlock(message);
@@ -1194,14 +1226,14 @@ export default function AccountDetail() {
                   🌐 Web{webFields.web_reference ? ` · ${webFields.web_reference}` : ''}
                 </Badge>
               )}
-              {(account as any).is_reactivated && (
+              {account.is_reactivated && (
                 <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
                   🔄 Reactivated
                 </Badge>
               )}
-              {isExtension && (account as any).extension_end_date && (
+              {isExtension && account.extension_end_date && (
                 <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
-                  Extension until {new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}
+                  Extension until {new Date(account.extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}
                 </Badge>
               )}
               {penaltyCapOverride && (
@@ -1291,7 +1323,7 @@ export default function AccountDetail() {
                   order_date: account.order_date,
                   payment_plan_months: account.payment_plan_months,
                   notes: account.notes,
-                  downpayment_amount: Number((account as any).downpayment_amount || 0),
+                  downpayment_amount: Number(account.downpayment_amount || 0),
                   currency: account.currency,
                   status: account.status,
                   discount_amount: Number(account.discount_amount || 0),
@@ -1371,7 +1403,7 @@ export default function AccountDetail() {
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
-            {canReactivate(account.status, !!(account as any).is_reactivated) && can('reactivate_account') && (
+            {canReactivate(account.status, !!account.is_reactivated) && can('reactivate_account') && (
               <Button
                 variant="outline"
                 className="border-info/30 text-info hover:bg-info/10"
@@ -1389,7 +1421,7 @@ export default function AccountDetail() {
                       // would hide which piece blocked it.
                       let msg = error.message;
                       try {
-                        const ctxBody = (error as any)?.context?.body;
+                        const ctxBody = (error as { context?: { body?: BodyInit | null } } | null)?.context?.body;
                         if (ctxBody) {
                           const body = await new Response(ctxBody).json();
                           if (body?.error) msg = body.error;
@@ -1414,8 +1446,8 @@ export default function AccountDetail() {
                     queryClient.invalidateQueries({ queryKey: ['schedule', id] });
                     queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
                     queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
-                  } catch (err: any) {
-                    toast.error(err.message || 'Failed to reactivate');
+                  } catch (err: unknown) {
+                    toast.error((err as Error).message || 'Failed to reactivate');
                   } finally {
                     setReactivating(false);
                   }
@@ -1719,19 +1751,19 @@ export default function AccountDetail() {
           kind="layaway"
           currency={currency as Currency}
           customerName={account.customers?.full_name || 'Unknown'}
-          customerCode={(account.customers as any)?.customer_code}
+          customerCode={account.customers?.customer_code}
           invoiceNumber={account.invoice_number}
           status={account.status}
           planMonths={account.payment_plan_months}
-          orderDate={(account as any).order_date}
+          orderDate={account.order_date}
           schedule={timelineInstallments}
-          waivers={approvedWaivers.map((w: any) => ({ id: w.id, amount: Number(w.penalty_amount), reason: w.reason }))}
+          waivers={approvedWaivers.map((w) => ({ id: w.id, amount: Number(w.penalty_amount), reason: w.reason }))}
           services={accountServices.map(svc => ({
             id: svc.id,
-            label: SERVICE_LABELS[(svc as any).service_type] || (svc as any).service_type || 'Service',
+            label: SERVICE_LABELS[svc.service_type] || svc.service_type || 'Service',
             amount: Number(svc.amount),
           }))}
-          payments={(payments || []).map((p: any) => ({
+          payments={(payments || []).map((p) => ({
             id: p.id,
             amount: Number(p.amount_paid),
             createdAt: p.created_at,
@@ -1817,16 +1849,16 @@ export default function AccountDetail() {
               </div>
               {scheduleItems.map((item) => {
                 // Use canonical functions from business-rules.ts (operate on schedule_with_actuals fields)
-                const effPaid = isRowPaid(item as any);
-                const partial = isRowPartial(item as any);
+                const effPaid = isRowPaid(item as ScheduleRow);
+                const partial = isRowPartial(item as ScheduleRow);
                 const penaltyAmt = Number(item.penalty_amount);
-                const paidAmt = getRowAllocated(item as any);
+                const paidAmt = getRowAllocated(item as ScheduleRow);
                 const baseAmt = Number(item.base_installment_amount);
-                const displayRemaining = getRowRemaining(item as any);
-                const schedulePenalties = (penalties || []).filter((pf: any) => pf.schedule_id === item.id);
-                const allWaived = schedulePenalties.length > 0 && schedulePenalties.every((pf: any) => pf.status === 'waived');
-                const activePens = schedulePenalties.filter((pf: any) => pf.status !== 'waived');
-                const allPaid = activePens.length > 0 && activePens.every((pf: any) => pf.status === 'paid');
+                const displayRemaining = getRowRemaining(item as ScheduleRow);
+                const schedulePenalties = (penalties || []).filter((pf) => pf.schedule_id === item.id);
+                const allWaived = schedulePenalties.length > 0 && schedulePenalties.every((pf) => pf.status === 'waived');
+                const activePens = schedulePenalties.filter((pf) => pf.status !== 'waived');
+                const allPaid = activePens.length > 0 && activePens.every((pf) => pf.status === 'paid');
                 const penaltyFeeStatus = allWaived ? 'waived' : allPaid ? 'paid' : (penaltyAmt > 0 ? 'unpaid' : null);
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
@@ -2029,9 +2061,9 @@ export default function AccountDetail() {
                         ) : null}
                         {item.status === 'partially_paid' && isAdmin && (() => {
                           const nextRow = scheduleItems.find(s => s.installment_number > item.installment_number && s.status !== 'cancelled');
-                          const carryAlreadyDone = nextRow && getRowRemaining(nextRow as any) > Number(nextRow.base_installment_amount) + 0.01;
+                          const carryAlreadyDone = nextRow && getRowRemaining(nextRow as ScheduleRow) > Number(nextRow.base_installment_amount) + 0.01;
                           if (carryAlreadyDone) return null;
-                          const shortfall = getRowRemaining(item as any);
+                          const shortfall = getRowRemaining(item as ScheduleRow);
                           const nextUnpaid = scheduleItems
                             .filter(s => (s.status === 'pending' || s.status === 'overdue' || s.status === 'partially_paid') && s.id !== item.id)
                             .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
@@ -2124,7 +2156,7 @@ export default function AccountDetail() {
               {scheduleItems.length > 0 && (() => {
                 const sumBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
                 const sumPenalties = activePenaltyTotal; // Use penalty_fees source (excludes waived)
-                console.log('[AccountDetail] Total Penalties in Schedule footer =', sumPenalties, { activePenaltyTotal, paidPenaltySum, unpaidPenaltySum, penaltyCount: (penalties || []).length, penaltyStatuses: (penalties || []).map((p: any) => p.status) });
+                console.log('[AccountDetail] Total Penalties in Schedule footer =', sumPenalties, { activePenaltyTotal, paidPenaltySum, unpaidPenaltySum, penaltyCount: (penalties || []).length, penaltyStatuses: (penalties || []).map((p) => p.status) });
                 const grandTotal = summary.totalLAAmount;
                 const mismatch = false; // grandTotal is always totalLAAmount
                 return (
@@ -2209,13 +2241,13 @@ export default function AccountDetail() {
                     not by created_at (when staff entered the row). created_at is the
                     tiebreaker for same-day payments. Displayed newest first
                     (same keys, reversed direction — display only). */}
-                {[...payments].sort((a: any, b: any) => {
+                {[...payments].sort((a, b) => {
                   const dateA = a.date_paid ? new Date(a.date_paid).getTime() : new Date(a.created_at).getTime();
                   const dateB = b.date_paid ? new Date(b.date_paid).getTime() : new Date(b.created_at).getTime();
                   if (dateA !== dateB) return dateB - dateA;
                   return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                 }).map((p) => {
-                  const isVoided = !!(p as any).voided_at;
+                  const isVoided = !!p.voided_at;
                   const isEditing = editingId === p.id;
 
                   if (isEditing) {
@@ -2303,8 +2335,8 @@ export default function AccountDetail() {
                                   toast.success('Payment updated');
                                 }
                                 setEditingId(null);
-                              } catch (err: any) {
-                                toast.error(err.message || 'Failed to update');
+                              } catch (err: unknown) {
+                                toast.error((err as Error).message || 'Failed to update');
                               }
                             }}>
                             <Save className="h-3 w-3 mr-1" /> Save
@@ -2315,8 +2347,8 @@ export default function AccountDetail() {
                   }
 
                   const isDpPayment = isDownpaymentPayment(p);
-                  const senderType = (p as any).submitted_by_type as string | null;
-                  const senderName = (p as any).submitted_by_name as string | null;
+                  const senderType = p.submitted_by_type as string | null;
+                  const senderName = p.submitted_by_name as string | null;
                   return (
                     <LedgerTimelineItem key={p.id} voided={isVoided} className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -2339,7 +2371,7 @@ export default function AccountDetail() {
                           {p.payment_method || 'Cash'}
                           {senderName && ` · ${senderName}`}
                           {p.remarks && !isDpPayment && ` · ${p.remarks}`}
-                          {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
+                          {isVoided && ` · VOIDED${p.void_reason ? `: ${p.void_reason}` : ''}`}
                         </p>
                         {(() => {
                           const proof = proofByPaymentId.get(p.id);
@@ -2420,7 +2452,7 @@ export default function AccountDetail() {
         />
 
         {/* Account Notes Panel */}
-        {(isAdmin || isFinance || (roles as any[]).includes('staff')) && (
+        {(isAdmin || isFinance || roles.includes('staff')) && (
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
@@ -2457,21 +2489,21 @@ export default function AccountDetail() {
                         setNoteSaving(true);
                         try {
                           const { data: { user } } = await supabase.auth.getUser();
-                          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
-                          const { error } = await supabase.from('account_notes' as any).insert({
+                          const userName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name || user?.email || 'Unknown';
+                          const { error } = await supabase.from('account_notes').insert({
                             account_id: account.id,
                             note_text: noteText.trim(),
                             created_by_user_id: user?.id,
                             created_by_name: userName,
-                          } as any);
+                          });
                           if (error) throw error;
                           toast.success('Note added');
                           setNoteText('');
                           setNoteFormOpen(false);
                           queryClient.invalidateQueries({ queryKey: ['account-notes', id] });
                           queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to add note');
+                        } catch (err: unknown) {
+                          toast.error((err as Error).message || 'Failed to add note');
                         } finally {
                           setNoteSaving(false);
                         }
@@ -2489,7 +2521,7 @@ export default function AccountDetail() {
 
             {accountNotes && accountNotes.length > 0 && (
               <div className="space-y-2">
-                {accountNotes.map((note: any) => (
+                {accountNotes.map((note: Tables<'account_notes'>) => (
                   <div key={note.id} className="rounded-lg border border-border bg-muted/30 p-3">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-medium text-card-foreground">{note.created_by_name || 'Unknown'}</span>
@@ -2512,7 +2544,7 @@ export default function AccountDetail() {
             invoiceNumber={account.invoice_number}
             currency={currency}
             penalties={waivablePenalties.map(p => {
-              const schedItem = scheduleItems.find((s: any) => s.id === p.schedule_id);
+              const schedItem = scheduleItems.find((s: ScheduleRow) => s.id === p.schedule_id);
               return {
                 id: p.id,
                 scheduleId: p.schedule_id,
@@ -2633,8 +2665,8 @@ export default function AccountDetail() {
                     </div>
                   ) : (() => {
                     const checks = healthCheckResult.checks || [];
-                    const allPass = checks.every((c: any) => c.pass);
-                    const failCount = checks.filter((c: any) => !c.pass).length;
+                    const allPass = checks.every((c) => c.pass);
+                    const failCount = checks.filter((c) => !c.pass).length;
                     return (
                       <>
                         <div className={`rounded-md p-3 text-sm font-medium ${
@@ -2643,7 +2675,7 @@ export default function AccountDetail() {
                           {allPass ? '✅ All checks passed' : `❌ ${failCount} check(s) failed`}
                         </div>
                         <div className="space-y-2">
-                          {checks.map((c: any, i: number) => (
+                          {checks.map((c, i: number) => (
                             <div key={i} className={`rounded-md p-2.5 border ${c.pass ? 'border-success/10 bg-success/5' : 'border-destructive/20 bg-destructive/5'}`}>
                               <div className="flex items-start gap-2">
                                 <span className="text-sm mt-0.5">{c.pass ? '✅' : '❌'}</span>
@@ -2707,8 +2739,8 @@ export default function AccountDetail() {
               });
               toast.success('Payment restored successfully');
               setRestoreTarget(null);
-            } catch (err: any) {
-              toast.error(err.message || 'Failed to restore payment');
+            } catch (err: unknown) {
+              toast.error((err as Error).message || 'Failed to restore payment');
             }
           }}
           isPending={restorePayment.isPending}
@@ -2749,8 +2781,8 @@ export default function AccountDetail() {
                       });
                       toast.success('Downpayment restored successfully');
                       setDpRestoreTarget(null);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to restore downpayment');
+                    } catch (err: unknown) {
+                      toast.error((err as Error).message || 'Failed to restore downpayment');
                     }
                   }}>
                   <RotateCcw className="mr-1 h-4 w-4" />
@@ -2795,8 +2827,8 @@ export default function AccountDetail() {
                       await voidPayment.mutateAsync({ payment_id: voidTarget, reason: voidReason || undefined });
                       toast.success('Payment voided successfully');
                       setVoidTarget(null);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to void payment');
+                    } catch (err: unknown) {
+                      toast.error((err as Error).message || 'Failed to void payment');
                     }
                   }}>
                   {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
@@ -2842,15 +2874,15 @@ export default function AccountDetail() {
                   onClick={async () => {
                     try {
                       const res = await forfeitAccount.mutateAsync(account.id);
-                      const restored = Number((res as any)?.stock_lines_restored ?? 0);
+                      const restored = Number((res as { stock_lines_restored?: number } | null | undefined)?.stock_lines_restored ?? 0);
                       toast.success(
-                        (res as any)?.is_web
+                        (res as { is_web?: boolean } | null | undefined)?.is_web
                           ? `Account INV #${account.invoice_number} forfeited — ${restored} piece line(s) back on sale`
                           : `Account INV #${account.invoice_number} forfeited`,
                       );
                       setForfeitConfirmOpen(false);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to forfeit account');
+                    } catch (err: unknown) {
+                      toast.error((err as Error).message || 'Failed to forfeit account');
                     }
                   }}>
                   {forfeitAccount.isPending ? 'Forfeiting…' : 'Forfeit Account'}
@@ -2887,8 +2919,8 @@ export default function AccountDetail() {
                       await deleteAccount.mutateAsync(account.id);
                       toast.success(`Account INV #${account.invoice_number} deleted`);
                       navigate(ROUTES.ACCOUNTS);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to delete account');
+                    } catch (err: unknown) {
+                      toast.error((err as Error).message || 'Failed to delete account');
                     }
                   }}
                 >
