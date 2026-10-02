@@ -68,3 +68,18 @@ there. `email_delivery_report` is NOT taught to expect reminders (plan D9);
 silence from them is normal while `web_payment_reminders_mode` is off. Staff see
 both per order under **Customer emails** (get_order_email_history).
 docs/WEB-PAYMENT-REMINDERS.md.
+
+## One in-call retry (2026-10-02)
+
+Both senders (`sendTemplateEmail`, `sendStorefrontEmail`) go through
+`_shared/email-retry.ts` `sendLovableEmailWithRetry`: on a TRANSIENT error only
+(`lovable_api_key_registry_lookup_failed`, HTTP 5xx, or a network failure with
+no HTTP status) they wait 2 s and send ONCE more with the identical payload and
+the SAME idempotency_key, so the API dedupes and a second email is impossible.
+Everything else (suppressed, 429, any other 4xx/403, validation) is not retried.
+Only the FINAL outcome is logged — one email_send_log row per logical send; a
+success after retry carries `metadata.retried = true` and `first_error_type`.
+This is NOT a replay job; nothing is re-sent later (2026-09-13 decision stands).
+Reason: three `registry_lookup_failed` refusals (25 Sep, 27 Sep, 2 Oct, all in
+the 00:00 UTC reminder burst) while sends 1 s either side with the same key
+were accepted.

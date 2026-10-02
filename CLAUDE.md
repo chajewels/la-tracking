@@ -1574,6 +1574,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
   Full text: docs/EMAIL-DELIVERY.md (moved verbatim 2026-09-24).
 
+  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job.
   - EVERY email attempt is logged via _shared/email-log.ts recordEmailAttempt()
     (sent | failed | suppressed | skipped) by both senders. A new sender that
     bypasses the helpers MUST call recordEmailAttempt() itself. A row absent from
