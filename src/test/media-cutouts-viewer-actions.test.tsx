@@ -119,12 +119,12 @@ describe("zoom viewer: the row's own actions for the photo's state", () => {
     });
   }
 
-  it("Completed is final in the viewer too: no Re-run, and it names the photo and its state", async () => {
+  it("Passed is final in the viewer too (approval first): 'To approve', no Re-run, Approve enabled", async () => {
     listRows = [photo(1, { status: "ok", flags: [] })];
     wrap(<MediaCutoutReviewCard />);
     const viewer = await openViewerOn(0);
     expect(within(viewer).getByRole("heading")).toHaveTextContent("AL1");
-    expect(within(viewer).getByTestId("viewer-status")).toHaveTextContent("OK");
+    expect(within(viewer).getByTestId("viewer-status")).toHaveTextContent("To approve");
     expect(within(within(viewer).getByTestId("viewer-actions")).queryByRole("button", { name: /Re-run/ })).toBeNull();
     expect(within(viewer).getByRole("button", { name: "Approve" })).toBeEnabled();
   });

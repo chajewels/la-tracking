@@ -49,7 +49,8 @@ function stubPromotions() {
 function heroBlocker(r: Pick<CutoutRow, 'status' | 'cutout_path' | 'published'>): string | null {
   if (r.status === 'kept_original') return 'kept_original';
   if (r.status === 'rejected') return 'rejected';
-  if (!['ok', 'auto_fixed', 'approved'].includes(r.status)) return 'not_completed';
+  if (r.status === 'ok' || r.status === 'auto_fixed') return 'not_approved'; // approval first (20261026100000)
+  if (r.status !== 'approved') return 'not_completed';
   if (!r.cutout_path) return 'no_cutout_file';
   if (r.published === false) return 'not_published';
   return null;
@@ -113,9 +114,9 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
       // Provider errors (20261012100000), the live-shaped snapshot after the SQL: published products only;
       // Failed = genuine photo problems. 'waiting' is counted for SQL use; the card does not show it.
       needs_review: { count: 15, paid_calls: 15 }, needs_owner: { count: 2, paid_calls: 4 },
-      failed: { count: 2, paid_calls: 2 }, auto_fixed: { count: 10, paid_calls: 10 },
+      failed: { count: 2, paid_calls: 2 }, to_approve: { count: 31, paid_calls: 31, auto_fixed: 10 },
       queue: { count: 64, paid_calls: 8 }, waiting: { count: 801, paid_calls: 4 },
-      completed: { count: 111, paid_calls: 110, kept_original: 1 },
+      completed: { count: 90, paid_calls: 89, kept_original: 1 },
       rejected: { count: 5, paid_calls: 5 }, test: { count: 6, paid_calls: 6 }, all: { count: 209, paid_calls: 154 },
       // Hero picks (20261013100000): three ticks, one no longer usable (its product was unpublished).
       // Hero order (20261016100000): the slides — 4 on, 2 waiting their turn.
@@ -150,15 +151,13 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
   seed(HERO_LINEUP_KEY, lineup);
   const n = (sku: string, name: string) => ({ id: sku, sku, name, slug: sku.toLowerCase(), status: 'active' });
   seed([CUTOUT_LIST_KEY, 'completed', '', 0], {
-    total: 3,
+    total: 2,
     rows: [
       row({ source_url: drawn('original', false, false) + '#B1203', status: 'kept_original', provider: 'photoroom', hero_usable: false,
             flags: ['coverage:0.012'], review_note: 'The photo is fine as it is', reviewed_at: '2026-09-28T05:00:00Z',
             product: n('B1203', 'K18 Snake Chain Bracelet') }),
       row({ source_url: drawn('original', false, false), status: 'approved', provider: 'replicate', reviewed_at: '2026-09-28T02:00:00Z',
             hero_pick: true, product: n('R7828', 'Preloved 18K Diamond Eternity Ring') }),
-      row({ source_url: drawn('original', true, false), status: 'ok', provider: 'replicate', paid_calls: 2, priority: 1,
-            product: n('R3341', 'Preloved Platinum Baguette Cocktail Ring') }),
     ],
   });
   seed([CUTOUT_LIST_KEY, 'hero', '', 0], {
@@ -199,9 +198,11 @@ export function seedMediaCutouts(qc: QueryClient, mode: string, role: string | n
             product: { id: 'p2', sku: 'R3110', name: 'Branded 18K Rose Gold Open Heart Ring', slug: 'r3110', status: 'active' } }),
     ],
   });
-  seed([CUTOUT_LIST_KEY, 'auto_fixed', '', 0], {
-    total: 1,
-    rows: [row({ source_url: drawn('original', false, true), status: 'auto_fixed', flags: ['edge_touch:top,bottom'],
+  seed([CUTOUT_LIST_KEY, 'to_approve', '', 0], {
+    total: 2,
+    rows: [row({ source_url: drawn('original', true, false), status: 'ok', provider: 'replicate', paid_calls: 2, priority: 1,
+                 product: n('R3341', 'Preloved Platinum Baguette Cocktail Ring') }),
+           row({ source_url: drawn('original', false, true), status: 'auto_fixed', flags: ['edge_touch:top,bottom'],
                  cutout_path: 'website/derived/c0983/r1/cutout.webp', catalog_path: 'website/derived/c0983/r1/catalog.webp',
                  catalog_small_path: 'website/derived/c0983/r1/catalog-small.webp', source_w: 1440, source_h: 1440,
                  last_rerun: { status: 'needs_review', flags: ['soft_matte:0.12'], cutout_path: 'website/derived/c0983/r2/cutout.webp' },
