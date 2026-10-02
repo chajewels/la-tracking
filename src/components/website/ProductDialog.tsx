@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +30,46 @@ import {
  * mutation and hands them down, because the same form has to survive the card
  * closing and reopening the dialog.
  */
+/** Shown as grams with 2 decimals (the column is numeric(8,2)). Plain text
+ *  input, not type="number": the spinner arrows were useless for a weight and
+ *  the browser dropped the trailing zero ("2.50" showed as "2.5"). Owner
+ *  request 2026-10-02. */
+export function formatWeight(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? "" : value.toFixed(2);
+}
+
+export function parseWeight(text: string): number | null | undefined {
+  const t = text.trim();
+  if (t === "") return null;
+  if (!/^\d{0,6}(\.\d{0,2})?$/.test(t) || t === ".") return undefined; // not a weight; keep typing
+  return Number(t);
+}
+
+function WeightInput({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  const [text, setText] = useState(() => formatWeight(value));
+  const [seen, setSeen] = useState(value);
+  // The parent resets the form when another product is opened: follow it,
+  // but never fight the user mid-typing (parse(text) === value while typing).
+  if (seen !== value) {
+    setSeen(value);
+    if (parseWeight(text) !== value) setText(formatWeight(value));
+  }
+  return (
+    <Input
+      type="text" inputMode="decimal" placeholder="0.00" value={text}
+      onChange={(e) => {
+        const next = e.target.value;
+        const parsed = parseWeight(next);
+        if (parsed === undefined) return;
+        setText(next);
+        setSeen(parsed);
+        onChange(parsed);
+      }}
+      onBlur={() => setText(formatWeight(parseWeight(text) ?? null))}
+    />
+  );
+}
+
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
   translating, uploadingKey, peso, saving, onSave, onRegenerateJapanese,
@@ -175,9 +215,9 @@ export default function ProductDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Weight (grams)</Label>
-                <Input
-                  type="number" step="0.01" value={form.weight_g ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, weight_g: e.target.value === "" ? null : Number(e.target.value) }))}
+                <WeightInput
+                  value={form.weight_g}
+                  onChange={(weight_g) => setForm((f) => ({ ...f, weight_g }))}
                 />
               </div>
             </div>
