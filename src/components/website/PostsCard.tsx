@@ -35,8 +35,7 @@ import {
  * Without it the card is read-only — knowing what the site has published is
  * useful to anyone who can see this tab.
  *
- * website_posts is absent from src/integrations/supabase/types.ts, so it is
- * reached through the `as any` table cast every website_* table uses.
+ * website_posts is in src/integrations/supabase/types.ts, so it is queried typed.
  */
 
 type Filter = "all" | PostType;
@@ -51,7 +50,7 @@ export function PostsCard() {
     queryKey: ["website-posts"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_posts" as any)
+        .from("website_posts")
         .select(POST_SELECT)
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("updated_at", { ascending: false });
@@ -87,7 +86,7 @@ export function PostsCard() {
   const save = useMutation({
     mutationFn: async (d: PostDraft) => {
       const { data, error } = await supabase
-        .from("website_posts" as any)
+        .from("website_posts")
         .upsert(toPayload(d, user?.id ?? null) as never, { onConflict: "id" })
         .select("id")
         .single();
@@ -124,7 +123,7 @@ export function PostsCard() {
 
   const remove = useMutation({
     mutationFn: async (row: PostRow) => {
-      const { error } = await supabase.from("website_posts" as any).delete().eq("id", row.id);
+      const { error } = await supabase.from("website_posts").delete().eq("id", row.id);
       if (error) throw error;
       await supabase.from("audit_logs").insert([{
         entity_type: "website_post",

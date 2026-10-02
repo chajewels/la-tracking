@@ -27,9 +27,8 @@ import { formatPHTDisplay } from '@/lib/date-utils';
  * reason the subscriber card does: the row itself only ever shows the CURRENT
  * state, so without the log nobody could tell who closed an enquiry or when.
  *
- * contact_inquiries is not in src/integrations/supabase/types.ts (it is reached
- * through the `as any` table cast every website_* table uses — the types
- * regenerate on Lovable's next deploy).
+ * contact_inquiries is in src/integrations/supabase/types.ts, so it is queried
+ * typed (the types regenerate on Lovable's deploys).
  */
 
 export const CONTACT_STATUSES = ['new', 'replied', 'closed'] as const;
@@ -76,7 +75,7 @@ export function ContactInquiriesCard() {
     queryKey: ['contact-inquiries'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('contact_inquiries' as any)
+        .from('contact_inquiries')
         .select(CONTACT_INQUIRY_SELECT)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -142,7 +141,7 @@ export function ContactInquiriesCard() {
       };
 
       const { error } = await supabase
-        .from('contact_inquiries' as any)
+        .from('contact_inquiries')
         .update(next)
         .eq('id', row.id);
       if (error) throw error;
