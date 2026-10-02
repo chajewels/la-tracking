@@ -4,7 +4,11 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### daily-reconciliation has not completed since 2026-09-23: next_reconciliation_batch is not on live (found 2026-09-28)
+### daily-reconciliation has not completed since 2026-09-23: next_reconciliation_batch is not on live (found 2026-09-28) — RESOLVED by 2026-10-02
+
+  Verified live 2026-10-02: `next_reconciliation_batch` exists, the drift audit
+  shows 0 c_repo_only rows, and `last_daily_reconciliation` stamped
+  2026-10-02T00:23Z (run 075d136f, 91 evaluated). Kept for history.
 
   `20260923100000_reconciliation_batch_cursor.sql` was merged but never applied:
   on 2026-09-28 live has no `next_reconciliation_batch`, no
@@ -24,7 +28,11 @@
   record the function as dropped — deployed code depends on it. Until then the
   drift audit keeps one c_repo_only row for it.
 
-### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23)
+### live-only drift: shipping_fee on layaway_accounts and cash_orders (found 2026-09-23) — RESOLVED
+
+  Verified 2026-10-02: `shipping_fee` is in the baseline
+  `20260705230000_baseline_live_schema.sql` (and 20260911120000); live has the
+  column on both tables. Nothing to record. Kept for history.
 
   Added on live with the discount columns on 2026-07-09 (docs/SCHEMA-FACTS.md
   "AFB"), `shipping_fee numeric NOT NULL default 0` on both tables is in no
@@ -54,7 +62,8 @@
 
   Items 2 (automatic forfeits kept a web plan's stock) and 3 (a refused
   reactivation left the schedule un-cancelled) were fixed on 2026-09-23 — see
-  docs/FIXED-BUGS.md #299. Item 1 is still open.
+  docs/FIXED-BUGS.md #299. **Item 1 fixed 2026-10-02** — docs/FIXED-BUGS.md
+  "No customer email on revival".
 
 ### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
 

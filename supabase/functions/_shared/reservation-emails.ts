@@ -168,9 +168,19 @@ export function sendLayawayReservedEmail(supabase: Db, accountId: string): Promi
  * items, every transfer method, the deadline that has just started — headed
  * "your piece is confirmed". The deadline is read back from the row the
  * confirmation just wrote, never recomputed.
+ *
+ * REVIVAL (OPEN-BUGS "No customer email on revival", fixed 2026-10-02): when
+ * staff revive an expired web order (revive-web-cash-order) the customer's
+ * last email said the order was cancelled, so the same content is sent again
+ * with the NEW deadline — `revived: true`. The idempotency key then carries
+ * the new deadline: the confirmation's own key (`order-ready-<id>`) was spent
+ * at confirm time and would silently drop the revival email.
  */
-export function sendOrderReadyEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
-  return guarded("order-ready", async () => {
+export type ReadyEmailOpts = { revived?: boolean };
+
+export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEmailOpts = {}): Promise<ReservationEmailResult> {
+  const label = opts.revived ? "order-revived" : "order-ready";
+  return guarded(label, async () => {
     const o = await loadOrder(supabase, orderId);
     if (!o) return { sent: false, reason: "not_found" };
     const currency = String(o.order.currency ?? "JPY");
@@ -178,9 +188,11 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string): Promise<Rese
     return await sendStorefrontEmail({
       to: o.to,
       subject: orderReadySubject(o.reference),
-      label: "order-ready",
+      label,
       reference: o.reference,
-      idempotencyKey: `order-ready-${orderId}`,
+      idempotencyKey: opts.revived
+        ? `order-revived-${orderId}-${String(o.order.transfer_due_at ?? "")}`
+        : `order-ready-${orderId}`,
       element: React.createElement(OrderConfirmationEmail, {
         lang: o.lang,
         reference: o.reference,
@@ -208,8 +220,12 @@ export function sendLayawayReadyEmail(
   supabase: Db,
   accountId: string,
   schedule?: LayawayScheduleRow[] | null,
+  opts: ReadyEmailOpts = {},
 ): Promise<ReservationEmailResult> {
-  return guarded("layaway-ready", async () => {
+  // Revival (reactivate-web-layaway): same content, the new deadline, a key
+  // of its own — see sendOrderReadyEmail.
+  const label = opts.revived ? "layaway-revived" : "layaway-ready";
+  return guarded(label, async () => {
     const p = await loadPlan(supabase, accountId);
     if (!p) return { sent: false, reason: "not_found" };
     let rows = schedule ?? null;
@@ -237,9 +253,11 @@ export function sendLayawayReadyEmail(
     return await sendStorefrontEmail({
       to: p.to,
       subject: layawayReadySubject(p.reference),
-      label: "layaway-ready",
+      label,
       reference: p.reference,
-      idempotencyKey: `layaway-ready-${accountId}`,
+      idempotencyKey: opts.revived
+        ? `layaway-revived-${accountId}-${String(p.plan.transfer_due_at ?? "")}`
+        : `layaway-ready-${accountId}`,
       element: React.createElement(LayawayPlanCreatedEmail, {
         reference: p.reference,
         currency: p.currency,
