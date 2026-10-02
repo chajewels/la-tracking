@@ -46,12 +46,19 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-const ChartTooltip = ({ active, payload, label }: any) => {
+// Props recharts injects into a custom <Tooltip content> element.
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: Array<{ dataKey: string; fill?: string; value: number }>;
+  label?: string | number;
+}
+
+const ChartTooltip = ({ active, payload, label }: ChartTooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-lg">
       <p className="font-semibold text-zinc-200 mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
           <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.fill }} />
           <span className="text-zinc-400">{p.dataKey.replace('plan_', '')}M:</span>
@@ -239,7 +246,7 @@ export default function ExecutiveDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {d.atRiskDetail.map((r: any, i: number) => {
+                  {d.atRiskDetail.map((r, i: number) => {
                     const score = Number(r.risk_score ?? 0);
                     const scoreColor = score >= 67 ? 'text-destructive' : score >= 34 ? 'text-amber-500' : 'text-muted-foreground';
                     const typeBadge = r.risk_type === 'CREDIT' ? 'bg-blue-500/15 text-blue-500 border-blue-500/30'
@@ -395,7 +402,7 @@ export default function ExecutiveDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {d.planPerformance.map((row: any) => {
+                  {d.planPerformance.map((row) => {
                     const hasAccounts = (row.account_count ?? 0) > 0;
                     const muted = 'text-muted-foreground';
                     return (
@@ -451,7 +458,7 @@ export default function ExecutiveDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...d.cohortTimeline].sort((a: any, b: any) => (b.impact_score ?? 0) - (a.impact_score ?? 0)).map((row: any, i: number) => {
+                  {[...d.cohortTimeline].sort((a, b) => (b.impact_score ?? 0) - (a.impact_score ?? 0)).map((row, i: number) => {
                     const rate = row.collection_rate ?? 0;
                     const barColor = rate >= 90 ? 'bg-emerald-500' : rate >= 70 ? 'bg-amber-500' : 'bg-red-500';
                     const cellBg = rate >= 90 ? 'bg-emerald-500/5' : rate >= 70 ? 'bg-amber-500/5' : 'bg-red-500/5';

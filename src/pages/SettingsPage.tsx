@@ -196,7 +196,7 @@ export default function SettingsPage() {
       const { data } = await supabase
         .from('user_permission_overrides')
         .select('user_id');
-      const ids = new Set<string>((data || []).map((r: any) => r.user_id as string));
+      const ids = new Set<string>((data || []).map((r) => r.user_id as string));
       return ids;
     },
   });

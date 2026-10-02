@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -413,7 +414,7 @@ export default function CustomerPortal() {
   };
 
   // ── Announcement pop-up state ──
-  const [announcement, setAnnouncement] = useState<any>(null);
+  const [announcement, setAnnouncement] = useState<Tables<'announcements'> | null>(null);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
 
   // Fetch latest active announcement on mount
@@ -2590,9 +2591,9 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
         {/* Payment Type Toggle — shown for single-mode when DP is still unpaid */}
         {paymentMode === 'single' && (account.downpayment_amount || 0) > 0 && (() => {
           const dpTaggedPaid = (account.payments || [])
-            .filter((p: any) => (p.reference && String(p.reference).startsWith('DP-')) ||
+            .filter((p) => (p.reference && String(p.reference).startsWith('DP-')) ||
                                 (p.remarks && /\bdown/i.test(String(p.remarks || ''))))
-            .reduce((s: number, p: any) => s + Number(p.amount), 0);
+            .reduce((s: number, p) => s + Number(p.amount), 0);
           if (dpTaggedPaid >= (account.downpayment_amount || 0)) return null;
           return (
             <div className="flex" style={{borderBottom:`1px solid ${P.br}`}}>
@@ -2995,7 +2996,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...cancelAuthHeaders },
         body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
       });
-      let json: any = {};
+      let json: { error?: string } = {};
       try { json = await res.json(); } catch { /* no-op */ }
       if (!res.ok) {
         setCancelError({ id: sub.id, message: json.error || `Cancel failed (HTTP ${res.status}). Please try again.` });
