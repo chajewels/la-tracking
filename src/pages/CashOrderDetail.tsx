@@ -404,6 +404,7 @@ export default function CashOrderDetail() {
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const [statementOpen, setStatementOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
+  const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
@@ -1421,13 +1422,24 @@ export default function CashOrderDetail() {
           <div className="rounded-xl border border-sky-300/60 bg-sky-50/60 p-4 dark:border-sky-800/60 dark:bg-sky-900/20">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-sm font-medium">Awaiting bank / GCash transfer</p>
+                <p className="text-sm font-medium">
+                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : 'Awaiting bank / GCash / Paidy'}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Invoice <span className="font-mono">{order.invoice_number}</span>
                   {order.transfer_due_at && (
                     <> · due {formatPHTDisplay(order.transfer_due_at)}</>
                   )}
                 </p>
+                {/* PAIDY (2026-10-03): the customer finished Paidy's window; the
+                    money is only reserved. Confirm on Payment Submissions
+                    captures it (valid 30 days), Reject releases it. */}
+                {paidyPending && (
+                  <p className="text-xs text-sky-800 dark:text-sky-200">
+                    あと払い（ペイディ） ref <span className="font-mono">{paidyPending.reference_number ?? '—'}</span> · ¥{Number(paidyPending.submitted_amount).toLocaleString('en-US')} ·
+                    filed {formatPHTDisplay(paidyPending.created_at)} · capture on Confirm in Payments Hub, valid 30 days from authorisation
+                  </p>
+                )}
                 {order.transfer_due_at && new Date(order.transfer_due_at) < new Date() && (
                   <p className="text-xs text-destructive">
                     Past the deadline above — the hourly job will cancel this order and

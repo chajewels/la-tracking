@@ -35,7 +35,18 @@ export interface OrderConfirmationProps {
    * ("Pabitbit", "Yamato Transport"…). Absent = no line, as before.
    */
   courier?: string | null
+  /**
+   * Paidy ato-barai (2026-10-03): true when the Hub offers 『あと払い（ペイディ）』
+   * on this order (switch on, yen, Japanese delivery address). One line under
+   * the transfer methods pointing at the order page; the figures are unchanged.
+   */
+  paidy?: boolean
 }
+
+export const PAIDY_LINE = {
+  ja: 'あと払い（ペイディ）もご利用いただけます。ご注文ページの「ペイディで支払う」からお進みください（日本国内のお届け先のみ）。',
+  en: 'Paidy (あと払い) is also available for this order: pay next month, or in 3 instalments from the Paidy app. Choose "Pay with Paidy" on your order page (delivery addresses in Japan only).',
+} as const
 
 export const orderConfirmationSubject = (reference: string) =>
   `ご注文ありがとうございます ${reference} / Your Cha Jewels order ${reference}`
@@ -86,6 +97,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
       {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.payHeading}</Text>
       <MethodCards methods={p.methods} lang={lang} />
+      {p.paidy && <Text style={text}>{PAIDY_LINE[lang]}</Text>}
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
       <Text style={muted}>{c.deadlineNote}</Text>
       {p.orderUrl && (

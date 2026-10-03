@@ -2,9 +2,9 @@
 
 ## ⚠️ MAINTENANCE — READ BEFORE EDITING THIS FILE
 
-This file is the LEAN CORE: durable, always-load rules only. Trimmed from 425 KB
-to ~52 KB on 2026-05-22. Trimmed again 2026-10-02 to under 100 KB. Detailed history, status, and feature mechanics live in
-`docs/` and are read on demand — NOT injected every turn.
+This file is the LEAN CORE: durable, always-load rules only (trimmed 2026-05-22
+and 2026-10-02). History, status and feature mechanics live in `docs/`, read on
+demand — NOT injected every turn.
 
 Where new content goes (do NOT append it here):
 - A rule changes (formula, invariant, enum, cap) → edit that section IN PLACE here. No dated changelog entries.
@@ -33,7 +33,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/KNOWN-ISSUES.md — DP-detection caveats
 - docs/VERIFICATION.md — how to run account health verification
 - docs/TEST-ACCOUNTS.md — benchmark test account setups (TEST-001..005)
-- docs/AUTO-DEPLOY.md — STALE/ARCHIVED: describes the removed GitHub Actions deploy workflow, which never functioned; deploys are via Lovable IDE only; rules moved 2026-10-02
+- docs/AUTO-DEPLOY.md — ARCHIVED (the removed, never-working GH Actions deploy; deploys are Lovable only)
 - docs/PORTAL-PIN-AUTH.md — VERIFY: may be stale (portal migrated to email/password)
 - docs/RECENT-UPDATES.md — older changelog (archived)
 - docs/SHOPIFY-INTEGRATION.md — Shopify↔Hub integration architecture & roadmap (design locked, Phase 0 done)
@@ -41,29 +41,26 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-VERCEL.md — Vercel storefront integration: `website` API contract, revalidation chain, the three secrets, go-live checklist
 - docs/SERVICE-REQUESTS.md — customer service requests: how they differ from service_jobs, statuses, the is_test exclusion, the untyped-table cast
 - docs/NEWSLETTER-SUBSCRIBERS.md — newsletter subscribers: the table, the is_test rule, why re-subscribe never touches consented_at, and what a Hub send would actually require
-- docs/RESERVE-FIRST.md — RETIRED by website orders PR 10 (2026-10-01): the A1/A2 reserve-first path; kept as history. Every checkout is a draft (docs/WEB-ORDER-DRAFTS.md "PR 10")
+- docs/RESERVE-FIRST.md — RETIRED by PR 10 (2026-10-01), history only; every checkout is a draft (docs/WEB-ORDER-DRAFTS.md)
 - docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at; rules moved 2026-10-02
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
+- docs/PAIDY.md — Paidy あと払い on a confirmed web order: offer rule, capture on Confirm, webhook, switch, go-live
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path; rules moved 2026-10-02
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4); rules moved 2026-10-02
 - docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
 - docs/SHIPPING-FEES.md — the shipping rate card (Website → Settings → Shipping fees, admin, audited, never deleted) and couriers (Pabitbit on the LBC template; planned_shipping_method_id; PH-only default)
-- docs/WEBSITE-WORKSPACE.md — the /website workspace: the six tabs (Page365 stock added 2026-09-26, Photos 2026-10-05), the manage_website_catalog / manage_website_content split, the query-preserving redirect from /website-catalog, and where each website table's editor lives. Payment details, Payment reminders and Shipping fees live on Website → Settings, ADMIN ONLY there (moved from Hub Settings 2026-09-27; /settings?tab=payment-details redirects)
-- Moved out of CLAUDE.md on 2026-09-24 (verbatim; CLAUDE.md keeps the rules
-  and a pointer): docs/CRON-AND-EDGE-AUTH.md, docs/LOYALTY-RULES.md,
-  docs/WEB-LAYAWAY.md, docs/PAGE365-IMPORT.md, docs/MIGRATIONS.md,
-  docs/BRAND-STYLE.md, docs/RECONCILIATION.md, docs/PAYMENT-SUBMISSIONS.md,
-  docs/PLAN-DURATION.md, docs/LOYALTY-SHEET-SYNC.md, docs/SIDEBAR.md,
-  docs/EMAIL-DELIVERY.md, docs/TEST-ACCOUNT-EXCLUSION.md, docs/TRADE-PROGRAM.md,
-  docs/POST-LOGIN-SPLASH.md, docs/INQUIRY-TRACKER.md, docs/REASSIGN-OWNER.md,
-  docs/PENALTY-AND-FORFEITURE.md, docs/LOVABLE-VERIFICATION.md,
-  docs/SCHEMA-FACTS-CUSTOMER-CODE.md
-- Moved out of CLAUDE.md on 2026-10-02 (verbatim, under the heading "Rules
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
+- Moved out of CLAUDE.md verbatim on 2026-09-24 and 2026-10-02 (heading "Rules
   moved from CLAUDE.md (2026-10-02, verbatim)"; CLAUDE.md keeps the one-line
   rules and a pointer): every doc named in a "Rules moved" pointer below, plus
-  docs/GIT-WORKFLOW.md (new: git-workflow rationale and incidents).
-- SIZE LIMIT: keep this file under 100k characters (Claude Code stops loading
-  it at 150k; trimmed to under 100k on 2026-10-02). Long reference text goes to docs/; rules stay here.
+  docs/CRON-AND-EDGE-AUTH, LOYALTY-RULES, WEB-LAYAWAY, PAGE365-IMPORT,
+  MIGRATIONS, BRAND-STYLE, RECONCILIATION, PAYMENT-SUBMISSIONS, PLAN-DURATION,
+  LOYALTY-SHEET-SYNC, SIDEBAR, EMAIL-DELIVERY, TEST-ACCOUNT-EXCLUSION,
+  TRADE-PROGRAM, POST-LOGIN-SPLASH, INQUIRY-TRACKER, REASSIGN-OWNER,
+  PENALTY-AND-FORFEITURE, LOVABLE-VERIFICATION, SCHEMA-FACTS-CUSTOMER-CODE,
+  GIT-WORKFLOW (rationale and incidents).
+- SIZE LIMIT: under 100k characters (Claude Code stops loading at 150k). Long
+  reference text goes to docs/; rules stay here.
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
 
@@ -180,9 +177,8 @@ Reference docs (read the relevant one when a task touches that area):
 
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 
-  This rule has been violated repeatedly. Anyone reading this file
-  (human, Claude, Lovable, future-self) MUST apply it before suggesting,
-  testing, documenting, or sharing any URL with a chajewelsjp.com host.
+  Violated repeatedly. Everyone (human, Claude, Lovable) MUST apply it before
+  suggesting, testing, documenting or sharing any chajewelsjp.com URL.
 
   TWO SUBDOMAINS, TWO AUDIENCES — NO EXCEPTIONS:
 
@@ -202,19 +198,14 @@ Reference docs (read the relevant one when a task touches that area):
     /login                    admin/staff/CSR/finance sign-in
     /dashboard, /customers, /finance, /operations, /loyalty-admin, etc.
 
-  BEFORE suggesting, testing, sharing, or documenting ANY URL with
-  a chajewelsjp.com host, check the audience:
-    Customer-facing?     →   portal.*
-    Internal/employee?   →   app.*
+  Check the audience first: customer-facing → portal.*; internal → app.*
 
   FORBIDDEN PATTERNS (recurring violations): a customer ever told to visit
   app.*, app.* in any customer-facing material or test URL, staff using
   portal.*, mixing the two — list: docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
-  The two subdomains may serve the same React build but route by host.
-  They are functionally separate. The customer must NEVER see
-  app.chajewelsjp.com. Internal staff must NEVER use
-  portal.chajewelsjp.com for their work.
+  Same React build, routed by host, functionally separate. The customer must
+  NEVER see app.*; staff must NEVER work on portal.*.
 
   All customer-portal writes go through a service-role edge function. Never
   write to a table directly from the portal via PostgREST — anon RLS policies
@@ -300,9 +291,7 @@ role_permissions.
 
 ## HELP CENTER SCREENSHOTS — NON-NEGOTIABLE (updated 2026-06-01)
 
-Help Center screenshots live in the Supabase Storage bucket `brand-assets` (public read). They are NOT committed to the repo.
-
-Files in this bucket are stored WITHOUT file extensions (e.g. `Signin_Page`, `Landing_page`, not `Signin_Page.png`). Markdown references must also omit the extension.
+Help Center screenshots live in the Supabase Storage bucket `brand-assets` (public read), NOT in the repo, stored WITHOUT file extensions (`Signin_Page`, not `Signin_Page.png`); Markdown references omit the extension too.
 
 Markdown in src/help-content/ references a screenshot by filename only (no
 extension); Help.tsx resolves it to the bucket's public URL; adding one needs
@@ -591,8 +580,7 @@ this session, after Cynthia's OK. Nobody else sends it — not Claude chat, not 
 second session, not Cynthia pasting it herself. Claude Code checks the Lovable
 message queue before every send and never resends after a transport timeout.
 
-Why: the 2026-09-11 transfer_payment_methods message was sent twice (Claude chat
-and Claude Code) and cost an hour of untangling — docs/GIT-WORKFLOW.md.
+Why: the 2026-09-11 transfer_payment_methods message was sent twice — docs/GIT-WORKFLOW.md.
 
 - Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.
 
@@ -799,7 +787,7 @@ When completing a partially_paid month:
     downpayment_amount WATERFALLS into installments (Month 1 onward)
     exactly like an installment payment — real payment_allocations,
     schedule paid_amount updated. The split happens in
-    The split happens in allocate_payment_atomic (only the EXCESS enters the
+    allocate_payment_atomic (only the EXCESS enters the
     waterfall; the required portion is a payment with no allocation). DP
     detection: reference_number starts with 'DP-' OR remarks ILIKE '%down%'
     (non-voided). Void path, audit_account's v_dp_allocated term and history:
@@ -951,7 +939,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   INVARIANT 5 ("never inflate total_due_amount") means never inflate WITHOUT a
   backing carried_amount/allocation — including the legitimate carried_amount is REQUIRED, not forbidden.
 
-  FRONTEND BINDING: This rule applies to ALL total_due_amount writers, including direct frontend .update() calls (e.g. Waivers.tsx, ApplyPenaltyCapDialog.tsx) — not only edge functions. Any recompute of an EXISTING schedule row's total_due_amount MUST be base_installment_amount + penalty + carried_amount. The ONLY exemption is inserting a brand-new installment row (no carry exists yet) — e.g. EditAccountDialog "Add new installments", where total_due = base is correct.
+  FRONTEND BINDING: applies to ALL total_due_amount writers, incl. direct frontend .update() calls (Waivers.tsx, ApplyPenaltyCapDialog.tsx). Any recompute of an EXISTING row MUST be base + penalty + carried_amount. ONLY exemption: inserting a brand-new installment row (no carry yet; EditAccountDialog "Add new installments", total_due = base).
 
 
 ## CUSTOMER CODE STANDARD (added 2026-04-19)
@@ -1105,8 +1093,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   covers layaway_accounts AND cash_orders (ACCOUNT-SCOPE rule). It is the
   web-order rule (trg_prevent_web_order_delete) applied to every order.
 
-  Why: two completed orders (19144, 19278) were deleted in August 2026 and their
-  payments vanished — docs/CASH-ORDERS.md "Rules moved from CLAUDE.md".
+  Why: orders 19144 and 19278 were deleted in Aug 2026 and their payments
+  vanished — docs/CASH-ORDERS.md "Rules moved from CLAUDE.md".
 
   The only exits for such an order are reversals that stay on the books:
     - cancel (cash) / cancel or forfeit (layaway) WITH a reason
@@ -1412,7 +1400,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - ONLY confirmed submissions appear in Proof of Payment.
   - PROOF REQUIRED on EVERY submit path (portal and staff; 400 "Proof of
     payment is required"; previews exempt) and to CONFIRM (400). Bulk import
-    rows need proof too: one batch proof, or the row's own proof_url.
+    rows need proof too: one batch proof, or the row's own proof_url. ONE
+    exception (PD1, 2026-10-03): a 'paidy' submission — its proof is the
+    authorisation read back from Paidy (docs/PAIDY.md).
   - BATCHES (bulk import, multi-invoice) go through insert_payment_submissions_batch
     in one transaction, idempotent on batch_key (docs/PAYMENT-SUBMISSIONS.md
     "BATCH INSERT"). Never loop single inserts for a batch.
@@ -1423,6 +1413,21 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     reservation (a web order whose ready_confirmed_at is NULL) with 409
     not_ready_for_payment. Since PR 10 (2026-10-01) only a draft can be
     unconfirmed — materialize_web_draft_atomic stamps ready_confirmed_at.
+
+## PAIDY あと払い — NON-NEGOTIABLE (added 2026-10-03; docs/PAIDY.md)
+
+  - Offered ONLY on a confirmed YEN cash order with a complete Japanese
+    delivery address and money due (rule: _shared/paidy-rules.ts, tested).
+  - PAIDY_SECRET_KEY is an edge secret ONLY (never DB/repo/chat/prompt);
+    set_paidy_settings refuses an sk_ key. The website reads the PUBLIC key
+    from the Hub; it has no Paidy env.
+  - paidy_mode off|test|on (fail-closed) + paidy_public_key change ONLY via
+    set_paidy_settings (admin, audited, guard trigger); never in SQL. Key
+    family must match the mode; the secret's family is checked too.
+  - Trust NOTHING about a Paidy payment not read back from Paidy (website
+    POST /orders/:id/paidy; unsigned paidy-webhook re-reads). Capture ONLY in
+    review-payment-submission on Confirm; close on Reject; > 30 days auto-
+    rejects (PD4). Refunds never automatic, not yet built.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

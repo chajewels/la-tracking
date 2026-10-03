@@ -27,6 +27,7 @@ import { HeroCutoutsCard } from "@/components/website/HeroCutoutsCard";
 import { ReviewsCard } from "@/components/website/ReviewsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
+import { PaidySettingsCard } from "@/components/settings/PaidySettingsCard";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
 
 /**
@@ -76,6 +77,7 @@ export const WEBSITE_SETTINGS_SECTIONS = {
   websiteOrders: "website-orders",
   paymentDetails: "payment-details",
   paymentReminders: "payment-reminders",
+  paidy: "paidy",
   shippingFees: "shipping-fees",
   siteSettings: "site-settings",
 } as const;
@@ -229,6 +231,13 @@ export default function Website() {
               {isAdmin && (
                 <section id={WEBSITE_SETTINGS_SECTIONS.paymentReminders} className="scroll-mt-20">
                   <PaymentRemindersCard />
+                </section>
+              )}
+              {/* Admin only (Paidy, 2026-10-03): the ato-barai switch and the
+                  public key. set_paidy_settings re-checks the role. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.paidy} className="scroll-mt-20">
+                  <PaidySettingsCard />
                 </section>
               )}
               {/* Admin only (website-orders PR 2): the storefront shipping
