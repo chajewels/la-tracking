@@ -64,17 +64,23 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 4. The customer tokenises the card (3DS) → `POST /orders/:id/card
    { source_id, verification_token?, terms: {accepted_at, version, ip?,
    user_agent?}, agreement: {version, signed_at} | null }`. The Hub re-checks
-   the rule, refuses `terms_required` / `agreement_missing` (D9), applies the
-   3-per-24h cap, then calls **CreatePayment `autocomplete:false`,
-   `delay_action: CANCEL`** (`_shared/square.ts`; idempotency key = order id +
-   attempt number, `reference_id` = invoice, `note` = customer reference,
+   the rule, refuses `verification_required` (D7: the SDK's 3-D Secure
+   verification token is mandatory), `terms_required` (accepted_at AND
+   version) / `agreement_missing` (D9), applies the 3-per-24h submission cap
+   AND the 5-per-24h card-attempt cap (`square_attempts`, declines included —
+   429 `too_many_attempts`), then calls **CreatePayment `autocomplete:false`,
+   `delay_action: CANCEL`** (`_shared/square.ts`; idempotency key =
+   `cardIdempotencyKey(order id, card token)` — one per card NONCE, so a
+   retried click dedupes to the same hold and a corrected card gets a fresh
+   key; `reference_id` = invoice, `note` = customer reference,
    `statement_description_identifier` "CHA JEWELS"; host sandbox/production
    from the mode). The answer must be APPROVED, JPY, amount = remaining
    balance, else CancelPayment + 409 `card_mismatch`; a card refusal
    (`SquareError.isCardRefusal`) is 402 `card_declined` with Square's code.
-   Then one `square_payments` row (`authorized`, brand, last4, 3DS status,
-   receipt URL, terms + agreement evidence, `capture_by` = Square's
-   `delayed_until` or +7 days) and one `payment_submissions` row
+   Then one `square_payments` row (`authorized`, brand, last4,
+   `three_ds_status` VERIFICATION_TOKEN_PRESENTED, receipt URL, terms +
+   agreement evidence incl. IP / UA as reported by the storefront's server
+   action, `capture_by` = Square's `delayed_until` or +7 days) and one `payment_submissions` row
    (`payment_method 'square'`, `reference_number` = the Square payment id,
    `proof_url null`, `square_payment_id` = the row uuid), audit
    `submission_created` (path `website_card`), bell `card_authorized`.
@@ -82,8 +88,9 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 5. Reviewer **Confirm** (review-payment-submission, cash branch, step 2e —
    the twin of Paidy's 2d): after the atomic claim and before `cash_payments`
    → **CompletePayment**. Success (COMPLETED) → `captured`; the cash payment
-   is written as today. `captured` already → carry on (retried Confirm).
-   `cardHoldExpired` (> 7 days) or Square answering PAYMENT_NOT_FOUND /
+   is written as today. `captured` already → carry on (retried Confirm). Hold
+   amount ≠ the submission's amount → claim reverted, 409 `amount_mismatch`.
+   `cardHoldExpired` (past `capture_by`, else > 7 days) or Square answering PAYMENT_NOT_FOUND /
    INVALID_PAYMENT_STATUS / PAYMENT_EXPIRED / canceled → `expired`, the
    submission REJECTED with the note, audit reason `card_hold_expired`, 409
    `card_hold_expired` (Paidy PD4 pattern); any other failure → claim
@@ -103,8 +110,9 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
    `dispute.*` → `disputed_at` / `dispute_id` + bell `card_dispute_opened`
    (D10); `refund.*` → `refund_jpy` + bell `card_refunded`.
 8. Hourly (auto-expire-cash-orders): a hold still `authorized` from day 5 rings
-   `card_hold_expiring` once (`warned_at`, migration 20261101110000). Nothing
-   else is touched (INVARIANT 12).
+   `card_hold_expiring` once (`warned_at`, migration 20261101110000; past the
+   window the bell says "expired — Reject it"). Nothing else is touched
+   (INVARIANT 12).
 9. Refunds phase 1: Square Dashboard; the Hub records `refund_status` as today.
 
 ## S1 schema (migration 20261101100000)
@@ -121,6 +129,10 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 - `square_webhook_events` (`event_id` PK, event_type, payment_id, outcome,
   error, payload) — idempotency log.
 - `square_payments.warned_at` (S2, 20261101110000) — the hold-expiry bell stamp.
+- `square_attempts` (S2, same migration) — one row per CreatePayment attempt
+  (authorized | declined | refused | mismatch | error); the card-attempt cap's
+  evidence, never money state. The `rejected` value of `square_payments.status`
+  is reserved and not written today (a decline creates no row).
 - Settings: `square_mode` "off", `square_app_id` "", `square_location_id` "",
   `card_agreement_min_jpy` 0. `guard_square_settings()` /
   `trg_guard_square_settings` refuse any write without GUC
