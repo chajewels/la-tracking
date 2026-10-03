@@ -224,8 +224,18 @@ one hour) while the switch was Off.
 website_product_media INSERT / UPDATE OF url
   └─ trg_website_media_enqueue_cutout ── INSERT … ON CONFLICT (source_url) DO NOTHING
                                           (only promotions/website/…, never …/derived/…)
-pg_cron 'media-cutout-worker'  * * * * *  (Vault key)  {"action":"tick"}
-  └─ tick (one at a time: media_cutout_lease)
+pg_cron 'media-cutout-worker'  * * * * *  → SELECT public.media_cutout_minute_check()
+  ├─ media_cutout_has_work()?  no → cron.alter_job(active=false): the job SLEEPS
+  │     (owner 2026-10-03, migration 20261028100000; before, 1,440 idle ticks a day)
+  │     WAKE = statement triggers on website_media_cutouts (a row becoming queued /
+  │     submitted / ready / processing — publishing a product does this) and on
+  │     media_cutout_mode / media_cutout_monthly_cap. Advisory key 7700000000000002
+  │     serialises wake vs sleep; a failing wake only WARNs (never blocks a save).
+  │     pg_cron 'media-cutout-daily-check' 44 19 * * * runs one tick a day
+  │     (housekeeping, publish backstop, month rollover) and wakes if work is left.
+  │     Photos card: "Sleeping — nothing to do" / "Working" (get_media_cutout_worker_state).
+  └─ yes → net.http_post (Vault key) {"action":"tick"}  (media_cutout_call_worker)
+     tick (one at a time: media_cutout_lease)
        0. switch off → return
        1. housekeeping   orphan (no media row uses the URL) → kept 30 days → files removed, row forgotten
        2. poll           queue providers only (fal / Replicate): submitted → status → result_url (never billed)
