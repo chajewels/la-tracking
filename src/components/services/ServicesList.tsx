@@ -48,7 +48,7 @@ export default function ServicesList({ services, currency, accountId, compact }:
   };
 
   const handleDelete = async (serviceId: string) => {
-    const { error } = await supabase.from('account_services' as any).delete().eq('id', serviceId);
+    const { error } = await supabase.from('account_services').delete().eq('id', serviceId);
     if (error) {
       toast.error(error.message || 'Failed to delete service');
       return;
@@ -66,18 +66,18 @@ export default function ServicesList({ services, currency, accountId, compact }:
     setSaving(true);
     try {
       const { error } = await supabase
-        .from('account_services' as any)
+        .from('account_services')
         .update({
           amount: amt,
           description: editDescription.trim() || null,
-        } as any)
+        })
         .eq('id', serviceId);
       if (error) throw error;
       toast.success('Service updated');
       setEditingId(null);
       invalidate();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to update');
     } finally {
       setSaving(false);
     }

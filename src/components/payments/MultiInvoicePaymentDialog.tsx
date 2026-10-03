@@ -186,7 +186,8 @@ export default function MultiInvoicePaymentDialog({
           .order('due_date', { ascending: true });
         if (cancelled) return;
         if (data) {
-          rowsMap[a.id] = data.map((r: any) => ({
+          // View columns are all nullable in the generated types; rows here are real schedule rows.
+          rowsMap[a.id] = (data as ScheduleViewRow[]).map((r) => ({
             id: r.id,
             account_id: r.account_id,
             installment_number: r.installment_number,
@@ -350,9 +351,9 @@ export default function MultiInvoicePaymentDialog({
           .from('payment-proofs')
           .getPublicUrl(storagePath);
         proofUrl = urlData.publicUrl;
-      } catch (err: any) {
-        console.warn('[MultiInvoicePaymentDialog] proof upload failed:', err?.message);
-        toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
+      } catch (err: unknown) {
+        console.warn('[MultiInvoicePaymentDialog] proof upload failed:', (err as { message?: string } | null)?.message);
+        toast.warning(`Proof upload failed: ${(err as { message?: string } | null)?.message || 'unknown error'}`);
         return;
       }
 
@@ -402,8 +403,8 @@ export default function MultiInvoicePaymentDialog({
           if (carryError) throw carryError;
           if (carryData?.error) throw new Error(carryData.error);
           results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Carry-over applied', ok: true, msg: `INV #${a.invoice_number} — Carry-over applied` });
-        } catch (carryErr: any) {
-          results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Carry-over failed', ok: false, msg: `INV #${a.invoice_number} — ${carryErr.message || 'Carry-over failed'}` });
+        } catch (carryErr: unknown) {
+          results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Carry-over failed', ok: false, msg: `INV #${a.invoice_number} — ${(carryErr as { message?: string }).message || 'Carry-over failed'}` });
         }
       }
 
@@ -419,8 +420,8 @@ export default function MultiInvoicePaymentDialog({
       const msg = buildConfirmationMessage(data?.account_results || []);
       setConsolidatedMessage(msg);
       setStep('results');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to record split payment');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to record split payment');
     } finally {
       setSubmitting(false);
       submittingRef.current = false;
@@ -861,7 +862,7 @@ export default function MultiInvoicePaymentDialog({
                 <Button
                   variant="outline"
                   onClick={() => {
-                    const messengerLink = accounts[0] && (accounts[0] as any).messengerLink;
+                    const messengerLink = accounts[0] && (accounts[0] as AccountInfo & { messengerLink?: string }).messengerLink;
                     if (messengerLink) window.open(messengerLink, '_blank');
                     else toast.info('No Messenger link set for this customer');
                   }}

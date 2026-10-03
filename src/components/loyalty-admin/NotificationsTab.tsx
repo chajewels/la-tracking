@@ -160,8 +160,8 @@ export default function NotificationsTab() {
       await cancelMutation.mutateAsync(cancelTarget.id);
       toast.success('Notification cancelled.');
       setCancelTarget(null);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to cancel notification');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to cancel notification');
     }
   }
 

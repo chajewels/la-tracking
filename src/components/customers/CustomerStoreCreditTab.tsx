@@ -170,20 +170,21 @@ function VoidStoreCreditDialog({
       if (error) {
         let msg = error.message || 'Failed to void store credit';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const b = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as { context: { body?: BodyInit | null } }).context?.body) {
+            const b = await new Response((error as { context: { body?: BodyInit | null } }).context.body).json();
             if (b?.error) msg = b.error;
           }
         } catch { /* ignore */ }
         throw new Error(msg);
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
-      const voided = Number((data as any)?.voided_amount ?? remaining);
+      const result = data as { error?: string; voided_amount?: number | string | null } | null;
+      if (result?.error) throw new Error(result.error);
+      const voided = Number(result?.voided_amount ?? remaining);
       toast.success(`Voided ${formatCurrency(voided, currency)} of store credit`);
       onVoided();
       close();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to void store credit');
+    } catch (err: unknown) {
+      toast.error((err as Error | null | undefined)?.message || 'Failed to void store credit');
       setSubmitting(false);
       setConfirming(false);
     }

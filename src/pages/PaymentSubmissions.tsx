@@ -72,6 +72,23 @@ interface SubmissionRow {
   cash_orders: { invoice_number: string; currency: string; customer_id: string; customers: { full_name: string; customer_code: string } | null } | null;
 }
 
+// Response body of the review-payment-submission edge function (fields read here).
+interface LoyaltyAwardResult {
+  awarded?: boolean;
+  points_earned?: number;
+  bonus_points?: number;
+  remaining_points?: number;
+  tier_upgraded?: boolean;
+  old_tier?: string;
+  new_tier?: string;
+  error?: string;
+}
+interface ReviewSubmissionResponse {
+  error?: string;
+  loyalty_awards?: LoyaltyAwardResult[];
+  confirmed_payment_ids?: string[];
+}
+
 interface SubmissionAllocation {
   id: string;
   submission_id: string;
@@ -431,7 +448,7 @@ const InlineAmountEdit = memo(function InlineAmountEdit({
     }
 
     try {
-      await (supabase.from('audit_logs') as any).insert([{
+      await supabase.from('audit_logs').insert([{
         entity_type: 'payment_submission',
         entity_id: submissionId,
         action: 'edit_submitted_amount',
@@ -719,7 +736,7 @@ const InlineNotesEdit = memo(function InlineNotesEdit({
     }
 
     try {
-      await (supabase.from('audit_logs') as any).insert([{
+      await supabase.from('audit_logs').insert([{
         entity_type: 'payment_submission',
         entity_id: submissionId,
         action: 'edit_submission_notes',
@@ -978,7 +995,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         .eq('account_id', actionDialog.sub.account_id!)
         .order('due_date', { ascending: true });
       if (cancelled) return;
-      const rows: ScheduleViewRow[] = (data || []).map((r: any) => ({
+      const rows: ScheduleViewRow[] = (data || []).map((r) => ({
         id: r.id,
         account_id: r.account_id,
         installment_number: r.installment_number,
@@ -991,7 +1008,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         allocated: r.allocated,
         actual_remaining: r.actual_remaining,
         computed_status: r.computed_status,
-      }));
+      })) as ScheduleViewRow[];
       setConfirmScheduleRows(rows);
       const wf = computeWaterfall(Number(actionDialog.sub.submitted_amount), rows);
       setConfirmWaterfall(wf);
@@ -1068,7 +1085,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
 
   const reviewMutation = useMutation({
     mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
-      const { data, error } = await supabase.functions.invoke('review-payment-submission', {
+      const { data, error } = await supabase.functions.invoke<ReviewSubmissionResponse>('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes, submission_type: actionDialog?.sub.submission_type ?? 'single' },
       });
       // Prefer the server's actual error message over the generic invoke wrapper.
@@ -1078,9 +1095,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         // Path 2: For non-2xx responses, supabase-js v2 wraps the Response in error.context.
         // Extract the server's specific message and attach the HTTP status so onError can
         // detect permission errors (403) reliably.
-        const ctx = (error as any)?.context;
+        const ctx = (error as { context?: Response } | null)?.context;
         if (ctx && typeof ctx.json === 'function') {
-          let body: any = null;
+          let body: { error?: string } | null = null;
           try {
             body = typeof ctx.clone === 'function' ? await ctx.clone().json() : await ctx.json();
           } catch {
@@ -1088,7 +1105,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           }
           if (body?.error) {
             const serverError = new Error(body.error);
-            (serverError as any).status = ctx.status;
+            (serverError as Error & { status?: number }).status = ctx.status;
             throw serverError;
           }
         }
@@ -1102,7 +1119,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       const approvedAccountId = actionDialog?.sub.account_id;
 
       if (vars.action === 'confirmed') {
-        for (const award of ((data as any)?.loyalty_awards ?? [])) {
+        for (const award of (data?.loyalty_awards ?? [])) {
           if (award.awarded) {
             toast.success(
               `Loyalty points awarded: +${award.points_earned}${award.bonus_points ? ` (+${award.bonus_points} bonus)` : ''} pts · balance ${award.remaining_points}` +
@@ -1155,7 +1172,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               surplus: partialAlloc.amount,
               currency: cur,
               accountId: actionDialog.sub.account_id!,
-              paymentId: (data as any)?.confirmed_payment_ids?.[0] ?? null,
+              paymentId: data?.confirmed_payment_ids?.[0] ?? null,
             });
             setActionDialog(null);
             setConfirmResults(null);
@@ -1176,7 +1193,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         setActionDialog(null);
       }
     },
-    onError: (err: any) => {
+    onError: (err: Error & { status?: number; context?: { status?: number } }) => {
       const message = err?.message || 'Failed to process submission';
       // Read status from either the enrichedError thrown in mutationFn (err.status)
       // OR from the original FunctionsHttpError's Response context (err.context.status).
@@ -1870,8 +1887,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                       queryClient.invalidateQueries({ queryKey: ['penalties', carryAccountId] });
                     }
                     setUnderpaymentModal(null);
-                  } catch (err: any) {
-                    toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
+                  } catch (err: unknown) {
+                    toast.error(`Carry-over failed: ${(err as Error).message || 'Unknown error'}`);
                   } finally {
                     setUnderpaymentLoading(null);
                   }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
 
 export interface LoyaltyPromoRow {
   id: string;
@@ -143,10 +144,10 @@ export function useCreateLoyaltyPromo() {
       if (user && data) {
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_promo',
-          entity_id: (data as any).id,
+          entity_id: (data as { id: string }).id,
           action: 'promo_created',
           performed_by_user_id: user.id,
-          new_value_json: { ...input, id: (data as any).id },
+          new_value_json: { ...input, id: (data as { id: string }).id },
         });
       }
       return data as { id: string };
@@ -179,8 +180,8 @@ export function useUpdateLoyaltyPromo() {
         const oldDiff: Record<string, unknown> = {};
         const newDiff: Record<string, unknown> = {};
         for (const k of Object.keys(input.updates)) {
-          oldDiff[k] = (input.oldValues as any)[k];
-          newDiff[k] = (input.updates as any)[k];
+          oldDiff[k] = input.oldValues[k as keyof typeof input.oldValues];
+          newDiff[k] = input.updates[k as keyof typeof input.updates];
         }
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_promo',
@@ -216,7 +217,7 @@ export function useDeleteLoyaltyPromo() {
           entity_id: oldValues.id,
           action: 'promo_deleted',
           performed_by_user_id: user.id,
-          old_value_json: oldValues as any,
+          old_value_json: oldValues as unknown as Json,
         });
       }
     },

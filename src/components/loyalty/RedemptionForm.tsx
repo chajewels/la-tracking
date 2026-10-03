@@ -18,6 +18,24 @@ import { pt } from '@/i18n/portal';
 
 type RedemptionType = 'new_order_discount' | 'shipping_fee' | 'service_fee';
 
+/** One order as the customer-portal GET returns it (accounts / cash_orders). */
+interface PortalOrderRow {
+  id: string;
+  invoice_number: string;
+  currency: 'PHP' | 'JPY';
+  total_amount?: number | string | null;
+  total_paid?: number | string | null;
+  remaining_balance?: number | string | null;
+  status: string;
+}
+
+/** The customer-portal GET body fields this form reads. */
+interface PortalOrdersResponse {
+  error?: string;
+  accounts?: PortalOrderRow[] | null;
+  cash_orders?: PortalOrderRow[] | null;
+}
+
 interface OrderOption {
   id: string;
   kind: 'layaway' | 'cash';
@@ -132,10 +150,10 @@ export function RedemptionForm({
         }
 
         const data = await response.json();
-        const errFromBody = (data as any)?.error as string | undefined;
+        const errFromBody = (data as PortalOrdersResponse | null)?.error as string | undefined;
         if (errFromBody) throw new Error(errFromBody);
 
-        const layaway: OrderOption[] = (((data as any)?.accounts ?? []) as any[]).map(
+        const layaway: OrderOption[] = (((data as PortalOrdersResponse | null)?.accounts ?? []) as PortalOrderRow[]).map(
           (a) => ({
             id: a.id,
             kind: 'layaway' as const,
@@ -147,7 +165,7 @@ export function RedemptionForm({
             status: a.status,
           }),
         );
-        const cash: OrderOption[] = (((data as any)?.cash_orders ?? []) as any[]).map(
+        const cash: OrderOption[] = (((data as PortalOrdersResponse | null)?.cash_orders ?? []) as PortalOrderRow[]).map(
           (o) => ({
             id: o.id,
             kind: 'cash' as const,
@@ -160,11 +178,11 @@ export function RedemptionForm({
           }),
         );
         if (!cancelled) setOrders([...layaway, ...cash]);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!cancelled) {
           console.error(
             '[RedemptionForm] orders fetch failed:',
-            err?.message || err,
+            (err as { message?: string } | null)?.message || err,
           );
         }
       }
@@ -255,7 +273,7 @@ export function RedemptionForm({
         { body },
       );
       if (error) throw error;
-      const errFromBody = (data as any)?.error as string | undefined;
+      const errFromBody = (data as { error?: string } | null)?.error as string | undefined;
       if (errFromBody) throw new Error(errFromBody);
 
       setSubmitted(true);
@@ -264,21 +282,27 @@ export function RedemptionForm({
         onSuccess?.();
         onClose();
       }, 2000);
-    } catch (err: any) {
-      let msg = err?.message || 'Could not submit redemption — please try again';
+    } catch (err: unknown) {
+      // functions.invoke errors carry the raw Response on `.context`; older
+      // shapes put a JSON string or object on `.context.body`.
+      const e = err as {
+        message?: string;
+        context?: { json?: () => Promise<unknown>; body?: unknown } | null;
+      } | null;
+      let msg = e?.message || 'Could not submit redemption — please try again';
       // A non-2xx from functions.invoke THROWS, and the JSON body is on
       // err.context (a Response), not err.message. Surface the server's
       // message (e.g. the duplicate-redemption 409) when available.
       try {
-        const ctx = err?.context;
-        let parsed: any = null;
+        const ctx = e?.context;
+        let parsed: { message?: string; error?: string } | null = null;
         if (ctx && typeof ctx.json === 'function') {
-          parsed = await ctx.json();
+          parsed = (await ctx.json()) as { message?: string; error?: string } | null;
         } else if (ctx?.body) {
-          parsed = typeof ctx.body === 'string' ? JSON.parse(ctx.body) : ctx.body;
+          parsed = (typeof ctx.body === 'string' ? JSON.parse(ctx.body) : ctx.body) as { message?: string; error?: string } | null;
         }
         if (parsed?.message || parsed?.error) {
-          msg = parsed.message || parsed.error;
+          msg = (parsed.message || parsed.error) as string;
         }
       } catch {
         /* keep the default msg */

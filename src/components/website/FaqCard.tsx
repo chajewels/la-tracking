@@ -39,8 +39,7 @@ import {
  *
  * Writes are gated on manage_website_content, matching both tables' RLS.
  *
- * Neither table is in src/integrations/supabase/types.ts, so both are reached
- * through the `as any` table cast every website_* table uses.
+ * Both tables are in src/integrations/supabase/types.ts, so both are queried typed.
  */
 
 type Editing =
@@ -58,7 +57,7 @@ export function FaqCard() {
     queryKey: ["website-faq-sections"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_faq_sections" as any)
+        .from("website_faq_sections")
         .select(FAQ_SECTION_SELECT)
         .order("sort_order");
       if (error) throw error;
@@ -70,7 +69,7 @@ export function FaqCard() {
     queryKey: ["website-faq-items"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_faq_items" as any)
+        .from("website_faq_items")
         .select(FAQ_ITEM_SELECT)
         .order("section_id")
         .order("sort_order");
@@ -113,7 +112,7 @@ export function FaqCard() {
       const before = d.id ? allSections.find((s) => s.id === d.id) : null;
       const sort = d.id ? undefined : nextSortOrder(allSections);
       const { data, error } = await supabase
-        .from("website_faq_sections" as any)
+        .from("website_faq_sections")
         .upsert(sectionPayload(d, user?.id ?? null, sort) as never, { onConflict: "id" })
         .select("id")
         .single();
@@ -136,14 +135,14 @@ export function FaqCard() {
       // Re-counted here, not trusted from the render: the button was enabled
       // against a list that may be a minute old, and the FK cascades.
       const { count, error: countErr } = await supabase
-        .from("website_faq_items" as any)
+        .from("website_faq_items")
         .select("id", { count: "exact", head: true })
         .eq("section_id", s.id);
       if (countErr) throw countErr;
       const blocker = sectionDeleteBlocker(count ?? 0);
       if (blocker) throw new Error(blocker);
 
-      const { error } = await supabase.from("website_faq_sections" as any).delete().eq("id", s.id);
+      const { error } = await supabase.from("website_faq_sections").delete().eq("id", s.id);
       if (error) throw error;
       await audit("website_faq_section", s.id, "delete_faq_section",
         { slug: s.slug, title_en: s.title_en }, null);
@@ -158,7 +157,7 @@ export function FaqCard() {
       const before = d.id ? allItems.find((i) => i.id === d.id) : null;
       const sort = d.id ? undefined : nextSortOrder(itemsOf(d.section_id));
       const { data, error } = await supabase
-        .from("website_faq_items" as any)
+        .from("website_faq_items")
         .upsert(itemPayload(d, user?.id ?? null, sort) as never, { onConflict: "id" })
         .select("id")
         .single();
@@ -181,7 +180,7 @@ export function FaqCard() {
 
   const removeItem = useMutation({
     mutationFn: async (i: FaqItemRow) => {
-      const { error } = await supabase.from("website_faq_items" as any).delete().eq("id", i.id);
+      const { error } = await supabase.from("website_faq_items").delete().eq("id", i.id);
       if (error) throw error;
       await audit("website_faq_item", i.id, "delete_faq_item",
         { question_en: i.question_en, answer_en: i.answer_en, answer_ja: i.answer_ja }, null);
@@ -198,7 +197,7 @@ export function FaqCard() {
     }) => {
       for (const w of writes) {
         const { error } = await supabase
-          .from(table as any)
+          .from(table)
           .update({ sort_order: w.sort_order, updated_by: user?.id ?? null })
           .eq("id", w.id);
         if (error) throw error;

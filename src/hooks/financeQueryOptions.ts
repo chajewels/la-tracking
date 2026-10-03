@@ -63,7 +63,7 @@ export const dailyCashOrdersQueryOptions = () => ({
   staleTime: 120_000,
   placeholderData: keepPreviousData,
   queryFn: async () => {
-    const { data, error } = await supabase.rpc('get_daily_cash_orders' as any);
+    const { data, error } = await supabase.rpc('get_daily_cash_orders');
     if (error) throw error;
     return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
   },
@@ -74,7 +74,7 @@ export const dailyCashOrdersLastMonthQueryOptions = () => ({
   staleTime: 120_000,
   placeholderData: keepPreviousData,
   queryFn: async () => {
-    const { data, error } = await supabase.rpc('get_daily_cash_orders_last_month' as any);
+    const { data, error } = await supabase.rpc('get_daily_cash_orders_last_month');
     if (error) throw error;
     return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
   },

@@ -15,6 +15,34 @@ export interface AccountWithCustomer extends DbAccount {
   customers: DbCustomer;
 }
 
+// ── Lean row shapes returned by the "light" list hooks ──
+// Exactly the columns each hook's .select() names.
+export type DbAccountLight = Pick<
+  DbAccount,
+  | 'id' | 'customer_id' | 'status' | 'currency' | 'invoice_number' | 'total_amount'
+  | 'total_paid' | 'remaining_balance' | 'payment_plan_months' | 'order_date'
+  | 'created_at' | 'updated_at' | 'created_by_user_id' | 'is_test'
+>;
+export type DbCashOrderLight = Pick<Tables<'cash_orders'>, 'id' | 'customer_id' | 'status'>;
+export type DbAccountService = Tables<'account_services'>;
+export type DbAccountNote = Tables<'account_notes'>;
+type DbPaymentAllocation = Tables<'payment_allocations'>;
+
+/**
+ * A schedule row as useSchedule() returns it: the schedule_with_actuals view
+ * row plus the legacy aliases the hook adds (paid_amount / status /
+ * total_due_amount), typed as the layaway_schedule row callers already read.
+ */
+export type ScheduleRowWithActuals = DbSchedule & {
+  allocated: number | null;
+  actual_remaining: number | null;
+  computed_status: Tables<'schedule_with_actuals'>['computed_status'];
+  db_status: Tables<'schedule_with_actuals'>['db_status'];
+};
+
+/** supabase-js FunctionsHttpError carries the raw HTTP Response on `.context`. */
+type FunctionsErrorWithContext = { context: Response };
+
 // ── Scoped invalidation for better performance ──
 // 'web-drafts' / 'web-park' (website orders PR 5): the park area. The draft
 // tables are not in the realtime publication; a new draft still refreshes this
@@ -147,7 +175,7 @@ export function useAccountsLight() {
       // loop the oldest rows are silently dropped.
       const PAGE_SIZE = 1000;
       const MAX_PAGES = 1000; // safety: stops at 1,000,000 rows
-      let allData: any[] = [];
+      let allData: DbAccountLight[] = [];
       let page = 0;
       while (page < MAX_PAGES) {
         const from = page * PAGE_SIZE;
@@ -191,7 +219,7 @@ export function useCashOrdersLight() {
       // Without this loop the oldest rows are silently dropped.
       const PAGE_SIZE = 1000;
       const MAX_PAGES = 1000; // safety: stops at 1,000,000 rows
-      let allData: any[] = [];
+      let allData: DbCashOrderLight[] = [];
       let page = 0;
       while (page < MAX_PAGES) {
         const from = page * PAGE_SIZE;
@@ -263,16 +291,16 @@ export function useCustomerAccounts(customerId: string | undefined) {
           : Promise.resolve({ data: [] as DbPenalty[], error: null }),
         accountIds.length > 0
           ? supabase.from('payments').select('*').in('account_id', accountIds).order('date_paid', { ascending: true })
-          : Promise.resolve({ data: [] as any[], error: null }),
+          : Promise.resolve({ data: [] as DbPayment[], error: null }),
         accountIds.length > 0
-          ? supabase.from('account_services' as any).select('*').in('account_id', accountIds).order('created_at', { ascending: true })
-          : Promise.resolve({ data: [] as any[], error: null }),
+          ? supabase.from('account_services').select('*').in('account_id', accountIds).order('created_at', { ascending: true })
+          : Promise.resolve({ data: [] as DbAccountService[], error: null }),
       ]);
 
       const schedules = (schedRes.data || []) as DbSchedule[];
       const penalties = (penRes.data || []) as DbPenalty[];
-      const allPayments = (payRes.data || []) as any[];
-      const allServices = (svcRes.data || []) as any[];
+      const allPayments = (payRes.data || []) as DbPayment[];
+      const allServices = (svcRes.data || []) as DbAccountService[];
 
       const scheduleIds = schedules.map(s => s.id);
       const allocations = scheduleIds.length > 0
@@ -280,7 +308,7 @@ export function useCustomerAccounts(customerId: string | undefined) {
         : [];
 
       const schedulePaymentDateMap: Record<string, string> = {};
-      for (const alloc of allocations as any[]) {
+      for (const alloc of allocations as DbPaymentAllocation[]) {
         const payment = allPayments.find(p => p.id === alloc.payment_id && !p.voided_at);
         if (payment) {
           const existing = schedulePaymentDateMap[alloc.schedule_id];
@@ -295,7 +323,7 @@ export function useCustomerAccounts(customerId: string | undefined) {
         schedule: schedules.filter(s => s.account_id === acct.id),
         penalties: penalties.filter(p => p.account_id === acct.id),
         payments: allPayments.filter(p => p.account_id === acct.id),
-        services: allServices.filter((s: any) => s.account_id === acct.id),
+        services: allServices.filter((s: DbAccountService) => s.account_id === acct.id),
         schedulePaymentDates: schedulePaymentDateMap,
       }));
 
@@ -314,7 +342,7 @@ export function useSchedule(accountId: string | undefined) {
     staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('schedule_with_actuals' as any)
+        .from('schedule_with_actuals')
         .select('*')
         .eq('account_id', accountId!)
         .order('installment_number', { ascending: true });
@@ -324,7 +352,7 @@ export function useSchedule(accountId: string | undefined) {
       // - actual_remaining maps to how much is still owed
       // - computed_status is the authoritative status for display
       // - db_status is the stored status (used for filtering/writes)
-      return ((data as any[]) || []).map((row: any) => ({
+      return ((data as Tables<'schedule_with_actuals'>[]) || []).map((row: Tables<'schedule_with_actuals'>) => ({
         ...row,
         // Legacy field aliases — prefer getRowAllocated/getRowRemaining/getRowStatus
         paid_amount: row.allocated ?? 0,
@@ -333,7 +361,7 @@ export function useSchedule(accountId: string | undefined) {
         // and all legacy code reading item.total_due_amount gets the correct owed amount
         // (view does not expose the stale DB cache column — actual_remaining is authoritative)
         total_due_amount: row.actual_remaining ?? row.total_due_amount ?? 0,
-      })) as any[];
+      })) as ScheduleRowWithActuals[];
     },
   });
 }
@@ -348,12 +376,12 @@ export function useAccountServices(accountId: string | undefined) {
     staleTime: STALE_MEDIUM,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('account_services' as any)
+        .from('account_services')
         .select('*')
         .eq('account_id', accountId!)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return data as any[];
+      return data as DbAccountService[];
     },
   });
 }
@@ -365,12 +393,12 @@ export function useAccountNotes(accountId: string | undefined) {
     staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('account_notes' as any)
+        .from('account_notes')
         .select('*')
         .eq('account_id', accountId!)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as any[];
+      return data as DbAccountNote[];
     },
   });
 }
@@ -569,8 +597,8 @@ export function useCreateAccount() {
         // Extract detailed error from FunctionsHttpError response body
         let detailedMsg = error.message || 'Failed to create account';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.error) detailedMsg = body.error;
           }
         } catch {
@@ -618,11 +646,11 @@ export function useReactivateWebLayaway() {
       if (error) {
         let detailedMsg = error.message || 'Could not reactivate the plan';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.error === 'out_of_stock') {
               const lines = Array.isArray(body.lines) ? body.lines : [];
-              const names = lines.map((l: any) => l?.sku || l?.title).filter(Boolean).join(', ');
+              const names = lines.map((l: { sku?: string; title?: string } | null) => l?.sku || l?.title).filter(Boolean).join(', ');
               detailedMsg = names
                 ? `Cannot reactivate — no longer in stock: ${names}.`
                 : 'Cannot reactivate — one of the pieces is no longer in stock.';
@@ -669,11 +697,11 @@ export function useReviveWebCashOrder() {
       if (error) {
         let detailedMsg = error.message || 'Could not revive the order';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.error === 'out_of_stock') {
               const lines = Array.isArray(body.lines) ? body.lines : [];
-              const names = lines.map((l: any) => l?.sku || l?.title).filter(Boolean).join(', ');
+              const names = lines.map((l: { sku?: string; title?: string } | null) => l?.sku || l?.title).filter(Boolean).join(', ');
               detailedMsg = names
                 ? `Cannot revive — no longer in stock: ${names}.`
                 : 'Cannot revive — one of the pieces is no longer in stock.';
@@ -722,8 +750,8 @@ export function useSetAccountDeadlines() {
       if (error) {
         let detailedMsg = error.message || 'Failed to update the deadline';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.message) detailedMsg = body.message;
             else if (body?.error) detailedMsg = body.error;
           }
@@ -836,7 +864,7 @@ export function useVoidPayment() {
 export function useRecordMultiPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: any) => {
+    mutationFn: async (payload: Record<string, unknown>) => {
       const { data, error } = await supabase.functions.invoke('record-multi-payment', {
         body: payload,
       });
@@ -930,8 +958,8 @@ export function useDeleteCashOrder() {
         // Extract detailed error from FunctionsHttpError response body
         let detailedMsg = error.message || 'Failed to delete cash order';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.message) detailedMsg = body.message;
             else if (body?.error) detailedMsg = body.error;
           }
@@ -959,8 +987,8 @@ export function useDeleteAccount() {
         // Extract detailed error from FunctionsHttpError response body
         let detailedMsg = error.message || 'Failed to delete account';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.message) detailedMsg = body.message;
             else if (body?.error) detailedMsg = body.error;
           }
@@ -989,9 +1017,9 @@ export function useForfeitAccount() {
       });
       if (error) {
         let detailedMsg = error.message;
-        if ('context' in error && (error as any).context?.body) {
+        if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
           try {
-            const body = await new Response((error as any).context.body).json();
+            const body = await new Response((error as FunctionsErrorWithContext).context.body).json();
             if (body?.error) detailedMsg = body.error;
           } catch {}
         }

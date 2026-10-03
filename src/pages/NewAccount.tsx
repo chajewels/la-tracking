@@ -153,7 +153,7 @@ export default function NewAccount() {
 
   // Loyalty-only product amount field is admin/finance only.
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr: string[] = roles;
   const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance') || rolesArr.includes('staff');
 
   // Loyalty tier of the selected customer. Non-null => the customer is
@@ -338,7 +338,7 @@ export default function NewAccount() {
         .or(`full_name.ilike.%${term}%,mobile_number.ilike.%${term}%`)
         .order('full_name', { ascending: true })
         .limit(10);
-      setCustomerResults(((data as any) || []) as DbCustomer[]);
+      setCustomerResults((data || []) as DbCustomer[]);
       setCustomerSearching(false);
     }, 300);
     return () => {
@@ -634,13 +634,13 @@ export default function NewAccount() {
       if (initialNote.trim() && result?.account?.id) {
         try {
           const { data: { user } } = await supabase.auth.getUser();
-          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
-          await supabase.from('account_notes' as any).insert({
+          const userName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name || user?.email || 'Unknown';
+          await supabase.from('account_notes').insert({
             account_id: result.account.id,
             note_text: initialNote.trim(),
             created_by_user_id: user?.id,
             created_by_name: userName,
-          } as any);
+          });
         } catch {
           // Non-critical — don't block account creation success
         }
@@ -722,9 +722,9 @@ export default function NewAccount() {
       } else {
         navigate(ROUTES.ACCOUNTS);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Create account error:', err);
-      const msg = err.message || 'Failed to create account';
+      const msg = (err as Error).message || 'Failed to create account';
       if (msg.includes('duplicate key') || msg.includes('invoice_number')) {
         toast.error(`Invoice number "${invoiceNumber}" already exists. Please use a different invoice number.`);
       } else {
@@ -933,22 +933,22 @@ export default function NewAccount() {
                         <span className="text-foreground">{selectedExistingCustomer.email}</span>
                       </div>
                     )}
-                    {(selectedExistingCustomer as any).facebook_name && (
+                    {selectedExistingCustomer.facebook_name && (
                       <div>
                         <span className="text-muted-foreground">Facebook:</span>{' '}
-                        <span className="text-foreground">{(selectedExistingCustomer as any).facebook_name}</span>
+                        <span className="text-foreground">{selectedExistingCustomer.facebook_name}</span>
                       </div>
                     )}
-                    {(selectedExistingCustomer as any).messenger_link && (
+                    {selectedExistingCustomer.messenger_link && (
                       <div>
                         <span className="text-muted-foreground">Messenger:</span>{' '}
-                        <span className="text-foreground">{(selectedExistingCustomer as any).messenger_link}</span>
+                        <span className="text-foreground">{selectedExistingCustomer.messenger_link}</span>
                       </div>
                     )}
-                    {(selectedExistingCustomer as any).location && (
+                    {selectedExistingCustomer.location && (
                       <div>
                         <span className="text-muted-foreground">Location:</span>{' '}
-                        <span className="text-foreground">{(selectedExistingCustomer as any).location}</span>
+                        <span className="text-foreground">{selectedExistingCustomer.location}</span>
                       </div>
                     )}
                   </div>

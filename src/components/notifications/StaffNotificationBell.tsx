@@ -109,7 +109,7 @@ export default function StaffNotificationBell() {
     refetchInterval: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('staff_notifications' as any)
+        .from('staff_notifications')
         .select(
           'id, type, title, body, account_id, customer_id, invoice_number, metadata, created_at'
         )
@@ -128,7 +128,7 @@ export default function StaffNotificationBell() {
     refetchInterval: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('staff_notification_reads' as any)
+        .from('staff_notification_reads')
         .select('notification_id')
         .eq('user_id', user!.id)
         .in('notification_id', notificationIds);
@@ -157,7 +157,7 @@ export default function StaffNotificationBell() {
         user_id: user.id,
       }));
       const { error } = await supabase
-        .from('staff_notification_reads' as any)
+        .from('staff_notification_reads')
         .upsert(rows, { onConflict: 'notification_id,user_id', ignoreDuplicates: true });
       if (error && !/duplicate key|unique constraint/i.test(error.message ?? '')) {
         throw error;

@@ -63,6 +63,12 @@ import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
+import type { TablesUpdate } from '@/integrations/supabase/types';
+
+/** Edge-function HTTP error: supabase-js puts the Response on context. Types only. */
+type FnErrorWithBody = { context: { body?: BodyInit | null } };
+/** Fields read from an edge-function response body (cancel-cash-order). */
+type FnResponseBody = { error?: string; store_credit?: unknown; money_received?: number | string };
 
 // Shape of cancel-cash-order's preview response (preview:true writes nothing).
 interface CancelPreview {
@@ -380,7 +386,7 @@ export default function CashOrderDetail() {
   const { roles, loading: authLoading } = useAuth();
   const { can } = usePermissions();
   const [reviewLinkOpen, setReviewLinkOpen] = useState(false);
-  const rolesArr = roles as any[];
+  const rolesArr = roles;
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const isStaff = rolesArr.includes('staff');
@@ -518,7 +524,7 @@ export default function CashOrderDetail() {
 
       const { error } = await supabase
         .from('cash_orders')
-        .update(updatePayload as any)
+        .update(updatePayload as TablesUpdate<'cash_orders'>)
         .eq('id', order.id);
       if (error) throw error;
       // Best-effort audit log
@@ -675,9 +681,9 @@ export default function CashOrderDetail() {
       };
       if (loyaltyChanged) updatePayload.loyalty_jpy_amount = nextLoyalty;
       if (!isAdmin) {
-        delete (updatePayload as any).total_amount;
-        delete (updatePayload as any).remaining_balance;
-        delete (updatePayload as any).order_date;
+        delete updatePayload.total_amount;
+        delete updatePayload.remaining_balance;
+        delete updatePayload.order_date;
       }
       if (Object.keys(updatePayload).length === 0) {
         toast.error('Only admins can edit the cash order total');
@@ -687,7 +693,7 @@ export default function CashOrderDetail() {
 
       const { error } = await supabase
         .from('cash_orders')
-        .update(updatePayload as any)
+        .update(updatePayload as TablesUpdate<'cash_orders'>)
         .eq('id', order.id);
       if (error) throw error;
 
@@ -750,17 +756,17 @@ export default function CashOrderDetail() {
       if (error) {
         let msg = error.message || 'Failed to cancel';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const b = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FnErrorWithBody).context?.body) {
+            const b = await new Response((error as FnErrorWithBody).context.body).json();
             if (b?.error) msg = b.error;
           }
         } catch { /* ignore */ }
         throw new Error(msg);
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
-      const storeCredit = (data as any)?.store_credit ?? null;
+      if ((data as FnResponseBody | null)?.error) throw new Error((data as FnResponseBody).error);
+      const storeCredit = (data as FnResponseBody | null)?.store_credit ?? null;
       if (storeCredit) {
-        const moneyReceived = Number((data as any)?.money_received ?? 0);
+        const moneyReceived = Number((data as FnResponseBody | null)?.money_received ?? 0);
         toast.success(
           `${order.source_channel === 'web' ? 'Order' : 'Cash order #'}${order.source_channel === 'web' ? ' ' : ''}${cashOrderRef(order)} cancelled — ${formatCurrency(moneyReceived, order.currency as Currency)} store credit issued`,
         );
@@ -805,14 +811,14 @@ export default function CashOrderDetail() {
         if (error) {
           let msg = error.message || 'Failed to load cancellation preview';
           try {
-            if ('context' in error && (error as any).context?.body) {
-              const b = await new Response((error as any).context.body).json();
+            if ('context' in error && (error as FnErrorWithBody).context?.body) {
+              const b = await new Response((error as FnErrorWithBody).context.body).json();
               if (b?.error) msg = b.error;
             }
           } catch { /* ignore */ }
           throw new Error(msg);
         }
-        if ((data as any)?.error) throw new Error((data as any).error);
+        if ((data as FnResponseBody | null)?.error) throw new Error((data as FnResponseBody).error);
         if (!cancelled) setCancelPreview(data as CancelPreview);
       } catch (err: unknown) {
         if (!cancelled) setCancelPreviewError((err as Error).message || 'Failed to load cancellation preview');
@@ -853,8 +859,8 @@ export default function CashOrderDetail() {
       if (error) {
         let msg = error.message || 'Failed to void payment';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FnErrorWithBody).context?.body) {
+            const body = await new Response((error as FnErrorWithBody).context.body).json();
             if (body?.error) msg = body.error;
           }
         } catch { /* ignore */ }
@@ -884,8 +890,8 @@ export default function CashOrderDetail() {
       if (error) {
         let msg = error.message || 'Failed to restore payment';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const body = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as FnErrorWithBody).context?.body) {
+            const body = await new Response((error as FnErrorWithBody).context.body).json();
             if (body?.error) msg = body.error;
           }
         } catch { /* ignore */ }
@@ -2034,14 +2040,14 @@ export default function CashOrderDetail() {
                         setNoteSaving(true);
                         try {
                           const { data: { user } } = await supabase.auth.getUser();
-                          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
-                          const { error } = await supabase.from('account_notes' as any).insert({
+                          const userName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name || user?.email || 'Unknown';
+                          const { error } = await supabase.from('account_notes').insert({
                             account_id: null,
                             cash_order_id: order.id,
                             note_text: noteText.trim(),
                             created_by_user_id: user?.id,
                             created_by_name: userName,
-                          } as any);
+                          });
                           if (error) throw error;
                           toast.success('Note added');
                           setNoteText('');
@@ -2601,8 +2607,8 @@ export default function CashOrderDetail() {
                     await deleteCashOrder.mutateAsync(order.id);
                     toast.success(`Cash order INV #${order.invoice_number} deleted`);
                     navigate('/sales?tab=cash');
-                  } catch (err: any) {
-                    toast.error(err.message || 'Failed to delete cash order');
+                  } catch (err: unknown) {
+                    toast.error((err as Error).message || 'Failed to delete cash order');
                   }
                 }}
               >

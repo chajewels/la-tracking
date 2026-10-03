@@ -77,7 +77,7 @@ export function RedemptionApprovalModal({
 }: RedemptionApprovalModalProps) {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as string[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
   const isStaff = rolesArr.includes('staff');
@@ -184,14 +184,14 @@ export function RedemptionApprovalModal({
         },
       );
       if (error) throw error;
-      const errFromBody = (data as any)?.error as string | undefined;
+      const errFromBody = (data as { error?: string } | null)?.error as string | undefined;
       if (errFromBody) throw new Error(errFromBody);
       toast.success('Redemption approved');
       await invalidateAll();
       onSuccess?.();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not approve — please try again');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not approve — please try again');
     } finally {
       setSubmitting(false);
     }
@@ -217,14 +217,14 @@ export function RedemptionApprovalModal({
         },
       );
       if (error) throw error;
-      const errFromBody = (data as any)?.error as string | undefined;
+      const errFromBody = (data as { error?: string } | null)?.error as string | undefined;
       if (errFromBody) throw new Error(errFromBody);
       toast.success('Redemption cancelled');
       await invalidateAll();
       onSuccess?.();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not cancel — please try again');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not cancel — please try again');
     } finally {
       setSubmitting(false);
     }
@@ -263,8 +263,8 @@ export function RedemptionApprovalModal({
       await invalidateAll();
       onSuccess?.();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not void — please try again');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Could not void — please try again');
     } finally {
       setVoiding(false);
     }

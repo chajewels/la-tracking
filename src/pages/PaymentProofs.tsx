@@ -38,9 +38,9 @@ interface ProofRow {
 
 const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValue }: { embedded?: boolean; searchValue?: string } = {}) {
   const { roles } = useAuth();
-  const isAdmin = (roles as any[]).includes('admin');
-  const isFinance = (roles as any[]).includes('finance');
-  const isStaff = (roles as any[]).includes('staff');
+  const isAdmin = roles.includes('admin');
+  const isFinance = roles.includes('finance');
+  const isStaff = roles.includes('staff');
   const searchRef = useRef('');
   const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -69,14 +69,14 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValu
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as any[];
+      return data as ProofRow[];
     },
   });
 
   const filtered = useMemo(() => {
     const q = searchRef.current.trim().toLowerCase();
     if (!q) return proofs || [];
-    return (proofs || []).filter((p: any) => {
+    return (proofs || []).filter((p) => {
       const name = p.customers?.full_name || p.cash_orders?.customers?.full_name || '';
       const inv = p.layaway_accounts?.invoice_number || p.cash_orders?.invoice_number || '';
       const sender = p.sender_name || '';

@@ -264,7 +264,7 @@ export default function NotificationComposeDialog({
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
-        const v: any = data?.value;
+        const v: unknown = data?.value;
         const parsed = typeof v === 'string' ? v === 'true' : !!v;
         setGlobalEmailGate(parsed);
       });
@@ -384,8 +384,8 @@ export default function NotificationComposeDialog({
       }
       setShowConfirm(false);
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to send notification');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to send notification');
       // Stay on confirm view so the admin can retry without re-entering data.
     }
   }

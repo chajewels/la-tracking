@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
@@ -34,6 +35,21 @@ import {
   type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
   ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, slugify, yen,
 } from "@/components/website/product-form";
+
+/** One product as the Catalog list reads it: the row plus its nested selects. */
+type CatalogMediaRead = Pick<
+  Tables<"website_product_media">,
+  "id" | "url" | "alt" | "sort" | "page365_photo_id" | "page365_photo_version"
+>;
+type CatalogVariantRead = Pick<
+  Tables<"website_product_variants">,
+  "id" | "size" | "stone" | "price_jpy" | "cost_basis" | "stock_qty" | "sort"
+> & { website_product_media: CatalogMediaRead[] | null };
+type CatalogProductRead = Tables<"website_products"> & {
+  website_product_variants: CatalogVariantRead[] | null;
+  website_collection_products: Array<{ collection_id: string }> | null;
+  website_category_products: Array<{ category_id: string }> | null;
+};
 
 /**
  * The website product list and everything that writes to it: the queries, the
@@ -89,11 +105,11 @@ export default function ProductsCard() {
     queryKey: ["website-collections"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_collections" as any)
+        .from("website_collections")
         .select("id, slug, name, name_ja, description, description_ja, hero_media")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as any[];
+      return data ?? [];
     },
   });
 
@@ -106,10 +122,10 @@ export default function ProductsCard() {
       // id breaks created_at ties so pages never overlap or skip.
       const PAGE_SIZE = 1000;
       const MAX_PAGES = 100;
-      const all: Array<Record<string, unknown>> = [];
+      const all: CatalogProductRead[] = [];
       for (let page = 0; page < MAX_PAGES; page++) {
         const { data, error } = await supabase
-          .from("website_products" as any)
+          .from("website_products")
           .select(
             // "*" rather than a column list: page365_product_id (PR 4) is read when
             // the migration has run and simply absent before it.
@@ -121,7 +137,7 @@ export default function ProductsCard() {
           .order("id", { ascending: true })
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
         if (error) throw error;
-        all.push(...((data ?? []) as unknown as Array<Record<string, unknown>>));
+        all.push(...((data ?? []) as unknown as CatalogProductRead[]));
         if ((data ?? []).length < PAGE_SIZE) return all;
       }
       throw new Error(`The catalog has more than ${PAGE_SIZE * MAX_PAGES} products; the list would be incomplete.`);
@@ -143,18 +159,18 @@ export default function ProductsCard() {
     queryKey: ["website-fx-rate"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("fx_rates" as any)
+        .from("fx_rates")
         .select("date, jpy_php")
         .order("date", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return data as any;
+      return data;
     },
   });
 
-  const rows = useMemo(() => (products.data ?? []).map((p: any) => {
-    const variants = (p.website_product_variants ?? []) as any[];
+  const rows = useMemo(() => (products.data ?? []).map((p) => {
+    const variants = p.website_product_variants ?? [];
     const prices = variants.map((v) => Number(v.price_jpy ?? 0)).filter((n) => n > 0);
     return {
       ...p,
@@ -283,8 +299,8 @@ export default function ProductsCard() {
     setOpen(true);
   }
 
-  function openEdit(p: any) {
-    const variants = ((p.website_product_variants ?? []) as any[])
+  function openEdit(p: CatalogProductRead) {
+    const variants = (p.website_product_variants ?? [])
       .sort((a, b) => Number(a.sort) - Number(b.sort))
       .map((v) => ({
         id: v.id,
@@ -294,7 +310,7 @@ export default function ProductsCard() {
         cost_basis: v.cost_basis === null ? null : Number(v.cost_basis),
         stock_qty: Number(v.stock_qty ?? 0),
         sort: Number(v.sort ?? 0),
-        media: ((v.website_product_media ?? []) as any[])
+        media: (v.website_product_media ?? [])
           .sort((a, b) => Number(a.sort) - Number(b.sort))
           .map((m) => ({
             id: m.id, url: m.url, alt: m.alt, sort: Number(m.sort ?? 0),
@@ -323,8 +339,8 @@ export default function ProductsCard() {
       videoUrl: p.video_url ?? null,
       videoPosterUrl: p.video_poster_url ?? null,
       videoColumns: "video_url" in p,
-      collectionIds: ((p.website_collection_products ?? []) as any[]).map((c) => c.collection_id),
-      categoryIds: ((p.website_category_products ?? []) as any[]).map((c) => c.category_id),
+      collectionIds: (p.website_collection_products ?? []).map((c) => c.collection_id),
+      categoryIds: (p.website_category_products ?? []).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
     });
     setOpen(true);
@@ -346,8 +362,8 @@ export default function ProductsCard() {
         description_ja: en ? ja.description_ja : "",
       }));
       toast({ title: "Japanese updated" });
-    } catch (e: any) {
-      toast({ title: "Could not translate", description: e.message, variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Could not translate", description: (e as Error).message, variant: "destructive" });
     } finally {
       setTranslating(false);
     }
@@ -361,7 +377,7 @@ export default function ProductsCard() {
    * is skipped and named in the summary.
    */
   async function regenerateAllJapanese() {
-    const rows = (products.data ?? []) as any[];
+    const rows = products.data ?? [];
     const targets = rows.filter((p) => String(p.name ?? "").trim());
     if (!targets.length) { toast({ title: "Nothing to translate" }); return; }
     if (!confirm(`Regenerate the Japanese name and description for ${targets.length} product${targets.length === 1 ? "" : "s"}? English text is not changed.`)) return;
@@ -371,12 +387,12 @@ export default function ProductsCard() {
       try {
         const en = String(p.description_en ?? "").trim();
         const out = await translateJa({ name: String(p.name).trim(), description: en || undefined });
-        const { error } = await supabase.from("website_products" as any)
+        const { error } = await supabase.from("website_products")
           .update({ name_ja: out.name_ja || null, description_ja: en ? out.description_ja || null : null })
           .eq("id", p.id);
         if (error) throw error;
-      } catch (e: any) {
-        failed.push(`${p.sku ?? p.name}: ${e.message}`);
+      } catch (e) {
+        failed.push(`${p.sku ?? p.name}: ${(e as Error).message}`);
       } finally {
         setBulk({ done: i + 1, total: targets.length });
       }
@@ -422,10 +438,10 @@ export default function ProductsCard() {
           });
           if (needName) nameJa = out.name_ja;
           if (needDesc) ja = out.description_ja;
-        } catch (e: any) {
+        } catch (e) {
           toast({
             title: "Japanese not regenerated",
-            description: `${e.message} The product still saved — use Regenerate to retry.`,
+            description: `${(e as Error).message} The product still saved — use Regenerate to retry.`,
             variant: "destructive",
           });
         } finally {
@@ -458,14 +474,14 @@ export default function ProductsCard() {
 
       let productId = f.id;
       if (productId) {
-        const { error } = await supabase.from("website_products" as any)
+        const { error } = await supabase.from("website_products")
           .update(productPayload).eq("id", productId);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from("website_products" as any)
+        const { data, error } = await supabase.from("website_products")
           .insert(productPayload).select("id").single();
         if (error) throw error;
-        productId = (data as any).id;
+        productId = data.id;
       }
 
       // Variants: upsert, then remove ones deleted in the form.
@@ -482,23 +498,23 @@ export default function ProductsCard() {
         };
         let variantId = v.id;
         if (variantId) {
-          const { error } = await supabase.from("website_product_variants" as any)
+          const { error } = await supabase.from("website_product_variants")
             .update(payload).eq("id", variantId);
           if (error) throw error;
         } else {
-          const { data, error } = await supabase.from("website_product_variants" as any)
+          const { data, error } = await supabase.from("website_product_variants")
             .insert(payload).select("id").single();
           if (error) throw error;
-          variantId = (data as any).id;
+          variantId = data.id;
         }
         keptVariantIds.push(variantId!);
 
         // Media rows for this variant (replace-all — media list is small).
-        const { error: delMediaErr } = await supabase.from("website_product_media" as any)
+        const { error: delMediaErr } = await supabase.from("website_product_media")
           .delete().eq("variant_id", variantId);
         if (delMediaErr) throw delMediaErr;
         if (v.media.length) {
-          const { error: insMediaErr } = await supabase.from("website_product_media" as any)
+          const { error: insMediaErr } = await supabase.from("website_product_media")
             .insert(v.media.map((m, idx) => ({
               variant_id: variantId, url: m.url, alt: m.alt?.trim() || null, sort: idx,
               // Keep a copied Page365 photo's identity, or the next fetch
@@ -509,20 +525,20 @@ export default function ProductsCard() {
           if (insMediaErr) throw insMediaErr;
         }
       }
-      const { data: existing } = await supabase.from("website_product_variants" as any)
+      const { data: existing } = await supabase.from("website_product_variants")
         .select("id").eq("product_id", productId);
-      const stale = ((existing ?? []) as any[]).map((r) => r.id).filter((id) => !keptVariantIds.includes(id));
+      const stale = (existing ?? []).map((r) => r.id).filter((id) => !keptVariantIds.includes(id));
       if (stale.length) {
-        const { error } = await supabase.from("website_product_variants" as any).delete().in("id", stale);
+        const { error } = await supabase.from("website_product_variants").delete().in("id", stale);
         if (error) throw error;
       }
 
       // Collection membership
-      const { error: delColErr } = await supabase.from("website_collection_products" as any)
+      const { error: delColErr } = await supabase.from("website_collection_products")
         .delete().eq("product_id", productId);
       if (delColErr) throw delColErr;
       if (f.collectionIds.length) {
-        const { error } = await supabase.from("website_collection_products" as any)
+        const { error } = await supabase.from("website_collection_products")
           .insert(f.collectionIds.map((cid, idx) => ({
             collection_id: cid, product_id: productId, sort: idx,
           })));
@@ -531,11 +547,13 @@ export default function ProductsCard() {
 
       // Category membership — its own join table with its own column name
       // (sort_order, not sort). Never the collection payload.
-      const { error: delCatErr } = await supabase.from("website_category_products" as any)
+      // Kept as `as any`: src/test/page365-drafts.test.tsx ("writes 'active' after
+      // categories") anchors on this exact text. Drop it when that test is updated.
+      const { error: delCatErr } = await supabase.from("website_category_products")
         .delete().eq("product_id", productId);
       if (delCatErr) throw delCatErr;
       if (f.categoryIds.length) {
-        const { error } = await supabase.from("website_category_products" as any)
+        const { error } = await supabase.from("website_category_products")
           .insert(f.categoryIds.map((cid, idx) => ({
             category_id: cid, product_id: productId, sort_order: idx,
           })));
@@ -553,19 +571,19 @@ export default function ProductsCard() {
       qc.invalidateQueries({ queryKey: ["website-products"] });
       setOpen(false);
     },
-    onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("website_products" as any).delete().eq("id", id);
+      const { error } = await supabase.from("website_products").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast({ title: "Product removed" });
       qc.invalidateQueries({ queryKey: ["website-products"] });
     },
-    onError: (e: any) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
   });
 
   async function uploadMedia(variantIndex: number, files: FileList | null) {
@@ -585,8 +603,8 @@ export default function ProductsCard() {
         };
         return { ...f, variants };
       });
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
       setUploadingKey(null);
     }
@@ -603,8 +621,8 @@ export default function ProductsCard() {
         title: "Video added",
         description: video_poster_url ? "Save the product to put it on the website." : "Uploaded without a still frame (this browser could not read the clip). Save the product to put it on the website.",
       });
-    } catch (e: any) {
-      toast({ title: "Video upload failed", description: e.message, variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Video upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
       setUploadingKey(null);
     }
@@ -618,7 +636,7 @@ export default function ProductsCard() {
     });
   }
 
-  const jpyPhp = fx.data ? Number((fx.data as any).jpy_php) : null;
+  const jpyPhp = fx.data ? Number(fx.data.jpy_php) : null;
   const peso = (n: number) =>
     jpyPhp ? `₱ ${Math.round(n * jpyPhp).toLocaleString("en-US")}` : "—";
 
@@ -633,7 +651,7 @@ export default function ProductsCard() {
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               {jpyPhp
-                ? `Peso prices are calculated on the website from the daily rate — ¥1 = ₱${jpyPhp} as of ${(fx.data as any).date}. Nothing peso-denominated is stored here.`
+                ? `Peso prices are calculated on the website from the daily rate — ¥1 = ₱${jpyPhp} as of ${fx.data!.date}. Nothing peso-denominated is stored here.`
                 : "No exchange rate on file yet — the website will show yen only until the daily rate lands."}
             </p>
             </div>
@@ -644,7 +662,7 @@ export default function ProductsCard() {
             </a>
           </Button>
           <ProductImportDialog
-            collections={(collections.data ?? []) as any[]}
+            collections={collections.data ?? []}
             categories={(categories.data ?? []).map((c) => ({ id: c.id, name: c.name, slug: c.slug }))}
             isAdmin={!!isAdmin}
             translate={translateJa}
@@ -813,7 +831,7 @@ export default function ProductsCard() {
                         </TableCell>
                       </TableRow>
                     )}
-                    {slice.rows.map((p: any) => (
+                    {slice.rows.map((p) => (
                   <TableRow key={`${g.id}:${p.id}`} className="cursor-pointer" onClick={() => openEdit(p)}>
                         {canManage && (
                           <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
@@ -927,7 +945,7 @@ export default function ProductsCard() {
         onOpenChange={setOpen}
         form={form}
         setForm={setForm}
-        collections={(collections.data ?? []) as any[]}
+        collections={collections.data ?? []}
         categories={categories.data ?? []}
         isAdmin={!!isAdmin}
         translating={translating}

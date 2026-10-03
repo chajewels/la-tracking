@@ -165,8 +165,8 @@ export default function TierEditDialog({ tier, onClose }: TierEditDialogProps) {
       });
       toast.success(`${tier.name} updated`);
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to update tier');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to update tier');
     }
   }
 

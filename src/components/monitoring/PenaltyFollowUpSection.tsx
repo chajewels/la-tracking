@@ -218,9 +218,9 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
 
       if (error) throw error;
 
-      const byAccount = new Map<string, any[]>();
+      const byAccount = new Map<string, NonNullable<typeof data>[number][]>();
       for (const item of data || []) {
-        const acc = (item as any).layaway_accounts;
+        const acc = item.layaway_accounts;
         if (!acc) continue;
         const list = byAccount.get(acc.id) || [];
         list.push(item);
@@ -229,14 +229,14 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
 
       const results: PenaltyAlertItem[] = [];
       for (const [, items] of byAccount.entries()) {
-        const sorted = items.sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+        const sorted = items.sort((a, b) => a.due_date.localeCompare(b.due_date));
         const item = sorted[0];
         const acc = item.layaway_accounts;
         const overdue = daysOverdueFromToday(item.due_date);
         const stage = classifyPenaltyStage(overdue);
         if (!stage) continue;
 
-        const totalPenalty = sorted.reduce((s: number, i: any) => s + Number(i.penalty_amount), 0);
+        const totalPenalty = sorted.reduce((s: number, i) => s + Number(i.penalty_amount), 0);
 
         results.push({
           stage,
@@ -387,8 +387,8 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
         toast.success(`Marked as notified (${alert.stage})`);
       }
       queryClient.invalidateQueries({ queryKey: ['csr-notifications-penalty'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to record notification');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to record notification');
     }
   };
 

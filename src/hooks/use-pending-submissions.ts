@@ -35,6 +35,18 @@ export interface PendingSubmissionSummary {
   account_id: string;
 }
 
+/** Row shape of the usePendingSubmissions select (embeds may be null). */
+interface PendingSubmissionRow {
+  id: string;
+  submitted_amount: number;
+  payment_method: string;
+  created_at: string;
+  status: string;
+  account_id: string;
+  customers: { full_name: string | null } | null;
+  layaway_accounts: { invoice_number: string | null; currency: string | null } | null;
+}
+
 export function usePendingSubmissions(limit = 5) {
   const { session } = useAuth();
   const { canAccessPage } = usePermissions();
@@ -50,7 +62,7 @@ export function usePendingSubmissions(limit = 5) {
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) throw error;
-      return (data || []).map((s: any) => ({
+      return ((data || []) as unknown as PendingSubmissionRow[]).map((s) => ({
         id: s.id,
         submitted_amount: s.submitted_amount,
         payment_method: s.payment_method,

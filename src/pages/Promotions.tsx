@@ -20,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice } from '@/lib/promo-media';
 
@@ -129,6 +130,16 @@ const EMPTY_CATEGORY_FORM: CategoryFormState = {
   display_order: 0,
 };
 
+/** An announcements row as this page renders it. is_active, show_once and
+ *  created_at are nullable in the generated type; the table UI below has
+ *  always treated them as set (types only — nothing is coerced). */
+type AnnouncementRow = Omit<Tables<'announcements'>, 'is_active' | 'show_once' | 'created_at'> & {
+  is_active: boolean;
+  show_once: boolean;
+  created_at: string;
+};
+type AnnouncementForm = Partial<AnnouncementRow>;
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export default function Promotions() {
@@ -175,7 +186,7 @@ export default function Promotions() {
   const { data: promos, isLoading } = useQuery({
     queryKey: ['promotions-admin'],
     queryFn: async () => {
-      const { data, error } = await (supabase.from('promotions' as any) as any)
+      const { data, error } = await supabase.from('promotions')
         .select('*')
         .order('display_order', { ascending: true })
         .order('created_at', { ascending: false });
@@ -200,7 +211,7 @@ export default function Promotions() {
       const totals = new Map<string, number>();
       const uniqueCustomers = new Map<string, Set<string>>();
       while (true) {
-        const { data, error } = await (supabase.from('promo_views' as any) as any)
+        const { data, error } = await supabase.from('promo_views')
           .select('promo_id, customer_id')
           .range(from, from + PAGE_SIZE - 1);
         if (error) throw error;
@@ -239,7 +250,7 @@ export default function Promotions() {
       let from = 0;
       const rows: { category_id: string | null; customer_id: string | null }[] = [];
       while (true) {
-        const { data, error } = await (supabase.from('promo_views' as any) as any)
+        const { data, error } = await supabase.from('promo_views')
           .select('category_id, customer_id')
           .eq('promo_id', editingPromoId)
           .range(from, from + PAGE_SIZE - 1);
@@ -272,7 +283,7 @@ export default function Promotions() {
   const { data: categories } = useQuery({
     queryKey: ['promo-categories'],
     queryFn: async () => {
-      const { data, error } = await (supabase.from('promo_categories' as any) as any)
+      const { data, error } = await supabase.from('promo_categories')
         .select('*')
         .order('display_order', { ascending: true })
         .order('name', { ascending: true });
@@ -293,7 +304,7 @@ export default function Promotions() {
         .in('user_id', creatorIds);
       if (error) throw error;
       const map = new Map<string, string>();
-      (data ?? []).forEach((p: any) => map.set(p.user_id, p.full_name));
+      (data ?? []).forEach((p) => map.set(p.user_id, p.full_name));
       return map;
     },
   });
@@ -311,11 +322,11 @@ export default function Promotions() {
     // Load existing category assignments
     let assignedIds: string[] = [];
     try {
-      const { data, error } = await (supabase.from('promo_category_assignments' as any) as any)
+      const { data, error } = await supabase.from('promo_category_assignments')
         .select('category_id')
         .eq('promo_id', p.id);
       if (!error && Array.isArray(data)) {
-        assignedIds = data.map((r: any) => r.category_id);
+        assignedIds = data.map((r) => r.category_id);
       }
     } catch {
       /* leave empty on error */
@@ -351,13 +362,13 @@ export default function Promotions() {
 
   async function syncPromoCategoryAssignments(promoId: string, categoryIds: string[]) {
     // Replace strategy: delete all existing for this promo, then insert.
-    const { error: delErr } = await (supabase.from('promo_category_assignments' as any) as any)
+    const { error: delErr } = await supabase.from('promo_category_assignments')
       .delete()
       .eq('promo_id', promoId);
     if (delErr) throw delErr;
     if (categoryIds.length === 0) return;
     const rows = categoryIds.map(cid => ({ promo_id: promoId, category_id: cid }));
-    const { error: insErr } = await (supabase.from('promo_category_assignments' as any) as any)
+    const { error: insErr } = await supabase.from('promo_category_assignments')
       .insert(rows);
     if (insErr) throw insErr;
   }
@@ -382,27 +393,27 @@ export default function Promotions() {
     }
     setSavingCategory(true);
     try {
-      const payload: any = {
+      const payload: TablesInsert<'promo_categories'> = {
         name: catForm.name.trim(),
         display_order: Number(catForm.display_order) || 0,
       };
       if (editingCategory) {
-        const { error } = await (supabase.from('promo_categories' as any) as any)
+        const { error } = await supabase.from('promo_categories')
           .update(payload)
           .eq('id', editingCategory.id);
         if (error) throw error;
         toast.success('Category updated.');
       } else {
         payload.created_by = user?.id ?? null;
-        const { error } = await (supabase.from('promo_categories' as any) as any).insert(payload);
+        const { error } = await supabase.from('promo_categories').insert(payload);
         if (error) throw error;
         toast.success('Category created.');
       }
       setCatDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['promo-categories'] });
       queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
-    } catch (err: any) {
-      toast.error(`Save failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Save failed: ${(err as Error).message || err}`);
     } finally {
       setSavingCategory(false);
     }
@@ -411,7 +422,7 @@ export default function Promotions() {
   async function handleDeleteCategory() {
     if (!deleteCategoryTarget) return;
     try {
-      const { error } = await (supabase.from('promo_categories' as any) as any)
+      const { error } = await supabase.from('promo_categories')
         .delete()
         .eq('id', deleteCategoryTarget.id);
       if (error) throw error;
@@ -419,8 +430,8 @@ export default function Promotions() {
       setDeleteCategoryTarget(null);
       queryClient.invalidateQueries({ queryKey: ['promo-categories'] });
       queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
-    } catch (err: any) {
-      toast.error(`Delete failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Delete failed: ${(err as Error).message || err}`);
     }
   }
 
@@ -476,8 +487,8 @@ export default function Promotions() {
         media_type: 'image',
       }));
       toast.success(`${urls.length} image${urls.length === 1 ? '' : 's'} uploaded.`);
-    } catch (err: any) {
-      toast.error(`Upload failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Upload failed: ${(err as Error).message || err}`);
     } finally {
       setUploading(false);
     }
@@ -528,7 +539,7 @@ export default function Promotions() {
         resolvedType = 'image';
       }
 
-      const payload: any = {
+      const payload: TablesInsert<'promotions'> = {
         title: form.title.trim(),
         description: form.description.trim() || null,
         link_url: form.link_url.trim() || null,
@@ -542,7 +553,7 @@ export default function Promotions() {
       };
       let promoId: string;
       if (editing) {
-        const { error } = await (supabase.from('promotions' as any) as any)
+        const { error } = await supabase.from('promotions')
           .update(payload)
           .eq('id', editing.id);
         if (error) throw error;
@@ -550,12 +561,12 @@ export default function Promotions() {
         toast.success('Promotion updated.');
       } else {
         payload.created_by = user?.id ?? null;
-        const { data: inserted, error } = await (supabase.from('promotions' as any) as any)
+        const { data: inserted, error } = await supabase.from('promotions')
           .insert(payload)
           .select('id')
           .single();
         if (error) throw error;
-        promoId = (inserted as any).id;
+        promoId = (inserted as { id: string }).id;
         toast.success('Promotion created.');
       }
       // Sync category assignments (replace strategy)
@@ -564,8 +575,8 @@ export default function Promotions() {
       queryClient.invalidateQueries({ queryKey: ['promotions-admin'] });
       queryClient.invalidateQueries({ queryKey: ['promotions-active'] });
       queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
-    } catch (err: any) {
-      toast.error(`Save failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Save failed: ${(err as Error).message || err}`);
     } finally {
       setSaving(false);
     }
@@ -573,21 +584,21 @@ export default function Promotions() {
 
   async function toggleActive(p: Promotion, next: boolean) {
     try {
-      const { error } = await (supabase.from('promotions' as any) as any)
+      const { error } = await supabase.from('promotions')
         .update({ is_active: next })
         .eq('id', p.id);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['promotions-admin'] });
       queryClient.invalidateQueries({ queryKey: ['promotions-active'] });
-    } catch (err: any) {
-      toast.error(`Toggle failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Toggle failed: ${(err as Error).message || err}`);
     }
   }
 
   async function handleDelete() {
     if (!deleteTarget) return;
     try {
-      const { error } = await (supabase.from('promotions' as any) as any)
+      const { error } = await supabase.from('promotions')
         .delete()
         .eq('id', deleteTarget.id);
       if (error) throw error;
@@ -595,15 +606,15 @@ export default function Promotions() {
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ['promotions-admin'] });
       queryClient.invalidateQueries({ queryKey: ['promotions-active'] });
-    } catch (err: any) {
-      toast.error(`Delete failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      toast.error(`Delete failed: ${(err as Error).message || err}`);
     }
   }
 
   // ── Announcements tab state ──
   const [annEditOpen, setAnnEditOpen] = useState(false);
-  const [annDeleteTarget, setAnnDeleteTarget] = useState<any>(null);
-  const [annForm, setAnnForm] = useState<any>({ title: '', content: '', image_url: null, link_url: null, link_label: null, is_active: true, show_once: true });
+  const [annDeleteTarget, setAnnDeleteTarget] = useState<AnnouncementRow | null>(null);
+  const [annForm, setAnnForm] = useState<AnnouncementForm>({ title: '', content: '', image_url: null, link_url: null, link_label: null, is_active: true, show_once: true });
   const [annSaving, setAnnSaving] = useState(false);
   const [annImageFile, setAnnImageFile] = useState<File | null>(null);
 
@@ -612,12 +623,12 @@ export default function Promotions() {
     queryFn: async () => {
       const { data, error } = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
       if (error) throw error;
-      return (data || []) as any[];
+      return (data || []) as AnnouncementRow[];
     },
   });
 
   const openNewAnn = () => { setAnnForm({ title: '', content: '', image_url: null, link_url: null, link_label: null, is_active: true, show_once: true }); setAnnImageFile(null); setAnnEditOpen(true); };
-  const openEditAnn = (a: any) => { setAnnForm({ ...a }); setAnnImageFile(null); setAnnEditOpen(true); };
+  const openEditAnn = (a: AnnouncementRow) => { setAnnForm({ ...a }); setAnnImageFile(null); setAnnEditOpen(true); };
 
   const handleSaveAnn = async () => {
     if (!annForm.title?.trim() || !annForm.content?.trim()) { toast.error('Title and content required'); return; }
@@ -644,12 +655,12 @@ export default function Promotions() {
       }
       queryClient.invalidateQueries({ queryKey: ['announcements'] });
       setAnnEditOpen(false);
-    } catch (err: any) { toast.error(err.message || 'Save failed'); }
+    } catch (err: unknown) { toast.error((err as Error).message || 'Save failed'); }
     finally { setAnnSaving(false); }
   };
 
-  const toggleAnnActive = async (a: any) => { await supabase.from('announcements').update({ is_active: !a.is_active }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
-  const toggleAnnShowOnce = async (a: any) => { await supabase.from('announcements').update({ show_once: !a.show_once }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const toggleAnnActive = async (a: AnnouncementRow) => { await supabase.from('announcements').update({ is_active: !a.is_active }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const toggleAnnShowOnce = async (a: AnnouncementRow) => { await supabase.from('announcements').update({ show_once: !a.show_once }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
   const handleDeleteAnn = async () => { if (!annDeleteTarget) return; await supabase.from('announcements').delete().eq('id', annDeleteTarget.id); toast.success('Deleted'); setAnnDeleteTarget(null); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
 
   return (
@@ -875,7 +886,7 @@ export default function Promotions() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {announcements.map((a: any) => (
+                    {announcements.map((a) => (
                       <TableRow key={a.id}>
                         <TableCell>
                           <span className="font-medium">{a.title}</span>
@@ -906,8 +917,8 @@ export default function Promotions() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>{annForm.id ? 'Edit' : 'New'} Announcement</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>Title *</Label><Input value={annForm.title || ''} onChange={e => setAnnForm((f: any) => ({ ...f, title: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Content *</Label><Textarea rows={4} value={annForm.content || ''} onChange={e => setAnnForm((f: any) => ({ ...f, content: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Title *</Label><Input value={annForm.title || ''} onChange={e => setAnnForm((f) => ({ ...f, title: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Content *</Label><Textarea rows={4} value={annForm.content || ''} onChange={e => setAnnForm((f) => ({ ...f, content: e.target.value }))} /></div>
             <div className="space-y-2">
               <Label>Image (optional)</Label>
               {annForm.image_url && !annImageFile && <img src={annForm.image_url} alt="" className="w-full max-h-32 object-cover rounded border border-border" />}
@@ -917,12 +928,12 @@ export default function Promotions() {
               </label>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Link URL</Label><Input value={annForm.link_url || ''} onChange={e => setAnnForm((f: any) => ({ ...f, link_url: e.target.value }))} placeholder="https://..." /></div>
-              <div className="space-y-2"><Label>Link Label</Label><Input value={annForm.link_label || ''} onChange={e => setAnnForm((f: any) => ({ ...f, link_label: e.target.value }))} placeholder="Learn More" /></div>
+              <div className="space-y-2"><Label>Link URL</Label><Input value={annForm.link_url || ''} onChange={e => setAnnForm((f) => ({ ...f, link_url: e.target.value }))} placeholder="https://..." /></div>
+              <div className="space-y-2"><Label>Link Label</Label><Input value={annForm.link_label || ''} onChange={e => setAnnForm((f) => ({ ...f, link_label: e.target.value }))} placeholder="Learn More" /></div>
             </div>
             <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2"><Switch checked={annForm.is_active ?? true} onCheckedChange={(v: boolean) => setAnnForm((f: any) => ({ ...f, is_active: v }))} /><Label>Active</Label></div>
-              <div className="flex items-center gap-2"><Switch checked={annForm.show_once ?? true} onCheckedChange={(v: boolean) => setAnnForm((f: any) => ({ ...f, show_once: v }))} /><Label>Show Once</Label></div>
+              <div className="flex items-center gap-2"><Switch checked={annForm.is_active ?? true} onCheckedChange={(v: boolean) => setAnnForm((f) => ({ ...f, is_active: v }))} /><Label>Active</Label></div>
+              <div className="flex items-center gap-2"><Switch checked={annForm.show_once ?? true} onCheckedChange={(v: boolean) => setAnnForm((f) => ({ ...f, show_once: v }))} /><Label>Show Once</Label></div>
             </div>
           </div>
           <DialogFooter>

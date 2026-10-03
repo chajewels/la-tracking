@@ -36,7 +36,10 @@ interface PreviewData {
 }
 
 // Surface the edge function's JSON error body (FunctionsHttpError wraps it).
-async function extractFnError(error: any, fallback: string): Promise<string> {
+async function extractFnError(
+  error: { message?: string; context?: { body?: BodyInit | null } } | null | undefined,
+  fallback: string,
+): Promise<string> {
   let msg = error?.message || fallback;
   try {
     if (error && 'context' in error && error.context?.body) {
@@ -105,13 +108,13 @@ export default function ApplyStoreCreditCard({
         body: { ...orderBody, preview: true },
       });
       if (error) throw new Error(await extractFnError(error, 'Preview failed'));
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
       const pv = data as PreviewData;
       setPreview(pv);
       // Default the amount field to the full applicable maximum.
       setAmount(String(pv.applicable ?? 0));
-    } catch (err: any) {
-      setPreviewError(err?.message || 'Preview failed');
+    } catch (err: unknown) {
+      setPreviewError((err as { message?: string } | null)?.message || 'Preview failed');
     } finally {
       setPreviewLoading(false);
     }
@@ -140,13 +143,13 @@ export default function ApplyStoreCreditCard({
         body: { ...orderBody, amount: Number(amount) },
       });
       if (error) throw new Error(await extractFnError(error, 'Failed to apply store credit'));
-      if ((data as any)?.error) throw new Error((data as any).error);
-      const applied = Number((data as any)?.amount_applied ?? 0);
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
+      const applied = Number((data as { amount_applied?: number } | null)?.amount_applied ?? 0);
       toast.success(`Applied ${formatCurrency(applied, currency)} of store credit`);
       onApplied?.();
       close();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to apply store credit');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to apply store credit');
       setSubmitting(false);
     }
   };

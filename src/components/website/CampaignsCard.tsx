@@ -49,7 +49,7 @@ import {
  * recipients table is staff-SELECT only and has no write policy at all: those
  * rows are the queue worker's, not the Hub's.
  *
- * Neither campaign table is in types.ts, so both go through the `as any` cast.
+ * newsletter_campaigns is in the generated types (types.ts), so it is queried typed.
  */
 
 const STATUS_CHIP: Record<string, string> = {
@@ -70,7 +70,7 @@ export function CampaignsCard() {
     queryKey: ["newsletter-campaigns"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("newsletter_campaigns" as any)
+        .from("newsletter_campaigns")
         .select(CAMPAIGN_SELECT)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -99,7 +99,7 @@ export function CampaignsCard() {
     queryKey: ["website-products-picker"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_products" as any)
+        .from("website_products")
         .select("id, name, sku, status")
         .eq("status", "active")
         .order("name");
@@ -112,7 +112,7 @@ export function CampaignsCard() {
     queryKey: ["website-posts-picker"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("website_posts" as any)
+        .from("website_posts")
         .select("slug, title_en, published")
         .eq("published", true)
         .order("published_at", { ascending: false });
@@ -160,7 +160,7 @@ export function CampaignsCard() {
   /** Save the draft, returning its id. Shared by Save, Send test and Send. */
   const persist = async (d: CampaignDraft): Promise<string> => {
     const { data, error } = await supabase
-      .from("newsletter_campaigns" as any)
+      .from("newsletter_campaigns")
       .upsert(campaignPayload(d, user?.id ?? null) as never, { onConflict: "id" })
       .select("id")
       .single();

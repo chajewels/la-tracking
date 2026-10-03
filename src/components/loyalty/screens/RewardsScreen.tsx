@@ -114,9 +114,9 @@ export default function RewardsScreen() {
         },
       );
       if (error) throw error;
-      const errFromBody = (data as any)?.error as string | undefined;
+      const errFromBody = (data as { error?: string; status?: number } | null)?.error as string | undefined;
       if (errFromBody) {
-        const status = (data as any)?.status ?? 0;
+        const status = (data as { error?: string; status?: number } | null)?.status ?? 0;
         if (status === 409 || /out of stock|raced/i.test(errFromBody)) {
           throw new Error('This reward just sold out, please pick another');
         }
@@ -142,8 +142,8 @@ export default function RewardsScreen() {
           queryKey: ['customer-loyalty', member.customer_id],
         });
       }
-    } catch (err: any) {
-      const msg = String(err?.message || err || '');
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string } | null)?.message || err || '');
       if (/sold out|out of stock|raced/i.test(msg)) {
         toast.error('This reward just sold out, please pick another');
       } else if (/mismatch|configuration changed/i.test(msg)) {

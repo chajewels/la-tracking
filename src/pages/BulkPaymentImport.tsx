@@ -153,8 +153,8 @@ export default function BulkPaymentImport() {
       });
       setValidated(result);
       setStep('preview');
-    } catch (err: any) {
-      toast.error('Validation failed: ' + (err.message || 'unknown error'));
+    } catch (err: unknown) {
+      toast.error('Validation failed: ' + ((err as Error).message || 'unknown error'));
     } finally {
       setValidating(false);
     }

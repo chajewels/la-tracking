@@ -54,7 +54,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
 
   const downpaymentRemaining = useMemo(() => {
     if (!selected) return 0;
-    const dp = scheduleData.find((s: any) => s.installment_number === 0);
+    const dp = scheduleData.find((s) => s.installment_number === 0);
     if (!dp) return 0;
     return Math.max(
       0,
@@ -82,7 +82,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
       if (cancelled || !data) return;
       const additions: Record<string, ScheduleRow[]> = {};
       for (const id of missing) additions[id] = [];
-      for (const row of data as any[]) {
+      for (const row of data) {
         const list = additions[row.account_id] ?? (additions[row.account_id] = []);
         list.push({
           id: row.id,

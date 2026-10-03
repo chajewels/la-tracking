@@ -206,7 +206,7 @@ const REDEMPTION_STATUS_STYLES: Record<string, string> = {
 
 export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: string }) {
   const { roles } = useAuth();
-  const rolesArr = roles as any[];
+  const rolesArr = roles as readonly string[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
 

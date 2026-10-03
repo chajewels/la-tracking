@@ -127,8 +127,8 @@ export default function SystemHealthCheckPanel() {
       const { data: result, error: err } = await supabase.functions.invoke('system-health-v2');
       if (err) throw err;
       setData(result as HealthData);
-    } catch (e: any) {
-      setError(e.message || 'Health check failed');
+    } catch (e: unknown) {
+      setError((e as { message?: string }).message || 'Health check failed');
     } finally {
       setLoading(false);
     }

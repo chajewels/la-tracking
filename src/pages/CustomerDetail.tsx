@@ -39,6 +39,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
+import type { Tables } from '@/integrations/supabase/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -49,6 +50,11 @@ import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
+
+/** A payments row as read by useCustomerAccounts (select('*')). submission_type
+ *  is read below but is not a payments column; it stays undefined at runtime. */
+type CustomerPaymentRow = Tables<'payments'> & { submission_type?: string | null };
+type CustomerServiceRow = Tables<'account_services'>;
 
 // Key-fact pill in the header card — the same treatment as AccountDetail's.
 const factPill = 'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-surface-2/60 px-2.5 text-xs text-muted-foreground';
@@ -133,7 +139,7 @@ export default function CustomerDetail() {
   // --- Set Portal PIN dialog state ---
   const { roles } = useAuth();
   const { can } = usePermissions();
-  const canManagePin = (roles as any[]).includes('admin') || (roles as any[]).includes('staff');
+  const canManagePin = (roles as readonly string[]).includes('admin') || (roles as readonly string[]).includes('staff');
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinSaving, setPinSaving] = useState(false);
@@ -147,12 +153,12 @@ export default function CustomerDetail() {
       const { data: res, error } = await supabase.functions.invoke('set-portal-pin', {
         body: { customer_id: customerId, pin: pinInput },
       });
-      if (error || (res as any)?.error) throw new Error((res as any)?.error || error?.message || 'Failed to set PIN');
+      if (error || (res as { error?: string } | null)?.error) throw new Error((res as { error?: string } | null)?.error || error?.message || 'Failed to set PIN');
       toast.success('Portal PIN set successfully');
       setPinDialogOpen(false);
       setPinInput('');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to set PIN');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to set PIN');
     } finally {
       setPinSaving(false);
     }
@@ -191,8 +197,8 @@ export default function CustomerDetail() {
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       setEditingCustomer(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update');
     } finally {
       setEditSaving(false);
     }
@@ -298,7 +304,7 @@ export default function CustomerDetail() {
   );
 
 
-  const sortPaymentsNewestFirst = (a: any, b: any) => {
+  const sortPaymentsNewestFirst = (a: { created_at: string; date_paid: string }, b: { created_at: string; date_paid: string }) => {
     const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     if (createdDiff !== 0) return createdDiff;
     return new Date(b.date_paid).getTime() - new Date(a.date_paid).getTime();
@@ -317,8 +323,8 @@ export default function CustomerDetail() {
     // Use activeAccounts for payment lookup (only from open invoices)
     const allActivePayments = activeAccounts.flatMap((acct) =>
       (acct.payments || [])
-        .filter((p: any) => !p.voided_at)
-        .map((p: any) => ({
+        .filter((p: CustomerPaymentRow) => !p.voided_at)
+        .map((p: CustomerPaymentRow) => ({
           ...p,
           invoice_number: acct.account.invoice_number,
           currency: acct.account.currency as Currency,
@@ -334,13 +340,13 @@ export default function CustomerDetail() {
     const latestPaymentEvent = latestPayment
       ? latestPaymentIsSplitBatch
         ? allActivePayments
-            .filter((p: any) => p.reference_number === latestPayment.reference_number)
+            .filter((p) => p.reference_number === latestPayment.reference_number)
             .sort(sortPaymentsNewestFirst)
         : [latestPayment]
       : [];
 
     const recentByCurrency = latestPaymentEvent.reduce<Record<Currency, number>>(
-      (totals, payment: any) => {
+      (totals, payment) => {
         totals[payment.currency] += Number(payment.amount_paid);
         return totals;
       },
@@ -356,7 +362,7 @@ export default function CustomerDetail() {
     // Multi-invoice payment header
     if (latestPaymentEvent.length > 1 && thankYouParts.length > 0) {
       msg += `${ml('payment_received', 'opening')} ${thankYouParts.join(' and ')} has been received.\n\n`;
-      latestPaymentEvent.forEach((payment: any) => {
+      latestPaymentEvent.forEach((payment) => {
         msg += `Inv # ${payment.invoice_number} - ${formatCurrency(Number(payment.amount_paid), payment.currency)}\n`;
       });
       msg += `\n`;
@@ -372,12 +378,12 @@ export default function CustomerDetail() {
       const currency = acct.account.currency as Currency;
       const scheduleItems = acct.schedule || [];
 
-      const downpayment = Number((acct.account as any).downpayment_amount || 0);
+      const downpayment = Number(acct.account.downpayment_amount || 0);
       const schedBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
       const schedPenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
       const originalPrincipal = downpayment + schedBaseSum;
-      const acctServicesList = (acct as any).services || [];
-      const totalSvcAmt = acctServicesList.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
+      const acctServicesList: CustomerServiceRow[] = acct.services || [];
+      const totalSvcAmt = acctServicesList.reduce((s: number, svc: CustomerServiceRow) => s + Number(svc.amount), 0);
       const totalLayawayAmount = originalPrincipal + schedPenaltySum + totalSvcAmt;
       const totalPaid = Number(acct.account.total_paid);
       const remainingBalance = scheduleItems
@@ -385,14 +391,14 @@ export default function CustomerDetail() {
         .reduce((sum, s) => sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount)), 0);
 
       const activePayments = [...(acct.payments || [])]
-        .filter((p: any) => !p.voided_at)
-        .sort((a: any, b: any) => {
+        .filter((p: CustomerPaymentRow) => !p.voided_at)
+        .sort((a: CustomerPaymentRow, b: CustomerPaymentRow) => {
           const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
           if (dateDiff !== 0) return dateDiff;
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
 
-      const paymentParts = activePayments.map((p: any, index: number) => {
+      const paymentParts = activePayments.map((p: CustomerPaymentRow, index: number) => {
         const amt = Number(p.amount_paid);
         const formatted = formatCurrency(amt, currency);
         // First payment is downpayment — label it
@@ -401,7 +407,7 @@ export default function CustomerDetail() {
         return isDP ? `${formatted} (DP)` : formatted;
       });
       const breakdownTotal = activePayments.reduce(
-        (sum: number, p: any) => sum + Number(p.amount_paid), 0
+        (sum: number, p: CustomerPaymentRow) => sum + Number(p.amount_paid), 0
       );
       const paymentBreakdownText = activePayments.length > 0
         ? `${paymentParts.join(' + ')} = ${formatCurrency(breakdownTotal, currency)}`
@@ -543,7 +549,7 @@ export default function CustomerDetail() {
                   <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-500" onClick={async () => {
                     const loc = toLocationString(locationType, country);
                     if (locationType === 'international' && !loc) { toast.error('Please select a country'); return; }
-                    const { error } = await supabase.from('customers').update({ location: loc } as any).eq('id', customer.id);
+                    const { error } = await supabase.from('customers').update({ location: loc }).eq('id', customer.id);
                     if (error) { toast.error(error.message); return; }
                     toast.success('Location updated');
                     queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
@@ -554,9 +560,9 @@ export default function CustomerDetail() {
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 group">
-                  <span className="text-xs text-muted-foreground">{(customer as any).location || 'Not set'}</span>
+                  <span className="text-xs text-muted-foreground">{customer.location || 'Not set'}</span>
                   <Button variant="ghost" size="icon" aria-label="Edit location" className="h-5 w-5 transition-opacity text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 focus-visible:opacity-100" onClick={() => {
-                    const parsed = parseLocation((customer as any).location);
+                    const parsed = parseLocation(customer.location);
                     setLocationType(parsed.locationType);
                     setCountry(parsed.country);
                     setEditingLocation(true);
@@ -689,7 +695,7 @@ export default function CustomerDetail() {
           customerEmail={customer.email ?? null}
           authUserId={customer.auth_user_id ?? null}
           portalPasswordAt={(customer as { portal_password_at?: string | null }).portal_password_at ?? null}
-          setupLinkSentAt={(customer as any).setup_link_sent_at ?? null}
+          setupLinkSentAt={customer.setup_link_sent_at ?? null}
         />
 
         {canManagePin && (
@@ -896,12 +902,12 @@ export default function CustomerDetail() {
                   <p className="text-sm font-bold text-card-foreground tabular-nums">{formatCurrency(totalAmount, currency)}</p>
                 </div>
                 {(() => {
-                  const dpAmt = Number((account as any).downpayment_amount || 0);
+                  const dpAmt = Number(account.downpayment_amount || 0);
                   if (dpAmt <= 0) return null;
                   const dpPays = (data.accounts.find(a => a.account.id === account.id)?.payments || []).filter(
-                    (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+                    (p: CustomerPaymentRow) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
                   );
-                  const dpPd = dpPays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+                  const dpPd = dpPays.reduce((s: number, p: CustomerPaymentRow) => s + Number(p.amount_paid), 0);
                   return (
                     <div>
                       <p className="text-[10px] uppercase tracking-[0.12em] text-ink-muted">Downpayment</p>
@@ -939,12 +945,12 @@ export default function CustomerDetail() {
                 </h3>
                 {/* Downpayment row */}
                 {(() => {
-                  const dpAmt = Number((account as any).downpayment_amount || 0);
+                  const dpAmt = Number(account.downpayment_amount || 0);
                   if (dpAmt <= 0) return null;
                   const dpPays = (data.accounts.find(a => a.account.id === account.id)?.payments || []).filter(
-                    (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+                    (p: CustomerPaymentRow) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
                   );
-                  const dpPd = dpPays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+                  const dpPd = dpPays.reduce((s: number, p: CustomerPaymentRow) => s + Number(p.amount_paid), 0);
                   const dpDone = dpPd >= dpAmt;
                   return (
                     <div className={`flex items-center justify-between p-2.5 rounded-lg border ${dpDone ? 'bg-success/5 border-success/10' : dpPd > 0 ? 'bg-warning/5 border-warning/10' : 'bg-primary/5 border-primary/10'}`}>
@@ -1017,15 +1023,15 @@ export default function CustomerDetail() {
               </div>
 
               {/* Additional Services */}
-              {(acctServices as any[] || []).length > 0 && (
+              {(acctServices as CustomerServiceRow[] || []).length > 0 && (
                 <div className="space-y-1.5">
                   <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted flex items-center gap-1.5">
                     <Wrench className="h-3.5 w-3.5 text-gold-300" aria-hidden /> Additional Services
                     <span className="ml-auto text-xs font-bold normal-case tracking-normal text-card-foreground tabular-nums">
-                      Total: {formatCurrency((acctServices as any[]).reduce((s: number, svc: any) => s + Number(svc.amount), 0), currency)}
+                      Total: {formatCurrency((acctServices as CustomerServiceRow[]).reduce((s: number, svc: CustomerServiceRow) => s + Number(svc.amount), 0), currency)}
                     </span>
                   </h3>
-                  {(acctServices as any[]).map((svc: any) => (
+                  {(acctServices as CustomerServiceRow[]).map((svc: CustomerServiceRow) => (
                     <div key={svc.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-card">
                       <div className="flex items-center gap-2">
                         <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
