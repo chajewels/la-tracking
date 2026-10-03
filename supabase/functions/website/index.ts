@@ -15,6 +15,11 @@ import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, reservationFlags,
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
+import {
+  isPaidyPublicKey, paidyAmountMatches, paidyModeFrom, paidyNotOfferedReason, paidyZip,
+} from "../_shared/paidy-rules.ts";
+import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
+import { customerReference } from "../_shared/order-reference.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
 /**
@@ -404,6 +409,85 @@ function shipToAddress(snapshot: unknown, embedded: unknown): AnyRec | null {
     };
   }
   return (embedded as AnyRec | null) ?? null;
+}
+
+/**
+ * PAIDY ato-barai ON A CONFIRMED ORDER (2026-10-03, docs/PAIDY.md).
+ *
+ * Whether 『あと払い（ペイディ）』 is offered on this order, and — when it is —
+ * the complete Paidy Checkout payload the storefront passes to
+ * `Paidy.launch()` untouched. Every figure in it is the Hub's: the amount is
+ * the order's remaining balance, the lines are the order's lines, the buyer
+ * history is this customer's own paid orders. The rules are in
+ * _shared/paidy-rules.ts (pure, tested); this reads the switch and the data.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number) {
+  const [{ data: modeRow }, { data: keyRow }] = await Promise.all([
+    supabase.from("system_settings").select("value").eq("key", "paidy_mode").maybeSingle(),
+    supabase.from("system_settings").select("value").eq("key", "paidy_public_key").maybeSingle(),
+  ]);
+  const mode = paidyModeFrom((modeRow as AnyRec | null)?.value);
+  const rawKey = (keyRow as AnyRec | null)?.value;
+  const publicKey = typeof rawKey === "string" ? rawKey : (rawKey == null ? "" : String(rawKey));
+  const reason = paidyNotOfferedReason({
+    mode, publicKey, customerIsTest: customer.is_test === true, order, address, pendingSubmissions: pendingCount,
+  });
+  if (reason) return { offered: false as const, reason };
+
+  // buyer_data: Paidy asks for the customer's history with us (it raises
+  // approval rates). Lifetime value = yen actually received on her cash orders.
+  const [{ data: history }, { data: cust }] = await Promise.all([
+    supabase.from("cash_orders").select("total_paid, status, currency").eq("customer_id", customer.id).in("status", ["completed", "pending"]).eq("currency", "JPY"),
+    supabase.from("customers").select("created_at, mobile_number").eq("id", customer.id).maybeSingle(),
+  ]);
+  const paidOrders = ((history ?? []) as AnyRec[]).filter((o) => Number(o.total_paid ?? 0) > 0);
+  const ltv = paidOrders.reduce((sum, o) => sum + Math.round(Number(o.total_paid ?? 0)), 0);
+  const registered = String((cust as AnyRec | null)?.created_at ?? order.created_at ?? "").slice(0, 10);
+  const phone = String((cust as AnyRec | null)?.mobile_number ?? address?.phone ?? "").replace(/[^0-9+]/g, "");
+  const orderRef = customerReference(order as never);
+
+  return {
+    offered: true as const,
+    public_key: publicKey,
+    test: mode === "test",
+    checkout: {
+      amount: Math.round(Number(order.remaining_balance)),
+      currency: "JPY",
+      store_name: "Cha Jewels",
+      description: orderRef,
+      buyer: {
+        email: customer.email ?? undefined,
+        name1: String(address?.recipient_name || customer.full_name || "").trim() || "Customer",
+        phone: phone || undefined,
+      },
+      buyer_data: {
+        user_id: String(customer.customer_code ?? customer.id),
+        ltv,
+        account_registration_date: registered || undefined,
+        order_count: paidOrders.length,
+        last_order_amount: paidOrders.length ? Math.round(Number(paidOrders[paidOrders.length - 1].total_paid ?? 0)) : undefined,
+      },
+      order: {
+        items: items.map((l) => ({
+          id: String(l.sku ?? l.variant_id ?? l.id),
+          quantity: Number(l.quantity ?? 1),
+          title: String(l.title ?? "Jewelry"),
+          unit_price: Math.round(Number(l.unit_price_jpy ?? 0)),
+        })),
+        order_ref: orderRef,
+        shipping: Math.round(Number(order.shipping_fee ?? 0)),
+        tax: 0,
+      },
+      shipping_address: {
+        line1: address?.line1 ?? undefined,
+        line2: address?.line2 ?? undefined,
+        city: address?.city ?? undefined,
+        state: address?.region ?? undefined,
+        zip: paidyZip(address?.postal_code) ?? "",
+      },
+    },
+  };
 }
 
 const LAYAWAY_FIELDS =
@@ -2258,17 +2342,28 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ),
       );
 
+      // Submissions a reviewer has not decided yet (the plan page's shape):
+      // the storefront shows "being checked" and hides the payment card.
+      const { data: pendingSubs, error: pendErr } = await supabase
+        .from("payment_submissions")
+        .select("id, submitted_amount, payment_date, payment_method, status, created_at")
+        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]).order("created_at");
+      if (pendErr) throw pendErr;
+      const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
+      const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length);
+
       return jsonResponse(scrub({
         order: {
           // awaiting_confirmation / ready_for_payment (reserve-first A2).
           ...withReservationFlags(order as AnyRec, "cash_order"),
           ship_to_snapshot: undefined,
-          ship_to_address: shipToAddress(
-            (order as AnyRec).ship_to_snapshot,
-            (order as AnyRec).ship_to_address,
-          ),
+          ship_to_address: shipTo,
         },
         items: lines,
+        pending_submissions: pendingSubs ?? [],
+        // Paidy ato-barai (2026-10-03): the block the order page renders, or
+        // null with the reason it is not offered (logged, never shown).
+        paidy: paidyBlock.offered ? paidyBlock : null,
         transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
         // Methods are only actionable while the transfer is outstanding — and
         // never before staff confirm the piece (reserve-first A2; a reservation
@@ -2277,6 +2372,124 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
+    }
+
+    // POST /orders/:id/paidy — the customer finished Paidy's window; file the
+    // authorisation as a payment submission (docs/PAIDY.md). Nothing is
+    // charged here: a reviewer's Confirm captures it, Reject closes it.
+    if (req.method === "POST" && segments[0] === "orders" && segments[1] && segments[2] === "paidy" && !segments[3]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = await req.json().catch(() => ({})) as AnyRec;
+      const paidyPaymentId = body.paidy_payment_id;
+      if (!isPaidyPaymentId(paidyPaymentId)) return jsonResponse({ error: "paidy_mismatch", detail: "bad_id" }, 409);
+
+      const { data: order, error } = await supabase
+        .from("cash_orders")
+        .select(`${ORDER_FIELDS}, customer_id, ship_to_snapshot, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
+        .eq("id", segments[1]).eq("customer_id", customer.id).maybeSingle();
+      if (error) throw error;
+      if (!order) return notFound();
+      if (isUnconfirmedReservation(order as AnyRec)) return jsonResponse({ error: NOT_READY_FOR_PAYMENT }, 409);
+
+      const { count: pendingCount } = await supabase
+        .from("payment_submissions").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]);
+      if ((pendingCount ?? 0) > 0) return jsonResponse({ error: "submission_pending" }, 409);
+
+      // The same rule that showed the button must still hold now.
+      const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
+      const offer = await paidyOffer(supabase, customer, order as AnyRec, shipTo, [], 0);
+      if (!offer.offered) return jsonResponse({ error: "paidy_not_offered", reason: offer.reason }, 409);
+
+      // 3 per 24 h per order, like submit-cash-payment (rejected ones excluded).
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count: recent } = await supabase
+        .from("payment_submissions").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).not("status", "in", '("rejected","cancelled")').gte("created_at", since);
+      if ((recent ?? 0) >= 3) return jsonResponse({ error: "too_many_submissions" }, 429);
+
+      // Read the authorisation back from Paidy with the secret key — the only
+      // thing about a Paidy payment the Hub ever trusts.
+      let payment: PaidyPayment;
+      try {
+        if (paidySecretIsTest() !== offer.test) return jsonResponse({ error: "paidy_not_offered", reason: "secret_mode_mismatch" }, 409);
+        payment = await paidy.get(paidyPaymentId);
+      } catch (e) {
+        if (e instanceof PaidyError && e.status === 404) return jsonResponse({ error: "paidy_mismatch", detail: "unknown_payment" }, 409);
+        console.error("[website] paidy.get failed:", e);
+        return jsonResponse({ error: "paidy_unavailable" }, 502);
+      }
+      const mismatch =
+        payment.status !== "AUTHORIZED" ? "not_authorized"
+        : payment.currency !== "JPY" ? "not_jpy"
+        : payment.test !== offer.test ? "test_flag"
+        : !paidyAmountMatches(payment.amount, (order as AnyRec).remaining_balance) ? "amount"
+        : String(payment.order?.order_ref ?? "") !== customerReference(order as never) ? "order_ref"
+        : null;
+      if (mismatch) {
+        // Not ours, or not this order: release it so nothing stays reserved
+        // against the customer's Paidy limit.
+        if (payment.status === "AUTHORIZED") { try { await paidy.close(paidyPaymentId); } catch (e) { console.warn("[website] paidy.close after mismatch failed:", e); } }
+        return jsonResponse({ error: "paidy_mismatch", detail: mismatch }, 409);
+      }
+
+      const { data: rec, error: recErr } = await supabase
+        .from("paidy_payments")
+        .insert({
+          cash_order_id: order.id, customer_id: customer.id, paidy_payment_id: payment.id,
+          status: "authorized", test: payment.test === true, amount_jpy: Math.round(Number(payment.amount)),
+          authorized_at: payment.created_at ?? new Date().toISOString(), last_payload: payment,
+        })
+        .select("id").maybeSingle();
+      if (recErr) {
+        // UNIQUE paidy_payment_id: the same authorisation filed twice is a
+        // retried click, not a second payment.
+        if (String(recErr.code) === "23505") return jsonResponse({ error: "submission_pending" }, 409);
+        throw recErr;
+      }
+
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+      const { data: created, error: subErr } = await supabase
+        .from("payment_submissions")
+        .insert({
+          account_id: null,
+          cash_order_id: order.id,
+          customer_id: customer.id,
+          submitted_amount: Math.round(Number(payment.amount)),
+          payment_date: today,
+          payment_method: "paidy",
+          reference_number: payment.id,
+          sender_name: customer.full_name ?? null,
+          // PD1: a Paidy submission carries no proof file — its proof is the
+          // authorisation read back above.
+          proof_url: null,
+          notes: `Paidy authorisation from the website (${customerReference(order as never)})`,
+          status: "submitted",
+          submission_type: "cash_payment",
+          paidy_payment_id: (rec as AnyRec).id,
+        })
+        .select("id, status, submitted_amount, payment_date").maybeSingle();
+      if (subErr) throw subErr;
+
+      await supabase.from("audit_logs").insert({
+        entity_type: "cash_payment_submission", entity_id: (created as AnyRec).id, action: "submission_created",
+        new_value_json: { cash_order_id: order.id, invoice_number: (order as AnyRec).invoice_number, amount: Math.round(Number(payment.amount)), method: "paidy", reference: payment.id, path: "website_paidy" },
+      });
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "paidy_authorized",
+          title: "Paidy payment awaiting Confirm",
+          body: `${customerReference(order as never)} · ¥${Math.round(Number(payment.amount)).toLocaleString("en-US")} · ${customer.full_name ?? ""} · capture on Confirm (valid 30 days)`,
+          metadata: { cash_order_id: order.id, submission_id: (created as AnyRec).id, paidy_payment_id: payment.id, test: payment.test === true },
+        });
+      } catch (notifyErr) {
+        console.warn("[website] paidy_authorized notification failed (non-blocking):", notifyErr);
+      }
+
+      return jsonResponse(scrub({ ok: true, submission: created }));
     }
 
     // GET /layaway — this customer's plans, newest first.
