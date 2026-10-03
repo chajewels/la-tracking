@@ -14,7 +14,7 @@ Added 2026-09-21.
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
 | Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
-| Settings | `settings` | a static "Website orders" note (PR 10, 2026-10-01 — the reserve-first and checkout-mode cards are retired), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
+| Settings | `settings` | a static "Website orders" note (PR 10, 2026-10-01 — the reserve-first and checkout-mode cards are retired), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), PaidySettingsCard ("Paidy", 2026-10-03), SquareSettingsCard ("Card payments (Square)", S1 2026-10-04, docs/SQUARE.md), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
 | Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK"); "Create drafts" from new Page365 codes (added 2026-09-28, "DRAFTS") |
 | Photos | `photos` | MediaCutoutSettingsCard, MediaCutoutReviewCard | `manage_website_catalog` — automatic background removal: the Off / Test / On switch, the monthly limit, the test batch, and the review queue (approve / re-run / reject / own cut-out). Added 2026-10-05, docs/MEDIA-CUTOUTS.md |
 
@@ -570,6 +570,8 @@ src/components/website/ContactInquiriesCard.tsx
 src/components/website/SettingsCard.tsx              the Settings tab's "Site settings" card
 src/components/settings/PaymentMethodsTab.tsx        Settings tab → Payment details (admin only)
 src/components/settings/PaymentRemindersCard.tsx     Settings tab → Payment reminders (admin only)
+src/components/settings/PaidySettingsCard.tsx        Settings tab → Paidy (admin only; docs/PAIDY.md)
+src/components/settings/SquareSettingsCard.tsx       Settings tab → Card payments (Square) (admin only; docs/SQUARE.md)
 src/components/website/ShippingFeesCard.tsx          Settings tab → Shipping fees (admin only; docs/SHIPPING-FEES.md)
 src/components/website/website-settings.ts           the typed key schema
 src/components/website/PostsCard.tsx                 the Posts card + editor
