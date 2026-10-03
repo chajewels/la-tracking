@@ -38,7 +38,7 @@
     web-reservation-expiring-bell: 13 * * * * (hourly at :13) ⏳ same migration — PURE SQL (SELECT web_reservation_expiring_bells()), no HTTP, no Vault; one staff bell per website DRAFT unconfirmed 48–72h (drafts only since PR 10, 2026-10-01)
     web-reservation-sweep:         23 * * * * (hourly at :23) ⏳ scheduled by migration 20260924100000 — website DRAFTS: 72h unconfirmed drafts closed (expire_web_drafts_atomic) + one sales@ reminder at 24h (docs/WEB-ORDER-DRAFTS.md; the reserve-first half was retired by PR 10, 2026-10-01)
     page365-inventory-schedule:    2-59/5 * * * * (every 5 min) ⏳ scheduled by migration 20260930100000 — Page365 inventory read every 30 min (ticks in between finish it); applies decreases only when page365_inventory_auto_apply is on (docs/PAGE365-IMPORT.md "SCHEDULE"). Touches no account data.
-    daily-fx-rate:                 00:45 UTC = 08:45 PHT ✅
+    daily-fx-rate:                 RETIRED 2026-10-03 (ONE PESO RATE; migration 20261031100000 unschedules it)
     portal-token-check:            00:55 UTC = 08:55 PHT ✅  — portal links approaching expiry; Vault-backed, independent of the chain
     deactivate-expired-promotions: every hour            ✅
     loyalty-notification-queue:    every hour            ✅

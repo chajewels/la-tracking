@@ -41,7 +41,7 @@ them to `PRODUCT_FIELDS`.
 | `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. Every product (here and in the listing) carries `name_en` / `name_ja` / `description_en` / `description_ja`; `name` remains as the English alias. |
 | `GET /catalog/collections` | The seven jewelry types | Ordered by name. Bilingual: `name_en` / `name_ja` / `description_en` / `description_ja` (`name` and `description` remain as English aliases). |
 | `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. Same bilingual fields as the list. |
-| `GET /fx` | `{ jpy_php, as_of }` | 404 when `fx_rates` is empty. |
+| `GET /fx` | `{ jpy_php, as_of }` | ONE PESO RATE (2026-10-03): the Hub's `system_settings.php_jpy_rate` and the PHT day it last changed; 404 when the setting is unusable. `fx_rates` is retired history. |
 | `POST /layaway/quote` | Term pricing | Preferred body `{ price_jpy, term_months?, currency? }` (2026-09-25): a **yen** price quoted in either currency — for PHP the Hub converts (half-up) and quotes in pesos against `min_amount_php`; no rate → 503 `fx_unavailable`; the answer adds `price_jpy`, `fx_rate`, `fx_as_of`. Legacy body `{ price, term_months?, currency? }` (price read in `currency`) unchanged. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |
 | `POST /claims/:code/checkout` | — | **501 not_implemented.** Phase 2. |
@@ -230,11 +230,14 @@ inquiries** (read-only list).
 
 ### Currency — peso is never stored
 
-`fx_rates` holds one row per day: `jpy_php` = **PHP per 1 JPY**, the same
-direction as `system_settings.php_jpy_rate`. Written daily by the
-`fetch-fx-rate` edge function (pg_cron `daily-fx-rate`, `45 0 * * *` =
-**08:45 PHT**, deliberately after the account pipeline so it never competes with
-it; Vault-backed auth per the CRON AUTH RULE).
+ONE PESO RATE (owner decision 2026-10-03): every ₱ figure the website shows or
+quotes comes from the Hub's `system_settings.php_jpy_rate` (**PHP per 1 JPY**,
+the same setting every Hub calculation uses), read by
+`_shared/php-jpy-rate.ts hubFxRate()` in `website` and `cart-reminder-sweep`.
+Changing the rate in the Hub changes the site within the storefront's 1-hour
+`/fx` cache. Until 2026-10-03 the site used `fx_rates`, a daily market rate
+written by `fetch-fx-rate` (pg_cron `daily-fx-rate`, retired by migration
+20261031100000); the table is kept as history and nothing reads it.
 
 The `website` function derives the peso figure **per request**:
 

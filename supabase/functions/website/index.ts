@@ -20,6 +20,7 @@ import {
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
 /**
@@ -158,22 +159,16 @@ async function loyaltySnapshot(supabase: any, customerId: string) {
 }
 
 
-/** Latest JPY->PHP rate. price_php is derived per request, never stored. */
-interface FxRate { jpy_php: number; as_of: string }
+/**
+ * The peso rate for every ₱ figure this function produces: the Hub's
+ * system_settings.php_jpy_rate (ONE PESO RATE, owner decision 2026-10-03;
+ * _shared/php-jpy-rate.ts). price_php is derived per request, never stored.
+ */
+type FxRate = HubFxRate;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function latestFx(supabase: any): Promise<FxRate | null> {
-  const { data, error } = await supabase
-    .from("fx_rates")
-    .select("date, jpy_php")
-    .order("date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const rate = Number((data as AnyRec).jpy_php);
-  if (!Number.isFinite(rate) || rate <= 0) return null;
-  return { jpy_php: rate, as_of: String((data as AnyRec).date) };
+  return await hubFxRate(supabase);
 }
 
 /** Defence in depth: strip internal keys from any shape before it leaves the function. */

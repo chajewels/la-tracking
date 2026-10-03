@@ -1,3 +1,4 @@
+import { formatPHTDisplay } from "@/lib/date-utils";
 import { uploadProductVideo } from "@/lib/product-video";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -155,17 +156,24 @@ export default function ProductsCard() {
     staleTime: 60_000,
   });
 
+  // ONE PESO RATE (owner decision 2026-10-03): the website's ₱ figures follow
+  // the Hub's php_jpy_rate, the same setting every Hub calculation uses. The
+  // daily market rate (fx_rates) is retired history.
   const fx = useQuery({
     queryKey: ["website-fx-rate"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("fx_rates")
-        .select("date, jpy_php")
-        .order("date", { ascending: false })
-        .limit(1)
+        .from("system_settings")
+        .select("value, updated_at")
+        .eq("key", "php_jpy_rate")
         .maybeSingle();
       if (error) throw error;
-      return data;
+      if (!data) return null;
+      const raw = (data as { value: unknown }).value;
+      const n = Number(typeof raw === "string" ? raw.replace(/^"|"$/g, "") : raw);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      const at = (data as { updated_at?: string | null }).updated_at;
+      return { jpy_php: n, date: at ? formatPHTDisplay(at) : "—" };
     },
   });
 
@@ -651,8 +659,8 @@ export default function ProductsCard() {
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               {jpyPhp
-                ? `Peso prices are calculated on the website from the daily rate — ¥1 = ₱${jpyPhp} as of ${fx.data!.date}. Nothing peso-denominated is stored here.`
-                : "No exchange rate on file yet — the website will show yen only until the daily rate lands."}
+                ? `Peso prices follow the Hub's rate — ¥1 = ₱${jpyPhp} (php_jpy_rate, last changed ${fx.data!.date}). Nothing peso-denominated is stored here.`
+                : "php_jpy_rate is not set — the website shows yen only until it is."}
             </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
