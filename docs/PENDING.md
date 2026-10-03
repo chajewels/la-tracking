@@ -1063,7 +1063,23 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   historical (rename only if wanted). S4 #36 lint `any` is 770 errors in 118
   files (a project, not housekeeping).
 
-## NEXT — OWNER ORDER 2026-10-02
+## NEXT — OWNER ORDER 2026-10-02 (status 2026-10-03 12:00 JST)
+
+- DONE 3 Oct: item 1 (launch pass, anon grants CI guard, loyalty drift audit, `any` 754→0).
+- DONE 3 Oct: loyalty points preview on the product page (owner request 2 Oct 23:55; L1–L4
+  approved 3 Oct 10:11): Hub `GET /me/points-preview` (release #336 → `website` deployed
+  from main aea5d92f, 11:2x JST) + storefront release #252. Live-checked as Test Customer
+  (Radiant 2×): ¥158,980 → "Earn 3,000 points" EN + JA.
+- Square and Paidy: PLAN ONLY by owner order (3 Oct 10:11 — "plan first, don't commit").
+  Plans: project docs claude/square-build-plan-2026-10-03.md and
+  claude/card-and-paidy-setup-and-disputes-2026-10-03.md (setup, dispute avoidance,
+  P1–P7 + D1–D10 decisions, questions for Square/Paidy support).
+- OPEN (3 Oct): the Hub frontend deploy from main fails at `npm install` (ERESOLVE) since
+  Lovable re-added `@lovable.dev/email-js` / `@react-email/components` / `webhooks-js` /
+  pinned `@types/react` on main at 09:41 JST (its own "preview fix" after a SQL-only message;
+  commits 13e9984f, 7ccfe5c9) — same as PR #327 on 2 Oct. Live Hub unchanged; edge deploys
+  unaffected. Needs the same revert, owner-approved; and the Lovable project knowledge
+  should forbid the four packages, or it will keep re-adding them.
 
 1. Finish the pendings: storefront launch-readiness pass (stranger journey,
    desktop + phone, EN + JA, SEO / OG / Lighthouse); then the maintenance
