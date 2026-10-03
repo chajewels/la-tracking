@@ -1,14 +1,16 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
 import PortalTrackingRow, { type PortalShippingMethod } from './PortalTrackingRow';
 import { methodLabel } from '@/lib/payment-method-registry';
 import { getConversionRate } from '@/lib/currency-converter';
 import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
+import { getPortalAuthHeaders, portalAuthBody } from '@/lib/portal-auth';
 
-interface PortalPendingSubmission {
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+export interface PortalPendingSubmission {
   id: string;
   cash_order_id: string;
   submitted_amount: number;
@@ -110,32 +112,26 @@ function fmtDate(dateStr: string | null | undefined): string {
 interface CashOrdersSectionProps {
   cashOrders: PortalCashOrder[];
   cashPayments: PortalCashPayment[];
+  /**
+   * Pending (submitted / under_review) cash submissions, served by the
+   * customer-portal function behind the PIN session. Until 2026-10-03 this
+   * component read them itself through PostgREST with a portal-token request
+   * header — the one portal read a bare link could still reach. That path
+   * and its anon RLS policies are gone; the portal never talks to a table
+   * directly (CLAUDE.md DOMAIN ARCHITECTURE, Bug #165).
+   */
+  pendingSubmissions: PortalPendingSubmission[];
   customerName: string;
   portalToken: string;
   onRefresh: () => void;
+  /** Raised when the server says the PIN session is gone (pin_required). */
+  onAuthError?: (message: string) => void;
 }
 
 export default function CashOrdersSection({
-  cashOrders, cashPayments, customerName, portalToken, onRefresh,
+  cashOrders, cashPayments, pendingSubmissions, customerName, portalToken, onRefresh, onAuthError,
 }: CashOrdersSectionProps) {
   const [payTarget, setPayTarget] = useState<PortalCashOrder | null>(null);
-  const [pendingByOrder, setPendingByOrder] = useState<Map<string, PortalPendingSubmission>>(new Map());
-
-  // Anon Supabase client that forwards the portal token via a custom request
-  // header. RLS policies on payment_submissions (anon SELECT / UPDATE) match
-  // this header against the row's portal_token, scoping access to the
-  // caller's own submissions only.
-  const portalDbRef = useRef<ReturnType<typeof createClient> | null>(null);
-  if (!portalDbRef.current && portalToken) {
-    portalDbRef.current = createClient(
-      import.meta.env.VITE_SUPABASE_URL as string,
-      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-      {
-        auth: { persistSession: false, autoRefreshToken: false },
-        global: { headers: { 'x-portal-token': portalToken } },
-      },
-    );
-  }
 
   // Group non-voided payments by cash_order_id once, client-side
   const paymentsByOrder = useMemo(() => {
@@ -149,38 +145,39 @@ export default function CashOrdersSection({
     return map;
   }, [cashPayments]);
 
-  // Fetch pending submissions for all visible cash orders. Re-runs when the
-  // order set changes; can be invoked manually after a cancel.
-  const fetchPending = useCallback(async () => {
-    if (!cashOrders || cashOrders.length === 0) {
-      setPendingByOrder(new Map());
-      return;
+  // One pending submission per order (the newest wins; the payload is
+  // ordered newest first, so the first one seen is kept).
+  const pendingByOrder = useMemo(() => {
+    const map = new Map<string, PortalPendingSubmission>();
+    for (const sub of pendingSubmissions) {
+      if (!map.has(sub.cash_order_id)) map.set(sub.cash_order_id, sub);
     }
-    const db = portalDbRef.current ?? supabase;
-    const orderIds = cashOrders.map(o => o.id);
-    const { data } = await (db as typeof supabase)
-      .from('payment_submissions')
-      .select('id, cash_order_id, submitted_amount, payment_method, status')
-      .in('cash_order_id', orderIds)
-      .in('status', ['submitted', 'under_review']);
-    const next = new Map<string, PortalPendingSubmission>();
-    for (const sub of (data || []) as PortalPendingSubmission[]) {
-      next.set(sub.cash_order_id, sub);
-    }
-    setPendingByOrder(next);
-  }, [cashOrders]);
+    return map;
+  }, [pendingSubmissions]);
 
-  useEffect(() => { fetchPending(); }, [fetchPending]);
-
+  // Cancel through edit-payment-submission (action 'cancel'), the same
+  // function the layaway cards use: it checks the PIN session, ownership and
+  // that the row is still 'submitted', and writes the audit row. onRefresh
+  // re-reads the portal so the card drops the pending badge.
   const handleCancelSubmission = useCallback(async (submissionId: string) => {
-    const db = portalDbRef.current ?? supabase;
-    await (db as typeof supabase)
-      .from('payment_submissions')
-      .update({ status: 'cancelled' })
-      .eq('id', submissionId);
-    await fetchPending();
+    const authHeaders = await getPortalAuthHeaders(portalToken);
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ ...portalAuthBody(portalToken), submission_id: submissionId, action: 'cancel' }),
+    });
+    if (!res.ok) {
+      let json: { error?: string } = {};
+      try { json = await res.json(); } catch { /* no-op */ }
+      const message = json.error || `Cancel failed (HTTP ${res.status}). Please try again.`;
+      if (res.status === 401 && onAuthError) {
+        onAuthError(message);
+        return;
+      }
+      throw new Error(message);
+    }
     onRefresh();
-  }, [fetchPending, onRefresh]);
+  }, [portalToken, onRefresh, onAuthError]);
 
   // Per spec: don't render empty state — section is hidden when there are no orders
   if (!cashOrders || cashOrders.length === 0) return null;
@@ -248,6 +245,7 @@ function CashOrderCard({
   const [itemsOpen, setItemsOpen] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const isPending = order.status === 'pending';
   const isCompleted = order.status === 'completed';
@@ -402,8 +400,11 @@ function CashOrderCard({
             onClick={async () => {
               if (cancelling) return;
               setCancelling(true);
+              setCancelError(null);
               try {
                 await onCancelSubmission(pendingSubmission.id);
+              } catch (e) {
+                setCancelError(e instanceof Error ? e.message : 'Cancel failed. Please try again.');
               } finally {
                 setCancelling(false);
               }
@@ -426,6 +427,9 @@ function CashOrderCard({
             <XCircle className="h-3 w-3" />
             {cancelling ? 'Cancelling…' : 'Cancel Submission'}
           </button>
+          {cancelError && (
+            <p style={{ color: M.warning, fontSize: 11, marginTop: 6 }}>{cancelError}</p>
+          )}
         </div>
       ) : isPending ? (
         <button

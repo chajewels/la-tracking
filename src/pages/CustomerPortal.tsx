@@ -24,7 +24,7 @@ import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
 import SplashScreen from '@/components/portal/SplashScreen';
-import CashOrdersSection from '@/components/portal/CashOrdersSection';
+import CashOrdersSection, { type PortalPendingSubmission } from '@/components/portal/CashOrdersSection';
 import HeroLayawayCard, { type HeroAccount } from '@/components/portal/home/HeroLayawayCard';
 import TierStrip from '@/components/portal/home/TierStrip';
 import StoreCreditCard, { type PortalStoreCredit } from '@/components/portal/home/StoreCreditCard';
@@ -202,6 +202,7 @@ interface PortalData {
   payment_methods: PaymentMethod[];
   cash_orders?: PortalCashOrder[];
   cash_payments?: PortalCashPayment[];
+  cash_pending_submissions?: PortalPendingSubmission[];
   other_services?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   loyalty_member?: {
     id: string;
@@ -1085,9 +1086,13 @@ export default function CustomerPortal() {
             <CashOrdersSection
               cashOrders={tabCash}
               cashPayments={data.cash_payments || []}
+              pendingSubmissions={data.cash_pending_submissions || []}
               customerName={data.customer_name}
               portalToken={token!}
               onRefresh={fetchPortal}
+              // A 401 (pin_required / session expired) on cancel: re-read the
+              // portal, which lands on the PIN screen through the same path.
+              onAuthError={() => { fetchPortal(); }}
             />
 
             {/* Other Services — guard bucket for service jobs not nested under a card */}
