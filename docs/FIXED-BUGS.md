@@ -5866,3 +5866,31 @@ policies. Needs its own change (edge function or session-aware policy).
 
 **Do not reintroduce:** a browser-only PIN gate; any function passing `allowBareToken: true`
 besides verify-portal-pin; a session minted without a PIN check.
+
+### Portal cash submissions reachable with a bare link (2026-10-03, follow-up to the PIN release)
+
+**Symptom.** After the PIN moved to the server, one portal read was still outside it:
+`CashOrdersSection.tsx` read the customer's pending cash submissions and cancelled one straight
+through PostgREST, sending the link token in a custom request header matched by two anon RLS
+policies on `payment_submissions` ("Anon can view own submissions by token", "Anon can cancel
+cash order submissions"). Anyone holding the link could read and cancel those rows without a PIN.
+A third anon policy ("Anon can insert submissions with token") had no caller at all.
+
+**Fix.**
+- `customer-portal` returns `cash_pending_submissions` (id, cash_order_id, submitted_amount,
+  payment_method, status; statuses submitted / under_review) for the customer's cash orders —
+  behind the PIN session like the rest of the payload.
+- `CashOrdersSection.tsx` takes them as a prop and cancels through `edit-payment-submission`
+  (action `cancel`), the function the layaway cards already use: PIN session, ownership check,
+  'submitted'-only, audit row. A 401 (pin_required / session expired) re-reads the portal, which
+  lands on the PIN screen. The anon client and the custom header are gone.
+- Migration `20261029100000_drop_anon_portal_token_submission_policies.sql` drops all three anon
+  policies. The anon role now has NO policy on `payment_submissions`.
+- Guard: `src/test/portal-no-direct-table-access.test.ts` fails if the header name reappears
+  anywhere under `src/`.
+
+**Owner decision the same day:** the default PIN (last 4 digits of the mobile number when none is
+set) STAYS.
+
+**Do not reintroduce:** a portal read or write through PostgREST keyed on the link token; an anon
+policy on `payment_submissions`.
