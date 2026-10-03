@@ -7387,25 +7387,34 @@ export type Database = {
       }
       website_media_cutout_lease: {
         Row: {
+          daily_check_at: string | null
           holder: string | null
           id: number
           last_tick: Json | null
           last_tick_at: string | null
           lease_until: string | null
+          worker_slept_at: string | null
+          worker_woke_at: string | null
         }
         Insert: {
+          daily_check_at?: string | null
           holder?: string | null
           id?: number
           last_tick?: Json | null
           last_tick_at?: string | null
           lease_until?: string | null
+          worker_slept_at?: string | null
+          worker_woke_at?: string | null
         }
         Update: {
+          daily_check_at?: string | null
           holder?: string | null
           id?: number
           last_tick?: Json | null
           last_tick_at?: string | null
           lease_until?: string | null
+          worker_slept_at?: string | null
+          worker_woke_at?: string | null
         }
         Relationships: []
       }
@@ -8525,6 +8534,7 @@ export type Database = {
       get_media_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_provider: { Args: never; Returns: Json }
       get_media_cutout_tab_totals: { Args: never; Returns: Json }
+      get_media_cutout_worker_state: { Args: never; Returns: Json }
       get_monthly_analytics: {
         Args: never
         Returns: {
@@ -8801,11 +8811,13 @@ export type Database = {
         Returns: Json
       }
       media_cutout_allow_pairs: { Args: { p_url: string }; Returns: boolean }
+      media_cutout_call_worker: { Args: never; Returns: number }
       media_cutout_cap: { Args: never; Returns: number }
       media_cutout_claim_process: {
         Args: { p_source_url: string }
         Returns: Json
       }
+      media_cutout_daily_check: { Args: never; Returns: string }
       media_cutout_dequeue_unpublished: {
         Args: { p_urls: string[] }
         Returns: number
@@ -8828,11 +8840,13 @@ export type Database = {
         Returns: string
       }
       media_cutout_forget: { Args: { p_source_url: string }; Returns: boolean }
+      media_cutout_has_work: { Args: never; Returns: boolean }
       media_cutout_housekeeping: { Args: { p_limit: number }; Returns: Json }
       media_cutout_lease: {
         Args: { p_holder: string; p_seconds: number }
         Returns: boolean
       }
+      media_cutout_minute_check: { Args: never; Returns: string }
       media_cutout_mode: { Args: never; Returns: string }
       media_cutout_month: { Args: never; Returns: string }
       media_cutout_poll_batch: { Args: { p_limit: number }; Returns: Json }
@@ -8874,6 +8888,7 @@ export type Database = {
         Returns: Json
       }
       media_cutout_url_published: { Args: { p_url: string }; Returns: boolean }
+      media_cutout_wake: { Args: never; Returns: undefined }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
