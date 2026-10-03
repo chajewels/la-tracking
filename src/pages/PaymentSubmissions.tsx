@@ -152,6 +152,14 @@ const statusTone = (status: string) => SUBMISSION_STATUS_TONE[statusConfig[statu
 
 /** A proof is present when proof_url is a non-blank string (unchanged rule). */
 const hasProof = (url: string | null): url is string => !!url && url.trim().length > 0;
+/**
+ * PAIDY (2026-10-03, owner decision PD1): a Paidy submission carries no proof
+ * file — its proof is the authorisation the Hub read back from Paidy. Confirm
+ * CAPTURES the Paidy payment; Reject RELEASES it. review-payment-submission
+ * applies the same exception server-side (payment_method 'paidy' + record).
+ */
+const isPaidy = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'paidy';
+const proofSatisfied = (sub: { payment_method: string | null; proof_url: string | null }) => hasProof(sub.proof_url) || isPaidy(sub);
 const isPdf = (url: string) => /\.pdf$/i.test(url);
 const proofFileName = (url: string) => decodeURIComponent(url.split('/').pop() || 'proof.pdf').split('?')[0];
 
@@ -225,9 +233,13 @@ const ActionDialogModal = memo(function ActionDialogModal({
           description={
           <p className="text-sm text-muted-foreground">
             {actionDialog.action === 'confirmed'
-              ? `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
+              ? isPaidy(actionDialog.sub)
+                ? `Paidy will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} now (the customer pays Paidy next month). Then a confirmed payment is recorded and the order balance updated. A capture refused by Paidy records nothing.`
+                : `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
               : actionDialog.action === 'rejected'
-              ? 'This submission will be marked as rejected. The customer will see your reason.'
+              ? isPaidy(actionDialog.sub)
+                ? 'This submission will be marked as rejected and the Paidy authorisation released — the customer is not charged. The customer will see your reason.'
+                : 'This submission will be marked as rejected. The customer will see your reason.'
               : actionDialog.action === 'restore'
               ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
               : 'Send a message to the customer requesting more information.'}
@@ -236,7 +248,11 @@ const ActionDialogModal = memo(function ActionDialogModal({
 
         <div className="space-y-3">
           {/* Proof preview — always shown regardless of status */}
-          {(actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
+          {isPaidy(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
+            <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Valid 30 days from authorisation.
+            </div>
+          ) : (actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 space-y-1.5">
               <p className="label-caps text-[10px] text-ink-muted">Proof of Payment</p>
               {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
@@ -370,7 +386,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button
             variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
-            disabled={isPending || (actionDialog.action !== 'confirmed' && actionDialog.action !== 'restore' && !reviewerNotes.trim()) || (actionDialog.action === 'confirmed' && (!actionDialog.sub.proof_url || actionDialog.sub.proof_url.trim().length === 0))}
+            disabled={isPending || (actionDialog.action !== 'confirmed' && actionDialog.action !== 'restore' && !reviewerNotes.trim()) || (actionDialog.action === 'confirmed' && !proofSatisfied(actionDialog.sub))}
             onClick={() => onSubmit(reviewerNotes)}
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -1295,8 +1311,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           <>
             {canConfirm && (
               <Button size="sm" variant="default" className={btn}
-                disabled={!hasProof(sub.proof_url)}
-                title={!hasProof(sub.proof_url) ? 'Proof of payment required to confirm' : undefined}
+                disabled={!proofSatisfied(sub)}
+                title={!proofSatisfied(sub) ? 'Proof of payment required to confirm' : isPaidy(sub) ? 'Confirm captures the Paidy payment' : undefined}
                 onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
                 <Check className="h-3.5 w-3.5" /> Confirm
               </Button>
@@ -1394,7 +1410,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       cellClassName: tight,
       cell: (sub) => {
         const url = sub.proof_url;
-        if (!hasProof(url)) return <StatusPill label="No proof" tone="danger" />;
+        if (!hasProof(url)) return isPaidy(sub) ? <StatusPill label="Paidy" tone="info" /> : <StatusPill label="No proof" tone="danger" />;
         if (isPdf(url)) {
           return (
             <a href={url} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
@@ -1541,7 +1557,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               </div>
             </div>
           ) : (
-            <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
+            isPaidy(sub)
+              ? <p className="text-[10px] text-ink-muted italic">Paidy authorisation · ref {sub.reference_number ?? '—'} · Confirm captures, Reject releases</p>
+              : <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
           )}
         </div>
       </div>

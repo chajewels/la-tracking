@@ -1070,10 +1070,17 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   approved 3 Oct 10:11): Hub `GET /me/points-preview` (release #336 → `website` deployed
   from main aea5d92f, 11:2x JST) + storefront release #252. Live-checked as Test Customer
   (Radiant 2×): ¥158,980 → "Earn 3,000 points" EN + JA.
-- Square and Paidy: PLAN ONLY by owner order (3 Oct 10:11 — "plan first, don't commit").
-  Plans: project docs claude/square-build-plan-2026-10-03.md and
-  claude/card-and-paidy-setup-and-disputes-2026-10-03.md (setup, dispute avoidance,
-  P1–P7 + D1–D10 decisions, questions for Square/Paidy support).
+- PAIDY: BUILT 3 Oct (owner "proceed to build paidy" 14:5x JST; PD1–PD4 approved 14:59;
+  Paidy first, Square after). Hub branch feat/paidy-after-confirm (migration
+  20261030100000_paidy_payments, website routes, capture/close in review-payment-submission,
+  paidy-webhook, Website → Settings → Paidy, docs/PAIDY.md) + storefront
+  feat/paidy-order-page. NOT yet released / applied / deployed: needs develop → main,
+  then the SQL-ONLY and DEPLOY-ONLY Lovable messages + PAIDY_SECRET_KEY secret, then
+  mode test with the owner's pk_test_ key and the Test Customer run. Owner still to:
+  compare the tokusho rows with Paidy's 記載例, add the Paidy FAQ entries in the Hub,
+  register the webhook URL in the Paidy console, answer Paidy's self-check sheet.
+- Square: PLAN ONLY (claude/square-build-plan-2026-10-03.md,
+  claude/card-and-paidy-setup-and-disputes-2026-10-03.md); after Paidy.
 - OPEN (3 Oct): the Hub frontend deploy from main fails at `npm install` (ERESOLVE) since
   Lovable re-added `@lovable.dev/email-js` / `@react-email/components` / `webhooks-js` /
   pinned `@types/react` on main at 09:41 JST (its own "preview fix" after a SQL-only message;

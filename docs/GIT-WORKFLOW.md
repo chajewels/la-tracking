@@ -62,3 +62,22 @@ email-js peer ≥1.0.0) and CI went red until the files were put back.
 
 **Check after every Lovable commit to main:** `git show --stat <sha> | grep -E 'package|bun.lock'`
 must print nothing.
+
+### A TRANSPORT TIMEOUT IS NOT A LOST MESSAGE (2026-10-03, second duplicate)
+
+The 36-function deploy message of 15:44 JST timed out at the MCP transport after
+180 s. The queue was checked (last message was still the 14:44 read-only one),
+so it was sent once more with `wait=false` at 15:44:18 — and the "lost" original
+then arrived at 15:53:07, nine minutes late, queued behind the completed run.
+Lovable's agent recognised it as a duplicate, re-ran the 20 assertions read-only
+and refused to redeploy, citing the project-knowledge rule. No harm, but the
+rule is now stricter:
+
+- After a transport timeout, WAIT at least 10 minutes and check the queue again
+  before any resend. A message can land long after the client gives up.
+- Send long Lovable messages with `wait=false` and poll with get_message; a
+  36-function deploy takes ~7 minutes, longer than the 180 s transport cap.
+- Lovable's mirror lagged main by the whole release (#351): the agent had to
+  pull the 34 function files from origin/main before the assertions passed.
+  That is the "mirror can lag" rule working as designed — the assertions are
+  what made it visible.
