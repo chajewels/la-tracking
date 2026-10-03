@@ -19,7 +19,7 @@ import { jpyToPhpHalfUp } from "./settlement.ts";
 
 type Rec = Record<string, unknown>;
 
-/** Latest JPY->PHP rate (fx_rates.jpy_php, PHP per 1 JPY). */
+/** The Hub's peso rate (system_settings.php_jpy_rate, PHP per 1 JPY) — ONE PESO RATE, 2026-10-03. */
 export interface FxRate { jpy_php: number; as_of: string }
 
 /** The one supabase-js call this module makes. */
