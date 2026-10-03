@@ -36,8 +36,8 @@ export function LoyaltyComingSoon({
       }
       setSubmitted(true);
       toast.success(pt('loyalty.notifySuccess'));
-    } catch (err: any) {
-      toast.error(err?.message || pt('loyalty.errSaveEmail'));
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || pt('loyalty.errSaveEmail'));
     } finally {
       setSubmitting(false);
     }

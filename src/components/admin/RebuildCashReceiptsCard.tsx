@@ -68,8 +68,8 @@ export default function RebuildCashReceiptsCard() {
           (errCount > 0 ? ` · ${errCount} errors` : ''),
         );
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Rebuild failed');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Rebuild failed');
     } finally {
       setRunning(false);
     }

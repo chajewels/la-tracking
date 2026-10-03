@@ -312,7 +312,7 @@ export default function InvoiceGeneratorSheet({
 
       const { data, error } = await supabase.functions.invoke('generate-invoice', { body });
       if (error) throw error;
-      const invoice = (data as any)?.invoice;
+      const invoice = (data as { invoice?: { sheet_url: string; sheet_id: string; total_jpy: number } } | null)?.invoice;
       if (!invoice?.sheet_url) {
         throw new Error('Invoice generated but response missing sheet_url');
       }
@@ -329,8 +329,8 @@ export default function InvoiceGeneratorSheet({
         sheet_id: invoice.sheet_id,
         total_jpy: invoice.total_jpy,
       });
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to generate invoice');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to generate invoice');
     } finally {
       setSubmitting(false);
       submittingRef.current = false;

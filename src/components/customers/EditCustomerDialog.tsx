@@ -66,8 +66,8 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       setDeleteConfirmOpen(false);
       onOpenChange(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to delete');
     } finally {
       setDeleting(false);
     }
@@ -118,8 +118,8 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'customer-detail' });
       onOpenChange(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update');
     } finally {
       setSaving(false);
     }

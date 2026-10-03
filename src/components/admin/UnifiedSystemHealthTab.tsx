@@ -38,6 +38,8 @@ interface OpsAccount {
 }
 interface OpsCheck { status: 'pass' | 'fail' | 'skip' | 'error'; detail: string; affected_accounts?: OpsAccount[]; }
 interface OpsData { overall: string; checks: Record<string, OpsCheck>; issues: string[]; timestamp: string; }
+/** One field change reported by the fix-account-status edge function. */
+interface FixChange { field: string; from?: unknown; to?: unknown; }
 
 // ── Ops check metadata ─────────────────────────────────────────────────────
 const OPS_META: Record<string, { label: string; description: string; section: 'data' | 'system'; fixAction: string }> = {
@@ -316,16 +318,16 @@ export default function UnifiedSystemHealthTab() {
         body: { action, account_id: accountId, schedule_id: scheduleId },
       });
       if (error) throw error;
-      const realChanges = (data?.changes || []).filter((c: any) => c.from !== undefined);
+      const realChanges = (data?.changes || []).filter((c: FixChange) => c.from !== undefined);
       if (realChanges.length > 0) {
-        toast.success(`Fixed: ${realChanges.map((c: any) => `${c.field}: ${c.from} → ${c.to}`).join(', ')}`);
+        toast.success(`Fixed: ${realChanges.map((c: FixChange) => `${c.field}: ${c.from} → ${c.to}`).join(', ')}`);
       } else {
         toast.info('No changes needed — already correct');
       }
       await Promise.all([refetchV2(), refetchOps()]);
       queryClient.invalidateQueries({ queryKey: ['admin-overdue-debug'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Fix failed');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Fix failed');
     } finally {
       setFixingId(null);
     }

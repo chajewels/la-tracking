@@ -51,7 +51,7 @@ const NO_RATING = "none";
 
 async function fetchTestimonials(): Promise<WebsiteTestimonial[]> {
   const { data, error } = await supabase
-    .from("website_testimonials" as any)
+    .from("website_testimonials")
     .select(FIELDS)
     .order("sort_order")
     .order("created_at", { ascending: false });
@@ -149,7 +149,7 @@ export function TestimonialsCard() {
 
   const add = useMutation({
     mutationFn: async (d: Draft) => {
-      const { error } = await supabase.from("website_testimonials" as any).insert({ ...toRow(d), published: false });
+      const { error } = await supabase.from("website_testimonials").insert({ ...toRow(d), published: false });
       if (error) throw error;
     },
     onSuccess: () => { toast({ title: "Testimonial added", description: "It is unpublished until you switch it on." }); setAdding(null); invalidate(); },
@@ -160,7 +160,7 @@ export function TestimonialsCard() {
   const save = useMutation({
     mutationFn: async ({ id, draft }: { id: string; draft: Draft }) => {
       setBusyId(id);
-      const { error } = await supabase.from("website_testimonials" as any).update(toRow(draft)).eq("id", id);
+      const { error } = await supabase.from("website_testimonials").update(toRow(draft)).eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_d, v) => { toast({ title: "Testimonial saved" }); clearDraft(v.id); invalidate(); },
@@ -170,7 +170,7 @@ export function TestimonialsCard() {
 
   const togglePublished = useMutation({
     mutationFn: async ({ id, published }: { id: string; published: boolean }) => {
-      const { error } = await supabase.from("website_testimonials" as any).update({ published }).eq("id", id);
+      const { error } = await supabase.from("website_testimonials").update({ published }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_d, v) => { toast({ title: v.published ? "Published" : "Unpublished" }); invalidate(); },
@@ -184,7 +184,7 @@ export function TestimonialsCard() {
       if (!source) throw new Error("Type the English quote first.");
       setBusyId(id);
       const out = await translateJa({ description: source });
-      const { error } = await supabase.from("website_testimonials" as any)
+      const { error } = await supabase.from("website_testimonials")
         .update({ quote_ja: out.description_ja || null }).eq("id", id);
       if (error) throw error;
     },
@@ -204,7 +204,7 @@ export function TestimonialsCard() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("website_testimonials" as any).delete().eq("id", id);
+      const { error } = await supabase.from("website_testimonials").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { toast({ title: "Testimonial removed" }); invalidate(); },

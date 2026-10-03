@@ -44,7 +44,7 @@ export function WholesaleInquiriesCard() {
     queryKey: ["wholesale-inquiries"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("wholesale_inquiries" as any)
+        .from("wholesale_inquiries")
         .select("id, name, business, email, phone, market, volume, notes, lang, created_at")
         .order("created_at", { ascending: false })
         .limit(500);

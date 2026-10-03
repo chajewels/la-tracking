@@ -66,11 +66,32 @@ const LEGEND_LABELS: Record<string, string> = {
   newSales: 'Monthly Sales',
 };
 
-const renderLegend = (props: any) => {
+// Minimal shapes of the recharts legend / tooltip payload entries read below.
+interface LegendEntry {
+  dataKey: string;
+  color?: string;
+  value: string;
+}
+
+interface TooltipEntry {
+  dataKey: string;
+  value: number;
+  name?: string;
+  fill?: string;
+  stroke?: string;
+}
+
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string;
+}
+
+const renderLegend = (props: { payload?: LegendEntry[] }) => {
   const { payload } = props;
   return (
     <div className="flex items-center justify-center gap-5 pt-3" style={{ fontSize: 11 }}>
-      {(payload || []).map((entry: any) => (
+      {(payload || []).map((entry: LegendEntry) => (
         <div key={entry.dataKey} className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: LEGEND_COLORS[entry.dataKey] || entry.color }} />
           <span className="text-zinc-400">{LEGEND_LABELS[entry.dataKey] || entry.value}</span>
@@ -80,12 +101,12 @@ const renderLegend = (props: any) => {
   );
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-lg">
       <p className="font-semibold text-zinc-200 mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p: TooltipEntry) => (
         <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
           <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ background: LEGEND_COLORS[p.dataKey] || p.fill || p.stroke }} />
           <span className="text-zinc-400">{LEGEND_LABELS[p.dataKey] || p.name}:</span>
@@ -105,12 +126,12 @@ interface MonthlySalesRow {
 }
 
 // ── Sales chart tooltip ──
-const SalesTooltip = ({ active, payload, label }: any) => {
+const SalesTooltip = ({ active, payload, label }: ChartTooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-lg">
       <p className="font-semibold text-zinc-200 mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p: TooltipEntry) => (
         <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
           <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ background: p.dataKey === 'salesValue' ? '#f59e0b' : '#a855f7' }} />
           <span className="text-zinc-400">{p.dataKey === 'salesValue' ? 'Sales Value' : 'New Accounts'}:</span>
@@ -123,11 +144,11 @@ const SalesTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-const renderSalesLegend = (props: any) => {
+const renderSalesLegend = (props: { payload?: LegendEntry[] }) => {
   const { payload } = props;
   return (
     <div className="flex items-center justify-center gap-5 pt-3" style={{ fontSize: 11 }}>
-      {(payload || []).map((entry: any) => (
+      {(payload || []).map((entry: LegendEntry) => (
         <div key={entry.dataKey} className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: entry.dataKey === 'salesValue' ? '#f59e0b' : '#a855f7' }} />
           <span className="text-zinc-400">{entry.dataKey === 'salesValue' ? 'Sales Value' : 'New Accounts'}</span>

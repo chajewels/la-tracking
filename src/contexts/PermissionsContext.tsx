@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 
 type PermissionKey = string;
@@ -246,7 +247,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase
       .from('role_permissions')
       .update({ is_allowed: isAllowed, updated_by_user_id: user?.id })
-      .eq('role', role as any)
+      .eq('role', role as Database['public']['Enums']['app_role'])
       .eq('permission_key', permissionKey);
 
     if (error) throw error;

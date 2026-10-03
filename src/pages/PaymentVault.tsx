@@ -404,13 +404,13 @@ const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded
     queryKey: ['payment-vault-all'],
     queryFn: async () => {
       const PAGE_SIZE = 1000;
-      let allRows: any[] = [];
+      let allRows: VaultEntry[] = [];
       let from = 0;
       let hasMore = true;
 
       while (hasMore) {
         const { data, error } = await supabase
-          .from('payment_history_backup' as any)
+          .from('payment_history_backup')
           .select('id, payment_id, account_id, invoice_number, customer_name, amount, currency, payment_date, payment_method, submission_type, notes, status, event_type, voided_at, void_reason, backed_up_at')
           .order('payment_date', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);

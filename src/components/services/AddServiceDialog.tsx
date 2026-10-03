@@ -65,8 +65,8 @@ export default function AddServiceDialog({ accountId, currency }: AddServiceDial
       setServiceType('resize');
       setDescription('');
       setAmount('');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add service');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to add service');
     } finally {
       setLoading(false);
     }

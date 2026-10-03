@@ -1720,7 +1720,7 @@ export default function Commissions() {
       async function fetchAllSalesLog() {
         const pageSize = 1000;
         let from = 0;
-        let all: any[] = [];
+        let all: unknown[] = [];
         while (true) {
           const { data, error } = await client
             .from('sales_log')

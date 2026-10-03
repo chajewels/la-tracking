@@ -113,7 +113,7 @@ export function useLoyaltySettings(enabled: boolean = true) {
       for (const row of (data || []) as Array<{ key: string; value: unknown }>) {
         const k = row.key as LoyaltySettingKey;
         if (!(k in DEFAULTS)) continue;
-        (result as any)[k] = parseValue(k, row.value);
+        (result as Record<LoyaltySettingKey, unknown>)[k] = parseValue(k, row.value);
       }
       return result;
     },

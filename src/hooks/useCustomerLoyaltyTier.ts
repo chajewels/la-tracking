@@ -18,7 +18,7 @@ export function useCustomerLoyaltyTier(customerId: string | undefined | null) {
         .eq('customer_id', customerId!)
         .maybeSingle();
       if (error) throw error;
-      const tier = (data as any)?.current_tier;
+      const tier = (data as { current_tier?: { name: string; points_multiplier: number | string } | null } | null)?.current_tier;
       if (!tier) return null;
       return {
         current_tier_name: tier.name as string,

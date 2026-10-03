@@ -118,8 +118,8 @@ export default function StoreCreditReconciliationTab() {
     queryKey: ['sc-reconciliation-latest'],
     staleTime: 60_000,
     queryFn: async (): Promise<StoredReconRow[]> => {
-      // store_credit_reconciliation is absent from the generated types — cast.
-      const { data, error } = await (supabase.from('store_credit_reconciliation' as any) as any)
+      // status is a plain string in the generated types; StoredReconRow narrows it below.
+      const { data, error } = await supabase.from('store_credit_reconciliation')
         .select('run_id, customer_id, shopify_customer_id, hub_balance, shopify_balance, delta, status, detail, checked_at')
         .order('checked_at', { ascending: false })
         .limit(1000);
@@ -140,17 +140,17 @@ export default function StoreCreditReconciliationTab() {
       if (error) {
         let msg = error.message || 'Reconciliation failed';
         try {
-          if ('context' in error && (error as any).context?.body) {
-            const b = await new Response((error as any).context.body).json();
+          if ('context' in error && (error as { context?: { body?: BodyInit | null } }).context?.body) {
+            const b = await new Response((error as { context: { body: BodyInit | null } }).context.body).json();
             if (b?.error) msg = b.error;
           }
         } catch { /* ignore */ }
         throw new Error(msg);
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
       setResult(data as ReconResult);
-    } catch (err: any) {
-      setRunError(err?.message || 'Reconciliation failed');
+    } catch (err: unknown) {
+      setRunError((err as { message?: string } | null)?.message || 'Reconciliation failed');
     } finally {
       setRunning(false);
     }

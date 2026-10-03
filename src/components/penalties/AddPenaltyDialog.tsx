@@ -78,8 +78,8 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
         setSelectedAmount('');
         setWarningMsg(null);
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add penalty');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string }).message || 'Failed to add penalty');
     } finally {
       setLoading(false);
     }

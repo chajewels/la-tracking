@@ -4,6 +4,7 @@ import {
   MessageCircle, Copy, Check, ExternalLink, Eye, User, FileText,
   MoreHorizontal, Link2, AlertTriangle, Clock, CalendarCheck,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -60,7 +61,7 @@ function portalUrlFor(alert: AlertItem): string {
   });
 }
 
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, LucideIcon> = {
   overdue: AlertTriangle,
   grace_period: Clock,
   due_today: Clock,

@@ -36,8 +36,8 @@ export default function PaymentTrackingReport() {
       });
       setFileId('');
       toast.success('Payment tracking sheet generated');
-    } catch (err: any) {
-      const message = err?.message || 'Failed to generate payment tracking sheet';
+    } catch (err: unknown) {
+      const message = (err as { message?: string } | null)?.message || 'Failed to generate payment tracking sheet';
       toast.error(message);
     } finally {
       setGenerating(false);

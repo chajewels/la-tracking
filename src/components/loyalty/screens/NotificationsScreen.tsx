@@ -160,13 +160,13 @@ export default function NotificationsScreen({
       markReadMutation.mutate(
         { mode: 'single', notification_id: n.id },
         {
-          onError: (err: any) => {
+          onError: (err: unknown) => {
             // Roll back the optimistic flip
             setLocalRead((prev) => {
               const { [n.id]: _, ...rest } = prev;
               return rest;
             });
-            toast.error(err?.message || 'Failed to mark as read');
+            toast.error((err as { message?: string } | null)?.message || 'Failed to mark as read');
           },
         },
       );
@@ -195,7 +195,7 @@ export default function NotificationsScreen({
     markReadMutation.mutate(
       { mode: 'all' },
       {
-        onSuccess: (data: any) => {
+        onSuccess: (data: { updated_count?: number } | null) => {
           const count = data?.updated_count ?? ids.length;
           toast.success(
             count === 1
@@ -203,14 +203,14 @@ export default function NotificationsScreen({
               : `Marked ${count} notifications as read`,
           );
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
           // Roll back
           setLocalRead((prev) => {
             const next = { ...prev };
             for (const id of ids) delete next[id];
             return next;
           });
-          toast.error(err?.message || 'Failed to mark all as read');
+          toast.error((err as { message?: string } | null)?.message || 'Failed to mark all as read');
         },
       },
     );

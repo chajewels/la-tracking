@@ -56,6 +56,23 @@ interface DriftFinding {
   message: string;
 }
 
+// Row shape returned by the audit_all_accounts RPC (types.ts Functions).
+// failed_checks is rendered defensively as either an array or a scalar.
+interface AuditResultRow {
+  invoice_number: string;
+  all_pass: boolean;
+  failed_checks: string[] | string | null;
+  status?: string;
+}
+
+// The two audit RPCs are called with a third options argument the generated
+// rpc() signature does not declare; this local signature keeps the call as-is.
+type UntypedAuditRpc<T> = (
+  fn: string,
+  args: undefined,
+  options: { signal: AbortSignal },
+) => PromiseLike<{ data: T[] | null; error: { message?: string } | null }>;
+
 export default function Dashboard() {
   const currencyFilter: CurrencyFilter = 'ALL';
   const { session, loading: authLoading, profile, roles } = useAuth();
@@ -85,7 +102,7 @@ export default function Dashboard() {
     // Test exclusion applies here too — customers.is_test = true rows are
     // scaffolding (TEST-/CJ-2026-* invoice families), never a real count.
     if (currencyFilter === 'ALL') {
-      return (customers ?? []).filter((c: any) => c.is_test === false).length;
+      return (customers ?? []).filter((c) => c.is_test === false).length;
     }
     if (!accounts) return 0;
     // Distinct customers with at least one layaway account in the selected
@@ -94,11 +111,11 @@ export default function Dashboard() {
     // an account in this currency.
     const matchingCustomerIds = new Set(
       accounts
-        .filter((a: any) =>
+        .filter((a) =>
           a.currency === currencyFilter &&
           a.is_test === false
         )
-        .map((a: any) => a.customer_id)
+        .map((a) => a.customer_id)
     );
     return matchingCustomerIds.size;
   }, [customers, accounts, currencyFilter]);
@@ -111,8 +128,8 @@ export default function Dashboard() {
     const thisMonthKey = getPHTToday().slice(0, 7);
     const byMonth = new Map<string, number>();
     for (const c of customers ?? []) {
-      if ((c as any).is_test !== false) continue;
-      const key = String((c as any).created_at ?? '').slice(0, 7);
+      if (c.is_test !== false) continue;
+      const key = String(c.created_at ?? '').slice(0, 7);
       if (key < NEW_CUSTOMER_TREND_CUTOFF || key > thisMonthKey) continue;
       byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
     }
@@ -143,9 +160,9 @@ export default function Dashboard() {
     const counts = new Map<number, number>();
     for (const t of PLAN_TIERS) counts.set(t, 0);
     for (const a of accounts ?? []) {
-      if (!ACTIVE_FLOW_STATUSES.has(String((a as any).status))) continue;
-      if ((a as any).is_test !== false) continue;
-      const m = Number((a as any).payment_plan_months);
+      if (!ACTIVE_FLOW_STATUSES.has(String(a.status))) continue;
+      if (a.is_test !== false) continue;
+      const m = Number(a.payment_plan_months);
       if (!counts.has(m)) continue;
       counts.set(m, (counts.get(m) ?? 0) + 1);
     }
@@ -156,10 +173,10 @@ export default function Dashboard() {
   const [agingScope, setAgingScope] = useState<'all_collectible' | 'active_flow'>('all_collectible');
 
   // System Audit (admin only)
-  const isAdmin = (roles as any[]).includes('admin');
+  const isAdmin = roles.includes('admin');
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [auditResults, setAuditResults] = useState<any[] | null>(null);
+  const [auditResults, setAuditResults] = useState<AuditResultRow[] | null>(null);
   const [auditFilter, setAuditFilter] = useState<'all' | 'failed'>('failed');
   const [auditError, setAuditError] = useState<string | null>(null);
   const [driftFindings, setDriftFindings] = useState<DriftFinding[] | null>(null);
@@ -175,8 +192,8 @@ export default function Dashboard() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 25000);
       const [accountAudit, drift] = await Promise.all([
-        (supabase.rpc as any)('audit_all_accounts', undefined, { signal: controller.signal }),
-        (supabase.rpc as any)('audit_delete_cleanup_invariants', undefined, { signal: controller.signal }),
+        (supabase.rpc as unknown as UntypedAuditRpc<AuditResultRow>)('audit_all_accounts', undefined, { signal: controller.signal }),
+        (supabase.rpc as unknown as UntypedAuditRpc<DriftFinding>)('audit_delete_cleanup_invariants', undefined, { signal: controller.signal }),
       ]);
       clearTimeout(timeout);
 
@@ -191,11 +208,12 @@ export default function Dashboard() {
       } else {
         setDriftFindings(drift.data || []);
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError' || err.message?.includes('abort')) {
+    } catch (err: unknown) {
+      const auditErr = err as Error;
+      if (auditErr.name === 'AbortError' || auditErr.message?.includes('abort')) {
         setAuditError('Audit timed out — too many accounts. Run per-account health checks individually instead.');
       } else {
-        setAuditError(err.message || 'System audit failed. The audit_all_accounts RPC may not exist yet — create it in the Supabase SQL Editor.');
+        setAuditError(auditErr.message || 'System audit failed. The audit_all_accounts RPC may not exist yet — create it in the Supabase SQL Editor.');
       }
       console.error('System audit error:', err);
     } finally {
@@ -659,7 +677,7 @@ export default function Dashboard() {
                   )}
 
                   {(() => {
-                    const failedAccounts = auditResults.filter((r: any) => !r.all_pass);
+                    const failedAccounts = auditResults.filter((r) => !r.all_pass);
                     const passedCount = auditResults.length - failedAccounts.length;
                     const filtered = auditFilter === 'failed' ? failedAccounts : auditResults;
                     return (
@@ -700,7 +718,7 @@ export default function Dashboard() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {filtered.map((r: any, i: number) => (
+                                {filtered.map((r, i: number) => (
                                   <tr key={i} className="border-b border-border/50 last:border-0">
                                     <td className="px-3 py-2 font-mono font-medium text-foreground">#{r.invoice_number}</td>
                                     <td className="px-3 py-2 text-center">{r.all_pass ? '✅' : '❌'}</td>

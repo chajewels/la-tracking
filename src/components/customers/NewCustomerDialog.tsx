@@ -140,8 +140,8 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       onCreated?.(customer as DbCustomer);
       resetForm();
       setIsOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create customer');
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to create customer');
     }
   };
 

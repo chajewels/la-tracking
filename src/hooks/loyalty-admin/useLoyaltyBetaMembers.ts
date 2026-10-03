@@ -145,7 +145,7 @@ export function useRemoveBetaMember() {
       if (user && existing) {
         await supabase.from('audit_logs').insert({
           entity_type: 'loyalty_beta',
-          entity_id: (existing as any).customer_id,
+          entity_id: (existing as { customer_id: string }).customer_id,
           action: 'beta_removed',
           performed_by_user_id: user.id,
           old_value_json: existing,

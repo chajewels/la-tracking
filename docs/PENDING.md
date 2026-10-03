@@ -1042,7 +1042,37 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   = not_approved, 34/34 hero ticks usable, hero_cutouts_for_site unchanged
   (34 rows), To approve (1) on the Hub (25 ok rows in all, 1 of a published
   product; the "26" in the migration header counted one orphaned row).
-- Still open, owner decisions: "site content into the Hub" (which pages/strings
-  move — unscoped); `web-reservation-sweep` / `web_reservation_expiring` names
-  are historical (rename only if wanted); S4 #36 lint `any` is 770 errors in
-  118 files (a project, not housekeeping).
+- REVIVAL CUSTOMER EMAIL LIVE (PR #324 → release #325, main c3bcb657; Lovable
+  deployed revive-web-cash-order + reactivate-web-layaway from c3bcb657 exactly,
+  all source assertions matched): the customer is emailed the restored order /
+  plan with the NEW deadline; the Hub toast says whether she was emailed.
+  docs/FIXED-BUGS.md "No customer email on revival".
+- Weight (grams) in the product editor: plain 2-decimal input, no spinner
+  (PR #326, on develop f97be27d — reaches the live Hub with the next release).
+- Owner decisions 2026-10-02 22:24 JST — all CLOSED: Facebook/Messenger preview
+  confirmed by the owner; the 8 rejected cut-outs stay as they are; site
+  description already "shipping worldwide" (storefront #244); About photos —
+  nothing more needed; "site content into the Hub" — (a) nothing more moves.
+- Earrings collection photo: the owner's model photo is the Hub hero_media of
+  Jewelry type Earrings (data, no code; 4:3 crop so the earring is whole in the
+  collection header). Other types keep the storefront placeholders until the
+  owner sends photos.
+- Still open: TEST-900060 (test layaway, ₱0 paid) — owner said "cancel"; a Hub
+  layaway has Forfeit or Delete Account (allowed: is_test + unpaid), owner to
+  pick. `web-reservation-sweep` / `web_reservation_expiring` names are
+  historical (rename only if wanted). S4 #36 lint `any` is 770 errors in 118
+  files (a project, not housekeeping).
+
+## NEXT — OWNER ORDER 2026-10-02
+
+1. Finish the pendings: storefront launch-readiness pass (stranger journey,
+   desktop + phone, EN + JA, SEO / OG / Lighthouse); then the maintenance
+   projects (anon table grants hardening, loyalty lot drift monitor, lint `any`).
+2. Square card payments — ALL major credit AND debit cards (Visa, Mastercard,
+   Amex, JCB, Diners, Discover); card only for cash orders; the 501 on
+   `method: 'square'` is the contract until then. Decisions: project doc
+   claude/square-card-payments-decisions-2026-10-01.md.
+3. Paidy (あと払い（ペイディ）) — full-scratch Paidy API: Checkout JS with the
+   public key, server Capture / Close / Refund with the secret key, webhook,
+   test keys + test accounts, self-check sheet before go-live. Review: project
+   doc claude/paidy-review-2026-10-02.md.

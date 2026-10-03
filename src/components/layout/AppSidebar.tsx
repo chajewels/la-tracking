@@ -24,6 +24,7 @@ import {
   Globe,
   Hourglass,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -68,7 +69,7 @@ export type SubMenuItem = {
 
 export type MenuItem = {
   label: string;
-  icon: any;
+  icon: LucideIcon;
   path?: string;
   parentPath?: string;
   children?: SubMenuItem[];

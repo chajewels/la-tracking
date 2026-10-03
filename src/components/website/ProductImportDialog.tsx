@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -46,6 +47,10 @@ interface Summary { created: number; updated: number; skipped: number }
  * Either way a blank category_slugs cell writes nothing to categories.
  */
 export type AssignMode = "add" | "replace";
+
+/** The two membership join tables assignMembership writes, and their row shapes. */
+type MembershipTable = "website_collection_products" | "website_category_products";
+type MembershipInsert = TablesInsert<"website_collection_products"> | TablesInsert<"website_category_products">;
 
 const HEADER_ROW_INDEX = 0;
 // The image column names come from the lib, so the dialog and the template
@@ -105,11 +110,11 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
 
       // Existing SKUs decide Create vs Update, and are matched case-insensitively.
       const { data: existing, error } = await supabase
-        .from("website_products" as any)
+        .from("website_products")
         .select("sku");
       if (error) throw error;
       const skus = new Set(
-        ((existing ?? []) as any[]).map((p) => String(p.sku ?? "").trim().toUpperCase()),
+        (existing ?? []).map((p) => String(p.sku ?? "").trim().toUpperCase()),
       );
 
       const parsed: ImportRow[] = [];
@@ -149,8 +154,8 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       setExistingSkus(skus);
       setRows(parsed);
       setFileName(file.name);
-    } catch (e: any) {
-      toast({ title: "Could not read the file", description: e.message, variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Could not read the file", description: (e as Error).message, variant: "destructive" });
       reset();
     } finally {
       setParsing(false);
@@ -162,12 +167,12 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     const v = row.value!;
 
     const { data: found, error: findErr } = await supabase
-      .from("website_products" as any)
+      .from("website_products")
       .select("id, slug, name, name_ja, description_en, description_ja")
       .eq("sku", v.sku)
       .maybeSingle();
     if (findErr) throw findErr;
-    const existingProduct = found as any | null;
+    const existingProduct = found;
     const action: "create" | "update" = existingProduct ? "update" : "create";
 
     // Japanese only when the English changed or none exists yet — same rule as
@@ -186,8 +191,8 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
         });
         if (needName) nameJa = out.name_ja;
         if (needDesc) ja = out.description_ja;
-      } catch (e: any) {
-        throw new Error(`Japanese translation failed: ${e.message}`);
+      } catch (e) {
+        throw new Error(`Japanese translation failed: ${(e as Error).message}`);
       }
     }
 
@@ -210,23 +215,23 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     let productId: string;
     if (existingProduct) {
       productId = existingProduct.id;
-      const { error } = await supabase.from("website_products" as any)
+      const { error } = await supabase.from("website_products")
         .update(payload).eq("id", productId);
       if (error) throw error;
     } else {
-      const { data, error } = await supabase.from("website_products" as any)
+      const { data, error } = await supabase.from("website_products")
         .insert(payload).select("id").single();
       if (error) throw error;
-      productId = (data as any).id;
+      productId = data.id;
     }
 
     // One variant per row. Reuse the first existing variant so its media and id
     // survive an update; drop any extras.
     const { data: variants, error: vErr } = await supabase
-      .from("website_product_variants" as any)
+      .from("website_product_variants")
       .select("id").eq("product_id", productId).order("sort");
     if (vErr) throw vErr;
-    const variantIds = ((variants ?? []) as any[]).map((x) => x.id as string);
+    const variantIds = (variants ?? []).map((x) => x.id as string);
 
     const variantPayload = {
       product_id: productId,
@@ -241,27 +246,27 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     let variantId: string;
     if (variantIds.length) {
       variantId = variantIds[0];
-      const { error } = await supabase.from("website_product_variants" as any)
+      const { error } = await supabase.from("website_product_variants")
         .update(variantPayload).eq("id", variantId);
       if (error) throw error;
       if (variantIds.length > 1) {
-        const { error: delErr } = await supabase.from("website_product_variants" as any)
+        const { error: delErr } = await supabase.from("website_product_variants")
           .delete().in("id", variantIds.slice(1));
         if (delErr) throw delErr;
       }
     } else {
-      const { data, error } = await supabase.from("website_product_variants" as any)
+      const { data, error } = await supabase.from("website_product_variants")
         .insert(variantPayload).select("id").single();
       if (error) throw error;
-      variantId = (data as any).id;
+      variantId = data.id;
     }
 
     // Photos are replaced only when the sheet supplies at least one URL.
     if (v.images.length) {
-      const { error: delErr } = await supabase.from("website_product_media" as any)
+      const { error: delErr } = await supabase.from("website_product_media")
         .delete().eq("variant_id", variantId);
       if (delErr) throw delErr;
-      const { error: insErr } = await supabase.from("website_product_media" as any)
+      const { error: insErr } = await supabase.from("website_product_media")
         .insert(v.images.map((url, idx) => ({
           variant_id: variantId, url, alt: v.name, sort: idx,
         })));
@@ -280,22 +285,27 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
   }
 
   /** Add: insert only the ids the product lacks (appended after its current ones). Replace: delete-then-insert. */
-  async function assignMembership(table: string, idColumn: string, orderColumn: string, productId: string, ids: string[]) {
-    const row = (id: string, order: number) => ({ [idColumn]: id, product_id: productId, [orderColumn]: order });
+  async function assignMembership(
+    table: MembershipTable, idColumn: "collection_id" | "category_id", orderColumn: "sort" | "sort_order",
+    productId: string, ids: string[],
+  ) {
+    // The caller pairs each table with its own id and order columns (see above).
+    const row = (id: string, order: number) =>
+      ({ [idColumn]: id, product_id: productId, [orderColumn]: order }) as MembershipInsert;
     if (assignMode === "replace") {
-      const { error: delErr } = await supabase.from(table as any).delete().eq("product_id", productId);
+      const { error: delErr } = await supabase.from(table).delete().eq("product_id", productId);
       if (delErr) throw delErr;
       if (!ids.length) return;
-      const { error } = await supabase.from(table as any).insert(ids.map((id, i) => row(id, i)));
+      const { error } = await supabase.from(table).insert(ids.map((id, i) => row(id, i)));
       if (error) throw error;
       return;
     }
-    const { data: existing, error: readErr } = await supabase.from(table as any).select(idColumn).eq("product_id", productId);
+    const { data: existing, error: readErr } = await supabase.from(table).select(idColumn).eq("product_id", productId);
     if (readErr) throw readErr;
     const have = new Set(((existing ?? []) as unknown as Record<string, string>[]).map((r) => r[idColumn]));
     const missing = ids.filter((id) => !have.has(id));
     if (!missing.length) return;
-    const { error } = await supabase.from(table as any).insert(missing.map((id, i) => row(id, have.size + i)));
+    const { error } = await supabase.from(table).insert(missing.map((id, i) => row(id, have.size + i)));
     if (error) throw error;
   }
 
@@ -309,9 +319,9 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       try {
         const action = await importRow(row);
         if (action === "create") created++; else updated++;
-      } catch (e: any) {
+      } catch (e) {
         skipped++;
-        failures.push({ row: row.sheetRow, sku: row.sku, error: e.message ?? String(e) });
+        failures.push({ row: row.sheetRow, sku: row.sku, error: (e as Error).message ?? String(e) });
       }
       setProgress({ done: i + 1, total: queue.length });
     }
@@ -325,7 +335,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
 
     // Traceability row. A failure here must not lose the import result.
     const { data: session } = await supabase.auth.getUser();
-    const { error: batchErr } = await supabase.from("website_import_batches" as any).insert({
+    const { error: batchErr } = await supabase.from("website_import_batches").insert({
       file_name: fileName,
       uploaded_by: session?.user?.id ?? null,
       row_count: rows.length,

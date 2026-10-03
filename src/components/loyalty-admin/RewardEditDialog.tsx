@@ -226,8 +226,8 @@ export default function RewardEditDialog({
         toast.success('Reward created');
       }
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to save reward');
+    } catch (err: unknown) {
+      toast.error((err as { message?: string } | null)?.message || 'Failed to save reward');
     }
   }
 
