@@ -41,6 +41,7 @@ them to `PRODUCT_FIELDS`.
 | `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. Every product (here and in the listing) carries `name_en` / `name_ja` / `description_en` / `description_ja`; `name` remains as the English alias. |
 | `GET /catalog/collections` | The seven jewelry types | Ordered by name. Bilingual: `name_en` / `name_ja` / `description_en` / `description_ja` (`name` and `description` remain as English aliases). |
 | `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. Same bilingual fields as the list. |
+| `GET /paidy/widget` | `{ enabled }` | Paidy N-Pay widget on product pages (2026-10-03, owner W3): `true` ONLY while `paidy_mode = 'on'`; `test` and `off` answer `false`. Storefront caches 1 h. |
 | `GET /fx` | `{ jpy_php, as_of }` | ONE PESO RATE (2026-10-03): the Hub's `system_settings.php_jpy_rate` and the PHT day it last changed; 404 when the setting is unusable. `fx_rates` is retired history. |
 | `POST /layaway/quote` | Term pricing | Preferred body `{ price_jpy, term_months?, currency? }` (2026-09-25): a **yen** price quoted in either currency — for PHP the Hub converts (half-up) and quotes in pesos against `min_amount_php`; no rate → 503 `fx_unavailable`; the answer adds `price_jpy`, `fx_rate`, `fx_as_of`. Legacy body `{ price, term_months?, currency? }` (price read in `currency`) unchanged. `currency` JPY\|PHP, default JPY; `term_months` default 3. Calls the `layaway_quote` RPC. |
 | `GET /claims/:code` | Live-sale claim lookup | Code is upper-cased. |

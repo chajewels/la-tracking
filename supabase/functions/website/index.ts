@@ -713,6 +713,16 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return await handleHeroCutouts(req, supabase, Deno.env.get("HERO_CUTOUT_KEY"), requestId);
     }
 
+    // GET /paidy/widget — whether the storefront shows Paidy's N-Pay widget
+    // under product prices (docs/PAIDY.md, owner W3 2026-10-03): ONLY while
+    // paidy_mode is 'on'. 'test' keeps it hidden so customers never see the
+    // banner before go-live. Public-safe: a boolean, no key. The storefront
+    // re-reads it hourly, so flipping the switch needs no deploy.
+    if (req.method === "GET" && segments[0] === "paidy" && segments[1] === "widget" && !segments[2]) {
+      const { data: modeRow } = await supabase.from("system_settings").select("value").eq("key", "paidy_mode").maybeSingle();
+      return jsonResponse({ enabled: paidyModeFrom((modeRow as AnyRec | null)?.value) === "on" });
+    }
+
     // GET /fx
     if (req.method === "GET" && segments[0] === "fx" && !segments[1]) {
       const fx = await latestFx(supabase);

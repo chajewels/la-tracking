@@ -62,6 +62,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   refund-decision path records the decision; a Paidy refund button is a later
   admin feature (`POST /payments/:id/refunds` with the `capture_id`).
 - A Paidy payment is yen only; a peso order never offers it.
+- N-PAY WIDGET (owner W1–W5, 2026-10-03): Paidy's promotional banner under the
+  product price, product pages only (EN and JA), rendered by Paidy's own script
+  from the Hub's yen price — the storefront computes nothing. Shown ONLY while
+  `paidy_mode = 'on'` (`GET /paidy/widget`); the 6/12-pay attributes are added
+  only after Paidy confirms the 6回/12回 activation, never before.
 - PAIDY'S STATUS CASE IS NOT TRUSTED: the reference documents AUTHORIZED |
   CLOSED | REJECTED, but the live Checkout callback sent `"authorized"` in lower
   case (test run 2026-10-03, pay_asDHekoAAEkAmsmA) and the storefront dropped
