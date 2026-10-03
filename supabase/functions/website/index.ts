@@ -19,6 +19,8 @@ import {
   isPaidyPublicKey, paidyAmountMatches, paidyModeFrom, paidyNotOfferedReason, paidyZip,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
+import { CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, agreementRequired, cardAmountMatches, cardIdempotencyKey, cardNotOfferedReason, squareModeFrom } from "../_shared/card-rules.ts";
+import { SquareError, square, type SquarePayment } from "../_shared/square.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
@@ -482,6 +484,43 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
         zip: paidyZip(address?.postal_code) ?? "",
       },
     },
+  };
+}
+
+/**
+ * Card payment (Square) on a confirmed order — S2, 2026-10-04, docs/SQUARE.md.
+ * Twin of paidyOffer: the switch + PUBLIC ids come from system_settings, the
+ * rule from _shared/card-rules.ts (yen, confirmed, money due, no pending
+ * submission; ANY country — owner D4). The storefront gets the ids it needs
+ * for the Web Payments SDK and the Hub's amount; it computes nothing.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pendingCount: number) {
+  const rows = await supabase.from("system_settings").select("key, value")
+    .in("key", ["square_mode", "square_app_id", "square_location_id", "card_agreement_min_jpy"]);
+  const setting = (k: string) => ((rows.data ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
+  const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const mode = squareModeFrom(setting("square_mode"));
+  const appId = str(setting("square_app_id"));
+  const locationId = str(setting("square_location_id"));
+  const minRaw = setting("card_agreement_min_jpy");
+  const agreementMin = Number(typeof minRaw === "string" ? minRaw.replace(/"/g, "") : minRaw ?? 0);
+  const reason = cardNotOfferedReason({
+    mode, appId, locationId, customerIsTest: customer.is_test === true, order, pendingSubmissions: pendingCount,
+  });
+  if (reason) return { offered: false as const, reason };
+  const amountJpy = Math.round(Number(order.remaining_balance));
+  return {
+    offered: true as const,
+    app_id: appId,
+    location_id: locationId,
+    test: mode === "test",
+    amount_jpy: amountJpy,
+    // D9: the signed Card Purchase Agreement, required at or above the
+    // threshold (0 = every card payment). The storefront gates on it BEFORE
+    // the card form; the Hub refuses the payment without it (agreement_missing).
+    agreement_required: agreementRequired(amountJpy, agreementMin),
+    agreement_min_jpy: Number.isFinite(agreementMin) ? agreementMin : 0,
   };
 }
 
@@ -2356,6 +2395,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (pendErr) throw pendErr;
       const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
       const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length);
+      const cardBlock = await cardOffer(supabase, customer, order as AnyRec, (pendingSubs ?? []).length);
 
       return jsonResponse(scrub({
         order: {
@@ -2369,6 +2409,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Paidy ato-barai (2026-10-03): the block the order page renders, or
         // null with the reason it is not offered (logged, never shown).
         paidy: paidyBlock.offered ? paidyBlock : null,
+        // Card payment (Square, S2 2026-10-04): the block the pay-card page
+        // renders, or null (reason logged, never shown).
+        card: cardBlock.offered ? cardBlock : null,
         transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
         // Methods are only actionable while the transfer is outstanding — and
         // never before staff confirm the piece (reserve-first A2; a reservation
@@ -2495,6 +2538,187 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       return jsonResponse(scrub({ ok: true, submission: created }));
+    }
+
+    // POST /orders/:id/card — the customer's card was tokenised (3-D Secure
+    // done) on the website; AUTHORISE it with Square and file the hold as a
+    // payment submission (docs/SQUARE.md). Nothing is charged here: a
+    // reviewer's Confirm captures it, Reject voids it (owner D6).
+    if (req.method === "POST" && segments[0] === "orders" && segments[1] && segments[2] === "card" && !segments[3]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = await req.json().catch(() => ({})) as AnyRec;
+      const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
+      if (!/^[A-Za-z0-9_:-]{8,200}$/.test(sourceId)) return jsonResponse({ error: "card_mismatch", detail: "bad_source" }, 409);
+      // D7: 3-D Secure ALWAYS — the SDK's verification token is required, so a
+      // storefront bug can never drop the liability shift silently.
+      const verificationToken = typeof body.verification_token === "string" && body.verification_token.trim() ? body.verification_token.trim().slice(0, 500) : null;
+      if (!verificationToken) return jsonResponse({ error: "verification_required" }, 409);
+      const terms = (body.terms ?? {}) as AnyRec;
+      const termsAt = typeof terms.accepted_at === "string" && Number.isFinite(Date.parse(terms.accepted_at)) ? new Date(terms.accepted_at).toISOString() : null;
+      const termsVersion = typeof terms.version === "string" && terms.version.trim() ? terms.version.trim().slice(0, 64) : null;
+      if (!termsAt || !termsVersion) return jsonResponse({ error: "terms_required" }, 409);
+      const agreement = body.agreement && typeof body.agreement === "object" ? body.agreement as AnyRec : null;
+      const agreementVersion = agreement && typeof agreement.version === "string" ? agreement.version.slice(0, 64) : null;
+      const agreementSignedAt = agreement && typeof agreement.signed_at === "string" && Number.isFinite(Date.parse(agreement.signed_at)) ? new Date(agreement.signed_at).toISOString() : null;
+
+      const { data: order, error } = await supabase
+        .from("cash_orders")
+        .select(`${ORDER_FIELDS}, customer_id`)
+        .eq("id", segments[1]).eq("customer_id", customer.id).maybeSingle();
+      if (error) throw error;
+      if (!order) return notFound();
+      if (isUnconfirmedReservation(order as AnyRec)) return jsonResponse({ error: NOT_READY_FOR_PAYMENT }, 409);
+
+      const { count: pendingCount } = await supabase
+        .from("payment_submissions").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]);
+      if ((pendingCount ?? 0) > 0) return jsonResponse({ error: "submission_pending" }, 409);
+
+      // The same rule that showed the button must still hold now.
+      const offer = await cardOffer(supabase, customer, order as AnyRec, 0);
+      if (!offer.offered) return jsonResponse({ error: "card_not_offered", reason: offer.reason }, 409);
+      // D9: no signed Card Purchase Agreement, no card payment. The storefront
+      // verified the signature server-side; the Hub refuses without the record.
+      if (offer.agreement_required && !(agreementVersion && agreementSignedAt)) return jsonResponse({ error: "agreement_missing" }, 409);
+
+      // 3 per 24 h per order, like submit-cash-payment (rejected ones excluded).
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count: recent } = await supabase
+        .from("payment_submissions").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).not("status", "in", '("rejected","cancelled")').gte("created_at", since);
+      if ((recent ?? 0) >= 3) return jsonResponse({ error: "too_many_submissions" }, 429);
+      // Card-testing cap (review S6): declined attempts never create a
+      // submission, so they are counted on their own — 5 per order per 24 h,
+      // any outcome, checked BEFORE Square is called.
+      const { count: attempts } = await supabase
+        .from("square_attempts").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).gte("created_at", since);
+      if ((attempts ?? 0) >= CARD_ATTEMPTS_PER_DAY) return jsonResponse({ error: "too_many_attempts" }, 429);
+      const logAttempt = async (outcome: string, detail?: string, paymentId?: string) => {
+        try {
+          await supabase.from("square_attempts").insert({ cash_order_id: order.id, customer_id: customer.id, outcome, detail: detail ?? null, square_payment_id: paymentId ?? null, test: offer.test });
+        } catch (e) { console.warn("[website] square_attempts insert failed (non-blocking):", e); }
+      };
+
+      // Authorise with Square (autocomplete:false — a hold, not a charge).
+      let payment: SquarePayment;
+      try {
+        payment = await square.create({
+          sandbox: offer.test,
+          sourceId,
+          verificationToken,
+          amountJpy: offer.amount_jpy,
+          locationId: offer.location_id,
+          // One key per card token (review B1): a retried click with the same
+          // nonce dedupes to the same hold; a corrected card gets a new key.
+          idempotencyKey: await cardIdempotencyKey(String(order.id), sourceId),
+          referenceId: String((order as AnyRec).invoice_number ?? ""),
+          note: customerReference(order as never),
+        });
+      } catch (e) {
+        if (e instanceof SquareError && e.isCardRefusal) {
+          await logAttempt("declined", e.code);
+          return jsonResponse({ error: "card_declined", code: e.code }, 402);
+        }
+        if (e instanceof SquareError && (e.status === 400 || e.status === 409)) {
+          // A used / expired token, a bad verification token, a request
+          // Square refuses (amount too low, location mismatch…): the customer
+          // re-enters the card; nothing was held. The code travels so the
+          // storefront can word it (not every one is "your card").
+          await logAttempt("refused", e.code);
+          return jsonResponse({ error: "card_mismatch", detail: e.code }, 409);
+        }
+        console.error("[website] square.create failed:", e);
+        await logAttempt("error", e instanceof Error ? e.message.slice(0, 200) : String(e));
+        return jsonResponse({ error: "card_unavailable" }, 502);
+      }
+      const mismatch =
+        payment.status !== "APPROVED" ? `not_approved:${payment.status}`
+        : payment.amount_money?.currency !== "JPY" ? "not_jpy"
+        : !cardAmountMatches(payment.amount_money?.amount, (order as AnyRec).remaining_balance) ? "amount"
+        : null;
+      if (mismatch) {
+        // Not what we asked for: void it so nothing stays held on the card.
+        if (payment.status === "APPROVED") { try { await square.cancel(offer.test, payment.id); } catch (e) { console.warn("[website] square.cancel after mismatch failed:", e); } }
+        await logAttempt("mismatch", mismatch, payment.id);
+        return jsonResponse({ error: "card_mismatch", detail: mismatch }, 409);
+      }
+
+      const authorizedAt = payment.created_at ?? new Date().toISOString();
+      const captureBy = payment.delayed_until ?? new Date(Date.parse(authorizedAt) + CARD_HOLD_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const ip = String(req.headers.get("x-storefront-client-ip") ?? terms.ip ?? "").slice(0, 64) || null;
+      const ua = String(req.headers.get("x-storefront-client-ua") ?? terms.user_agent ?? "").slice(0, 400) || null;
+      const { data: rec, error: recErr } = await supabase
+        .from("square_payments")
+        .insert({
+          cash_order_id: order.id, customer_id: customer.id, square_payment_id: payment.id,
+          status: "authorized", test: offer.test, amount_jpy: Math.round(Number(payment.amount_money.amount)),
+          card_brand: payment.card_details?.card?.card_brand ?? null,
+          card_last4: payment.card_details?.card?.last_4 ?? null,
+          // Square's Payment carries no 3DS verdict; the evidence is that the
+          // SDK's verification token (3DS challenge done) was presented and the
+          // authorisation went through (review S1).
+          three_ds_status: "VERIFICATION_TOKEN_PRESENTED",
+          receipt_url: payment.receipt_url ?? null,
+          terms_accepted_at: termsAt, terms_version: termsVersion,
+          terms_ip: ip, terms_user_agent: ua,
+          agreement_version: agreementVersion, agreement_signed_at: agreementSignedAt,
+          authorized_at: authorizedAt, capture_by: captureBy, last_payload: payment,
+        })
+        .select("id").maybeSingle();
+      if (recErr) {
+        // UNIQUE square_payment_id: the same hold filed twice is a retried
+        // click (same idempotency key), not a second payment.
+        if (String(recErr.code) === "23505") return jsonResponse({ error: "submission_pending" }, 409);
+        throw recErr;
+      }
+
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+      const { data: created, error: subErr } = await supabase
+        .from("payment_submissions")
+        .insert({
+          account_id: null,
+          cash_order_id: order.id,
+          customer_id: customer.id,
+          submitted_amount: Math.round(Number(payment.amount_money.amount)),
+          payment_date: today,
+          payment_method: "square",
+          reference_number: payment.id,
+          sender_name: customer.full_name ?? null,
+          // Like Paidy (PD1): a card submission carries no proof file — its
+          // proof is the authorisation Square answered above.
+          proof_url: null,
+          notes: `Card authorisation (Square) from the website (${customerReference(order as never)})`,
+          status: "submitted",
+          submission_type: "cash_payment",
+          square_payment_id: (rec as AnyRec).id,
+        })
+        .select("id, status, submitted_amount, payment_date").maybeSingle();
+      if (subErr) throw subErr;
+      await logAttempt("authorized", null as unknown as string, payment.id);
+
+      await supabase.from("audit_logs").insert({
+        entity_type: "cash_payment_submission", entity_id: (created as AnyRec).id, action: "submission_created",
+        new_value_json: { cash_order_id: order.id, invoice_number: (order as AnyRec).invoice_number, amount: Math.round(Number(payment.amount_money.amount)), method: "square", reference: payment.id, path: "website_card", test: offer.test },
+      });
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "card_authorized",
+          title: "Card payment awaiting Confirm",
+          body: `${customerReference(order as never)} · ¥${Math.round(Number(payment.amount_money.amount)).toLocaleString("en-US")} · ${customer.full_name ?? ""} · ${payment.card_details?.card?.card_brand ?? "card"} ····${payment.card_details?.card?.last_4 ?? ""} · capture on Confirm within ${CARD_HOLD_DAYS} days`,
+          metadata: { cash_order_id: order.id, submission_id: (created as AnyRec).id, square_payment_id: payment.id, test: offer.test },
+        });
+      } catch (notifyErr) {
+        console.warn("[website] card_authorized notification failed (non-blocking):", notifyErr);
+      }
+
+      return jsonResponse(scrub({
+        ok: true, submission: created,
+        card: { brand: payment.card_details?.card?.card_brand ?? null, last4: payment.card_details?.card?.last_4 ?? null, receipt_url: payment.receipt_url ?? null, status: "authorized" },
+      }));
     }
 
     // GET /layaway — this customer's plans, newest first.

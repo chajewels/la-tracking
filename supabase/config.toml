@@ -191,6 +191,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.paidy-webhook]
     verify_jwt = false
+  [functions.square-webhook]
+    verify_jwt = false
   [functions.website]
     verify_jwt = false
   [functions.notify_website]

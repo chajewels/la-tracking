@@ -20,6 +20,10 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 | D10 | `dispute.created` webhook → bell `card_dispute_opened` + evidence fields on `square_payments`. |
 | D11 | `square_mode` off/test/on (fail-closed) + PUBLIC `square_app_id` / `square_location_id` in Hub settings via `set_square_settings`; `SQUARE_ACCESS_TOKEN` + `SQUARE_WEBHOOK_SIGNATURE_KEY` Lovable secrets only; the website reads the public ids from the Hub (no Vercel env). |
 | D12 | Footer card marks ship in the storefront PR (S3), from Square's official logo kit. |
+| Q1 (2026-10-04 01:07) | ONE bilingual EN + JA Card Purchase Agreement, one signature, keyed by order id (`doc=card&order=<id>`). A NEW document — only the layaway signing MECHANISM is reused. |
+| Q2 | `delay_action: CANCEL` — Square drops an unconfirmed hold at the end of its 7-day window; the submission auto-rejects (Paidy PD4 pattern); bell `card_hold_expiring` from day 5. |
+| Q3 | Cards only at launch; Apple Pay / Google Pay a follow-up PR after go-live. |
+| Q4 | The owner pastes the current Apps Script; Claude Code returns the full updated script. |
 | — | Never on layaway (owner rule). Points redemption / discount codes are separate backlog items. |
 
 ## Build steps
@@ -44,40 +48,72 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
   **go-live**: production token + signature key (Lovable), production ids +
   mode On (Hub), one real small payment by the owner refunded in the Dashboard.
 
-## Flow (target; S2–S4 implement it)
+## Flow (S2 as built 2026-10-04; S3/S4 add the storefront and the agreement)
 1. Staff Confirm the draft → the real order exists (`cash_orders`, yen,
    `payment_status = 'pending_transfer'`).
 2. `GET /orders/:id` returns `card: { offered, app_id, location_id, test,
-   agreement_required }` when `cardNotOfferedReason()` is null
-   (`_shared/card-rules.ts`, S2): `square_mode` on (or test + `customers.is_test`),
-   an app id of the mode's family, a location id, JPY, order `pending` /
+   amount_jpy, agreement_required, agreement_min_jpy }` when
+   `cardNotOfferedReason()` is null (`_shared/card-rules.ts`, pure, vitest):
+   `square_mode` on (or test + `customers.is_test`), an app id of the mode's
+   family (`squareAppIdFamily`), a location id, JPY, order `pending` /
    `pending_transfer`, `ready_confirmed_at` set, `remaining_balance > 0`, no
-   `submitted | under_review` submission. Amount = the Hub's remaining balance,
-   shown and sent as-is; the site computes nothing.
+   `submitted | under_review` submission. No address rule (D4). Amount = the
+   Hub's remaining balance, shown and sent as-is; the site computes nothing.
 3. Agreement first (S4): the pay-card page refuses until the Apps Script lookup
    answers `signed: true` for `doc=card&order=<id>`.
 4. The customer tokenises the card (3DS) → `POST /orders/:id/card
-   { source_id, verification_token, terms: {accepted_at, version}, agreement }`.
-   The Hub re-checks the rule, calls **CreatePayment `autocomplete:false`**
-   (idempotency key = order id + attempt, `reference_id` = invoice,
-   `statement_description_identifier` "CHA JEWELS"), re-reads the payment,
-   then writes one `square_payments` row (`authorized`, brand, last4, 3DS
-   status, receipt URL, terms + agreement evidence) and one
-   `payment_submissions` row (`payment_method 'square'`, `reference_number` =
-   the Square payment id, `proof_url null`, `square_payment_id`), audit row,
-   bell `card_authorized`. INVARIANT 12 freezes the deadline.
-5. Reviewer **Confirm** (review-payment-submission, cash branch): after the
-   atomic claim and before `cash_payments` → **CompletePayment**. Success →
-   `captured`; the cash payment is written as today. A hold past Square's
-   capture window → submission REJECTED with the note, `expired`
-   (Paidy PD4 pattern); any other failure → claim reverted, nothing written.
-6. Reviewer **Reject** → **CancelPayment** (void, no fee) → `voided`.
-7. `square-webhook` (public): HMAC-SHA256 of notification URL + raw body
-   against `x-square-hmacsha256-signature`, timing-safe; every event id lands
-   in `square_webhook_events` once; the body is never trusted — the payment is
-   re-read from Square. `payment.updated`, `refund.created/updated`,
-   `dispute.created` → `disputed_at` / `dispute_id` + bell `card_dispute_opened`.
-8. Refunds phase 1: Square Dashboard; the Hub records `refund_status` as today.
+   { source_id, verification_token?, terms: {accepted_at, version, ip?,
+   user_agent?}, agreement: {version, signed_at} | null }`. The Hub re-checks
+   the rule, refuses `verification_required` (D7: the SDK's 3-D Secure
+   verification token is mandatory), `terms_required` (accepted_at AND
+   version) / `agreement_missing` (D9), applies the 3-per-24h submission cap
+   AND the 5-per-24h card-attempt cap (`square_attempts`, declines included —
+   429 `too_many_attempts`), then calls **CreatePayment `autocomplete:false`,
+   `delay_action: CANCEL`** (`_shared/square.ts`; idempotency key =
+   `cardIdempotencyKey(order id, card token)` — one per card NONCE, so a
+   retried click dedupes to the same hold and a corrected card gets a fresh
+   key; `reference_id` = invoice, `note` = customer reference,
+   `statement_description_identifier` "CHA JEWELS"; host sandbox/production
+   from the mode). The answer must be APPROVED, JPY, amount = remaining
+   balance, else CancelPayment + 409 `card_mismatch`; a card refusal
+   (`SquareError.isCardRefusal`) is 402 `card_declined` with Square's code.
+   Then one `square_payments` row (`authorized`, brand, last4,
+   `three_ds_status` VERIFICATION_TOKEN_PRESENTED, receipt URL, terms +
+   agreement evidence incl. IP / UA as reported by the storefront's server
+   action, `capture_by` = Square's `delayed_until` or +7 days) and one `payment_submissions` row
+   (`payment_method 'square'`, `reference_number` = the Square payment id,
+   `proof_url null`, `square_payment_id` = the row uuid), audit
+   `submission_created` (path `website_card`), bell `card_authorized`.
+   INVARIANT 12 freezes the deadline.
+5. Reviewer **Confirm** (review-payment-submission, cash branch, step 2e —
+   the twin of Paidy's 2d): after the atomic claim and before `cash_payments`
+   → **CompletePayment**. Success (COMPLETED) → `captured`; the cash payment
+   is written as today. `captured` already → carry on (retried Confirm). Hold
+   amount ≠ the submission's amount → claim reverted, 409 `amount_mismatch`.
+   `cardHoldExpired` (past `capture_by`, else > 7 days) or Square answering PAYMENT_NOT_FOUND /
+   INVALID_PAYMENT_STATUS / PAYMENT_EXPIRED / canceled → `expired`, the
+   submission REJECTED with the note, audit reason `card_hold_expired`, 409
+   `card_hold_expired` (Paidy PD4 pattern); any other failure → claim
+   reverted, 502 `card_capture_failed`, nothing written.
+6. Reviewer **Reject** → **CancelPayment** (void, no fee) → `voided`,
+   `voided_reason "rejected by reviewer"`; best effort — a failure rings
+   `card_void_failed` and the reject proceeds (Square drops the hold itself).
+7. `square-webhook` (public, SIGNED): base64(HMAC-SHA256(key, registered
+   notification URL + raw body)) against `x-square-hmacsha256-signature`,
+   timing-safe (`verifySquareSignature`, deno test
+   `development/square-signature.test.ts`); 401 otherwise. Every event id lands
+   in `square_webhook_events` once (duplicate → 200 `duplicate`); the body is
+   never trusted — the payment is re-read from Square. COMPLETED → `captured`,
+   FAILED → `failed`, CANCELED → `expired` (past the window) or `voided`; a
+   settled row is never downgraded; a live submission on a hold that closed
+   externally is rejected with the note + audit `card_closed_externally` + bell.
+   `dispute.*` → `disputed_at` / `dispute_id` + bell `card_dispute_opened`
+   (D10); `refund.*` → `refund_jpy` + bell `card_refunded`.
+8. Hourly (auto-expire-cash-orders): a hold still `authorized` from day 5 rings
+   `card_hold_expiring` once (`warned_at`, migration 20261101110000; past the
+   window the bell says "expired — Reject it"). Nothing else is touched
+   (INVARIANT 12).
+9. Refunds phase 1: Square Dashboard; the Hub records `refund_status` as today.
 
 ## S1 schema (migration 20261101100000)
 - `square_payments` — one row per Square payment: `cash_order_id`,
@@ -90,7 +126,13 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
   `last_webhook_at`, `last_payload`. RLS: staff select; service_role writes.
 - `payment_submissions.square_payment_id` + partial unique index
   `uq_payment_submissions_square_live` (one live submission per hold).
-- `square_webhook_events` (`event_id` PK) — idempotency log.
+- `square_webhook_events` (`event_id` PK, event_type, payment_id, outcome,
+  error, payload) — idempotency log.
+- `square_payments.warned_at` (S2, 20261101110000) — the hold-expiry bell stamp.
+- `square_attempts` (S2, same migration) — one row per CreatePayment attempt
+  (authorized | declined | refused | mismatch | error); the card-attempt cap's
+  evidence, never money state. The `rejected` value of `square_payments.status`
+  is reserved and not written today (a decline creates no row).
 - Settings: `square_mode` "off", `square_app_id` "", `square_location_id` "",
   `card_agreement_min_jpy` 0. `guard_square_settings()` /
   `trg_guard_square_settings` refuse any write without GUC
@@ -128,7 +170,19 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 - Cash Order Detail: the pending-transfer banner names a card hold awaiting
   Confirm.
 
-## Owner inputs before S2
+## Edge functions (S2, 2026-10-04)
+| File | Role |
+|---|---|
+| `_shared/card-rules.ts` | PURE rules (no Deno, no imports): `squareModeFrom`, `squareAppIdFamily`, `cardNotOfferedReason`, `CARD_HOLD_DAYS` 7 / `CARD_HOLD_WARN_DAYS` 5, `cardHoldExpired`, `cardHoldWarnDue`, `cardAmountMatches`, `isSquarePaymentId`, `normalizeSquareStatus`, `agreementRequired`. vitest `src/test/card-rules.test.ts` (CI). |
+| `_shared/square.ts` | The only file that talks to Square (fetch, `Square-Version` 2026-09-16; SQUARE_ACCESS_TOKEN read only here): `square.create` (authorise), `get`, `complete`, `cancel`; `SquareError` (+ `isCardRefusal`); `verifySquareSignature` / `hmacSha256Base64` (SQUARE_WEBHOOK_SIGNATURE_KEY). Sandbox vs production host is passed by the caller from `square_mode`, never guessed from the token. |
+| `website/index.ts` | `cardOffer()`; `GET /orders/:id` → `card`; `POST /orders/:id/card`. |
+| `review-payment-submission/index.ts` | `isSquareSubmission` (proof exception); step 2e capture; Reject void. |
+| `square-webhook/index.ts` | `verify_jwt = false` in config.toml; signed; idempotent; re-reads. |
+| `auto-expire-cash-orders/index.ts` | the `card_hold_expiring` pass. |
+
+Deploy (Lovable DEPLOY-ONLY after the two secrets exist): `website`, `review-payment-submission`, `square-webhook`, `auto-expire-cash-orders`; SQL-ONLY first for 20261101110000.
+
+## Owner inputs before S2 deploy
 1. Square Dashboard: location = Cha Jewels / Japan / JPY; Visa, Mastercard,
    Amex, JCB, Diners, Discover enabled for online; statement descriptor
    "CHA JEWELS"; dispute notification email.
