@@ -62,6 +62,13 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   refund-decision path records the decision; a Paidy refund button is a later
   admin feature (`POST /payments/:id/refunds` with the `capture_id`).
 - A Paidy payment is yen only; a peso order never offers it.
+- PAIDY'S STATUS CASE IS NOT TRUSTED: the reference documents AUTHORIZED |
+  CLOSED | REJECTED, but the live Checkout callback sent `"authorized"` in lower
+  case (test run 2026-10-03, pay_asDHekoAAEkAmsmA) and the storefront dropped
+  the authorisation as "window closed". `normalizePaidyPayment()` in
+  `_shared/paidy.ts` upper-cases every API read-back; the storefront's
+  `paidyStatus()` (lib/paidy.ts, PR #261) does the same for the callback. Never
+  compare a raw Paidy status again.
 
 ## Settings and go-live
 Website → Settings → Paidy (admin): mode + public key. Sequence: migration
