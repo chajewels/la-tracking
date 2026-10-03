@@ -5788,3 +5788,42 @@ award path writes only when money is received.
   2026-10-02 15:5x JST from main c3bcb657 exactly (Lovable DEPLOY-ONLY message
   umsg_01m3y7de8ze4arb68s9g3mh1z5; all source assertions matched). Release #325.
 
+
+### Lovable security scan 2026-10-01: 5 real findings fixed, 8 already blocked (2026-10-03)
+
+Scan `agent_security_v2` v1.91, run 2026-10-01T07:50:13Z, read through the Lovable connection
+(plan mode, nothing changed) and checked title by title against main and live.
+
+**Already blocked — no change.** "Anyone can forge an unsigned service_role JWT" on
+penalty-engine, auto-forfeit-settlement, bulk-import, daily-reconciliation, award-loyalty-points,
+web-reservation-sweep, cleanup-loyalty-images and loyalty-sheet-reconcile. All run at
+`verify_jwt = true`: the gateway checks the signature before code runs. Live probe 2026-10-03
+(pg_net, bad-signature token): every one answered `401 UNAUTHORIZED_LEGACY_JWT "Invalid JWT"`.
+Do NOT narrow `isServiceRole` to exact-key equality — cron/Vault callers send a non-identical
+service-role JWT (Bug #168). The two verify_jwt=false users were checked:
+sync-store-credit-to-shopify already gates on exact env-key equality; manual-forfeit takes no
+service path.
+
+**Fixed:**
+- `ai-command-parser` accepted ANY signed-in user and read customers, accounts, payments and
+  loyalty with the service role — website/portal customers are auth users too. Now requireAuth
+  + `is_staff` (admin/staff/finance/csr), 403 otherwise, fails closed. The scan only flagged the
+  search filter: `search` now drops `, ( ) " \` before the raw `.or()` filter.
+- `create-team-member` "bootstrap mode" skipped every check when `user_roles` counted 0 — and a
+  FAILED count also read as 0, so a database hiccup opened team creation (role 'admin' included)
+  and deactivate/reactivate to anyone. Removed; now requireAuth + requirePermission('manage_team')
+  (resolution order: admin → override → role). First admin of a fresh project = SQL only.
+- `campaign-queue` test send went to any `test_email`. It now goes only to the caller's own
+  sign-in address; another address → 403 `test_email_must_be_your_own` (the Hub already sends
+  user.email).
+- Cash orders + Layaway accounts CSV exports hand-rolled `JSON.stringify` cells, so a customer
+  name like `=HYPERLINK(…)` ran as a formula. Both now use `src/lib/csv.ts`; `csvEscape` prefixes
+  `'` to TEXT starting with = + - @ TAB CR (numbers untouched) — also covers DataTable exports.
+  Test: src/test/csv-formula-guard.test.ts.
+- `handle-email-unsubscribe` logged the cleartext token on an update failure; it no longer does.
+
+**Open (owner chose server-side enforcement 2026-10-03, separate PR):** customer-portal returns
+full data for `?token=` without the PIN — the PIN gate is browser-only.
+
+**Do not reintroduce:** a bootstrap / empty-table bypass in any auth path; a "signed in" check
+standing in for a staff check on a service-role function; hand-rolled CSV cells.

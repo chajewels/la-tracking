@@ -1,60 +1,27 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuth, requirePermission } from "../_shared/handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function hasPermission(supabase: any, userId: string, permissionKey: string) {
-  const { data: roles, error: roleError } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId);
-  if (roleError) throw roleError;
-
-  const roleNames = (roles ?? []).map((row: any) => row.role);
-  if (roleNames.length === 0) return false;
-
-  const { data: permissions, error: permissionError } = await supabase
-    .from("role_permissions")
-    .select("role, is_allowed")
-    .eq("permission_key", permissionKey)
-    .in("role", roleNames);
-  if (permissionError) throw permissionError;
-
-  return (permissions ?? []).some((row: any) => row.is_allowed);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    const { count } = await supabaseAdmin.from("user_roles").select("*", { count: "exact", head: true });
-    const bootstrapMode = (count ?? 0) === 0;
-
-    let callerId: string | null = null;
-    if (!bootstrapMode) {
-      const authHeader = req.headers.get("Authorization");
-      if (!authHeader) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const { data: { user } } = await supabaseAdmin.auth.getUser(authHeader.replace("Bearer ", ""));
-      if (!user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const canManageTeam = await hasPermission(supabaseAdmin, user.id, "manage_team");
-      if (!canManageTeam) {
-        return new Response(JSON.stringify({ error: "Permission denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      callerId = user.id;
-    }
+    // Every call is authenticated and needs manage_team (admin; or a user
+    // override — CLAUDE.md permission resolution order). There is NO bootstrap
+    // mode any more: it skipped all checks when user_roles counted 0, and a
+    // FAILED count read as 0 too, so a database hiccup opened team creation
+    // (incl. role 'admin') to anyone. Lovable scan 2026-10-01; removed
+    // 2026-10-03. The first admin of a new project is created in SQL, never
+    // through this endpoint. No service-role path: no cron or internal caller.
+    const ctx = await requireAuth(req);
+    if (ctx instanceof Response) return ctx;
+    const denied = await requirePermission(ctx, "manage_team");
+    if (denied) return denied;
+    const supabaseAdmin = ctx.supabase;
+    const callerId: string = ctx.user!.id;
 
     const body = await req.json();
     const { action } = body;
