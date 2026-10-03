@@ -8,6 +8,10 @@ import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts
 import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
 import { sendDraftReservedEmail } from "../_shared/reservation-emails.ts";
 import {
+  loyaltyEnabledFrom, previewEarn, previewEarnAsNewMember,
+  type EarnMember, type EarnPromo, type EarnTier,
+} from "../_shared/loyalty-earn.ts";
+import {
   NOT_READY_FOR_PAYMENT, isUnconfirmedReservation, reservationFlags,
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
@@ -1305,6 +1309,110 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // it is OFF until she ticks it; PUT /me/cart-reminders changes it.
         cart_reminders: { opted_in: (cartConsent as AnyRec | null)?.opted_in === true },
       }));
+    }
+
+    // GET /me/points-preview?variant_ids=<id>,<id> — the loyalty points a
+    // signed-in customer would earn on each piece at her level (owner request
+    // 2026-10-03). READ ONLY: the arithmetic is _shared/loyalty-earn.ts, a mirror
+    // of award-loyalty-points, which stays the only award path. The figure is a
+    // preview — the award itself happens on the confirmed payment, as today.
+    if (req.method === "GET" && segments[0] === "me" && segments[1] === "points-preview" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+
+      const ids = [...new Set(String(url.searchParams.get("variant_ids") ?? "")
+        .split(",").map((s) => s.trim()).filter(Boolean))];
+      if (ids.length === 0) return jsonResponse({ error: "variant_ids_required" }, 400);
+      if (ids.length > 50) return jsonResponse({ error: "too_many_variants" }, 400);
+
+      const [flagRes, tiersRes, memberRes, variantsRes] = await Promise.all([
+        supabase.from("system_settings").select("value").eq("key", "loyalty_enabled").maybeSingle(),
+        supabase.from("loyalty_tiers").select("id, name, min_spend_jpy, points_multiplier, requalify_spend_jpy"),
+        supabase.from("loyalty_members")
+          .select("id, current_tier_id, earned_tier_id, cumulative_spend_jpy, is_downgraded, downgrade_spend_baseline")
+          .eq("customer_id", customer.id).maybeSingle(),
+        supabase.from("website_product_variants")
+          .select("id, price_jpy, product:website_products(status)")
+          .in("id", ids),
+      ]);
+      for (const r of [flagRes, tiersRes, memberRes, variantsRes]) if (r.error) throw r.error;
+
+      // Fail-closed, same reading as award-loyalty-points step 1b.
+      if (!loyaltyEnabledFrom((flagRes.data as AnyRec | null)?.value)) {
+        return jsonResponse({ enabled: false, enrolled: false, tier: null, items: [] });
+      }
+      const tierRows = ((tiersRes.data ?? []) as AnyRec[]);
+      const tiers: EarnTier[] = tierRows.map((t) => ({
+        id: String(t.id),
+        name: String(t.name ?? ""),
+        min_spend_jpy: Number(t.min_spend_jpy ?? 0),
+        points_multiplier: Number(t.points_multiplier ?? 1),
+      }));
+      const memberRow = memberRes.data as AnyRec | null;
+
+      let member: EarnMember | null = null;
+      let promo: EarnPromo | null = null;
+      if (memberRow) {
+        const earnedTier = tierRows.find((t) => String(t.id) === String(memberRow.earned_tier_id ?? ""));
+        member = {
+          current_tier_id: String(memberRow.current_tier_id ?? ""),
+          cumulative_spend_jpy: Number(memberRow.cumulative_spend_jpy ?? 0),
+          is_downgraded: memberRow.is_downgraded === true,
+          downgrade_spend_baseline: memberRow.downgrade_spend_baseline == null
+            ? null : Number(memberRow.downgrade_spend_baseline),
+          requalify_target_jpy: earnedTier?.requalify_spend_jpy == null
+            ? null : Number(earnedTier.requalify_spend_jpy),
+        };
+        // Active promo — same selection as award-loyalty-points step 6: the
+        // newest active promo in its date window, allowed for her CURRENT tier,
+        // under its per-customer cap. Day boundary in PHT (CLAUDE.md timezone).
+        const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+        const { data: promos, error: promoErr } = await supabase
+          .from("loyalty_promos")
+          .select("id, bonus_multiplier, bonus_points, applicable_tiers, max_per_customer")
+          .eq("is_active", true).lte("start_date", today).gte("end_date", today)
+          .order("created_at", { ascending: false }).limit(1);
+        if (promoErr) throw promoErr;
+        const candidate = (promos ?? [])[0] as AnyRec | undefined;
+        const currentName = tiers.find((t) => t.id === member!.current_tier_id)?.name ?? null;
+        if (candidate) {
+          const allowed = candidate.applicable_tiers as string[] | null;
+          const tierOk = !allowed || allowed.length === 0 || (currentName != null && allowed.includes(currentName));
+          let underCap = true;
+          if (tierOk && candidate.max_per_customer != null) {
+            const { count, error: capErr } = await supabase
+              .from("loyalty_transactions")
+              .select("id", { count: "exact", head: true })
+              .eq("member_id", memberRow.id).eq("transaction_type", "bonus").eq("promo_id", candidate.id);
+            if (capErr) throw capErr;
+            underCap = (count ?? 0) < Number(candidate.max_per_customer);
+          }
+          if (tierOk && underCap) {
+            promo = {
+              bonus_multiplier: candidate.bonus_multiplier == null ? null : Number(candidate.bonus_multiplier),
+              bonus_points: candidate.bonus_points == null ? null : Number(candidate.bonus_points),
+            };
+          }
+        }
+      }
+
+      const items = ((variantsRes.data ?? []) as AnyRec[])
+        .filter((v) => (v.product as AnyRec | null)?.status === "active")
+        .map((v) => {
+          const price = Number(v.price_jpy ?? 0);
+          const preview = member ? previewEarn(price, member, tiers, promo) : previewEarnAsNewMember(price, tiers);
+          return { variant_id: String(v.id), ...(preview ?? { points: 0, base_points: 0, promo_points: 0, multiplier: null, tier: null, upgraded_to: null }), eligible: preview != null };
+        });
+      const currentTier = member ? tiers.find((t) => t.id === member!.current_tier_id) ?? null : null;
+      return jsonResponse({
+        enabled: true,
+        enrolled: member != null,
+        tier: currentTier?.name ?? null,
+        multiplier: currentTier ? currentTier.points_multiplier : null,
+        items,
+      });
     }
 
     // PUT /me/addresses — save the customer's list, atomically and WITHOUT
