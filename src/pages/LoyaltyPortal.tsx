@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { getPortalSessionId, clearPortalSession, isPinRequiredError, pinScreenUrl } from '@/lib/portal-session';
 import { supabase } from '@/integrations/supabase/client';
 import { ArrowLeft, Diamond } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -496,8 +497,11 @@ async function fetchPortal(args: {
     url = `${SUPABASE_URL}/functions/v1/customer-portal`;
     headers['Authorization'] = `Bearer ${args.accessToken}`;
   } else if (args.authMode === 'token' && args.token) {
-    // Token-auth path: ?token=X URL param (legacy behavior)
-    url = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(args.token)}`;
+    // Token-auth path. The PIN session id (verify-portal-pin, 12 h) is what
+    // the server accepts; a bare link is refused with pin_required.
+    const sid = getPortalSessionId(args.token);
+    url = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(args.token)}`
+      + (sid ? `&session_id=${encodeURIComponent(sid)}` : '');
   } else {
     throw new Error('No auth provided to fetchPortal');
   }
@@ -536,6 +540,13 @@ export default function LoyaltyPortal() {
         setAuthMode('session');
         setAccessToken(session.access_token);
       } else if (token) {
+        // PIN ENFORCEMENT (2026-10-03): the loyalty page has no PIN screen of
+        // its own. Without a PIN session for this link, the portal asks for
+        // the PIN first and sends the customer back here (?next=loyalty).
+        if (!getPortalSessionId(token)) {
+          navigate(pinScreenUrl(token, 'loyalty'), { replace: true });
+          return;
+        }
         setAuthMode('token');
       } else {
         setAuthMode(null);
@@ -578,10 +589,17 @@ export default function LoyaltyPortal() {
     }
     if (portalQuery.isError) {
       const msg = (portalQuery.error as Error)?.message || pt('states.errLoadLoyalty');
+      // PIN session ended (12 h / tab) on a link visit: ask for the PIN again,
+      // then return here. Not a sign-in problem.
+      if (authMode === 'token' && token && isPinRequiredError(msg)) {
+        clearPortalSession(token);
+        navigate(pinScreenUrl(token, 'loyalty'), { replace: true });
+        return;
+      }
       toast.error(msg);
       navigate('/portal/login', { replace: true });
     }
-  }, [bootstrapping, authMode, portalQuery.isError, portalQuery.error, navigate]);
+  }, [bootstrapping, authMode, token, portalQuery.isError, portalQuery.error, navigate]);
 
   const access = useLoyaltyAccess(portalQuery.data?.customer_id ?? null);
 

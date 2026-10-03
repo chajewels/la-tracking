@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { supabase } from '@/integrations/supabase/client';
-import { getPortalAuthHeaders } from '@/lib/portal-auth';
+import { getPortalAuthHeaders, portalAuthBody } from '@/lib/portal-auth';
 import { toast } from 'sonner';
 import { pt } from '@/i18n/portal';
 
@@ -250,7 +250,7 @@ export function RedemptionForm({
           points_redeemed: pointsNum,
           invoice_number: matchedOrder.invoice_number,
           notes: notes.trim() || null,
-          portal_token: portalToken,
+          ...portalAuthBody(portalToken),
           account_id:
             matchedOrder.kind === 'layaway' ? matchedOrder.id : null,
           cash_order_id:
@@ -264,7 +264,7 @@ export function RedemptionForm({
           redemption_type: redemptionType,
           points_redeemed: pointsNum,
           notes: notes.trim(),
-          portal_token: portalToken,
+          ...portalAuthBody(portalToken),
         };
       }
 

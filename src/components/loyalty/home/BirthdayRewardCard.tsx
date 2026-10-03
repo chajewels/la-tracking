@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { getPortalAuthHeaders } from '@/lib/portal-auth';
+import { getPortalAuthHeaders, portalAuthBody } from '@/lib/portal-auth';
 
 interface BirthdayRewardCardProps {
   birthdayReward: { bonus_points: number; claimable: boolean } | null;
@@ -32,7 +32,7 @@ export default function BirthdayRewardCard({
           apikey: supabaseAnonKey,
           ...authHeaders,
         },
-        body: JSON.stringify({ token: portalToken || undefined, action: 'redeem_birthday' }),
+        body: JSON.stringify({ ...portalAuthBody(portalToken), action: 'redeem_birthday' }),
       });
       const payload = await res.json().catch(() => ({} as { error?: string }));
       if (!res.ok || payload?.error) {

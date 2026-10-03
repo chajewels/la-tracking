@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toPHTDateString } from '@/lib/date-utils';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
+import { portalAuthBody } from '@/lib/portal-auth';
 
 const categoryIcons: Record<string, typeof Crown> = {
   // Phase 4 admin-pickable categories
@@ -134,8 +135,8 @@ export default function NotificationsScreen({
           body: {
             mode: vars.mode,
             notification_id: vars.notification_id,
-            session_id: sessionId ?? undefined,
-            portal_token: portalToken ?? undefined,
+            ...portalAuthBody(portalToken),
+            ...(sessionId ? { session_id: sessionId } : {}),
           },
         },
       );

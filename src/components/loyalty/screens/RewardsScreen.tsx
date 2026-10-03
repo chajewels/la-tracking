@@ -9,6 +9,7 @@ import { useLoyaltyRewardsCatalog, type LoyaltyRewardRow } from '@/hooks/loyalty
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import VipRewardsVault from '@/components/loyalty/rewards/VipRewardsVault';
+import { portalAuthBody } from '@/lib/portal-auth';
 
 /**
  * Adapter: DB row → existing FallbackReward shape so the existing
@@ -109,7 +110,7 @@ export default function RewardsScreen() {
             redemption_type: 'catalog_reward',
             points_redeemed: selectedReward.pointsCost,
             invoice_number: invoiceInput.trim() || null,
-            portal_token: portalToken,
+            ...portalAuthBody(portalToken),
           },
         },
       );

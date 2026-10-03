@@ -4,7 +4,7 @@ import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle
 import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
-import { getPortalAuthHeaders } from "@/lib/portal-auth";
+import { getPortalAuthHeaders, portalAuthBody } from "@/lib/portal-auth";
 // TODO: wire to Supabase
 import { FAQS } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
@@ -74,7 +74,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
           ...authHeaders,
         },
         body: JSON.stringify({
-          token: portalToken || undefined,
+          ...portalAuthBody(portalToken),
           action: 'set_birthday',
           p_birthday,
         }),
