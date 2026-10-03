@@ -27,6 +27,11 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad_json" }, 400); }
   const id = body.payment_id ?? body.id;
   if (!isPaidyPaymentId(id)) return jsonResponse({ ok: true, ignored: "no_payment_id" });
+  // Paidy's real body (console tester, 2026-10-03): { payment_id, status:
+  // "authorize_success" | "close_success" | "update_success" |
+  // "capture_success" | "refund_success", capture_id?, order_ref, ... } — the
+  // event name is in `status`; older notes used `event`. Label only, never trusted.
+  const event = String(body.status ?? body.event ?? "");
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: row } = await supabase
@@ -57,7 +62,7 @@ Deno.serve(async (req) => {
   if (!settled && next !== row.status) {
     update.status = next;
     if (next === "captured") { update.captured_at = now; update.capture_id = payment.captures?.[0]?.id ?? null; }
-    if (next === "closed" || next === "rejected") { update.closed_at = now; update.closed_reason = `webhook: ${String(body.event ?? payment.status)}`; }
+    if (next === "closed" || next === "rejected") { update.closed_at = now; update.closed_reason = `webhook: ${event || payment.status}`; }
   }
   await supabase.from("paidy_payments").update(update).eq("id", row.id);
 
@@ -69,11 +74,11 @@ Deno.serve(async (req) => {
     for (const sub of (subs ?? []) as { id: string }[]) {
       await supabase.from("payment_submissions").update({
         status: "rejected", updated_at: now,
-        reviewer_notes: `Closed by Paidy (${String(body.event ?? payment.status)}) before Confirm — the customer must pay again.`,
+        reviewer_notes: `Closed by Paidy (${event || payment.status}) before Confirm — the customer must pay again.`,
       }).eq("id", sub.id);
       await supabase.from("audit_logs").insert({
         entity_type: "cash_payment_submission", entity_id: sub.id, action: "submission_rejected",
-        new_value_json: { reason: "paidy_closed_externally", paidy_payment_id: id, event: body.event ?? null },
+        new_value_json: { reason: "paidy_closed_externally", paidy_payment_id: id, event: event || null },
       });
     }
     try {
@@ -81,7 +86,7 @@ Deno.serve(async (req) => {
         type: "paidy_closed_externally",
         title: "Paidy authorisation closed before Confirm",
         body: `Paidy reports ${id} as ${payment.status}; the pending submission was rejected. The customer must pay again.`,
-        metadata: { cash_order_id: row.cash_order_id, paidy_payment_id: id, event: body.event ?? null },
+        metadata: { cash_order_id: row.cash_order_id, paidy_payment_id: id, event: event || null },
       });
     } catch (e) { console.warn(`${LOG} bell failed (non-blocking):`, e); }
   }
