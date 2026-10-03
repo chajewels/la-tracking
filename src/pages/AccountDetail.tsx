@@ -101,12 +101,8 @@ type ScheduleRow = ScheduleViewRow & {
   total_due_amount: number | string;
 };
 
-/** What isDownpaymentPayment reads. payment_type / is_downpayment are legacy
- *  import flags that are not columns on payments; kept so the check is unchanged. */
-type DownpaymentCandidate = Pick<Tables<'payments'>, 'reference_number' | 'remarks'> & {
-  payment_type?: string | null;
-  is_downpayment?: boolean | null;
-};
+/** What isDownpaymentPayment reads (INVARIANT 11: reference_number / remarks). */
+type DownpaymentCandidate = Pick<Tables<'payments'>, 'reference_number' | 'remarks'>;
 
 /** audit_account RPC result (jsonb) as the Account Health dialog reads it. */
 interface HealthCheckItem {
@@ -629,11 +625,10 @@ export default function AccountDetail() {
       : (account?.status ?? 'active');
   const downpaymentAmount = Number(account?.downpayment_amount || 0);
 
-  // Identify downpayment payments — check multiple fields since import sources vary
+  // Identify downpayment payments by reference_number / remarks (INVARIANT 11).
+  // The payment_type / is_downpayment reads were removed 2026-10-03: payments
+  // has neither column, so those branches never fired.
   const isDownpaymentPayment = (p: DownpaymentCandidate) =>
-    p.payment_type === 'downpayment' ||
-    p.payment_type === 'dp' ||
-    p.is_downpayment === true ||
     (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
     (p.remarks && String(p.remarks).toLowerCase().includes('down')) ||
     (p.remarks && String(p.remarks).toLowerCase().includes('dp'));

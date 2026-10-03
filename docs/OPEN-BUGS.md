@@ -760,7 +760,12 @@
     (found 2026-09-17)
 
 
-### Monitoring reads `status` / `paid_amount` off schedule_with_actuals rows (found 2026-10-03, typing pass)
+### Monitoring reads `status` / `paid_amount` off schedule_with_actuals rows (found 2026-10-03, typing pass) — RESOLVED 2026-10-03
+
+  Fixed the same day (fix/typing-pass-followups): Monitoring takes the next
+  unpaid due date from the view's own `computed_status`. The displayed date
+  was already right — the query pre-filters unpaid rows, so the helper's
+  undefined reads happened to agree — so no live figure changed.
 
   `src/pages/Monitoring.tsx` passes rows selected from `schedule_with_actuals`
   to `getNextUnpaidDueDate`, which filters on `status` and `paid_amount`. The
@@ -769,7 +774,11 @@
   PR #328, which is types only. Needs its own look: what the "next unpaid due
   date" on that page shows today.
 
-### Reads of columns `payments` does not have (found 2026-10-03, typing pass)
+### Reads of columns `payments` does not have (found 2026-10-03, typing pass) — RESOLVED 2026-10-03
+
+  Dead branches removed the same day (CustomerDetail `submission_type`,
+  AccountDetail `payment_type` / `is_downpayment`). DP detection unchanged:
+  reference_number / remarks (INVARIANT 11).
 
   `payments.submission_type` (CustomerDetail), `payment_type` and
   `is_downpayment` (AccountDetail DP detection) are read but are not columns —
