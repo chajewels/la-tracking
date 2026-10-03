@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -266,7 +267,7 @@ Deno.serve(async (req) => {
               .order("created_at", { ascending: false })
               .limit(1);
           } else {
-            console.log(`[send-reminders] grace-period email suppressed for ${alert.customerEmail}`);
+            console.log(`[send-reminders] grace-period email suppressed for ${maskEmail(alert.customerEmail)}`);
           }
           if (emailAlerts.length > 1) {
             await new Promise((r) => setTimeout(r, 500));
@@ -303,7 +304,7 @@ Deno.serve(async (req) => {
             .order("created_at", { ascending: false })
             .limit(1);
         } else {
-          console.log(`[send-reminders] reminder email suppressed for ${alert.customerEmail}`);
+          console.log(`[send-reminders] reminder email suppressed for ${maskEmail(alert.customerEmail)}`);
         }
       } catch (e) {
         console.error(`Email exception for ${alert.customer}:`, e);

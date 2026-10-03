@@ -4,6 +4,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -332,7 +333,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[submit-payment] "payment-submitted" suppressed for ${customerEmail}`);
+          console.log(`[submit-payment] "payment-submitted" suppressed for ${maskEmail(customerEmail)}`);
         }
       }
     } catch (emailErr) {

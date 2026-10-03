@@ -4,6 +4,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import { customerReference } from "../_shared/order-reference.ts";
 import { forfeitEmailKind } from "../_shared/web-order-rules.ts";
 import { sendLayawayForfeitedEmail } from "../_shared/layaway-forfeit-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,7 +168,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[auto-forfeit-settlement] "account-forfeited" suppressed for ${customerEmail}`);
+          console.log(`[auto-forfeit-settlement] "account-forfeited" suppressed for ${maskEmail(customerEmail)}`);
         }
       } catch (emailErr) {
         console.warn("[auto-forfeit] email send failed (non-blocking):", emailErr);

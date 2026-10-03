@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sheetText } from "../_shared/sheets-text.ts";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
 
 const corsHeaders = {
@@ -519,7 +520,7 @@ Deno.serve(async (req) => {
           const row = dataStart0 + i + 1; // 1-indexed for A1 notation
           const rec = records[i];
           taxValueData.push({ range: `${title}!B${row}`, values: [[rec.deposit_date]] });
-          taxValueData.push({ range: `${title}!D${row}`, values: [[rec.customer]] });
+          taxValueData.push({ range: `${title}!D${row}`, values: [[sheetText(rec.customer)]] });
           taxValueData.push({ range: `${title}!${amountCol}${row}`, values: [[rec.amount]] });
         }
       }

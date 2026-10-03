@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -694,7 +695,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[penalty-engine] templateName suppressed for ${customerEmail}`);
+          console.log(`[penalty-engine] templateName suppressed for ${maskEmail(customerEmail)}`);
         }
       }
     } catch (emailErr) {
@@ -727,7 +728,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[penalty-engine] "penalty-waiver-revoked" suppressed for ${email}`);
+          console.log(`[penalty-engine] "penalty-waiver-revoked" suppressed for ${maskEmail(email)}`);
         }
       }
     } catch (e) {

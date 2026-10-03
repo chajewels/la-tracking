@@ -39,6 +39,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -330,7 +331,7 @@ Deno.serve(async (req) => {
               },
             );
             if (!result.sent) {
-              console.log(`[setup-customer-account] "loyalty-welcome" suppressed for ${newCustomer.email}`);
+              console.log(`[setup-customer-account] "loyalty-welcome" suppressed for ${maskEmail(newCustomer.email)}`);
             }
           } else {
             console.log("[email-gate] loyalty-welcome skipped — toggle 'loyalty_email_welcome' is OFF");
