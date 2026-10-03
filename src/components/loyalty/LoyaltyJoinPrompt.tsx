@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { pt } from '@/i18n/portal';
+import { portalAuthBody } from '@/lib/portal-auth';
 
 const BENEFIT_KEYS = [
   'loyalty.benefitPoints',
@@ -33,7 +34,7 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
     setJoining(true);
     try {
       const { data, error } = await supabase.functions.invoke('join-loyalty-program', {
-        body: { portal_token: portalToken, source: 'portal_join' },
+        body: { ...portalAuthBody(portalToken), source: 'portal_join' },
       });
       if (error) throw error;
 

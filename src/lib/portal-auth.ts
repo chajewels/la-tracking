@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { getPortalSessionId } from '@/lib/portal-session';
 
 /**
  * Build the Authorization headers for a customer portal API call,
@@ -28,4 +29,22 @@ export async function getPortalAuthHeaders(portalToken: string | null | undefine
     throw new Error('Not authenticated');
   }
   return { Authorization: `Bearer ${session.access_token}` };
+}
+
+/**
+ * Portal auth fields for a JSON body (PIN enforcement, 2026-10-03). A link
+ * token alone is refused by the server with `pin_required`; the PIN session
+ * id issued by verify-portal-pin is what authenticates. Both are sent: the
+ * server resolves `session_id` first (Path 1) and the token only identifies
+ * the link. For a signed-in (password) customer both are empty and the
+ * Bearer header from getPortalAuthHeaders() carries the auth.
+ */
+export function portalAuthBody(portalToken: string | null | undefined): {
+  portal_token?: string;
+  token?: string;
+  session_id?: string;
+} {
+  if (!portalToken) return {};
+  const sid = getPortalSessionId(portalToken);
+  return { portal_token: portalToken, token: portalToken, ...(sid ? { session_id: sid } : {}) };
 }

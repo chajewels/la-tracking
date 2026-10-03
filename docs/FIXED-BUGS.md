@@ -5827,3 +5827,42 @@ full data for `?token=` without the PIN — the PIN gate is browser-only.
 
 **Do not reintroduce:** a bootstrap / empty-table bypass in any auth path; a "signed in" check
 standing in for a staff check on a service-role function; hand-rolled CSV cells.
+
+### Portal link opened a customer's data without the PIN (2026-10-03, owner decision: enforce on the server)
+
+**Symptom.** Lovable scan 2026-10-01 "Anyone with a portal link can bypass the PIN". Worse on
+inspection: CustomerPortal.tsx fetched ALL portal data with `?token=` before the PIN was typed
+(the PIN screen only covered it, sessionStorage flag); /loyalty?token= had no PIN screen at all;
+`redeem-portal-token` minted a 180-day customer_portal_sessions row from a bare link with no PIN;
+10 edge functions accepted a bare link via resolvePortalAuth Path 2. Live: 658 customers with a
+working link, 201 used in 30 days.
+
+**Fix.**
+- `_shared/portal-auth.ts` Path 2 validates the link and then refuses with `pin_required` unless
+  the caller passed `allowBareToken: true` — ONLY verify-portal-pin does. Path 1 (session_id)
+  and Path 0 (password JWT) unchanged.
+- `verify-portal-pin`: a correct PIN inserts a customer_portal_sessions row (12 h, owner choice
+  "until the tab closes, max 12 hours") and returns `session_id` + `expires_at`.
+- `redeem-portal-token`: retired — always 410 `retired`. Never restore it.
+- Browser: `src/lib/portal-session.ts` keeps the session per link token in sessionStorage;
+  `portalAuthBody()` (src/lib/portal-auth.ts) sends `session_id` with the token on every portal
+  call (portal page, cash dialog, loyalty join / redeem / birthday / notifications / rewards /
+  profile, proof uploads). CustomerPortal shows the PIN screen BEFORE loading anything and returns
+  to it on `pin_required` / session expired; LoyaltyPortal with a link and no session redirects
+  to `/portal?token=…&next=loyalty` and comes back after the PIN. Token-class errors ('Invalid
+  token', 'Token expired', 'revoked') keep the dead-link screen.
+- Signed-in (password) customers: no change.
+
+**Release order (no lock-out).** Frontend first (it still works with the old server: no session
+yet → sends token only, old server accepts). Then deploy `verify-portal-pin`, then the 9 others
++ `redeem-portal-token`. A customer mid-visit at the switch is asked for the PIN once more
+(`hasLegacyPinFlag` bridges the browser flag until then).
+
+**Still open.** (a) Default PIN = last 4 digits of mobile when none is set (verify-portal-pin).
+(b) `CashOrdersSection.tsx` reads/cancels the customer's own pending cash submissions directly
+via PostgREST with the `x-portal-token` header (anon RLS policies "Anon can view own submissions
+by token" / "Anon can cancel cash order submissions"); a bare link still reaches those two
+policies. Needs its own change (edge function or session-aware policy).
+
+**Do not reintroduce:** a browser-only PIN gate; any function passing `allowBareToken: true`
+besides verify-portal-pin; a session minted without a PIN check.

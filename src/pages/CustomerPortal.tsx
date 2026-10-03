@@ -52,6 +52,8 @@ import { pt, serviceLabel } from '@/i18n/portal';
 import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
+import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError } from '@/lib/portal-session';
+import { portalAuthBody } from '@/lib/portal-auth';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -366,15 +368,12 @@ export default function CustomerPortal() {
   // Per-token sessionStorage key so the PIN gate is skipped after the user
   // has already verified once in this browser session. Closing the tab
   // clears sessionStorage, so the gate fires again on the next visit.
-  const pinSessionKey = token ? `portal_pin_verified_${token}` : '';
-  const [pinVerified, setPinVerified] = useState(() => {
-    if (!pinSessionKey) return false;
-    try {
-      return sessionStorage.getItem(pinSessionKey) === '1';
-    } catch {
-      return false;
-    }
-  });
+  // PIN ENFORCEMENT (2026-10-03): "verified" means a PIN session issued by
+  // verify-portal-pin is stored for this link (12 h, sessionStorage). Nothing
+  // is fetched until then — the server refuses a bare link with pin_required.
+  // hasLegacyPinFlag keeps a visit that started before the server change
+  // working until the new functions are deployed.
+  const [pinVerified, setPinVerified] = useState(() => !!getPortalSessionId(token) || hasLegacyPinFlag(token));
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
@@ -397,15 +396,19 @@ export default function CustomerPortal() {
       if (!res.ok || !payload?.success) {
         setPinError(payload?.error || 'Invalid PIN. Please try again.');
       } else {
-        setPinVerified(true);
-        setPin('');
-        if (pinSessionKey) {
-          try {
-            sessionStorage.setItem(pinSessionKey, '1');
-          } catch {
-            /* private mode / quota — non-fatal, gate falls back to React state */
-          }
+        // The server now opens the portal session; keep its id for every call.
+        if (typeof payload.session_id === 'string' && payload.session_id) {
+          savePortalSession(token, payload.session_id, typeof payload.expires_at === 'string' ? payload.expires_at : null);
         }
+        setPin('');
+        // A loyalty link without a PIN session lands here with ?next=loyalty:
+        // the PIN is now checked, continue to the loyalty page.
+        if (params.get('next') === 'loyalty') {
+          navigate(`/loyalty?token=${encodeURIComponent(token)}`, { replace: true });
+          return;
+        }
+        setPinVerified(true);
+        setLoading(true);
       }
     } catch {
       setPinError('Something went wrong. Please try again.');
@@ -502,8 +505,16 @@ export default function CustomerPortal() {
       fetchUrl = `${SUPABASE_URL}/functions/v1/customer-portal`;
       fetchHeaders['Authorization'] = `Bearer ${accessToken}`;
     } else if (authMode === 'token' && token) {
-      // Token-auth path: ?token=X URL param (existing behavior)
-      fetchUrl = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`;
+      // Token-auth path. Nothing is loaded before the PIN: the PIN screen is
+      // the first thing a link visitor sees, and the server refuses a bare
+      // link anyway (pin_required). The PIN session id authenticates.
+      if (!pinVerified) {
+        setLoading(false);
+        return;
+      }
+      const sid = getPortalSessionId(token);
+      fetchUrl = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`
+        + (sid ? `&session_id=${encodeURIComponent(sid)}` : '');
     } else {
       // No auth at all — show sign-in CTA via authMode === null render block
       setLoading(false);
@@ -523,6 +534,13 @@ export default function CustomerPortal() {
           supabase.auth.signOut({ scope: 'local' }).catch(() => {});
           setAccessToken(null);
           setAuthMode('token');
+          return;
+        }
+        // The PIN session ended (12 h / tab) or the server now wants the PIN
+        // for this link: back to the PIN screen, not the dead-link screen.
+        if (authMode === 'token' && isPinRequiredError(json.error)) {
+          clearPortalSession(token);
+          setPinVerified(false);
           return;
         }
         setError(json.error || 'Access denied');
@@ -548,7 +566,7 @@ export default function CustomerPortal() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchPortal(); }, [token, authMode, accessToken, bootstrapping]);
+  useEffect(() => { fetchPortal(); }, [token, authMode, accessToken, bootstrapping, pinVerified]);
 
   // Guarded one-time auto-reload when a new build activates. On a clean landing
   // (no dirty guarded form) reload automatically; time-gated via sessionStorage
@@ -606,6 +624,45 @@ export default function CustomerPortal() {
           >
             {pt('states.firstTimeSetup')}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PIN gate (token links only; signed-in customers never see it) ──
+  // Rendered BEFORE the data/error screens: no data exists yet in token mode
+  // until the PIN is right (fetchPortal waits for pinVerified).
+  if (authMode === 'token' && !pinVerified) {
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
+        <OfflineBanner />
+        <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
+          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>{pt('common.chaJewels')}</p>
+          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>{pt('states.pinPrompt')}</p>
+          <input
+            type="password"
+            maxLength={4}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoFocus
+            value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={e => { if (e.key === 'Enter' && pin.length === 4 && !pinLoading) handlePinSubmit(); }}
+            className="w-full rounded-lg bg-secondary border border-border text-foreground box-border"
+            style={{ padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, marginBottom: 16 }}
+            placeholder="••••"
+          />
+          {pinError && <p className="text-destructive" style={{ fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
+          <button
+            onClick={handlePinSubmit}
+            disabled={pin.length !== 4 || pinLoading}
+            className={`w-full rounded-lg bg-primary text-primary-foreground font-bold ${pin.length !== 4 || pinLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            style={{ padding: 12, fontSize: 14 }}
+          >
+            {pinLoading ? pt('states.pinVerifying') : pt('states.pinAccess')}
+          </button>
+          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>{pt('states.pinForgot')}</p>
+          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>{pt('states.pinDefault')}</p>
         </div>
       </div>
     );
@@ -671,43 +728,6 @@ export default function CustomerPortal() {
               {pt('states.linkContact')}
             </a>
           </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── PIN gate (skipped for session-auth users) ──
-  if (authMode === 'token' && !pinVerified) {
-    return (
-      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
-        <OfflineBanner />
-        <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
-          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>{pt('common.chaJewels')}</p>
-          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>{pt('states.pinPrompt')}</p>
-          <input
-            type="password"
-            maxLength={4}
-            inputMode="numeric"
-            pattern="[0-9]*"
-            autoFocus
-            value={pin}
-            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-            onKeyDown={e => { if (e.key === 'Enter' && pin.length === 4 && !pinLoading) handlePinSubmit(); }}
-            className="w-full rounded-lg bg-secondary border border-border text-foreground box-border"
-            style={{ padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, marginBottom: 16 }}
-            placeholder="••••"
-          />
-          {pinError && <p className="text-destructive" style={{ fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
-          <button
-            onClick={handlePinSubmit}
-            disabled={pin.length !== 4 || pinLoading}
-            className={`w-full rounded-lg bg-primary text-primary-foreground font-bold ${pin.length !== 4 || pinLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-            style={{ padding: 12, fontSize: 14 }}
-          >
-            {pinLoading ? pt('states.pinVerifying') : pt('states.pinAccess')}
-          </button>
-          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>{pt('states.pinForgot')}</p>
-          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>{pt('states.pinDefault')}</p>
         </div>
       </div>
     );
@@ -1830,7 +1850,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           ...authHeaders,
         },
         body: JSON.stringify({
-          portal_token: portalToken || null,
+          ...portalAuthBody(portalToken),
           account_id: account.id,
           reason: extReason.trim() || null,
         }),
@@ -2403,7 +2423,11 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           fd.append('file', proofFile);
           fd.append('account_id', primaryAccountForName.id);
           fd.append('file_name', fileName);
-          if (portalToken) fd.append('portal_token', portalToken);
+          if (portalToken) {
+            fd.append('portal_token', portalToken);
+            const sid = getPortalSessionId(portalToken);
+            if (sid) fd.append('session_id', sid);
+          }
           const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
             method: 'POST',
             headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, ...uploadAuthHeaders },
@@ -2453,7 +2477,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           ...authHeaders,
         },
         body: JSON.stringify({
-          portal_token: portalToken,
+          ...portalAuthBody(portalToken),
           account_id: isSplit ? allocations[0]?.account_id : account.id,
           submitted_amount: submittedAmount,
           payment_date: paymentDate,
@@ -2940,7 +2964,11 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
           fd.append('file', editProofFile);
           fd.append('account_id', accountId);
           fd.append('file_name', editFileName);
-          if (portalToken) fd.append('portal_token', portalToken);
+          if (portalToken) {
+            fd.append('portal_token', portalToken);
+            const sid = getPortalSessionId(portalToken);
+            if (sid) fd.append('session_id', sid);
+          }
           const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
             method: 'POST',
             headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, ...editUploadAuthHeaders },
@@ -2965,7 +2993,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...editAuthHeaders },
         body: JSON.stringify({
-          portal_token: portalToken,
+          ...portalAuthBody(portalToken),
           submission_id: sub.id,
           action: 'edit',
           submitted_amount: parsedAmount,
@@ -2994,7 +3022,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
       const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...cancelAuthHeaders },
-        body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
+        body: JSON.stringify({ ...portalAuthBody(portalToken), submission_id: sub.id, action: 'cancel' }),
       });
       let json: { error?: string } = {};
       try { json = await res.json(); } catch { /* no-op */ }
@@ -3299,7 +3327,7 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...profileAuthHeaders },
         body: JSON.stringify({
-          token: portalToken,
+          ...portalAuthBody(portalToken),
           action: 'update_profile',
           profile: {
             full_name: fullName.trim(),
