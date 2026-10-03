@@ -10,6 +10,8 @@ import * as React from "npm:react@18.3.1";
 import { customerReference } from "../_shared/order-reference.ts";
 import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { PaidyError, paidy } from "../_shared/paidy.ts";
+import { paidyAuthorizationExpired } from "../_shared/paidy-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -264,7 +266,12 @@ Deno.serve(async (req) => {
 
     // PROOF REQUIRED TO CONFIRM (2026-06-30): cannot confirm without non-empty proof_url.
     // Authoritative gate; covers both cash-order and layaway confirm branches.
-    if (action === "confirmed" && (typeof submission.proof_url !== "string" || submission.proof_url.trim().length === 0)) {
+    // PAIDY (PD1, 2026-10-03): a Paidy submission carries no proof file — its
+    // proof is the authorisation the Hub read back from Paidy with the secret
+    // key (paidy_payment_id set, payment_method 'paidy'). Every other method
+    // keeps the rule.
+    const isPaidySubmission = submission.payment_method === "paidy" && !!submission.paidy_payment_id;
+    if (action === "confirmed" && !isPaidySubmission && (typeof submission.proof_url !== "string" || submission.proof_url.trim().length === 0)) {
       return new Response(JSON.stringify({ error: "Proof of payment is required to confirm this submission." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -438,8 +445,78 @@ Deno.serve(async (req) => {
         if (error) console.error("[review-payment-submission] cash claim revert failed:", error);
       };
 
+      // 2d. PAIDY CAPTURE (2026-10-03, docs/PAIDY.md). The authorisation is
+      //     captured here, after the claim and before any money is written, so
+      //     a failed capture leaves the books untouched: the claim is reverted
+      //     and the reviewer sees Paidy's answer. An authorisation older than
+      //     30 days (PD4) is rejected outright with the note, and the customer
+      //     is asked to pay again.
+      let paidyCaptureId: string | null = null;
+      if (isPaidySubmission) {
+        const { data: pp } = await supabase
+          .from("paidy_payments").select("id, paidy_payment_id, status, authorized_at, amount_jpy")
+          .eq("id", submission.paidy_payment_id).maybeSingle();
+        if (!pp) {
+          await revertCashClaim();
+          return new Response(JSON.stringify({ error: "Paidy record missing for this submission." }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const expireNow = async (why: string) => {
+          await supabase.from("paidy_payments").update({ status: "expired", closed_at: new Date().toISOString(), closed_reason: why, updated_at: new Date().toISOString() }).eq("id", pp.id);
+          await supabase.from("payment_submissions").update({
+            status: "rejected", reviewer_user_id: user.id, updated_at: new Date().toISOString(),
+            reviewer_notes: `Paidy authorisation expired (30 days) — the customer must pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
+          }).eq("id", submission_id);
+          await supabase.from("audit_logs").insert({
+            entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
+            new_value_json: { reason: "paidy_authorization_expired", paidy_payment_id: pp.paidy_payment_id, detail: why },
+            performed_by_user_id: user.id,
+          });
+        };
+        if (pp.status === "captured") {
+          // Already taken (a retried Confirm after a crash between capture and
+          // the insert): carry on with the books, do not capture twice.
+          paidyCaptureId = null;
+        } else if (pp.status !== "authorized") {
+          await revertCashClaim();
+          return new Response(JSON.stringify({ error: `Paidy payment is ${pp.status}; nothing to capture. Reject this submission.` }), {
+            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } else if (paidyAuthorizationExpired(String(pp.authorized_at))) {
+          await expireNow("older than 30 days at Confirm");
+          return new Response(JSON.stringify({ error: "paidy_authorization_expired", message: "Paidy authorisation expired (30 days). The submission was rejected; ask the customer to pay again." }), {
+            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } else {
+          try {
+            const captured = await paidy.capture(pp.paidy_payment_id, { invoice: String(cashOrder.invoice_number ?? ""), submission_id });
+            const cap = (captured.captures ?? [])[captured.captures ? captured.captures.length - 1 : 0];
+            paidyCaptureId = cap?.id ?? null;
+            await supabase.from("paidy_payments").update({
+              status: "captured", captured_at: new Date().toISOString(), capture_id: paidyCaptureId, last_payload: captured, updated_at: new Date().toISOString(),
+            }).eq("id", pp.id);
+          } catch (e) {
+            const pe = e instanceof PaidyError ? e : null;
+            console.error("[review-payment-submission] paidy.capture failed:", e);
+            if (pe && (pe.status === 404 || pe.status === 409)) {
+              // Paidy no longer holds it as AUTHORIZED: expired or closed on
+              // Paidy's side. Reject with the note (PD4).
+              await expireNow(`Paidy ${pe.status} ${pe.code}: ${pe.message}`);
+              return new Response(JSON.stringify({ error: "paidy_authorization_expired", message: `Paidy could not capture this payment (${pe.message}). The submission was rejected; ask the customer to pay again.` }), {
+                status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            await revertCashClaim();
+            return new Response(JSON.stringify({ error: "paidy_capture_failed", message: pe ? `${pe.code}: ${pe.message}` : String(e) }), {
+              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+
       // 3. Insert cash_payments row
-      const submittedByType = submission.portal_token ? "customer" : "staff";
+      const submittedByType = submission.portal_token || isPaidySubmission ? "customer" : "staff";
       const { data: cashPayment, error: cpErr } = await supabase
         .from("cash_payments")
         .insert({
@@ -1084,6 +1161,32 @@ Deno.serve(async (req) => {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
+        }
+      }
+    }
+
+    // PAIDY: Reject releases the authorisation (no charge, no fee). Best
+    // effort — a Paidy outage must not stop the reviewer; the webhook /
+    // the 30-day expiry will close it anyway, and the bell says so.
+    if (action === "rejected" && isPaidySubmission) {
+      const { data: pp } = await supabase
+        .from("paidy_payments").select("id, paidy_payment_id, status").eq("id", submission.paidy_payment_id).maybeSingle();
+      if (pp && pp.status === "authorized") {
+        try {
+          const closed = await paidy.close(pp.paidy_payment_id);
+          await supabase.from("paidy_payments").update({
+            status: "closed", closed_at: new Date().toISOString(), closed_reason: "rejected by reviewer", last_payload: closed, updated_at: new Date().toISOString(),
+          }).eq("id", pp.id);
+        } catch (e) {
+          console.warn("[review-payment-submission] paidy.close on reject failed (non-blocking):", e);
+          try {
+            await supabase.from("staff_notifications").insert({
+              type: "paidy_close_failed",
+              title: "Paidy authorisation could not be released",
+              body: `Submission ${submission_id} was rejected but Paidy did not accept the close: ${e instanceof Error ? e.message : String(e)}. It expires by itself after 30 days.`,
+              metadata: { submission_id, paidy_payment_id: pp.paidy_payment_id },
+            });
+          } catch { /* bell is best effort */ }
         }
       }
     }

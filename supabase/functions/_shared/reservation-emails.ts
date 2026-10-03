@@ -1,4 +1,5 @@
 import * as React from "npm:react@18.3.1";
+import { paidyModeFrom, paidyNotOfferedReason } from "./paidy-rules.ts";
 import {
   pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
   STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
@@ -42,7 +43,7 @@ export type ReservationEmailResult = SendStorefrontEmailResult | { sent: false; 
 async function loadOrder(supabase: Db, orderId: string) {
   const { data: order } = await supabase
     .from("cash_orders")
-    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, customers(email, is_test)")
+    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, status, payment_status, remaining_balance, source_channel, ready_confirmed_at, ship_to_snapshot, customers(email, is_test)")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return null;
@@ -206,9 +207,36 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         orderUrl: storefrontOrderUrl(orderId),
         variant: "ready",
         courier: await courierName(supabase, o.order.planned_shipping_method_id),
+        paidy: await paidyOfferedForEmail(supabase, o.order, o.to.is_test),
       }),
     });
   });
+}
+
+/**
+ * Paidy ato-barai (2026-10-03): the same rule the order page applies
+ * (_shared/paidy-rules.ts), read at send time. A "ready" email names Paidy
+ * only when the page the customer opens will actually offer it.
+ */
+async function paidyOfferedForEmail(supabase: Db, order: AnyRec, customerIsTest: boolean): Promise<boolean> {
+  try {
+    const [{ data: modeRow }, { data: keyRow }] = await Promise.all([
+      supabase.from("system_settings").select("value").eq("key", "paidy_mode").maybeSingle(),
+      supabase.from("system_settings").select("value").eq("key", "paidy_public_key").maybeSingle(),
+    ]);
+    const snap = (order.ship_to_snapshot ?? null) as AnyRec | null;
+    return paidyNotOfferedReason({
+      mode: paidyModeFrom((modeRow as AnyRec | null)?.value),
+      publicKey: (keyRow as AnyRec | null)?.value,
+      customerIsTest,
+      order: order as never,
+      address: snap ? { line1: snap.line1 as string, city: snap.city as string, region: snap.region as string, postal_code: snap.postal_code as string, country: snap.country as string } : null,
+      pendingSubmissions: 0,
+    }) === null;
+  } catch (e) {
+    console.warn("[reservation-emails] paidy offer check failed (line omitted):", e);
+    return false;
+  }
 }
 
 /**
