@@ -504,9 +504,25 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] as any[] });
 
+    // Pending cash submissions (awaiting review). Until 2026-10-03 the portal
+    // read these itself through PostgREST with an x-portal-token header and
+    // two anon RLS policies — the one portal read a bare link could still
+    // reach after the PIN went server-side. Now served here, behind the same
+    // PIN session as everything else; those policies are dropped.
+    const cashPendingSubmissionsPromise = cashOrderIds.length > 0
+      ? supabase
+          .from("payment_submissions")
+          .select("id, cash_order_id, submitted_amount, payment_method, status")
+          .eq("customer_id", customerId)
+          .in("cash_order_id", cashOrderIds)
+          .in("status", ["submitted", "under_review"])
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as any[] });
+
     const [
       { data: cashPaymentsRaw },
       { data: cashOrderItemsRaw },
+      { data: cashPendingSubmissionsRaw },
       { data: loyaltyMemberRow },
       { data: loyaltyTiersRows },
       { data: loyaltyBetaRow },
@@ -514,6 +530,7 @@ Deno.serve(async (req) => {
     ] = await Promise.all([
       cashPaymentsPromise,
       cashOrderItemsPromise,
+      cashPendingSubmissionsPromise,
       supabase
         .from("loyalty_members")
         .select(
@@ -1020,6 +1037,14 @@ Deno.serve(async (req) => {
       created_at: p.created_at,
     }));
 
+    const cashPendingSubmissionsPayload = ((cashPendingSubmissionsRaw as any[]) || []).map((s: any) => ({
+      id: s.id,
+      cash_order_id: s.cash_order_id,
+      submitted_amount: Number(s.submitted_amount),
+      payment_method: s.payment_method ?? null,
+      status: s.status,
+    }));
+
     // Birthday reward computation (Asia/Manila day/month/year):
     //  - claimable = customer has a birthday set AND it falls in the
     //    current PHT month AND we haven't already awarded for the
@@ -1135,6 +1160,7 @@ Deno.serve(async (req) => {
       })),
       cash_orders: cashOrdersPayload,
       cash_payments: cashPaymentsPayload,
+      cash_pending_submissions: cashPendingSubmissionsPayload,
       other_services: otherServices,
       loyalty_member: loyaltyMemberRow ?? null,
       loyalty_tiers: loyaltyTiersRows ?? [],

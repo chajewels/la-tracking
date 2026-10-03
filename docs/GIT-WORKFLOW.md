@@ -38,3 +38,27 @@ EXISTS, copy skipped when populated), so nothing broke, but the second run's
 report misattributed the two bank rows Cynthia had entered in between to the
 migration's copy block, and it cost an hour of untangling. Two senders means
 two mirrors of the truth; one sender means one.
+
+### DEPENDENCIES ARE FROZEN — the 2026-10-03 incident (three re-adds in one day)
+
+**What happened.** Lovable's own tooling added `@lovable.dev/email-js` (and companions) to
+package.json / bun.lock three times in 24 hours, none from a prompt:
+`6aa374ca` (restored by #327), `7ccfe5c9` 09:42 JST (restored by #338 → release #339, which also
+removed the drizzle scaffold), and `698ba021` minutes after the verify-portal-pin deploy —
+that one came from Lovable's preview-build fixer reacting to a preview error (restored by #344 →
+release #345). Each time `npm install` failed with ERESOLVE (`@react-email/render` 2.1.0 vs
+email-js peer ≥1.0.0) and CI went red until the files were put back.
+
+**What now stops it.**
+1. `.github/workflows/package-guard.yml` + `.github/package-guard.sha256`: CI fails any change to
+   package.json / bun.lock / drizzle / prisma unless the PR is a `deps:` PR that updates the hash.
+2. CLAUDE.md TOOL OWNERSHIP RULES: "DEPENDENCIES ARE FROZEN".
+3. Lovable **project knowledge** (set 2026-10-03, was empty before) carries the same rule in the
+   agent's own context, with the explicit instruction to STOP and report a dependency-related
+   preview error instead of fixing it.
+4. Every Lovable message keeps the line: *do not install, add or change packages, package.json or
+   bun.lock — even if the preview errors.* The first message with that wording (the 10-function
+   PIN deploy) was the first deploy of the day Lovable did not follow with a package commit.
+
+**Check after every Lovable commit to main:** `git show --stat <sha> | grep -E 'package|bun.lock'`
+must print nothing.
