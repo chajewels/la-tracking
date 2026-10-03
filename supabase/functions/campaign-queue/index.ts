@@ -39,7 +39,17 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const campaignId = typeof body.campaign_id === "string" ? body.campaign_id : "";
-    const testEmail = typeof body.test_email === "string" ? body.test_email.trim() : "";
+    const requestedTest = typeof body.test_email === "string" ? body.test_email.trim() : "";
+    // A test copy goes ONLY to the signed-in staff member's own sign-in
+    // address — never to an address the request names. The Hub already sends
+    // user.email; any other value is refused, so this endpoint cannot be used
+    // to mail campaign content to arbitrary people (Lovable scan 2026-10-01,
+    // LOV.EP.OUTBOUND_ACTION_ABUSE_PROTECTION).
+    const ownEmail = (ctx.user?.email ?? "").trim();
+    if (requestedTest && requestedTest.toLowerCase() !== ownEmail.toLowerCase()) {
+      return jsonResponse({ error: "test_email_must_be_your_own" }, 403);
+    }
+    const testEmail = requestedTest ? ownEmail : "";
     if (!campaignId) return jsonResponse({ error: "campaign_id is required" }, 400);
 
     const { data: campaign, error: cErr } = await supabase

@@ -38,6 +38,7 @@ import { showInSalesLists } from '@/lib/web-park';
 import { isCreatedTodayPHT, NEW_TODAY_PARAM, NEW_TODAY_VALUE } from '@/lib/new-today';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { toast } from '@/components/ui/use-toast';
+import { downloadCsv as writeCsvFile } from '@/lib/csv';
 
 const statusStyles: Record<string, string> = {
   active: 'bg-success/10 text-success border-success/20',
@@ -304,19 +305,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
       'Start Date': a.order_date ?? '',
     }));
     const headers = Object.keys(rows[0] ?? {});
-    const csv = [
-      headers.join(','),
-      ...rows.map(r =>
-        headers.map(h => JSON.stringify((r as Record<string, unknown>)[h] ?? '')).join(',')
-      ),
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `layaway-accounts-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Shared writer: RFC 4180 escaping + the spreadsheet-formula guard
+    // (customer names are customer-typed). Same file name as before.
+    writeCsvFile('layaway-accounts', headers, rows.map(r => headers.map(h => (r as Record<string, unknown>)[h] ?? '')));
   }, []);
 
   // CSV export of the currently-filtered layaway accounts. Exposed via

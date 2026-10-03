@@ -28,6 +28,7 @@ import { cashOrderRef, isTestCashOrder } from '@/lib/order-reference';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { showInSalesLists } from '@/lib/web-park';
 import { isCreatedTodayPHT, NEW_TODAY_PARAM, NEW_TODAY_VALUE } from '@/lib/new-today';
+import { downloadCsv } from '@/lib/csv';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -226,19 +227,9 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
       'Item': o.item_description ?? '',
     }));
     const headers = Object.keys(rows[0] ?? {});
-    const csv = [
-      headers.join(','),
-      ...rows.map(r =>
-        headers.map(h => JSON.stringify((r as Record<string, unknown>)[h] ?? '')).join(',')
-      ),
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cash-orders-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Shared writer: RFC 4180 escaping + the spreadsheet-formula guard
+    // (customer names are customer-typed). Same file name as before.
+    downloadCsv('cash-orders', headers, rows.map(r => headers.map(h => (r as Record<string, unknown>)[h] ?? '')));
   }, [filtered]);
 
   useEffect(() => {

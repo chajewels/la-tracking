@@ -11,10 +11,18 @@
 /**
  * RFC 4180 escaping: a field containing a quote, comma or newline is wrapped
  * in quotes and its own quotes are doubled. null and undefined become empty.
+ *
+ * FORMULA GUARD (OWASP CSV injection; Lovable scan 2026-10-01): a TEXT cell
+ * starting with = + - @ TAB or CR is opened by Excel / Sheets as a formula, and
+ * customers choose their own names on the website. Such a cell gets a leading
+ * apostrophe so the spreadsheet shows it as text. Real numbers (typeof number,
+ * e.g. a negative balance) are never touched; a phone number stored as text
+ * ("+81…") does get the apostrophe — that is intended.
  */
 export function csvEscape(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  let s = v == null ? '' : String(v);
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 

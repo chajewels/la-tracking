@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuth } from "../_shared/handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1081,7 +1081,13 @@ async function runTool(
 ): Promise<string> {
   try {
     if (name === "query_customers") {
-      const search = String(args.search ?? "").trim();
+      // .or() takes a raw PostgREST filter string, so the search text must not
+      // carry the characters that build filter syntax: a comma starts a new
+      // condition, parentheses group, a quote or backslash escapes. Stripping
+      // them keeps the value a plain substring of the three columns (Lovable
+      // scan 2026-10-01, LOV.IN.QUERY_COMMAND_PATH_INJECTION). Names, emails
+      // and phone numbers never need these characters to match.
+      const search = String(args.search ?? "").replace(/[,()"\\]/g, " ").trim();
       if (!search) return JSON.stringify({ error: "search is required" });
       const { data, error } = await supabase
         .from("customers")
@@ -1282,24 +1288,23 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    // Staff users call this. requireAuth: 401 on a missing/invalid token; no
+    // service-role path (no cron or internal caller exists).
+    const ctx = await requireAuth(req);
+    if (ctx instanceof Response) return ctx;
+    const supabase = ctx.supabase;
+    const user = ctx.user!;
 
-    // Staff users call this — verify user JWT via getUser.
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
+    // STAFF ONLY. "Signed in" is not enough: website/portal customers are auth
+    // users too, and every tool below reads with the service role (customers,
+    // accounts, payments, loyalty). is_staff = admin/staff/finance/csr in
+    // user_roles. Fails closed: a lookup error is a refusal, never a pass.
+    // (Lovable scan 2026-10-01 flagged only the search filter; this gap was
+    // found while checking it, 2026-10-03.)
+    const { data: staff, error: staffErr } = await supabase.rpc("is_staff", { _user_id: user.id });
+    if (staffErr || staff !== true) {
+      return new Response(JSON.stringify({ error: "Access denied" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
