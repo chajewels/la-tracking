@@ -65,7 +65,7 @@
   docs/FIXED-BUGS.md #299. **Item 1 fixed 2026-10-02** — docs/FIXED-BUGS.md
   "No customer email on revival".
 
-### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up)
+### loyalty lot drift the balance check cannot see (filed 2026-09-17, Bug #280 follow-up; audited clean 2026-10-03)
 
   Filed, not fixed — deliberately. Both are narrower than the fault they came
   from and neither has a known occurrence.
@@ -103,6 +103,27 @@
   skipped. That is a per-consumption-row check and is more expensive than
   predicates 1-6; it probably belongs in a periodic job rather than in
   `loyalty_integrity_report`, which the Hub calls interactively.
+
+  **2026-10-03 — both shapes audited live: no drift.**
+  1. Positive ledger rows since 2026-07-05: 313. One has no same-amount lot —
+     invoice 19751, the Bug #279 award correction (+1,200 then +1,800; the
+     1,200 lot revoked, a 3,000 lot written): balanced. So predicate 7 must
+     compare PER ORDER (sum of earned rows for the invoice vs sum of
+     non-revoked order_earn lots for it), not row-to-lot, or it flags corrections.
+  2. Consumption rows since 2026-07-06, non-test: 77. Skipped-a-sooner-open-lot:
+     0, measured only against lots created after the 2026-07-05 C1 backfill (the
+     backfill emptied older lots without writing consumption rows, so a check
+     against them reports false skips). Consumed-from-closed-lot: 2, both
+     admin_adjust backfill lots whose `expires_at` had passed (2026-05-19,
+     2026-08-25) with `expired_at` null. NOT a fault: expiry is member-level
+     (loyalty-inactivity-check retires all of a member's lots after 180 days
+     without a purchase); a lot's `expires_at` is display data and FIFO
+     correctly ignores it.
+  - Display consequence, owner decision: 5 non-test members hold open
+    backfill lots whose `expires_at` is already past (10,950 pts, oldest
+    2026-07-10). The portal's "next expiring" line reads that date.
+  - The standing check is not built: written as the fix pattern above it would
+    report both shapes as findings. Build it per order / post-backfill only.
 
 ### `anon` holds full table-level grants project-wide; only RLS stands between it and the data (found 2026-09-14)
 
@@ -146,6 +167,23 @@
   **Do not fold this into a release migration.** It is a schema-wide
   permission change and deserves its own PR, its own testing, and its own
   Lovable message.
+
+  **2026-10-03 — re-audited live; option (b) BUILT, (a) declined.** RLS is on
+  for all 144 public tables (0 off). 126 carry the default anon grants. Every
+  policy that applies to anon/public was read: the "Service role can …"
+  policies on email_send_log / email_send_state / email_unsubscribe_tokens /
+  suppressed_emails all test service_role in their predicate; the 12 that admit
+  signed-out visitors are deliberate (active announcements, loyalty banners /
+  rewards / tiers, promotions + categories + assignments, active
+  payment_methods = the transfer details customers are shown, the
+  notify_loyalty_launch sign-up insert, and the three payment_submissions
+  policies gated on a >=16-char portal token). Nothing exploitable. Option (a)
+  — REVOKE from anon — adds no protection over RLS and turns today's empty
+  answers into permission errors on any path that reads before sign-in, so it
+  is declined. Option (b) is `scripts/check-anon-policies.mjs` in CI: every
+  migration newer than 20261026100000 is scanned; a CREATE/ALTER POLICY that
+  admits anon/public must carry an auth predicate or be listed in its ALLOWED
+  map with the reason (the 12 above are listed).
 
 ### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06) — RESOLVED 2026-07-06
 
@@ -721,3 +759,20 @@
     the function has no caller. Use change-payment-plan for plan changes.
     (found 2026-09-17)
 
+
+### Monitoring reads `status` / `paid_amount` off schedule_with_actuals rows (found 2026-10-03, typing pass)
+
+  `src/pages/Monitoring.tsx` passes rows selected from `schedule_with_actuals`
+  to `getNextUnpaidDueDate`, which filters on `status` and `paid_amount`. The
+  view carries `computed_status` / `db_status` / `allocated` instead, so the
+  helper sees `undefined` for both. Left as it was (typed cast + comment) in
+  PR #328, which is types only. Needs its own look: what the "next unpaid due
+  date" on that page shows today.
+
+### Reads of columns `payments` does not have (found 2026-10-03, typing pass)
+
+  `payments.submission_type` (CustomerDetail), `payment_type` and
+  `is_downpayment` (AccountDetail DP detection) are read but are not columns —
+  always undefined, so those branches never fire. DP detection works through
+  `reference_number` / `remarks` (INVARIANT 11). Harmless; delete the dead
+  branches when someone is in those files for a real change.

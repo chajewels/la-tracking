@@ -59,6 +59,9 @@ jobs:
       - name: No explicit any in src
         run: node scripts/check-no-explicit-any.mjs
 
+      - name: No new policy admits anon without an auth predicate
+        run: node scripts/check-anon-policies.mjs
+
       # Must run BEFORE "Build app": mcpPlugin() re-bundles
       # supabase/functions/mcp/index.ts during the build. This checks the file
       # as committed. See the script's header for why it exists.
