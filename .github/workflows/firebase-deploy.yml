@@ -107,7 +107,7 @@ jobs:
       #     award-loyalty-points (minimum, units, ratchet-up, promo) and the
       #     award source still carries the rule the mirror copies.
       - name: Website and template tests
-        run: npx vitest run src/test/create-drafts-rpc.test.ts src/test/no-detached-rpc.test.ts src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx src/test/reassign-owner.test.ts src/test/peso-cash.test.ts src/test/hub-down-payments.test.ts src/test/page365-stock.test.tsx src/test/page365-inventory.test.tsx src/test/page365-hide-follow.test.tsx src/test/page365-quick-fetch.test.tsx src/test/page365-interval.test.tsx src/test/hero-cutouts-edge.test.ts src/test/loyalty-earn.test.ts src/test/paidy-rules.test.ts src/test/php-jpy-rate.test.ts
+        run: npx vitest run src/test/create-drafts-rpc.test.ts src/test/no-detached-rpc.test.ts src/test/website-template-drift.test.ts src/test/website-catalog-import.test.ts src/test/website-settings.test.ts src/test/website-posts.test.tsx src/test/website-faq.test.ts src/test/newsletter-campaigns.test.ts src/test/web-order-gaps.test.ts src/test/web-reservations.test.tsx src/test/reassign-owner.test.ts src/test/peso-cash.test.ts src/test/hub-down-payments.test.ts src/test/page365-stock.test.tsx src/test/page365-inventory.test.tsx src/test/page365-hide-follow.test.tsx src/test/page365-quick-fetch.test.tsx src/test/page365-interval.test.tsx src/test/hero-cutouts-edge.test.ts src/test/loyalty-earn.test.ts src/test/paidy-rules.test.ts src/test/php-jpy-rate.test.ts src/test/card-rules.test.ts src/test/square-settings.test.ts
 
       - name: Build app
         run: npm run build
@@ -294,7 +294,7 @@ jobs:
       # No customer email in function logs + Sheets text-cell guard
       # (development/log-redaction.test.ts, 2026-10-03 scan).
       - name: Email encoding + links + sign-in audience + layaway English + portal link + password sign-in (blocking)
-        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/auth-audience.test.ts development/layaway-english.test.ts development/cart-reminder-ja.test.ts development/portal-link.test.ts development/portal-auth-amr.test.ts development/log-redaction.test.ts
+        run: deno test --config development/deno.ci.json --allow-read --allow-env development/email-encoding.test.ts development/auth-audience.test.ts development/layaway-english.test.ts development/cart-reminder-ja.test.ts development/portal-link.test.ts development/portal-auth-amr.test.ts development/log-redaction.test.ts development/square-signature.test.ts
 
   # --------------------------------------------------------------- housekeeping
   # Firebase Hosting allows a limited number of preview channels per site (50
