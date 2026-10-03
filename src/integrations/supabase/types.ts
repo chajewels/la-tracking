@@ -4261,6 +4261,81 @@ export type Database = {
           },
         ]
       }
+      paidy_payments: {
+        Row: {
+          amount_jpy: number
+          authorized_at: string
+          capture_id: string | null
+          captured_at: string | null
+          cash_order_id: string
+          closed_at: string | null
+          closed_reason: string | null
+          created_at: string
+          customer_id: string | null
+          id: string
+          last_payload: Json | null
+          last_webhook_at: string | null
+          paidy_payment_id: string
+          refund_jpy: number
+          status: string
+          test: boolean
+          updated_at: string
+        }
+        Insert: {
+          amount_jpy: number
+          authorized_at?: string
+          capture_id?: string | null
+          captured_at?: string | null
+          cash_order_id: string
+          closed_at?: string | null
+          closed_reason?: string | null
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          last_payload?: Json | null
+          last_webhook_at?: string | null
+          paidy_payment_id: string
+          refund_jpy?: number
+          status?: string
+          test?: boolean
+          updated_at?: string
+        }
+        Update: {
+          amount_jpy?: number
+          authorized_at?: string
+          capture_id?: string | null
+          captured_at?: string | null
+          cash_order_id?: string
+          closed_at?: string | null
+          closed_reason?: string | null
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          last_payload?: Json | null
+          last_webhook_at?: string | null
+          paidy_payment_id?: string
+          refund_jpy?: number
+          status?: string
+          test?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paidy_payments_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paidy_payments_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pancake_events: {
         Row: {
           attempts: number
@@ -4626,6 +4701,7 @@ export type Database = {
           id: string
           installment_number: number | null
           notes: string | null
+          paidy_payment_id: string | null
           payment_date: string
           payment_method: string
           portal_token: string | null
@@ -4649,6 +4725,7 @@ export type Database = {
           id?: string
           installment_number?: number | null
           notes?: string | null
+          paidy_payment_id?: string | null
           payment_date: string
           payment_method: string
           portal_token?: string | null
@@ -4672,6 +4749,7 @@ export type Database = {
           id?: string
           installment_number?: number | null
           notes?: string | null
+          paidy_payment_id?: string | null
           payment_date?: string
           payment_method?: string
           portal_token?: string | null
@@ -4705,6 +4783,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submissions_paidy_payment_id_fkey"
+            columns: ["paidy_payment_id"]
+            isOneToOne: false
+            referencedRelation: "paidy_payments"
             referencedColumns: ["id"]
           },
         ]
@@ -8566,6 +8651,7 @@ export type Database = {
       }
       get_page365_inventory_auto_apply: { Args: never; Returns: Json }
       get_page365_inventory_interval: { Args: never; Returns: Json }
+      get_paidy_settings: { Args: never; Returns: Json }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -9033,6 +9119,7 @@ export type Database = {
       }
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
+      paidy_mode: { Args: never; Returns: string }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
@@ -9257,6 +9344,14 @@ export type Database = {
       }
       set_page365_inventory_interval: {
         Args: { p_expected?: number; p_minutes: number }
+        Returns: Json
+      }
+      set_paidy_settings: {
+        Args: {
+          p_expected_mode?: string
+          p_mode: string
+          p_public_key?: string
+        }
         Returns: Json
       }
       set_shipping_rate: {
