@@ -51,9 +51,8 @@ import {
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
 
-/** A payments row as read by useCustomerAccounts (select('*')). submission_type
- *  is read below but is not a payments column; it stays undefined at runtime. */
-type CustomerPaymentRow = Tables<'payments'> & { submission_type?: string | null };
+/** A payments row as read by useCustomerAccounts (select('*')). */
+type CustomerPaymentRow = Tables<'payments'>;
 type CustomerServiceRow = Tables<'account_services'>;
 
 // Key-fact pill in the header card — the same treatment as AccountDetail's.
@@ -401,9 +400,10 @@ export default function CustomerDetail() {
       const paymentParts = activePayments.map((p: CustomerPaymentRow, index: number) => {
         const amt = Number(p.amount_paid);
         const formatted = formatCurrency(amt, currency);
-        // First payment is downpayment — label it
-        const isDP = p.submission_type === 'downpayment' ||
-                     (index === 0 && amt === downpayment);
+        // First payment matching the DP amount is labelled DP. (A
+        // `submission_type` read was removed 2026-10-03: payments has no such
+        // column, so that branch never fired.)
+        const isDP = index === 0 && amt === downpayment;
         return isDP ? `${formatted} (DP)` : formatted;
       });
       const breakdownTotal = activePayments.reduce(

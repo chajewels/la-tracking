@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   categorizeByDueDate, daysOverdueFromToday, remainingDue,
-  getNextUnpaidDueDate, classifyAccountBucket,
+  classifyAccountBucket,
   type AlertType, type AccountBucket,
 } from '@/lib/business-rules';
 import { useMessagePools } from '@/lib/message-lines';
@@ -374,19 +374,19 @@ export default function Monitoring() {
     const result: AlertItem[] = [];
     for (const [accountId, items] of byAccount.entries()) {
       const acc = items[0].layaway_accounts!;
-      // schedule_with_actuals rows carry no status / paid_amount columns; they
-      // were passed here untyped before and still are (no runtime change).
-      const nextDue = getNextUnpaidDueDate(items as unknown as Parameters<typeof getNextUnpaidDueDate>[0]);
-      if (!nextDue) continue;
-
-      const bucket = classifyAccountBucket(nextDue);
-      if (bucket === 'fully_paid' || bucket === 'future') continue;
-
+      // The next unpaid due date comes from the view's own computed_status
+      // (DISPLAY RULES: computed_status is the only source of row status).
+      // Until 2026-10-03 this went through getNextUnpaidDueDate, which reads
+      // `status` / `paid_amount` — columns the view does not have — and so
+      // treated every row as unpaid; the result was right only because the
+      // query above already keeps pending / overdue / partially_paid rows.
       const nextItem = items
         .filter((s) => s.computed_status !== 'paid' && s.computed_status !== 'cancelled')
         .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
-
       if (!nextItem) continue;
+
+      const bucket = classifyAccountBucket(nextItem.due_date);
+      if (bucket === 'fully_paid' || bucket === 'future') continue;
 
       const type = bucket === 'grace_period' ? 'grace_period' as const : categorizeByDueDate(nextItem.due_date);
       const overdueDays = daysOverdueFromToday(nextItem.due_date);
