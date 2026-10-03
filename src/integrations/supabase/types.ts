@@ -4710,6 +4710,7 @@ export type Database = {
           reviewer_notes: string | null
           reviewer_user_id: string | null
           sender_name: string | null
+          square_payment_id: string | null
           status: Database["public"]["Enums"]["submission_status"]
           submission_type: string
           submitted_amount: number
@@ -4734,6 +4735,7 @@ export type Database = {
           reviewer_notes?: string | null
           reviewer_user_id?: string | null
           sender_name?: string | null
+          square_payment_id?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
           submission_type?: string
           submitted_amount: number
@@ -4758,6 +4760,7 @@ export type Database = {
           reviewer_notes?: string | null
           reviewer_user_id?: string | null
           sender_name?: string | null
+          square_payment_id?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
           submission_type?: string
           submitted_amount?: number
@@ -4790,6 +4793,13 @@ export type Database = {
             columns: ["paidy_payment_id"]
             isOneToOne: false
             referencedRelation: "paidy_payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submissions_square_payment_id_fkey"
+            columns: ["square_payment_id"]
+            isOneToOne: false
+            referencedRelation: "square_payments"
             referencedColumns: ["id"]
           },
         ]
@@ -6068,6 +6078,147 @@ export type Database = {
           status?: string
           topic?: string
           webhook_id?: string | null
+        }
+        Relationships: []
+      }
+      square_payments: {
+        Row: {
+          agreement_signed_at: string | null
+          agreement_version: string | null
+          amount_jpy: number
+          authorized_at: string
+          capture_by: string | null
+          captured_at: string | null
+          card_brand: string | null
+          card_last4: string | null
+          cash_order_id: string
+          created_at: string
+          customer_id: string | null
+          dispute_id: string | null
+          disputed_at: string | null
+          id: string
+          last_payload: Json | null
+          last_webhook_at: string | null
+          receipt_url: string | null
+          refund_jpy: number
+          square_payment_id: string
+          status: string
+          terms_accepted_at: string | null
+          terms_ip: string | null
+          terms_user_agent: string | null
+          terms_version: string | null
+          test: boolean
+          three_ds_status: string | null
+          updated_at: string
+          voided_at: string | null
+          voided_reason: string | null
+        }
+        Insert: {
+          agreement_signed_at?: string | null
+          agreement_version?: string | null
+          amount_jpy: number
+          authorized_at?: string
+          capture_by?: string | null
+          captured_at?: string | null
+          card_brand?: string | null
+          card_last4?: string | null
+          cash_order_id: string
+          created_at?: string
+          customer_id?: string | null
+          dispute_id?: string | null
+          disputed_at?: string | null
+          id?: string
+          last_payload?: Json | null
+          last_webhook_at?: string | null
+          receipt_url?: string | null
+          refund_jpy?: number
+          square_payment_id: string
+          status?: string
+          terms_accepted_at?: string | null
+          terms_ip?: string | null
+          terms_user_agent?: string | null
+          terms_version?: string | null
+          test?: boolean
+          three_ds_status?: string | null
+          updated_at?: string
+          voided_at?: string | null
+          voided_reason?: string | null
+        }
+        Update: {
+          agreement_signed_at?: string | null
+          agreement_version?: string | null
+          amount_jpy?: number
+          authorized_at?: string
+          capture_by?: string | null
+          captured_at?: string | null
+          card_brand?: string | null
+          card_last4?: string | null
+          cash_order_id?: string
+          created_at?: string
+          customer_id?: string | null
+          dispute_id?: string | null
+          disputed_at?: string | null
+          id?: string
+          last_payload?: Json | null
+          last_webhook_at?: string | null
+          receipt_url?: string | null
+          refund_jpy?: number
+          square_payment_id?: string
+          status?: string
+          terms_accepted_at?: string | null
+          terms_ip?: string | null
+          terms_user_agent?: string | null
+          terms_version?: string | null
+          test?: boolean
+          three_ds_status?: string | null
+          updated_at?: string
+          voided_at?: string | null
+          voided_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "square_payments_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "square_payments_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      square_webhook_events: {
+        Row: {
+          error: string | null
+          event_id: string
+          event_type: string
+          outcome: string
+          payload: Json | null
+          payment_id: string | null
+          received_at: string
+        }
+        Insert: {
+          error?: string | null
+          event_id: string
+          event_type: string
+          outcome?: string
+          payload?: Json | null
+          payment_id?: string | null
+          received_at?: string
+        }
+        Update: {
+          error?: string | null
+          event_id?: string
+          event_type?: string
+          outcome?: string
+          payload?: Json | null
+          payment_id?: string | null
+          received_at?: string
         }
         Relationships: []
       }
@@ -8666,6 +8817,7 @@ export type Database = {
         }[]
       }
       get_shipping_rates: { Args: never; Returns: Json }
+      get_square_settings: { Args: never; Returns: Json }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
       get_top_outstanding_customers: {
         Args: never
@@ -9362,6 +9514,16 @@ export type Database = {
         }
         Returns: Json
       }
+      set_square_settings: {
+        Args: {
+          p_agreement_min_jpy?: number
+          p_app_id?: string
+          p_expected_mode?: string
+          p_location_id?: string
+          p_mode: string
+        }
+        Returns: Json
+      }
       set_web_checkout_mode: {
         Args: { p_expected?: string; p_mode: string }
         Returns: Json
@@ -9374,6 +9536,7 @@ export type Database = {
         }
         Returns: Json
       }
+      square_mode: { Args: never; Returns: string }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
       staff_notify: {
         Args: {
