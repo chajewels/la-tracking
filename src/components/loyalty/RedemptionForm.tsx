@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { supabase } from '@/integrations/supabase/client';
 import { getPortalAuthHeaders, portalAuthBody } from '@/lib/portal-auth';
+import { getPortalSessionId } from '@/lib/portal-session';
 import { toast } from 'sonner';
 import { pt } from '@/i18n/portal';
 
@@ -132,7 +133,14 @@ export function RedemptionForm({
         // via getPortalAuthHeaders. resolvePortalAuth Path 0/2 handles both.
         const authHeaders = await getPortalAuthHeaders(portalToken);
         const url = new URL(`${supabaseUrl}/functions/v1/customer-portal`);
-        if (portalToken) url.searchParams.set('token', portalToken);
+        if (portalToken) {
+          url.searchParams.set('token', portalToken);
+          // PIN enforcement (2026-10-03): a bare link token is refused with
+          // pin_required; the PIN session id is what authenticates, exactly
+          // as LoyaltyPortal's own bootstrap fetch sends it.
+          const sid = getPortalSessionId(portalToken);
+          if (sid) url.searchParams.set('session_id', sid);
+        }
 
         const response = await fetch(url.toString(), {
           method: 'GET',
@@ -177,13 +185,19 @@ export function RedemptionForm({
             status: o.status,
           }),
         );
-        if (!cancelled) setOrders([...layaway, ...cash]);
+        if (!cancelled) {
+          setOrders([...layaway, ...cash]);
+          setErrorMsg(null);
+        }
       } catch (err: unknown) {
         if (!cancelled) {
           console.error(
             '[RedemptionForm] orders fetch failed:',
             (err as { message?: string } | null)?.message || err,
           );
+          // Never fail silently: without the order list no invoice can match
+          // and the customer would be stuck with no explanation.
+          setErrorMsg(pt('loyalty.ordersLoadFailed'));
         }
       }
     })();

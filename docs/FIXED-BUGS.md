@@ -5930,3 +5930,23 @@ policy on `payment_submissions`.
 
 **Guard:** development/log-redaction.test.ts (CI): maskEmail + sheetText behaviour, and no
 `suppressed for ${…}` / `email to ${…}` without maskEmail anywhere under supabase/functions/.
+
+## 2026-10-03 — Loyalty "discount on a new order" could never be submitted by a link customer
+
+**Symptom:** on the loyalty portal opened from a link (token), choosing "New Order Discount" and typing
+the invoice number always showed "Invoice not found"; shipping-fee / service-fee rewards (points-only,
+no order lookup) still worked. No error was shown.
+
+**Root cause:** RedemptionForm's order list is a GET to customer-portal with `?token=` ONLY. Since the
+PIN moved to the server (2026-10-03, "Portal PIN" above) a bare link token is refused with 401
+`pin_required`; the PIN session id is what authenticates. Every other portal call had been switched
+(LoyaltyPortal's bootstrap sends `&session_id=`, the submit uses `portalAuthBody` which carries it) —
+this one fetch was missed, and its `catch` only wrote to the console, so the list stayed empty and the
+invoice never matched. Password (Bearer) customers were unaffected.
+
+**Fix:** the fetch appends `session_id` from `getPortalSessionId(portalToken)` exactly like the
+bootstrap, and a failed load now shows `loyalty.ordersLoadFailed` in the form instead of failing
+silently. Frontend only; no edge-function change.
+
+**Guard:** src/test/portal-token-calls-send-session.test.ts — every file under src/ that puts
+`?token=` on a customer-portal URL must also send `session_id` (fails on the pre-fix file).
