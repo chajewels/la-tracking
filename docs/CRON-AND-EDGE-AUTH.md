@@ -230,6 +230,11 @@ hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 
 account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every minute
 (* * * * *, since 20261007100000) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
 not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
+cron-run-history-cleanup runs daily at 19:19 UTC (03:19 PHT) and deletes
+cron.job_run_details rows older than 7 days (plain SQL, no key; migration
+20261027100000, owner 2026-10-03). Before it, the run history had never been
+cleaned and was 6.5 GB of the 6.8 GB database. Never remove it; read run
+history only for recent runids (the table has no start_time index).
 
 ### EDGE FUNCTION SERVICE-ROLE AUTH PATTERN, SHARED-HELPER CONVENTION, verify-portal-pin
 
