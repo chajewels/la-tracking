@@ -14,11 +14,14 @@ let overview: Record<string, unknown>;
 let listRows: Record<string, unknown>[];
 let providerRow: Record<string, unknown> | Error;
 let tabTotals: Record<string, unknown> | Error;
+// Absent before migration 20261028100000 (worker sleeps when idle).
+let workerState: Record<string, unknown> | Error;
 
 vi.mock("@/lib/untyped-rpc", () => ({
   callUntypedRpc: async (fn: string, args?: Record<string, unknown>) => {
     calls.push({ fn, args });
     if (fn === "get_media_cutout_overview") return overview;
+    if (fn === "get_media_cutout_worker_state") { if (workerState instanceof Error) throw workerState; return workerState; }
     if (fn === "get_media_cutout_provider") { if (providerRow instanceof Error) throw providerRow; return providerRow; }
     if (fn === "set_media_cutout_provider") return { ok: true, changed: true, provider: args?.p_provider ?? "photoroom", price_usd: String(args?.p_price_usd ?? "0.02") };
     if (fn === "get_media_cutout_tab_totals") { if (tabTotals instanceof Error) throw tabTotals; return tabTotals; }
@@ -62,6 +65,7 @@ beforeEach(() => {
   providerRow = { found: true, provider: "photoroom", raw_provider: "photoroom", price_usd: "0.02", updated_at: null, updated_by_name: null };
   // Before migration 20261010100000 the RPC does not exist: the tabs fall back to the status counts.
   tabTotals = new Error("function get_media_cutout_tab_totals() does not exist");
+  workerState = new Error("function get_media_cutout_worker_state() does not exist");
   overview = {
     found: true, mode: "off", cap: 600, month: "2026-10", used: 480, bell_80_at: "2026-10-05T00:00:00Z",
     updated_at: null, updated_by_name: null, can_change: true, last_tick_at: null, last_tick: null,
@@ -122,6 +126,19 @@ describe("provider and estimated cost (Photoroom)", () => {
     expect(screen.getByTestId("cutout-price")).toHaveTextContent("$0.02 a photo");
     expect(screen.getByTestId("cutout-cost")).toHaveTextContent("Estimated cost: $9.60 so far this month (480 × $0.02); at most $12.00 at the limit");
     expect(screen.getByTestId("cutout-last-run")).toHaveTextContent("It runs every minute while the switch is on.");
+  });
+
+  it("after migration 20261028100000: says Sleeping when the worker is off, Working when on (owner 2026-10-03)", async () => {
+    workerState = { scheduled: true, awake: false, slept_at: "2026-10-03T01:35:00Z", woke_at: null, daily_check_at: "2026-10-02T19:44:00Z" };
+    const { unmount } = wrap(<MediaCutoutSettingsCard />);
+    const state = await screen.findByTestId("cutout-worker-state");
+    expect(state).toHaveTextContent("Sleeping — nothing to do. It wakes within a minute when a product is published");
+    expect(state).toHaveTextContent("Daily check");
+    expect(screen.getByTestId("cutout-last-run")).not.toHaveTextContent("It runs every minute while the switch is on.");
+    unmount();
+    workerState = { scheduled: true, awake: true, slept_at: null, woke_at: "2026-10-03T02:00:00Z", daily_check_at: null };
+    wrap(<MediaCutoutSettingsCard />);
+    expect(await screen.findByTestId("cutout-worker-state")).toHaveTextContent("Working — checks every minute until the queue is empty");
   });
 
   it("saves a price with the provider the screen showed", async () => {
