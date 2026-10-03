@@ -5894,3 +5894,39 @@ set) STAYS.
 
 **Do not reintroduce:** a portal read or write through PostgREST keyed on the link token; an anon
 policy on `payment_submissions`.
+
+### Lovable deep scan 2026-10-03 (46 findings): one open endpoint retired, emails out of logs, Sheets text guard, Page365 photo sniff (2026-10-03)
+
+**Scan:** agent_security_v2 v1.91, run 14:36 JST after the PIN and cash-submission releases. 46 findings,
+5 error / 41 warn. The PIN-bypass finding was gone. Triage:
+
+- **9 "forged service_role JWT" findings** (cleanup-loyalty-images, append-payment-tracking, penalty-engine,
+  loyalty-sheet-reconcile, auto-forfeit-settlement, bulk-import, daily-reconciliation, award-loyalty-points,
+  web-reservation-sweep) — FALSE POSITIVES, unchanged. All run with `verify_jwt = true`; every one probed
+  live with a bad-signature service_role token → `401 Invalid JWT` (append-payment-tracking probed 14:2x
+  JST, pg_net req 1130). The scanner reads the function body and cannot see the gateway. Expect them on
+  every scan; never "fix" by narrowing isServiceRole (Bug #168).
+- **shopify-sync-products had NO authentication at all** (error) — the only real open endpoint. Any holder
+  of the public anon key could start a Shopify catalog sync and mint a Shopify token. Nothing called it.
+  Owner decision 2026-10-03: Shopify is no longer used → retired to a fixed `410 retired` stub (same
+  pattern as redeem-portal-token). Never restore the body; a future sync goes behind requireAuth + admin.
+- **31 "customer email in logs"** — every `… suppressed for ${email}` line, storefront-email's `to:`,
+  handle-email-unsubscribe's success/failure logs, send-transactional-email's error logs, two
+  `email to ${email} failed` warnings. Fix: `_shared/redact.ts` `maskEmail()` (`j***z@gmail.com`) at all
+  sites (23 functions + 2 shared). request-extension logged the staff inbox address — now "the staff
+  inbox". The address itself is still recorded where it belongs (email_send_log, customers).
+- **Formulas into the loyalty Google Sheet** — sync-loyalty-to-sheet appends with USER_ENTERED; a
+  customer-typed name/notes starting with `= + - @` became a formula. Fix: `_shared/sheets-text.ts`
+  `sheetText()` (apostrophe prefix, same rule as csvEscape) on every text cell of both rows; numbers stay
+  raw numbers (the 2026-06-13 "+500" rule). fill-payment-tracking's tax-sheet customer name gets the
+  same guard; append-payment-tracking writes numbers only — untouched. Intentional =SUM formulas untouched.
+- **Page365 photo copied without a type check** — page365-fetch-order trusted the remote Content-Type /
+  URL extension. Fix: `sniffImageType()` reads the magic bytes; only JPEG / PNG / WebP / GIF are uploaded,
+  anything else becomes a photo_note. extFromUrl removed.
+- **CSV formulas in account exports** — already fixed 10:11 (csv.ts); scanner could not re-confirm
+  (`unconfirmedRescans=1`); the cited lines no longer exist.
+- **Design items, left as they are:** fill-payment-tracking copies the Drive fileId a staff user sends
+  (staff-only, service account's own Drive); send-loyalty-notification allows admin OR finance (by design).
+
+**Guard:** development/log-redaction.test.ts (CI): maskEmail + sheetText behaviour, and no
+`suppressed for ${…}` / `email to ${…}` without maskEmail anywhere under supabase/functions/.

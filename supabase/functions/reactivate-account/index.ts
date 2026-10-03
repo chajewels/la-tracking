@@ -3,6 +3,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { reactivateRefusal } from "../_shared/web-order-rules.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,7 +301,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[reactivate-account] "extension-granted" suppressed for ${customerEmail}`);
+          console.log(`[reactivate-account] "extension-granted" suppressed for ${maskEmail(customerEmail)}`);
         }
       }
     } catch (emailErr) {

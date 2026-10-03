@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
         },
       );
       if (!result.sent) {
-        console.log(`[request-extension] "extension-requested" suppressed for ${"sales@chajewelsjp.com"}`);
+        console.log(`[request-extension] "extension-requested" suppressed for the staff inbox`);
       }
     } catch (mailErr) {
       console.error("[request-extension] staff email failed (non-blocking):", mailErr);

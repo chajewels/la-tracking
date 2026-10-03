@@ -233,14 +233,22 @@ function mainPhotoOf(json: unknown): string | null {
   return isObj(body) ? pickPhotoUrl(body) : null;
 }
 
-function extFromUrl(url: string, contentType: string | null): string {
-  const fromType = contentType?.split(";")[0].trim().toLowerCase();
-  if (fromType === "image/jpeg") return "jpg";
-  if (fromType === "image/png") return "png";
-  if (fromType === "image/webp") return "webp";
-  if (fromType === "image/gif") return "gif";
-  const m = new URL(url, "https://example.invalid").pathname.match(/\.([a-z0-9]{2,5})$/i);
-  return m ? m[1].toLowerCase() : "jpg";
+/**
+ * The image type is read from the FILE BYTES, never from the remote
+ * Content-Type header or the URL's extension (Lovable scan 2026-10-03,
+ * "Page365 imports store files without validating their type"): a non-image
+ * served as image/jpeg must not land in the public photo bucket. Returns null
+ * for anything that is not JPEG / PNG / WebP / GIF; the caller then records a
+ * photo_note instead of uploading.
+ */
+function sniffImageType(buf: Uint8Array): { ext: string; mime: string } | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { ext: "png", mime: "image/png" };
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return { ext: "gif", mime: "image/gif" };
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return { ext: "webp", mime: "image/webp" };
+  return null;
 }
 
 /**
@@ -546,10 +554,11 @@ Deno.serve(async (req) => {
         const buf = new Uint8Array(await imgRes.arrayBuffer());
         if (buf.byteLength === 0) throw new Error("empty response");
         if (buf.byteLength > MAX_PHOTO_BYTES) throw new Error(`${buf.byteLength} bytes exceeds the limit`);
-        const contentType = imgRes.headers.get("content-type");
-        const path = `page365/${page365No}/${n + 1}.${extFromUrl(src, contentType)}`;
+        const kind = sniffImageType(buf);
+        if (!kind) throw new Error("not a JPEG, PNG, WebP or GIF image");
+        const path = `page365/${page365No}/${n + 1}.${kind.ext}`;
         const { error: upErr } = await supabase.storage.from(PHOTO_BUCKET).upload(path, buf, {
-          contentType: contentType?.split(";")[0] ?? "image/jpeg",
+          contentType: kind.mime,
           upsert: true,
         });
         if (upErr) throw upErr;

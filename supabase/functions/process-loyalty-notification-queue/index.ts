@@ -17,6 +17,7 @@ import { isServiceRole } from "../_shared/jwt-claims.ts";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { getPortalLinkForCustomer } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -193,11 +194,11 @@ async function sendBroadcastEmails(
             },
           );
           if (!result.sent) {
-            console.log(`[process-loyalty-notification-queue] "loyalty-broadcast" suppressed for ${email}`);
+            console.log(`[process-loyalty-notification-queue] "loyalty-broadcast" suppressed for ${maskEmail(email)}`);
           }
         } catch (e) {
           console.warn(
-            `[queue] email to ${email} failed (${notificationId}):`,
+            `[queue] email to ${maskEmail(email)} failed (${notificationId}):`,
             e,
           );
         }
