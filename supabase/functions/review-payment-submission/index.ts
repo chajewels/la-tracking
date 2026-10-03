@@ -9,6 +9,7 @@ import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_
 import * as React from "npm:react@18.3.1";
 import { customerReference } from "../_shared/order-reference.ts";
 import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -683,7 +684,7 @@ Deno.serve(async (req) => {
             },
           );
           if (!result.sent) {
-            console.log(`[review-payment-submission] "cash-payment-confirmed" suppressed for ${customerEmail}`);
+            console.log(`[review-payment-submission] "cash-payment-confirmed" suppressed for ${maskEmail(customerEmail)}`);
           }
         }
       } catch (emailErr) {
@@ -1353,7 +1354,7 @@ Deno.serve(async (req) => {
             },
           );
           if (!result.sent) {
-            console.log(`[review-payment-submission] "${templateName}" suppressed for ${customerEmail}`);
+            console.log(`[review-payment-submission] "${templateName}" suppressed for ${maskEmail(customerEmail)}`);
           }
         }
       }

@@ -3,6 +3,7 @@ import { renderEmail } from './render-email.ts'
 import { EmailAPIError } from 'npm:@lovable.dev/email-js@0.1.0'
 import { recordEmailAttempt } from './email-log.ts'
 import { sendLovableEmailWithRetry } from './email-retry.ts'
+import { maskEmail } from './redact.ts'
 
 /**
  * Customer emails for chajewelsjp.com STOREFRONT orders.
@@ -119,7 +120,7 @@ export async function sendStorefrontEmail(args: SendStorefrontEmailArgs): Promis
   const { label, reference } = args
   const email = String(args.to.email ?? '').trim()
   const log = (outcome: string, extra: Record<string, unknown> = {}) =>
-    console.log(JSON.stringify({ storefront_email: label, reference, to: email || null, outcome, ...extra }))
+    console.log(JSON.stringify({ storefront_email: label, reference, to: maskEmail(email), outcome, ...extra }))
 
   // A SKIP IS AN OUTCOME AND IT LEAVES A ROW.
   //

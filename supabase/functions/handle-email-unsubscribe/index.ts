@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { maskEmail } from '../_shared/redact.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -121,12 +122,12 @@ Deno.serve(async (req) => {
   if (suppressError) {
     console.error('Failed to suppress email', {
       error: suppressError,
-      email: tokenRecord.email,
+      email: maskEmail(tokenRecord.email),
     })
     return jsonResponse({ error: 'Failed to process unsubscribe' }, 500)
   }
 
-  console.log('Email unsubscribed', { email: tokenRecord.email })
+  console.log('Email unsubscribed', { email: maskEmail(tokenRecord.email) })
 
   return jsonResponse({ success: true })
 })

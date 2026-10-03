@@ -9,6 +9,7 @@ import { pickLang, sendStorefrontEmail, storefrontShopUrl } from "../_shared/sto
 import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
+import { maskEmail } from "../_shared/redact.ts";
 
 const MAX_ORDERS_PER_RUN = 100;
 
@@ -92,7 +93,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[auto-expire-cash-orders] "cash-order-expired" suppressed for ${customerEmail}`);
+          console.log(`[auto-expire-cash-orders] "cash-order-expired" suppressed for ${maskEmail(customerEmail)}`);
         }
       } catch (emailErr) {
         console.warn(`[auto-expire-cash-orders] email send failed for ${invoiceNumber} (non-blocking):`, emailErr);

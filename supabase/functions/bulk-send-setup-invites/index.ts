@@ -23,6 +23,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,7 +179,7 @@ Deno.serve(async (req) => {
         );
 
         if (!result.sent) {
-          console.log(`[bulk-send-setup-invites] portal-setup-invite suppressed for ${c.email}`);
+          console.log(`[bulk-send-setup-invites] portal-setup-invite suppressed for ${maskEmail(c.email)}`);
         }
 
         // Stamp setup_link_sent_at — failure here logs but doesn't abort batch
