@@ -60,7 +60,18 @@ async function call(method: "GET" | "POST", path: string, body?: unknown): Promi
   if (!res.ok) {
     throw new PaidyError(res.status, String(json.code ?? res.status), String(json.description ?? json.title ?? `Paidy ${res.status}`));
   }
-  return json as unknown as PaidyPayment;
+  return normalizePaidyPayment(json);
+}
+
+/**
+ * Paidy's reference documents AUTHORIZED | CLOSED | REJECTED, but the live
+ * Checkout callback sent "authorized" in lower case (test run 2026-10-03,
+ * pay_asDHekoAAEkAmsmA; storefront fix #261). The API is normalised here once
+ * so every comparison downstream (website, paidy-webhook) is case-safe.
+ */
+export function normalizePaidyPayment(json: Record<string, unknown>): PaidyPayment {
+  const status = String(json.status ?? "").trim().toUpperCase();
+  return { ...(json as unknown as PaidyPayment), status: status as PaidyPayment["status"] };
 }
 
 /** Paidy payment ids look like pay_…; refuse anything else before it reaches a URL. */
