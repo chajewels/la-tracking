@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isPaidyPublicKey, paidyAddressComplete, paidyAmountMatches, paidyAuthorizationExpired,
-  paidyModeFrom, paidyNotOfferedReason, paidyZip,
+  normalizePaidyStatus, paidyModeFrom, paidyNotOfferedReason, paidyZip,
 } from "../../supabase/functions/_shared/paidy-rules.ts";
 import { paidyPublicKeyProblem } from "../components/settings/paidy-settings";
 
@@ -96,19 +96,14 @@ describe("capture guards", () => {
   });
 });
 
-// The API client normalises Paidy's status case (the live Checkout sent
-// "authorized" in lower case on 2026-10-03; the reference says AUTHORIZED).
-import { normalizePaidyPayment } from "../../supabase/functions/_shared/paidy.ts";
-
-describe("normalizePaidyPayment", () => {
-  it("upper-cases the status whatever Paidy sends", () => {
-    expect(normalizePaidyPayment({ id: "pay_x", status: "authorized", amount: 20000 }).status).toBe("AUTHORIZED");
-    expect(normalizePaidyPayment({ id: "pay_x", status: "CLOSED" }).status).toBe("CLOSED");
-    expect(normalizePaidyPayment({ id: "pay_x", status: " rejected " }).status).toBe("REJECTED");
-    expect(normalizePaidyPayment({ id: "pay_x" }).status).toBe("");
-  });
-  it("keeps every other field", () => {
-    const p = normalizePaidyPayment({ id: "pay_x", status: "authorized", amount: 20000, test: true, captures: [] });
-    expect(p.id).toBe("pay_x"); expect(p.amount).toBe(20000); expect(p.test).toBe(true);
+// The status normaliser (the live Checkout sent "authorized" in lower case on
+// 2026-10-03; the reference says AUTHORIZED). Pure, in paidy-rules.ts, so this
+// file never imports the Deno-only API client.
+describe("normalizePaidyStatus", () => {
+  it("upper-cases whatever Paidy sends", () => {
+    expect(normalizePaidyStatus("authorized")).toBe("AUTHORIZED");
+    expect(normalizePaidyStatus("CLOSED")).toBe("CLOSED");
+    expect(normalizePaidyStatus(" rejected ")).toBe("REJECTED");
+    expect(normalizePaidyStatus(undefined)).toBe("");
   });
 });
