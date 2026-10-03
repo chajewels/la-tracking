@@ -23,3 +23,39 @@ BEGIN
   END IF;
 END
 $chk$;
+
+-- ---------------------------------------------------------------------------
+-- Card attempts (review finding S6, 2026-10-04): a declined card never creates
+-- a submission, so the 3-per-24h submission cap cannot see card testing. One
+-- row per CreatePayment attempt on an order (any outcome), written by
+-- `website` only; POST /orders/:id/card refuses 429 too_many_attempts at
+-- CARD_ATTEMPTS_PER_DAY (5) per order per rolling 24 h BEFORE calling Square.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.square_attempts (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cash_order_id      uuid NOT NULL REFERENCES public.cash_orders(id) ON DELETE CASCADE,
+  customer_id        uuid REFERENCES public.customers(id) ON DELETE SET NULL,
+  outcome            text NOT NULL,
+  detail             text,
+  square_payment_id  text,
+  test               boolean NOT NULL DEFAULT false,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_square_attempts_order_time ON public.square_attempts (cash_order_id, created_at DESC);
+ALTER TABLE public.square_attempts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS square_attempts_staff_select ON public.square_attempts;
+CREATE POLICY square_attempts_staff_select ON public.square_attempts
+  FOR SELECT TO authenticated USING ((SELECT public.is_staff((SELECT auth.uid()))));
+REVOKE ALL ON public.square_attempts FROM anon;
+GRANT SELECT ON public.square_attempts TO authenticated;
+GRANT ALL ON public.square_attempts TO service_role;
+COMMENT ON TABLE public.square_attempts IS
+  'One row per Square CreatePayment attempt from the website (authorized | declined | refused | mismatch | error). Rate-limit evidence only; money state lives in square_payments.';
+
+DO $chk2$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'square_attempts') THEN
+    RAISE EXCEPTION 'square: square_attempts missing';
+  END IF;
+END
+$chk2$;

@@ -19,7 +19,7 @@ import {
   isPaidyPublicKey, paidyAmountMatches, paidyModeFrom, paidyNotOfferedReason, paidyZip,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
-import { CARD_HOLD_DAYS, agreementRequired, cardAmountMatches, cardNotOfferedReason, squareModeFrom } from "../_shared/card-rules.ts";
+import { CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, agreementRequired, cardAmountMatches, cardIdempotencyKey, cardNotOfferedReason, squareModeFrom } from "../_shared/card-rules.ts";
 import { SquareError, square, type SquarePayment } from "../_shared/square.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
@@ -2552,10 +2552,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const body = await req.json().catch(() => ({})) as AnyRec;
       const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
       if (!/^[A-Za-z0-9_:-]{8,200}$/.test(sourceId)) return jsonResponse({ error: "card_mismatch", detail: "bad_source" }, 409);
+      // D7: 3-D Secure ALWAYS — the SDK's verification token is required, so a
+      // storefront bug can never drop the liability shift silently.
       const verificationToken = typeof body.verification_token === "string" && body.verification_token.trim() ? body.verification_token.trim().slice(0, 500) : null;
+      if (!verificationToken) return jsonResponse({ error: "verification_required" }, 409);
       const terms = (body.terms ?? {}) as AnyRec;
       const termsAt = typeof terms.accepted_at === "string" && Number.isFinite(Date.parse(terms.accepted_at)) ? new Date(terms.accepted_at).toISOString() : null;
-      if (!termsAt) return jsonResponse({ error: "terms_required" }, 409);
+      const termsVersion = typeof terms.version === "string" && terms.version.trim() ? terms.version.trim().slice(0, 64) : null;
+      if (!termsAt || !termsVersion) return jsonResponse({ error: "terms_required" }, 409);
       const agreement = body.agreement && typeof body.agreement === "object" ? body.agreement as AnyRec : null;
       const agreementVersion = agreement && typeof agreement.version === "string" ? agreement.version.slice(0, 64) : null;
       const agreementSignedAt = agreement && typeof agreement.signed_at === "string" && Number.isFinite(Date.parse(agreement.signed_at)) ? new Date(agreement.signed_at).toISOString() : null;
@@ -2586,10 +2590,18 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .from("payment_submissions").select("id", { count: "exact", head: true })
         .eq("cash_order_id", order.id).not("status", "in", '("rejected","cancelled")').gte("created_at", since);
       if ((recent ?? 0) >= 3) return jsonResponse({ error: "too_many_submissions" }, 429);
-      // Attempts on this order so far (any status) make the idempotency key:
-      // a retried click re-uses the same hold instead of taking a second one.
+      // Card-testing cap (review S6): declined attempts never create a
+      // submission, so they are counted on their own — 5 per order per 24 h,
+      // any outcome, checked BEFORE Square is called.
       const { count: attempts } = await supabase
-        .from("square_payments").select("id", { count: "exact", head: true }).eq("cash_order_id", order.id);
+        .from("square_attempts").select("id", { count: "exact", head: true })
+        .eq("cash_order_id", order.id).gte("created_at", since);
+      if ((attempts ?? 0) >= CARD_ATTEMPTS_PER_DAY) return jsonResponse({ error: "too_many_attempts" }, 429);
+      const logAttempt = async (outcome: string, detail?: string, paymentId?: string) => {
+        try {
+          await supabase.from("square_attempts").insert({ cash_order_id: order.id, customer_id: customer.id, outcome, detail: detail ?? null, square_payment_id: paymentId ?? null, test: offer.test });
+        } catch (e) { console.warn("[website] square_attempts insert failed (non-blocking):", e); }
+      };
 
       // Authorise with Square (autocomplete:false — a hold, not a charge).
       let payment: SquarePayment;
@@ -2600,20 +2612,27 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           verificationToken,
           amountJpy: offer.amount_jpy,
           locationId: offer.location_id,
-          idempotencyKey: `${order.id}:${(attempts ?? 0) + 1}`,
+          // One key per card token (review B1): a retried click with the same
+          // nonce dedupes to the same hold; a corrected card gets a new key.
+          idempotencyKey: await cardIdempotencyKey(String(order.id), sourceId),
           referenceId: String((order as AnyRec).invoice_number ?? ""),
           note: customerReference(order as never),
         });
       } catch (e) {
         if (e instanceof SquareError && e.isCardRefusal) {
+          await logAttempt("declined", e.code);
           return jsonResponse({ error: "card_declined", code: e.code }, 402);
         }
         if (e instanceof SquareError && (e.status === 400 || e.status === 409)) {
-          // A used / expired token, a bad verification token: the customer
-          // re-enters the card; nothing was held.
+          // A used / expired token, a bad verification token, a request
+          // Square refuses (amount too low, location mismatch…): the customer
+          // re-enters the card; nothing was held. The code travels so the
+          // storefront can word it (not every one is "your card").
+          await logAttempt("refused", e.code);
           return jsonResponse({ error: "card_mismatch", detail: e.code }, 409);
         }
         console.error("[website] square.create failed:", e);
+        await logAttempt("error", e instanceof Error ? e.message.slice(0, 200) : String(e));
         return jsonResponse({ error: "card_unavailable" }, 502);
       }
       const mismatch =
@@ -2624,6 +2643,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (mismatch) {
         // Not what we asked for: void it so nothing stays held on the card.
         if (payment.status === "APPROVED") { try { await square.cancel(offer.test, payment.id); } catch (e) { console.warn("[website] square.cancel after mismatch failed:", e); } }
+        await logAttempt("mismatch", mismatch, payment.id);
         return jsonResponse({ error: "card_mismatch", detail: mismatch }, 409);
       }
 
@@ -2638,9 +2658,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           status: "authorized", test: offer.test, amount_jpy: Math.round(Number(payment.amount_money.amount)),
           card_brand: payment.card_details?.card?.card_brand ?? null,
           card_last4: payment.card_details?.card?.last_4 ?? null,
-          three_ds_status: verificationToken ? (payment.card_details?.status ?? "VERIFIED") : "NOT_PRESENTED",
+          // Square's Payment carries no 3DS verdict; the evidence is that the
+          // SDK's verification token (3DS challenge done) was presented and the
+          // authorisation went through (review S1).
+          three_ds_status: "VERIFICATION_TOKEN_PRESENTED",
           receipt_url: payment.receipt_url ?? null,
-          terms_accepted_at: termsAt, terms_version: typeof terms.version === "string" ? terms.version.slice(0, 64) : null,
+          terms_accepted_at: termsAt, terms_version: termsVersion,
           terms_ip: ip, terms_user_agent: ua,
           agreement_version: agreementVersion, agreement_signed_at: agreementSignedAt,
           authorized_at: authorizedAt, capture_by: captureBy, last_payload: payment,
@@ -2675,6 +2698,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         })
         .select("id, status, submitted_amount, payment_date").maybeSingle();
       if (subErr) throw subErr;
+      await logAttempt("authorized", null as unknown as string, payment.id);
 
       await supabase.from("audit_logs").insert({
         entity_type: "cash_payment_submission", entity_id: (created as AnyRec).id, action: "submission_created",

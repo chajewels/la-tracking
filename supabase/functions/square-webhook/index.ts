@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { SquareError, square, verifySquareSignature, type SquarePayment } from "../_shared/square.ts";
-import { cardHoldExpired, isSquarePaymentId } from "../_shared/card-rules.ts";
+import { isSquarePaymentId, nextSquareRowStatus } from "../_shared/card-rules.ts";
 
 /**
  * Square webhook receiver (S2, 2026-10-04, docs/SQUARE.md). PUBLIC endpoint
@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
 
   if (!paymentIdHint || !isSquarePaymentId(paymentIdHint)) { await outcome("ignored_no_payment"); return jsonResponse({ ok: true, ignored: "no_payment_id" }); }
   const { data: row } = await supabase
-    .from("square_payments").select("id, cash_order_id, status, square_payment_id, test, authorized_at, refund_jpy, disputed_at")
+    .from("square_payments").select("id, cash_order_id, status, square_payment_id, test, authorized_at, capture_by, refund_jpy, disputed_at")
     .eq("square_payment_id", paymentIdHint).maybeSingle();
   if (!row) { await outcome("ignored_unknown"); return jsonResponse({ ok: true, ignored: "unknown_payment" }); }
 
@@ -77,14 +77,10 @@ Deno.serve(async (req) => {
   }
 
   const now = new Date().toISOString();
-  const next =
-    payment.status === "COMPLETED" ? "captured"
-    : payment.status === "FAILED" ? "failed"
-    : payment.status === "CANCELED" ? (cardHoldExpired(String(row.authorized_at)) ? "expired" : "voided")
-    : "authorized";
-
-  // Our own transitions win: a capture the Hub recorded is never downgraded;
-  // voided / expired / failed stay as they are.
+  // Our own transitions win (nextSquareRowStatus, pure, tested): a capture the
+  // Hub recorded is never downgraded; voided / expired / failed stay as they
+  // are; PENDING / UNKNOWN change nothing.
+  const next = nextSquareRowStatus(String(row.status), payment.status, String(row.authorized_at), row.capture_by);
   const settled = row.status === "captured" || row.status === "expired" || row.status === "voided" || row.status === "failed";
   const update: Rec = { last_webhook_at: now, last_payload: payment, updated_at: now };
   if (!settled && next !== row.status) {
@@ -135,7 +131,9 @@ Deno.serve(async (req) => {
       });
     } catch (e) { console.warn(`${LOG} dispute bell failed (non-blocking):`, e); }
   }
-  if (type.startsWith("refund.") && update.refund_jpy != null) {
+  // Whatever event carried the new refunded_money (payment.updated may arrive
+  // before refund.created — review S7), ring once per change.
+  if (update.refund_jpy != null) {
     try {
       await supabase.from("staff_notifications").insert({
         type: "card_refunded",

@@ -527,7 +527,7 @@ Deno.serve(async (req) => {
       //     submission with the note; any other failure reverts the claim.
       if (isSquareSubmission) {
         const { data: sp } = await supabase
-          .from("square_payments").select("id, square_payment_id, status, authorized_at, amount_jpy, test")
+          .from("square_payments").select("id, square_payment_id, status, authorized_at, capture_by, amount_jpy, test")
           .eq("id", submission.square_payment_id).maybeSingle();
         if (!sp) {
           await revertCashClaim();
@@ -555,15 +555,25 @@ Deno.serve(async (req) => {
           return new Response(JSON.stringify({ error: `Card payment is ${sp.status}; nothing to capture. Reject this submission.` }), {
             status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-        } else if (cardHoldExpired(String(sp.authorized_at))) {
-          await expireCard("older than the 7-day hold window at Confirm");
+        } else if (Math.round(Number(sp.amount_jpy)) !== Math.round(Number(submission.submitted_amount))) {
+          // The books would be written with the submission's amount while
+          // Square captures the whole hold (review S4): never.
+          await revertCashClaim();
+          return new Response(JSON.stringify({ error: "amount_mismatch", message: `The card hold is ¥${Math.round(Number(sp.amount_jpy)).toLocaleString("en-US")} but the submission says ¥${Math.round(Number(submission.submitted_amount)).toLocaleString("en-US")}. Reject it and ask the customer to pay again.` }), {
+            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } else if (cardHoldExpired(String(sp.authorized_at), new Date(), sp.capture_by)) {
+          await expireCard("past the hold window (capture_by) at Confirm");
           return new Response(JSON.stringify({ error: "card_hold_expired", message: "The card hold expired (7 days). The submission was rejected; ask the customer to pay again." }), {
             status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } else {
           try {
             const captured = await square.complete(sp.test === true, sp.square_payment_id);
-            if (captured.status !== "COMPLETED") throw new SquareError(502, "not_completed", `Square answered ${captured.status} to the capture`);
+            if (captured.status !== "COMPLETED") {
+              console.error(`[review-payment-submission] square.complete answered ${captured.status} for ${sp.square_payment_id}`);
+              throw new SquareError(502, "not_completed", `Square answered ${captured.status} to the capture of ${sp.square_payment_id}`);
+            }
             await supabase.from("square_payments").update({
               status: "captured", captured_at: new Date().toISOString(), receipt_url: captured.receipt_url ?? null, last_payload: captured, updated_at: new Date().toISOString(),
             }).eq("id", sp.id);

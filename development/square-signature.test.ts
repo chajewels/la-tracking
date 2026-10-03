@@ -10,7 +10,7 @@
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/square-signature.test.ts
  */
 import { assertEquals } from 'jsr:@std/assert@1'
-import { hmacSha256Base64, verifySquareSignature } from '../supabase/functions/_shared/square.ts'
+import { hmacSha256Base64, isCardRefusalCode, verifySquareSignature } from '../supabase/functions/_shared/square.ts'
 
 const key = 'test-signature-key-0123456789'
 const url = 'https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/square-webhook'
@@ -35,4 +35,17 @@ Deno.test('a tampered body, a different URL, a wrong key, a missing header or ke
 Deno.test('the HMAC vector is stable (RFC 4231-style check against a known digest)', async () => {
   // HMAC-SHA256("key", "The quick brown fox jumps over the lazy dog") (openssl dgst -sha256 -hmac key, base64) is the value below.
   assertEquals(await hmacSha256Base64('key', 'The quick brown fox jumps over the lazy dog'), '97yD9DBThCSxMpjmqm+xQ+9NWaFJRhdZl0edvC0aPNg=')
+})
+
+Deno.test('isCardRefusalCode: a card refusal is 402 card_declined; a used nonce or a merchant config error is not', () => {
+  assertEquals(isCardRefusalCode('PAYMENT_METHOD_ERROR', 'CARD_DECLINED'), true)
+  assertEquals(isCardRefusalCode('PAYMENT_METHOD_ERROR', 'CVV_FAILURE'), true)
+  assertEquals(isCardRefusalCode('PAYMENT_METHOD_ERROR', 'INSUFFICIENT_FUNDS'), true)
+  assertEquals(isCardRefusalCode('', 'GENERIC_DECLINE'), true)
+  assertEquals(isCardRefusalCode('INVALID_REQUEST_ERROR', 'CARD_TOKEN_USED'), false)
+  assertEquals(isCardRefusalCode('INVALID_REQUEST_ERROR', 'CARD_TOKEN_EXPIRED'), false)
+  assertEquals(isCardRefusalCode('PAYMENT_METHOD_ERROR', 'CARD_PROCESSING_NOT_ENABLED'), false)
+  assertEquals(isCardRefusalCode('INVALID_REQUEST_ERROR', 'AMOUNT_TOO_LOW'), false)
+  assertEquals(isCardRefusalCode('INVALID_REQUEST_ERROR', 'IDEMPOTENCY_KEY_REUSED'), false)
+  assertEquals(isCardRefusalCode('AUTHENTICATION_ERROR', 'UNAUTHORIZED'), false)
 })

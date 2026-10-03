@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  CARD_HOLD_DAYS, CARD_HOLD_WARN_DAYS, agreementRequired, cardAmountMatches, cardHoldExpired, cardHoldWarnDue,
-  cardNotOfferedReason, isSquarePaymentId, normalizeSquareStatus, squareAppIdFamily, squareModeFrom,
+  CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, CARD_HOLD_WARN_DAYS, agreementRequired, cardAmountMatches, cardHoldExpired, cardHoldWarnDue,
+  cardIdempotencyKey, cardNotOfferedReason, isSquarePaymentId, nextSquareRowStatus, normalizeSquareStatus, squareAppIdFamily, squareModeFrom,
 } from "../../supabase/functions/_shared/card-rules.ts";
 
 // Square card payments on a confirmed web order (S2, 2026-10-04, docs/SQUARE.md).
@@ -87,15 +87,53 @@ describe("hold window", () => {
     expect(cardHoldExpired(t0.toISOString(), day(7))).toBe(false);
     expect(cardHoldExpired(t0.toISOString(), day(7.01))).toBe(true);
   });
-  it("warning is due from day 5 until expiry", () => {
+  it("Square's own delayed_until (capture_by) wins over the 7-day rule", () => {
+    expect(cardHoldExpired(t0.toISOString(), day(3), day(2).toISOString())).toBe(true);
+    expect(cardHoldExpired(t0.toISOString(), day(7.5), day(8).toISOString())).toBe(false);
+    expect(cardHoldExpired(t0.toISOString(), day(7.5), "garbage")).toBe(true);
+    expect(cardHoldExpired(t0.toISOString(), day(6), null)).toBe(false);
+  });
+  it("warning is due from day 5 on, including past expiry (then it says Reject)", () => {
     expect(cardHoldWarnDue(t0.toISOString(), day(4.99))).toBe(false);
     expect(cardHoldWarnDue(t0.toISOString(), day(5))).toBe(true);
     expect(cardHoldWarnDue(t0.toISOString(), day(6.5))).toBe(true);
-    expect(cardHoldWarnDue(t0.toISOString(), day(7.5))).toBe(false);
+    expect(cardHoldWarnDue(t0.toISOString(), day(7.5))).toBe(true);
+  });
+  it("nextSquareRowStatus: settled rows never move; CANCELED → expired past the window, else voided; PENDING/UNKNOWN change nothing", () => {
+    const at = t0.toISOString();
+    for (const cur of ["captured", "expired", "voided", "failed"]) {
+      expect(nextSquareRowStatus(cur, "CANCELED", at, null, day(1))).toBe(cur);
+      expect(nextSquareRowStatus(cur, "COMPLETED", at, null, day(1))).toBe(cur);
+    }
+    expect(nextSquareRowStatus("authorized", "COMPLETED", at, null, day(1))).toBe("captured");
+    expect(nextSquareRowStatus("authorized", "FAILED", at, null, day(1))).toBe("failed");
+    expect(nextSquareRowStatus("authorized", "CANCELED", at, null, day(1))).toBe("voided");
+    expect(nextSquareRowStatus("authorized", "CANCELED", at, null, day(8))).toBe("expired");
+    expect(nextSquareRowStatus("authorized", "CANCELED", at, day(2).toISOString(), day(3))).toBe("expired");
+    expect(nextSquareRowStatus("authorized", "PENDING", at, null, day(1))).toBe("authorized");
+    expect(nextSquareRowStatus("authorized", "UNKNOWN", at, null, day(1))).toBe("authorized");
+    expect(nextSquareRowStatus("authorized", "APPROVED", at, null, day(1))).toBe("authorized");
   });
   it("an unparsable timestamp counts as expired and not warnable", () => {
     expect(cardHoldExpired("nope", t0)).toBe(true);
     expect(cardHoldWarnDue("nope", t0)).toBe(false);
+  });
+});
+
+describe("idempotency key — one per card token (review B1)", () => {
+  it("same order + same nonce → same key; a different nonce or order → a different key; ≤ 45 chars", async () => {
+    const a = await cardIdempotencyKey("order-1", "cnon:CBASEabc");
+    const b = await cardIdempotencyKey("order-1", "cnon:CBASEabc");
+    const c = await cardIdempotencyKey("order-1", "cnon:CBASExyz");
+    const d = await cardIdempotencyKey("order-2", "cnon:CBASEabc");
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a).not.toBe(d);
+    expect(a.length).toBeLessThanOrEqual(45);
+    expect(a).toMatch(/^cj-card-[0-9a-f]{36}$/);
+  });
+  it("the card-attempt cap is 5 per order per day", () => {
+    expect(CARD_ATTEMPTS_PER_DAY).toBe(5);
   });
 });
 

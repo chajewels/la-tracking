@@ -79,19 +79,54 @@ export const CARD_HOLD_WARN_DAYS = 5;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A hold Square no longer honours (or an unparsable timestamp). `now` for tests. */
-export function cardHoldExpired(authorizedAt: string, now: Date = new Date()): boolean {
+/**
+ * A hold Square no longer honours. Square's own `delayed_until` (stored as
+ * square_payments.capture_by) wins when present; otherwise the 7-day rule.
+ * An unparsable authorisation timestamp counts as expired. `now` for tests.
+ */
+export function cardHoldExpired(authorizedAt: string, now: Date = new Date(), captureBy?: string | null): boolean {
+  const cb = captureBy ? Date.parse(captureBy) : NaN;
+  if (Number.isFinite(cb)) return now.getTime() > cb;
   const t = Date.parse(authorizedAt);
   if (!Number.isFinite(t)) return true;
   return now.getTime() - t > CARD_HOLD_DAYS * DAY_MS;
 }
 
-/** The warning window: from day 5 until the hold expires. */
+/** The warning is due from day 5 on (a hold past day 7 is still warned — "expired, Reject it"). */
 export function cardHoldWarnDue(authorizedAt: string, now: Date = new Date()): boolean {
   const t = Date.parse(authorizedAt);
   if (!Number.isFinite(t)) return false;
-  const age = now.getTime() - t;
-  return age >= CARD_HOLD_WARN_DAYS * DAY_MS && age <= CARD_HOLD_DAYS * DAY_MS;
+  return now.getTime() - t >= CARD_HOLD_WARN_DAYS * DAY_MS;
+}
+
+/**
+ * The CreatePayment idempotency key: one per CARD TOKEN, not per attempt.
+ * A Web Payments SDK nonce is single-use, so a retried click with the same
+ * nonce maps to the same Square payment (no second hold), while a corrected
+ * card (new nonce) gets a fresh key — a declined or cancelled attempt never
+ * locks the order (review finding B1, 2026-10-04). ≤ 45 chars (Square's limit).
+ */
+export async function cardIdempotencyKey(orderId: string, sourceId: string): Promise<string> {
+  const data = new TextEncoder().encode(`${orderId}\n${sourceId}`);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
+  const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `cj-card-${hex.slice(0, 36)}`;
+}
+
+/** Square's card-attempt cap per order per rolling 24 h (declines included — the submission cap cannot see them). */
+export const CARD_ATTEMPTS_PER_DAY = 5;
+
+/**
+ * What a Square status means for a square_payments row the Hub holds as
+ * `current`. Our own settled states are never downgraded; an unknown or
+ * pending answer changes nothing.
+ */
+export function nextSquareRowStatus(current: string, squareStatus: SquarePaymentStatus, authorizedAt: string, captureBy: string | null | undefined, now: Date = new Date()): string {
+  if (current === "captured" || current === "expired" || current === "voided" || current === "failed") return current;
+  if (squareStatus === "COMPLETED") return "captured";
+  if (squareStatus === "FAILED") return "failed";
+  if (squareStatus === "CANCELED") return cardHoldExpired(authorizedAt, now, captureBy) ? "expired" : "voided";
+  return current;
 }
 
 /** Yen are whole; Square's amount_money.amount for JPY is a number of yen. */

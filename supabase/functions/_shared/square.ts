@@ -61,10 +61,23 @@ export class SquareError extends Error {
     super(message);
     this.name = "SquareError";
   }
-  /** A refusal of the card itself (declined, CVV, expired…) — the customer's problem, not the Hub's. */
+  /**
+   * A refusal of the card itself (declined, CVV, expired, insufficient funds)
+   * — the customer's problem, not the Hub's. Square files these under
+   * PAYMENT_METHOD_ERROR. A used / expired nonce (CARD_TOKEN_*) and a merchant
+   * configuration error (CARD_PROCESSING_NOT_ENABLED) are NOT card refusals
+   * (review finding S3).
+   */
   get isCardRefusal(): boolean {
-    return this.category === "PAYMENT_METHOD_ERROR" || /^(CARD_|CVV_|ADDRESS_VERIFICATION|INVALID_EXPIRATION|INSUFFICIENT_FUNDS|GENERIC_DECLINE|VERIFY_)/.test(this.code);
+    return isCardRefusalCode(this.category, this.code);
   }
+}
+
+/** Pure, so the deno test pins it. */
+export function isCardRefusalCode(category: string, code: string): boolean {
+  if (/^CARD_TOKEN_/.test(code) || code === "CARD_PROCESSING_NOT_ENABLED") return false;
+  if (category === "PAYMENT_METHOD_ERROR") return true;
+  return /^(CARD_DECLINED|CARD_EXPIRED|CARD_NOT_SUPPORTED|CVV_FAILURE|ADDRESS_VERIFICATION_FAILURE|INVALID_EXPIRATION|INSUFFICIENT_FUNDS|GENERIC_DECLINE|VERIFY_CVV_FAILURE|VERIFY_AVS_FAILURE|INVALID_CARD|INVALID_CARD_DATA|TRANSACTION_LIMIT|VOICE_FAILURE|PAN_FAILURE|EXPIRATION_FAILURE|CHIP_INSERTION_REQUIRED|ALLOWABLE_PIN_TRIES_EXCEEDED|MANUALLY_ENTERED_PAYMENT_NOT_SUPPORTED|GIFT_CARD_AVAILABLE_AMOUNT|BAD_EXPIRATION|INVALID_ACCOUNT|CARDHOLDER_INSUFFICIENT_PERMISSIONS|INVALID_PIN|PAYMENT_LIMIT_EXCEEDED|CARD_DECLINED_CALL_ISSUER|CARD_DECLINED_VERIFICATION_REQUIRED)$/.test(code);
 }
 
 function accessToken(): string {
