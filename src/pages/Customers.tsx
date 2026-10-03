@@ -41,7 +41,7 @@ export default function Customers() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('loyalty_members')
-        .select('customer_id, current_tier:loyalty_tiers!current_tier_id(name)');
+        .select('customer_id, current_tier:current_tier_id(name)');
       if (error) throw error;
       const map = new Map<string, string>();
       for (const row of (data ?? [])) {
