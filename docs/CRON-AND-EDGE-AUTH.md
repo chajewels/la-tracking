@@ -227,8 +227,16 @@ at read time and NEVER stores a peso price. auto-expire-cash-orders (:40
 hourly) is the ONLY web/cash expiry path. web-reservation-sweep runs :23
 hourly. web-payment-reminder-sweep and web-reservation-expiring-bell run :13
 hourly (docs/WEB-PAYMENT-REMINDERS.md). page365-inventory-schedule runs every 5 min (2-59/5) and touches no
-account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker runs every minute
-(* * * * *, since 20261007100000) and touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
+account data (docs/PAGE365-IMPORT.md "SCHEDULE"). media-cutout-worker is scheduled every minute
+(* * * * *) but SLEEPS when idle (owner 2026-10-03, migration 20261028100000): its command is
+`SELECT public.media_cutout_minute_check()`, which calls the worker only when
+media_cutout_has_work() is true and otherwise switches the job off (cron.alter_job active=false).
+Statement triggers on website_media_cutouts (a row becoming queued / submitted / ready /
+processing — publishing a product does this) and on the two media_cutout settings switch it back
+on. media-cutout-daily-check (44 19 * * *, 03:44 PHT) runs one tick a day for housekeeping and
+wakes the worker if anything was missed. NEVER re-schedule media-cutout-worker with the old
+net.http_post command, never delete the daily check, and if submit/poll/process_batch change,
+change media_cutout_has_work() with them. It touches no account data (docs/MEDIA-CUTOUTS.md). process-email-queue has NO cron — silence means nothing is calling it,
 not that it is healthy. NEVER re-add a second cron pointing at /send-reminders.
 cron-run-history-cleanup runs daily at 19:19 UTC (03:19 PHT) and deletes
 cron.job_run_details rows older than 7 days (plain SQL, no key; migration

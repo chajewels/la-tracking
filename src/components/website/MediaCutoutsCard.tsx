@@ -23,9 +23,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   addTestBatch, almostNothingKept, CUTOUT_LIST_KEY as LIST_KEY, CUTOUT_OVERVIEW_KEY as OVERVIEW_KEY, CUTOUT_PAGE_SIZE,
-  CUTOUT_PROVIDER_KEY as PROVIDER_KEY, CUTOUT_TABS_KEY as TABS_KEY, type CutoutFilter, type CutoutMode, type CutoutOverview,
-  type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, cutoutRowState, DEFAULT_PRICE_USD, describeFlag, estimateCost,
-  FILTERS, formatUsd, getOverview, getProvider, getTabTotals, hasTransparency, isLocked, isPublishable,
+  CUTOUT_PROVIDER_KEY as PROVIDER_KEY, CUTOUT_TABS_KEY as TABS_KEY, CUTOUT_WORKER_STATE_KEY as WORKER_KEY, type CutoutFilter,
+  type CutoutMode, type CutoutOverview, type CutoutProviderSetting, type CutoutRow, type CutoutTabTotals, type CutoutWorkerState,
+  cutoutRowState, DEFAULT_PRICE_USD, describeFlag, estimateCost,
+  FILTERS, formatUsd, getOverview, getProvider, getTabTotals, getWorkerState, hasTransparency, isLocked, isPublishable,
   listCutouts, MODE_TEXT, type PaidReopenAction, parseSkus, PROVIDER_LABEL, PROVIDER_TEXT, type ProviderName, publicUrl,
   refusalText, RETURNED_REASON, review, type ReviewAction, runNow, setProvider, setSettings, STATUS_LABEL, uploadOwnCutout,
 } from "@/lib/media-cutouts";
@@ -89,10 +90,16 @@ export function MediaCutoutSettingsCard() {
   const prov = providerQ.data;
   const provider: ProviderName = prov?.provider ?? "photoroom";
   const price = prov ? prov.price_usd : DEFAULT_PRICE_USD.photoroom;
+  // Absent until migration 20261028100000 runs (worker sleeps when idle).
+  const workerQ = useQuery<CutoutWorkerState>({
+    queryKey: WORKER_KEY, queryFn: getWorkerState, staleTime: 30_000, retry: false,
+  });
+  const worker = workerQ.data;
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
     qc.invalidateQueries({ queryKey: PROVIDER_KEY });
+    qc.invalidateQueries({ queryKey: WORKER_KEY });
     qc.invalidateQueries({ queryKey: [LIST_KEY] });
     qc.invalidateQueries({ queryKey: TABS_KEY });
   };
@@ -286,8 +293,18 @@ export function MediaCutoutSettingsCard() {
               <span>
                 {data.last_tick_at
                   ? <>Last run {formatPHTDisplay(data.last_tick_at)}{tick ? ` — ${Number(tick.submitted ?? 0)} sent, ${Number(tick.ready ?? 0)} back, ${Number(tick.errors ?? 0)} errors` : ""}.</>
-                  : <>Not run yet. It runs every minute while the switch is on.</>}
+                  : worker?.scheduled
+                    ? <>Not run yet.</>
+                    : <>Not run yet. It runs every minute while the switch is on.</>}
               </span>
+              {worker?.scheduled && (
+                <span data-testid="cutout-worker-state">
+                  {worker.awake
+                    ? <>Working — checks every minute until the queue is empty{worker.woke_at ? ` (since ${formatPHTDisplay(worker.woke_at)})` : ""}.</>
+                    : <>Sleeping — nothing to do. It wakes within a minute when a product is published{worker.slept_at ? ` (asleep since ${formatPHTDisplay(worker.slept_at)})` : ""}.</>}
+                  {worker.daily_check_at ? <> Daily check {formatPHTDisplay(worker.daily_check_at)}.</> : null}
+                </span>
+              )}
               {data.cpu_ms_p95 !== null && (
                 <span>Processing time p95 {Math.round(Number(data.cpu_ms_p95))} ms (limit 2,000){data.cpu_fallbacks ? `; ${data.cpu_fallbacks} stored as cut-out only` : ""}.</span>
               )}
