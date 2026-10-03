@@ -8,6 +8,8 @@
  * disagrees with paidy_mode (website POST /orders/:id/paidy).
  */
 
+import { normalizePaidyStatus } from "./paidy-rules.ts";
+
 const PAIDY_API = "https://api.paidy.com";
 const PAIDY_VERSION = "2018-04-10";
 
@@ -63,15 +65,9 @@ async function call(method: "GET" | "POST", path: string, body?: unknown): Promi
   return normalizePaidyPayment(json);
 }
 
-/**
- * Paidy's reference documents AUTHORIZED | CLOSED | REJECTED, but the live
- * Checkout callback sent "authorized" in lower case (test run 2026-10-03,
- * pay_asDHekoAAEkAmsmA; storefront fix #261). The API is normalised here once
- * so every comparison downstream (website, paidy-webhook) is case-safe.
- */
+/** Every API read-back goes through normalizePaidyStatus (paidy-rules.ts) so website / paidy-webhook compare case-safely. */
 export function normalizePaidyPayment(json: Record<string, unknown>): PaidyPayment {
-  const status = String(json.status ?? "").trim().toUpperCase();
-  return { ...(json as unknown as PaidyPayment), status: status as PaidyPayment["status"] };
+  return { ...(json as unknown as PaidyPayment), status: normalizePaidyStatus(json.status) as PaidyPayment["status"] };
 }
 
 /** Paidy payment ids look like pay_…; refuse anything else before it reaches a URL. */

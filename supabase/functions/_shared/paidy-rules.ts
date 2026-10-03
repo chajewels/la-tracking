@@ -94,3 +94,13 @@ export function paidyAmountMatches(paidyAmount: unknown, remainingBalance: unkno
   const a = Number(paidyAmount), b = Number(remainingBalance);
   return Number.isFinite(a) && Number.isFinite(b) && Math.round(a) === Math.round(b) && a > 0;
 }
+
+/**
+ * Paidy's status, upper-cased. The reference documents AUTHORIZED | CLOSED |
+ * REJECTED, but the live Checkout callback sent "authorized" in lower case
+ * (test run 2026-10-03, pay_asDHekoAAEkAmsmA). Pure, so vitest pins it; the
+ * API client (_shared/paidy.ts) applies it to every read-back.
+ */
+export function normalizePaidyStatus(raw: unknown): string {
+  return String(raw ?? "").trim().toUpperCase();
+}
