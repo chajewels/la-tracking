@@ -25,6 +25,7 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendClaimedCartReminder } from "../_shared/cart-reminder-emails.ts";
 import { cartReminderFinishStatus, readCartReminderMode } from "../_shared/cart-reminder-rules.ts";
 import type { FxRate } from "../_shared/website-down-payments.ts";
+import { hubFxRate } from "../_shared/php-jpy-rate.ts";
 
 type AnyRec = Record<string, unknown>;
 
@@ -32,16 +33,10 @@ const CANDIDATE_LIMIT = 50;
 /** The hourly run that also purges 90-day-old cart lines: 18:00 UTC = 03:00 JST. */
 const PURGE_UTC_HOUR = 18;
 
-/** Latest JPY→PHP rate (fx_rates.jpy_php), as the website function reads it. */
+/** The Hub's peso rate (system_settings.php_jpy_rate), as the website function reads it — ONE PESO RATE, 2026-10-03. */
 // deno-lint-ignore no-explicit-any
 async function latestFx(supabase: any): Promise<FxRate | null> {
-  const { data, error } = await supabase
-    .from("fx_rates").select("date, jpy_php").order("date", { ascending: false }).limit(1).maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const rate = Number((data as AnyRec).jpy_php);
-  if (!Number.isFinite(rate) || rate <= 0) return null;
-  return { jpy_php: rate, as_of: String((data as AnyRec).date) };
+  return await hubFxRate(supabase);
 }
 
 Deno.serve(async (req) => {
