@@ -373,6 +373,7 @@ export const portalEn = {
     invoicePlaceholder: 'e.g. 19012',
     invoiceHint: 'Enter the invoice number your team gave you for the new order.',
     invoiceNotFound: 'Invoice not found. Only brand-new open orders (no payments yet, not cancelled) can be used.',
+    ordersLoadFailed: 'We could not load your orders just now. Please close this window and try again; if it keeps happening, reopen the portal from your link.',
     foundOrder: '✓ Found: {{kind}} — {{amount}}',
     kindLayaway: 'Layaway',
     kindCash: 'Cash Order',
