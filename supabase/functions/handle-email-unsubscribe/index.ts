@@ -100,7 +100,9 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (updateError) {
-    console.error('Failed to mark token as used', { error: updateError, token })
+    // Never log the token: it is a live credential for this address's email
+    // preferences (Lovable scan 2026-10-01, LOV.INFO.SENSITIVE_LOG_REDACTION).
+    console.error('Failed to mark token as used', { error: updateError })
     return jsonResponse({ error: 'Failed to process unsubscribe' }, 500)
   }
 
