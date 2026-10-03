@@ -6081,6 +6081,54 @@ export type Database = {
         }
         Relationships: []
       }
+      square_attempts: {
+        Row: {
+          cash_order_id: string
+          created_at: string
+          customer_id: string | null
+          detail: string | null
+          id: string
+          outcome: string
+          square_payment_id: string | null
+          test: boolean
+        }
+        Insert: {
+          cash_order_id: string
+          created_at?: string
+          customer_id?: string | null
+          detail?: string | null
+          id?: string
+          outcome: string
+          square_payment_id?: string | null
+          test?: boolean
+        }
+        Update: {
+          cash_order_id?: string
+          created_at?: string
+          customer_id?: string | null
+          detail?: string | null
+          id?: string
+          outcome?: string
+          square_payment_id?: string | null
+          test?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "square_attempts_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "square_attempts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       square_payments: {
         Row: {
           agreement_signed_at: string | null
@@ -6112,6 +6160,7 @@ export type Database = {
           updated_at: string
           voided_at: string | null
           voided_reason: string | null
+          warned_at: string | null
         }
         Insert: {
           agreement_signed_at?: string | null
@@ -6143,6 +6192,7 @@ export type Database = {
           updated_at?: string
           voided_at?: string | null
           voided_reason?: string | null
+          warned_at?: string | null
         }
         Update: {
           agreement_signed_at?: string | null
@@ -6174,6 +6224,7 @@ export type Database = {
           updated_at?: string
           voided_at?: string | null
           voided_reason?: string | null
+          warned_at?: string | null
         }
         Relationships: [
           {
