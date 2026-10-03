@@ -4,6 +4,7 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const json = jsonResponse;
 
@@ -240,7 +241,7 @@ Deno.serve(async (req) => {
               },
             );
             if (!result.sent) {
-              console.log(`[revoke-loyalty-points] "loyalty-tier-revoked" suppressed for ${recipientEmail}`);
+              console.log(`[revoke-loyalty-points] "loyalty-tier-revoked" suppressed for ${maskEmail(recipientEmail)}`);
             }
           } else {
             console.log(

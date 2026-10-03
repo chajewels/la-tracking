@@ -3,6 +3,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -291,7 +292,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!result.sent) {
-          console.log(`[void-payment] "payment-voided" suppressed for ${customerEmail}`);
+          console.log(`[void-payment] "payment-voided" suppressed for ${maskEmail(customerEmail)}`);
         }
       }
     } catch (emailErr) {

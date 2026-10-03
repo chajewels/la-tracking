@@ -5,6 +5,7 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -185,7 +186,7 @@ Deno.serve(async (req) => {
               },
             );
             if (!result.sent) {
-              console.log(`[restore-loyalty-points] "loyalty-tier-restored" suppressed for ${recipientEmail}`);
+              console.log(`[restore-loyalty-points] "loyalty-tier-restored" suppressed for ${maskEmail(recipientEmail)}`);
             }
           } else {
             console.log(

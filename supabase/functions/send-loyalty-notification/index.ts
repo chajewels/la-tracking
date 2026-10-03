@@ -15,6 +15,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { getPortalLinkForCustomer } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -209,11 +210,11 @@ async function sendBroadcastEmails(
             },
           );
           if (!result.sent) {
-            console.log(`[send-loyalty-notification] "loyalty-broadcast" suppressed for ${email}`);
+            console.log(`[send-loyalty-notification] "loyalty-broadcast" suppressed for ${maskEmail(email)}`);
           }
         } catch (e) {
           console.warn(
-            `[send-loyalty-notification] email to ${email} failed:`,
+            `[send-loyalty-notification] email to ${maskEmail(email)} failed:`,
             e,
           );
         }
