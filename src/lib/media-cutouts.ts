@@ -266,6 +266,23 @@ async function rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
 
 export const getOverview = () => rpc<CutoutOverview>('get_media_cutout_overview');
 
+/**
+ * Is the background-removal worker awake? Since migration 20261028100000 the
+ * minute cron switches itself off when there is nothing to send or collect and
+ * is switched back on when a photo becomes queued / ready (publishing a product
+ * does that). Absent until that migration runs, in which case the card keeps
+ * the old "runs every minute" wording.
+ */
+export interface CutoutWorkerState {
+  scheduled: boolean;
+  awake: boolean;
+  slept_at: string | null;
+  woke_at: string | null;
+  daily_check_at: string | null;
+}
+export const CUTOUT_WORKER_STATE_KEY = ['media-cutouts', 'worker-state'] as const;
+export const getWorkerState = () => rpc<CutoutWorkerState>('get_media_cutout_worker_state');
+
 export async function getTabTotals(): Promise<CutoutTabTotals> {
   const raw = await rpc<Record<string, unknown>>('get_media_cutout_tab_totals');
   const provider = readProviderSetting(raw.provider);
