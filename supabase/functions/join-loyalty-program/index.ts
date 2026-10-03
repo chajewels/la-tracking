@@ -3,6 +3,7 @@ import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -379,7 +380,7 @@ Deno.serve(async (req) => {
             },
           );
           if (!result.sent) {
-            console.log(`[join-loyalty-program] "loyalty-welcome" suppressed for ${customer.email}`);
+            console.log(`[join-loyalty-program] "loyalty-welcome" suppressed for ${maskEmail(customer.email)}`);
           }
         } else {
           console.log(

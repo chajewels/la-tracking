@@ -14,6 +14,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { sheetText } from "../_shared/sheets-text.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,15 +126,15 @@ function buildMembersRow(
   return [
     formatPHT(new Date()), // A timestamp
     eventType, // B event_type
-    (payload.member_id as string) ?? "", // C member_id
-    customer.full_name ?? "", // D full_name
-    customer.email ?? "", // E email
-    (payload.current_tier as string) ?? "", // F current_tier
+    sheetText(payload.member_id), // C member_id
+    sheetText(customer.full_name), // D full_name
+    sheetText(customer.email), // E email
+    sheetText(payload.current_tier), // F current_tier
     payload.lifetime_spend_jpy != null ? plainNumberOrBlank(payload.lifetime_spend_jpy) : "", // G
     payload.available_points != null ? plainNumberOrBlank(payload.available_points) : "", // H
     deriveActivityStatus(lastPurchase), // I activity_status
     formatDateOnly(lastPurchase), // J last_purchase_date
-    (payload.notes as string) ?? "", // K notes
+    sheetText(payload.notes), // K notes
   ];
 }
 
@@ -144,18 +145,18 @@ function buildTransactionsRow(
 ): (string | number)[] {
   return [
     formatPHT(new Date()), // A timestamp
-    (payload.transaction_id as string) ?? "", // B transaction_id
+    sheetText(payload.transaction_id), // B transaction_id
     eventType, // C event_type
-    (payload.member_id as string) ?? "", // D member_id
-    customer.full_name ?? "", // E full_name
+    sheetText(payload.member_id), // D member_id
+    sheetText(customer.full_name), // E full_name
     payload.points_amount != null ? signedNumberOrBlank(payload.points_amount) : "", // F
     payload.spend_amount_jpy != null ? plainNumberOrBlank(payload.spend_amount_jpy) : "", // G
     payload.multiplier != null ? `${Number(payload.multiplier).toFixed(1)}x` : "", // H
-    (payload.tier_at_time as string) ?? "", // I tier_at_time
-    (payload.invoice_number as string) ?? "", // J invoice_number
-    (payload.account_id as string) ?? "", // K account_id
-    (payload.notes as string) ?? "", // L notes
-    (payload.created_by as string) ?? "", // M created_by
+    sheetText(payload.tier_at_time), // I tier_at_time
+    sheetText(payload.invoice_number), // J invoice_number
+    sheetText(payload.account_id), // K account_id
+    sheetText(payload.notes), // L notes
+    sheetText(payload.created_by), // M created_by
   ];
 }
 

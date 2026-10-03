@@ -15,6 +15,7 @@ import * as React from "npm:react@18.3.1";
 import { sendStorefrontEmail } from "../_shared/storefront-email.ts";
 import { LevelRestoredEmail, levelRestoredSubject } from "../_shared/email-templates/loyalty-level.tsx";
 import { catchUpPurchaseDates, expiredOnAward } from "../_shared/reassign-owner-rules.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -653,7 +654,7 @@ Deno.serve(async (req) => {
             },
           );
           if (!result.sent) {
-            console.log(`[award-loyalty-points] "loyalty-earned" suppressed for ${recipientEmail}`);
+            console.log(`[award-loyalty-points] "loyalty-earned" suppressed for ${maskEmail(recipientEmail)}`);
           }
         } else {
           console.log(
@@ -682,7 +683,7 @@ Deno.serve(async (req) => {
                 },
               );
               if (!result.sent) {
-                console.log(`[award-loyalty-points] "loyalty-bonus" suppressed for ${recipientEmail}`);
+                console.log(`[award-loyalty-points] "loyalty-bonus" suppressed for ${maskEmail(recipientEmail)}`);
               }
             } catch (e) {
               console.warn("[award-loyalty-points] loyalty-bonus email failed:", e);
@@ -740,7 +741,7 @@ Deno.serve(async (req) => {
                 },
               );
               if (!result.sent) {
-                console.log(`[award-loyalty-points] "loyalty-tier-upgrade" suppressed for ${recipientEmail}`);
+                console.log(`[award-loyalty-points] "loyalty-tier-upgrade" suppressed for ${maskEmail(recipientEmail)}`);
               }
             } catch (e) {
               console.warn(

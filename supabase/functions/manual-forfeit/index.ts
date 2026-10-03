@@ -4,6 +4,7 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { forfeitEmailKind } from "../_shared/web-order-rules.ts";
 import { sendLayawayForfeitedEmail } from "../_shared/layaway-forfeit-email.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 /**
  * manual-forfeit — staff forfeit a layaway (permission forfeit_account).
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
           },
         );
         if (!sent.sent) {
-          console.log(`[manual-forfeit] "account-forfeited" suppressed for ${customer.email}`);
+          console.log(`[manual-forfeit] "account-forfeited" suppressed for ${maskEmail(customer.email)}`);
         }
       }
     } catch (emailErr) {

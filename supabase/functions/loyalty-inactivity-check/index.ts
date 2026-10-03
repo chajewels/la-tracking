@@ -22,6 +22,7 @@ import {
   levelStepdownSubject,
   levelWarningSubject,
 } from "../_shared/email-templates/loyalty-level.tsx";
+import { maskEmail } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,7 +81,7 @@ async function sendEmail(
       },
     );
     if (!result.sent) {
-      console.log(`[loyalty-inactivity-check] templateName suppressed for ${recipientEmail}`);
+      console.log(`[loyalty-inactivity-check] templateName suppressed for ${maskEmail(recipientEmail)}`);
     }
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] ${templateName} email block failed:`, e);

@@ -8,6 +8,7 @@ import {
   buildRedemptionApprovedNotification,
   buildRedemptionCancelledNotification,
 } from "../_shared/loyalty-notification-templates.ts";
+import { maskEmail } from "../_shared/redact.ts";
 
 // Phase 4.2 — for in-portal redemption notifications. Catalog rewards
 // resolve to loyalty_rewards.name; the 3 legacy enum types use a
@@ -587,7 +588,7 @@ Deno.serve(async (req) => {
               },
             );
             if (!result.sent) {
-              console.log(`[process-loyalty-redemption] "loyalty-redeem" suppressed for ${recipientEmail}`);
+              console.log(`[process-loyalty-redemption] "loyalty-redeem" suppressed for ${maskEmail(recipientEmail)}`);
             }
           } else {
             console.log(
@@ -963,7 +964,7 @@ Deno.serve(async (req) => {
               },
             );
             if (!result.sent) {
-              console.log(`[process-loyalty-redemption] "loyalty-redemption-voided" suppressed for ${recipientEmail}`);
+              console.log(`[process-loyalty-redemption] "loyalty-redemption-voided" suppressed for ${maskEmail(recipientEmail)}`);
             }
           } else {
             console.log(
