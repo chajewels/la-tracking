@@ -45,20 +45,15 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at; rules moved 2026-10-02
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/PAIDY.md — Paidy あと払い on a confirmed web order: offer rule, capture on Confirm, webhook, switch, go-live
+- docs/SQUARE.md — Square card payments: switch + public ids, square_payments ledger, agreement, capture/void
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path; rules moved 2026-10-02
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4); rules moved 2026-10-02
 - docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
 - docs/SHIPPING-FEES.md — the shipping rate card (Website → Settings → Shipping fees, admin, audited, never deleted) and couriers (Pabitbit on the LBC template; planned_shipping_method_id; PH-only default)
-- docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
-- Moved out of CLAUDE.md verbatim on 2026-09-24 and 2026-10-02 (heading "Rules
-  moved from CLAUDE.md (2026-10-02, verbatim)"; CLAUDE.md keeps the one-line
-  rules and a pointer): every doc named in a "Rules moved" pointer below, plus
-  docs/CRON-AND-EDGE-AUTH, LOYALTY-RULES, WEB-LAYAWAY, PAGE365-IMPORT,
-  MIGRATIONS, BRAND-STYLE, RECONCILIATION, PAYMENT-SUBMISSIONS, PLAN-DURATION,
-  LOYALTY-SHEET-SYNC, SIDEBAR, EMAIL-DELIVERY, TEST-ACCOUNT-EXCLUSION,
-  TRADE-PROGRAM, POST-LOGIN-SPLASH, INQUIRY-TRACKER, REASSIGN-OWNER,
-  PENALTY-AND-FORFEITURE, LOVABLE-VERIFICATION, SCHEMA-FACTS-CUSTOMER-CODE,
-  GIT-WORKFLOW (rationale and incidents).
+- docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
+- Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
+  full text moved out verbatim on 2026-09-24 / 2026-10-02 under that heading;
+  CLAUDE.md keeps the one-line rules and the pointer.
 - SIZE LIMIT: under 100k characters (Claude Code stops loading at 150k). Long
   reference text goes to docs/; rules stay here.
 
@@ -1412,9 +1407,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     not_ready_for_payment. Since PR 10 (2026-10-01) only a draft can be
     unconfirmed — materialize_web_draft_atomic stamps ready_confirmed_at.
 
-## PAIDY あと払い — NON-NEGOTIABLE (added 2026-10-03; docs/PAIDY.md)
+## PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE (2026-10-03/04; docs/PAIDY.md, docs/SQUARE.md)
 
-  - Offered ONLY on a confirmed YEN cash order with a complete Japanese
+  - Paidy ONLY on a confirmed YEN cash order with a complete Japanese
     delivery address and money due (rule: _shared/paidy-rules.ts, tested).
   - PAIDY_SECRET_KEY is an edge secret ONLY (never DB/repo/chat/prompt);
     set_paidy_settings refuses an sk_ key. The website reads the PUBLIC key
@@ -1426,6 +1421,13 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     POST /orders/:id/paidy; unsigned paidy-webhook re-reads). Capture ONLY in
     review-payment-submission on Confirm; close on Reject; > 30 days auto-
     rejects (PD4). Refunds never automatic, not yet built.
+  - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
+    PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
+    EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
+    change ONLY via set_square_settings (admin, audited, guard, refuses a
+    token). SQUARE_ACCESS_TOKEN / SQUARE_WEBHOOK_SIGNATURE_KEY: edge secrets
+    ONLY. Yen cash orders, any country, never layaway. Authorise on pay,
+    CAPTURE only on reviewer Confirm, VOID on Reject.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

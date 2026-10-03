@@ -405,6 +405,8 @@ export default function CashOrderDetail() {
   const [statementOpen, setStatementOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
   const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
+  // SQUARE (S1, 2026-10-04): a card hold awaiting Confirm (capture) / Reject (void).
+  const squarePending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'square' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
@@ -1423,7 +1425,7 @@ export default function CashOrderDetail() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm font-medium">
-                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : 'Awaiting bank / GCash / Paidy'}
+                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : squarePending ? 'Card authorised (Square) — awaiting your Confirm' : 'Awaiting bank / GCash / Paidy / card'}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Invoice <span className="font-mono">{order.invoice_number}</span>
@@ -1438,6 +1440,12 @@ export default function CashOrderDetail() {
                   <p className="text-xs text-sky-800 dark:text-sky-200">
                     あと払い（ペイディ） ref <span className="font-mono">{paidyPending.reference_number ?? '—'}</span> · ¥{Number(paidyPending.submitted_amount).toLocaleString('en-US')} ·
                     filed {formatPHTDisplay(paidyPending.created_at)} · capture on Confirm in Payments Hub, valid 30 days from authorisation
+                  </p>
+                )}
+                {squarePending && (
+                  <p className="text-xs text-sky-800 dark:text-sky-200">
+                    Card hold (Square) ref <span className="font-mono">{squarePending.reference_number ?? '—'}</span> · ¥{Number(squarePending.submitted_amount).toLocaleString('en-US')} ·
+                    filed {formatPHTDisplay(squarePending.created_at)} · Confirm in Payments Hub captures the card, Reject voids the hold
                   </p>
                 )}
                 {order.transfer_due_at && new Date(order.transfer_due_at) < new Date() && (

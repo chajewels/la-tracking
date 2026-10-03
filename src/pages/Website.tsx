@@ -28,6 +28,7 @@ import { ReviewsCard } from "@/components/website/ReviewsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
 import { PaidySettingsCard } from "@/components/settings/PaidySettingsCard";
+import { SquareSettingsCard } from "@/components/settings/SquareSettingsCard";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
 
 /**
@@ -78,6 +79,7 @@ export const WEBSITE_SETTINGS_SECTIONS = {
   paymentDetails: "payment-details",
   paymentReminders: "payment-reminders",
   paidy: "paidy",
+  square: "square",
   shippingFees: "shipping-fees",
   siteSettings: "site-settings",
 } as const;
@@ -238,6 +240,15 @@ export default function Website() {
               {isAdmin && (
                 <section id={WEBSITE_SETTINGS_SECTIONS.paidy} className="scroll-mt-20">
                   <PaidySettingsCard />
+                </section>
+              )}
+              {/* Admin only (Square S1, 2026-10-04): the "Pay by card" switch,
+                  the PUBLIC Application ID / Location ID and the Card Purchase
+                  Agreement threshold. set_square_settings re-checks the role.
+                  The access token never comes here (Lovable secret). */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.square} className="scroll-mt-20">
+                  <SquareSettingsCard />
                 </section>
               )}
               {/* Admin only (website-orders PR 2): the storefront shipping

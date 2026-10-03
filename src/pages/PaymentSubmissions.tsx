@@ -159,7 +159,13 @@ const hasProof = (url: string | null): url is string => !!url && url.trim().leng
  * applies the same exception server-side (payment_method 'paidy' + record).
  */
 const isPaidy = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'paidy';
-const proofSatisfied = (sub: { payment_method: string | null; proof_url: string | null }) => hasProof(sub.proof_url) || isPaidy(sub);
+/**
+ * SQUARE (S1, 2026-10-04, docs/SQUARE.md): the same shape with a card. The
+ * proof is the authorisation the Hub read back from Square; Confirm CAPTURES
+ * (CompletePayment), Reject VOIDS the hold (CancelPayment) — nothing charged.
+ */
+const isSquare = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'square';
+const proofSatisfied = (sub: { payment_method: string | null; proof_url: string | null }) => hasProof(sub.proof_url) || isPaidy(sub) || isSquare(sub);
 const isPdf = (url: string) => /\.pdf$/i.test(url);
 const proofFileName = (url: string) => decodeURIComponent(url.split('/').pop() || 'proof.pdf').split('?')[0];
 
@@ -235,10 +241,14 @@ const ActionDialogModal = memo(function ActionDialogModal({
             {actionDialog.action === 'confirmed'
               ? isPaidy(actionDialog.sub)
                 ? `Paidy will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} now (the customer pays Paidy next month). Then a confirmed payment is recorded and the order balance updated. A capture refused by Paidy records nothing.`
+                : isSquare(actionDialog.sub)
+                ? `Square will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} from the customer's card now. Then a confirmed payment is recorded and the order balance updated. A capture refused by Square records nothing.`
                 : `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
               : actionDialog.action === 'rejected'
               ? isPaidy(actionDialog.sub)
                 ? 'This submission will be marked as rejected and the Paidy authorisation released — the customer is not charged. The customer will see your reason.'
+                : isSquare(actionDialog.sub)
+                ? 'This submission will be marked as rejected and the card hold VOIDED — the customer is not charged. The customer will see your reason.'
                 : 'This submission will be marked as rejected. The customer will see your reason.'
               : actionDialog.action === 'restore'
               ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
@@ -251,6 +261,10 @@ const ActionDialogModal = memo(function ActionDialogModal({
           {isPaidy(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Valid 30 days from authorisation.
+            </div>
+          ) : isSquare(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
+            <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Card authorisation (Square)</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this hold with Square when it was filed. Confirm captures it; Reject voids it.
             </div>
           ) : (actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 space-y-1.5">
@@ -1312,7 +1326,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             {canConfirm && (
               <Button size="sm" variant="default" className={btn}
                 disabled={!proofSatisfied(sub)}
-                title={!proofSatisfied(sub) ? 'Proof of payment required to confirm' : isPaidy(sub) ? 'Confirm captures the Paidy payment' : undefined}
+                title={!proofSatisfied(sub) ? 'Proof of payment required to confirm' : isPaidy(sub) ? 'Confirm captures the Paidy payment' : isSquare(sub) ? 'Confirm captures the card payment' : undefined}
                 onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
                 <Check className="h-3.5 w-3.5" /> Confirm
               </Button>
@@ -1410,7 +1424,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       cellClassName: tight,
       cell: (sub) => {
         const url = sub.proof_url;
-        if (!hasProof(url)) return isPaidy(sub) ? <StatusPill label="Paidy" tone="info" /> : <StatusPill label="No proof" tone="danger" />;
+        if (!hasProof(url)) return isPaidy(sub) ? <StatusPill label="Paidy" tone="info" /> : isSquare(sub) ? <StatusPill label="Card" tone="info" /> : <StatusPill label="No proof" tone="danger" />;
         if (isPdf(url)) {
           return (
             <a href={url} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
@@ -1559,6 +1573,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           ) : (
             isPaidy(sub)
               ? <p className="text-[10px] text-ink-muted italic">Paidy authorisation · ref {sub.reference_number ?? '—'} · Confirm captures, Reject releases</p>
+              : isSquare(sub)
+              ? <p className="text-[10px] text-ink-muted italic">Card authorisation (Square) · ref {sub.reference_number ?? '—'} · Confirm captures, Reject voids</p>
               : <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
           )}
         </div>
