@@ -1,0 +1,73 @@
+# Package guard — owner decision 2026-10-03 (after Lovable twice re-added
+# packages that break `npm install`, #3363 and #3392–#3400, despite the prompt
+# saying not to).
+#
+# package.json and bun.lock may only change together with
+# .github/package-guard.sha256, which records their SHA-256. A dependency
+# change is therefore an explicit, reviewed act: update the two files, then
+#   shasum -a 256 package.json bun.lock > .github/package-guard.sha256
+# in the same commit, in a PR whose title starts with "deps:".
+#
+# Runs on every PR into develop/main AND on every push to them, so a direct
+# Lovable push to main shows a red "Package guard" check within a minute with
+# the offending files named. Also fails on a drizzle/ scaffold.
+# Independent of firebase-deploy.yml on purpose (no shared file to conflict).
+
+name: Package guard
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  package-guard:
+    name: Package guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: package.json and bun.lock match .github/package-guard.sha256
+        run: |
+          set -e
+          if ! shasum -a 256 -c .github/package-guard.sha256; then
+            echo "::error title=Package guard::package.json and/or bun.lock changed without updating .github/package-guard.sha256."
+            echo "If this dependency change is intended: run 'shasum -a 256 package.json bun.lock > .github/package-guard.sha256', commit it in the same PR, and title the PR 'deps: …'."
+            echo "If it is NOT intended (e.g. a Lovable 'fix' during an apply/deploy prompt): restore package.json and bun.lock with 'git checkout origin/main -- package.json bun.lock'."
+            exit 1
+          fi
+
+      - name: no ORM / tooling scaffold
+        run: |
+          set -e
+          bad=""
+          for p in drizzle drizzle.config.ts drizzle.config.js prisma; do
+            [ -e "$p" ] && bad="$bad $p"
+          done
+          if [ -n "$bad" ]; then
+            echo "::error title=Package guard::unapproved scaffold present:$bad"
+            echo "The Hub applies SQL migrations from supabase/migrations only. Remove:$bad"
+            exit 1
+          fi
+
+      - name: deps PR must say so
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+          git fetch -q --depth=1 origin "$BASE"
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^(package\.json|bun\.lock|\.github/package-guard\.sha256)$'; then
+            case "$TITLE" in
+              deps:*) echo "dependency change, titled deps: — ok" ;;
+              *) echo "::error title=Package guard::this PR changes dependencies; its title must start with 'deps:' so the change is explicit."; exit 1 ;;
+            esac
+          else
+            echo "no dependency files changed"
+          fi

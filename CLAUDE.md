@@ -618,6 +618,9 @@ and Claude Code) and cost an hour of untangling — docs/GIT-WORKFLOW.md.
   Practice rules (apply to both Lovable and Claude Code):
   - No prompt written without plan confirmed first.
   - No step executed without explicit go signal from Cynthia.
+  - DEPENDENCIES ARE FROZEN: no one, Lovable included, touches package.json,
+    bun.lock, drizzle/ or prisma/, not even to "fix preview errors". A change
+    is a "deps:" PR updating .github/package-guard.sha256; CI fails all else.
   - SQL changes are applied in the SQL Editor by Cynthia and are NOT
     committed to repo as migrations unless explicitly told to.
     EXCEPTION, and it is not optional: a SQL Editor change that alters a
