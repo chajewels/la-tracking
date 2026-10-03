@@ -1,5 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { resolvePortalAuth, type PortalAuthResult } from "../_shared/portal-auth.ts";
+
+// A correct PIN opens a PORTAL SESSION for this long (owner 2026-10-03: "until
+// the tab closes, max 12 hours" — the browser keeps the id in sessionStorage).
+const PIN_SESSION_HOURS = 12;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,11 +65,15 @@ Deno.serve(async (req) => {
 
     // 1. Resolve customer
     let customerId: string;
+    let auth: PortalAuthResult;
     try {
-      const auth = await resolvePortalAuth(supabase, {
+      // The ONE caller allowed to resolve a bare link token: this function IS
+      // the PIN check (portal-auth.ts allowBareToken).
+      auth = await resolvePortalAuth(supabase, {
         token,
         session_id,
         authHeader: req.headers.get("Authorization"),
+        allowBareToken: true,
       });
       customerId = auth.customer_id;
     } catch (err: any) {
@@ -166,8 +174,40 @@ Deno.serve(async (req) => {
       .update({ pin_attempts: 0, pin_locked_until: null })
       .eq("customer_id", customer.id);
 
+    // 8. Open a portal session. Every other portal call refuses a bare link
+    // token (pin_required) and accepts only this session_id. A call that
+    // already came in on a session keeps it; a JWT sign-in needs none.
+    let portalSessionId: string | null = auth.via === "session" ? (auth.session_id ?? null) : null;
+    let portalSessionExpiresAt: string | null = null;
+    if (auth.via === "token" && auth.source_token_id) {
+      portalSessionExpiresAt = new Date(Date.now() + PIN_SESSION_HOURS * 60 * 60 * 1000).toISOString();
+      const { data: created, error: sessErr } = await supabase
+        .from("customer_portal_sessions")
+        .insert({
+          customer_id: customer.id,
+          source_token_id: auth.source_token_id,
+          expires_at: portalSessionExpiresAt,
+          user_agent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+        })
+        .select("session_id")
+        .single();
+      if (sessErr || !created) {
+        console.error("[verify-portal-pin] session insert failed:", sessErr?.message ?? sessErr);
+        return new Response(
+          JSON.stringify({ error: "Could not open your account. Please try again." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      portalSessionId = created.session_id;
+    }
+
     return new Response(
-      JSON.stringify({ success: true, customer_id: customer.id }),
+      JSON.stringify({
+        success: true,
+        customer_id: customer.id,
+        session_id: portalSessionId,
+        expires_at: portalSessionExpiresAt,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error: any) {

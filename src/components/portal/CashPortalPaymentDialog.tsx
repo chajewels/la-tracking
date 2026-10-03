@@ -11,6 +11,8 @@ import {
 } from '@/lib/payment-methods';
 import { normalizeMethod, methodCurrency } from '@/lib/payment-method-registry';
 import { getPHTToday } from '@/lib/date-utils';
+import { portalAuthBody } from '@/lib/portal-auth';
+import { getPortalSessionId } from '@/lib/portal-session';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -137,7 +139,11 @@ export default function CashPortalPaymentDialog({
     fd.append('account_id', cashOrder.id);
     fd.append('file_name', fileName);
     fd.append('upsert', 'true');
-    if (portalToken) fd.append('portal_token', portalToken);
+    if (portalToken) {
+      fd.append('portal_token', portalToken);
+      const sid = getPortalSessionId(portalToken);
+      if (sid) fd.append('session_id', sid);
+    }
     const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
@@ -175,7 +181,7 @@ export default function CashPortalPaymentDialog({
       }
 
       const body: Record<string, unknown> = {
-        portal_token: portalToken,
+        ...portalAuthBody(portalToken),
         cash_order_id: cashOrder.id,
         submitted_amount: amount,
         payment_method: normalizeMethod(selectedMethodName),

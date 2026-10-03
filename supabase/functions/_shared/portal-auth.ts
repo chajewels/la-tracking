@@ -32,7 +32,18 @@ export interface PortalAuthInput {
   portal_token?: string;
   session_id?: string;
   authHeader?: string | null;
+  /**
+   * PIN ENFORCEMENT (owner decision 2026-10-03). A bare link token is NOT a
+   * login: Path 2 validates it and then refuses with 'pin_required'. ONLY
+   * verify-portal-pin passes true — it checks the PIN and then issues a
+   * customer_portal_sessions row, which every other call uses (Path 1).
+   * Never pass true anywhere else.
+   */
+  allowBareToken?: boolean;
 }
+
+/** Error message thrown when a bare link token is presented without a PIN session. */
+export const PIN_REQUIRED = 'pin_required';
 
 /**
  * Resolves portal authentication from either a session_id or a token.
@@ -286,6 +297,14 @@ export async function resolvePortalAuth(
 
   if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
     throw new Error('Token expired');
+  }
+
+  // The link is genuine, but a link alone opens nothing: the PIN must be
+  // checked first (verify-portal-pin), which returns a session for Path 1.
+  // Before 2026-10-03 the PIN screen existed only in the browser and this
+  // path returned the customer's data to anyone holding the link.
+  if (input.allowBareToken !== true) {
+    throw new Error(PIN_REQUIRED);
   }
 
   recordPortalSeen(supabase, { tokenId: tokenRow.id, customerId: tokenRow.customer_id });
