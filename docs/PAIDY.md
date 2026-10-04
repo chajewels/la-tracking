@@ -34,18 +34,20 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
    row (`payment_method 'paidy'`, `reference_number` = the Paidy id,
    `proof_url null`) and the audit row in ONE transaction under a lock on the
    order; bell `paidy_authorized`. 3 per 24 h per order.
-4. Reviewer **Confirm** (review-payment-submission, cash branch) — see
-   "Integrity" below: claim with a 5-minute lease, read Paidy FIRST, capture
-   only an authorisation whose amounts agree, read Paidy again after any
-   capture error, decide by what Paidy says; the payment is recorded by
-   `finalize_cash_submission_atomic` in one transaction. Expired / closed /
-   rejected on Paidy with nothing captured → the submission is REJECTED with
-   the note and the customer pays again (PD4).
-5. Reviewer **Reject** → Paidy is read first: a payment Paidy already captured
-   is never rejected (409 `paidy_already_captured` — Confirm it instead); a
-   claimed submission is never rejected (use Finish recording); otherwise
-   `POST /payments/:id/close` (best effort; a failure rings
-   `paidy_close_failed`; the authorisation lapses by itself at 30 days).
+4. **Capture happens in the Paidy merchant dashboard** (owner 2026-10-04; see
+   "Follow-up" below). Paidy's `capture_success` webhook (or the sweep) reads
+   the payment back and the Hub RECORDS it by itself through
+   review-payment-submission (actor `paidy_auto`): exact yen, nothing
+   refunded, `finalize_cash_submission_atomic` in one transaction. A staff
+   **Confirm** does the same recording; on a payment Paidy has not captured
+   yet it changes nothing ("capture it in the Paidy dashboard"). Expired /
+   closed / rejected on Paidy with nothing captured → the submission is
+   REJECTED with the note and the customer may pay again (PD4).
+5. Reviewer **Reject** (the staff fallback — the invoice stays open) → Paidy is
+   read first: a payment Paidy already captured is never rejected; the
+   guarded status write claims the rejection; only then
+   `POST /payments/:id/close`. A close Paidy refuses becomes a `close_failed`
+   case the sweep retries.
 6. `paidy-webhook` (public, `verify_jwt = false`): Paidy signs nothing, so the
    body only names an id; the Hub re-reads the payment and runs
    `syncPaidyPayment()` (`_shared/paidy-sync.ts`). CLOSED/REJECTED by Paidy
@@ -122,6 +124,85 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
 - The storefront enables the Paidy button on `onReady` as well as `onLoad`
   and when `window.Paidy` already exists (P06, cha-jewels-web).
 
+## Follow-up (2026-10-04, review R01–R18; owner answers)
+Owner answers: capture in the **Paidy dashboard, Hub auto-records** · Paidy
+**only when nothing is paid yet** · fallback = **staff press Reject** · a
+refund on an unrecorded payment is **held for a staff decision**.
+
+- PAYMENT LOCK — `cash_order_payment_lock(order)` answers why an order cannot
+  take another payment: `paidy_captured_unrecorded`, `paidy_submission_pending`,
+  `paidy_authorized` (not rejected, not expired), `paidy_checkout_open`, or the
+  ordinary `submission_pending`. Any `paidy_*` reason closes EVERY other route:
+  trigger `trg_guard_payment_submission_paidy` refuses a non-Paidy cash
+  submission (staff included); website card + Paidy start, portal submit and
+  the expiry sweep check it first; the storefront and portal show "Paidy
+  payment being processed" and no option at all (`payment_state:
+  "paidy_processing"`, `transfer_methods: []`, `paidy_processing` on portal
+  cash orders). After a verified Reject / Paidy close the order opens again.
+- CHECKOUT WINDOW — `POST /orders/:id/paidy/start` persists
+  `paidy_checkout_attempts` BEFORE `Paidy.launch` (refused while anything holds
+  the order, a second tab included); `POST /orders/:id/paidy/abandon` when
+  Paidy reports closed/rejected; 30-minute timeout otherwise. Filing marks it
+  `filed`. A late authorisation (webhook) is still filed or released.
+- IMMUTABLE — a Paidy-linked submission's method, amount, order, customer and
+  link never change; a rejected/cancelled one is never restored or re-filed;
+  nothing is relabelled to or from `paidy`; `paidy_payments` identity/amount
+  never change and rows are never deleted (`trg_guard_paidy_payment_identity`).
+  The Hub's method dropdown and amount edit are locked on Paidy rows; the
+  customer cannot edit or cancel a Paidy submission (she cancels in MyPaidy).
+- EXACT YEN (R14) — `paidyYen()`; no rounded comparison anywhere; SQL refuses
+  a non-integer amount; finalize checks authorised = submitted = captured.
+- FILING (R15) — under the order lock: JPY, `total_paid = 0`, amount =
+  balance, not expired, same customer; otherwise `stale_authorization` and the
+  authorisation is released.
+- RECORDING (R02/R17) — finalize binds the capture to its own order/customer,
+  stores `cash_payments.provider_capture_id` (UNIQUE), refuses a refunded
+  capture (`paidy_refunded`).
+- SYNC (R05–R07) — every pass re-derives the record from Paidy (no "previous
+  status" shortcuts): closes / rejections / EXPIRIES reject queued submissions,
+  the refund total is recomputed from the ledger each pass, a refund opens its
+  case BEFORE its ledger row, the full refund object (with `capture_id`) is
+  kept. A captured, unrecorded payment is recorded automatically or becomes a
+  case.
+- CASES — `paidy_cases` (close_failed, captured_unrecorded,
+  captured_no_submission, refund_before_record, refund_after_record,
+  record_failed, unmatched_authorization, provider_unreadable). Opened by the
+  system once per payment+kind (bell the first time), shown on Payment
+  Submissions → "Paidy cases", resolved by staff with a written reason
+  (`resolve_paidy_case`, confirm_payment, audited). "Record this capture"
+  re-queues a provider-bound submission; "End its submission"
+  (`end_submission`) rejects a stuck Paidy submission (refunded, mismatched,
+  order closed) so the order opens again. The sweep closes cases Paidy itself
+  settled (`close_paidy_case_system`).
+- AUTO-RECORDER AUTH — review-payment-submission runs with verify_jwt = false,
+  so the recorder is recognised ONLY by an HMAC-SHA256 signature over
+  "<submission_id>.<ms timestamp>" keyed with the service-role key (headers
+  x-paidy-auto-ts / x-paidy-auto-sig, 5-minute window); a token's claims are
+  never trusted there. Only `action: confirmed` on a Paidy submission.
+- WEBHOOK (R08/R09) — stored in `paidy_webhook_events` before anything else
+  (500 if that fails); processing has an 8 s deadline (Paidy calls 6 s each);
+  past it the answer is 200 and the sweep finishes it. Paidy 404 → a case;
+  401/403/timeout/5xx → 502 and the event stays.
+- SWEEP (R18) — drains the inbox, reads watched payments oldest
+  `last_checked_at` first (failures stamp it too), skips other-environment
+  payments (not errors), retries refused closes, expires stale windows, reports
+  lag (`oldest_event_minutes`, `oldest_check_minutes`, `open_cases`); `ok` is
+  false when any row failed. Watch horizon: authorised payments + captures of
+  the last 400 days; older refunds are reconciled from Paidy's settlement
+  export by hand.
+- CHECKOUT DATA (R10–R13) — items + shipping − discount (a negative "Discount"
+  line) + an explicit "Other charges" line = amount, else not offered; buyer =
+  the customer (never the recipient), billing address from her own default JP
+  address only; phone only a Japanese mobile; history = completed yen orders
+  not paid with Paidy and not refunded, by order value, `last_order_at` in
+  days; registration date only from `customers.created_at`. Address lines:
+  Paidy line1 = building/room (our line2), line2 = street (our line1).
+  OWNER TO CONFIRM WITH PAIDY: the address-line mapping and the negative
+  discount line.
+- NOT CHANGED (live-first rule): `terminate_web_order_atomic` /
+  `expire_web_layaway_atomic` bodies — the expiry sweep checks the lock in
+  TypeScript first; a seconds-wide race remains (docs/OPEN-BUGS.md).
+
 ## Rules (also one line each in CLAUDE.md)
 - The secret key is the edge-function secret `PAIDY_SECRET_KEY` only — never
   the database, the repo, chat or a Lovable prompt body. `set_paidy_settings`
@@ -133,8 +214,9 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   compared too before any Paidy call (`paidySecretIsTest()`).
 - A Paidy submission is the ONE exception to PROOF REQUIRED (PD1): the proof is
   the authorisation the Hub read back. Every other method keeps the rule.
-- Capture happens ONLY in review-payment-submission on Confirm; close on
-  Reject; nothing in SQL, nothing from the storefront, nothing from the webhook.
+- The Hub NEVER captures (owner 2026-10-04): staff capture in the Paidy
+  merchant dashboard; the Hub records what Paidy reports. Close only on Reject,
+  a mismatch / stale filing, or the sweep's retry of a refused close.
 - Refunds after capture are NOT automatic and not built: the cancel +
   refund-decision path records the decision; a Paidy refund button is a later
   admin feature (`POST /payments/:id/refunds` with the `capture_id`).
@@ -161,12 +243,13 @@ Test accounts: `successful.payment@paidy.com` / `rejected.payment@paidy.com`,
 phone `08000000001`, SMS code `8888`.
 
 ## Files
-- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers)
+- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers), `20261103100000_paidy_followup.sql` (lock, attempts, cases, inbox, guards, stricter writers)
+- `supabase/functions/_shared/paidy-events.ts` (one webhook event; webhook + sweep), `_shared/paidy-autorecord.ts` (the service-role recorder), `src/components/payments/PaidyCasesPanel.tsx`
 - `supabase/functions/_shared/paidy-filing.ts` (file / adopt an authorisation), `_shared/paidy-sync.ts` (webhook + hourly sync; `development/paidy-sync.test.ts`)
 - `supabase/functions/paidy-reconcile/index.ts` (hourly, service role)
 - `supabase/functions/_shared/paidy-rules.ts` (pure; `src/test/paidy-rules.test.ts`), `_shared/paidy.ts` (API client)
 - `supabase/functions/website/index.ts` (`paidyOffer()`, `GET /orders/:id` fields, `POST /orders/:id/paidy`)
-- `supabase/functions/review-payment-submission/index.ts` (capture / close / proof exception)
+- `supabase/functions/review-payment-submission/index.ts` (record a dashboard capture / close on Reject / proof exception / the paidy_auto service path)
 - `supabase/functions/paidy-webhook/index.ts`, `supabase/config.toml`
 - `supabase/functions/_shared/reservation-emails.ts`, `_shared/email-templates/order-confirmation.tsx` (`PAIDY_LINE`)
 - `src/components/settings/PaidySettingsCard.tsx`, `paidy-settings.ts`, `src/pages/Website.tsx`

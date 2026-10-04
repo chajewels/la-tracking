@@ -24,7 +24,7 @@ export interface PaidyPayment {
   expires_at?: string;
   order?: { order_ref?: string | null } | null;
   captures?: PaidyCapture[];
-  refunds?: { id: string; amount: number; created_at: string }[];
+  refunds?: { id: string; amount: number; created_at: string; capture_id?: string; reason?: string | null }[];
 }
 
 export class PaidyError extends Error {
@@ -45,17 +45,29 @@ export function paidySecretIsTest(): boolean {
   return secretKey().startsWith("sk_test_");
 }
 
-async function call(method: "GET" | "POST", path: string, body?: unknown): Promise<PaidyPayment> {
-  const res = await fetch(`${PAIDY_API}${path}`, {
-    method,
-    headers: {
-      "Authorization": `Bearer ${secretKey()}`,
-      "Paidy-Version": PAIDY_VERSION,
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    },
-    body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
-  });
+/** R09: every Paidy call has a deadline, so a slow Paidy can never hold a webhook past its 10 s. */
+export const PAIDY_TIMEOUT_MS = 6000;
+
+async function call(method: "GET" | "POST", path: string, body?: unknown, timeoutMs = PAIDY_TIMEOUT_MS): Promise<PaidyPayment> {
+  const key = secretKey(); // paidy_not_configured is thrown as itself, never as a network error
+  let res: Response;
+  try {
+    res = await fetch(`${PAIDY_API}${path}`, {
+      method,
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Paidy-Version": PAIDY_VERSION,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+    });
+  } catch (e) {
+    // A timeout or network failure is NOT an answer from Paidy: callers treat
+    // it as "unknown" and read Paidy back later (never as success or refusal).
+    throw new PaidyError(503, e instanceof DOMException && e.name === "TimeoutError" ? "paidy_timeout" : "paidy_network", String(e instanceof Error ? e.message : e));
+  }
   const text = await res.text();
   let json: Record<string, unknown> = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 500) }; }
@@ -78,9 +90,8 @@ export function isPaidyPaymentId(id: unknown): id is string {
 export const paidy = {
   /** The authorisation as Paidy holds it — the only thing the Hub trusts about a Paidy payment. */
   get: (id: string) => call("GET", `/payments/${encodeURIComponent(id)}`),
-  /** Takes the money (reviewer Confirm). Paidy answers the payment with its new capture. */
-  capture: (id: string, metadata?: Record<string, string>) =>
-    call("POST", `/payments/${encodeURIComponent(id)}/captures`, metadata ? { metadata } : {}),
-  /** Releases an authorisation (reviewer Reject, or a mismatch). No charge. */
+  /** Releases an authorisation (reviewer Reject, a mismatch, a stale filing). No charge.
+   *  There is deliberately NO capture here (owner 2026-10-04): staff capture in
+   *  Paidy's merchant dashboard and the Hub records what Paidy reports. */
   close: (id: string) => call("POST", `/payments/${encodeURIComponent(id)}/close`, {}),
 };

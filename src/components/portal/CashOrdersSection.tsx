@@ -16,6 +16,8 @@ export interface PortalPendingSubmission {
   submitted_amount: number;
   payment_method: string | null;
   status: string;
+  /** A Paidy payment: never cancellable here (cancel in the Paidy app). */
+  is_paidy?: boolean;
 }
 
 // Maison inline-style palette — mirrors the CustomerPortal.tsx `M` object.
@@ -61,6 +63,12 @@ export interface PortalCashOrder {
   created_at: string;
   service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   items?: Array<{ id: string; title: string; sku: string | null; quantity: number; unit_price_jpy: number; line_total_jpy: number; image_url: string | null }>;
+  /**
+   * Owner rule 2026-10-04: Paidy is processing this order (window open,
+   * authorisation waiting or capture not yet recorded) — no other way to pay
+   * is offered until it is declined or released.
+   */
+  paidy_processing?: boolean;
   discount_amount?: number;
   discount_type?: string | null;
   discount_value?: number | null;
@@ -394,6 +402,11 @@ function CashOrderCard({
             {fmt(Number(pendingSubmission.submitted_amount), currency)}
             {pendingSubmission.payment_method ? ` via ${methodLabel(pendingSubmission.payment_method)}` : ''}
           </p>
+          {pendingSubmission.is_paidy ? (
+            <p style={{ color: M.ts, fontSize: 11, marginTop: 6 }}>
+              Your Paidy payment is being processed. To cancel it, use the Paidy app.
+            </p>
+          ) : (
           <button
             type="button"
             disabled={cancelling}
@@ -427,9 +440,21 @@ function CashOrderCard({
             <XCircle className="h-3 w-3" />
             {cancelling ? 'Cancelling…' : 'Cancel Submission'}
           </button>
+          )}
           {cancelError && (
             <p style={{ color: M.warning, fontSize: 11, marginTop: 6 }}>{cancelError}</p>
           )}
+        </div>
+      ) : isPending && order.paidy_processing ? (
+        <div
+          style={{ background: `hsl(${hslTriplets.success} / 0.10)`, border: `1px solid hsl(${hslTriplets.success} / 0.3)`, borderRadius: 8, padding: '10px 14px', marginTop: 12 }}
+        >
+          <p style={{ color: M.success, fontSize: 12, margin: 0, fontWeight: 600 }}>
+            ⏳ Paidy payment being processed
+          </p>
+          <p style={{ color: M.ts, fontSize: 11, marginTop: 4 }}>
+            No other payment is needed for now. If Paidy declines it, you can pay another way here.
+          </p>
         </div>
       ) : isPending ? (
         <button
