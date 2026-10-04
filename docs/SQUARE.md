@@ -196,7 +196,7 @@ Deploy (Lovable DEPLOY-ONLY after the two secrets exist): `website`, `review-pay
 
 ## Integrity (2026-10-04, review SQ01–SQ23 — docs/SQUARE-INTEGRITY.md)
 
-Migration 20261103100000_square_integrity.sql; `_shared/square-sync.ts`; new `square-reconcile`.
+Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `square-reconcile`.
 
 - **Attempt first.** Every CreatePayment has a `square_card_attempts` row reserved under the order lock
   BEFORE Square is called (`reserve_square_attempt`): exact integer yen = remaining balance, one
@@ -205,9 +205,15 @@ Migration 20261103100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
   A retried token replays the same request (same key → no second hold). An ambiguous failure leaves the
   attempt `unknown` and the customer is told it is being confirmed — never "not charged".
 - **One gate.** `square_order_unresolved(order)` = an attempt reserved/unknown/cancelling, a live hold,
-  or captured card money not yet recorded. While true: no other card attempt, no Paidy, no transfer
-  submission (website + submit-cash-payment), no expiry, no cancel (terminate_web_order_atomic →
+  or captured card money not yet recorded. It is part of the Paidy follow-up's ONE answer:
+  `cash_order_payment_lock(order)` returns `card_payment_unresolved` (after the `paidy_*` reasons, before
+  `submission_pending`). While it does: no other card attempt, no Paidy (start / filing refuse), no
+  transfer or staff submission (`guard_provider_submission` trigger, any route; website,
+  submit-cash-payment, customer portal hide/refuse it), no expiry, no cancel (terminate_web_order_atomic →
   `card_payment_unresolved`, staff included). After a verified decline/void it opens again (owner 3A).
+  The reverse holds too: while the lock says `paidy_*`, `reserve_square_attempt` refuses
+  (`paidy_in_progress`), and a hold that arrives after Paidy took the order is filed as an exception and
+  voided at once (nothing charged).
 - **Filing** (`file_square_authorization_atomic`): hold + submission + audit + `card_authorized` bell in
   one transaction, idempotent on the Square payment id. A hold the order cannot take is recorded with an
   exception and no submission (`unfiled_hold` bell; never auto-voided). Amount/location/currency

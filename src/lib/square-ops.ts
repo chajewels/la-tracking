@@ -10,7 +10,7 @@
  */
 import { toCsv } from '@/lib/csv';
 
-/** square_payments.exception (migration 20261103100000) → plain words for staff. */
+/** square_payments.exception (migration 20261104100000) → plain words for staff. */
 export const SQUARE_EXCEPTION_LABEL: Record<string, string> = {
   captured_after_close: 'Square captured after the Hub had closed it',
   captured_unallocated: 'Captured but the order could not take it',

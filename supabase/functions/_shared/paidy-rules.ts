@@ -61,6 +61,14 @@ export interface PaidyOfferInput {
   };
   address: PaidyAddress | null | undefined;
   pendingSubmissions: number;
+  /** Owner 2026-10-04: Paidy only while nothing has been paid on the order. */
+  totalPaid?: number | string | null;
+  /** cash_order_payment_lock() — a Paidy window/payment or any other payment in progress. */
+  paymentLock?: string | null;
+  /** The buyer's own name (never the delivery recipient, R11). */
+  buyerName?: string | null;
+  /** R10: false when the item breakdown cannot equal the amount. */
+  breakdownOk?: boolean;
 }
 
 /** Why Paidy is not offered, or null when it is. One reason, the first that fails. */
@@ -75,9 +83,24 @@ export function paidyNotOfferedReason(i: PaidyOfferInput): string | null {
   if (i.order.payment_status !== "pending_transfer") return "no_payment_due";
   if (i.order.source_channel === "web" && i.order.ready_confirmed_at == null) return "not_ready_for_payment";
   if (!(Number(i.order.remaining_balance ?? 0) > 0)) return "nothing_due";
+  if (paidyYen(i.order.remaining_balance) == null) return "amount_not_whole_yen";
+  if (i.totalPaid !== undefined && Number(i.totalPaid ?? 0) !== 0) return "part_paid";
   if (!paidyAddressComplete(i.address)) return "address_not_jp_or_incomplete";
   if (i.pendingSubmissions > 0) return "submission_pending";
+  if (i.paymentLock) return "payment_in_progress";
+  if (i.buyerName !== undefined && !String(i.buyerName ?? "").trim()) return "no_buyer_name";
+  if (i.breakdownOk === false) return "breakdown_mismatch";
   return null;
+}
+
+/**
+ * R14 (2026-10-04): a yen amount as an exact positive whole number, or null.
+ * Never rounds: ¥51,999.6 is not ¥52,000 — it is refused.
+ */
+export function paidyYen(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "" || typeof raw === "boolean") return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 && n <= 99_999_999 ? n : null;
 }
 
 export const PAIDY_AUTH_DAYS = 30;
@@ -134,10 +157,13 @@ export function paidyProviderOutcome(
   return "unknown";
 }
 
-/** Total yen Paidy reports as captured on a payment. */
+/** Total yen Paidy reports as captured on a payment; NaN when any capture amount is not whole yen (R14). */
 export function paidyCapturedAmount(p: { captures?: unknown } | null | undefined): number {
   const captures = Array.isArray(p?.captures) ? p!.captures as { amount?: unknown }[] : [];
-  return captures.reduce((sum, c) => sum + Math.round(Number(c?.amount ?? 0) || 0), 0);
+  return captures.reduce((sum, c) => {
+    const y = paidyYen(c?.amount);
+    return y == null ? NaN : sum + y;
+  }, 0);
 }
 
 /** The capture Paidy returned last (the one a Confirm just made), or null. */
@@ -145,23 +171,22 @@ export function paidyLatestCapture(p: { captures?: unknown } | null | undefined)
   const captures = Array.isArray(p?.captures) ? p!.captures as { id?: unknown; amount?: unknown; created_at?: unknown }[] : [];
   const last = captures[captures.length - 1];
   if (!last || typeof last.id !== "string") return null;
-  return { id: last.id, amount: Math.round(Number(last.amount ?? 0) || 0), created_at: typeof last.created_at === "string" ? last.created_at : undefined };
+  return { id: last.id, amount: paidyYen(last.amount) ?? NaN, created_at: typeof last.created_at === "string" ? last.created_at : undefined };
 }
 
 /**
- * P08 (2026-10-04): before a capture, the yen Paidy holds, the yen the Hub
- * recorded, the yen on the submission and the order's live balance must agree.
- * Returns the first disagreement, or null.
+ * Owner 2026-10-04 (capture in the Paidy dashboard, the Hub records it): why a
+ * capture Paidy reports must NOT be recorded against this submission, or null.
+ * Exact yen everywhere (R14); a refunded capture is held for staff (owner D4).
  */
-export function paidyCaptureAmountProblem(i: {
-  providerAmount: unknown; recordAmount: unknown; submittedAmount: unknown; remainingBalance: unknown;
+export function paidyRecordProblem(i: {
+  capturedAmount: unknown; recordAmount: unknown; submittedAmount: unknown; refundedAmount: unknown;
 }): string | null {
-  const provider = Math.round(Number(i.providerAmount)), record = Math.round(Number(i.recordAmount));
-  const submitted = Math.round(Number(i.submittedAmount)), remaining = Number(i.remainingBalance);
-  if (!Number.isFinite(provider) || provider <= 0) return "provider_amount_missing";
-  if (!Number.isFinite(record) || provider !== record) return "provider_vs_record";
-  if (!Number.isFinite(submitted) || submitted !== record) return "record_vs_submission";
-  if (!Number.isFinite(remaining) || submitted > remaining + 0.005) return "exceeds_remaining";
+  const captured = paidyYen(i.capturedAmount), record = paidyYen(i.recordAmount), submitted = paidyYen(i.submittedAmount);
+  if (captured == null) return "captured_amount_invalid";
+  if (record == null || captured !== record) return "captured_vs_authorized";
+  if (submitted == null || submitted !== record) return "authorized_vs_submission";
+  if (Number(i.refundedAmount ?? 0) !== 0) return "refunded";
   return null;
 }
 
@@ -175,30 +200,132 @@ export function paidyJapanDate(at: Date | string = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
 
-/**
- * P10 (2026-10-04): buyer_data.last_order_amount = the most recently COMPLETED
- * paid yen cash order (by completed_at, then order_date), never "whatever row
- * the database returned last". undefined when there is none.
- */
-export function paidyLastOrderAmount(
-  orders: { total_paid?: unknown; status?: unknown; completed_at?: unknown; order_date?: unknown }[],
-): number | undefined {
-  const done = orders
-    .filter((o) => o.status === "completed" && Number(o.total_paid ?? 0) > 0)
-    .map((o) => ({ amount: Math.round(Number(o.total_paid)), at: Date.parse(String(o.completed_at ?? o.order_date ?? "")) || 0 }))
-    .sort((a, b) => b.at - a.at);
-  return done.length ? done[0].amount : undefined;
+export interface PaidyHistoryOrder {
+  status?: unknown; currency?: unknown; total_amount?: unknown;
+  completed_at?: unknown; order_date?: unknown;
+  /** any non-voided payment on it was made with Paidy */
+  paid_by_paidy?: boolean;
+  /** Paidy (or staff) reported a refund on it */
+  refunded?: boolean;
 }
 
-/** P11: refunds Paidy reports that the Hub has not recorded yet (by refund id). */
+/**
+ * R12 (2026-10-04): buyer_data from the customer's OWN completed yen orders
+ * that were not paid with Paidy and not refunded (Paidy Checkout: "orders
+ * excluding those paid with Paidy, refunded or cancelled"). Order VALUES
+ * (total_amount), not receipts. last_order_at = whole days since the latest
+ * one; registration date is never invented here. Empty history → zeros and
+ * no last-order fields.
+ */
+export function paidyBuyerHistory(orders: PaidyHistoryOrder[], now: Date = new Date()): {
+  order_count: number; ltv: number; last_order_amount?: number; last_order_at?: number;
+} {
+  const ok = orders
+    .filter((o) => o.status === "completed" && o.currency === "JPY" && !o.paid_by_paidy && !o.refunded)
+    .map((o) => ({ amount: paidyYen(o.total_amount), at: Date.parse(String(o.completed_at ?? o.order_date ?? "")) }))
+    .filter((o): o is { amount: number; at: number } => o.amount != null);
+  const ltv = ok.reduce((s, o) => s + o.amount, 0);
+  const dated = ok.filter((o) => Number.isFinite(o.at)).sort((a, b) => b.at - a.at);
+  const last = dated[0];
+  return {
+    order_count: ok.length,
+    ltv,
+    ...(last ? { last_order_amount: last.amount, last_order_at: Math.max(0, Math.floor((now.getTime() - last.at) / 86_400_000)) } : {}),
+  };
+}
+
+/**
+ * R13: a Japanese mobile number for Paidy's SMS prefill (070/080/090 + 8
+ * digits; +81 accepted), or null — then Paidy Checkout asks for it. Only the
+ * BUYER's own number is ever passed, never the delivery recipient's.
+ */
+export function paidyJapaneseMobile(raw: unknown): string | null {
+  let d = String(raw ?? "").replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 0xFF10)).replace(/[^0-9+]/g, "");
+  if (d.startsWith("+81")) d = "0" + d.slice(3);
+  else if (d.startsWith("81") && d.length === 12) d = "0" + d.slice(2);
+  return /^0[789]0\d{8}$/.test(d) ? d : null;
+}
+
+/**
+ * R13: Paidy's address lines. Paidy Checkout's example puts the building /
+ * room in line1 and the street number in line2; the Hub stores 住所1 (番地まで)
+ * in line1 and 住所2 (建物名・部屋番号) in line2, so they are swapped here.
+ * Owner to confirm the mapping with Paidy (docs/PAIDY.md "Follow-up").
+ */
+export function paidyAddressLines(a: PaidyAddress | null | undefined): { line1?: string; line2?: string; city?: string; state?: string; zip: string } {
+  const street = String(a?.line1 ?? "").trim(), building = String(a?.line2 ?? "").trim();
+  return {
+    line1: building || undefined,
+    line2: street || undefined,
+    city: String(a?.city ?? "").trim() || undefined,
+    state: String(a?.region ?? "").trim() || undefined,
+    zip: paidyZip(a?.postal_code) ?? "",
+  };
+}
+
+export interface PaidyItem { id: string; quantity: number; title: string; unit_price: number }
+
+/**
+ * R10: ONE charge breakdown. Paidy is offered only when nothing has been paid
+ * (owner D2), so the amount is the whole order: Σ item lines + shipping −
+ * discount must equal it. A discount is a negative-price line (Paidy accepts
+ * negative unit_price for discounts — owner to confirm, docs/PAIDY.md); a
+ * difference the lines do not explain (a staff-added fee) is an explicit
+ * "Other charges" line; an order with no item lines is one line named after
+ * the order. Returns null when the figures are not whole yen or cannot add up.
+ */
+export function paidyCheckoutBreakdown(
+  order: { total_amount?: unknown; shipping_fee?: unknown; discount_amount?: unknown; remaining_balance?: unknown },
+  lines: { sku?: unknown; variant_id?: unknown; id?: unknown; quantity?: unknown; title?: unknown; unit_price_jpy?: unknown }[],
+  reference: string,
+): { amount: number; items: PaidyItem[]; shipping: number } | null {
+  const amount = paidyYen(order.remaining_balance);
+  const total = paidyYen(order.total_amount);
+  const shipping = Number(order.shipping_fee ?? 0), discount = Number(order.discount_amount ?? 0);
+  if (amount == null || total == null || amount !== total) return null;
+  if (!Number.isInteger(shipping) || shipping < 0 || !Number.isInteger(discount) || discount < 0) return null;
+  const items: PaidyItem[] = [];
+  for (const l of lines) {
+    const qty = Number(l.quantity ?? 1), price = Number(l.unit_price_jpy ?? NaN);
+    if (!Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price < 0) return null;
+    items.push({ id: String(l.sku ?? l.variant_id ?? l.id ?? "item"), quantity: qty, title: String(l.title ?? "Jewelry"), unit_price: price });
+  }
+  if (items.length === 0) {
+    const goods = total - shipping + discount;
+    if (goods <= 0) return null;
+    items.push({ id: reference || "order", quantity: 1, title: reference ? `Order ${reference}` : "Order", unit_price: goods });
+  }
+  if (discount > 0) items.push({ id: "discount", quantity: 1, title: "Discount", unit_price: -discount });
+  const sum = items.reduce((s, it) => s + it.unit_price * it.quantity, 0) + shipping;
+  if (sum !== amount) {
+    const diff = amount - sum;
+    if (diff <= 0) return null; // the lines claim more than the order: never hide it with an invented discount
+    items.push({ id: "other", quantity: 1, title: "Other charges", unit_price: diff });
+  }
+  return { amount, items, shipping };
+}
+
+/** P11/R17: refunds Paidy reports that the Hub has not recorded yet (by refund id), with their capture link. */
 export function paidyNewRefunds(
   p: { refunds?: unknown } | null | undefined, knownIds: Iterable<string>,
-): { id: string; amount: number; created_at?: string }[] {
+): { id: string; amount: number; created_at?: string; capture_id?: string; reason?: string | null; raw: Record<string, unknown> }[] {
   const known = new Set(knownIds);
-  const refunds = Array.isArray(p?.refunds) ? p!.refunds as { id?: unknown; amount?: unknown; created_at?: unknown }[] : [];
+  const refunds = Array.isArray(p?.refunds) ? p!.refunds as Record<string, unknown>[] : [];
   return refunds
-    .filter((r) => typeof r?.id === "string" && !known.has(r.id as string) && Math.round(Number(r.amount ?? 0)) > 0)
-    .map((r) => ({ id: r.id as string, amount: Math.round(Number(r.amount)), created_at: typeof r.created_at === "string" ? r.created_at : undefined }));
+    .filter((r) => typeof r?.id === "string" && !known.has(r.id as string) && paidyYen(r.amount) != null)
+    .map((r) => ({
+      id: r.id as string, amount: paidyYen(r.amount)!,
+      created_at: typeof r.created_at === "string" ? r.created_at : undefined,
+      capture_id: typeof r.capture_id === "string" ? r.capture_id : undefined,
+      reason: typeof r.reason === "string" ? r.reason : null,
+      raw: r,
+    }));
+}
+
+/** R06: the refund total as the ledger says, from every refund Paidy reports. */
+export function paidyRefundTotal(p: { refunds?: unknown } | null | undefined): number {
+  const refunds = Array.isArray(p?.refunds) ? p!.refunds as { amount?: unknown }[] : [];
+  return refunds.reduce((s, r) => s + (paidyYen(r?.amount) ?? 0), 0);
 }
 
 /** P02: how long a reviewer Confirm owns a claimed submission before it may be resumed. */
@@ -230,10 +357,10 @@ export function paidyFilingMismatch(
   return null;
 }
 
-/** Yen are whole; Paidy's amount is a number of yen. */
+/** R14: exact whole yen on both sides, equal — never a rounded comparison. */
 export function paidyAmountMatches(paidyAmount: unknown, remainingBalance: unknown): boolean {
-  const a = Number(paidyAmount), b = Number(remainingBalance);
-  return Number.isFinite(a) && Number.isFinite(b) && Math.round(a) === Math.round(b) && a > 0;
+  const a = paidyYen(paidyAmount), b = paidyYen(remainingBalance);
+  return a != null && b != null && a === b;
 }
 
 /**

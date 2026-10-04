@@ -37,6 +37,7 @@ import {
   type ScheduleViewRow, type WaterfallResult,
 } from '@/lib/business-rules';
 import StatusPill from '@/components/shared/StatusPill';
+import PaidyCasesPanel from '@/components/payments/PaidyCasesPanel';
 import { SUBMISSION_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
@@ -267,9 +268,9 @@ const ActionDialogModal = memo(function ActionDialogModal({
               ? needsFinishRecording(actionDialog.sub)
                 ? isSquare(actionDialog.sub)
                   ? `A Confirm of this card payment stopped before the payment was recorded. The Hub will read the payment from Square first: if Square already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if the hold is still there, Square is asked to capture it. If Square shows the hold voided or failed, nothing was charged and the submission is rejected. If Square's answer is still not clear, nothing is recorded — try again in a few minutes.`
-                  : `A Confirm of this Paidy payment stopped before the payment was recorded. The Hub will read the payment from Paidy first: if Paidy already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if not, Paidy is asked to capture it. If Paidy shows it expired or closed, the submission is rejected.`
+                  : `Recording of this Paidy payment stopped half-way. The Hub reads the payment from Paidy first: if Paidy took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never twice). If Paidy shows it expired or closed, the submission is rejected.`
                 : isPaidy(actionDialog.sub)
-                ? `Paidy will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} now (the customer pays Paidy next month). Then a confirmed payment is recorded and the order balance updated. A capture refused by Paidy records nothing.`
+                ? `The Hub does not capture Paidy payments: capture ${formatCurrency(actionDialog.sub.submitted_amount, cur)} in the Paidy merchant dashboard — the Hub then records it by itself. Confirm here only reads Paidy and records a capture that already happened; if Paidy has not captured it yet, nothing changes.`
                 : isSquare(actionDialog.sub)
                 ? `The Hub reads this card payment from Square first, then asks Square to CAPTURE the hold of ${formatCurrency(actionDialog.sub.submitted_amount, cur)}. Once Square confirms the capture, a confirmed payment is recorded and the order balance updated. If Square shows the hold voided or failed, nothing was charged and the submission is rejected. If Square's answer is uncertain, nothing is recorded — use "Finish recording" on this submission a few minutes later (it reads Square first and never charges twice).`
                 : `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
@@ -289,7 +290,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           {/* Proof preview — always shown regardless of status */}
           {isPaidy(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Valid 30 days from authorisation.
+              <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Capture it in the Paidy merchant dashboard within 30 days; the Hub records it automatically.
             </div>
           ) : isSquare(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
@@ -573,7 +574,11 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   submissionId: string;
   currentMethod: string;
   availableMethods: string[];
-  /** Provider-linked (Square / Paidy): shown as a label, never offered for change. */
+  /**
+   * R01 (2026-10-04): a Paidy or card submission is the provider's own
+   * record — its method never changes (the database refuses it for Paidy).
+   * The fallback is Reject: the customer then pays another way.
+   */
   locked?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -1386,7 +1391,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             {canConfirm && (
               <Button size="sm" variant="default" className={btn}
                 disabled={!proofSatisfied(sub)}
-                title={!proofSatisfied(sub) ? 'Proof of payment required to confirm' : isPaidy(sub) ? 'Confirm captures the Paidy payment' : isSquare(sub) ? 'Confirm captures the card payment' : undefined}
+                title={!proofSatisfied(sub) ? 'Proof of payment required to confirm' : isPaidy(sub) ? 'Records the payment once it is captured in the Paidy dashboard (the Hub never captures)' : isSquare(sub) ? 'Confirm captures the card payment' : undefined}
                 onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
                 <Check className="h-3.5 w-3.5" /> Confirm
               </Button>
@@ -1425,7 +1430,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         )}
         {needsFinishRecording(sub) && canModerate && canConfirm && (
           <Button size="sm" variant="default" className={btn}
-            title={`A Confirm stopped half-way. Reads ${isSquare(sub) ? 'Square' : 'Paidy'} first; records the capture, never charges twice.`}
+            title={`Recording stopped half-way. Reads ${isSquare(sub) ? 'Square' : 'Paidy'} first; records the capture, never charges twice.`}
             onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
             <Check className="h-3.5 w-3.5" /> Finish recording
           </Button>
@@ -1640,7 +1645,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             </div>
           ) : (
             isPaidy(sub)
-              ? <p className="text-[10px] text-ink-muted italic">Paidy authorisation · ref {sub.reference_number ?? '—'} · Confirm captures, Reject releases</p>
+              ? <p className="text-[10px] text-ink-muted italic">Paidy authorisation · ref {sub.reference_number ?? '—'} · capture it in the Paidy dashboard; the Hub records it. Reject releases it.</p>
               : isSquare(sub)
               ? <p className="text-[10px] text-ink-muted italic">Card authorisation (Square) · ref {sub.reference_number ?? '—'} · Confirm captures, Reject voids</p>
               : <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
@@ -1701,6 +1706,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           </div>
         </div>
 
+        {/* Paidy cases — shown only while one is open (docs/PAIDY.md "Follow-up"). */}
+        <PaidyCasesPanel canResolve={canConfirm} />
+
         {/* Submissions List */}
         {isLoading ? (
           <div className="space-y-3">
@@ -1755,6 +1763,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                           {d.isCash && <StatusPill label="Cash order" tone="gold" />}
                           {hasProof(sub.proof_url)
                             ? <span title="Proof attached" className="inline-flex items-center text-sm leading-none text-success">📎</span>
+                            : isPaidy(sub) ? <StatusPill label="Paidy" tone="info" />
+                            : isSquare(sub) ? <StatusPill label="Card" tone="info" />
                             : <span title="No proof of payment attached"><StatusPill label="No proof" tone="danger" /></span>}
                         </div>
                         <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
@@ -1801,7 +1811,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                     )}
                     <SubmissionNotes sub={sub} isPending={d.isPending} canEditNotes={canModerate} userId={session?.user?.id ?? null} />
 
-                    <ProofPanel url={sub.proof_url} onExpand={setProofDialog} imageClassName="w-full max-h-56 object-cover" />
+                    {!hasProof(sub.proof_url) && isPaidy(sub)
+                      ? <p className="text-[10px] text-ink-muted italic">Paidy authorisation · ref {sub.reference_number ?? '—'} · capture it in the Paidy dashboard; the Hub records it. Reject releases it.</p>
+                      : !hasProof(sub.proof_url) && isSquare(sub)
+                      ? <p className="text-[10px] text-ink-muted italic">Card authorisation (Square) · ref {sub.reference_number ?? '—'} · Confirm captures, Reject voids</p>
+                      : <ProofPanel url={sub.proof_url} onExpand={setProofDialog} imageClassName="w-full max-h-56 object-cover" />}
 
                     <div className="flex flex-wrap gap-1.5 pt-3 hairline-t">
                       {hasProof(sub.proof_url) && !isPdf(sub.proof_url) && (

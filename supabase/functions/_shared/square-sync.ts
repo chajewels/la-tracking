@@ -3,7 +3,7 @@
  * ONE implementation used by square-webhook, square-reconcile, website and
  * review-payment-submission, so every path applies the same provider truth.
  *
- * Every database step is an atomic RPC (20261103100000_square_integrity.sql)
+ * Every database step is an atomic RPC (20261104100000_square_integrity.sql)
  * and every RPC error is checked (SQ02): a failed write throws, so the caller
  * records the work as failed and it is retried — never reported as synced.
  */
@@ -117,13 +117,19 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
 
 /**
  * After filing returned an exception: a mismatched hold is ours and wrong →
- * void it; risk HIGH → void + fraud cancel. An unfiled hold (order could not
- * take it) is NOT voided automatically — staff decide (bell rung in SQL).
+ * void it; risk HIGH → void + fraud cancel; a hold that arrived while Paidy
+ * took the order (unfiled_hold / paidy_in_progress) → void it (the order is
+ * Paidy's; nothing is charged). Any other unfiled hold (order could not take
+ * it) is NOT voided automatically — staff decide (bell rung in SQL).
  */
 export async function handleFilingException(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec): Promise<string> {
   if (filed.exception === "amount_mismatch") {
     try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "mismatch_voided"; }
     catch (e) { console.warn("[square-sync] mismatch void failed:", e instanceof Error ? e.message : e); return "mismatch_void_pending"; }
+  }
+  if (filed.exception === "unfiled_hold" && filed.reason === "paidy_in_progress") {
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "paidy_voided"; }
+    catch (e) { console.warn("[square-sync] paidy-conflict void failed:", e instanceof Error ? e.message : e); return "paidy_void_pending"; }
   }
   if (filed.exception === "risk_high") {
     const res = await fraudCancel(db, env, attempt.cash_order_id, "risk_high", { square_payment_id: p.id, attempt: attempt.reference }, p.id);

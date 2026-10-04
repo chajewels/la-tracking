@@ -191,6 +191,24 @@ Deno.serve(async (req) => {
       try {
         const isWebOrder = (order as any).source_channel === "web";
 
+        // Paidy follow-up 2026-10-04 (R16): a Paidy window open, a Paidy
+        // authorisation waiting or a capture not yet recorded freezes the
+        // order exactly like a pending submission (INVARIANT 12) — the money
+        // may already be with Paidy. Fail closed on a read error.
+        {
+          const { data: lock, error: lockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: order.id });
+          if (lockErr) throw new Error(`payment lock read failed: ${lockErr.message}`);
+          if (typeof lock === "string" && (lock.startsWith("paidy") || lock === "card_payment_unresolved")) {
+            frozenResults.push({
+              id: order.id,
+              invoice_number: order.invoice_number,
+              reference: String((order as any).web_reference ?? order.invoice_number),
+              expires_at: order.expires_at,
+            });
+            continue;
+          }
+        }
+
         // 2a. Flip cash order to expired.
         //     Web order: expire_web_order_atomic — status AND the stock the
         //     order was holding, in one transaction, so a piece is never left

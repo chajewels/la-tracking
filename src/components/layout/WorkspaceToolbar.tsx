@@ -22,16 +22,16 @@ export default function WorkspaceToolbar({
   className,
 }: WorkspaceToolbarProps) {
   return (
-    <div className={cn('flex w-full items-center gap-2', className)}>
+    <div className={cn('flex w-full flex-wrap items-center gap-2', className)}>
       {/* Wide search field */}
-      <div className="flex h-10 flex-1 items-center gap-2 rounded-md border border-border bg-card px-3">
+      <div className="flex h-10 min-w-0 flex-1 basis-48 items-center gap-2 rounded-md border border-border bg-card px-3">
         <Search className="h-4 w-4 text-muted-foreground" aria-hidden />
         <input
           type="text"
           value={searchValue}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={searchPlaceholder ?? 'Search...'}
-          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </div>
 

@@ -175,21 +175,34 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 4a0. Owner 3A / SQ11 (2026-10-04): no other payment while a card
-    // attempt is in flight, a card hold is live or captured card money is not
-    // yet recorded on this order (public.square_order_unresolved). After a
-    // verified decline or void the gate opens again.
-    const { data: cardOpen, error: cardOpenErr } = await supabase.rpc('square_order_unresolved', { p_order_id: cash_order_id });
-    if (cardOpenErr) {
-      return new Response(JSON.stringify({ error: 'Could not check the card payment on this order. Please try again.' }), {
-        status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    if (cardOpen === true) {
-      return new Response(JSON.stringify({
-        error: 'card_payment_unresolved',
-        message: 'A card payment on this order is still being processed. Please wait for it to finish before sending another payment.',
-      }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    // 4. Owner rule 2026-10-04: while a Paidy payment is open, processing or
+    //    taken-but-not-recorded on this order, no other payment is accepted
+    //    (the database refuses it too — trg_guard_payment_submission_paidy).
+    //    Staff Reject the Paidy submission first; then the customer may pay
+    //    another way.
+    {
+      const { data: lock, error: lockErr } = await supabase.rpc('cash_order_payment_lock', { p_cash_order_id: cash_order_id });
+      if (lockErr) {
+        return new Response(JSON.stringify({ error: 'Could not check this order. Please try again.' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // Owner 3A / SQ11 (2026-10-04): the same one answer also says when a
+      // card attempt is in flight, a card hold is live or captured card money
+      // is not yet recorded (square_order_unresolved). After a verified
+      // decline or void the gate opens again.
+      if (lock === 'card_payment_unresolved') {
+        return new Response(JSON.stringify({
+          error: 'card_payment_unresolved',
+          message: 'A card payment on this order is still being processed. Please wait for it to finish before sending another payment.',
+        }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      if (typeof lock === 'string' && lock.startsWith('paidy')) {
+        return new Response(JSON.stringify({
+          error: 'paidy_in_progress',
+          message: 'This order is being paid with Paidy. Another payment can be sent only if the Paidy payment is declined or released.',
+        }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
     }
 
     // 4a. Block exact-duplicate pending submission for this cash order.

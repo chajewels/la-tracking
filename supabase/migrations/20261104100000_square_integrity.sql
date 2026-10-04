@@ -33,9 +33,14 @@
 --   8. terminate_web_order_atomic — automated termination also stands down for
 --      a claimed-but-unrecorded Confirm; every termination stands down while a
 --      card attempt/hold/capture is unresolved (SQ10, SQ11).
+--   9. cash_order_payment_lock (Paidy follow-up, 20261103100000) answers
+--      'card_payment_unresolved' too, so the ONE "can this order take another
+--      payment?" answer covers card money (owner 3A): Paidy start / filing,
+--      the portal, the website, submit-cash-payment and expiry all follow it.
 --
--- 7 and 8 are full replacements built from the LIVE bodies (prosrc md5
--- 1a1f40dcb59e22a0a95a892bef2276b4 and 8422cf9aa5bcc8b94036f4e8ee3d6ce4, read
+-- 7, 8 and 9 are full replacements built from the LIVE bodies (prosrc md5
+-- ebb5309c38b192d8e301277d9f14b9ae — the Paidy follow-up body —,
+-- 8422cf9aa5bcc8b94036f4e8ee3d6ce4 and 98b0bd6c102ec9067f7d433f7cde166c, read
 -- 2026-10-04, byte-identical to the repo copies) with only the marked edits;
 -- the pre-check below aborts the whole file if live has moved.
 --
@@ -51,17 +56,22 @@ SET lock_timeout = '15s';
 --    written against (or already this file's version on a re-run).
 -- ---------------------------------------------------------------------------
 DO $pre$
-DECLARE v_t text; v_f text;
+DECLARE v_t text; v_f text; v_l text;
 BEGIN
   SELECT md5(prosrc) INTO v_t FROM pg_proc
    WHERE oid = 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)'::regprocedure;
   SELECT md5(prosrc) INTO v_f FROM pg_proc
    WHERE oid = 'public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)'::regprocedure;
+  SELECT md5(prosrc) INTO v_l FROM pg_proc
+   WHERE oid = 'public.cash_order_payment_lock(uuid,uuid,boolean)'::regprocedure;
   IF v_t NOT IN ('8422cf9aa5bcc8b94036f4e8ee3d6ce4', '8166a3aa57b578a53c0e0c72f56fa206') THEN
     RAISE EXCEPTION 'square integrity: terminate_web_order_atomic on live has moved (md5 %) — stop, read live, rebuild', v_t;
   END IF;
-  IF v_f NOT IN ('1a1f40dcb59e22a0a95a892bef2276b4', '937a2d35d6830069ddc61e9678b1bcca') THEN
+  IF v_f NOT IN ('ebb5309c38b192d8e301277d9f14b9ae', '15daada758f0ed1446975306b3f4d302') THEN
     RAISE EXCEPTION 'square integrity: finalize_cash_submission_atomic on live has moved (md5 %) — stop, read live, rebuild', v_f;
+  END IF;
+  IF v_l NOT IN ('98b0bd6c102ec9067f7d433f7cde166c', '91b33668173071731d78205febc1722f') THEN
+    RAISE EXCEPTION 'square integrity: cash_order_payment_lock on live has moved (md5 %) — stop, read live, rebuild', v_l;
   END IF;
 END
 $pre$;
@@ -303,36 +313,63 @@ COMMENT ON TABLE public.square_disputes IS
 CREATE OR REPLACE FUNCTION public.guard_provider_submission()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path TO 'public'
 AS $fn$
 BEGIN
+  -- Paidy's own rules (link, relabel, money fields, re-queue, Paidy holds the
+  -- order) live in trg_guard_payment_submission_paidy (Paidy follow-up). This
+  -- trigger carries the CARD rules and the card side of the payment lock.
+
   -- Nothing is a card payment without its hold.
   IF lower(coalesce(NEW.payment_method, '')) = 'square' AND NEW.square_payment_id IS NULL THEN
     RAISE EXCEPTION 'square_link_required: a card (square) submission must carry its Square hold'
       USING ERRCODE = 'P0001';
   END IF;
-  IF TG_OP = 'UPDATE' THEN
-    -- Relabelling into Paidy without its authorisation.
-    IF lower(coalesce(NEW.payment_method, '')) = 'paidy' AND NEW.paidy_payment_id IS NULL
-       AND lower(coalesce(OLD.payment_method, '')) <> 'paidy' THEN
-      RAISE EXCEPTION 'paidy_link_required: a submission cannot be relabelled to Paidy' USING ERRCODE = 'P0001';
+
+  -- Owner 3A / SQ11: while a card attempt is in flight, a hold is live or
+  -- captured card money is not recorded, no OTHER payment enters the queue for
+  -- that order — a new submission, or a rejected/cancelled one restored. The
+  -- card's own filing (square_payment_id set) is the one exception. Order row
+  -- locked first, like the Paidy guard, so this check and
+  -- reserve_square_attempt serialise.
+  IF NEW.cash_order_id IS NOT NULL AND NEW.square_payment_id IS NULL
+     AND NEW.status::text IN ('submitted','under_review')
+     AND (TG_OP = 'INSERT' OR OLD.status::text NOT IN ('submitted','under_review')) THEN
+    PERFORM 1 FROM public.cash_orders WHERE id = NEW.cash_order_id FOR UPDATE;
+    IF public.square_order_unresolved(NEW.cash_order_id) THEN
+      RAISE EXCEPTION 'card_payment_unresolved: a card payment on this order is still being processed — another payment is accepted only after it is declined, voided or recorded'
+        USING ERRCODE = 'P0001';
     END IF;
-    -- A provider-linked submission keeps its money facts (SQ10): the reviewer
-    -- branch, the finalizer and the provider record all rely on them.
-    IF (OLD.square_payment_id IS NOT NULL OR OLD.paidy_payment_id IS NOT NULL) AND (
-         NEW.payment_method   IS DISTINCT FROM OLD.payment_method
-      OR NEW.submitted_amount IS DISTINCT FROM OLD.submitted_amount
-      OR NEW.cash_order_id    IS DISTINCT FROM OLD.cash_order_id
-      OR NEW.customer_id      IS DISTINCT FROM OLD.customer_id
-      OR NEW.square_payment_id IS DISTINCT FROM OLD.square_payment_id
-      OR NEW.paidy_payment_id  IS DISTINCT FROM OLD.paidy_payment_id) THEN
-      RAISE EXCEPTION 'provider_submission_locked: method, amount, order, customer and provider link of a card/Paidy submission cannot change'
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    -- A card submission keeps its money facts (SQ10): the reviewer branch,
+    -- the finalizer and the card record all rely on them.
+    IF OLD.square_payment_id IS NOT NULL AND (
+         NEW.payment_method    IS DISTINCT FROM OLD.payment_method
+      OR NEW.submitted_amount  IS DISTINCT FROM OLD.submitted_amount
+      OR NEW.cash_order_id     IS DISTINCT FROM OLD.cash_order_id
+      OR NEW.account_id        IS DISTINCT FROM OLD.account_id
+      OR NEW.customer_id       IS DISTINCT FROM OLD.customer_id
+      OR NEW.square_payment_id IS DISTINCT FROM OLD.square_payment_id) THEN
+      RAISE EXCEPTION 'provider_submission_locked: method, amount, order, customer and card hold of a card submission cannot change'
+        USING ERRCODE = 'P0001';
+    END IF;
+    -- Only file_square_authorization_atomic links a hold, at insert.
+    IF OLD.square_payment_id IS NULL AND NEW.square_payment_id IS NOT NULL THEN
+      RAISE EXCEPTION 'provider_submission_locked: a submission cannot be linked to a card hold after it was filed'
         USING ERRCODE = 'P0001';
     END IF;
     -- A card submission ends by Confirm (capture) or Reject (void), never by a
-    -- plain cancel that would leave the hold on her card.
+    -- plain cancel that would leave the hold on her card, and a rejected one is
+    -- never re-queued (the hold was voided; she pays again).
     IF OLD.square_payment_id IS NOT NULL AND NEW.status::text = 'cancelled' AND OLD.status::text <> 'cancelled' THEN
       RAISE EXCEPTION 'card_submission_not_cancellable: reject it so the hold is voided' USING ERRCODE = 'P0001';
+    END IF;
+    IF OLD.square_payment_id IS NOT NULL AND OLD.status::text IN ('rejected','cancelled')
+       AND NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'card_submission_ended: a rejected card submission is never re-queued — the customer pays again' USING ERRCODE = 'P0001';
     END IF;
   END IF;
   RETURN NEW;
@@ -365,6 +402,70 @@ REVOKE ALL ON FUNCTION public.square_order_unresolved(uuid) FROM PUBLIC, anon, a
 GRANT EXECUTE ON FUNCTION public.square_order_unresolved(uuid) TO service_role;
 COMMENT ON FUNCTION public.square_order_unresolved(uuid) IS
   'true while the order has a card attempt in flight (reserved/unknown/cancelling), a live hold, or captured card money not yet recorded. While true: no other payment (card, Paidy, transfer), no expiry, no cancel. service_role only.';
+
+-- 9 (placed here: it calls square_order_unresolved). cash_order_payment_lock —
+-- the Paidy follow-up's one answer, plus the card branch (marked).
+CREATE OR REPLACE FUNCTION public.cash_order_payment_lock(
+  p_cash_order_id    uuid,
+  p_ignore_paidy_row uuid DEFAULT NULL,
+  p_ignore_attempts  boolean DEFAULT false)
+RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+  SELECT CASE
+    -- Paidy took money the Hub has not recorded and no staff decision closed it.
+    WHEN EXISTS (
+      SELECT 1 FROM public.paidy_payments pp
+       WHERE pp.cash_order_id = p_cash_order_id AND pp.status = 'captured'
+         AND pp.id IS DISTINCT FROM p_ignore_paidy_row
+         AND NOT EXISTS (SELECT 1 FROM public.payment_submissions s
+                          WHERE s.paidy_payment_id = pp.id AND s.confirmed_payment_id IS NOT NULL)
+         AND NOT EXISTS (SELECT 1 FROM public.paidy_cases c
+                          WHERE c.paidy_payment_row = pp.id AND c.status = 'resolved'
+                            AND c.kind IN ('captured_unrecorded','captured_no_submission','refund_before_record','record_failed')))
+      THEN 'paidy_captured_unrecorded'
+    -- A Paidy submission waiting for the capture, or a Confirm claimed but not recorded.
+    WHEN EXISTS (
+      SELECT 1 FROM public.payment_submissions s
+       WHERE s.cash_order_id = p_cash_order_id AND s.paidy_payment_id IS NOT NULL
+         AND s.paidy_payment_id IS DISTINCT FROM p_ignore_paidy_row
+         AND (s.status IN ('submitted','under_review') OR (s.status = 'confirmed' AND s.confirmed_payment_id IS NULL)))
+      THEN 'paidy_submission_pending'
+    -- An authorisation Paidy still holds that no reviewer rejected (e.g. one
+    -- waiting to be filed). Past its expiry it no longer holds the order.
+    WHEN EXISTS (
+      SELECT 1 FROM public.paidy_payments pp
+       WHERE pp.cash_order_id = p_cash_order_id AND pp.status = 'authorized'
+         AND pp.id IS DISTINCT FROM p_ignore_paidy_row
+         AND coalesce(pp.expires_at, pp.authorized_at + interval '30 days') > now()
+         AND NOT EXISTS (SELECT 1 FROM public.payment_submissions s
+                          WHERE s.paidy_payment_id = pp.id AND s.status IN ('rejected','cancelled')))
+      THEN 'paidy_authorized'
+    -- The customer's Paidy window is open right now.
+    WHEN NOT p_ignore_attempts AND EXISTS (
+      SELECT 1 FROM public.paidy_checkout_attempts a
+       WHERE a.cash_order_id = p_cash_order_id AND a.status = 'open' AND a.expires_at > now())
+      THEN 'paidy_checkout_open'
+    -- Square (2026-10-04, owner 3A / SQ11): a card attempt in flight, a live
+    -- card hold, or captured card money not yet recorded — no other payment
+    -- until it is resolved (public.square_order_unresolved). Not a paidy_*
+    -- reason, so the Paidy guard trigger lets the card's own filing through;
+    -- guard_provider_submission enforces it for everything else.
+    WHEN public.square_order_unresolved(p_cash_order_id)
+      THEN 'card_payment_unresolved'
+    -- Any other payment waiting for a reviewer (one pending payment per order).
+    WHEN EXISTS (
+      SELECT 1 FROM public.payment_submissions s
+       WHERE s.cash_order_id = p_cash_order_id AND s.paidy_payment_id IS NULL
+         AND (s.status IN ('submitted','under_review') OR (s.status = 'confirmed' AND s.confirmed_payment_id IS NULL)))
+      THEN 'submission_pending'
+    ELSE NULL
+  END
+$fn$;
+REVOKE ALL ON FUNCTION public.cash_order_payment_lock(uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cash_order_payment_lock(uuid, uuid, boolean) TO service_role;
+COMMENT ON FUNCTION public.cash_order_payment_lock(uuid, uuid, boolean) IS
+  'Why a cash order cannot take another payment now, or NULL. paidy_* reasons (captured_unrecorded, submission_pending, authorized, checkout_open) close EVERY other payment route, staff included (guard trigger); card_payment_unresolved (a card attempt in flight, a live card hold, or captured card money not yet recorded — square_order_unresolved) closes every other route too (guard_provider_submission); submission_pending is the ordinary one-pending-payment rule. Owner rules 2026-10-04: while Paidy or a card is processing, nothing else; after a verified Reject / void / close the order opens again.';
 
 -- Refusal counters for the caps and the fraud rule.
 CREATE OR REPLACE FUNCTION public.square_refusal_counts(p_order_id uuid, p_customer_id uuid)
@@ -449,6 +550,12 @@ BEGIN
     RETURN jsonb_build_object('error', 'amount_changed', 'remaining_balance', v_order.remaining_balance);
   END IF;
 
+  -- Nothing while Paidy holds the order (Paidy follow-up owner rule): a Paidy
+  -- window open, an authorisation waiting, a capture not yet recorded.
+  IF coalesce(public.cash_order_payment_lock(p_cash_order_id), '') LIKE 'paidy%' THEN
+    RETURN jsonb_build_object('error', 'paidy_in_progress', 'lock', public.cash_order_payment_lock(p_cash_order_id));
+  END IF;
+
   SELECT * INTO v_att FROM public.square_card_attempts
    WHERE cash_order_id = p_cash_order_id AND status IN ('reserved','unknown','cancelling')
    ORDER BY created_at DESC LIMIT 1;
@@ -488,7 +595,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.reserve_square_attempt(uuid, uuid, bigint, text, text, text, boolean, text, text, text, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reserve_square_attempt(uuid, uuid, bigint, text, text, text, boolean, text, text, text, jsonb) TO service_role;
 COMMENT ON FUNCTION public.reserve_square_attempt(uuid, uuid, bigint, text, text, text, boolean, text, text, text, jsonb) IS
-  'Locks the order and reserves ONE card attempt before Square is called. Refuses: bad_amount, bad_environment, bad_location, bad_key, order_not_found, wrong_customer, order_not_payable, not_jpy, fractional_balance, amount_changed (exact integer yen = remaining), attempt_in_progress, card_hold_active, submission_pending, too_many_attempts (5 failures per order, 10 declines per customer, rolling 24 h). Same idempotency key → outcome existing. service_role only (website).';
+  'Locks the order and reserves ONE card attempt before Square is called. Refuses: bad_amount, bad_environment, bad_location, bad_key, order_not_found, wrong_customer, order_not_payable, not_jpy, fractional_balance, amount_changed (exact integer yen = remaining), paidy_in_progress, attempt_in_progress, card_hold_active, submission_pending, too_many_attempts (5 failures per order, 10 declines per customer, rolling 24 h). Same idempotency key → outcome existing. service_role only (website).';
 
 -- ---------------------------------------------------------------------------
 -- 6c. resolve_square_attempt — compare-and-set of an attempt's outcome.
@@ -602,6 +709,10 @@ BEGIN
     v_reason := 'order_' || v_order.status::text; v_exc := 'unfiled_hold';
   ELSIF v_order.remaining_balance <> p_amount_jpy::numeric THEN
     v_reason := 'balance_changed'; v_exc := 'unfiled_hold';
+  ELSIF coalesce(public.cash_order_payment_lock(v_order.id), '') LIKE 'paidy%' THEN
+    -- Paidy took the order meanwhile (its guard would refuse the insert):
+    -- recorded as an exception, never a dead transaction with a live hold.
+    v_reason := 'paidy_in_progress'; v_exc := 'unfiled_hold';
   ELSIF EXISTS (SELECT 1 FROM public.payment_submissions
                  WHERE cash_order_id = v_order.id
                    AND (status::text IN ('submitted','under_review')
@@ -1347,7 +1458,10 @@ DECLARE
   v_sub        public.payment_submissions%ROWTYPE;
   v_order      public.cash_orders%ROWTYPE;
   v_payment    public.cash_payments%ROWTYPE;
+  v_rec        public.paidy_payments%ROWTYPE;
   v_amount     numeric;
+  v_captured   numeric;
+  v_capture_id text;
   v_new_paid   numeric;
   v_new_remain numeric;
   v_full       boolean;
@@ -1359,8 +1473,6 @@ BEGIN
   IF v_sub.id IS NULL THEN RETURN jsonb_build_object('error', 'submission_not_found'); END IF;
   IF v_sub.cash_order_id IS NULL THEN RETURN jsonb_build_object('error', 'not_a_cash_submission'); END IF;
 
-  -- Order lock: concurrent confirms on different submissions of the same order
-  -- see each other's balance (P04).
   SELECT * INTO v_order FROM public.cash_orders WHERE id = v_sub.cash_order_id FOR UPDATE;
   IF v_order.id IS NULL THEN RETURN jsonb_build_object('error', 'cash_order_not_found'); END IF;
 
@@ -1373,8 +1485,6 @@ BEGIN
       'is_fully_paid', v_order.remaining_balance <= 0.005, 'status_after', v_order.status::text);
   END IF;
 
-  -- The caller claims the submission (status 'confirmed') before any external
-  -- call; recording an unclaimed submission is refused.
   IF v_sub.status <> 'confirmed' THEN
     RETURN jsonb_build_object('error', 'not_claimed', 'status', v_sub.status::text);
   END IF;
@@ -1382,12 +1492,38 @@ BEGIN
     RETURN jsonb_build_object('error', 'order_closed', 'status', v_order.status::text);
   END IF;
 
-  -- A Paidy payment is recorded only once the Hub holds Paidy's capture
-  -- (review 2026-10-04 #6): never money in the books that Paidy has not taken.
-  IF v_sub.payment_method = 'paidy' AND v_sub.paidy_payment_id IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM public.paidy_payments
-                      WHERE id = v_sub.paidy_payment_id AND status = 'captured') THEN
-    RETURN jsonb_build_object('error', 'paidy_not_captured');
+  v_amount := v_sub.submitted_amount;
+  IF v_amount IS NULL OR v_amount <= 0 THEN RETURN jsonb_build_object('error', 'bad_amount'); END IF;
+
+  -- A Paidy payment is recorded only as Paidy's own capture, bound to THIS
+  -- order, customer and exact amount, never refunded, never twice (R02/R14/R17).
+  IF v_sub.paidy_payment_id IS NOT NULL OR v_sub.payment_method = 'paidy' THEN
+    SELECT * INTO v_rec FROM public.paidy_payments WHERE id = v_sub.paidy_payment_id FOR UPDATE;
+    IF v_rec.id IS NULL OR v_rec.status <> 'captured' THEN
+      RETURN jsonb_build_object('error', 'paidy_not_captured');
+    END IF;
+    IF v_rec.cash_order_id <> v_order.id OR v_rec.customer_id IS DISTINCT FROM v_order.customer_id
+       OR v_sub.customer_id IS DISTINCT FROM v_order.customer_id THEN
+      RETURN jsonb_build_object('error', 'paidy_binding_mismatch');
+    END IF;
+    IF v_order.currency::text <> 'JPY' OR v_amount <> trunc(v_amount) OR v_rec.amount_jpy <> v_amount THEN
+      RETURN jsonb_build_object('error', 'paidy_amount_mismatch', 'submitted', v_amount, 'authorized', v_rec.amount_jpy);
+    END IF;
+    SELECT coalesce(sum((c->>'amount')::numeric), 0) INTO v_captured
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(v_rec.last_payload->'captures') = 'array'
+                                     THEN v_rec.last_payload->'captures' ELSE '[]'::jsonb END) c;
+    IF v_captured <> v_amount THEN
+      RETURN jsonb_build_object('error', 'paidy_amount_mismatch', 'submitted', v_amount, 'captured', v_captured);
+    END IF;
+    IF coalesce(v_rec.refund_jpy, 0) <> 0
+       OR EXISTS (SELECT 1 FROM public.paidy_refunds WHERE paidy_payment_row = v_rec.id) THEN
+      RETURN jsonb_build_object('error', 'paidy_refunded');
+    END IF;
+    v_capture_id := v_rec.capture_id;
+    IF v_capture_id IS NULL THEN RETURN jsonb_build_object('error', 'paidy_not_captured'); END IF;
+    IF EXISTS (SELECT 1 FROM public.cash_payments WHERE provider_capture_id = v_capture_id) THEN
+      RETURN jsonb_build_object('error', 'capture_already_recorded');
+    END IF;
   END IF;
 
   -- Square (2026-10-04, SQ08/SQ10/SQ12): card money is recorded only from a
@@ -1413,16 +1549,13 @@ BEGIN
     IF v_order.currency::text <> 'JPY' OR coalesce(v_sq.currency, 'JPY') <> 'JPY' THEN
       RETURN jsonb_build_object('error', 'square_currency_mismatch');
     END IF;
-    IF v_sq.captured_amount_jpy IS NULL OR v_sub.submitted_amount IS NULL
-       OR v_sub.submitted_amount <> trunc(v_sub.submitted_amount)
-       OR v_sub.submitted_amount <> v_sq.captured_amount_jpy::numeric THEN
+    IF v_sq.captured_amount_jpy IS NULL OR v_amount <> trunc(v_amount)
+       OR v_amount <> v_sq.captured_amount_jpy::numeric THEN
       RETURN jsonb_build_object('error', 'square_amount_mismatch',
-        'captured_amount_jpy', v_sq.captured_amount_jpy, 'submitted_amount', v_sub.submitted_amount);
+        'captured_amount_jpy', v_sq.captured_amount_jpy, 'submitted_amount', v_amount);
     END IF;
   END IF;
 
-  v_amount := v_sub.submitted_amount;
-  IF v_amount IS NULL OR v_amount <= 0 THEN RETURN jsonb_build_object('error', 'bad_amount'); END IF;
   -- INVARIANT 4 on the LOCKED balance.
   IF v_amount > v_order.remaining_balance + 0.005 THEN
     RETURN jsonb_build_object('error', 'exceeds_remaining',
@@ -1430,13 +1563,13 @@ BEGIN
   END IF;
 
   INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, date_paid, payment_method,
-         reference_number, remarks, entered_by_user_id, submitted_by_type, submitted_by_name)
+         reference_number, remarks, entered_by_user_id, submitted_by_type, submitted_by_name, provider_capture_id)
   VALUES (v_order.id, v_amount, v_order.currency, coalesce(p_date_paid, v_sub.payment_date),
           v_sub.payment_method, v_sub.reference_number, v_sub.notes, p_reviewer_user_id,
-          p_submitted_by_type, v_sub.sender_name)
+          p_submitted_by_type, v_sub.sender_name, v_capture_id)
   RETURNING * INTO v_payment;
 
-  -- The capture is now credited: bind it to this ledger row (unique).
+  -- The card capture is now credited: bind it to this ledger row (unique).
   IF v_sq.id IS NOT NULL THEN
     UPDATE public.square_payments SET cash_payment_id = v_payment.id, updated_at = now() WHERE id = v_sq.id;
   END IF;
@@ -1469,7 +1602,8 @@ BEGIN
           jsonb_build_object('status', 'claimed', 'order_status', v_status_before),
           jsonb_build_object('cash_payment_id', v_payment.id, 'amount_confirmed', v_amount,
             'remaining_after', v_new_remain, 'status_after', v_status_after,
-            'date_paid', v_payment.date_paid, 'path', 'finalize_cash_submission_atomic'),
+            'date_paid', v_payment.date_paid, 'provider_capture_id', v_capture_id,
+            'path', 'finalize_cash_submission_atomic'),
           p_reviewer_user_id);
 
   RETURN jsonb_build_object('ok', true, 'outcome', 'recorded',
@@ -1481,7 +1615,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) TO service_role;
 COMMENT ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) IS
-  'Records a CLAIMED cash-order payment submission in one transaction: cash_payments insert, cash_orders total_paid / remaining_balance / completed, submission confirmed + confirmed_payment_id, audit_logs confirm. Locks the order and the submission. Idempotent (already_recorded). Errors: submission_not_found, not_a_cash_submission, cash_order_not_found, not_claimed, order_closed, paidy_not_captured, square_link_mismatch, square_payment_missing, square_not_captured, square_already_allocated, square_order_mismatch, square_currency_mismatch, square_amount_mismatch (exact captured integer yen), bad_amount, exceeds_remaining. A Square capture is bound to its cash payment (square_payments.cash_payment_id, unique). service_role only (review-payment-submission, every cash method).';
+  'Records a CLAIMED cash-order payment submission in one transaction: cash_payments insert (Paidy: provider_capture_id), cash_orders totals/completed, submission confirmed + confirmed_payment_id, audit_logs confirm; a Square capture is bound to its cash payment (square_payments.cash_payment_id, unique). Locks the submission, the order and (Paidy/Square) the provider record. Idempotent (already_recorded). Errors: submission_not_found, not_a_cash_submission, cash_order_not_found, not_claimed, order_closed, bad_amount, exceeds_remaining; Paidy: paidy_not_captured, paidy_binding_mismatch, paidy_amount_mismatch, paidy_refunded, capture_already_recorded; Square: square_link_mismatch, square_payment_missing, square_not_captured, square_already_allocated, square_order_mismatch, square_currency_mismatch, square_amount_mismatch (exact captured integer yen). service_role only.';
 
 -- ---------------------------------------------------------------------------
 -- 8. terminate_web_order_atomic — stands down for unresolved card money (SQ11).
@@ -1719,7 +1853,7 @@ REVOKE ALL ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid,
 GRANT EXECUTE ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) TO service_role;
 
 -- ---------------------------------------------------------------------------
--- 9. Self-checks.
+-- 10. Self-checks.
 -- ---------------------------------------------------------------------------
 DO $chk$
 DECLARE f text;
@@ -1751,6 +1885,7 @@ BEGIN
     'public.ring_square_deadline_bells(timestamptz)', 'public.claim_square_event(text, integer)',
     'public.finish_square_event(text, text, text, text, integer)', 'public.square_fraud_cancel(uuid, text, jsonb)',
     'public.finalize_cash_submission_atomic(uuid, uuid, text, date, text)',
+    'public.cash_order_payment_lock(uuid, uuid, boolean)',
     'public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean)']
   LOOP
     IF has_function_privilege('anon', f, 'EXECUTE') OR has_function_privilege('authenticated', f, 'EXECUTE') THEN
@@ -1761,8 +1896,12 @@ BEGIN
     RAISE EXCEPTION 'square integrity: decide_square_case is executable by anon';
   END IF;
   IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)'::regprocedure)
-     <> '937a2d35d6830069ddc61e9678b1bcca' THEN
+     <> '15daada758f0ed1446975306b3f4d302' THEN
     RAISE EXCEPTION 'square integrity: finalize_cash_submission_atomic body is not this file''s';
+  END IF;
+  IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.cash_order_payment_lock(uuid,uuid,boolean)'::regprocedure)
+     <> '91b33668173071731d78205febc1722f' THEN
+    RAISE EXCEPTION 'square integrity: cash_order_payment_lock body is not this file''s';
   END IF;
   IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)'::regprocedure)
      <> '8166a3aa57b578a53c0e0c72f56fa206' THEN
