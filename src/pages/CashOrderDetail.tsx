@@ -407,6 +407,12 @@ export default function CashOrderDetail() {
   const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // SQUARE (S1, 2026-10-04): a card hold awaiting Confirm (capture) / Reject (void).
   const squarePending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'square' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
+  // While Paidy or a card hold waits for Confirm / Reject, nothing else can be
+  // paid or credited on this order (trg_guard_cash_payment_paidy); a card hold
+  // also blocks cancelling (terminate_web_order_atomic card_payment_unresolved —
+  // a Paidy cancel stays allowed). The page points staff to Payments instead of
+  // offering buttons the server would refuse (2026-10-04).
+  const providerHold = paidyPending ?? squarePending;
   const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
@@ -1449,10 +1455,17 @@ export default function CashOrderDetail() {
                   </p>
                 )}
                 {order.transfer_due_at && new Date(order.transfer_due_at) < new Date() && (
-                  <p className="text-xs text-destructive">
-                    Past the deadline above — the hourly job will cancel this order and
-                    return the stock unless the transfer is confirmed.
-                  </p>
+                  providerHold ? (
+                    <p className="text-xs text-muted-foreground">
+                      Past the deadline above — the hourly job leaves this order alone
+                      while the {paidyPending ? 'Paidy' : 'card'} payment waits for Confirm or Reject.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-destructive">
+                      Past the deadline above — the hourly job will cancel this order and
+                      return the stock unless the transfer is confirmed.
+                    </p>
+                  )
                 )}
                 {order.order_type && order.order_type !== 'SELF' && (
                   <p className="text-xs text-muted-foreground">
@@ -1465,7 +1478,11 @@ export default function CashOrderDetail() {
                   <p className="text-xs italic text-muted-foreground">“{order.gift_note}”</p>
                 )}
               </div>
-              {canRecordPayment && (
+              {providerHold ? (
+                <Button size="sm" variant="outline" onClick={() => navigate(`${ROUTES.SALES}?tab=payments`)}>
+                  Open in Payments
+                </Button>
+              ) : canRecordPayment && (
                 <Button size="sm" onClick={() => setRecordOpen(true)}>
                   Confirm transfer received
                 </Button>
@@ -1476,7 +1493,7 @@ export default function CashOrderDetail() {
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
-          {canRecordPayment && (
+          {canRecordPayment && !providerHold && (
             <Button
               className="gold-gradient text-primary-foreground font-medium shadow"
               onClick={() => setRecordOpen(true)}
@@ -1498,7 +1515,7 @@ export default function CashOrderDetail() {
               phone: order.customers?.mobile_number ?? null,
             }}
           />
-          {canCancel && (
+          {canCancel && !squarePending && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -1507,6 +1524,12 @@ export default function CashOrderDetail() {
               <XCircle className="h-4 w-4 mr-1.5" />
               Cancel Order
             </Button>
+          )}
+          {providerHold && (canRecordPayment || canCancel) && (
+            <p className="order-last basis-full text-xs text-muted-foreground">
+              {paidyPending ? 'A Paidy payment' : 'A card hold'} is waiting for Confirm or Reject in Payments.
+              Until then no other payment, store credit or loyalty discount can be added{squarePending ? ', and the order cannot be cancelled (Reject voids the hold first)' : ''}.
+            </p>
           )}
           {isAdmin && !isWebOrder(order) && !isPaidOrCompleted && (
             <Button

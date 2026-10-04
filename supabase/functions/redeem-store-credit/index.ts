@@ -96,6 +96,10 @@ Deno.serve(async (req) => {
       if (String(error.message ?? "").includes("paidy_in_progress")) {
         return json({ error: "This order is being paid with Paidy. Store credit can be applied only after staff Reject the Paidy payment." }, 409);
       }
+      // Same rule for a live card hold (20261106110000).
+      if (String(error.message ?? "").includes("card_payment_unresolved")) {
+        return json({ error: "This order has a card payment waiting for Confirm or Reject. Store credit can be applied only after staff Confirm or Reject the card payment in Payments." }, 409);
+      }
       return json({ error: error.message ?? "redeem_store_credit_atomic failed" }, 400);
     }
 
