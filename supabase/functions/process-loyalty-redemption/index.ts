@@ -543,6 +543,8 @@ Deno.serve(async (req) => {
         // Owner rule 2026-10-04: nothing else is added while Paidy holds the
         // order (trg_guard_cash_payment_paidy, 20261104110000).
         if (msg.includes("paidy_in_progress")) return json({ error: "This order is being paid with Paidy — approval aborted, nothing was debited. Approve it only after staff Reject the Paidy payment." }, 409);
+        // Same rule for a live card hold (20261106100000).
+        if (msg.includes("card_payment_unresolved")) return json({ error: "This order has a card payment waiting for Confirm or Reject — approval aborted, nothing was debited. Approve it only after staff Confirm or Reject the card payment in Payments." }, 409);
         if (msg.includes("not_found")) return json({ error: "Redemption or member not found" }, 404);
         console.error("[process-loyalty-redemption] approve_redemption_atomic failed:", approveErr);
         return json({ error: "Approve failed — no changes were applied", detail: msg }, 500);

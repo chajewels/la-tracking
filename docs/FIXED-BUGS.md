@@ -6049,3 +6049,21 @@ number" (create-cash-order / create-layaway-account already pass the DB message
 through). Harness: `harness/web-invoice-registry/` (23/23). Rule:
 docs/WEB-ORDER-DRAFTS.md.
 
+
+### Store credit / loyalty discount could be added under a live card hold (2026-10-04)
+
+Found while closing out the Square integrity work: `guard_provider_submission` refused other
+submissions while a card hold was live, but three staff routes write `cash_payments` directly —
+`redeem_store_credit_atomic`, `approve_redemption_atomic` (cash new_order_discount) and
+restore-cash-payment (un-void). Any of them lowered the balance under the hold; the later Confirm
+captured the full held amount, `finalize_cash_submission_atomic` refused a capture larger than the
+balance, and the money landed as a `captured_unallocated` exception (bell, staff case) — caught, not
+prevented. Same gap the Paidy lock had (closed 20261104110000).
+
+Fixed by `20261106100000_card_hold_cash_payment_guard.sql`: the existing cash_payments trigger also
+refuses while `cash_order_payment_lock` = `card_payment_unresolved`, except a row inserted as `square`
+(Square's own recording). md5-guarded full replace of the live body (4e270015… → 5e1c032a…; the
+reversed edit equals live). The three edge functions answer 409 with a plain sentence. The Hub order
+page shows "Open in Payments" during a hold instead of buttons the server refuses. Local test 9/9
+(store credit, loyalty, un-void, relabel refused; square insert, voided insert, no-lock allowed; Paidy
+unchanged); replay no-op; moved-live stop.
