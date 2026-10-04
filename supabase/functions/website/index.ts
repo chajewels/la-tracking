@@ -2552,10 +2552,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const body = await req.json().catch(() => ({})) as AnyRec;
       const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
       if (!/^[A-Za-z0-9_:-]{8,200}$/.test(sourceId)) return jsonResponse({ error: "card_mismatch", detail: "bad_source" }, 409);
-      // D7: 3-D Secure ALWAYS — the SDK's verification token is required, so a
-      // storefront bug can never drop the liability shift silently.
+      // D7: 3-D Secure ALWAYS. Square's CURRENT Web Payments SDK runs the
+      // buyer verification INSIDE `card.tokenize(verificationDetails)` — the
+      // card token itself carries it and there is no separate verification
+      // token (`payments.verifyBuyer()` is deprecated; owner decision B,
+      // 2026-10-04). A token is therefore optional: when the storefront has
+      // one (the older flow) it is forwarded to Square; when it has none, the
+      // verified card token stands and `three_ds_status` records which path
+      // was taken. The storefront always passes the buyer's details to
+      // tokenize (components/commerce/card-pay.tsx); Square refuses the token
+      // when the challenge is abandoned, so a hold here means it completed.
       const verificationToken = typeof body.verification_token === "string" && body.verification_token.trim() ? body.verification_token.trim().slice(0, 500) : null;
-      if (!verificationToken) return jsonResponse({ error: "verification_required" }, 409);
       const terms = (body.terms ?? {}) as AnyRec;
       const termsAt = typeof terms.accepted_at === "string" && Number.isFinite(Date.parse(terms.accepted_at)) ? new Date(terms.accepted_at).toISOString() : null;
       const termsVersion = typeof terms.version === "string" && terms.version.trim() ? terms.version.trim().slice(0, 64) : null;
@@ -2658,10 +2665,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           status: "authorized", test: offer.test, amount_jpy: Math.round(Number(payment.amount_money.amount)),
           card_brand: payment.card_details?.card?.card_brand ?? null,
           card_last4: payment.card_details?.card?.last_4 ?? null,
-          // Square's Payment carries no 3DS verdict; the evidence is that the
-          // SDK's verification token (3DS challenge done) was presented and the
-          // authorisation went through (review S1).
-          three_ds_status: "VERIFICATION_TOKEN_PRESENTED",
+          // Square's Payment carries no 3DS verdict; the evidence is which
+          // SDK path verified the buyer and that the authorisation went
+          // through (review S1; owner B 2026-10-04): a separate verification
+          // token presented, or the verification carried inside the card
+          // token (tokenize with verificationDetails — the current SDK flow).
+          three_ds_status: verificationToken ? "VERIFICATION_TOKEN_PRESENTED" : "VERIFIED_IN_CARD_TOKEN",
           receipt_url: payment.receipt_url ?? null,
           terms_accepted_at: termsAt, terms_version: termsVersion,
           terms_ip: ip, terms_user_agent: ua,
