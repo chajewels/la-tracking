@@ -1255,6 +1255,19 @@ BEGIN
            exception_note = left(coalesce(exception_note, '') || ' | resolved: ' || p_decision || ' — ' || p_note, 1000),
            updated_at = now()
      WHERE id = p_id AND exception IS NOT NULL;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    IF v_n = 0 THEN RETURN jsonb_build_object('error', 'not_found'); END IF;
+    -- A Confirm that captured but could not record stays claimed ('confirmed',
+    -- no payment) and would freeze the order forever: the staff decision
+    -- closes it (the money was handled outside the Hub's automatic path).
+    UPDATE public.payment_submissions
+       SET status = 'rejected', processing_started_at = NULL, updated_at = now(),
+           reviewer_notes = left('Card exception resolved by staff: ' || p_decision || ' — ' || p_note, 1000)
+     WHERE square_payment_id = p_id AND status = 'confirmed' AND confirmed_payment_id IS NULL;
+    INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id)
+    VALUES ('square_exception', p_id, 'square_case_decided',
+            jsonb_build_object('decision', p_decision, 'note', left(p_note, 1000)), v_uid);
+    RETURN jsonb_build_object('ok', true);
   ELSE
     RETURN jsonb_build_object('error', 'bad_kind');
   END IF;

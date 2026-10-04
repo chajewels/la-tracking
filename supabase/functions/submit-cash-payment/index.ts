@@ -44,6 +44,14 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Card (Square) and Paidy payments are filed only by their own provider
+    // routes with the provider's record (SQ10, 2026-10-04) — never by hand here.
+    if (['square', 'paidy'].includes(String(payment_method).trim().toLowerCase())) {
+      return new Response(JSON.stringify({ error: "This payment method is filed automatically by its provider." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const submittedNum = Number(submitted_amount);
     if (!Number.isFinite(submittedNum) || submittedNum <= 0) {
       return new Response(JSON.stringify({ error: "submitted_amount must be a positive number" }), {
@@ -167,6 +175,23 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 4a0. Owner 3A / SQ11 (2026-10-04): no other payment while a card
+    // attempt is in flight, a card hold is live or captured card money is not
+    // yet recorded on this order (public.square_order_unresolved). After a
+    // verified decline or void the gate opens again.
+    const { data: cardOpen, error: cardOpenErr } = await supabase.rpc('square_order_unresolved', { p_order_id: cash_order_id });
+    if (cardOpenErr) {
+      return new Response(JSON.stringify({ error: 'Could not check the card payment on this order. Please try again.' }), {
+        status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (cardOpen === true) {
+      return new Response(JSON.stringify({
+        error: 'card_payment_unresolved',
+        message: 'A card payment on this order is still being processed. Please wait for it to finish before sending another payment.',
+      }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     // 4a. Block exact-duplicate pending submission for this cash order.
     // Different amounts / different methods are allowed — legitimate sequential
     // partial payments. Only block when a row with the SAME amount AND SAME
@@ -178,6 +203,7 @@ Deno.serve(async (req) => {
       .eq('submitted_amount', submittedNum)
       .eq('payment_method', payment_method)
       .in('status', ['submitted', 'under_review'])
+      .limit(1)
       .maybeSingle();
 
     if (existingSubmission) {

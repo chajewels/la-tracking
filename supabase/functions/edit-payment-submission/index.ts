@@ -74,7 +74,7 @@ serve(async (req) => {
   // Fetch submission — verify ownership
   const { data: submission, error: subErr } = await supabase
     .from("payment_submissions")
-    .select("id, customer_id, status")
+    .select("id, customer_id, status, payment_method, square_payment_id, paidy_payment_id")
     .eq("id", submission_id)
     .maybeSingle();
 
@@ -103,15 +103,41 @@ serve(async (req) => {
     );
   }
 
+  // SQ10 (2026-10-04): a card (Square) or Paidy submission is the provider's
+  // record of money held for the order. Its method and amount are fixed, and
+  // it ends only by staff Confirm (capture) or Reject (void) — a customer edit
+  // or cancel would leave the hold on her card. The database refuses it too
+  // (guard_provider_submission).
+  if (submission.square_payment_id || submission.paidy_payment_id
+      || ["square", "paidy"].includes(String(submission.payment_method ?? "").toLowerCase())) {
+    return new Response(
+      JSON.stringify({ error: "provider_submission_locked", message: "Card and Paidy payments cannot be edited or cancelled here. Please contact us." }),
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  if (payment_method !== undefined && ["square", "paidy"].includes(String(payment_method).toLowerCase())) {
+    return new Response(JSON.stringify({ error: "This payment method cannot be chosen here." }), {
+      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const now = new Date().toISOString();
 
   // ── CANCEL ──
   if (action === "cancel") {
-    const { error: updateErr } = await supabase
+    const { data: cancelledRows, error: updateErr } = await supabase
       .from("payment_submissions")
       .update({ status: "cancelled", updated_at: now })
-      .eq("id", submission_id);
+      .eq("id", submission_id)
+      .eq("status", "submitted")
+      .select("id");
 
+    if (!updateErr && (!cancelledRows || cancelledRows.length === 0)) {
+      return new Response(
+        JSON.stringify({ error: "This submission is already being reviewed and can no longer be edited." }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
     if (updateErr) {
       return new Response(JSON.stringify({ error: updateErr.message }), {
         status: 500,
@@ -155,8 +181,16 @@ serve(async (req) => {
     .from("payment_submissions")
     .update(updates)
     .eq("id", submission_id)
+    .eq("status", "submitted")
     .select()
-    .single();
+    .maybeSingle();
+
+  if (!updateErr && !updated) {
+    return new Response(
+      JSON.stringify({ error: "This submission is already being reviewed and can no longer be edited." }),
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   if (updateErr) {
     return new Response(JSON.stringify({ error: updateErr.message }), {

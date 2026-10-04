@@ -10,7 +10,6 @@ import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templat
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
 import { maskEmail } from "../_shared/redact.ts";
-import { CARD_HOLD_DAYS, CARD_HOLD_WARN_DAYS, cardHoldExpired, cardHoldWarnDue } from "../_shared/card-rules.ts";
 
 const MAX_ORDERS_PER_RUN = 100;
 
@@ -122,6 +121,22 @@ Deno.serve(async (req) => {
       }
       if (!subs || subs.length < 1000) break;
     }
+    // SQ11 (2026-10-04): an order with a card attempt in flight, a live card
+    // hold or captured card money not yet recorded is frozen the same way
+    // (public.square_order_unresolved; the RPC refuses too, for web orders).
+    for (const [table, filter] of [
+      ["square_card_attempts", "status.in.(reserved,unknown,cancelling)"],
+      ["square_payments", "status.eq.authorized,and(status.eq.captured,cash_payment_id.is.null,exception_resolved_at.is.null)"],
+    ] as const) {
+      const { data: open, error: openErr } = await supabase.from(table).select("cash_order_id").or(filter).limit(5000);
+      if (openErr) {
+        console.error(`[auto-expire-cash-orders] ${table} read failed:`, openErr);
+        return jsonResponse({ error: `${table} read failed: ${openErr.message}` }, 500);
+      }
+      for (const r of (open ?? []) as Array<{ cash_order_id: string | null }>) {
+        if (r.cash_order_id) frozenIds.add(r.cash_order_id);
+      }
+    }
 
     // 1. Fetch pending cash orders past expires_at with outstanding balance.
     //    The limit is widened by the frozen count so frozen orders at the head
@@ -184,7 +199,7 @@ Deno.serve(async (req) => {
           const { data: exp, error: expErr } = await supabase.rpc("expire_web_order_atomic", { p_order_id: order.id });
           if (expErr) throw new Error(`expire_web_order_atomic failed: ${expErr.message}`);
           if (!(exp as any)?.ok) {
-            if ((exp as any)?.reason === "submission_pending") {
+            if ((exp as any)?.reason === "submission_pending" || (exp as any)?.reason === "card_payment_unresolved") {
               // A submission arrived after step 0 — the RPC's own INVARIANT 12
               // check caught it under the row lock. Report it with the others.
               frozenResults.push({
@@ -417,43 +432,10 @@ Deno.serve(async (req) => {
       console.error("[auto-expire-cash-orders] layaway sweep failed:", sweepErr);
     }
 
-    // CARD HOLD WARNING (Square S2, 2026-10-04, docs/SQUARE.md; owner Q2).
-    // Read-only toward orders and submissions (INVARIANT 12 untouched): a
-    // card hold still 'authorized' from day 5 of its 7-day window rings
-    // card_hold_expiring ONCE (square_payments.warned_at) so a reviewer
-    // Confirms or Rejects before Square cancels it by itself.
-    const cardWarnResults: { square_payment_id: string; cash_order_id: string }[] = [];
-    try {
-      const warnFrom = new Date(Date.now() - CARD_HOLD_WARN_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const { data: holds } = await supabase
-        .from("square_payments")
-        .select("id, square_payment_id, cash_order_id, amount_jpy, authorized_at, capture_by, cash_orders(invoice_number, web_reference)")
-        .eq("status", "authorized").is("warned_at", null).lte("authorized_at", warnFrom).order("authorized_at").limit(50);
-      for (const h of (holds ?? []) as any[]) {
-        if (!cardHoldWarnDue(String(h.authorized_at))) continue;
-        const { data: claimed } = await supabase
-          .from("square_payments").update({ warned_at: new Date().toISOString() })
-          .eq("id", h.id).is("warned_at", null).select("id").maybeSingle();
-        if (!claimed) continue;
-        const ref = h.cash_orders?.web_reference ?? h.cash_orders?.invoice_number ?? h.cash_order_id;
-        const gone = cardHoldExpired(String(h.authorized_at), new Date(), h.capture_by);
-        try {
-          await supabase.from("staff_notifications").insert({
-            type: "card_hold_expiring",
-            title: gone ? "Card hold expired — Reject the submission" : "Card hold expires soon — Confirm or Reject",
-            body: gone
-              ? `${ref} · ¥${Math.round(Number(h.amount_jpy)).toLocaleString("en-US")} — the card hold from ${String(h.authorized_at).slice(0, 10)} is past its window (${String(h.capture_by ?? "").slice(0, 10)}); Square has cancelled it. Reject the submission so the customer can pay again.`
-              : `${ref} · ¥${Math.round(Number(h.amount_jpy)).toLocaleString("en-US")} held on the customer's card since ${String(h.authorized_at).slice(0, 10)}; Square cancels it ${CARD_HOLD_DAYS} days after authorisation (${String(h.capture_by ?? "").slice(0, 10)}). Review it in Payments Hub.`,
-            metadata: { cash_order_id: h.cash_order_id, square_payment_id: h.square_payment_id, capture_by: h.capture_by },
-          });
-        } catch (bellErr) {
-          console.warn("[auto-expire-cash-orders] card_hold_expiring bell failed (non-blocking):", bellErr);
-        }
-        cardWarnResults.push({ square_payment_id: h.square_payment_id, cash_order_id: h.cash_order_id });
-      }
-    } catch (warnErr) {
-      console.error("[auto-expire-cash-orders] card hold warning pass failed:", warnErr);
-    }
+    // CARD HOLD WARNING moved to square-reconcile (2026-10-04, SQ14): it now
+    // follows Square's own deadline (capture_by) and the bell and its stamp
+    // are one SQL statement (ring_square_deadline_bells), so a failed bell is
+    // retried instead of being stamped as sent.
 
     return jsonResponse({
       message: "auto-expire-cash-orders completed",
@@ -465,8 +447,6 @@ Deno.serve(async (req) => {
       frozen_details: frozenResults,
       layaway_expired: layawayResults.length,
       layaway_details: layawayResults,
-      card_hold_warned: cardWarnResults.length,
-      card_hold_details: cardWarnResults,
       errors,
       expired_details: expiredResults,
     });

@@ -1,8 +1,8 @@
 /**
- * Square card payments on a confirmed web order (S2, 2026-10-04): the PURE
- * rules. No Deno globals, no Supabase client, no imports, so vitest runs the
- * same file the edge functions do (src/test/card-rules.test.ts). docs/SQUARE.md.
- * Twin of paidy-rules.ts.
+ * Square card payments on a confirmed web order: the PURE rules. No Deno
+ * globals, no Supabase client, no imports, so vitest runs the same file the
+ * edge functions do (src/test/card-rules.test.ts). docs/SQUARE.md. Twin of
+ * paidy-rules.ts.
  *
  * Owner decisions (claude/square-build-plan-v2-2026-10-03 + 2026-10-04 01:07):
  * D4 yen-settled cash orders only, ANY country; D5 only after staff Confirm;
@@ -10,9 +10,16 @@
  * card payment needs the signed Card Purchase Agreement (threshold seeded 0);
  * Q2 an unconfirmed hold is cancelled by Square at the end of its window and
  * the submission auto-rejects; a bell warns two days before.
+ *
+ * Integrity (2026-10-04, docs/SQUARE-INTEGRITY.md, review SQ01–SQ23): exact
+ * integer yen everywhere (SQ12); Square COMPLETED is never hidden behind a
+ * local "no charge" state (SQ13); the warning follows Square's own deadline
+ * (SQ14); the fraud thresholds (owner 2026-10-04); truthful 3DS evidence
+ * (SQ18); agreement binding (SQ20, owner 5A).
  */
 
 export type SquareMode = "off" | "test" | "on";
+export type SquareEnvironment = "sandbox" | "production";
 
 /** Fail-closed: anything but the two exact strings is off (mirrors public.square_mode()). */
 export function squareModeFrom(raw: unknown): SquareMode {
@@ -21,6 +28,11 @@ export function squareModeFrom(raw: unknown): SquareMode {
     try { v = JSON.parse(v); } catch { /* a bare string */ }
   }
   return v === "test" || v === "on" ? v : "off";
+}
+
+/** test → sandbox, on → production; off has no environment. */
+export function squareEnvironmentOf(mode: SquareMode): SquareEnvironment | null {
+  return mode === "test" ? "sandbox" : mode === "on" ? "production" : null;
 }
 
 /**
@@ -33,6 +45,22 @@ export function squareAppIdFamily(id: unknown): "sandbox" | "production" | null 
   if (/^sandbox-sq0idb-[A-Za-z0-9_-]{6,}$/.test(id)) return "sandbox";
   if (/^sq0idp-[A-Za-z0-9_-]{6,}$/.test(id)) return "production";
   return null;
+}
+
+/**
+ * Canonical yen (SQ12): a positive safe integer. Square's JPY amount_money is a
+ * number of whole yen; a fractional, negative, non-finite or unsafe value is
+ * never rounded into one.
+ */
+export function isCanonicalYen(v: unknown): boolean {
+  if (typeof v === "string" && !/^\s*\d+(\.0+)?\s*$/.test(v)) return false;
+  const n = Number(v);
+  return Number.isFinite(n) && Number.isSafeInteger(n) && n > 0;
+}
+
+/** The canonical yen value, or null — never rounded. */
+export function canonicalYen(v: unknown): number | null {
+  return isCanonicalYen(v) ? Number(v) : null;
 }
 
 export interface CardOfferInput {
@@ -49,6 +77,8 @@ export interface CardOfferInput {
     ready_confirmed_at?: string | null;
   };
   pendingSubmissions: number;
+  /** square_order_unresolved: an attempt in flight, a live hold or unrecorded captured money (SQ11). */
+  cardUnresolved?: boolean;
 }
 
 /** Why card payment is not offered, or null when it is. One reason, the first that fails. No address rule (D4: any country). */
@@ -65,46 +95,55 @@ export function cardNotOfferedReason(i: CardOfferInput): string | null {
   if (i.order.payment_status !== "pending_transfer") return "no_payment_due";
   if (i.order.source_channel === "web" && i.order.ready_confirmed_at == null) return "not_ready_for_payment";
   if (!(Number(i.order.remaining_balance ?? 0) > 0)) return "nothing_due";
+  if (!isCanonicalYen(i.order.remaining_balance)) return "fractional_balance";
+  if (i.cardUnresolved) return "card_payment_unresolved";
   if (i.pendingSubmissions > 0) return "submission_pending";
   return null;
 }
 
 /**
- * Square holds a card authorisation (autocomplete:false) for 7 days, then
- * applies delay_action — CANCEL for us (owner Q2). The reviewer must Confirm
- * inside the window; a bell warns from day 5.
+ * Square holds a card-not-present authorisation (autocomplete:false) for 7
+ * days by default, then applies delay_action — CANCEL for us (owner Q2). The
+ * real deadline is Square's own `delayed_until` (square_payments.capture_by);
+ * the 7 days are only the fallback when Square did not send it.
  */
 export const CARD_HOLD_DAYS = 7;
-export const CARD_HOLD_WARN_DAYS = 5;
+/** The expiry bell rings this long before Square's deadline (SQ14). */
+export const CARD_HOLD_WARN_BEFORE_DAYS = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Square's deadline for a hold: delayed_until when known, else authorised + 7 days; null when neither parses. */
+export function cardHoldDeadline(authorizedAt: string | null | undefined, captureBy?: string | null): Date | null {
+  const cb = captureBy ? Date.parse(captureBy) : NaN;
+  if (Number.isFinite(cb)) return new Date(cb);
+  const t = authorizedAt ? Date.parse(authorizedAt) : NaN;
+  return Number.isFinite(t) ? new Date(t + CARD_HOLD_DAYS * DAY_MS) : null;
+}
+
 /**
- * A hold Square no longer honours. Square's own `delayed_until` (stored as
- * square_payments.capture_by) wins when present; otherwise the 7-day rule.
- * An unparsable authorisation timestamp counts as expired. `now` for tests.
+ * Past Square's deadline by the clock. This is TIME, not proof: only Square's
+ * read-back (CANCELED) closes a hold (SQ14) — callers use this to decide when
+ * to read Square, never to conclude that nothing was charged.
  */
 export function cardHoldExpired(authorizedAt: string, now: Date = new Date(), captureBy?: string | null): boolean {
-  const cb = captureBy ? Date.parse(captureBy) : NaN;
-  if (Number.isFinite(cb)) return now.getTime() > cb;
-  const t = Date.parse(authorizedAt);
-  if (!Number.isFinite(t)) return true;
-  return now.getTime() - t > CARD_HOLD_DAYS * DAY_MS;
+  const d = cardHoldDeadline(authorizedAt, captureBy);
+  return d === null ? true : now.getTime() > d.getTime();
 }
 
-/** The warning is due from day 5 on (a hold past day 7 is still warned — "expired, Reject it"). */
-export function cardHoldWarnDue(authorizedAt: string, now: Date = new Date()): boolean {
-  const t = Date.parse(authorizedAt);
-  if (!Number.isFinite(t)) return false;
-  return now.getTime() - t >= CARD_HOLD_WARN_DAYS * DAY_MS;
+/** The warning is due from 2 days before Square's own deadline (a hold already past it is warned too). */
+export function cardHoldWarnDue(authorizedAt: string, now: Date = new Date(), captureBy?: string | null): boolean {
+  const d = cardHoldDeadline(authorizedAt, captureBy);
+  if (d === null) return false;
+  return now.getTime() >= d.getTime() - CARD_HOLD_WARN_BEFORE_DAYS * DAY_MS;
 }
 
 /**
- * The CreatePayment idempotency key: one per CARD TOKEN, not per attempt.
- * A Web Payments SDK nonce is single-use, so a retried click with the same
- * nonce maps to the same Square payment (no second hold), while a corrected
- * card (new nonce) gets a fresh key — a declined or cancelled attempt never
- * locks the order (review finding B1, 2026-10-04). ≤ 45 chars (Square's limit).
+ * The CreatePayment idempotency key: one per CARD TOKEN on the order. A Web
+ * Payments SDK token is single-use, so a retried click with the same token
+ * maps to the same attempt row and the same Square payment (no second hold),
+ * while a new token is a new attempt — admitted only once the previous one
+ * is resolved (reserve_square_attempt). ≤ 45 chars (Square's limit).
  */
 export async function cardIdempotencyKey(orderId: string, sourceId: string): Promise<string> {
   const data = new TextEncoder().encode(`${orderId}\n${sourceId}`);
@@ -113,26 +152,50 @@ export async function cardIdempotencyKey(orderId: string, sourceId: string): Pro
   return `cj-card-${hex.slice(0, 36)}`;
 }
 
-/** Square's card-attempt cap per order per rolling 24 h (declines included — the submission cap cannot see them). */
+/**
+ * The attempt reference sent to Square as reference_id (≤ 40 chars). Every
+ * webhook and every ListPayments row carries it back, so a payment whose
+ * create response was lost still finds its attempt (SQ03). `cja_` marks it as
+ * ours: a payment without it is a seller/POS payment and is never allocated.
+ */
+export function newAttemptReference(randomBytes?: Uint8Array): string {
+  const b = randomBytes ?? globalThis.crypto.getRandomValues(new Uint8Array(12));
+  return "cja_" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 24);
+}
+export function isAttemptReference(v: unknown): v is string {
+  return typeof v === "string" && /^cja_[0-9a-f]{8,36}$/.test(v);
+}
+
+/** Caps and the fraud rule (owner 2026-10-04): enforced in reserve_square_attempt / resolve_square_attempt. */
 export const CARD_ATTEMPTS_PER_DAY = 5;
+export const CARD_REFUSALS_PER_ORDER = 5;
+export const CARD_REFUSALS_PER_CUSTOMER = 10;
 
 /**
  * What a Square status means for a square_payments row the Hub holds as
- * `current`. Our own settled states are never downgraded; an unknown or
- * pending answer changes nothing.
+ * `current` — the TS mirror of apply_square_payment_state (the SQL is the
+ * authority). COMPLETED is captured whatever the Hub concluded before (SQ13);
+ * captured never moves; APPROVED means the hold is live; CANCELED/FAILED close
+ * a live hold only; PENDING/UNKNOWN change nothing.
  */
 export function nextSquareRowStatus(current: string, squareStatus: SquarePaymentStatus, authorizedAt: string, captureBy: string | null | undefined, now: Date = new Date()): string {
-  if (current === "captured" || current === "expired" || current === "voided" || current === "failed") return current;
   if (squareStatus === "COMPLETED") return "captured";
+  if (current === "captured") return "captured";
+  if (squareStatus === "APPROVED") return "authorized";
+  if (current !== "authorized") return current;
   if (squareStatus === "FAILED") return "failed";
   if (squareStatus === "CANCELED") return cardHoldExpired(authorizedAt, now, captureBy) ? "expired" : "voided";
   return current;
 }
 
-/** Yen are whole; Square's amount_money.amount for JPY is a number of yen. */
+/** A provider completion the Hub had closed — money that must surface as an exception, never stay hidden. */
+export function isCaptureAfterClose(current: string, squareStatus: SquarePaymentStatus): boolean {
+  return squareStatus === "COMPLETED" && (current === "voided" || current === "expired" || current === "failed" || current === "rejected");
+}
+
+/** Exact integer-yen equality (SQ12): 52000 vs 51999.6 is NOT a match. */
 export function cardAmountMatches(squareAmount: unknown, remainingBalance: unknown): boolean {
-  const a = Number(squareAmount), b = Number(remainingBalance);
-  return Number.isFinite(a) && Number.isFinite(b) && Math.round(a) === Math.round(b) && a > 0;
+  return isCanonicalYen(squareAmount) && isCanonicalYen(remainingBalance) && Number(squareAmount) === Number(remainingBalance);
 }
 
 /** Square payment ids are opaque URL-safe strings. */
@@ -157,4 +220,57 @@ export function agreementRequired(amountJpy: number, minJpy: number): boolean {
   const min = Number(minJpy);
   if (!Number.isFinite(min) || min <= 0) return true;
   return Number(amountJpy) >= min;
+}
+
+export interface AgreementEvidence {
+  version?: unknown;
+  signed_at?: unknown;
+  customer_id?: unknown;
+  amount_jpy?: unknown;
+  bound?: unknown;
+}
+
+/**
+ * Owner 5A / SQ20: the signature counts only for THIS customer and THIS amount
+ * — the Card.gs lookup returns who signed (customer id from the signed link)
+ * and the amount shown when she signed. A changed amount means she signs
+ * again. Returns the refusal code, or null when the agreement binds the charge.
+ */
+export function agreementBindingProblem(a: AgreementEvidence | null | undefined, orderCustomerId: string, amountJpy: number, now: Date = new Date()): string | null {
+  if (!a || typeof a !== "object") return "agreement_missing";
+  if (typeof a.version !== "string" || a.version.trim() === "") return "agreement_missing";
+  const signed = typeof a.signed_at === "string" ? Date.parse(a.signed_at) : NaN;
+  if (!Number.isFinite(signed)) return "agreement_missing";
+  if (signed > now.getTime() + 5 * 60 * 1000) return "agreement_time_invalid";
+  if (a.bound !== true) return "agreement_unbound";
+  if (typeof a.customer_id !== "string" || a.customer_id !== orderCustomerId) return "agreement_other_customer";
+  if (!isCanonicalYen(a.amount_jpy) || Number(a.amount_jpy) !== amountJpy) return "agreement_amount_changed";
+  return null;
+}
+
+/** Terms acceptance time (client-reported) must be a real time, not in the future, and recent (24 h). */
+export function termsTimeProblem(acceptedAt: unknown, now: Date = new Date()): string | null {
+  const t = typeof acceptedAt === "string" ? Date.parse(acceptedAt) : NaN;
+  if (!Number.isFinite(t)) return "terms_missing";
+  if (t > now.getTime() + 5 * 60 * 1000) return "terms_time_invalid";
+  if (now.getTime() - t > DAY_MS) return "terms_stale";
+  return null;
+}
+
+/**
+ * SQ18 — truthful 3-D Secure evidence. The Hub cannot observe the issuer's
+ * verdict for an online card payment; it records only what it knows: which
+ * SDK path the storefront reports, or that a separate token was supplied.
+ */
+export function cardVerificationEvidence(flow: unknown, verificationTokenSupplied: boolean): string {
+  if (verificationTokenSupplied) return "verification_token_supplied";
+  if (flow === "sdk_tokenize_with_verification") return "sdk_tokenize_with_verification";
+  return "unknown";
+}
+
+/** Owner Q5 (Paidy) applied to card: the ledger date of a capture is its Japan calendar day. */
+export function jstDate(iso: string | null | undefined, fallback: Date = new Date()): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  const d = Number.isFinite(t) ? new Date(t) : fallback;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(d);
 }
