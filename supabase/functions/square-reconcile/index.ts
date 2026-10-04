@@ -125,9 +125,13 @@ Deno.serve(async (req) => {
       if (r.truncated) report.truncated.push("events_api");
       if (r.history_gap) report.history_gaps.push(`events_api before ${r.history_gap}`);
     } catch (e) {
-      // Not enabled for this account yet (a Square client error, not auth) is
-      // reported in the panel but is not an alarm (review #9); anything else is.
-      if (e instanceof SquareError && e.kind === "client") {
+      // A Square client error before the Events API has EVER answered for this
+      // environment (no checkpoint yet) is read as "not enabled": shown in the
+      // panel, not an alarm. Once a read has succeeded, the same error is a
+      // real fault and alarms like any other (review round 3, #9 — Square's
+      // exact "not enabled" code is not documented, so it is not guessed).
+      const neverRead = !((await getState(db, `events:${env}`).catch(() => null))?.through);
+      if (e instanceof SquareError && e.kind === "client" && neverRead) {
         report.events_api = `not_enabled: ${e.status} ${e.code}`;
       } else {
         report.events_api = e instanceof SquareError ? `unavailable: ${e.status} ${e.code}` : `error: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160);
@@ -267,7 +271,7 @@ Deno.serve(async (req) => {
     const { data: caps, error } = await db.from("square_payments")
       .select("square_payment_id, environment, test, refund_jpy")
       .eq("status", "captured").gte("captured_at", since)
-      .order("updated_at", { ascending: true }).limit(MAX_CAPTURED);
+      .order("reconciled_at", { ascending: true, nullsFirst: true }).limit(MAX_CAPTURED);
     if (error) throw error;
     for (const c of (caps ?? []) as Rec[]) {
       const cEnv = (c.environment as SquareEnvironment | null) ?? (c.test ? "sandbox" : "production");
@@ -281,8 +285,10 @@ Deno.serve(async (req) => {
         }
       } catch (e) {
         note(`refunds ${c.square_payment_id}`, e);
-        // touched so the next run reaches the others first (review #8)
-        await db.from("square_payments").update({ updated_at: new Date().toISOString() }).eq("square_payment_id", c.square_payment_id);
+      } finally {
+        // every capture looked at goes to the back of the queue, checked or not,
+        // so more than MAX_CAPTURED recent captures are all reached (review #8)
+        await db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("square_payment_id", c.square_payment_id);
       }
     }
   } catch (e) { note("refunds", e); }

@@ -319,13 +319,22 @@ modules), void-cash-payment, restore-cash-payment. Plan: project doc
   refuses and re-reads the window, scans disputes on a rolling cursor, touches every hold it looks at,
   and labels an Events API that is not enabled "not enabled" rather than an alarm. A saved decision on
   a case that stays open says so ("Decision saved — case still open").
+- **Second review pass (same day).** One lock order for every writer on a card payment — the
+  submission, then the order, then the card row: `apply_square_payment_state` (webhook / reconcile)
+  now takes the submission lock first, so a state change can no longer deadlock with a Finish or a
+  decision (reproduced on the old body, gone now). A decision never replaces or rejects a Confirm
+  still inside its 5-minute lease (`confirm_in_progress`; the decision itself is saved). The hourly
+  refund check on recent captures goes round-robin by `reconciled_at`, so every capture is reached.
+  An Events API client error counts as "not enabled" only before the API has ever answered for that
+  environment; after a successful read the same error alarms. `rpc('set_config')` is not callable on
+  live (no `public.set_config`), so the recording marker cannot be set by a client.
 - **Known limits (owner decisions, not code).** A receipt recorded on the wrong order is corrected by
   a refund in Square plus a new payment on the right order — never by editing the receipt. Test orders
   that hold a provider receipt cannot be deleted. Finance "Collected" stays gross of a card refund made
   after the payment was recorded; the refund is on the card row and in the Card activity report.
 
-Tests: 70 SQL acceptance checks (`development/sql/square-closeout-qc-acceptance.sql`) on a Postgres
+Tests: 74 SQL acceptance checks (`development/sql/square-closeout-qc-acceptance.sql`) on a Postgres
 copy of the live schema; the QC10 two-session race (`square-closeout-qc-race.sh`, reproduced on the old
-body, ends COMPLETED on the new) and the decide-vs-Finish deadlock (`square-closeout-qc-deadlock.sh`,
-reproduced on the first draft, none now); `development/square-closeout-qc.test.ts` (17) +
+body, ends COMPLETED on the new) and two deadlock races (`square-closeout-qc-deadlock.sh`: decide vs Finish, and a
+state change vs a Finish — each reproduced on the earlier body, none now); `development/square-closeout-qc.test.ts` (17) +
 `square-integrity.test.ts` (14); `src/test/square-ops.test.ts` (27).

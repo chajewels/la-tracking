@@ -1,7 +1,7 @@
 -- Square close-out QC acceptance tests (2026-10-05). NOT a migration — never applied to live.
 -- Runs on a local Postgres copy of the live schema with migration 20261108100000 applied, after
 -- stubbing auth.uid() (current_setting('test.uid')), has_role / is_staff (user_roles lookup).
--- Everything runs in one transaction and is rolled back. Expected: 70 passed, 0 failed.
+-- Everything runs in one transaction and is rolled back. Expected: 74 passed, 0 failed.
 -- Also: development/sql/square-closeout-qc-race.sh (QC10, must end COMPLETED) and
 -- development/sql/square-closeout-qc-deadlock.sh (decide vs Finish recording, must print no deadlock).
 
@@ -373,5 +373,36 @@ END $$;
 -- ===========================================================================
 \set QUIET off
 SELECT n, CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result, name, left(coalesce(detail, ''), 160) AS detail FROM t_results ORDER BY n;
+-- Review B: a Confirm inside its 5-minute lease is never replaced or rejected by a decision.
+DO $$
+DECLARE o uuid; s uuid; r jsonb; c uuid;
+BEGIN
+  PERFORM pg_temp.as_user('a0000000-0000-0000-0000-000000000001');
+  o := pg_temp.mk_order(); s := pg_temp.mk_sq(o, 'captured');
+  UPDATE public.square_payments SET exception = 'captured_unallocated', exception_at = now() WHERE id = s;
+  c := pg_temp.mk_claim(o, s, 9000);  -- not the capture amount: would normally be replaced
+  UPDATE public.payment_submissions SET processing_started_at = now() - interval '1 minute' WHERE id = c;
+  r := public.decide_square_case('exception', s, 'record_on_order', 'record it');
+  PERFORM pg_temp.ok(r->>'error' = 'confirm_in_progress' AND (r->>'decision_recorded')::boolean,
+                     'Review B record_on_order waits for a running Confirm', r::text);
+  PERFORM pg_temp.ok((SELECT status::text FROM public.payment_submissions WHERE id = c) = 'confirmed',
+                     'Review B the running Confirm is left alone');
+  -- lease expired: the stale claim is replaced as before
+  UPDATE public.payment_submissions SET processing_started_at = now() - interval '6 minutes' WHERE id = c;
+  r := public.decide_square_case('exception', s, 'record_on_order', 'record it');
+  PERFORM pg_temp.ok((r->>'ok')::boolean AND (SELECT status::text FROM public.payment_submissions WHERE id = c) = 'rejected',
+                     'Review B an expired lease is replaced by a recording for the capture', r::text);
+END $$;
+
+-- Review A: apply_square_payment_state takes the submission lock before the card row.
+DO $$
+DECLARE d text;
+BEGIN
+  d := pg_get_functiondef('public.apply_square_payment_state'::regproc);
+  PERFORM pg_temp.ok(strpos(d, 'PERFORM 1 FROM public.payment_submissions') > 0
+                     AND strpos(d, 'PERFORM 1 FROM public.payment_submissions') < strpos(d, 'FROM public.square_payments WHERE square_payment_id = p_square_payment_id FOR UPDATE'),
+                     'Review A apply_square_payment_state locks submission before the card row');
+END $$;
+
 SELECT count(*) FILTER (WHERE pass) AS passed, count(*) FILTER (WHERE NOT pass) AS failed FROM t_results;
 ROLLBACK;

@@ -23,7 +23,8 @@
 -- checked to give the live text back; guard_cash_payment_paidy and
 -- decide_square_case are rewritten (all old rules kept, listed in their
 -- headers); square_settlement_report gains one output column (DROP + CREATE,
--- grants re-asserted). The guard below stops the migration if live has moved;
+-- grants re-asserted); apply_square_payment_state gets one inserted lock (the
+-- submission before the card row — review round 3 A). The guard below stops the migration if live has moved;
 -- replaying it is a no-op (it accepts the already-patched md5).
 -- NOT touched: reserve_square_attempt, terminate_web_order_atomic and
 -- approve_redemption_atomic (md5-patched by 20261107100000).
@@ -33,11 +34,12 @@ DECLARE r record; v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
     ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '15daada758f0ed1446975306b3f4d302', '0fa6a88f98bbbcb8875f822c230613c7'),
-    ('public.decide_square_case(text,uuid,text,text)', '55477adcebeb4a979f75e62fc3a49b84', '1a0efba3f6a735f6e1309e1e19240393'),
+    ('public.decide_square_case(text,uuid,text,text)', '55477adcebeb4a979f75e62fc3a49b84', '983c3d19218a2687008677a83f42bbfb'),
     ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', '3ab1409bccc05e737c669e38cf77dd52', '05ea98ccb32a917d8ac5124281b21e9d'),
     ('public.record_square_dispute(text,text,text,text,bigint,timestamptz,timestamptz,timestamptz,jsonb)', '6cdfd6e652523fc4c5fc14a45b36b896', '9b1f4391292e7e7211eb58ce0a910e93'),
     ('public.guard_cash_payment_paidy()', '5e1c032aef7ca34e24161f47a0fb0b3f', '3b01fcbecf898942db632c741ed20f02'),
-    ('public.square_settlement_report(date,date,boolean)', '768b886dbceb34641af4c4ac90e319ac', '4621668c61e6ac4601996b08c2a8e967')) AS t(sig, live_md5, new_md5)
+    ('public.square_settlement_report(date,date,boolean)', '768b886dbceb34641af4c4ac90e319ac', '4621668c61e6ac4601996b08c2a8e967'),
+    ('public.apply_square_payment_state(text,text,bigint,bigint,text,text,timestamptz,timestamptz,timestamptz,text,text,text,text,jsonb,jsonb,text,uuid)', '086172c85efc69c4c9ad852dea0d6de8', '8ad64c42440eb9dea459007baea8a9df')) AS t(sig, live_md5, new_md5)
   LOOP
     SELECT md5(prosrc) INTO v_md5 FROM pg_proc WHERE oid = to_regprocedure(r.sig);
     IF v_md5 IS NULL THEN
@@ -684,6 +686,7 @@ DECLARE
   v_done     bigint := 0;
   v_open     integer := 0;
   v_claim    uuid;
+  v_busy     boolean := false;
   v_sub      uuid;
   v_amount   bigint;
   v_resolved boolean := false;
@@ -739,6 +742,11 @@ BEGIN
     SELECT * INTO v_order FROM public.cash_orders
      WHERE id = (SELECT cash_order_id FROM public.square_payments WHERE id = p_id) FOR UPDATE;
     SELECT * INTO v_sq FROM public.square_payments WHERE id = p_id FOR UPDATE;
+    -- A Confirm still inside its 5-minute lease (review-payment-submission's
+    -- claim, PAIDY_CONFIRM_LEASE_MS) is never pulled from under it (review B).
+    SELECT coalesce(processing_started_at > now() - interval '5 minutes', false) INTO v_busy
+      FROM public.payment_submissions WHERE id = v_claim;
+    v_busy := coalesce(v_busy, false);
     IF v_sq.id IS NULL OR NOT (v_sq.exception IS NOT NULL OR (v_sq.status = 'captured' AND v_sq.cash_payment_id IS NULL)) THEN
       RETURN jsonb_build_object('error', 'not_found');
     END IF;
@@ -763,7 +771,9 @@ BEGIN
       ELSE v_err := 'void_not_verified'; END IF;
 
     ELSIF v_dec = 'refunded_in_square' THEN
-      IF v_sq.status = 'captured' AND v_open = 0 AND v_sq.captured_amount_jpy IS NOT NULL
+      IF v_busy THEN
+        v_err := 'confirm_in_progress';
+      ELSIF v_sq.status = 'captured' AND v_open = 0 AND v_sq.captured_amount_jpy IS NOT NULL
          AND v_done >= v_sq.captured_amount_jpy THEN
         v_resolved := true;
         -- The claimed Confirm can never record refunded money: close it.
@@ -794,6 +804,8 @@ BEGIN
               AND (SELECT submitted_amount = v_amount AND submission_type = 'cash_payment'
                      FROM public.payment_submissions WHERE id = v_claim) THEN
           v_sub := v_claim; -- the existing claimed Confirm is exactly this capture
+        ELSIF v_busy THEN
+          v_err := 'confirm_in_progress'; -- never replace a Confirm that is running
         ELSE
           IF v_claim IS NOT NULL THEN
             UPDATE public.payment_submissions
@@ -847,6 +859,185 @@ GRANT EXECUTE ON FUNCTION public.decide_square_case(text, uuid, text, text) TO a
 --    figures plus fees_missing (captures whose processing fee Square has not
 --    reported yet — counted as 0, so net is an overestimate that day). Bank
 --    payouts are not read; the Square Dashboard is the bank truth.
+
+-- ---------------------------------------------------------------------------
+-- apply_square_payment_state — one lock order (review 2026-10-05 A)
+-- ---------------------------------------------------------------------------
+-- Anchored in-place edit of the LIVE body (md5 of prosrc 086172c8…): it now
+-- locks the latest submission before the card row, the order finalize and
+-- decide_square_case use. Nothing else changes; removing the inserted PERFORM
+-- gives the live text back (checked).
+CREATE OR REPLACE FUNCTION public.apply_square_payment_state(p_square_payment_id text, p_provider_status text, p_amount_jpy bigint, p_refunded_jpy bigint, p_currency text, p_provider_version text, p_provider_updated_at timestamp with time zone, p_captured_at timestamp with time zone, p_capture_by timestamp with time zone, p_card_brand text, p_card_last4 text, p_receipt_url text, p_risk_level text, p_provider_verification jsonb, p_payload jsonb, p_source text, p_user_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sq     public.square_payments%ROWTYPE;
+  v_order  public.cash_orders%ROWTYPE;
+  v_sub    public.payment_submissions%ROWTYPE;
+  v_ps     text := upper(coalesce(p_provider_status, ''));
+  v_from   text;
+  v_to     text;
+  v_exc    text := NULL;
+  v_subact text := NULL;
+  v_ref    text;
+  v_amt    text;
+BEGIN
+  -- One lock order everywhere (review 2026-10-05 A): the latest submission,
+  -- then the card row — the order finalize_cash_submission_atomic and
+  -- decide_square_case take — so a webhook / reconcile state change never
+  -- deadlocks with a Finish or a staff decision on the same payment.
+  PERFORM 1 FROM public.payment_submissions
+   WHERE square_payment_id = (SELECT id FROM public.square_payments WHERE square_payment_id = p_square_payment_id)
+   ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+  SELECT * INTO v_sq FROM public.square_payments WHERE square_payment_id = p_square_payment_id FOR UPDATE;
+  IF v_sq.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'error', 'unknown_payment'); END IF;
+  SELECT * INTO v_order FROM public.cash_orders WHERE id = v_sq.cash_order_id;
+  v_from := v_sq.status;
+  v_ref := coalesce(v_order.web_reference, v_order.invoice_number, '');
+  v_amt := '¥' || to_char(coalesce(p_amount_jpy, round(v_sq.amount_jpy)::bigint), 'FM999,999,999');
+
+  -- The payment exists in Square and in the Hub: its attempt is answered. An
+  -- attempt still open (lost answer recovered by webhook/reconcile, a
+  -- cancel-by-key that put it back to unknown) would lock the order forever
+  -- (review 2026-10-04 #1) — close it; this row carries the lock from here.
+  UPDATE public.square_card_attempts
+     SET status = CASE WHEN v_ps IN ('CANCELED','FAILED') THEN 'cancelled' ELSE 'authorized' END,
+         square_payment_id = coalesce(square_payment_id, p_square_payment_id),
+         resolved_at = coalesce(resolved_at, now()), updated_at = now()
+   WHERE status IN ('reserved','unknown','cancelling')
+     AND (id = v_sq.attempt_id OR (v_sq.reference IS NOT NULL AND reference = v_sq.reference));
+
+  -- An older observation never overwrites a newer one.
+  IF p_provider_updated_at IS NOT NULL AND v_sq.provider_updated_at IS NOT NULL
+     AND p_provider_updated_at < v_sq.provider_updated_at THEN
+    RETURN jsonb_build_object('ok', true, 'changed', false, 'stale', true, 'status', v_from);
+  END IF;
+
+  -- The rule: Square COMPLETED is captured whatever the Hub concluded before;
+  -- captured never goes back; APPROVED means the hold is live (a local
+  -- "voided/expired" was wrong); CANCELED/FAILED close a live hold only.
+  v_to := CASE
+    WHEN v_ps = 'COMPLETED' THEN 'captured'
+    WHEN v_from = 'captured' THEN 'captured'
+    WHEN v_ps = 'APPROVED' THEN 'authorized'
+    WHEN v_ps = 'CANCELED' AND v_from = 'authorized' THEN
+      CASE WHEN coalesce(p_capture_by, v_sq.capture_by) IS NOT NULL AND now() >= coalesce(p_capture_by, v_sq.capture_by)
+           THEN 'expired' ELSE 'voided' END
+    WHEN v_ps = 'FAILED' AND v_from = 'authorized' THEN 'failed'
+    ELSE v_from END;
+
+  IF v_to = 'captured' AND v_from <> 'captured' THEN
+    IF v_from IN ('voided','expired','failed','rejected') THEN v_exc := 'captured_after_close'; END IF;
+    IF coalesce(p_currency, 'JPY') <> 'JPY' OR p_amount_jpy IS DISTINCT FROM round(v_sq.amount_jpy)::bigint THEN
+      v_exc := 'amount_mismatch';
+    END IF;
+  ELSIF v_to = 'authorized' AND v_from IN ('voided','expired','failed','rejected') THEN
+    v_exc := 'void_unconfirmed';
+  END IF;
+
+  UPDATE public.square_payments
+     SET status = v_to,
+         provider_status = coalesce(nullif(v_ps, ''), provider_status),
+         provider_version = coalesce(p_provider_version, provider_version),
+         provider_updated_at = coalesce(p_provider_updated_at, provider_updated_at),
+         captured_at = CASE WHEN v_to = 'captured' AND captured_at IS NULL THEN coalesce(p_captured_at, now()) ELSE captured_at END,
+         captured_amount_jpy = CASE WHEN v_to = 'captured' AND captured_amount_jpy IS NULL THEN p_amount_jpy ELSE captured_amount_jpy END,
+         voided_at = CASE WHEN v_to IN ('voided','expired') AND v_from = 'authorized' THEN now()
+                          WHEN v_to = 'authorized' THEN NULL ELSE voided_at END,
+         voided_reason = CASE WHEN v_to IN ('voided','expired') AND v_from = 'authorized' THEN coalesce(p_source, 'square')
+                              WHEN v_to = 'authorized' THEN NULL ELSE voided_reason END,
+         capture_by = coalesce(p_capture_by, capture_by),
+         refund_jpy = greatest(coalesce(p_refunded_jpy, 0), 0),
+         card_brand = coalesce(card_brand, p_card_brand),
+         card_last4 = coalesce(card_last4, p_card_last4),
+         receipt_url = coalesce(p_receipt_url, receipt_url),
+         risk_level = coalesce(p_risk_level, risk_level),
+         provider_verification = coalesce(p_provider_verification, provider_verification),
+         last_payload = coalesce(p_payload, last_payload),
+         last_webhook_at = CASE WHEN p_source = 'webhook' THEN now() ELSE last_webhook_at END,
+         exception = CASE WHEN v_exc IS NOT NULL THEN v_exc ELSE exception END,
+         exception_at = CASE WHEN v_exc IS NOT NULL THEN now() ELSE exception_at END,
+         exception_note = CASE WHEN v_exc IS NOT NULL THEN 'Square ' || v_ps || ' while the Hub had ' || v_from ELSE exception_note END,
+         exception_resolved_at = CASE WHEN v_exc IS NOT NULL THEN NULL ELSE exception_resolved_at END,
+         updated_at = now()
+   WHERE id = v_sq.id
+  RETURNING * INTO v_sq;
+
+  SELECT * INTO v_sub FROM public.payment_submissions WHERE square_payment_id = v_sq.id
+   ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+
+  IF v_to IN ('voided','expired','failed') AND v_from = 'authorized' THEN
+    -- The hold is gone: a submission still waiting is rejected so she can pay
+    -- again (owner 3A). A claimed Confirm is left to its own read-back.
+    IF v_sub.id IS NOT NULL AND v_sub.status::text IN ('submitted','under_review') THEN
+      UPDATE public.payment_submissions
+         SET status = 'rejected',
+             reviewer_notes = 'Card hold closed by Square (' || v_ps || ', ' || v_to || ') — nothing was charged.',
+             updated_at = now()
+       WHERE id = v_sub.id;
+      v_subact := 'rejected';
+    END IF;
+    IF coalesce(p_source, '') NOT IN ('void') THEN
+      INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
+      VALUES ('card_closed_externally', 'Card hold closed by Square',
+              v_ref || ' · ' || v_amt || ' — Square reports the hold as ' || v_ps || ' (' || v_to || '). Nothing was charged; '
+                || CASE WHEN v_subact = 'rejected' THEN 'the submission was rejected and the customer can pay again.' ELSE 'no submission was waiting.' END,
+              v_order.customer_id, v_order.invoice_number,
+              jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id,
+                                 'status', v_to, 'source', p_source, 'test', v_sq.test));
+    END IF;
+  ELSIF v_to = 'captured' AND v_from <> 'captured' THEN
+    IF v_sub.id IS NULL OR v_sub.status::text IN ('rejected','cancelled') THEN
+      IF v_exc IS NULL THEN
+        v_exc := 'captured_unallocated';
+        UPDATE public.square_payments SET exception = v_exc, exception_at = now(),
+               exception_note = 'Captured with no live submission', exception_resolved_at = NULL
+         WHERE id = v_sq.id;
+      END IF;
+    END IF;
+    -- A reviewer's Confirm that already claimed the submission (status
+    -- 'confirmed', not yet recorded) is the Hub's own capture: no "captured
+    -- outside the Hub" bell for it (webhook racing the Confirm, Finish recording).
+    IF v_exc IS NOT NULL
+       OR (coalesce(p_source, '') <> 'capture'
+           AND NOT (v_sub.id IS NOT NULL AND v_sub.status::text = 'confirmed' AND v_sub.confirmed_payment_id IS NULL)) THEN
+      INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
+      VALUES (CASE WHEN v_exc IS NOT NULL THEN 'card_capture_exception' ELSE 'card_captured_externally' END,
+              CASE WHEN v_exc IS NOT NULL THEN 'Card money captured — needs a decision' ELSE 'Card captured outside the Hub' END,
+              v_ref || ' · ' || v_amt || ' — Square shows this card payment COMPLETED'
+                || CASE WHEN v_exc IS NOT NULL THEN ' (' || v_exc || '). Open Website → Card payments to record it or refund it in the Square Dashboard.'
+                        ELSE '. Open Payments Hub and press Confirm / Finish recording to record it.' END,
+              v_order.customer_id, v_order.invoice_number,
+              jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id,
+                                 'exception', v_exc, 'source', p_source, 'test', v_sq.test));
+    END IF;
+  ELSIF v_exc = 'void_unconfirmed' THEN
+    INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
+    VALUES ('card_void_failed', 'Card hold is still live',
+            v_ref || ' · ' || v_amt || ' — the Hub had this hold as ' || v_from || ' but Square still holds it (APPROVED). Void it from Payments Hub or the Square Dashboard.',
+            v_order.customer_id, v_order.invoice_number,
+            jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id, 'test', v_sq.test));
+  END IF;
+
+  IF v_to IS DISTINCT FROM v_from OR v_exc IS NOT NULL THEN
+    INSERT INTO public.audit_logs (entity_type, entity_id, action, old_value_json, new_value_json, performed_by_user_id)
+    VALUES ('square_payment', v_sq.id, 'square_state',
+            jsonb_build_object('status', v_from),
+            jsonb_build_object('status', v_to, 'provider_status', v_ps, 'exception', v_exc, 'submission', v_subact,
+                               'source', p_source, 'square_payment_id', p_square_payment_id),
+            p_user_id);
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'changed', v_to IS DISTINCT FROM v_from, 'from', v_from, 'to', v_to,
+                            'exception', v_exc, 'submission_action', v_subact, 'square_row_id', v_sq.id,
+                            'cash_order_id', v_sq.cash_order_id);
+END
+$function$;
+
+
 -- ---------------------------------------------------------------------------
 DROP FUNCTION IF EXISTS public.square_settlement_report(date, date, boolean);
 CREATE FUNCTION public.square_settlement_report(p_from date, p_to date, p_include_test boolean DEFAULT false)
@@ -940,11 +1131,12 @@ DECLARE r record; v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
     ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '0fa6a88f98bbbcb8875f822c230613c7'),
-    ('public.decide_square_case(text,uuid,text,text)', '1a0efba3f6a735f6e1309e1e19240393'),
+    ('public.decide_square_case(text,uuid,text,text)', '983c3d19218a2687008677a83f42bbfb'),
     ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', '05ea98ccb32a917d8ac5124281b21e9d'),
     ('public.record_square_dispute(text,text,text,text,bigint,timestamptz,timestamptz,timestamptz,jsonb)', '9b1f4391292e7e7211eb58ce0a910e93'),
     ('public.guard_cash_payment_paidy()', '3b01fcbecf898942db632c741ed20f02'),
-    ('public.square_settlement_report(date,date,boolean)', '4621668c61e6ac4601996b08c2a8e967')) AS t(sig, new_md5)
+    ('public.square_settlement_report(date,date,boolean)', '4621668c61e6ac4601996b08c2a8e967'),
+    ('public.apply_square_payment_state(text,text,bigint,bigint,text,text,timestamptz,timestamptz,timestamptz,text,text,text,text,jsonb,jsonb,text,uuid)', '8ad64c42440eb9dea459007baea8a9df')) AS t(sig, new_md5)
   LOOP
     SELECT md5(prosrc) INTO v_md5 FROM pg_proc WHERE oid = to_regprocedure(r.sig);
     IF v_md5 IS DISTINCT FROM r.new_md5 THEN
