@@ -521,6 +521,12 @@ async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pending
     location_id: locationId,
     test: mode === "test",
     amount_jpy: amountJpy,
+    // Owner 4A / 5A (2026-10-04): the cardholder-name default (her own name,
+    // never a gift recipient's) and the customer the Card Purchase Agreement
+    // must be signed for (her own id — the storefront signs the agreement link
+    // with it and checks the lookup's answer against it).
+    customer_id: String(customer.id),
+    cardholder_name: typeof customer.full_name === "string" ? customer.full_name : null,
     // D9: the signed Card Purchase Agreement, required at or above the
     // threshold (0 = every card payment). The storefront gates on it BEFORE
     // the card form; the Hub refuses the payment without it (agreement_missing).
