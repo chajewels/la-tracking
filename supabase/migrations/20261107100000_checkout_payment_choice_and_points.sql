@@ -139,6 +139,28 @@ REVOKE ALL ON FUNCTION public.layaway_deposit_started(uuid) FROM PUBLIC, anon, a
 GRANT EXECUTE ON FUNCTION public.cash_order_points_paid(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.layaway_points_paid(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.layaway_deposit_started(uuid) TO service_role;
+-- The hourly sweep (auto-expire-cash-orders) selects web layaways by
+-- total_paid = 0. A deposit PARTLY paid by points has total_paid > 0 and no
+-- money: it is found here instead, and expire_web_layaway_atomic re-checks it.
+CREATE OR REPLACE FUNCTION public.web_layaway_points_expiry_candidates(p_now timestamptz, p_limit integer)
+RETURNS SETOF uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+  SELECT a.id
+    FROM public.layaway_accounts a
+   WHERE a.source_channel = 'web' AND a.status = 'active' AND a.expired_at IS NULL
+     AND a.transfer_due_at IS NOT NULL AND a.transfer_due_at < p_now
+     AND coalesce(a.total_paid, 0) > 0
+     AND EXISTS (SELECT 1 FROM public.payments p
+                  WHERE p.account_id = a.id AND p.voided_at IS NULL
+                    AND coalesce(p.reference_number, '') LIKE 'LOYALTY-%')
+     AND NOT public.layaway_deposit_started(a.id)
+   ORDER BY a.transfer_due_at
+   LIMIT greatest(coalesce(p_limit, 50), 0)
+$fn$;
+REVOKE ALL ON FUNCTION public.web_layaway_points_expiry_candidates(timestamptz, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.web_layaway_points_expiry_candidates(timestamptz, integer) TO service_role;
+
 COMMENT ON FUNCTION public.layaway_deposit_started(uuid) IS
   'True once money has arrived on the plan (LOYALTY- discounts excluded) or points cover the whole deposit. The web-layaway deposit checks read this instead of total_paid > 0 (2026-10-05).';
 
@@ -608,7 +630,8 @@ BEGIN
     END IF;
   END LOOP;
   IF has_function_privilege('authenticated', 'public.change_web_payment_method_atomic(text,uuid,text,text,uuid)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.layaway_deposit_started(uuid)', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.layaway_deposit_started(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.web_layaway_points_expiry_candidates(timestamptz,integer)', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOP — a new function is executable by a signed-in or anonymous caller; rolled back';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cash_orders_payment_method_check'

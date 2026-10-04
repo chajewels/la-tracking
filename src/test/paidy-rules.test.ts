@@ -247,6 +247,26 @@ describe("R10 one charge breakdown that adds up to the amount", () => {
     expect(paidyCheckoutBreakdown({ ...o, total_amount: 101500.5, remaining_balance: 101500.5 }, [line(100000)], "x")).toBeNull();
     expect(paidyCheckoutBreakdown(o, [line(200000)], "x")).toBeNull();
   });
+  it("points used at checkout: amount = total − points, with a negative Points line (2026-10-05)", () => {
+    const b = paidyCheckoutBreakdown({ ...o, remaining_balance: 98500, points_applied: 3000 }, [line(100000)], "CJ-W-1")!;
+    expect(b.amount).toBe(98500);
+    expect(b.items.at(-1)).toEqual({ id: "points", quantity: 1, title: "Points", unit_price: -3000 });
+    expect(b.items.reduce((s, i) => s + i.unit_price * i.quantity, 0) + b.shipping).toBe(98500);
+    // money paid on top of points is still part-paid
+    expect(paidyCheckoutBreakdown({ ...o, remaining_balance: 90000, points_applied: 3000 }, [line(100000)], "x")).toBeNull();
+  });
+});
+
+describe("C1 method lock (2026-10-05): a website order offers Paidy only when Paidy is its method", () => {
+  it("transfer / card / null method → method_not_chosen", () => {
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: "transfer" })).toBe("method_not_chosen");
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: "square" })).toBe("method_not_chosen");
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: null })).toBe("method_not_chosen");
+  });
+  it("paidy → offered; omitted → not checked", () => {
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: "paidy" })).toBeNull();
+    expect(paidyNotOfferedReason(base)).toBeNull();
+  });
 });
 
 describe("P11 refunds are recorded once per refund id", () => {

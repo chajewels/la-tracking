@@ -400,6 +400,25 @@ Deno.serve(async (req) => {
         .limit(MAX_ORDERS_PER_RUN);
       if (planErr) throw planErr;
 
+      // Points used at checkout (2026-10-05) put a LOYALTY- discount on the
+      // deposit, so total_paid > 0 with no money received. Those plans are
+      // found by web_layaway_points_expiry_candidates (deposit NOT started:
+      // points cover only part of it and no money came) and swept the same
+      // way; expire_web_layaway_atomic re-checks everything in the transaction.
+      const { data: ptsIds, error: ptsErr } = await supabase.rpc("web_layaway_points_expiry_candidates", {
+        p_now: nowIso, p_limit: MAX_ORDERS_PER_RUN,
+      });
+      if (ptsErr) throw ptsErr;
+      const extraIds = ((ptsIds ?? []) as unknown[]).map((r) => String(typeof r === "object" && r !== null ? Object.values(r as Record<string, unknown>)[0] : r));
+      if (extraIds.length > 0) {
+        const { data: ptsPlans, error: ppErr } = await supabase
+          .from("layaway_accounts")
+          .select("id, invoice_number, web_reference, currency, total_amount, downpayment_amount, transfer_due_at, customer_lang, ship_to_snapshot, quote:checkout_quotes(ship_to_address:customer_addresses(country)), customers(full_name, email, is_test)")
+          .in("id", extraIds);
+        if (ppErr) throw ppErr;
+        (plans as unknown[] | null)?.push(...((ptsPlans ?? []) as unknown[]));
+      }
+
       for (const plan of plans ?? []) {
         try {
           const { data: exp, error: expErr } = await supabase.rpc("expire_web_layaway_atomic", {

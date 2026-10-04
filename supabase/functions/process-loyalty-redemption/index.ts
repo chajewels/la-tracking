@@ -534,6 +534,8 @@ Deno.serve(async (req) => {
       if (approveErr) {
         const msg = approveErr.message ?? String(approveErr);
         if (msg.includes("redemption_not_pending")) return json({ error: "Redemption is no longer pending" }, 400);
+        // Website checkout points (2026-10-05): approved only by staff Confirm of the order.
+        if (msg.includes("web_draft_redemption")) return json({ error: "These points were used at website checkout — they are approved automatically when staff confirm the website order (Website orders → review)." }, 409);
         if (msg.includes("insufficient_points")) return json({ error: "Insufficient points (balance changed since create)" }, 400);
         if (msg.includes("reward_out_of_stock")) return json({ error: "Reward out of stock — approval aborted, nothing was debited" }, 409);
         if (msg.includes("account_not_open")) {

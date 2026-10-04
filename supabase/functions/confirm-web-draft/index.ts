@@ -42,7 +42,61 @@ const ERROR_STATUS: Record<string, number> = {
   not_open: 409,
   hold_lost: 409,
   permission_denied: 403,
+  // Checkout points (2026-10-05).
+  points_hold_lost: 409,
+  points_exceed_deposit: 409,
+  points_exceed_total: 409,
+  points_insufficient: 409,
 };
+
+/**
+ * approve_redemption_atomic RAISES (the Confirm rolls back whole). Its
+ * messages, as the review screen should read them.
+ */
+function pointsRaise(message: string): string | null {
+  if (/insufficient_points|insufficient_lots/i.test(message)) return "points_insufficient";
+  if (/redemption_not_pending/i.test(message)) return "points_hold_lost";
+  if (/web_draft_redemption/i.test(message)) return "points_hold_lost";
+  return null;
+}
+
+// deno-lint-ignore no-explicit-any
+async function awardIfPaidByPoints(supabase: any, result: AnyRec): Promise<AnyRec | null> {
+  try {
+    let body: AnyRec | null = null;
+    if (result.entity_type === "layaway_account") {
+      const { data: started } = await supabase.rpc("layaway_deposit_started", { p_account_id: result.entity_id });
+      if (started === true) body = { account_id: result.entity_id };
+    } else {
+      const { data: order } = await supabase.from("cash_orders")
+        .select("id, customer_id, status").eq("id", String(result.entity_id)).maybeSingle();
+      if ((order as AnyRec | null)?.status === "completed") {
+        body = { cash_order_id: (order as AnyRec).id, customer_id: (order as AnyRec).customer_id };
+      }
+    }
+    if (!body) return null;
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => null);
+    const out = { ...(json ?? {}), http_status: res.status, paid_by_points: true } as AnyRec;
+    if (!res.ok || out.error) {
+      // Visible to staff: an award owed and not made.
+      await supabase.from("staff_notifications").insert({
+        type: "loyalty_award_failed",
+        title: "Loyalty award failed after website Confirm",
+        body: `Points paid ${result.entity_type === "layaway_account" ? "the whole deposit" : "the whole order"} on ${String(result.web_reference ?? result.invoice_number ?? "")}; the award did not go through (${String(out.error ?? res.status)}). Check the order.`,
+        invoice_number: result.invoice_number ?? null,
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn("[confirm-web-draft] award after points-paid Confirm failed (non-blocking):", e);
+    return { error: String(e), paid_by_points: true };
+  }
+}
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -129,9 +183,25 @@ Deno.serve(async (req) => {
       p_schedule: schedule,
       p_service_lines: serviceLines,
     });
-    if (error) throw error;
+    if (error) {
+      const mapped = pointsRaise(String(error.message ?? ""));
+      if (mapped) return jsonResponse({ error: mapped, detail: error.message }, 409);
+      throw error;
+    }
     const result = (data ?? {}) as AnyRec;
     if (result.error) return jsonResponse(result, ERROR_STATUS[String(result.error)] ?? 400);
+
+    // LOYALTY AWARD AT CONFIRM — the one exception to "review-payment-
+    // submission is the sole award path" (CLAUDE.md LOYALTY rule 2, owner
+    // 2026-10-05 "Whole deposit allowed"): when the checkout's points paid the
+    // WHOLE deposit (layaway) or the whole order (cash), no payment will ever
+    // be submitted, so the award the deposit / completion would trigger is
+    // made here, through the same award-loyalty-points function (idempotent
+    // via loyalty_award_claims). Never blocks the Confirm.
+    let loyaltyAward: AnyRec | null = null;
+    if (result.points_approval) {
+      loyaltyAward = await awardIfPaidByPoints(supabase, result);
+    }
 
     // The ready email reads the order back from the row just written.
     const email = result.entity_type === "cash_order"
@@ -158,7 +228,7 @@ Deno.serve(async (req) => {
       email: email.sent ? "sent" : (email as { reason?: string }).reason ?? "not_sent",
     }));
 
-    return jsonResponse({ ...result, figures, email, service_requests: serviceRequests });
+    return jsonResponse({ ...result, figures, email, service_requests: serviceRequests, loyalty_award: loyaltyAward });
   } catch (err) {
     console.error("[confirm-web-draft] failed:", err);
     return jsonResponse({ error: (err as Error)?.message ?? "internal_error" }, 500);

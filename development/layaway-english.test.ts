@@ -70,6 +70,9 @@ function cases(): Case[] {
     for (const region of ['JP', 'OVERSEAS'] as const) {
       for (const variant of ['placed', 'ready'] as const)
         out.push({ file: 'layaway-plan-created.tsx', name: `plan-created ${currency} ${region} ${variant}`, subject: variant === 'ready' ? layawayReadySubject(ref) : layawayPlanCreatedSubject(ref), element: el(LayawayPlanCreatedEmail, { ...plan, schedule, methods, transferDueAt: due, region, planUrl, variant }) })
+      // Points used at checkout (2026-10-05): part of the deposit, and all of it.
+      for (const pointsApplied of [10000, 36000])
+        out.push({ file: 'layaway-plan-created.tsx', name: `plan-created ${currency} ${region} ready points=${pointsApplied}`, subject: layawayReadySubject(ref), element: el(LayawayPlanCreatedEmail, { ...plan, schedule, methods, transferDueAt: due, region, planUrl, variant: 'ready', pointsApplied }) })
       out.push({ file: 'layaway-deposit-due.tsx', name: `deposit-due ${currency} ${region}`, subject: layawayDepositDueSubject(ref), element: el(LayawayDepositDueEmail, { reference: ref, currency, deposit: 36000, methods, transferDueAt: due, region, planUrl }) })
       for (const transferDueAt of [due, null])
         out.push({ file: 'layaway-expired.tsx', name: `expired ${currency} ${region} due=${!!transferDueAt}`, subject: layawayExpiredSubject(ref), element: el(LayawayExpiredEmail, { reference: ref, currency, totalAmount: 120000, deposit: 36000, transferDueAt, region, shopUrl }) })

@@ -43,6 +43,12 @@ export interface LayawayPlanCreatedProps {
   pieces?: string[]
   services?: string[]
   courier?: string | null
+  /**
+   * Points used at checkout (2026-10-05): already taken off the deposit, in the
+   * plan's currency. > 0 says so and asks only for the rest; when points cover
+   * the whole deposit nothing is asked for and no accounts are shown.
+   */
+  pointsApplied?: number
 }
 
 export const layawayPlanCreatedSubject = (reference: string) =>
@@ -58,6 +64,10 @@ const COPY = {
     `Please transfer the deposit of ${amt} by ${due}. Once we confirm it your reservation is final and the payment schedule begins.`,
   hold: 'If the deposit does not arrive by the deadline the hold is released and the piece goes back on sale.',
   proof: 'After transferring, upload your receipt from your account page. Confirmation usually takes one business day.',
+  points: (pts: string, rest: string, due: string) =>
+    `Your points paid ${pts} of the deposit. Please transfer the remaining ${rest} by ${due}. Once we confirm it your reservation is final and the payment schedule begins.`,
+  pointsWhole: (pts: string) =>
+    `Your points paid the whole deposit (${pts}), so there is nothing to send now. Your payment schedule is below.`,
 } as const
 
 /** The 'ready' variant: only the heading and the opening line differ. */
@@ -69,6 +79,8 @@ const READY_COPY = {
 
 const Content = ({ p }: { p: LayawayPlanCreatedProps }) => {
   const c = p.variant === 'ready' ? READY_COPY : COPY
+  const pts = Math.max(0, Number(p.pointsApplied ?? 0))
+  const rest = Math.max(0, p.deposit - pts)
   return (
     <>
       <Heading style={h1}>{c.heading}</Heading>
@@ -82,12 +94,20 @@ const Content = ({ p }: { p: LayawayPlanCreatedProps }) => {
         <Text style={muted}>The total includes the service we agreed: {p.services.join(', ')}.</Text>
       )}
       {p.courier && <Text style={muted}>Shipping by: {p.courier}</Text>}
-      <Text style={text}>
-        {c.deposit(formatMoney(p.deposit, p.currency), formatDeadline(p.transferDueAt, p.region, 'en'))}
-      </Text>
-      <MethodCards methods={p.methods} lang="en" />
-      <Text style={notice}>{c.hold}</Text>
-      <Text style={muted}>{c.proof}</Text>
+      {pts > 0 && rest <= 0 ? (
+        <Text style={text}>{c.pointsWhole(formatMoney(pts, p.currency))}</Text>
+      ) : (
+        <>
+          <Text style={text}>
+            {pts > 0
+              ? c.points(formatMoney(pts, p.currency), formatMoney(rest, p.currency), formatDeadline(p.transferDueAt, p.region, 'en'))
+              : c.deposit(formatMoney(p.deposit, p.currency), formatDeadline(p.transferDueAt, p.region, 'en'))}
+          </Text>
+          <MethodCards methods={p.methods} lang="en" />
+          <Text style={notice}>{c.hold}</Text>
+          <Text style={muted}>{c.proof}</Text>
+        </>
+      )}
       <ScheduleTable rows={p.schedule} currency={p.currency} />
       {p.planUrl && (
         <Section style={buttonWrap}>

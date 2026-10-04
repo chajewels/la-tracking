@@ -36,6 +36,8 @@ export const WORDS = {
   shipping: { ja: '送料', en: 'Shipping' },
   free: { ja: '無料', en: 'Free' },
   total: { ja: '合計', en: 'Total' },
+  points: { ja: 'ポイント利用', en: 'Points used' },
+  amountDue: { ja: 'お支払い金額', en: 'Amount to pay' },
   reference: { ja: 'ご注文番号', en: 'Order reference' },
   bankName: { ja: '銀行名', en: 'Bank' },
   branch: { ja: '支店名', en: 'Branch' },
@@ -105,7 +107,12 @@ export type OrderCurrency = 'JPY' | 'PHP'
  * shipping and total are shown, in ₱ (owner decision D1, 2026-09-25 — the
  * peso-layaway precedent). Two currencies never share one receipt.
  */
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency }) => (
+/**
+ * pointsApplied (2026-10-05): points used at checkout, already taken off, in
+ * the order's currency. > 0 adds "Points used −¥N" and "Amount to pay" under
+ * the total. Absent / 0 = the table exactly as before.
+ */
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
@@ -115,7 +122,13 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency }: { i
       k={WORDS.shipping[lang]}
       v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : orderMoney(shippingJpy, currency)}
     />
-    <Row k={WORDS.total[lang]} v={orderMoney(totalJpy, currency)} emphasis />
+    <Row k={WORDS.total[lang]} v={orderMoney(totalJpy, currency)} emphasis={!(pointsApplied && pointsApplied > 0)} />
+    {pointsApplied !== undefined && pointsApplied > 0 && (
+      <>
+        <Row k={WORDS.points[lang]} v={`−${orderMoney(pointsApplied, currency)}`} />
+        <Row k={WORDS.amountDue[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
+      </>
+    )}
   </Panel>
 )
 

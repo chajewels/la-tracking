@@ -61,7 +61,11 @@ export interface PaidyOfferInput {
   };
   address: PaidyAddress | null | undefined;
   pendingSubmissions: number;
-  /** Owner 2026-10-04: Paidy only while nothing has been paid on the order. */
+  /**
+   * Owner 2026-10-04: Paidy only while nothing has been paid on the order.
+   * Points used at checkout (LOYALTY- discounts) are not money: callers pass
+   * total_paid LESS cash_order_points_paid (2026-10-05).
+   */
   totalPaid?: number | string | null;
   /** cash_order_payment_lock() — a Paidy window/payment or any other payment in progress. */
   paymentLock?: string | null;
@@ -69,6 +73,12 @@ export interface PaidyOfferInput {
   buyerName?: string | null;
   /** R10: false when the item breakdown cannot equal the amount. */
   breakdownOk?: boolean;
+  /**
+   * cash_orders.payment_method (owner C1, 2026-10-05): the customer chose how to
+   * pay at checkout, so a WEBSITE order offers Paidy only when Paidy is its
+   * method (null = transfer). Omitted = not checked (older callers).
+   */
+  paymentMethod?: string | null;
 }
 
 /** Why Paidy is not offered, or null when it is. One reason, the first that fails. */
@@ -78,6 +88,7 @@ export function paidyNotOfferedReason(i: PaidyOfferInput): string | null {
   if (!isPaidyPublicKey(i.publicKey)) return "no_public_key";
   if (i.mode === "test" && !String(i.publicKey).startsWith("pk_test_")) return "key_mode_mismatch";
   if (i.mode === "on" && !String(i.publicKey).startsWith("pk_live_")) return "key_mode_mismatch";
+  if (i.paymentMethod !== undefined && i.order.source_channel === "web" && (i.paymentMethod ?? "transfer") !== "paidy") return "method_not_chosen";
   if (String(i.order.currency ?? "") !== "JPY") return "not_jpy";
   if (i.order.status !== "pending") return "order_not_open";
   if (i.order.payment_status !== "pending_transfer") return "no_payment_due";
@@ -273,16 +284,23 @@ export interface PaidyItem { id: string; quantity: number; title: string; unit_p
  * difference the lines do not explain (a staff-added fee) is an explicit
  * "Other charges" line; an order with no item lines is one line named after
  * the order. Returns null when the figures are not whole yen or cannot add up.
+ *
+ * POINTS (owner C3–C5, 2026-10-05): points used at checkout are a discount
+ * already applied to the order (a LOYALTY- line, total_paid). `points_applied`
+ * is that yen figure; the amount is then total − points and a negative
+ * "Points" line makes the breakdown add up to it.
  */
 export function paidyCheckoutBreakdown(
-  order: { total_amount?: unknown; shipping_fee?: unknown; discount_amount?: unknown; remaining_balance?: unknown },
+  order: { total_amount?: unknown; shipping_fee?: unknown; discount_amount?: unknown; remaining_balance?: unknown; points_applied?: unknown },
   lines: { sku?: unknown; variant_id?: unknown; id?: unknown; quantity?: unknown; title?: unknown; unit_price_jpy?: unknown }[],
   reference: string,
 ): { amount: number; items: PaidyItem[]; shipping: number } | null {
   const amount = paidyYen(order.remaining_balance);
   const total = paidyYen(order.total_amount);
   const shipping = Number(order.shipping_fee ?? 0), discount = Number(order.discount_amount ?? 0);
-  if (amount == null || total == null || amount !== total) return null;
+  const points = Number(order.points_applied ?? 0);
+  if (!Number.isInteger(points) || points < 0) return null;
+  if (amount == null || total == null || amount !== total - points) return null;
   if (!Number.isInteger(shipping) || shipping < 0 || !Number.isInteger(discount) || discount < 0) return null;
   const items: PaidyItem[] = [];
   for (const l of lines) {
@@ -296,6 +314,7 @@ export function paidyCheckoutBreakdown(
     items.push({ id: reference || "order", quantity: 1, title: reference ? `Order ${reference}` : "Order", unit_price: goods });
   }
   if (discount > 0) items.push({ id: "discount", quantity: 1, title: "Discount", unit_price: -discount });
+  if (points > 0) items.push({ id: "points", quantity: 1, title: "Points", unit_price: -points });
   const sum = items.reduce((s, it) => s + it.unit_price * it.quantity, 0) + shipping;
   if (sum !== amount) {
     const diff = amount - sum;
