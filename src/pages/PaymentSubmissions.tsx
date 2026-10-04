@@ -166,6 +166,15 @@ const isPaidy = (sub: { payment_method: string | null }) => (sub.payment_method 
  */
 const isSquare = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'square';
 const proofSatisfied = (sub: { payment_method: string | null; proof_url: string | null }) => hasProof(sub.proof_url) || isPaidy(sub) || isSquare(sub);
+/**
+ * P02 (2026-10-04, owner Q4 a): a Paidy Confirm that stopped half-way — the
+ * submission is claimed ('confirmed') but no payment is linked. Paidy may
+ * already hold the money, so it is never put back in the queue; staff press
+ * "Finish recording", which re-runs Confirm: the Hub reads Paidy first,
+ * records a capture that happened, never charges twice (docs/PAIDY.md).
+ */
+const needsFinishRecording = (sub: { payment_method: string | null; status: string; confirmed_payment_id: string | null; cash_order_id: string | null }) =>
+  isPaidy(sub) && sub.status === 'confirmed' && !sub.confirmed_payment_id && !!sub.cash_order_id;
 const isPdf = (url: string) => /\.pdf$/i.test(url);
 const proofFileName = (url: string) => decodeURIComponent(url.split('/').pop() || 'proof.pdf').split('?')[0];
 
@@ -231,7 +240,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
                 <MessageSquare />}
           title={
           <h2 id="submission-action-title" className={decoTitleClass}>
-            {actionDialog.action === 'confirmed' ? 'Confirm Payment' :
+            {actionDialog.action === 'confirmed' ? (needsFinishRecording(actionDialog.sub) ? 'Finish Recording' : 'Confirm Payment') :
              actionDialog.action === 'rejected' ? 'Reject Submission' :
              actionDialog.action === 'restore' ? 'Restore Submission' :
              'Request Clarification'}
@@ -239,7 +248,9 @@ const ActionDialogModal = memo(function ActionDialogModal({
           description={
           <p className="text-sm text-muted-foreground">
             {actionDialog.action === 'confirmed'
-              ? isPaidy(actionDialog.sub)
+              ? needsFinishRecording(actionDialog.sub)
+                ? `A Confirm of this Paidy payment stopped before the payment was recorded. The Hub will read the payment from Paidy first: if Paidy already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if not, Paidy is asked to capture it. If Paidy shows it expired or closed, the submission is rejected.`
+                : isPaidy(actionDialog.sub)
                 ? `Paidy will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} now (the customer pays Paidy next month). Then a confirmed payment is recorded and the order balance updated. A capture refused by Paidy records nothing.`
                 : isSquare(actionDialog.sub)
                 ? `Square will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} from the customer's card now. Then a confirmed payment is recorded and the order balance updated. A capture refused by Square records nothing.`
@@ -1362,6 +1373,13 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         )}
         {isPending && !canModerate && (
           <StatusPill label="Pending Confirmation" tone="warning" />
+        )}
+        {needsFinishRecording(sub) && canModerate && canConfirm && (
+          <Button size="sm" variant="default" className={btn}
+            title="A Confirm stopped half-way. Reads Paidy first; records the capture, never charges twice."
+            onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+            <Check className="h-3.5 w-3.5" /> Finish recording
+          </Button>
         )}
         {sub.status === 'rejected' && canReject && (
           <Button size="sm" variant="outline" className={btn} onClick={() => setActionDialog({ sub, action: 'restore' })}>
