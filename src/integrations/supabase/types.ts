@@ -611,6 +611,8 @@ export type Database = {
           items: Json
           mode: string
           order_type: string
+          payment_method: string | null
+          points: number
           recipient_name: string | null
           recipient_phone: string | null
           reserved_invoice_seq: number | null
@@ -635,6 +637,8 @@ export type Database = {
           items: Json
           mode?: string
           order_type?: string
+          payment_method?: string | null
+          points?: number
           recipient_name?: string | null
           recipient_phone?: string | null
           reserved_invoice_seq?: number | null
@@ -659,6 +663,8 @@ export type Database = {
           items?: Json
           mode?: string
           order_type?: string
+          payment_method?: string | null
+          points?: number
           recipient_name?: string | null
           recipient_phone?: string | null
           reserved_invoice_seq?: number | null
@@ -3006,6 +3012,7 @@ export type Database = {
           transaction_id: string | null
           value_applied_jpy: number
           value_applied_php: number | null
+          web_draft_id: string | null
         }
         Insert: {
           account_id?: string | null
@@ -3029,6 +3036,7 @@ export type Database = {
           transaction_id?: string | null
           value_applied_jpy: number
           value_applied_php?: number | null
+          web_draft_id?: string | null
         }
         Update: {
           account_id?: string | null
@@ -3052,6 +3060,7 @@ export type Database = {
           transaction_id?: string | null
           value_applied_jpy?: number
           value_applied_php?: number | null
+          web_draft_id?: string | null
         }
         Relationships: [
           {
@@ -3087,6 +3096,13 @@ export type Database = {
             columns: ["transaction_id"]
             isOneToOne: false
             referencedRelation: "loyalty_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_redemptions_web_draft_id_fkey"
+            columns: ["web_draft_id"]
+            isOneToOne: false
+            referencedRelation: "web_order_drafts"
             referencedColumns: ["id"]
           },
         ]
@@ -7625,6 +7641,10 @@ export type Database = {
           layaway_account_id: string | null
           mode: string
           order_type: string
+          payment_method: string
+          points: number
+          points_redemption_id: string | null
+          points_value: number
           quote_id: string
           recipient_name: string | null
           recipient_phone: string | null
@@ -7664,6 +7684,10 @@ export type Database = {
           layaway_account_id?: string | null
           mode: string
           order_type?: string
+          payment_method?: string
+          points?: number
+          points_redemption_id?: string | null
+          points_value?: number
           quote_id: string
           recipient_name?: string | null
           recipient_phone?: string | null
@@ -7703,6 +7727,10 @@ export type Database = {
           layaway_account_id?: string | null
           mode?: string
           order_type?: string
+          payment_method?: string
+          points?: number
+          points_redemption_id?: string | null
+          points_value?: number
           quote_id?: string
           recipient_name?: string | null
           recipient_phone?: string | null
@@ -7742,6 +7770,13 @@ export type Database = {
             columns: ["layaway_account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_points_redemption_id_fkey"
+            columns: ["points_redemption_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_redemptions"
             referencedColumns: ["id"]
           },
           {
@@ -9026,11 +9061,25 @@ export type Database = {
         }
         Returns: string
       }
+      cash_order_points_paid: {
+        Args: { p_cash_order_id: string }
+        Returns: number
+      }
       change_payment_plan_atomic: {
         Args: {
           p_account_id: string
           p_apply?: boolean
           p_new_months: number
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      change_web_payment_method_atomic: {
+        Args: {
+          p_entity_id: string
+          p_entity_type: string
+          p_method: string
           p_reason: string
           p_user_id: string
         }
@@ -9729,6 +9778,11 @@ export type Database = {
         }
         Returns: Json
       }
+      layaway_deposit_started: {
+        Args: { p_account_id: string }
+        Returns: boolean
+      }
+      layaway_points_paid: { Args: { p_account_id: string }; Returns: number }
       layaway_quote: {
         Args: {
           p_currency: string
@@ -10451,6 +10505,10 @@ export type Database = {
       web_deposit_deadline_hours: {
         Args: { p_customer_id: string; p_exclude_order?: string }
         Returns: number
+      }
+      web_layaway_points_expiry_candidates: {
+        Args: { p_limit: number; p_now: string }
+        Returns: string[]
       }
       web_payment_reminder_address_allowed: {
         Args: { p_email: string }
