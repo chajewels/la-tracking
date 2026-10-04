@@ -53,7 +53,7 @@
   _shared/reassign-owner-rules.ts.
 
 
-## Paidy orders (owner 2026-10-04, migration 20261104100000)
+## Paidy orders (owner 2026-10-04, migration 20261104110000)
 
 A cash order with ANY Paidy history — a `paidy_payments` row, a
 `paidy_checkout_attempts` row, or a `payment_submissions` row with

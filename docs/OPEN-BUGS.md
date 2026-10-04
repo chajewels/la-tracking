@@ -798,7 +798,7 @@
   seconds-wide race remains. Changing those bodies must start from live (Bug #280 rule).
 - ~~submit-cash-payment still accepts a bank transfer while Paidy is processing~~ — FIXED
   (follow-up R16): the payment lock trigger refuses it on every route.
-- ~~Paidy lock not yet enforced in three money writers~~ — FIXED (migration 20261104100000,
+- ~~Paidy lock not yet enforced in three money writers~~ — FIXED (migration 20261104110000,
   owner answer 2026-10-04): trigger `trg_guard_cash_payment_paidy` on `cash_payments` refuses
   store credit, a loyalty discount and Restore payment while Paidy holds the order; the three
   edge functions answer 409 in plain words. CORRECTION: bulk import never reaches a cash order
@@ -808,5 +808,14 @@
 - **A capture with no Hub record** — RECLASSIFIED as a process rule (owner 2026-10-04), not a
   code bug: the Hub files every authorisation before capture, so staff capture only payments
   listed in the Hub. If it ever happens anyway, the `captured_no_submission` case still opens.
+- **Square Confirm must check the Paidy lock before capturing** (independent review 2026-10-04,
+  must land before `square_mode = 'on'`; live is `test`). Since 20261104110000,
+  `trg_guard_cash_payment_paidy` refuses a non-Paidy `cash_payments` insert while
+  `cash_order_payment_lock` says `paidy_*`. review-payment-submission captures a Square hold
+  (`square.complete`) BEFORE `finalize_cash_submission_atomic`, so if a late Paidy authorisation
+  lands on the order after the card was filed, the card is charged and the Hub refuses to record
+  it. Fix: in the Square branch, call `cash_order_payment_lock(order)` before `square.complete`;
+  on `paidy%` release the claim and return 409 with nothing captured. Left out of PR #380 because
+  PR #379 (Square integrity) rewrites that block; add it on top of #379.
 - **Paidy owner checks still open:** the address-line mapping (Paidy line1 = building/room) and the
   negative-price "Discount" line — confirm both with Paidy (docs/PAIDY.md "Follow-up").

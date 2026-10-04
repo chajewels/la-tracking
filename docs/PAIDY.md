@@ -203,7 +203,7 @@ refund on an unrecorded payment is **held for a staff decision**.
   `expire_web_layaway_atomic` bodies — the expiry sweep checks the lock in
   TypeScript first; a seconds-wide race remains (docs/OPEN-BUGS.md).
 
-## Owner answers (2026-10-04, second round) — migration 20261104100000
+## Owner answers (2026-10-04, second round) — migration 20261104110000
 - REASSIGN OWNER — a cash order with ANY Paidy history (a `paidy_payments` row,
   a checkout attempt, or a Paidy submission) is REFUSED with code `paidy_order`
   and a plain reason. A web order belongs to the signed-in customer who paid;
@@ -219,9 +219,8 @@ refund on an unrecorded payment is **held for a staff decision**.
   (`restore-cash-payment`). Their edge functions answer 409 in plain words
   ("…only after staff Reject the Paidy payment"); the whole write rolls back, so
   no credit, points or payment are spent. Paidy's own recording, voids and
-  everything after a Reject still work. A Square Confirm checks the lock
-  BEFORE taking the card money (review-payment-submission), so a held order
-  never ends with a captured card and nothing recorded.
+  everything after a Reject still work. OPEN before Square goes live: a
+  Square Confirm must check the lock BEFORE capturing (docs/OPEN-BUGS.md).
 - LAYAWAY — Paidy never pays a layaway deposit or instalment (it is offered on
   yen CASH orders only, `paidyNotOfferedReason`), and a Paidy-paid order never
   becomes a layaway (no path converts a cash order into a plan). Forfeit and
@@ -278,7 +277,7 @@ Test accounts: `successful.payment@paidy.com` / `rejected.payment@paidy.com`,
 phone `08000000001`, SMS code `8888`.
 
 ## Files
-- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers), `20261103100000_paidy_followup.sql` (lock, attempts, cases, inbox, guards, stricter writers), `20261104100000_paidy_owner_answers.sql` (Reassign refusal `paidy_order`, `cash_payments` guard; harness `harness/paidy-owner-answers/`)
+- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers), `20261103100000_paidy_followup.sql` (lock, attempts, cases, inbox, guards, stricter writers), `20261104110000_paidy_owner_answers.sql` (Reassign refusal `paidy_order`, `cash_payments` guard; harness `harness/paidy-owner-answers/`)
 - `supabase/functions/_shared/paidy-events.ts` (one webhook event; webhook + sweep), `_shared/paidy-autorecord.ts` (the service-role recorder), `src/components/payments/PaidyCasesPanel.tsx`
 - `supabase/functions/_shared/paidy-filing.ts` (file / adopt an authorisation), `_shared/paidy-sync.ts` (webhook + hourly sync; `development/paidy-sync.test.ts`)
 - `supabase/functions/paidy-reconcile/index.ts` (hourly, service role)

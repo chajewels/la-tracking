@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
     if (unvoidErr) {
       // Owner rule 2026-10-04: nothing else is added while Paidy holds the
-      // order (trg_guard_cash_payment_paidy, 20261104100000).
+      // order (trg_guard_cash_payment_paidy, 20261104110000).
       if (String(unvoidErr.message ?? "").includes("paidy_in_progress")) {
         return jsonResponse(409, { error: "This order is being paid with Paidy. A payment can be restored only after staff Reject the Paidy payment." });
       }

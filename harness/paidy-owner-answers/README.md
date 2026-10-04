@@ -1,6 +1,6 @@
 # Paidy owner-answers harness (2026-10-04)
 
-Runs `supabase/migrations/20261104100000_paidy_owner_answers.sql` on a local Postgres
+Runs `supabase/migrations/20261104110000_paidy_owner_answers.sql` on a local Postgres
 against the **live** `reassign_order_owner_atomic` body and the shipped
 `cash_order_payment_lock`, then 29 checks.
 

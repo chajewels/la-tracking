@@ -709,20 +709,6 @@ Deno.serve(async (req) => {
             status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } else {
-          // Owner rule 2026-10-04: nothing else while Paidy holds the order
-          // (trg_guard_cash_payment_paidy, 20261104100000). Check BEFORE
-          // taking the card money, or the capture would land with nothing
-          // recorded. A failed read also captures nothing.
-          const { data: payLock, error: payLockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cashOrder.id });
-          if (payLockErr || String(payLock ?? "").startsWith("paidy")) {
-            await revertCashClaim();
-            return new Response(JSON.stringify({
-              error: payLockErr
-                ? "Could not check whether Paidy holds this order. Nothing was charged; please try again."
-                : "This order is being paid with Paidy. Nothing was charged on the card. Reject the Paidy payment first, or Reject this card payment.",
-              code: payLockErr ? "lock_unreadable" : "paidy_in_progress",
-            }), { status: payLockErr ? 503 : 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
           try {
             const captured = await square.complete(sp.test === true, sp.square_payment_id);
             if (captured.status !== "COMPLETED") {
@@ -785,11 +771,8 @@ Deno.serve(async (req) => {
           } catch (e) { console.error("[review-payment-submission] open case failed:", e); }
         }
         await revertCashClaim();
-        const paidyHeld = String(finErr?.message ?? "").includes("paidy_in_progress");
-        const status = paidyHeld ? 409 : code === "exceeds_remaining" || code === "order_closed" ? 400 : code === "not_claimed" ? 409 : 500;
-        const message = paidyHeld
-          ? "This order is being paid with Paidy, so this payment was not recorded. Reject the Paidy payment first."
-          : code === "exceeds_remaining"
+        const status = code === "exceeds_remaining" || code === "order_closed" ? 400 : code === "not_claimed" ? 409 : 500;
+        const message = code === "exceeds_remaining"
           ? `submitted_amount (${submittedAmount}) exceeds current remaining_balance (${finRes.remaining_balance ?? "?"})`
           : code === "order_closed" ? `cash_order is ${finRes.status ?? "closed"}, cannot confirm payment`
           : finErr ? `Failed to record confirmation: ${finErr.message}. Nothing was written; please retry.`
