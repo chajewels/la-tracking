@@ -44,7 +44,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RESERVE-FIRST.md — RETIRED by PR 10 (2026-10-01), history only; every checkout is a draft (docs/WEB-ORDER-DRAFTS.md)
 - docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at; rules moved 2026-10-02
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
-- docs/PAIDY.md — Paidy あと払い on a confirmed web order: offer rule, capture on Confirm, webhook, switch, go-live
+- docs/PAIDY.md — Paidy あと払い: offer rule, dashboard capture + Hub auto-record, payment lock, cases, webhook inbox, go-live
 - docs/SQUARE.md — Square card payments: switch + public ids, square_payments ledger, agreement, capture/void
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path; rules moved 2026-10-02
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4); rules moved 2026-10-02
@@ -1410,20 +1410,22 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 ## PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE (2026-10-03/04; docs/PAIDY.md, docs/SQUARE.md)
 
   - Paidy ONLY on a confirmed YEN cash order with a complete Japanese
-    delivery address and money due (rule: _shared/paidy-rules.ts, tested).
+    delivery address, money due and nothing paid yet (_shared/paidy-rules.ts).
   - PAIDY_SECRET_KEY is an edge secret ONLY (never DB/repo/chat/prompt);
     set_paidy_settings refuses an sk_ key. The website reads the PUBLIC key
     from the Hub; it has no Paidy env.
   - paidy_mode off|test|on (fail-closed) + paidy_public_key change ONLY via
     set_paidy_settings (admin, audited, guard trigger); never in SQL. Key
     family must match the mode; the secret's family is checked too.
-  - Trust NOTHING about a Paidy payment not read back from Paidy (website
-    POST /orders/:id/paidy; unsigned paidy-webhook re-reads). Capture ONLY in
-    review-payment-submission on Confirm; close on Reject; past Paidy's
-    expires_at auto-rejects (PD4). Refunds never automatic, not yet built.
-  - PAIDY INTEGRITY (2026-10-04): file only via file_paidy_submission_atomic;
-    every cash Confirm records only via finalize_cash_submission_atomic;
-    decide by Paidy's read-back — docs/PAIDY.md "Integrity".
+  - Trust NOTHING about a Paidy payment not read back from Paidy. The Hub
+    NEVER captures: staff capture in the Paidy dashboard, the Hub records it
+    (actor paidy_auto); close on Reject; past expires_at auto-rejects (PD4); a
+    refund before recording is a staff case. docs/PAIDY.md "Follow-up".
+  - PAIDY INTEGRITY: file only via file_paidy_submission_atomic; record only
+    via finalize_cash_submission_atomic (exact yen, provider_capture_id).
+  - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
+    on that order, any route (trigger); fallback = staff Reject. Paidy rows
+    are immutable, never restored; exceptions go to paidy_cases.
   - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
     PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
     EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
