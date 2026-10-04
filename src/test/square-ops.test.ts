@@ -3,7 +3,7 @@ import {
   SQUARE_DECISIONS, SQUARE_EXCEPTION_LABEL, ageLabel, defaultSettlementRange, isDeadlineSoon,
   isOpenSquareException, jstDate, orderRef, refundNotPaidBack, settlementCsv, settlementCsvRows,
   settlementFileName, settlementTotals, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus,
-  squareNoteRequired, squarePaymentStateLabel, type SettlementRow,
+  squareNoteRequired, squarePaymentStateLabel, eventsApiNotEnabled, type SettlementRow,
 } from "../lib/square-ops";
 
 // Website → Settings → Card payments operator panel (Square integrity,
@@ -167,5 +167,13 @@ describe("squareHealthStatus (QC11)", () => {
   it("degraded / failed runs show as such; dead events degrade an ok run", () => {
     expect(squareHealthStatus({ last_run: { at: "2026-10-05T11:53:00Z", status: "failed" }, last_ok_at: "2026-10-05T06:00:00Z" }, now)).toBe("failed");
     expect(squareHealthStatus({ last_run: { at: "2026-10-05T11:53:00Z", status: "ok" }, last_ok_at: "2026-10-05T11:53:00Z", events_dead: 1 }, now)).toBe("degraded");
+  });
+});
+
+describe("eventsApiNotEnabled (review #9)", () => {
+  it("reads the last run's Events API state", () => {
+    expect(eventsApiNotEnabled({ last_run: { report: { events_api: "not_enabled: 400 BAD_REQUEST" } } })).toBe(true);
+    expect(eventsApiNotEnabled({ last_run: { report: { events_api: "ok (through …)" } } })).toBe(false);
+    expect(eventsApiNotEnabled(null)).toBe(false);
   });
 });

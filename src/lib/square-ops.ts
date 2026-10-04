@@ -91,7 +91,7 @@ export function squareDecisionRefusal(code: string): string {
     case 'already_recorded': return 'This capture is already recorded on the order.';
     case 'not_captured': return 'Square does not show this payment as captured.';
     case 'order_closed': return 'The order is cancelled or expired, so it cannot take this money — refund it in the Square Dashboard.';
-    case 'exceeds_remaining': return 'The order no longer owes this much — refund the difference in the Square Dashboard first.';
+    case 'exceeds_remaining': return 'The order no longer owes this much. Refund the excess in the Square Dashboard, then choose "Record the net after a completed partial refund".';
     case 'state_mismatch': return 'That decision does not match what Square reports for this case yet.';
     case 'not_found': return 'The case was not found, or it is already resolved. Refresh the panel.';
     case 'bad_kind': return 'Unknown case type.';
@@ -248,7 +248,7 @@ export function settlementFileName(from: string, to: string): string {
 
 /** square_ops_health() (QC11) — the panel's health strip. */
 export interface SquareOpsHealth {
-  last_run?: { at?: string; finished_at?: string; status?: 'ok' | 'degraded' | 'failed'; backlog?: number; report?: { errors?: string[]; truncated?: string[]; history_gaps?: string[] } } | null;
+  last_run?: { at?: string; finished_at?: string; status?: 'ok' | 'degraded' | 'failed'; backlog?: number; report?: { errors?: string[]; truncated?: string[]; history_gaps?: string[]; events_api?: string } } | null;
   last_ok_at?: string | null;
   events_backlog?: number;
   events_dead?: number;
@@ -258,6 +258,11 @@ export interface SquareOpsHealth {
   exceptions_open?: number;
   refunds_open?: number;
   disputes_open?: number;
+}
+
+/** True when the last run found Square's event history (Events API) not enabled for the account. */
+export function eventsApiNotEnabled(h: SquareOpsHealth | null | undefined): boolean {
+  return String(h?.last_run?.report?.events_api ?? '').startsWith('not_enabled');
 }
 
 /** The checks run hourly: a last good run older than this is stale (cron silent or failing). */

@@ -770,6 +770,14 @@ Deno.serve(async (req) => {
         try { await applyPaymentState(supabase, live, "review", user.id); }
         catch (e) { console.error("[review-payment-submission] apply before capture failed:", e); return await unverified("Hub could not store Square's answer", false); }
 
+        // A net-after-refund recording (decide_square_case record_net_after_refund)
+        // is for a capture Square has already partly refunded: never a live hold.
+        const isNetAfterRefund = submission.submission_type === "card_net_after_refund";
+        if (live.status === "APPROVED" && isNetAfterRefund) {
+          await releaseSquareAction();
+          await releaseLeaseKeepClaim();
+          return json(409, { error: "square_not_captured", message: "Square shows this card payment as still held, not captured and refunded. Nothing was recorded." });
+        }
         if (live.status === "APPROVED") {
           const f = paymentFacts(live);
           if (f.currency !== "JPY" || f.amountJpy === null || f.amountJpy !== Number(submission.submitted_amount)) {
@@ -799,7 +807,13 @@ Deno.serve(async (req) => {
 
         // COMPLETED — captured now or before (a previous Confirm, or the Square Dashboard).
         const f = paymentFacts(live);
-        if (f.currency !== "JPY" || f.amountJpy !== Number(submission.submitted_amount)) {
+        // Square's amount_money stays the GROSS after a refund: a net recording
+        // is for less than it (the exact net — gross minus COMPLETED refunds, no
+        // pending refund — is enforced by the finalizer; review #1).
+        const amountOk = isNetAfterRefund
+          ? f.amountJpy !== null && f.amountJpy > Number(submission.submitted_amount)
+          : f.amountJpy === Number(submission.submitted_amount);
+        if (f.currency !== "JPY" || !amountOk) {
           // Captured money that does not match the submission: an exception
           // for a person (apply_square_payment_state flagged it), never a guess.
           await releaseSquareAction();
@@ -812,11 +826,14 @@ Deno.serve(async (req) => {
         // refunded money in full (square_refunded → a tracked exception).
         if ((f.refundedJpy ?? 0) > 0 || (live.refund_ids ?? []).length > 0) {
           for (const rid of live.refund_ids ?? []) {
-            try { await syncSquareRefund(supabase, env, await square.getRefund(env, rid)); }
+            let outcome = "failed";
+            try { outcome = (await syncSquareRefund(supabase, env, await square.getRefund(env, rid))).outcome; }
             catch (e) {
               console.error("[review-payment-submission] refund read-back failed:", e);
               return await unverified(e instanceof SquareError ? `refund read answered ${e.status} ${e.code}` : "refund could not be read", true);
             }
+            // Anything but "recorded" leaves the refund unknown to the finalizer (review #10).
+            if (outcome !== "synced") return await unverified(`refund ${rid} could not be recorded (${outcome})`, true);
           }
         }
         squareCaptured = true;

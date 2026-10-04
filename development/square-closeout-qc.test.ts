@@ -288,3 +288,30 @@ Deno.test('QC06: history older than Square keeps is reported, not silently skipp
   assert(r.history_gap !== null, 'gap reported')
   assertEquals(r.items, 1)
 })
+
+Deno.test('review #3: a slow Square page (over 1 s) does not stop the walk from finishing', async () => {
+  const now = Date.now()
+  const H = 3600_000
+  const h = streamHarness([now - 30 * 60_000, now - 20 * 60_000])
+  h.state['events:sandbox'] = { through: new Date(now - 2 * H).toISOString() }
+  const slowFetch = async (b: string, e: string, c: string | null) => { await new Promise((r) => setTimeout(r, 1100)); return await h.fetch(b, e, c) }
+  const r = await walkStream(h.db, 'events:sandbox', { firstLookbackMs: 2 * H, overlapMs: 5 * 60_000, windowMs: 6 * H, maxPages: 10, fetch: slowFetch, handle: () => Promise.resolve() })
+  assertEquals(r.truncated, false)
+  assertEquals(r.pages, 1)
+})
+
+Deno.test('review #8: a saved cursor Square refuses is dropped and the window re-read', async () => {
+  const now = Date.now()
+  const H = 3600_000
+  const times = [now - 50 * 60_000, now - 40 * 60_000]
+  const h = streamHarness(times)
+  h.state['events:sandbox'] = { through: new Date(now - 2 * H).toISOString(), window_begin: new Date(now - 2 * H).toISOString(), window_end: new Date(now).toISOString(), cursor: 'stale-cursor' }
+  const fetch = (b: string, e: string, c: string | null) => c === 'stale-cursor'
+    ? Promise.reject(Object.assign(new Error('bad cursor'), { status: 400 }))
+    : h.fetch(b, e, c)
+  const seen: string[] = []
+  const r = await walkStream(h.db, 'events:sandbox', { firstLookbackMs: 2 * H, overlapMs: 0, windowMs: 6 * H, maxPages: 10, fetch, handle: (it) => { seen.push(String(it.event_id)); return Promise.resolve() } })
+  assertEquals(r.truncated, false)
+  assertEquals(seen.length, 2)
+  assertEquals(h.state['events:sandbox'].cursor, null)
+})

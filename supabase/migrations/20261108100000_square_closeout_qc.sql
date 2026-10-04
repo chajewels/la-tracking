@@ -32,11 +32,11 @@ DO $guard$
 DECLARE r record; v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-    ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '15daada758f0ed1446975306b3f4d302', '4c07045219f354b85d991e5cf0088114'),
-    ('public.decide_square_case(text,uuid,text,text)', '55477adcebeb4a979f75e62fc3a49b84', 'd67b2a90b71ee9b92a45b16d24f4a77d'),
-    ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', '3ab1409bccc05e737c669e38cf77dd52', 'fb0624f3081bed3214a9a54e31b9a5c4'),
+    ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '15daada758f0ed1446975306b3f4d302', '0fa6a88f98bbbcb8875f822c230613c7'),
+    ('public.decide_square_case(text,uuid,text,text)', '55477adcebeb4a979f75e62fc3a49b84', '1a0efba3f6a735f6e1309e1e19240393'),
+    ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', '3ab1409bccc05e737c669e38cf77dd52', '05ea98ccb32a917d8ac5124281b21e9d'),
     ('public.record_square_dispute(text,text,text,text,bigint,timestamptz,timestamptz,timestamptz,jsonb)', '6cdfd6e652523fc4c5fc14a45b36b896', '9b1f4391292e7e7211eb58ce0a910e93'),
-    ('public.guard_cash_payment_paidy()', '5e1c032aef7ca34e24161f47a0fb0b3f', 'c3f719a292bbcf5111f700c0d22807e9'),
+    ('public.guard_cash_payment_paidy()', '5e1c032aef7ca34e24161f47a0fb0b3f', '3b01fcbecf898942db632c741ed20f02'),
     ('public.square_settlement_report(date,date,boolean)', '768b886dbceb34641af4c4ac90e319ac', '4621668c61e6ac4601996b08c2a8e967')) AS t(sig, live_md5, new_md5)
   LOOP
     SELECT md5(prosrc) INTO v_md5 FROM pg_proc WHERE oid = to_regprocedure(r.sig);
@@ -245,12 +245,16 @@ BEGIN
       'submitted_amount', v_amount, 'remaining_balance', v_order.remaining_balance);
   END IF;
 
+  -- The ledger guard accepts a card / Paidy row only inside this recording
+  -- (transaction-local marker = the capture being recorded; review #6).
+  PERFORM set_config('app.provider_recording', coalesce(v_capture_id, ''), true);
   INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, date_paid, payment_method,
          reference_number, remarks, entered_by_user_id, submitted_by_type, submitted_by_name, provider_capture_id)
   VALUES (v_order.id, v_amount, v_order.currency, coalesce(p_date_paid, v_sub.payment_date),
           v_sub.payment_method, v_sub.reference_number, v_sub.notes, p_reviewer_user_id,
           p_submitted_by_type, v_sub.sender_name, v_capture_id)
   RETURNING * INTO v_payment;
+  PERFORM set_config('app.provider_recording', '', true);
 
   -- The card capture is now credited: bind it to this ledger row (unique).
   IF v_sq.id IS NOT NULL THEN
@@ -318,7 +322,8 @@ DECLARE
   v_new   public.square_refunds%ROWTYPE;
   v_st    text := upper(coalesce(p_status, 'PENDING'));
 BEGIN
-  SELECT * INTO v_sq FROM public.square_payments WHERE square_payment_id = p_square_payment_id;
+  -- Locked: a recording (finalize) and this refund serialise on the payment (review #4).
+  SELECT * INTO v_sq FROM public.square_payments WHERE square_payment_id = p_square_payment_id FOR UPDATE;
   IF v_sq.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'error', 'unknown_payment'); END IF;
   SELECT * INTO v_order FROM public.cash_orders WHERE id = v_sq.cash_order_id;
   -- QC10 (2026-10-05): one writer per provider case at a time, including the
@@ -354,7 +359,8 @@ BEGIN
        SET exception = 'refunded_before_record', exception_at = now(),
            exception_note = 'Square refund ' || p_refund_id || ' (' || v_st || ') on a capture the Hub has not recorded',
            updated_at = now()
-     WHERE id = v_sq.id AND exception_resolved_at IS NULL AND exception IS DISTINCT FROM 'refunded_before_record';
+     WHERE id = v_sq.id AND status = 'captured' AND cash_payment_id IS NULL
+       AND exception_resolved_at IS NULL AND exception IS DISTINCT FROM 'refunded_before_record';
   END IF;
   IF v_old.id IS NULL OR v_old.status IS DISTINCT FROM v_new.status THEN
     INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
@@ -517,7 +523,12 @@ BEGIN
   IF TG_OP = 'INSERT' AND v_new_prov THEN
     v_method := lower(coalesce(NEW.payment_method, ''));
     IF NEW.cash_order_id IS NULL OR NEW.voided_at IS NOT NULL OR NEW.provider_capture_id IS NULL
-       OR v_method NOT IN ('square','paidy') THEN
+       OR v_method NOT IN ('square','paidy')
+       -- Only inside finalize_cash_submission_atomic, which sets this
+       -- transaction-local marker to the capture it is recording: a direct
+       -- INSERT, even with real evidence, would credit nothing on the order
+       -- and bind nothing, leaving the money stuck (review #6).
+       OR NEW.provider_capture_id IS DISTINCT FROM nullif(current_setting('app.provider_recording', true), '') THEN
       RAISE EXCEPTION 'provider_evidence_required: a card or Paidy payment is written only by the Hub''s own recording, bound to its captured provider payment'
         USING ERRCODE = 'P0001';
     END IF;
@@ -719,19 +730,23 @@ BEGIN
     IF NOT (public.has_role(v_uid, 'admin') OR public.has_role(v_uid, 'finance')) THEN
       RETURN jsonb_build_object('error', 'not_permitted');
     END IF;
+    -- Locks in finalize_cash_submission_atomic's order — the claimed
+    -- submission, then the order, then the card row — so the two never
+    -- deadlock (review #5).
+    SELECT id INTO v_claim FROM public.payment_submissions
+     WHERE square_payment_id = p_id AND status = 'confirmed' AND confirmed_payment_id IS NULL
+     ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+    SELECT * INTO v_order FROM public.cash_orders
+     WHERE id = (SELECT cash_order_id FROM public.square_payments WHERE id = p_id) FOR UPDATE;
     SELECT * INTO v_sq FROM public.square_payments WHERE id = p_id FOR UPDATE;
     IF v_sq.id IS NULL OR NOT (v_sq.exception IS NOT NULL OR (v_sq.status = 'captured' AND v_sq.cash_payment_id IS NULL)) THEN
       RETURN jsonb_build_object('error', 'not_found');
     END IF;
-    SELECT * INTO v_order FROM public.cash_orders WHERE id = v_sq.cash_order_id FOR UPDATE;
     SELECT coalesce(sum(amount_jpy) FILTER (WHERE status = 'COMPLETED'), 0),
            count(*) FILTER (WHERE status NOT IN ('COMPLETED','FAILED','REJECTED'))
       INTO v_done, v_open
       FROM public.square_refunds WHERE square_payment_row = v_sq.id;
     v_done := greatest(v_done, coalesce(v_sq.refund_jpy, 0)::bigint);
-    SELECT id INTO v_claim FROM public.payment_submissions
-     WHERE square_payment_id = v_sq.id AND status = 'confirmed' AND confirmed_payment_id IS NULL
-     ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
 
     -- The decision itself is always recorded (QC02: decision ≠ resolution).
     UPDATE public.square_payments
@@ -775,13 +790,15 @@ BEGIN
         v_amount := v_sq.captured_amount_jpy - CASE WHEN v_dec = 'record_net_after_refund' THEN v_done ELSE 0 END;
         IF v_amount > v_order.remaining_balance + 0.005 THEN
           v_err := 'exceeds_remaining';
-        ELSIF v_dec = 'record_on_order' AND v_claim IS NOT NULL THEN
-          v_sub := v_claim; -- the existing claimed Confirm already carries the capture
+        ELSIF v_dec = 'record_on_order' AND v_claim IS NOT NULL
+              AND (SELECT submitted_amount = v_amount AND submission_type = 'cash_payment'
+                     FROM public.payment_submissions WHERE id = v_claim) THEN
+          v_sub := v_claim; -- the existing claimed Confirm is exactly this capture
         ELSE
           IF v_claim IS NOT NULL THEN
             UPDATE public.payment_submissions
                SET status = 'rejected', processing_started_at = NULL, updated_at = now(),
-                   reviewer_notes = left('Replaced by a net-after-refund recording (staff decision): ' || p_note, 1000)
+                   reviewer_notes = left('Replaced by a recording for the captured amount (staff decision): ' || p_note, 1000)
              WHERE id = v_claim;
           END IF;
           INSERT INTO public.payment_submissions (customer_id, cash_order_id, submitted_amount, payment_date, payment_method,
@@ -890,7 +907,9 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $fn$
 DECLARE v_uid uuid := auth.uid(); v jsonb;
 BEGIN
-  IF current_user NOT IN ('service_role','postgres') AND (v_uid IS NULL OR NOT public.is_staff(v_uid)) THEN
+  -- Staff only (review #2: current_user is the owner inside SECURITY
+  -- DEFINER, so it can never identify the caller).
+  IF v_uid IS NULL OR NOT public.is_staff(v_uid) THEN
     RAISE EXCEPTION 'not_staff' USING ERRCODE = '42501';
   END IF;
   SELECT jsonb_build_object(
@@ -911,7 +930,7 @@ BEGIN
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.square_ops_health() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.square_ops_health() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.square_ops_health() TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Self-checks: everything above is in place, or the whole migration rolls back.
@@ -920,11 +939,11 @@ DO $check$
 DECLARE r record; v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-    ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '4c07045219f354b85d991e5cf0088114'),
-    ('public.decide_square_case(text,uuid,text,text)', 'd67b2a90b71ee9b92a45b16d24f4a77d'),
-    ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', 'fb0624f3081bed3214a9a54e31b9a5c4'),
+    ('public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)', '0fa6a88f98bbbcb8875f822c230613c7'),
+    ('public.decide_square_case(text,uuid,text,text)', '1a0efba3f6a735f6e1309e1e19240393'),
+    ('public.record_square_refund(text,text,text,bigint,text,timestamptz,timestamptz,jsonb)', '05ea98ccb32a917d8ac5124281b21e9d'),
     ('public.record_square_dispute(text,text,text,text,bigint,timestamptz,timestamptz,timestamptz,jsonb)', '9b1f4391292e7e7211eb58ce0a910e93'),
-    ('public.guard_cash_payment_paidy()', 'c3f719a292bbcf5111f700c0d22807e9'),
+    ('public.guard_cash_payment_paidy()', '3b01fcbecf898942db632c741ed20f02'),
     ('public.square_settlement_report(date,date,boolean)', '4621668c61e6ac4601996b08c2a8e967')) AS t(sig, new_md5)
   LOOP
     SELECT md5(prosrc) INTO v_md5 FROM pg_proc WHERE oid = to_regprocedure(r.sig);

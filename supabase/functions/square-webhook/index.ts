@@ -21,8 +21,9 @@ import { eventObjectId, processSquareEvent, rpc } from "../_shared/square-sync.t
  *      / refund / dispute from Square with its own token and applies what
  *      SQUARE says, every write an atomic, checked RPC;
  *   4. finish it (done | ignored | quarantined | failed with a retry time).
- * A failed or quarantined event is retried by square-reconcile (stale lease
- * after 2 minutes, then on its backoff); 12 failures → dead + bell. A
+ * Square no longer redelivers an event it got 200 for, so a failed or
+ * quarantined event is retried by square-reconcile at its next hourly run
+ * (minute :53) and then on its backoff; 12 failures → dead + bell. A
  * duplicate delivery is stored once and processed once.
  * Money is never moved from here — capture and void happen only in
  * review-payment-submission (and a fraud/mismatch void in square-sync).
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
   //    expects an answer within 10 s, and processing reads Square back (up to
   //    3 tries × 15 s). The stored row is the guarantee: an event whose
   //    background run fails, times out or is cut stays 'received' / 'failed'
-  //    and square-reconcile picks it up (stale lease after 2 min, then hourly).
+  //    and square-reconcile picks it up at its next hourly run.
   const work = processStored(supabase, eventId, type, body);
   const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
   if (rt?.waitUntil) {

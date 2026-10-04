@@ -125,8 +125,14 @@ Deno.serve(async (req) => {
       if (r.truncated) report.truncated.push("events_api");
       if (r.history_gap) report.history_gaps.push(`events_api before ${r.history_gap}`);
     } catch (e) {
-      report.events_api = e instanceof SquareError ? `unavailable: ${e.status} ${e.code}` : `error: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160);
-      note("events_api", e);
+      // Not enabled for this account yet (a Square client error, not auth) is
+      // reported in the panel but is not an alarm (review #9); anything else is.
+      if (e instanceof SquareError && e.kind === "client") {
+        report.events_api = `not_enabled: ${e.status} ${e.code}`;
+      } else {
+        report.events_api = e instanceof SquareError ? `unavailable: ${e.status} ${e.code}` : `error: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160);
+        note("events_api", e);
+      }
     }
   } else report.events_api = "mode_off";
 
@@ -151,12 +157,21 @@ Deno.serve(async (req) => {
     } catch (e) { report.refund_discovery = "error"; note("refund_discovery", e); }
   }
 
-  // C. Dispute discovery — all disputes, every page within budget (QC07).
+  // C. Dispute discovery — all disputes, a rolling scan that resumes from its
+  //    saved cursor across runs, so any number of pages is covered (QC07,
+  //    review #8); a cursor Square refuses restarts the scan.
   if (env) {
     try {
-      let cursor: string | null = null, pages = 0;
+      const key = `disputes:${env}`;
+      let cursor: string | null = ((await getState(db, key))?.cursor as string | undefined) ?? null;
+      let pages = 0;
       do {
-        const page = await square.listDisputes(env, { cursor });
+        let page;
+        try { page = await square.listDisputes(env, { cursor }); }
+        catch (e) {
+          if (cursor && e instanceof SquareError && e.kind === "client") { cursor = null; await putState(db, key, { cursor: null }); continue; }
+          throw e;
+        }
         for (const d of page.disputes as unknown as Rec[]) {
           const id = String(d.id ?? d.dispute_id ?? "");
           if (!id) continue;
@@ -165,9 +180,9 @@ Deno.serve(async (req) => {
         }
         cursor = page.cursor;
         pages++;
+        await putState(db, key, { cursor, scanned_at: new Date().toISOString() });
       } while (cursor && pages < MAX_PAGES);
-      report.dispute_discovery = "ok";
-      if (cursor) report.truncated.push("dispute_discovery");
+      report.dispute_discovery = cursor ? `ok (scan continues next run, ${pages} pages)` : "ok";
     } catch (e) { report.dispute_discovery = "error"; note("dispute_discovery", e); }
   }
 
@@ -264,7 +279,11 @@ Deno.serve(async (req) => {
           const refund = await square.getRefund(got.env, rid);
           if ((await syncSquareRefund(db, got.env, refund)).outcome === "synced") report.refunds_synced++;
         }
-      } catch (e) { note(`refunds ${c.square_payment_id}`, e); }
+      } catch (e) {
+        note(`refunds ${c.square_payment_id}`, e);
+        // touched so the next run reaches the others first (review #8)
+        await db.from("square_payments").update({ updated_at: new Date().toISOString() }).eq("square_payment_id", c.square_payment_id);
+      }
     }
   } catch (e) { note("refunds", e); }
 
@@ -281,6 +300,7 @@ Deno.serve(async (req) => {
         const rEnv = ((row?.environment as SquareEnvironment | null) ?? (row?.test ? "sandbox" : "production"));
         if ((await syncSquareRefund(db, rEnv, await square.getRefund(rEnv, String(r.square_refund_id)))).outcome === "synced") report.refunds_synced++;
       } catch (e) { note(`open_refunds ${r.square_refund_id}`, e); }
+      await db.from("square_refunds").update({ updated_at: new Date().toISOString() }).eq("square_refund_id", r.square_refund_id);
     }
   } catch (e) { note("open_refunds", e); }
 
@@ -297,6 +317,7 @@ Deno.serve(async (req) => {
         const r = await syncSquareDispute(db, await square.getDispute(dEnv, String(d.square_dispute_id)), dEnv);
         if (r.outcome === "synced") report.disputes_synced++;
       } catch (e) { note(`disputes ${d.square_dispute_id}`, e); }
+      await db.from("square_disputes").update({ updated_at: new Date().toISOString() }).eq("square_dispute_id", d.square_dispute_id);
     }
   } catch (e) { note("disputes", e); }
 

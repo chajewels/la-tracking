@@ -309,6 +309,23 @@ modules), void-cash-payment, restore-cash-payment. Plan: project doc
   bank money. The Square HTTP deadline covers the body read. "Square risk HIGH" no longer claims the hold
   was voided — the panel shows Square's state on its own line.
 
-Tests: 61 SQL acceptance checks on a Postgres copy of the live schema (all 15 functions/trigger paths,
-before: 43 failed) + a two-session race for QC10 (reproduced on the old body, fixed on the new);
-`development/square-closeout-qc.test.ts` (15) + `square-integrity.test.ts` (14); `src/test/square-ops.test.ts`.
+- **Independent review of the fix (same day).** A provider receipt is written only inside the
+  finalizer's own marker (`app.provider_recording` = the capture id, set and cleared around the INSERT),
+  so no other SQL path can mint one even with matching evidence. `decide_square_case` takes its locks in
+  the finalizer's order (submission → order → card row) — a decision racing a Finish no longer
+  deadlocks — and reuses a claimed submission only when it is exactly the capture. Net-after-refund
+  confirms through review-payment-submission (refunds synced first; anything but a clean sync is
+  "unverified", never recorded). The reconcile walker uses one clock per run, drops a cursor Square
+  refuses and re-reads the window, scans disputes on a rolling cursor, touches every hold it looks at,
+  and labels an Events API that is not enabled "not enabled" rather than an alarm. A saved decision on
+  a case that stays open says so ("Decision saved — case still open").
+- **Known limits (owner decisions, not code).** A receipt recorded on the wrong order is corrected by
+  a refund in Square plus a new payment on the right order — never by editing the receipt. Test orders
+  that hold a provider receipt cannot be deleted. Finance "Collected" stays gross of a card refund made
+  after the payment was recorded; the refund is on the card row and in the Card activity report.
+
+Tests: 70 SQL acceptance checks (`development/sql/square-closeout-qc-acceptance.sql`) on a Postgres
+copy of the live schema; the QC10 two-session race (`square-closeout-qc-race.sh`, reproduced on the old
+body, ends COMPLETED on the new) and the decide-vs-Finish deadlock (`square-closeout-qc-deadlock.sh`,
+reproduced on the first draft, none now); `development/square-closeout-qc.test.ts` (17) +
+`square-integrity.test.ts` (14); `src/test/square-ops.test.ts` (27).

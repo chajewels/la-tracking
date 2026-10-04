@@ -27,7 +27,7 @@ import {
   DISPUTE_CLOSED_STATES, DISPUTE_WARNING_DAYS, HOLD_WARNING_DAYS, SQUARE_DECISIONS,
   ageLabel, defaultSettlementRange, isDeadlineSoon, isOpenSquareException, orderRef,
   refundNotPaidBack, settlementCsv, settlementFileName, settlementTotals,
-  squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
+  eventsApiNotEnabled, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
   type SettlementRow, type SquareCaseKind, type SquareOpsHealth,
 } from "@/lib/square-ops";
 
@@ -239,10 +239,10 @@ export function SquareOperationsPanel() {
   };
   const decide = useMutation({
     mutationFn: async (v: { kind: SquareCaseKind; id: string; decision: string; note: string }) => {
-      const out = await callUntypedRpc<{ ok?: boolean; error?: string; resolved?: boolean; next?: string; submission_id?: string } | null>("decide_square_case", {
+      const out = await callUntypedRpc<{ ok?: boolean; error?: string; resolved?: boolean; next?: string; submission_id?: string; decision_recorded?: boolean } | null>("decide_square_case", {
         p_kind: v.kind, p_id: v.id, p_decision: v.decision, p_note: v.note,
       });
-      if (!out?.ok) throw Object.assign(new Error(out?.error ?? "unknown"), { code: out?.error ?? "unknown" });
+      if (!out?.ok) throw Object.assign(new Error(out?.error ?? "unknown"), { code: out?.error ?? "unknown", saved: out?.decision_recorded === true });
       // QC02: "record" decisions hand the capture to the normal Confirm path —
       // review-payment-submission reads Square and the finalizer records it.
       let recorded: string | null = null;
@@ -257,21 +257,30 @@ export function SquareOperationsPanel() {
             try { const b = await ctx.clone().json(); msg = b?.message || b?.error || msg; } catch { /* keep msg */ }
           }
           recorded = `Decision saved, but recording did not finish: ${msg} Use "Finish recording" on Payment Submissions.`;
-        } else recorded = "The capture was recorded on the order.";
+        } else recorded = v.decision === "record_net_after_refund"
+          ? "The net was recorded on the order. If the refund was for a change to the order, lower the order total on the order page so it no longer shows the refunded part as owed."
+          : "The capture was recorded on the order.";
       }
       return { ...out, recorded };
     },
     onSuccess: (out) => {
       toast({
-        title: out.resolved || out.recorded === "The capture was recorded on the order." ? "Resolved" : "Decision recorded",
+        title: out.resolved || (out.recorded !== null && !out.recorded.startsWith("Decision saved")) ? "Resolved" : "Decision recorded",
         description: out.recorded ?? (out.resolved ? "Verified against Square and saved with your name in the audit log." : "Saved with your name in the audit log. It does not resolve the case by itself."),
       });
       setCaseDialog(null);
       qc.invalidateQueries({ queryKey: KEY });
     },
-    onError: (e: Error & { code?: string }) => {
+    onError: (e: Error & { code?: string; saved?: boolean }) => {
       const raw = e.code ?? e.message;
-      toast({ title: "Not recorded", description: squareDecisionRefusal(raw.includes("not_staff") ? "not_staff" : raw), variant: "destructive" });
+      const why = squareDecisionRefusal(raw.includes("not_staff") ? "not_staff" : raw);
+      // The decision may be saved even when it does not resolve the case.
+      toast({
+        title: e.saved ? "Decision saved — case still open" : "Not recorded",
+        description: why,
+        variant: e.saved ? undefined : "destructive",
+      });
+      if (e.saved) { setCaseDialog(null); qc.invalidateQueries({ queryKey: KEY }); }
     },
   });
   const noteNeeded = caseDialog ? squareNoteRequired(caseDialog.kind) : false;
@@ -308,6 +317,12 @@ export function SquareOperationsPanel() {
             <span>Inbox backlog {health.data?.events_backlog ?? "—"}{(health.data?.events_dead ?? 0) > 0 ? ` · ${health.data?.events_dead} failed for good` : ""}</span>
             <span>Refunds open {health.data?.refunds_open ?? "—"} · disputes open {health.data?.disputes_open ?? "—"}</span>
           </div>
+          {eventsApiNotEnabled(health.data) ? (
+            <p className="mt-1 text-muted-foreground">
+              Square's event history (Events API) is not enabled for this Square account. The hourly checks still read payments, refunds
+              and disputes directly; enable it before going live so a long outage can be caught up.
+            </p>
+          ) : null}
           {healthStatus !== "ok" && healthStatus !== "unknown" ? (
             <p className="mt-1 text-muted-foreground">
               {healthStatus === "stale"

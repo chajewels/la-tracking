@@ -1,8 +1,9 @@
 -- Square close-out QC acceptance tests (2026-10-05). NOT a migration — never applied to live.
 -- Runs on a local Postgres copy of the live schema with migration 20261108100000 applied, after
 -- stubbing auth.uid() (current_setting('test.uid')), has_role / is_staff (user_roles lookup).
--- Everything runs in one transaction and is rolled back. Expected: 61 passed, 0 failed.
--- The QC10 two-session race (development/sql/square-closeout-qc-race.sh) must end COMPLETED.
+-- Everything runs in one transaction and is rolled back. Expected: 70 passed, 0 failed.
+-- Also: development/sql/square-closeout-qc-race.sh (QC10, must end COMPLETED) and
+-- development/sql/square-closeout-qc-deadlock.sh (decide vs Finish recording, must print no deadlock).
 
 -- Acceptance tests for the Square close-out QC fixes (QC01–QC04, QC10, QC12).
 -- Run on the qc copy: psql -v ON_ERROR_STOP=1 -f 10_tests.sql
@@ -328,6 +329,43 @@ BEGIN
   r := public.record_square_dispute('dp_order_' || s, pg_temp.sqid(s), 'WON', NULL, 10000, NULL, now() - interval '2 hours', now(), '{}'::jsonb);
   r := public.record_square_dispute('dp_order_' || s, pg_temp.sqid(s), 'EVIDENCE_REQUIRED', NULL, 10000, NULL, now() - interval '2 hours', now() - interval '1 hour', '{}'::jsonb);
   PERFORM pg_temp.ok((SELECT state FROM public.square_disputes WHERE square_dispute_id = 'dp_order_' || s) = 'WON', 'QC10 older dispute state never replaces WON', r::text);
+END $$;
+
+-- ===========================================================================
+-- Independent-review follow-ups (#2, #4, #6, #7)
+-- ===========================================================================
+DO $$
+DECLARE o uuid; s uuid; sub uuid; r jsonb; n int;
+BEGIN
+  -- #6: real evidence, exact amount, but outside the Hub's recording → refused
+  o := pg_temp.mk_order(); s := pg_temp.mk_sq(o, 'captured');
+  PERFORM pg_temp.ok(pg_temp.raises(format(
+    $q$INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, date_paid, payment_method, provider_capture_id) VALUES (%L, 10000, 'JPY', current_date, 'square', %L)$q$, o, pg_temp.sqid(s)),
+    'provider_evidence_required'), 'review#6 direct INSERT with real evidence outside finalize refused');
+  -- and finalize's own marker does not leak to a later statement
+  sub := pg_temp.mk_claim(o, s); r := pg_temp.fin(sub);
+  PERFORM pg_temp.ok(r->>'outcome' = 'recorded', 'review#6 finalize still records', r::text);
+  PERFORM pg_temp.ok(coalesce(current_setting('app.provider_recording', true), '') = '', 'review#6 recording marker cleared after the insert');
+
+  -- #4: a refund arriving after the capture was recorded does not flag it
+  r := public.record_square_refund('rf_after_' || s, pg_temp.sqid(s), 'PENDING', 1000, NULL, now(), now(), '{}'::jsonb);
+  PERFORM pg_temp.ok((SELECT exception FROM public.square_payments WHERE id = s) IS NULL, 'review#4 refund on a recorded capture never flags refunded_before_record');
+
+  -- #7: a claim for another amount is replaced, not reused
+  PERFORM pg_temp.as_user('a0000000-0000-0000-0000-000000000001');
+  o := pg_temp.mk_order(); s := pg_temp.mk_sq(o, 'captured'); sub := pg_temp.mk_claim(o, s, 9000);
+  UPDATE public.square_payments SET exception = 'amount_mismatch', exception_at = now() WHERE id = s;
+  r := public.decide_square_case('exception', s, 'record_on_order', 'record the real capture');
+  PERFORM pg_temp.ok((r->>'submission_id')::uuid IS DISTINCT FROM sub, 'review#7 mismatched claim is not reused', r::text);
+  PERFORM pg_temp.ok((SELECT status::text FROM public.payment_submissions WHERE id = sub) = 'rejected', 'review#7 mismatched claim is closed');
+  r := pg_temp.fin((r->>'submission_id')::uuid);
+  PERFORM pg_temp.ok(r->>'outcome' = 'recorded', 'review#7 the new claim records the capture', r::text);
+
+  -- #2: square_ops_health is staff only
+  PERFORM pg_temp.as_user('c0000000-0000-0000-0000-00000000000c'); -- no role
+  PERFORM pg_temp.ok(pg_temp.raises('SELECT public.square_ops_health()', 'not_staff'), 'review#2 health refused for a non-staff user');
+  PERFORM pg_temp.as_user('50000000-0000-0000-0000-000000000003');
+  PERFORM pg_temp.ok((public.square_ops_health() ? 'events_backlog'), 'review#2 health readable by staff');
 END $$;
 
 -- ===========================================================================

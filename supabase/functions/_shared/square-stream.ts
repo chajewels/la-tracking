@@ -35,6 +35,8 @@ export async function walkStream(db: Db, key: string, o: {
   handle: (item: Rec) => Promise<void>;
 }): Promise<StreamResult> {
   const state = (await getState(db, key)) ?? {};
+  // One "now" for the whole run (review #3): windows never chase a moving
+  // clock, so a slow page cannot keep a run from finishing.
   const now = Date.now();
   const iso = (ms: number) => new Date(ms).toISOString();
   let historyGap: string | null = null;
@@ -51,7 +53,20 @@ export async function walkStream(db: Db, key: string, o: {
   let through = typeof state.through === "string" ? state.through : null;
   let pages = 0, items = 0;
   while (pages < o.maxPages) {
-    const page = await o.fetch(iso(begin), iso(end), cursor);
+    let page: { items: Rec[]; cursor: string | null };
+    try {
+      page = await o.fetch(iso(begin), iso(end), cursor);
+    } catch (e) {
+      // A saved cursor Square no longer accepts (4xx) would fail every run for
+      // good: drop it and re-read the window from its start (review #8).
+      const status = (e as { status?: number })?.status ?? 0;
+      if (cursor && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 429) {
+        cursor = null;
+        await putState(db, key, { through, cursor: null, history_gap: historyGap });
+        continue;
+      }
+      throw e;
+    }
     for (const it of page.items) { await o.handle(it); items++; }
     pages++;
     if (page.cursor) {
@@ -62,9 +77,9 @@ export async function walkStream(db: Db, key: string, o: {
     through = iso(end);
     cursor = null;
     await putState(db, key, { through, cursor: null, history_gap: historyGap });
-    if (end >= Date.now() - 1000) return { pages, items, through, truncated: false, history_gap: historyGap };
+    if (end >= now) return { pages, items, through, truncated: false, history_gap: historyGap };
     begin = end - o.overlapMs;
-    end = Math.min(Date.now(), begin + o.windowMs);
+    end = Math.min(now, begin + o.windowMs);
   }
   return { pages, items, through, truncated: true, history_gap: historyGap };
 }
