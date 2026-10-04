@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/calculations';
 import type { Currency } from '@/lib/types';
+import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
+import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 
 /**
  * Website orders PR 4 — the review screen for a website DRAFT
@@ -54,6 +56,11 @@ interface Draft {
   cash_order_id: string | null;
   layaway_account_id: string | null;
   created_at: string;
+  /** C1 (2026-10-05): transfer | paidy | square, chosen at checkout. */
+  payment_method: string | null;
+  /** Points used at checkout, held by a pending redemption until Confirm. */
+  points: number;
+  points_value: number;
 }
 interface DraftLine { id: string; title: string; sku: string | null; qty: number; unit_price_jpy: number; line_total_jpy: number; hold_state: string }
 interface Courier { id: string; provider_name: string; title: string; is_active: boolean }
@@ -72,6 +79,11 @@ interface Preview {
   deadline_hours: number | null;
   transfer_due_at: string | null;
   layaway: { term_months: number; deposit: number | null; schedule: { installment_number: number; due_date: string; amount: number }[]; eligible: boolean } | null;
+  payment_method?: string;
+  points?: number;
+  points_value?: number;
+  /** What the customer owes after Confirm: total (full) or deposit (layaway), less points. */
+  due_now?: number;
 }
 
 /** Plain-words version of every refusal the server can give. */
@@ -92,6 +104,10 @@ const PROBLEM: Record<string, string> = {
   term_locked: 'The layaway term cannot be changed.',
   agreement_missing: 'The customer has not signed the layaway agreement.',
   schedule_mismatch: 'The layaway schedule does not add up to the total.',
+  points_exceed_deposit: 'The customer\'s points are more than the deposit now — lower the discount, or decline and ask her to check out again.',
+  points_exceed_total: 'The customer\'s points are more than the pieces after the discount — lower the discount.',
+  points_hold_lost: 'The points this customer used are no longer held (the redemption was cancelled). Decline and ask her to check out again.',
+  points_insufficient: 'The customer no longer has enough points. Decline and ask her to check out again.',
 };
 function problemText(code: string): string {
   if (PROBLEM[code]) return PROBLEM[code];
@@ -160,6 +176,7 @@ export default function WebOrderReview() {
   const [declineReason, setDeclineReason] = useState('');
   const [showDecline, setShowDecline] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showMethod, setShowMethod] = useState(false);
 
   // Seed once from the draft: checkout's shipping, and PH's default courier (Pabitbit, W2-10).
   useEffect(() => {
@@ -427,6 +444,37 @@ export default function WebOrderReview() {
           </label>
         </section>
 
+        {/* ── Payment (C1–C5, 2026-10-05): chosen by the customer, locked for her ── */}
+        <section className="rounded-xl border border-border bg-card p-5 space-y-3" data-testid="web-review-payment">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-base text-card-foreground">Payment</h2>
+            {open && (
+              <Button size="sm" variant="outline" onClick={() => setShowMethod(true)} data-testid="web-review-change-method">
+                Change payment method
+              </Button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Customer chose</p>
+              <p className="text-card-foreground font-medium" data-testid="web-review-method">{WEB_METHOD_LABEL[webMethodOf(draft.payment_method)]}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Points used at checkout</p>
+              <p className="text-card-foreground" data-testid="web-review-points">
+                {Number(draft.points ?? 0) > 0
+                  ? `${Number(draft.points).toLocaleString('en-US')} pts = ${money(draft.points_value)}`
+                  : 'None'}
+              </p>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {Number(draft.points ?? 0) > 0
+              ? `The points are held now and taken when you confirm (${draft.mode === 'layaway' ? 'they pay the deposit' : 'they come off the pieces, never shipping'}). If you decline, they go back to the customer.`
+              : 'After you confirm, the customer sees only this way to pay. Only staff can change it.'}
+          </p>
+        </section>
+
         {/* ── Totals (from the Hub, never computed here) ─────────────────── */}
         <section className="rounded-xl border border-border bg-card p-5 space-y-2" data-testid="web-review-totals">
           <h2 className="font-display text-base text-card-foreground">Total {previewing && <span className="text-xs text-muted-foreground">(updating…)</span>}</h2>
@@ -436,6 +484,14 @@ export default function WebOrderReview() {
             <dt className="text-muted-foreground">Services</dt><dd className="text-right tabular-nums">{money(preview?.services)}</dd>
             <dt className="text-muted-foreground">Discount</dt><dd className="text-right tabular-nums">− {money(preview?.discount)}</dd>
             <dt className="font-medium text-card-foreground">Total</dt><dd className="text-right tabular-nums font-medium" data-testid="web-review-total">{money(preview?.total)}</dd>
+            {Number(preview?.points_value ?? 0) > 0 && (
+              <>
+                <dt className="text-muted-foreground">Points{draft.mode === 'layaway' ? ' (on the deposit)' : ''}</dt>
+                <dd className="text-right tabular-nums">− {money(preview?.points_value)}</dd>
+                <dt className="font-medium text-card-foreground">{draft.mode === 'layaway' ? 'Deposit to pay' : 'To pay'}</dt>
+                <dd className="text-right tabular-nums font-medium" data-testid="web-review-due">{money(preview?.due_now)}</dd>
+              </>
+            )}
           </dl>
           {draft.mode === 'layaway' && preview?.layaway && (
             <div className="pt-2 space-y-1 text-sm" data-testid="web-review-layaway">
@@ -461,6 +517,19 @@ export default function WebOrderReview() {
               {busy ? 'Confirming…' : `Confirm ${draft.mode === 'full' ? 'cash order' : 'layaway'}`}
             </Button>
           </div>
+        )}
+        {open && (
+          <ChangePaymentMethodDialog
+            open={showMethod}
+            onOpenChange={setShowMethod}
+            entityType="draft"
+            entityId={draft.id}
+            current={webMethodOf(draft.payment_method)}
+            layaway={draft.mode === 'layaway'}
+            peso={cur === 'PHP'}
+            reference={draft.web_reference}
+            onChanged={() => qc.invalidateQueries({ queryKey: ['web-draft', id] })}
+          />
         )}
         {open && showDecline && (
           <section className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-2">
