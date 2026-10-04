@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   isPaidyPublicKey, paidyAddressComplete, paidyAmountMatches, paidyAuthorizationExpired,
   normalizePaidyStatus, paidyModeFrom, paidyNotOfferedReason, paidyZip,
+  paidyExpiryTime, paidyAuthorizationLapsed, paidyProviderOutcome, paidyCapturedAmount, paidyLatestCapture,
+  paidyCaptureAmountProblem, paidyJapanDate, paidyLastOrderAmount, paidyNewRefunds, paidyConfirmLeaseExpired,
+  PAIDY_CONFIRM_LEASE_MS,
+  paidyFilingMismatch,
 } from "../../supabase/functions/_shared/paidy-rules.ts";
 import { paidyPublicKeyProblem } from "../components/settings/paidy-settings";
 
@@ -106,4 +110,109 @@ describe("normalizePaidyStatus", () => {
     expect(normalizePaidyStatus(" rejected ")).toBe("REJECTED");
     expect(normalizePaidyStatus(undefined)).toBe("");
   });
+});
+
+// Integrity rules (2026-10-04, review P01–P12; docs/PAIDY.md "Integrity").
+describe("P07 expiry follows Paidy's own expires_at", () => {
+  const auth = "2026-10-01T00:00:00Z";
+  it("uses expires_at when Paidy sent one", () => {
+    expect(paidyExpiryTime(auth, "2026-10-20T00:00:00Z")).toBe(Date.parse("2026-10-20T00:00:00Z"));
+  });
+  it("falls back to 30 days (720 h) after authorisation", () => {
+    expect(paidyExpiryTime(auth, null)).toBe(Date.parse("2026-10-31T00:00:00Z"));
+    expect(paidyExpiryTime(auth, "garbage")).toBe(Date.parse("2026-10-31T00:00:00Z"));
+  });
+  it("unknown dates count as lapsed", () => {
+    expect(paidyExpiryTime(null, null)).toBeNull();
+    expect(paidyAuthorizationLapsed({})).toBe(true);
+  });
+  it("lapses exactly at expires_at, not before", () => {
+    const rec = { authorized_at: auth, expires_at: "2026-10-20T00:00:00Z" };
+    expect(paidyAuthorizationLapsed(rec, new Date("2026-10-19T23:59:59Z"))).toBe(false);
+    expect(paidyAuthorizationLapsed(rec, new Date("2026-10-20T00:00:00Z"))).toBe(true);
+  });
+});
+
+describe("P03 decisions come from Paidy's read-back, never from an HTTP code", () => {
+  const now = new Date("2026-10-10T00:00:00Z");
+  const exp = "2026-10-31T00:00:00Z";
+  it("a capture on Paidy is captured whatever the status says", () => {
+    expect(paidyProviderOutcome({ status: "CLOSED", captures: [{ id: "cap_1", amount: 1000 }], expires_at: exp }, now)).toBe("captured");
+    expect(paidyProviderOutcome({ status: "authorized", captures: [{ id: "cap_1", amount: 1000 }] }, now)).toBe("captured");
+  });
+  it("authorized and in time / past expires_at", () => {
+    expect(paidyProviderOutcome({ status: "AUTHORIZED", captures: [], expires_at: exp }, now)).toBe("authorized");
+    expect(paidyProviderOutcome({ status: "AUTHORIZED", captures: [], expires_at: "2026-10-09T00:00:00Z" }, now)).toBe("expired");
+  });
+  it("closed without capture, rejected, unknown", () => {
+    expect(paidyProviderOutcome({ status: "CLOSED", captures: [] }, now)).toBe("closed");
+    expect(paidyProviderOutcome({ status: "rejected" }, now)).toBe("rejected");
+    expect(paidyProviderOutcome({ status: "PENDING" }, now)).toBe("unknown");
+    expect(paidyProviderOutcome(null, now)).toBe("unknown");
+  });
+  it("captured amount and the latest capture", () => {
+    const p = { captures: [{ id: "cap_1", amount: 1000 }, { id: "cap_2", amount: "500" }] };
+    expect(paidyCapturedAmount(p)).toBe(1500);
+    expect(paidyLatestCapture(p)).toEqual({ id: "cap_2", amount: 500, created_at: undefined });
+    expect(paidyLatestCapture({ captures: [] })).toBeNull();
+  });
+});
+
+describe("P08 amounts agree before a capture", () => {
+  const ok = { providerAmount: 236800, recordAmount: "236800.00", submittedAmount: 236800, remainingBalance: 236800 };
+  it("all equal → no problem", () => expect(paidyCaptureAmountProblem(ok)).toBeNull());
+  it.each([
+    [{ providerAmount: 0 }, "provider_amount_missing"],
+    [{ providerAmount: 236000 }, "provider_vs_record"],
+    [{ submittedAmount: 236000 }, "record_vs_submission"],
+    [{ remainingBalance: 100000 }, "exceeds_remaining"],
+  ])("%o → %s", (patch, want) => expect(paidyCaptureAmountProblem({ ...ok, ...patch })).toBe(want));
+});
+
+describe("Q5 the capture day is Japan time", () => {
+  it("23:30 UTC is already the next day in Japan", () => {
+    expect(paidyJapanDate("2026-10-04T15:30:00Z")).toBe("2026-10-05");
+    expect(paidyJapanDate("2026-10-04T14:59:59Z")).toBe("2026-10-04");
+  });
+});
+
+describe("P10 last_order_amount is the latest COMPLETED order", () => {
+  it("sorts by completed_at, ignores unpaid and pending", () => {
+    expect(paidyLastOrderAmount([
+      { total_paid: 50000, status: "completed", completed_at: "2026-09-30T00:00:00Z" },
+      { total_paid: 12000, status: "completed", completed_at: "2026-08-01T00:00:00Z" },
+      { total_paid: 99000, status: "pending", completed_at: null },
+      { total_paid: 0, status: "completed", completed_at: "2026-10-01T00:00:00Z" },
+    ])).toBe(50000);
+  });
+  it("none → undefined", () => expect(paidyLastOrderAmount([])).toBeUndefined());
+});
+
+describe("P11 refunds are recorded once per refund id", () => {
+  it("returns only unseen, positive refunds", () => {
+    const p = { refunds: [{ id: "ref_1", amount: 1000 }, { id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z" }, { id: "ref_3", amount: 0 }] };
+    expect(paidyNewRefunds(p, ["ref_1"])).toEqual([{ id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z" }]);
+    expect(paidyNewRefunds({}, [])).toEqual([]);
+  });
+});
+
+describe("P02 an interrupted Confirm may be resumed after the lease", () => {
+  const now = new Date("2026-10-04T03:00:00Z");
+  it("no stamp (older code) → resumable", () => expect(paidyConfirmLeaseExpired(null, now)).toBe(true));
+  it("inside the lease → not yet", () => expect(paidyConfirmLeaseExpired(new Date(now.getTime() - PAIDY_CONFIRM_LEASE_MS + 1000).toISOString(), now)).toBe(false));
+  it("past the lease → resumable", () => expect(paidyConfirmLeaseExpired(new Date(now.getTime() - PAIDY_CONFIRM_LEASE_MS).toISOString(), now)).toBe(true));
+});
+
+describe("P01/P12 paidyFilingMismatch — one rule for callback, webhook and sweep", () => {
+  const order = { remaining_balance: 52000 };
+  const ok = { status: "AUTHORIZED", currency: "JPY", test: true, amount: 52000, order: { order_ref: "CJ-W-900011" } };
+  const expect_ = { test: true, orderRef: "CJ-W-900011" };
+  it("a matching authorisation files", () => expect(paidyFilingMismatch(ok, order, expect_)).toBeNull());
+  it("lower-case status is still AUTHORIZED", () => expect(paidyFilingMismatch({ ...ok, status: "authorized" }, order, expect_)).toBeNull());
+  it("no read-back → unknown_payment", () => expect(paidyFilingMismatch(null, order, expect_)).toBe("unknown_payment"));
+  it("closed → not_authorized", () => expect(paidyFilingMismatch({ ...ok, status: "CLOSED" }, order, expect_)).toBe("not_authorized"));
+  it("currency", () => expect(paidyFilingMismatch({ ...ok, currency: "USD" }, order, expect_)).toBe("not_jpy"));
+  it("test flag must match the mode", () => expect(paidyFilingMismatch({ ...ok, test: false }, order, expect_)).toBe("test_flag"));
+  it("amount must equal the balance", () => expect(paidyFilingMismatch({ ...ok, amount: 51999 }, order, expect_)).toBe("amount"));
+  it("order_ref must name this order", () => expect(paidyFilingMismatch({ ...ok, order: { order_ref: "CJ-W-900012" } }, order, expect_)).toBe("order_ref"));
 });

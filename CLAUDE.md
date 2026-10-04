@@ -1419,8 +1419,11 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     family must match the mode; the secret's family is checked too.
   - Trust NOTHING about a Paidy payment not read back from Paidy (website
     POST /orders/:id/paidy; unsigned paidy-webhook re-reads). Capture ONLY in
-    review-payment-submission on Confirm; close on Reject; > 30 days auto-
-    rejects (PD4). Refunds never automatic, not yet built.
+    review-payment-submission on Confirm; close on Reject; past Paidy's
+    expires_at auto-rejects (PD4). Refunds never automatic, not yet built.
+  - PAIDY INTEGRITY (2026-10-04): file only via file_paidy_submission_atomic;
+    every cash Confirm records only via finalize_cash_submission_atomic;
+    decide by Paidy's read-back — docs/PAIDY.md "Integrity".
   - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
     PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
     EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
