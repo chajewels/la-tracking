@@ -109,6 +109,11 @@ Deno.serve(async (req) => {
       .eq("id", body.cash_payment_id);
 
     if (unvoidErr) {
+      // Owner rule 2026-10-04: nothing else is added while Paidy holds the
+      // order (trg_guard_cash_payment_paidy, 20261104110000).
+      if (String(unvoidErr.message ?? "").includes("paidy_in_progress")) {
+        return jsonResponse(409, { error: "This order is being paid with Paidy. A payment can be restored only after staff Reject the Paidy payment." });
+      }
       return jsonResponse(500, { error: `Failed to unvoid cash payment: ${unvoidErr.message}` });
     }
 

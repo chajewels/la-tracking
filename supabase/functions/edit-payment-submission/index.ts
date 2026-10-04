@@ -74,7 +74,7 @@ serve(async (req) => {
   // Fetch submission — verify ownership
   const { data: submission, error: subErr } = await supabase
     .from("payment_submissions")
-    .select("id, customer_id, status, paidy_payment_id, payment_method")
+    .select("id, customer_id, status, payment_method, square_payment_id, paidy_payment_id")
     .eq("id", submission_id)
     .maybeSingle();
 
@@ -113,9 +113,21 @@ serve(async (req) => {
       { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-  // Nor can a customer relabel any submission as Paidy.
-  if (action !== "cancel" && payment_method === "paidy") {
-    return new Response(JSON.stringify({ error: "paidy_submission_locked" }), {
+  // SQ10 (2026-10-04): a card (Square) submission is the hold on her card. Its
+  // method and amount are fixed, and it ends only by staff Confirm (capture)
+  // or Reject (void) — a customer edit or cancel would leave the hold in place.
+  // The database refuses it too (guard_provider_submission).
+  if (submission.square_payment_id || String(submission.payment_method ?? "").toLowerCase() === "square") {
+    return new Response(
+      JSON.stringify({ error: "card_submission_locked", message: "A card payment cannot be edited or cancelled here. Please contact us." }),
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  // Nor can a customer relabel any submission as Paidy or card.
+  if (action !== "cancel" && payment_method !== undefined
+      && ["paidy", "square"].includes(String(payment_method).toLowerCase())) {
+    const locked = String(payment_method).toLowerCase() === "square" ? "card_submission_locked" : "paidy_submission_locked";
+    return new Response(JSON.stringify({ error: locked }), {
       status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

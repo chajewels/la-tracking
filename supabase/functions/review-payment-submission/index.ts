@@ -18,8 +18,9 @@ import {
 import { paidyBell } from "../_shared/paidy-filing.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
 import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
-import { SquareError, square } from "../_shared/square.ts";
-import { cardHoldExpired } from "../_shared/card-rules.ts";
+import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
+import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
+import { applyPaymentState } from "../_shared/square-sync.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -441,10 +442,15 @@ Deno.serve(async (req) => {
       // in the queue and never rejected on a guess. A claim younger than the
       // 5-minute lease belongs to a Confirm still running.
       const resumingPaidy = isPaidySubmission && submission.status === "confirmed" && !submission.confirmed_payment_id;
-      if (resumingPaidy && !paidyConfirmLeaseExpired(submission.processing_started_at)) {
+      // SQ07 (2026-10-04): the same resume for a CARD Confirm — Square may
+      // already have captured, so a claimed card submission is finished, never
+      // requeued. Same 5-minute lease.
+      const resumingSquare = isSquareSubmission && submission.status === "confirmed" && !submission.confirmed_payment_id;
+      const resuming = resumingPaidy || resumingSquare;
+      if (resuming && !paidyConfirmLeaseExpired(submission.processing_started_at)) {
         return new Response(JSON.stringify({
           error: "confirm_in_progress",
-          message: "Another Confirm of this Paidy payment started less than 5 minutes ago. Wait a few minutes, refresh, then use Finish recording if it is still not recorded.",
+          message: `Another Confirm of this ${resumingSquare ? "card" : "Paidy"} payment started less than 5 minutes ago. Wait a few minutes, refresh, then use Finish recording if it is still not recorded.`,
         }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -463,7 +469,7 @@ Deno.serve(async (req) => {
       // been read: the money may already be taken, and a silent 400 here
       // would hide it (review 2026-10-04 #1). The Paidy block re-applies them
       // before any capture, and finalize re-checks on the locked order.
-      if (!resumingPaidy && (cashOrder.status === "cancelled" || cashOrder.status === "expired")) {
+      if (!resuming && (cashOrder.status === "cancelled" || cashOrder.status === "expired")) {
         return new Response(JSON.stringify({ error: `cash_order is ${cashOrder.status}, cannot confirm payment` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -473,7 +479,7 @@ Deno.serve(async (req) => {
       //    finalize_cash_submission_atomic checks it again on the LOCKED balance.
       const submittedAmount = Number(submission.submitted_amount);
       const liveRemaining = Number(cashOrder.remaining_balance);
-      if (!resumingPaidy && submittedAmount > liveRemaining + 0.005) {
+      if (!resuming && submittedAmount > liveRemaining + 0.005) {
         return new Response(JSON.stringify({
           error: `submitted_amount (${submittedAmount}) exceeds current remaining_balance (${liveRemaining})`,
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -487,7 +493,7 @@ Deno.serve(async (req) => {
       //     The claim stamps processing_started_at (P02 lease); a Paidy resume
       //     re-claims only a lease older than 5 minutes.
       const claimAt = new Date().toISOString();
-      const claimQuery = resumingPaidy
+      const claimQuery = resuming
         ? supabase
             .from("payment_submissions")
             .update({ reviewer_user_id: user.id, processing_started_at: claimAt, updated_at: claimAt })
@@ -519,7 +525,7 @@ Deno.serve(async (req) => {
       // resumed Paidy claim stays 'confirmed' (the money may be with Paidy);
       // only its lease is released so "Finish recording" can run again.
       const revertCashClaim = async () => {
-        const { error } = resumingPaidy
+        const { error } = resuming
           ? await supabase
               .from("payment_submissions")
               .update({ processing_started_at: null })
@@ -661,80 +667,147 @@ Deno.serve(async (req) => {
         }
       }
 
-      // 2e. SQUARE CAPTURE (S2, 2026-10-04, docs/SQUARE.md). Same place and
-      //     same rules as 2d: after the claim, before any money is written.
-      //     CompletePayment takes the held amount; a hold Square no longer
-      //     honours (past its 7-day window, cancelled, failed) rejects the
-      //     submission with the note; any other failure reverts the claim.
+      // 2e. SQUARE CAPTURE (integrity 2026-10-04, SQ06/SQ07/SQ09/SQ13;
+      //     docs/SQUARE-INTEGRITY.md). Every decision is taken from Square's
+      //     OWN read-back, never from an HTTP status:
+      //       - the hold is CLAIMED for capture first (claim_square_action), so
+      //         a Reject cannot void it while we capture, nor the reverse;
+      //       - Square is read BEFORE the capture and again AFTER any doubt;
+      //       - COMPLETED → record it (never ask the customer to pay again);
+      //         APPROVED → exact integer amount, JPY, same order → capture with
+      //         Square's version_token; CANCELED/FAILED (verified) → reject, the
+      //         customer may pay again; unreachable/unknown → the claim stays,
+      //         lease released, "Finish recording" later — nothing recorded and
+      //         nothing promised;
+      //       - date_paid = the capture day in JAPAN time (owner Q5, like Paidy).
+      //     finalize_cash_submission_atomic re-checks captured / order /
+      //     customer / JPY / exact amount / not already allocated under locks.
+      let squareDatePaid: string | null = null;
+      let squareCaptured = false;
+      let squareRowId: string | null = null;
+      const releaseSquareAction = async () => {
+        if (!squareRowId) return;
+        const { error } = await supabase.rpc("release_square_action", { p_square_row_id: squareRowId, p_action: "capture" });
+        if (error) console.error("[review-payment-submission] release_square_action failed:", error);
+      };
+      // The claim stays 'confirmed' (money may be taken) — only the lease goes.
+      const releaseLeaseKeepClaim = async () => {
+        const { error } = await supabase.from("payment_submissions").update({ processing_started_at: null })
+          .eq("id", submission_id).eq("processing_started_at", claimAt);
+        if (error) console.error("[review-payment-submission] lease release failed:", error);
+      };
       if (isSquareSubmission) {
-        const { data: sp } = await supabase
-          .from("square_payments").select("id, square_payment_id, status, authorized_at, capture_by, amount_jpy, test")
+        const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
+          status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+        const { data: sp, error: spErr } = await supabase
+          .from("square_payments")
+          .select("id, square_payment_id, status, environment, test, cash_order_id, customer_id, amount_jpy, cash_payment_id")
           .eq("id", submission.square_payment_id).maybeSingle();
-        if (!sp) {
+        if (spErr || !sp) {
           await revertCashClaim();
-          return new Response(JSON.stringify({ error: "Square record missing for this submission." }), {
-            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return json(500, { error: "Square record missing for this submission. Nothing was captured or recorded." });
         }
-        const expireCard = async (why: string) => {
-          await supabase.from("square_payments").update({ status: "expired", voided_at: new Date().toISOString(), voided_reason: why, updated_at: new Date().toISOString() }).eq("id", sp.id);
-          await supabase.from("payment_submissions").update({
-            status: "rejected", reviewer_user_id: user.id, updated_at: new Date().toISOString(),
-            reviewer_notes: `Card hold expired or was cancelled — the customer must pay again (card or bank transfer). ${reviewer_notes ?? ""}`.trim(),
-          }).eq("id", submission_id);
-          await supabase.from("audit_logs").insert({
-            entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
-            new_value_json: { reason: "card_hold_expired", square_payment_id: sp.square_payment_id, detail: why },
-            performed_by_user_id: user.id,
-          });
-        };
-        if (sp.status === "captured") {
-          // Already taken (a retried Confirm after a crash between capture and
-          // the insert): carry on with the books, do not capture twice.
-        } else if (sp.status !== "authorized") {
+        squareRowId = sp.id;
+        if (sp.cash_order_id !== submission.cash_order_id || sp.customer_id !== cashOrder.customer_id) {
           await revertCashClaim();
-          return new Response(JSON.stringify({ error: `Card payment is ${sp.status}; nothing to capture. Reject this submission.` }), {
-            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        } else if (Math.round(Number(sp.amount_jpy)) !== Math.round(Number(submission.submitted_amount))) {
-          // The books would be written with the submission's amount while
-          // Square captures the whole hold (review S4): never.
+          return json(409, { error: "square_order_mismatch", message: "This card hold belongs to another order or customer. Nothing was captured." });
+        }
+        if (!isCanonicalYen(submission.submitted_amount)) {
           await revertCashClaim();
-          return new Response(JSON.stringify({ error: "amount_mismatch", message: `The card hold is ¥${Math.round(Number(sp.amount_jpy)).toLocaleString("en-US")} but the submission says ¥${Math.round(Number(submission.submitted_amount)).toLocaleString("en-US")}. Reject it and ask the customer to pay again.` }), {
-            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        } else if (cardHoldExpired(String(sp.authorized_at), new Date(), sp.capture_by)) {
-          await expireCard("past the hold window (capture_by) at Confirm");
-          return new Response(JSON.stringify({ error: "card_hold_expired", message: "The card hold expired (7 days). The submission was rejected; ask the customer to pay again." }), {
-            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        } else {
-          try {
-            const captured = await square.complete(sp.test === true, sp.square_payment_id);
-            if (captured.status !== "COMPLETED") {
-              console.error(`[review-payment-submission] square.complete answered ${captured.status} for ${sp.square_payment_id}`);
-              throw new SquareError(502, "not_completed", `Square answered ${captured.status} to the capture of ${sp.square_payment_id}`);
-            }
-            await supabase.from("square_payments").update({
-              status: "captured", captured_at: new Date().toISOString(), receipt_url: captured.receipt_url ?? null, last_payload: captured, updated_at: new Date().toISOString(),
-            }).eq("id", sp.id);
-          } catch (e) {
-            const se = e instanceof SquareError ? e : null;
-            console.error("[review-payment-submission] square.complete failed:", e);
-            if (se && (se.status === 404 || se.code === "PAYMENT_NOT_FOUND" || se.code === "INVALID_PAYMENT_STATUS" || se.code === "PAYMENT_EXPIRED" || /CANCEL/i.test(se.code))) {
-              // Square no longer holds it: expired, cancelled or failed on
-              // Square's side. Reject with the note (Paidy PD4 pattern).
-              await expireCard(`Square ${se.status} ${se.code}: ${se.message}`);
-              return new Response(JSON.stringify({ error: "card_hold_expired", message: `Square could not capture this payment (${se.message}). The submission was rejected; ask the customer to pay again.` }), {
-                status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-              });
-            }
-            await revertCashClaim();
-            return new Response(JSON.stringify({ error: "card_capture_failed", message: se ? `${se.code}: ${se.message}` : String(e) }), {
-              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          return json(409, { error: "square_amount_mismatch", message: "A card payment must be a whole number of yen. Nothing was captured." });
+        }
+        const env = (sp.environment as "sandbox" | "production" | null) ?? (sp.test ? "sandbox" : "production");
+        const { data: claimRes, error: claimErr } = await supabase.rpc("claim_square_action", { p_square_row_id: sp.id, p_action: "capture", p_user_id: user.id });
+        if (claimErr || !(claimRes as Record<string, unknown> | null)?.ok) {
+          if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+          return json(409, { error: "card_action_busy", message: "A Reject (void) of this card hold is in progress. Refresh in a minute." });
+        }
+        // Unverified outcome: nothing recorded, nothing promised. A resumed or
+        // possibly-captured claim stays 'confirmed' for Finish recording.
+        const unverified = async (why: string, mayBeCaptured: boolean) => {
+          await releaseSquareAction();
+          if (mayBeCaptured || resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+          if (mayBeCaptured) {
+            await supabase.from("staff_notifications").insert({
+              type: "card_capture_unverified", title: "Card capture not confirmed by Square",
+              body: `${customerReference(cashOrder as never) || cashOrder.invoice_number} · ¥${Number(submission.submitted_amount).toLocaleString("en-US")} · ${why}. Nothing was recorded. Use "Finish recording" on the submission in a few minutes — the Hub reads Square first and never charges twice.`,
+              customer_id: cashOrder.customer_id, invoice_number: cashOrder.invoice_number,
+              metadata: { cash_order_id: cashOrder.id, submission_id, square_payment_id: sp.square_payment_id },
             });
           }
+          return json(502, {
+            error: "card_unverified",
+            message: mayBeCaptured
+              ? `Square did not confirm the capture (${why}). Nothing was recorded. Wait a few minutes, then press "Finish recording".`
+              : `Could not check this card payment with Square (${why}). Nothing was captured or recorded; try again.`,
+          });
+        };
+        const closedVerified = async (live: SquarePayment) => {
+          // Square itself says the hold is gone: nothing was charged. Reject
+          // (compare-and-set on our claim) so she can pay again (owner 3A).
+          await releaseSquareAction();
+          const { error: rejErr } = await supabase.from("payment_submissions").update({
+            status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: new Date().toISOString(),
+            reviewer_notes: `Card hold ${live.status} at Square — nothing was charged; the customer can pay again (card or bank transfer). ${reviewer_notes ?? ""}`.trim(),
+          }).eq("id", submission_id).eq("processing_started_at", claimAt);
+          if (rejErr) console.error("[review-payment-submission] reject after closed hold failed:", rejErr);
+          await supabase.from("audit_logs").insert({
+            entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
+            new_value_json: { reason: "card_hold_closed", square_payment_id: sp.square_payment_id, square_status: live.status },
+            performed_by_user_id: user.id,
+          });
+          return json(409, { error: "card_hold_closed", message: `Square shows this card hold as ${live.status}: nothing was charged. The submission was rejected; the customer can pay again.` });
+        };
+
+        let live: SquarePayment;
+        try {
+          live = await square.get(env, sp.square_payment_id);
+        } catch (e) {
+          console.error("[review-payment-submission] square.get before capture failed:", e);
+          return await unverified(e instanceof SquareError ? `${e.status} ${e.code}` : "Square unreachable", false);
         }
+        try { await applyPaymentState(supabase, live, "review", user.id); }
+        catch (e) { console.error("[review-payment-submission] apply before capture failed:", e); return await unverified("Hub could not store Square's answer", false); }
+
+        if (live.status === "APPROVED") {
+          const f = paymentFacts(live);
+          if (f.currency !== "JPY" || f.amountJpy === null || f.amountJpy !== Number(submission.submitted_amount)) {
+            await releaseSquareAction();
+            if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+            return json(409, { error: "square_amount_mismatch", message: `Square holds ¥${f.amountJpy ?? "?"} ${f.currency ?? ""} but the submission says ¥${Number(submission.submitted_amount).toLocaleString("en-US")}. Nothing was captured; reject it (the hold is voided).` });
+          }
+          try {
+            live = await square.complete(env, sp.square_payment_id, live.version_token ?? null);
+          } catch (e) {
+            console.error("[review-payment-submission] square.complete failed:", e);
+            // Never conclude from the error: read Square again.
+            try { live = await square.get(env, sp.square_payment_id); }
+            catch { return await unverified(e instanceof SquareError ? `capture answered ${e.status} ${e.code}, read-back failed` : "capture answer lost", true); }
+          }
+          try { await applyPaymentState(supabase, live, "capture", user.id); }
+          catch (e) { console.error("[review-payment-submission] apply after capture failed:", e); return await unverified("Hub could not store Square's capture", true); }
+          if (live.status === "APPROVED") {
+            // Verified: still held, nothing captured.
+            await releaseSquareAction();
+            if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+            return json(502, { error: "card_capture_failed", message: "Square did not capture the payment; it is still held and nothing was charged. Try Confirm again." });
+          }
+        }
+        if (live.status === "CANCELED" || live.status === "FAILED") return await closedVerified(live);
+        if (live.status !== "COMPLETED") return await unverified(`Square status ${live.status}`, false);
+
+        // COMPLETED — captured now or before (a previous Confirm, or the Square Dashboard).
+        const f = paymentFacts(live);
+        if (f.currency !== "JPY" || f.amountJpy !== Number(submission.submitted_amount)) {
+          // Captured money that does not match the submission: an exception
+          // for a person (apply_square_payment_state flagged it), never a guess.
+          await releaseSquareAction();
+          await releaseLeaseKeepClaim();
+          return json(409, { error: "square_amount_mismatch", message: `Square captured ¥${f.amountJpy ?? "?"} but the submission says ¥${Number(submission.submitted_amount).toLocaleString("en-US")}. Nothing was recorded — resolve it in Website → Card payments.` });
+        }
+        squareCaptured = true;
+        squareDatePaid = jstDate(f.capturedAt ?? live.updated_at ?? null);
       }
 
       // 3–6. Record the payment: cash_payments row, cash_orders totals/status,
@@ -749,7 +822,7 @@ Deno.serve(async (req) => {
         p_reviewer_notes: reviewer_notes ?? null,
         // Paidy: the capture day in Japan time (owner Q5). Others: the
         // submission's payment_date, as before.
-        p_date_paid: isPaidySubmission ? paidyDatePaid : null,
+        p_date_paid: isPaidySubmission ? paidyDatePaid : isSquareSubmission ? squareDatePaid : null,
         p_submitted_by_type: submittedByType,
       });
       const finRes = (fin ?? {}) as Record<string, any>;
@@ -770,6 +843,37 @@ Deno.serve(async (req) => {
             });
           } catch (e) { console.error("[review-payment-submission] open case failed:", e); }
         }
+        if (isSquareSubmission && squareCaptured) {
+          // Square has the money; the Hub has nothing written. Keep the claim
+          // ('confirmed', no payment → "Finish recording"), release the lease.
+          // An order that can no longer take it becomes a tracked exception.
+          await releaseLeaseKeepClaim();
+          await releaseSquareAction();
+          const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
+          const cannotTake = ["order_closed", "exceeds_remaining", "square_order_mismatch", "square_currency_mismatch", "square_amount_mismatch", "square_already_allocated", "square_link_mismatch"].includes(code);
+          if (cannotTake && squareRowId) {
+            const { error: exErr } = await supabase.from("square_payments").update({
+              exception: "captured_unallocated", exception_at: new Date().toISOString(), exception_note: `Recording refused: ${code}`, exception_resolved_at: null, updated_at: new Date().toISOString(),
+            }).eq("id", squareRowId);
+            if (exErr) console.error("[review-payment-submission] exception flag failed:", exErr);
+          }
+          await supabase.from("staff_notifications").insert({
+            type: "card_recording_failed",
+            title: cannotTake ? "Card captured — the order can no longer take it" : "Card captured — recording in the Hub failed",
+            body: cannotTake
+              ? `${ref} · ¥${Number(submittedAmount).toLocaleString("en-US")} · Square took the money but the Hub refused to record it (${code}). Open Website → Card payments: record it by hand or refund it in the Square Dashboard.`
+              : `${ref} · ¥${Number(submittedAmount).toLocaleString("en-US")} · Square took the money but the Hub could not record it (${code}). Open Payments Hub and press "Finish recording".`,
+            customer_id: cashOrder.customer_id, invoice_number: cashOrder.invoice_number,
+            metadata: { cash_order_id: cashOrder.id, submission_id, square_row_id: squareRowId, error: code },
+          });
+          return new Response(JSON.stringify({
+            error: "card_recording_failed",
+            message: cannotTake
+              ? `Square captured the payment but the Hub cannot record it on this order (${code}). Nothing was written. Resolve it in Website → Card payments.`
+              : `Square captured the payment but recording it failed (${code}). Nothing was written. Use "Finish recording" on this submission.`,
+          }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        await releaseSquareAction();
         await revertCashClaim();
         const status = code === "exceeds_remaining" || code === "order_closed" ? 400 : code === "not_claimed" ? 409 : 500;
         const message = code === "exceeds_remaining"
@@ -781,6 +885,7 @@ Deno.serve(async (req) => {
           status, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      await releaseSquareAction();
       const cashPayment = finRes.cash_payment as Record<string, any>;
       const updatedOrder = finRes.cash_order as Record<string, any>;
       const newTotalPaid = Number(finRes.new_total_paid);
@@ -1338,29 +1443,62 @@ Deno.serve(async (req) => {
       }
     }
 
-    // SQUARE: Reject voids the hold (no charge, no fee). Best effort — a
-    // Square outage must not stop the reviewer; Square cancels the hold by
-    // itself at the end of the window (delay_action CANCEL), and the bell says so.
+    // SQUARE: Reject voids the hold (integrity 2026-10-04, SQ10). The hold is
+    // CLAIMED for the void first (a running Confirm wins and this answers
+    // busy), Square is READ first, and the submission is rejected only once
+    // Square shows nothing can be charged: a void Square did not accept leaves
+    // the submission waiting (the hold is still on her card). A payment Square
+    // has already COMPLETED is never rejected — Confirm records it.
     if (action === "rejected" && isSquareSubmission) {
-      const { data: sp } = await supabase
-        .from("square_payments").select("id, square_payment_id, status, test").eq("id", submission.square_payment_id).maybeSingle();
-      if (sp && sp.status === "authorized") {
+      const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      if (submission.status === "confirmed") {
+        return json(409, { error: "card_confirm_in_progress", message: "A Confirm already claimed this card payment. Use \"Finish recording\" instead of Reject." });
+      }
+      const { data: sp, error: spErr } = await supabase
+        .from("square_payments").select("id, square_payment_id, status, environment, test").eq("id", submission.square_payment_id).maybeSingle();
+      if (spErr || !sp) return json(500, { error: "Could not read the card record. Nothing was changed; try again." });
+      const env = (sp.environment as "sandbox" | "production" | null) ?? (sp.test ? "sandbox" : "production");
+      const { data: claimRes, error: claimErr } = await supabase.rpc("claim_square_action", { p_square_row_id: sp.id, p_action: "void", p_user_id: user.id });
+      if (claimErr || !(claimRes as Record<string, unknown> | null)?.ok) {
+        return json(409, { error: "card_action_busy", message: "A Confirm (capture) of this card payment is in progress. Refresh in a minute." });
+      }
+      const release = async () => {
+        const { error } = await supabase.rpc("release_square_action", { p_square_row_id: sp.id, p_action: "void" });
+        if (error) console.error("[review-payment-submission] release_square_action (void) failed:", error);
+      };
+      let live: SquarePayment;
+      try {
+        live = await square.get(env, sp.square_payment_id);
+      } catch (e) {
+        await release();
+        console.error("[review-payment-submission] square.get before reject failed:", e);
+        return json(502, { error: "card_unverified", message: "Could not check this card payment with Square, so it was not rejected (the hold may still be on the card). Try again in a few minutes." });
+      }
+      if (live.status === "COMPLETED") {
+        await applyPaymentState(supabase, live, "review", user.id).catch((e) => console.error("[review-payment-submission] apply (completed) failed:", e));
+        await release();
+        return json(409, { error: "card_already_captured", message: "Square has already taken this payment. Do not reject it — press Confirm: the Hub records the capture and does not charge the customer again." });
+      }
+      if (live.status === "APPROVED") {
         try {
-          const voided = await square.cancel(sp.test === true, sp.square_payment_id);
-          await supabase.from("square_payments").update({
-            status: "voided", voided_at: new Date().toISOString(), voided_reason: "rejected by reviewer", last_payload: voided, updated_at: new Date().toISOString(),
-          }).eq("id", sp.id);
+          live = await square.cancel(env, sp.square_payment_id);
         } catch (e) {
-          console.warn("[review-payment-submission] square.cancel on reject failed (non-blocking):", e);
-          try {
-            await supabase.from("staff_notifications").insert({
-              type: "card_void_failed",
-              title: "Card hold could not be voided",
-              body: `Submission ${submission_id} was rejected but Square did not accept the cancel: ${e instanceof Error ? e.message : String(e)}. Square drops the hold by itself at the end of the 7-day window; check the Square Dashboard.`,
-              metadata: { submission_id, square_payment_id: sp.square_payment_id },
-            });
-          } catch { /* bell is best effort */ }
+          console.warn("[review-payment-submission] square.cancel on reject failed:", e);
+          try { live = await square.get(env, sp.square_payment_id); } catch { /* handled below */ }
         }
+      }
+      try { await applyPaymentState(supabase, live, "void", user.id); }
+      catch (e) { console.error("[review-payment-submission] apply after void failed:", e); }
+      await release();
+      if (live.status !== "CANCELED" && live.status !== "FAILED") {
+        await supabase.from("staff_notifications").insert({
+          type: "card_void_failed", title: "Card hold could not be voided",
+          body: `Submission ${submission_id}: Square did not void the hold (status ${live.status}). The submission was NOT rejected — the hold is still on the customer's card. Try Reject again, or void it in the Square Dashboard.`,
+          metadata: { submission_id, square_payment_id: sp.square_payment_id, square_status: live.status },
+        });
+        return json(502, { error: "card_void_failed", message: `Square did not void the hold (status ${live.status}). The submission was not rejected; try again.` });
       }
     }
 

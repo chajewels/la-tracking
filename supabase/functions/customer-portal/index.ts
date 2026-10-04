@@ -1004,14 +1004,19 @@ Deno.serve(async (req) => {
     // authorisation waiting, capture not yet recorded) the customer is offered
     // no other way to pay. cash_order_payment_lock() is the one answer; read
     // for open orders only. A read error hides the Submit button (fail closed).
+    // Owner 3A (2026-10-04): the same while a card payment is in flight, held
+    // or captured-but-not-recorded (lock card_payment_unresolved).
     const paidyLockByOrder = new Map<string, boolean>();
+    const cardLockByOrder = new Map<string, boolean>();
     await Promise.all((cashOrdersRaw as any[]).filter((o: any) => o.status === "pending").map(async (o: any) => {
       const { data: lock, error: lockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: o.id });
       paidyLockByOrder.set(o.id, !!lockErr || (typeof lock === "string" && lock.startsWith("paidy")));
+      cardLockByOrder.set(o.id, !lockErr && lock === "card_payment_unresolved");
     }));
 
     const cashOrdersPayload = (cashOrdersRaw as any[]).map((o: any) => ({
       paidy_processing: paidyLockByOrder.get(o.id) === true,
+      card_processing: cardLockByOrder.get(o.id) === true,
       id: o.id,
       invoice_number: o.invoice_number,
       customer_id: o.customer_id,

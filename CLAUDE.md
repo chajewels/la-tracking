@@ -1121,10 +1121,10 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   R2 Cash orders behave exactly like layaway.
   R3 Permission: requirePermission('reassign_owner') server-side (live role_permissions/overrides). Setting or changing the loyalty amount inside the reassign additionally requires 'edit_loyalty_amount'.
   R4 The loyalty product amount (excluding shipping and service fees) must be set (> 0) before a reassign completes — always, for every reassign. The dialog collects it if empty.
-  R5 Also refuse, with a plain-words reason: an order already earned by ANY member (any marker, incl. in-flight claims and lots on the invoice); Shopify orders; split submissions covering more than one order; any non-cancelled redemption or store credit on the order; closed status; crossing is_test; same owner; not found. Full list: docs/REASSIGN-OWNER.md "Rules moved from CLAUDE.md".
+  R5 Also refuse, with a plain-words reason: an order already earned by ANY member (any marker, incl. in-flight claims and lots on the invoice); Shopify orders; split submissions covering more than one order; any non-cancelled redemption or store credit on the order; closed status; crossing is_test; same owner; not found; Paidy history (paidy_order). Full list: docs/REASSIGN-OWNER.md "Rules moved from CLAUDE.md".
   R6 Catch-up award for the NEW owner only when enrolled AND the award point >= enrolled_at − loyalty_enrollment_grace_days (default 3); award point = the DP payment's created_at (layaway) / completed_at (cash), NEVER date_paid; not yet at the award point → no catch-up — docs "Rules moved".
   R7 Catch-up: current tier multiplier, NO promo; the member's OTHER live lots are only ever EXTENDED, never shortened; order_date + 180 days already past still awards, born expired (the preview must say so) — docs "Rules moved".
-  R8 A written reason is required for every reassign. Web orders are allowed.
+  R8 A written reason is required for every reassign. Web orders are allowed (not Paidy ones, R5).
   R9 If the move commits but the catch-up award fails: the move stands; insert a staff_notifications row type 'reassign_catch_up_failed' naming the invoice, both customers and the error.
   R10 Out of scope: changing the normal award's last_purchase_at = now(); any merge-customers tool.
   R11 IDENTITY MATCH: the target must match the CURRENT owner on full name, Facebook name, mobile (last 10 digits) or email (find_customer_matches normalisation), else refused different_customer_details. Only reassign_owner_unmatched may override, explicitly and with the written reason; the override bypasses ONLY R11, every other refusal still applies — docs "Rules moved".
@@ -1430,9 +1430,12 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
     EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
     change ONLY via set_square_settings (admin, audited, guard, refuses a
-    token). SQUARE_ACCESS_TOKEN / SQUARE_WEBHOOK_SIGNATURE_KEY: edge secrets
-    ONLY. Yen cash orders, any country, never layaway. Authorise on pay,
-    CAPTURE only on reviewer Confirm, VOID on Reject.
+    token). SQUARE_[PRODUCTION_]ACCESS_TOKEN / _WEBHOOK_SIGNATURE_KEY: edge
+    secrets ONLY. Yen cash orders, any country, never layaway. Authorise
+    on pay, CAPTURE only on Confirm, VOID on Reject.
+  - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
+    file_square_authorization_atomic / apply_square_payment_state; lock
+    card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
@@ -1660,12 +1663,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   Minimum amounts stored in: plan_configurations table
   Columns: plan_months, min_amount_jpy, min_amount_php
 
-  Current minimums:
-    3M: no minimum
-    6M: ¥25,000 / ₱10,500
-    8M: ¥300,000 / ₱126,000
-    10M: ¥600,000 / ₱252,000
-    12M: ¥1,000,000 / ₱420,000
+  Current minimums: see PLAN CONFIGURATIONS above (same table).
 
   Enforcement layers:
     1. UI — NewAccount.tsx reads plan_configurations on load,

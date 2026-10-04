@@ -91,6 +91,11 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[redeem-store-credit] rpc error:", error);
+      // Owner rule 2026-10-04: nothing else is added while Paidy holds the
+      // order (trg_guard_cash_payment_paidy, 20261104110000).
+      if (String(error.message ?? "").includes("paidy_in_progress")) {
+        return json({ error: "This order is being paid with Paidy. Store credit can be applied only after staff Reject the Paidy payment." }, 409);
+      }
       return json({ error: error.message ?? "redeem_store_credit_atomic failed" }, 400);
     }
 

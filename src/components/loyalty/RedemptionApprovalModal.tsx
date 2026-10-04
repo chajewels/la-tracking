@@ -15,6 +15,22 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
+// Surface the edge function's JSON error body (FunctionsHttpError wraps it),
+// so a 409 such as "This order is being paid with Paidy…" reaches staff in
+// plain words instead of "Edge Function returned a non-2xx status code".
+async function fnErrorMessage(
+  error: { message?: string; context?: { body?: BodyInit | null } } | null | undefined,
+): Promise<string | undefined> {
+  let msg = error?.message;
+  try {
+    if (error && 'context' in error && error.context?.body) {
+      const b = await new Response(error.context.body).json();
+      if (b?.error) msg = b.error;
+    }
+  } catch { /* ignore */ }
+  return msg;
+}
+
 interface RedemptionFull {
   id: string;
   redemption_type: string;
@@ -183,7 +199,7 @@ export function RedemptionApprovalModal({
           body: { action: 'approve', redemption_id: redemptionId },
         },
       );
-      if (error) throw error;
+      if (error) throw new Error((await fnErrorMessage(error)) || 'Request failed');
       const errFromBody = (data as { error?: string } | null)?.error as string | undefined;
       if (errFromBody) throw new Error(errFromBody);
       toast.success('Redemption approved');
@@ -216,7 +232,7 @@ export function RedemptionApprovalModal({
           },
         },
       );
-      if (error) throw error;
+      if (error) throw new Error((await fnErrorMessage(error)) || 'Request failed');
       const errFromBody = (data as { error?: string } | null)?.error as string | undefined;
       if (errFromBody) throw new Error(errFromBody);
       toast.success('Redemption cancelled');
@@ -249,7 +265,7 @@ export function RedemptionApprovalModal({
           },
         },
       );
-      if (error) throw error;
+      if (error) throw new Error((await fnErrorMessage(error)) || 'Request failed');
       const body = (data ?? {}) as { error?: string; race?: boolean };
       if (body.race) {
         toast.message('Already voided by another admin. Refreshing…');
