@@ -62,6 +62,9 @@ interface SubmissionRow {
   reviewer_user_id: string | null;
   reviewer_notes: string | null;
   confirmed_payment_id: string | null;
+  /** Set when the submission is a Square card hold / a Paidy authorisation (provider-linked: method and amount are locked in the database). */
+  square_payment_id?: string | null;
+  paidy_payment_id?: string | null;
   portal_token: string | null;
   submission_type: string | null;
   created_at: string;
@@ -85,6 +88,8 @@ interface LoyaltyAwardResult {
 }
 interface ReviewSubmissionResponse {
   error?: string;
+  /** Plain-words explanation the server sends with a coded error (card_unverified, card_hold_closed, …). */
+  message?: string;
   loyalty_awards?: LoyaltyAwardResult[];
   confirmed_payment_ids?: string[];
 }
@@ -167,14 +172,25 @@ const isPaidy = (sub: { payment_method: string | null }) => (sub.payment_method 
 const isSquare = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'square';
 const proofSatisfied = (sub: { payment_method: string | null; proof_url: string | null }) => hasProof(sub.proof_url) || isPaidy(sub) || isSquare(sub);
 /**
- * P02 (2026-10-04, owner Q4 a): a Paidy Confirm that stopped half-way — the
- * submission is claimed ('confirmed') but no payment is linked. Paidy may
- * already hold the money, so it is never put back in the queue; staff press
- * "Finish recording", which re-runs Confirm: the Hub reads Paidy first,
- * records a capture that happened, never charges twice (docs/PAIDY.md).
+ * P02 (2026-10-04, owner Q4 a) + Square integrity (2026-10-04): a Paidy or
+ * card (Square) Confirm that stopped half-way — the submission is claimed
+ * ('confirmed') but no payment is linked. The provider may already hold the
+ * money, so it is never put back in the queue; staff press "Finish
+ * recording", which re-runs Confirm: the Hub reads Paidy / Square first,
+ * records a capture that happened and never charges twice (docs/PAIDY.md,
+ * docs/SQUARE-INTEGRITY.md).
  */
 const needsFinishRecording = (sub: { payment_method: string | null; status: string; confirmed_payment_id: string | null; cash_order_id: string | null }) =>
-  isPaidy(sub) && sub.status === 'confirmed' && !sub.confirmed_payment_id && !!sub.cash_order_id;
+  (isPaidy(sub) || isSquare(sub)) && sub.status === 'confirmed' && !sub.confirmed_payment_id && !!sub.cash_order_id;
+/**
+ * Provider-linked submission (Square card hold or Paidy authorisation): its
+ * payment method and amount are the provider's and cannot be relabelled or
+ * edited — the database refuses it (guard_provider_submission:
+ * provider_submission_locked / square_link_required), so the Hub does not
+ * offer it.
+ */
+const isProviderLinked = (sub: { payment_method: string | null; square_payment_id?: string | null; paidy_payment_id?: string | null }) =>
+  !!sub.square_payment_id || !!sub.paidy_payment_id || isPaidy(sub) || isSquare(sub);
 const isPdf = (url: string) => /\.pdf$/i.test(url);
 const proofFileName = (url: string) => decodeURIComponent(url.split('/').pop() || 'proof.pdf').split('?')[0];
 
@@ -249,17 +265,19 @@ const ActionDialogModal = memo(function ActionDialogModal({
           <p className="text-sm text-muted-foreground">
             {actionDialog.action === 'confirmed'
               ? needsFinishRecording(actionDialog.sub)
-                ? `A Confirm of this Paidy payment stopped before the payment was recorded. The Hub will read the payment from Paidy first: if Paidy already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if not, Paidy is asked to capture it. If Paidy shows it expired or closed, the submission is rejected.`
+                ? isSquare(actionDialog.sub)
+                  ? `A Confirm of this card payment stopped before the payment was recorded. The Hub will read the payment from Square first: if Square already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if the hold is still there, Square is asked to capture it. If Square shows the hold voided or failed, nothing was charged and the submission is rejected. If Square's answer is still not clear, nothing is recorded — try again in a few minutes.`
+                  : `A Confirm of this Paidy payment stopped before the payment was recorded. The Hub will read the payment from Paidy first: if Paidy already took ${formatCurrency(actionDialog.sub.submitted_amount, cur)} it is recorded now (never charged twice); if not, Paidy is asked to capture it. If Paidy shows it expired or closed, the submission is rejected.`
                 : isPaidy(actionDialog.sub)
                 ? `Paidy will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} now (the customer pays Paidy next month). Then a confirmed payment is recorded and the order balance updated. A capture refused by Paidy records nothing.`
                 : isSquare(actionDialog.sub)
-                ? `Square will be asked to CAPTURE ${formatCurrency(actionDialog.sub.submitted_amount, cur)} from the customer's card now. Then a confirmed payment is recorded and the order balance updated. A capture refused by Square records nothing.`
+                ? `The Hub reads this card payment from Square first, then asks Square to CAPTURE the hold of ${formatCurrency(actionDialog.sub.submitted_amount, cur)}. Once Square confirms the capture, a confirmed payment is recorded and the order balance updated. If Square shows the hold voided or failed, nothing was charged and the submission is rejected. If Square's answer is uncertain, nothing is recorded — use "Finish recording" on this submission a few minutes later (it reads Square first and never charges twice).`
                 : `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
               : actionDialog.action === 'rejected'
               ? isPaidy(actionDialog.sub)
                 ? 'This submission will be marked as rejected and the Paidy authorisation released — the customer is not charged. The customer will see your reason.'
                 : isSquare(actionDialog.sub)
-                ? 'This submission will be marked as rejected and the card hold VOIDED — the customer is not charged. The customer will see your reason.'
+                ? 'The Hub reads this card payment from Square, then asks Square to VOID the hold. The submission is rejected only once Square confirms the void — then the customer is not charged and sees your reason. If Square has already taken the money, nothing is rejected: use Confirm instead (it records the capture without charging again).'
                 : 'This submission will be marked as rejected. The customer will see your reason.'
               : actionDialog.action === 'restore'
               ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
@@ -550,10 +568,13 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   submissionId,
   currentMethod,
   availableMethods,
+  locked = false,
 }: {
   submissionId: string;
   currentMethod: string;
   availableMethods: string[];
+  /** Provider-linked (Square / Paidy): shown as a label, never offered for change. */
+  locked?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
@@ -584,12 +605,33 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
     setPending(false);
 
     if (error) {
+      // Revert the optimistic change: re-read the rows from the server.
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-      toast.error('Failed to update payment method', { description: error.message });
+      const msg = error.message ?? '';
+      if (/provider_submission_locked|square_link_required/.test(msg)) {
+        toast.error('Payment method not changed', {
+          description: 'This payment is linked to Square or Paidy. Its method comes from the provider and cannot be changed.',
+        });
+      } else {
+        toast.error('Failed to update payment method', { description: msg });
+      }
       return;
     }
     toast.success('Payment method updated');
   };
+
+  if (locked) {
+    return (
+      <span
+        className="inline-flex h-6 shrink-0 items-center px-2 text-sm font-medium text-foreground"
+        title="Linked to the payment provider: the method cannot be changed."
+      >
+        {(currentMethod ?? '').toLowerCase() === 'square' ? 'Card (Square)'
+          : (currentMethod ?? '').toLowerCase() === 'paidy' ? 'Paidy'
+          : methodLabel(currentMethod)}
+      </span>
+    );
+  }
 
   return (
     <Select value={currentCanon} onValueChange={handleChange} disabled={pending}>
@@ -1131,21 +1173,23 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       });
       // Prefer the server's actual error message over the generic invoke wrapper.
       // Path 1: supabase-js parsed the body into `data` (happens for some response shapes).
-      if (data?.error) throw new Error(data.error);
+      // Coded errors (card_unverified, card_hold_closed, square_amount_mismatch, …)
+      // carry a plain-words `message`; show that, not the code.
+      if (data?.error) throw new Error(data.message || data.error);
       if (error) {
         // Path 2: For non-2xx responses, supabase-js v2 wraps the Response in error.context.
         // Extract the server's specific message and attach the HTTP status so onError can
         // detect permission errors (403) reliably.
         const ctx = (error as { context?: Response } | null)?.context;
         if (ctx && typeof ctx.json === 'function') {
-          let body: { error?: string } | null = null;
+          let body: { error?: string; message?: string } | null = null;
           try {
             body = typeof ctx.clone === 'function' ? await ctx.clone().json() : await ctx.json();
           } catch {
             // body parsing failed — fall through to throw the wrapper error below
           }
-          if (body?.error) {
-            const serverError = new Error(body.error);
+          if (body?.error || body?.message) {
+            const serverError = new Error(body.message || body.error);
             (serverError as Error & { status?: number }).status = ctx.status;
             throw serverError;
           }
@@ -1235,6 +1279,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       }
     },
     onError: (err: Error & { status?: number; context?: { status?: number } }) => {
+      // A refused card/Paidy action can still change the row server-side (e.g.
+      // card_hold_closed rejects it; card_unverified leaves it for "Finish
+      // recording"), so always re-read the list.
+      queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
       const message = err?.message || 'Failed to process submission';
       // Read status from either the enrichedError thrown in mutationFn (err.status)
       // OR from the original FunctionsHttpError's Response context (err.context.status).
@@ -1376,7 +1425,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         )}
         {needsFinishRecording(sub) && canModerate && canConfirm && (
           <Button size="sm" variant="default" className={btn}
-            title="A Confirm stopped half-way. Reads Paidy first; records the capture, never charges twice."
+            title={`A Confirm stopped half-way. Reads ${isSquare(sub) ? 'Square' : 'Paidy'} first; records the capture, never charges twice.`}
             onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
             <Check className="h-3.5 w-3.5" /> Finish recording
           </Button>
@@ -1428,6 +1477,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             submissionId={sub.id}
             currentMethod={sub.payment_method}
             availableMethods={paymentMethodOptions}
+            locked={isProviderLinked(sub)}
           />
           <span className="block max-w-full truncate font-mono text-[11px] text-muted-foreground" title={sub.reference_number || undefined}>
             {sub.reference_number || '—'}
@@ -1499,7 +1549,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               amount={Number(sub.submitted_amount)}
               currency={d.currency}
               userId={session?.user?.id ?? null}
-              canEdit={canConfirm && !d.isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
+              canEdit={canConfirm && !d.isSplit && !isProviderLinked(sub) && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
             />
             <span className="text-[11px] text-muted-foreground whitespace-nowrap" title={`Payment date ${fmtPaymentDate(sub.payment_date)}`}>
               Paid {new Date(sub.payment_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -1699,7 +1749,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                             amount={Number(sub.submitted_amount)}
                             currency={d.currency}
                             userId={session?.user?.id ?? null}
-                            canEdit={canConfirm && !d.isSplit && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
+                            canEdit={canConfirm && !d.isSplit && !isProviderLinked(sub) && ['submitted', 'under_review', 'needs_clarification'].includes(sub.status)}
                           />
                           {d.isSplit && <StatusPill label="Split" tone="gold" />}
                           {d.isCash && <StatusPill label="Cash order" tone="gold" />}
@@ -1713,6 +1763,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                             submissionId={sub.id}
                             currentMethod={sub.payment_method}
                             availableMethods={paymentMethodOptions}
+                            locked={isProviderLinked(sub)}
                           />
                           <span>·</span>
                           <span>{fmtStamp(sub.created_at)}</span>
