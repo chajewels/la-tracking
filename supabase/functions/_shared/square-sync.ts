@@ -171,31 +171,70 @@ export async function syncSquarePayment(db: Db, env: SquareEnvironment, p: Squar
   return { outcome: "quarantined" }; // PENDING/UNKNOWN: look again later
 }
 
+/**
+ * QC05 (2026-10-05): a refund or dispute can arrive BEFORE the Hub knows its
+ * payment (Square does not order its events; the payment's own filing may have
+ * failed). "Unknown payment" therefore proves nothing about relevance. The
+ * parent is read from Square and synced first:
+ *   ours      — the Hub now holds the payment row (filed / synced now);
+ *   unrelated — Square has the payment and it is NOT a Cha Jewels web attempt
+ *               (e.g. an in-person sale on the same account): safe to ignore;
+ *   pending   — not visible yet, or ours but not filed yet: QUARANTINE and
+ *               retry, never ignore (the inbox gives up after 12 tries, bell).
+ */
+export async function recoverParentPayment(db: Db, env: SquareEnvironment, paymentId: string): Promise<"ours" | "unrelated" | "pending"> {
+  const { data: row, error } = await db.from("square_payments").select("id").eq("square_payment_id", paymentId).maybeSingle();
+  if (error) throw new SyncError(`square_payments: ${error.message}`);
+  if (row) return "ours";
+  const got = await readPaymentAnyEnv(env, paymentId);
+  if (!got) return "pending";
+  if (!isAttemptReference(got.payment.reference_id)) return "unrelated";
+  const r = await syncSquarePayment(db, got.env, got.payment, "parent_recovery");
+  return r.outcome === "synced" || r.outcome === "filed" || r.outcome === "exception" ? "ours" : "pending";
+}
+
 /** A refund (refund.created / refund.updated, or reconcile): the refund record, then the payment's refunded total. */
 export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: SquareRefund): Promise<{ outcome: string }> {
-  if (!refund.payment_id) return { outcome: "ignored_unrelated" };
-  const res = await rpc(db, "record_square_refund", {
+  if (!refund.payment_id) return { outcome: "quarantined" };
+  const record = async () => await rpc(db, "record_square_refund", {
     p_refund_id: refund.id, p_square_payment_id: refund.payment_id, p_status: refund.status,
     p_amount_jpy: Number.isSafeInteger(Number(refund.amount_money?.amount)) ? Number(refund.amount_money?.amount) : 0,
     p_reason: refund.reason ?? null, p_provider_created_at: refund.created_at ?? null,
     p_provider_updated_at: refund.updated_at ?? null, p_payload: refund,
   });
-  if (!res.ok) return { outcome: res.error === "unknown_payment" ? "ignored_unrelated" : "failed" };
-  await applyPaymentState(db, await square.get(env, refund.payment_id), "reconcile");
+  let res = await record();
+  if (!res.ok && res.error === "unknown_payment") {
+    const parent = await recoverParentPayment(db, env, refund.payment_id);
+    if (parent === "unrelated") return { outcome: "ignored_unrelated" };
+    if (parent === "pending") return { outcome: "quarantined" };
+    res = await record();
+    if (!res.ok && res.error === "unknown_payment") return { outcome: "quarantined" };
+  }
+  if (!res.ok) return { outcome: "failed" };
+  const got = await readPaymentAnyEnv(env, refund.payment_id);
+  if (got) await applyPaymentState(db, got.payment, "reconcile");
   return { outcome: "synced" };
 }
 
-export async function syncSquareDispute(db: Db, dispute: SquareDispute): Promise<{ outcome: string }> {
+export async function syncSquareDispute(db: Db, dispute: SquareDispute, env?: SquareEnvironment): Promise<{ outcome: string }> {
   const paymentId = dispute.disputed_payment?.payment_id;
-  if (!paymentId) return { outcome: "ignored_unrelated" };
+  if (!paymentId) return { outcome: "quarantined" };
   const amount = Number(dispute.amount_money?.amount);
-  const res = await rpc(db, "record_square_dispute", {
+  const record = async () => await rpc(db, "record_square_dispute", {
     p_dispute_id: dispute.id ?? dispute.dispute_id, p_square_payment_id: paymentId, p_state: dispute.state,
     p_reason: dispute.reason ?? null, p_amount_jpy: Number.isSafeInteger(amount) ? amount : null,
     p_due_at: dispute.due_at ?? null, p_provider_created_at: dispute.created_at ?? null,
     p_provider_updated_at: dispute.updated_at ?? null, p_payload: dispute,
   });
-  if (!res.ok) return { outcome: res.error === "unknown_payment" ? "ignored_unrelated" : "failed" };
+  let res = await record();
+  if (!res.ok && res.error === "unknown_payment") {
+    const parent = await recoverParentPayment(db, env ?? (await environmentForPayment(db, paymentId)), paymentId);
+    if (parent === "unrelated") return { outcome: "ignored_unrelated" };
+    if (parent === "pending") return { outcome: "quarantined" };
+    res = await record();
+    if (!res.ok && res.error === "unknown_payment") return { outcome: "quarantined" };
+  }
+  if (!res.ok) return { outcome: "failed" };
   return { outcome: "synced" };
 }
 
@@ -221,7 +260,9 @@ export async function processSquareEvent(db: Db, event: AnyRec): Promise<{ statu
     if (kind === "payment") {
       const env = await environmentForPayment(db, id);
       const p = await readPaymentAnyEnv(env, id);
-      if (!p) return { status: "ignored", outcome: "not_found" };
+      // Not visible in either environment (yet): kept and retried, never
+      // concluded to be irrelevant (QC05) — the inbox gives up after 12 tries.
+      if (!p) return { status: "quarantined", outcome: "not_found" };
       const r = await syncSquarePayment(db, p.env, p.payment, "webhook");
       return r.outcome === "quarantined" ? { status: "quarantined", outcome: r.outcome }
         : r.outcome === "ignored_unrelated" ? { status: "ignored", outcome: r.outcome }
@@ -231,18 +272,24 @@ export async function processSquareEvent(db: Db, event: AnyRec): Promise<{ statu
       const paymentId = String((event?.data?.object?.refund ?? {}).payment_id ?? "");
       const env = paymentId ? await environmentForPayment(db, paymentId) : ((await currentEnvironment(db)) ?? "sandbox");
       const refund = await square.getRefund(env, id);
-      const r = await syncSquareRefund(db, env, refund);
-      return r.outcome === "ignored_unrelated" ? { status: "ignored", outcome: r.outcome } : { status: r.outcome === "failed" ? "failed" : "done", outcome: r.outcome };
+      return childStatus(await syncSquareRefund(db, env, refund));
     }
     const paymentId = String((event?.data?.object?.dispute ?? {}).disputed_payment?.payment_id ?? "");
     const env = paymentId ? await environmentForPayment(db, paymentId) : ((await currentEnvironment(db)) ?? "sandbox");
     const dispute = await square.getDispute(env, id);
-    const r = await syncSquareDispute(db, dispute);
-    return r.outcome === "ignored_unrelated" ? { status: "ignored", outcome: r.outcome } : { status: r.outcome === "failed" ? "failed" : "done", outcome: r.outcome };
+    return childStatus(await syncSquareDispute(db, dispute, env));
   } catch (e) {
     const msg = e instanceof SquareError ? `square ${e.status} ${e.code} (${e.kind})` : e instanceof Error ? e.message : String(e);
     return { status: "failed", outcome: "error", error: msg.slice(0, 500) };
   }
+}
+
+/** Inbox status for a refund / dispute sync outcome. */
+export function childStatus(r: { outcome: string }): { status: "done" | "ignored" | "quarantined" | "failed"; outcome: string } {
+  if (r.outcome === "ignored_unrelated") return { status: "ignored", outcome: r.outcome };
+  if (r.outcome === "quarantined") return { status: "quarantined", outcome: r.outcome };
+  if (r.outcome === "failed") return { status: "failed", outcome: r.outcome };
+  return { status: "done", outcome: r.outcome };
 }
 
 /** GetPayment in the expected environment; a 404 there is tried in the other one (a sandbox/live switch). */
@@ -257,19 +304,28 @@ export async function readPaymentAnyEnv(env: SquareEnvironment, id: string): Pro
   }
 }
 
-/** A payment of this location carrying the attempt reference, from Square's list around the attempt time. */
-export async function findPaymentByReference(env: SquareEnvironment, locationId: string, reference: string, createdMs: number): Promise<SquarePayment | null> {
+/**
+ * A payment of this location carrying the attempt reference, from Square's
+ * list around the attempt time. QC08 (2026-10-05): three answers, never two —
+ *   found      — the payment;
+ *   absent     — every page of the window was read and none matched;
+ *   incomplete — the page budget ran out with pages left: NOTHING is concluded
+ *                (the caller keeps the attempt open and looks again).
+ */
+export const PAYMENT_SEARCH_MAX_PAGES = 20;
+export type PaymentSearch = { state: "found"; payment: SquarePayment } | { state: "absent" } | { state: "incomplete"; pages: number };
+export async function findPaymentByReference(env: SquareEnvironment, locationId: string, reference: string, createdMs: number, maxPages = PAYMENT_SEARCH_MAX_PAGES): Promise<PaymentSearch> {
   const begin = new Date(createdMs - 2 * 60 * 1000).toISOString();
   const end = new Date(Math.min(Date.now(), createdMs + 30 * 60 * 1000)).toISOString();
   let cursor: string | null = null;
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const r = await square.list(env, { locationId, beginTime: begin, endTime: end, cursor });
     const hit = r.payments.find((p) => p.reference_id === reference);
-    if (hit) return hit;
-    if (!r.cursor) return null;
+    if (hit) return { state: "found", payment: hit };
+    if (!r.cursor) return { state: "absent" };
     cursor = r.cursor;
   }
-  return null;
+  return { state: "incomplete", pages: maxPages };
 }
 
 /**
@@ -283,7 +339,18 @@ export async function findPaymentByReference(env: SquareEnvironment, locationId:
 export async function recoverAttempt(db: Db, a: AnyRec, giveUpMs: number, source: string): Promise<"filed" | "resolved" | "cancelled" | "waiting" | "exception"> {
   const env = a.environment as SquareEnvironment;
   const created = Date.parse(String(a.created_at));
-  const found = await findPaymentByReference(env, String(a.location_id), String(a.reference), created);
+  // A known Square payment id is read directly — no search needed (QC08).
+  let found: SquarePayment | null = null;
+  if (a.square_payment_id) {
+    const got = await readPaymentAnyEnv(env, String(a.square_payment_id));
+    if (got) found = got.payment;
+  }
+  if (!found) {
+    const search = await findPaymentByReference(env, String(a.location_id), String(a.reference), created);
+    // An incomplete search proves nothing: the attempt stays open (QC08).
+    if (search.state === "incomplete") return "waiting";
+    if (search.state === "found") found = search.payment;
+  }
   if (found) {
     const r = await syncSquarePayment(db, env, found, source);
     if (r.outcome === "attempt_resolved") return "resolved";

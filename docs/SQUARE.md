@@ -263,3 +263,52 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
 ## Checkout payment choice + points (2026-10-05)
 
 See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".
+
+## QC fixes (2026-10-05, independent close-out review QC01–QC15)
+
+Migration `20261108100000_square_closeout_qc.sql` (md5-guarded, every replaced body starts from live) and
+the edge functions square-webhook, square-reconcile, review-payment-submission, website (shared Square
+modules), void-cash-payment, restore-cash-payment. Plan: project doc
+`claude/square-closeout-qc-plan-2026-10-05.md`.
+
+- **Refunded money is never credited in full (QC01).** `finalize_cash_submission_atomic` refuses
+  `square_refunded` when Square reports a completed or pending refund on the capture
+  (`square_refunds` not FAILED/REJECTED, or `refund_jpy`) and flags `refunded_before_record`;
+  `record_square_refund` flags it too. The Confirm path reads the payment's refunds before recording.
+  The only way to record the net is the admin/finance decision **record_net_after_refund** (completed
+  partial refund, none pending): a `card_net_after_refund` submission for exactly captured − completed.
+- **A decision is not a resolution (QC02).** `decide_square_case` stores `exception_decision` and
+  releases the order only on evidence: the capture recorded on the ledger (`record_on_order` /
+  `record_net_after_refund` hand it to the normal Confirm path — the panel calls
+  review-payment-submission, which reads Square and the finalizer records it), a completed full
+  refund (`refunded_in_square`), or Square showing the hold closed (`voided_in_square`). **Note only**
+  (`other`) resolves nothing. Refund and dispute decisions must match Square's state
+  (`state_mismatch`).
+- **Provider receipts are bound and immutable (QC03/QC04/QC12).** `guard_cash_payment_paidy` now
+  covers INSERT, UPDATE and DELETE: a `square` / `paidy` row (or any `provider_capture_id`) is inserted
+  only with matching captured provider evidence (same order, exact yen, JPY, not refunded, not yet
+  recorded); a card receipt carries its Square payment id in `provider_capture_id` (unique — backfilled
+  for existing rows). Once written, a provider receipt cannot be voided, restored, changed or deleted
+  (`provider_payment_immutable`): money back is a refund in the provider's dashboard, recorded beside
+  the receipt. Ordinary money — and now an amount / currency change on a live row — is refused while
+  Paidy or a card holds the order. `trg_guard_cash_order_amount_during_hold` freezes the order total,
+  discount, shipping and currency during a hold (Reject, then change the order).
+- **Ordered observations (QC10).** `record_square_refund` / `record_square_dispute` take a per-case
+  advisory lock (first insert included) and the upsert refuses older observations; terminal states
+  never revert.
+- **Recovery (QC05–QC09, QC11).** A refund / dispute whose payment the Hub does not know yet recovers
+  the parent first and is quarantined (retried), never ignored, until its ancestry is known; a payment
+  Square cannot show is quarantined. The attempt search answers found / absent / incomplete — an
+  incomplete search never cancels by key. The webhook answers 200 once the event is stored and processes
+  it in the background (`EdgeRuntime.waitUntil`). square-reconcile walks the Events API and ListRefunds
+  from durable checkpoints (`square_sync_state`, every page, resumable), lists disputes, refreshes every
+  non-terminal refund whatever its capture age, orders holds fairly (`reconciled_at`), and ends
+  ok | degraded | failed (`reconcile_last_run` / `reconcile_last_ok`; bell at most every 6 h).
+  `square_ops_health()` feeds the panel's health strip ("Checks not running" after 3 h without a good run).
+- **Accuracy (QC13–QC15).** The report is **Card activity (estimated)** with `fees_missing`; it is not
+  bank money. The Square HTTP deadline covers the body read. "Square risk HIGH" no longer claims the hold
+  was voided — the panel shows Square's state on its own line.
+
+Tests: 61 SQL acceptance checks on a Postgres copy of the live schema (all 15 functions/trigger paths,
+before: 43 failed) + a two-session race for QC10 (reproduced on the old body, fixed on the new);
+`development/square-closeout-qc.test.ts` (15) + `square-integrity.test.ts` (14); `src/test/square-ops.test.ts`.

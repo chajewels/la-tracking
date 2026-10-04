@@ -27,7 +27,8 @@ import { normalizeSquareStatus, type SquareEnvironment, type SquarePaymentStatus
 
 export const SQUARE_VERSION = "2026-09-16";
 const HOSTS = { sandbox: "https://connect.squareupsandbox.com", production: "https://connect.squareup.com" } as const;
-const TIMEOUT_MS = 15_000;
+/** Per-request deadline (headers + body). Mutable only so tests can shorten it. */
+export const SQUARE_HTTP = { timeoutMs: 15_000 };
 const MAX_RETRIES = 2;
 
 export interface SquareMoney { amount: number; currency: string }
@@ -166,9 +167,13 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
   let last: SquareError | null = null;
   for (let attempt = 0; attempt <= (retry ? MAX_RETRIES : 0); attempt++) {
     if (attempt > 0) await sleep(backoffMs(attempt - 1));
+    // QC14 (2026-10-05): the deadline covers the WHOLE exchange — headers AND
+    // body. A stalled or cut body is a network failure (ambiguous: Square may
+    // have acted), retried like one, never parsed as an answer.
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => ctrl.abort(), SQUARE_HTTP.timeoutMs);
     let res: Response;
+    let text: string;
     try {
       res = await fetch(`${host}/v2${path}`, {
         method,
@@ -181,14 +186,14 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
         body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
         signal: ctrl.signal,
       });
+      text = await res.text();
     } catch (err) {
-      clearTimeout(timer);
       if (err instanceof SquareError) throw err; // not configured
       last = new SquareError(0, "network", err instanceof Error ? err.message : String(err));
       continue;
+    } finally {
+      clearTimeout(timer);
     }
-    clearTimeout(timer);
-    const text = await res.text();
     let json: Record<string, unknown> = {};
     try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 500) }; }
     if (res.ok) return json;
@@ -289,6 +294,26 @@ export const square = {
     const json = await call(e, "GET", `/payments?${p.toString()}`);
     const payments = Array.isArray(json.payments) ? (json.payments as unknown[]).map(normalizeSquarePayment) : [];
     return { payments, cursor: typeof json.cursor === "string" ? json.cursor : null };
+  },
+  /**
+   * Refunds created in a time window (QC07: discovery of refunds made in the
+   * Square Dashboard whatever the age of the capture). Oldest first.
+   */
+  listRefunds: async (e: Env, q: { beginTime: string; endTime?: string | null; cursor?: string | null; limit?: number }) => {
+    const p = new URLSearchParams({ begin_time: q.beginTime, sort_order: "ASC", limit: String(q.limit ?? 100) });
+    if (q.endTime) p.set("end_time", q.endTime);
+    if (q.cursor) p.set("cursor", q.cursor);
+    const json = await call(e, "GET", `/refunds?${p.toString()}`);
+    return { refunds: Array.isArray(json.refunds) ? json.refunds as SquareRefund[] : [], cursor: typeof json.cursor === "string" ? json.cursor : null };
+  },
+  /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
+  listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {
+    const p = new URLSearchParams();
+    if (q.states?.length) p.set("states", q.states.join(","));
+    if (q.cursor) p.set("cursor", q.cursor);
+    const qs = p.toString();
+    const json = await call(e, "GET", `/disputes${qs ? `?${qs}` : ""}`);
+    return { disputes: Array.isArray(json.disputes) ? json.disputes as SquareDispute[] : [], cursor: typeof json.cursor === "string" ? json.cursor : null };
   },
   getRefund: async (e: Env, id: string): Promise<SquareRefund> => {
     const json = await call(e, "GET", `/refunds/${encodeURIComponent(id)}`);

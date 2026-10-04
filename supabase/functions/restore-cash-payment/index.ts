@@ -111,6 +111,9 @@ Deno.serve(async (req) => {
     if (unvoidErr) {
       // Owner rule 2026-10-04: nothing else is added while Paidy holds the
       // order (trg_guard_cash_payment_paidy, 20261104110000).
+      if (String(unvoidErr.message ?? "").includes("provider_payment_immutable")) {
+        return jsonResponse(409, { error: "A card or Paidy payment cannot be restored in the Hub. If money is owed, it is handled in the provider's dashboard." });
+      }
       if (String(unvoidErr.message ?? "").includes("paidy_in_progress")) {
         return jsonResponse(409, { error: "This order is being paid with Paidy. A payment can be restored only after staff Reject the Paidy payment." });
       }

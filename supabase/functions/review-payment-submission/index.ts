@@ -20,7 +20,7 @@ import { openPaidyCase } from "../_shared/paidy-sync.ts";
 import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
-import { applyPaymentState } from "../_shared/square-sync.ts";
+import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -806,6 +806,19 @@ Deno.serve(async (req) => {
           await releaseLeaseKeepClaim();
           return json(409, { error: "square_amount_mismatch", message: `Square captured ¥${f.amountJpy ?? "?"} but the submission says ¥${Number(submission.submitted_amount).toLocaleString("en-US")}. Nothing was recorded — resolve it in Website → Card payments.` });
         }
+        // QC01 (2026-10-05): Square may already have refunded part or all of
+        // this capture (a Dashboard refund before the Hub recorded it). Its
+        // refunds are recorded first; the finalizer then refuses to credit
+        // refunded money in full (square_refunded → a tracked exception).
+        if ((f.refundedJpy ?? 0) > 0 || (live.refund_ids ?? []).length > 0) {
+          for (const rid of live.refund_ids ?? []) {
+            try { await syncSquareRefund(supabase, env, await square.getRefund(env, rid)); }
+            catch (e) {
+              console.error("[review-payment-submission] refund read-back failed:", e);
+              return await unverified(e instanceof SquareError ? `refund read answered ${e.status} ${e.code}` : "refund could not be read", true);
+            }
+          }
+        }
         squareCaptured = true;
         squareDatePaid = jstDate(f.capturedAt ?? live.updated_at ?? null);
       }
@@ -850,8 +863,10 @@ Deno.serve(async (req) => {
           await releaseLeaseKeepClaim();
           await releaseSquareAction();
           const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
-          const cannotTake = ["order_closed", "exceeds_remaining", "square_order_mismatch", "square_currency_mismatch", "square_amount_mismatch", "square_already_allocated", "square_link_mismatch"].includes(code);
-          if (cannotTake && squareRowId) {
+          const refunded = code === "square_refunded";
+          const cannotTake = refunded || ["order_closed", "exceeds_remaining", "square_order_mismatch", "square_currency_mismatch", "square_amount_mismatch", "square_already_allocated", "square_link_mismatch", "capture_already_recorded"].includes(code);
+          // square_refunded: the finalizer already flagged refunded_before_record — keep that code.
+          if (cannotTake && !refunded && squareRowId) {
             const { error: exErr } = await supabase.from("square_payments").update({
               exception: "captured_unallocated", exception_at: new Date().toISOString(), exception_note: `Recording refused: ${code}`, exception_resolved_at: null, updated_at: new Date().toISOString(),
             }).eq("id", squareRowId);
@@ -859,8 +874,10 @@ Deno.serve(async (req) => {
           }
           await supabase.from("staff_notifications").insert({
             type: "card_recording_failed",
-            title: cannotTake ? "Card captured — the order can no longer take it" : "Card captured — recording in the Hub failed",
-            body: cannotTake
+            title: refunded ? "Card captured — Square shows a refund" : cannotTake ? "Card captured — the order can no longer take it" : "Card captured — recording in the Hub failed",
+            body: refunded
+              ? `${ref} · ¥${Number(submittedAmount).toLocaleString("en-US")} · Square shows a refund on this card payment, so the Hub did not record it in full. Open Website → Card payments and decide (fully refunded, or record the net after the refund).`
+              : cannotTake
               ? `${ref} · ¥${Number(submittedAmount).toLocaleString("en-US")} · Square took the money but the Hub refused to record it (${code}). Open Website → Card payments: record it by hand or refund it in the Square Dashboard.`
               : `${ref} · ¥${Number(submittedAmount).toLocaleString("en-US")} · Square took the money but the Hub could not record it (${code}). Open Payments Hub and press "Finish recording".`,
             customer_id: cashOrder.customer_id, invoice_number: cashOrder.invoice_number,
@@ -868,7 +885,9 @@ Deno.serve(async (req) => {
           });
           return new Response(JSON.stringify({
             error: "card_recording_failed",
-            message: cannotTake
+            message: refunded
+              ? "Square shows a refund on this card payment, so it was not recorded in full. Nothing was written. Decide it in Website → Card payments."
+              : cannotTake
               ? `Square captured the payment but the Hub cannot record it on this order (${code}). Nothing was written. Resolve it in Website → Card payments.`
               : `Square captured the payment but recording it failed (${code}). Nothing was written. Use "Finish recording" on this submission.`,
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
