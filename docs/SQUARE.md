@@ -15,7 +15,7 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 | D4 | Yen-settled cash orders only (Square JP charges yen); peso-settled → transfer. Any country. |
 | D5 | Offered after staff Confirm, from the ready email / order page. |
 | D6 | Authorise on pay → capture on Confirm → void on Reject. |
-| D7 | 3-D Secure always (`card.tokenize(verificationDetails)`). |
+| D7 | 3-D Secure always: the storefront always calls `card.tokenize(verificationDetails)`, Square's current flow, which runs the buyer verification INSIDE the card token. A separate `verification_token` (the deprecated `verifyBuyer()` flow) is optional and forwarded when present (owner decision B, 2026-10-04); `three_ds_status` records which path: `VERIFICATION_TOKEN_PRESENTED` or `VERIFIED_IN_CARD_TOKEN`. `verification_required` is no longer answered. |
 | **D9** | **Every card payment** needs BOTH the recorded terms tick AND an e-signed **Card Purchase Agreement** ("the document we need fighting disputes"). `card_agreement_min_jpy` exists for later loosening, seeded 0 = all. Reuses the layaway signing flow, keyed by order id. |
 | D10 | `dispute.created` webhook → bell `card_dispute_opened` + evidence fields on `square_payments`. |
 | D11 | `square_mode` off/test/on (fail-closed) + PUBLIC `square_app_id` / `square_location_id` in Hub settings via `set_square_settings`; `SQUARE_ACCESS_TOKEN` + `SQUARE_WEBHOOK_SIGNATURE_KEY` Lovable secrets only; the website reads the public ids from the Hub (no Vercel env). |
@@ -64,9 +64,9 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
 4. The customer tokenises the card (3DS) → `POST /orders/:id/card
    { source_id, verification_token?, terms: {accepted_at, version, ip?,
    user_agent?}, agreement: {version, signed_at} | null }`. The Hub re-checks
-   the rule, refuses `verification_required` (D7: the SDK's 3-D Secure
-   verification token is mandatory), `terms_required` (accepted_at AND
-   version) / `agreement_missing` (D9), applies the 3-per-24h submission cap
+   the rule (D7: `verification_token` is optional — the current SDK verifies
+   inside the card token, owner B 2026-10-04), refuses `terms_required`
+   (accepted_at AND version) / `agreement_missing` (D9), applies the 3-per-24h submission cap
    AND the 5-per-24h card-attempt cap (`square_attempts`, declines included —
    429 `too_many_attempts`), then calls **CreatePayment `autocomplete:false`,
    `delay_action: CANCEL`** (`_shared/square.ts`; idempotency key =
@@ -78,7 +78,7 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
    balance, else CancelPayment + 409 `card_mismatch`; a card refusal
    (`SquareError.isCardRefusal`) is 402 `card_declined` with Square's code.
    Then one `square_payments` row (`authorized`, brand, last4,
-   `three_ds_status` VERIFICATION_TOKEN_PRESENTED, receipt URL, terms +
+   `three_ds_status` VERIFICATION_TOKEN_PRESENTED | VERIFIED_IN_CARD_TOKEN, receipt URL, terms +
    agreement evidence incl. IP / UA as reported by the storefront's server
    action, `capture_by` = Square's `delayed_until` or +7 days) and one `payment_submissions` row
    (`payment_method 'square'`, `reference_number` = the Square payment id,
