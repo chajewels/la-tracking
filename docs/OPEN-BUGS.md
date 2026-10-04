@@ -798,5 +798,16 @@
   seconds-wide race remains. Changing those bodies must start from live (Bug #280 rule).
 - ~~submit-cash-payment still accepts a bank transfer while Paidy is processing~~ — FIXED
   (follow-up R16): the payment lock trigger refuses it on every route.
+- **Paidy lock not yet enforced in three money writers** (independent review 2026-10-04):
+  `redeem_store_credit_atomic`, `approve_redemption_atomic` (loyalty on a cash order) and
+  `restore-cash-payment` write `cash_payments` without a submission, so a staff action there can
+  pay an order while Paidy holds it (finalize then refuses the capture → a Paidy case). Changing
+  those bodies must start from live (Bug #280). Bulk import rows on a Paidy-held order roll the
+  batch back with the raw `paidy_in_progress` message.
+- **Reassign Owner on an order with Paidy history** fails with the raw `paidy_submission_locked`
+  exception (Paidy rows keep their customer). Needs an owner decision: refuse it (R5) or move the
+  Paidy rows too.
+- **A capture with no Hub record at all** (Paidy never reported the authorisation, staff captured
+  it in the dashboard) opens a case but does not lock the order and cannot be re-queued.
 - **Paidy owner checks still open:** the address-line mapping (Paidy line1 = building/room) and the
   negative-price "Discount" line — confirm both with Paidy (docs/PAIDY.md "Follow-up").

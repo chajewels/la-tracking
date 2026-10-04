@@ -229,6 +229,9 @@ BEGIN
     END IF;
     IF NEW.cash_order_id IS NOT NULL AND NEW.paidy_payment_id IS NULL
        AND NEW.status IN ('submitted','under_review') THEN
+      -- Serialise with the Paidy writers (they lock the order row too), so a
+      -- Paidy filing and this insert can never both pass the check.
+      PERFORM 1 FROM public.cash_orders WHERE id = NEW.cash_order_id FOR UPDATE;
       v_lock := public.cash_order_payment_lock(NEW.cash_order_id);
       IF v_lock LIKE 'paidy%' THEN
         RAISE EXCEPTION 'paidy_in_progress: % — this order is being paid with Paidy; another payment is accepted only after staff Reject it', v_lock USING ERRCODE = 'P0001';
@@ -256,6 +259,16 @@ BEGIN
     END IF;
     IF NEW.payment_method = 'paidy' AND OLD.payment_method IS DISTINCT FROM 'paidy' THEN
       RAISE EXCEPTION 'paidy_submission_locked: a submission cannot be relabelled as Paidy' USING ERRCODE = 'P0001';
+    END IF;
+    -- Restoring a rejected / cancelled transfer or card submission back into
+    -- the queue is a new competing payment: refused while Paidy holds the order.
+    IF NEW.cash_order_id IS NOT NULL AND NEW.status IN ('submitted','under_review')
+       AND OLD.status NOT IN ('submitted','under_review') THEN
+      PERFORM 1 FROM public.cash_orders WHERE id = NEW.cash_order_id FOR UPDATE;
+      v_lock := public.cash_order_payment_lock(NEW.cash_order_id);
+      IF v_lock LIKE 'paidy%' THEN
+        RAISE EXCEPTION 'paidy_in_progress: % — this order is being paid with Paidy; another payment is accepted only after staff Reject it', v_lock USING ERRCODE = 'P0001';
+      END IF;
     END IF;
   END IF;
   RETURN NEW;
@@ -609,10 +622,14 @@ BEGIN
     RETURN jsonb_build_object('error', 'payment_in_progress', 'lock', v_lock);
   END IF;
 
-  INSERT INTO public.paidy_checkout_attempts (cash_order_id, customer_id, amount_jpy, expires_at)
-  VALUES (v_order.id, p_customer_id, v_order.remaining_balance,
-          now() + make_interval(mins => greatest(5, least(coalesce(p_ttl_minutes, 30), 60))))
-  RETURNING * INTO v_attempt;
+  BEGIN
+    INSERT INTO public.paidy_checkout_attempts (cash_order_id, customer_id, amount_jpy, expires_at)
+    VALUES (v_order.id, p_customer_id, v_order.remaining_balance,
+            now() + make_interval(mins => greatest(5, least(coalesce(p_ttl_minutes, 30), 60))))
+    RETURNING * INTO v_attempt;
+  EXCEPTION WHEN unique_violation THEN
+    RETURN jsonb_build_object('error', 'payment_in_progress', 'lock', 'paidy_checkout_open');
+  END;
   RETURN jsonb_build_object('ok', true, 'attempt_id', v_attempt.id, 'expires_at', v_attempt.expires_at,
                             'amount_jpy', v_attempt.amount_jpy);
 END
@@ -662,9 +679,11 @@ BEGIN
    WHERE paidy_payment_id = p_paidy_payment_id AND kind = p_kind AND status = 'open' FOR UPDATE;
   -- A case staff already resolved is not reopened by the next sweep seeing the
   -- same state; only a genuinely new event (detail.reopen = true) opens another.
+  -- A different failure reason than the one staff resolved is a new case.
   IF v_case.id IS NULL AND NOT coalesce((p_detail->>'reopen')::boolean, false)
      AND EXISTS (SELECT 1 FROM public.paidy_cases
-                  WHERE paidy_payment_id = p_paidy_payment_id AND kind = p_kind AND status = 'resolved') THEN
+                  WHERE paidy_payment_id = p_paidy_payment_id AND kind = p_kind AND status = 'resolved'
+                    AND (detail->>'reason') IS NOT DISTINCT FROM (p_detail->>'reason')) THEN
     RETURN jsonb_build_object('ok', true, 'skipped', 'resolved_before', 'new', false);
   END IF;
   IF v_case.id IS NULL THEN
@@ -712,7 +731,7 @@ BEGIN
   IF NOT public.has_permission(v_uid, 'confirm_payment') THEN
     RETURN jsonb_build_object('error', 'forbidden');
   END IF;
-  IF p_resolution NOT IN ('handled_in_paidy','refunded_in_paidy','released','record_capture','no_action') THEN
+  IF p_resolution NOT IN ('handled_in_paidy','refunded_in_paidy','released','record_capture','end_submission','no_action') THEN
     RETURN jsonb_build_object('error', 'bad_resolution');
   END IF;
   IF length(btrim(coalesce(p_note, ''))) < 5 THEN
@@ -745,6 +764,26 @@ BEGIN
             v_rec.paidy_payment_id, NULL, NULL, 'Paidy capture re-queued from a Paidy case: ' || btrim(p_note),
             'submitted', 'cash_payment', v_rec.id)
     RETURNING * INTO v_sub;
+  END IF;
+
+  -- "End the Paidy submission": staff decided the Paidy payment will not be
+  -- recorded (refunded / handled in the Paidy dashboard / order closed). Its
+  -- still-queued submission is rejected with the written reason, so the order
+  -- is no longer held by it. Nothing is written to the order's money.
+  IF p_resolution = 'end_submission' THEN
+    IF v_case.paidy_payment_row IS NULL THEN RETURN jsonb_build_object('error', 'no_paidy_record'); END IF;
+    PERFORM 1 FROM public.paidy_payments WHERE id = v_case.paidy_payment_row FOR UPDATE;
+    UPDATE public.payment_submissions
+       SET status = 'rejected', processing_started_at = NULL, reviewer_user_id = v_uid, updated_at = now(),
+           reviewer_notes = 'Paidy case resolved by staff: ' || btrim(p_note)
+     WHERE paidy_payment_id = v_case.paidy_payment_row
+       AND (status IN ('submitted','under_review') OR (status = 'confirmed' AND confirmed_payment_id IS NULL))
+    RETURNING * INTO v_sub;
+    IF v_sub.id IS NOT NULL THEN
+      INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id)
+      VALUES ('cash_payment_submission', v_sub.id, 'submission_rejected',
+              jsonb_build_object('reason', 'paidy_case_end_submission', 'case_id', v_case.id, 'note', btrim(p_note)), v_uid);
+    END IF;
   END IF;
 
   UPDATE public.paidy_cases

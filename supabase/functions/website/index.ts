@@ -2782,7 +2782,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           square_payment_id: (rec as AnyRec).id,
         })
         .select("id, status, submitted_amount, payment_date").maybeSingle();
-      if (subErr) throw subErr;
+      if (subErr) {
+        // The hold exists but the submission was refused (e.g. a Paidy window
+        // opened in another tab meanwhile — trg_guard_payment_submission_paidy).
+        // Never leave the card held with nothing on file: void it now.
+        try {
+          const voided = await square.cancel(offer.test, payment.id);
+          await supabase.from("square_payments").update({
+            status: "voided", voided_at: new Date().toISOString(), voided_reason: `submission refused: ${String(subErr.message ?? "").slice(0, 200)}`,
+            last_payload: voided, updated_at: new Date().toISOString(),
+          }).eq("id", (rec as AnyRec).id);
+        } catch (voidErr) {
+          console.error("[website] square.cancel after a refused submission failed:", voidErr);
+        }
+        if (String(subErr.message ?? "").includes("paidy_in_progress")) return jsonResponse({ error: "paidy_in_progress" }, 409);
+        throw subErr;
+      }
       await logAttempt("authorized", null as unknown as string, payment.id);
 
       await supabase.from("audit_logs").insert({

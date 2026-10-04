@@ -17,8 +17,7 @@ import {
 } from "../_shared/paidy-rules.ts";
 import { paidyBell } from "../_shared/paidy-filing.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
-import { PAIDY_AUTO_ACTOR } from "../_shared/paidy-autorecord.ts";
-import { isServiceRole } from "../_shared/jwt-claims.ts";
+import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
 import { SquareError, square } from "../_shared/square.ts";
 import { cardHoldExpired } from "../_shared/card-rules.ts";
 
@@ -221,12 +220,16 @@ Deno.serve(async (req) => {
     // (_shared/paidy-autorecord.ts) — action "confirmed" on a Paidy
     // submission (checked once the submission is loaded). It acts with no
     // user (reviewer_user_id NULL; audit rows say actor paidy_auto).
-    const isAutoRecorder = isServiceRole(token);
+    // verify_jwt is false for this function, so the recorder is recognised
+    // by its HMAC signature (_shared/paidy-autorecord.ts), never by a token's
+    // unverified claims.
+    const isAutoRecorder = body.actor === PAIDY_AUTO_ACTOR;
     let user: { id: string | null };
     if (isAutoRecorder) {
-      if (body.actor !== PAIDY_AUTO_ACTOR || action !== "confirmed") {
-        return new Response(JSON.stringify({ error: "Service callers may only record a Paidy capture." }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const signed = await verifyPaidyAutoSignature(submission_id, req.headers.get("x-paidy-auto-ts"), req.headers.get("x-paidy-auto-sig"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+      if (!signed || action !== "confirmed") {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       user = { id: null };
@@ -541,6 +544,7 @@ Deno.serve(async (req) => {
       //     date_paid is the capture day in JAPAN time (owner Q5).
       let paidyDatePaid: string | null = null;
       let paidyRecordId: string | null = null;
+      let paidyPid: string | null = null;
       if (isPaidySubmission) {
         const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
           status, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -554,6 +558,7 @@ Deno.serve(async (req) => {
           return json(500, { error: ppErr ? "Could not read the Paidy record for this submission." : "Paidy record missing for this submission." });
         }
         paidyRecordId = pp.id;
+        paidyPid = pp.paidy_payment_id;
         if (pp.cash_order_id !== cashOrder.id || pp.customer_id !== cashOrder.customer_id || submission.customer_id !== cashOrder.customer_id) {
           // R02: a capture is recorded only on its own order and customer.
           await revertCashClaim();
@@ -757,7 +762,7 @@ Deno.serve(async (req) => {
           // durable case so it is never only a bell (R16/R18).
           try {
             await openPaidyCase(supabase, {
-              kind: "record_failed", paidy_payment_id: String(submission.reference_number ?? submission.paidy_payment_id),
+              kind: "record_failed", paidy_payment_id: paidyPid ?? String(submission.reference_number ?? ""),
               cash_order_id: cashOrder.id, paidy_payment_row: paidyRecordId, submission_id,
               detail: { reason: code, remaining_balance: finRes.remaining_balance ?? null, order_status: finRes.status ?? null },
               bell: { title: code === "order_closed" || code === "exceeds_remaining" ? "Paidy captured — the order can no longer take it" : "Paidy captured — recording in the Hub failed",

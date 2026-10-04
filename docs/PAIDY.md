@@ -170,8 +170,15 @@ refund on an unrecorded payment is **held for a staff decision**.
   system once per payment+kind (bell the first time), shown on Payment
   Submissions → "Paidy cases", resolved by staff with a written reason
   (`resolve_paidy_case`, confirm_payment, audited). "Record this capture"
-  re-queues a provider-bound submission. The sweep closes cases Paidy itself
+  re-queues a provider-bound submission; "End its submission"
+  (`end_submission`) rejects a stuck Paidy submission (refunded, mismatched,
+  order closed) so the order opens again. The sweep closes cases Paidy itself
   settled (`close_paidy_case_system`).
+- AUTO-RECORDER AUTH — review-payment-submission runs with verify_jwt = false,
+  so the recorder is recognised ONLY by an HMAC-SHA256 signature over
+  "<submission_id>.<ms timestamp>" keyed with the service-role key (headers
+  x-paidy-auto-ts / x-paidy-auto-sig, 5-minute window); a token's claims are
+  never trusted there. Only `action: confirmed` on a Paidy submission.
 - WEBHOOK (R08/R09) — stored in `paidy_webhook_events` before anything else
   (500 if that fails); processing has an 8 s deadline (Paidy calls 6 s each);
   past it the answer is 200 and the sweep finishes it. Paidy 404 → a case;

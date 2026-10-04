@@ -76,7 +76,7 @@ function must(error: unknown, what: string) {
   if (error) throw new Error(`${what}: ${(error as { message?: string })?.message ?? String(error)}`);
 }
 
-export interface RecordResult { ok: boolean; status: number; error?: string; message?: string }
+export interface RecordResult { ok: boolean; status: number; error?: string; message?: string; handled?: boolean }
 export interface SyncOptions {
   /** Records a claimed-or-queued Paidy submission through review-payment-submission (service role). */
   record?: (submissionId: string) => Promise<RecordResult>;
@@ -180,6 +180,23 @@ export async function syncPaidyPayment(
     }
   }
 
+  // 3b. Still authorised, still queued, but the ORDER was cancelled / expired
+  //     meanwhile: nothing may be captured — staff must Reject it (which
+  //     releases it). A durable case, never an automatic status change.
+  if (outcome === "authorized" && subs.some((s) => s.status === "submitted" || s.status === "under_review")) {
+    const { data: ord, error: ordErr } = await supabase.from("cash_orders").select("status").eq("id", row.cash_order_id).maybeSingle();
+    must(ordErr, "cash_orders read");
+    const st = String((ord as AnyRec | null)?.status ?? "");
+    if (st === "cancelled" || st === "expired") {
+      await openPaidyCase(supabase, {
+        kind: "stale_authorization", paidy_payment_id: pid, cash_order_id: row.cash_order_id, paidy_payment_row: row.id,
+        detail: { reason: `order_${st}` },
+        bell: { title: "Paidy authorisation on a closed order", body: `${pid} · the order is ${st} but Paidy still holds the authorisation. Reject its submission in Payment Submissions (that releases it) — do NOT capture it in the Paidy dashboard.` },
+      });
+      flagged.push("order_closed");
+    }
+  }
+
   // 4. Captured on Paidy and not recorded in the Hub → record it (owner D1),
   //    or open the case that says why not.
   if (outcome === "captured" && !recorded) {
@@ -210,6 +227,8 @@ export async function syncPaidyPayment(
       const res = await opts.record(String(live.id));
       if (res.ok) {
         flagged.push("auto_recorded");
+      } else if (res.handled) {
+        flagged.push("recording_in_progress");
       } else {
         await openPaidyCase(supabase, {
           kind: "record_failed", paidy_payment_id: pid, cash_order_id: row.cash_order_id, paidy_payment_row: row.id, submission_id: live.id,

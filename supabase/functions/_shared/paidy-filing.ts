@@ -41,7 +41,13 @@ export async function releasePaidyAuthorization(supabase: Db, payment: PaidyPaym
 }): Promise<boolean> {
   if (payment.status !== "AUTHORIZED") return true;
   try {
-    await paidy.close(payment.id);
+    const closed = await paidy.close(payment.id);
+    // Release the order at once (the lock reads this row), not at the next sweep.
+    const at = new Date().toISOString();
+    const { error } = await supabase.from("paidy_payments").update({
+      status: "closed", closed_at: at, closed_reason: `released: ${ctx.why}`.slice(0, 200), last_payload: closed, updated_at: at,
+    }).eq("paidy_payment_id", payment.id).eq("status", "authorized");
+    if (error) console.error(`[paidy] closed status write for ${payment.id} failed (the sweep repairs it):`, error);
     return true;
   } catch (e) {
     console.warn(`[paidy] close of ${payment.id} (${ctx.why}) failed — case opened:`, e);

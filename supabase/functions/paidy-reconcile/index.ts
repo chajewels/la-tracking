@@ -80,13 +80,21 @@ Deno.serve(async (req) => {
     const closePending = new Set(((closeCases ?? []) as Record<string, any>[]).map((c) => String(c.paidy_payment_id)));
 
     const since = new Date(Date.now() - REFUND_WATCH_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    const { data: rows, error: rowsErr } = await supabase
-      .from("paidy_payments").select(PAIDY_RECORD_FIELDS)
-      .or(`status.eq.authorized,and(status.eq.captured,captured_at.gte.${since})`)
+    // Authorised payments first (they can still be filed, released, expire or
+    // be captured any minute), then captures — watched for refunds and for a
+    // recording that has not happened — oldest check first.
+    const { data: authRows, error: authErr } = await supabase
+      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "authorized")
       .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(MAX_PER_RUN);
-    if (rowsErr) throw rowsErr;
+    if (authErr) throw authErr;
+    const room = Math.max(20, MAX_PER_RUN - (authRows ?? []).length);
+    const { data: capRows, error: capErr } = await supabase
+      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "captured").gte("captured_at", since)
+      .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(room);
+    if (capErr) throw capErr;
+    const rows = [...(authRows ?? []), ...(capRows ?? [])];
 
-    for (const row of (secretTest === null ? [] : (rows ?? [])) as Record<string, any>[]) {
+    for (const row of (secretTest === null ? [] : rows) as Record<string, any>[]) {
       if ((row.test === true) !== secretTest) {
         report.other_environment++;
         continue;

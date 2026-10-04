@@ -42,7 +42,7 @@ const KIND_LABEL: Record<string, { label: string; help: string }> = {
   record_failed: { label: 'Recording failed', help: 'Paidy captured it but the Hub refused to record it (amount, order closed, …). Check the detail.' },
   unmatched_authorization: { label: 'No matching order', help: 'A Paidy authorisation the Hub could not file. Check the Paidy dashboard.' },
   provider_unreadable: { label: 'Unknown to Paidy', help: 'Paidy did not recognise this payment id when the Hub asked.' },
-  stale_authorization: { label: 'Stale authorisation', help: 'The order changed after Paidy authorised it.' },
+  stale_authorization: { label: 'Authorised on a closed order', help: 'The order was cancelled or expired while Paidy still holds the authorisation. Reject its submission (that releases it); do not capture it in Paidy.' },
 };
 
 const RESOLUTIONS: { value: string; label: string }[] = [
@@ -50,6 +50,7 @@ const RESOLUTIONS: { value: string; label: string }[] = [
   { value: 'refunded_in_paidy', label: 'Refunded in the Paidy dashboard' },
   { value: 'released', label: 'Released (closed) in Paidy' },
   { value: 'record_capture', label: 'Record this capture in the Hub' },
+  { value: 'end_submission', label: 'Will not be recorded — end its submission' },
   { value: 'no_action', label: 'No action needed' },
 ];
 
@@ -108,11 +109,12 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
         paidy_refunded: 'Paidy shows a refund on this capture; it cannot be recorded as paid.',
         paidy_not_captured: 'Paidy has not captured this payment.',
         not_a_capture_case: 'Only a captured payment can be recorded.',
+        no_paidy_record: 'This case has no Paidy record to end.',
       };
       toast.error('Could not resolve the case', { description: msg[err] ?? err });
       return;
     }
-    toast.success(resolution === 'record_capture' ? 'Re-queued — the Hub records it from Paidy' : 'Case resolved');
+    toast.success(resolution === 'record_capture' ? 'Re-queued — the Hub records it from Paidy' : resolution === 'end_submission' ? 'Submission ended — the order is open again' : 'Case resolved');
     setTarget(null);
     setNote('');
     queryClient.invalidateQueries({ queryKey: ['paidy-cases-open'] });
@@ -160,7 +162,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
           <DialogHeader>
             <DialogTitle>Resolve Paidy case</DialogTitle>
             <DialogDescription>
-              {target ? (KIND_LABEL[target.kind]?.help ?? target.kind) : ''} Nothing is changed on the order except by "Record this capture", which re-queues the payment so the Hub records it from Paidy.
+              {target ? (KIND_LABEL[target.kind]?.help ?? target.kind) : ''} "Record this capture" re-queues the payment so the Hub records it from Paidy. "End its submission" rejects the waiting Paidy submission (after a refund, or when the order is closed) so the customer can pay another way. Nothing else changes on the order.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

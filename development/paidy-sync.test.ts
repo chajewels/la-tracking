@@ -245,3 +245,16 @@ Deno.test("still authorised → nothing but the payload refresh", async () => {
   assertEquals(t.payment_submissions[0].status, "submitted");
   assertEquals(t.staff_notifications.length, 0);
 });
+
+Deno.test("auto-recorder signature: only the signer's own, fresh, for that submission", async () => {
+  const { paidyAutoSignature, verifyPaidyAutoSignature } = await import("../supabase/functions/_shared/paidy-autorecord.ts");
+  const key = "service-key-for-test";
+  const ts = String(Date.now());
+  const sig = await paidyAutoSignature("sub-1", ts, key);
+  assert(await verifyPaidyAutoSignature("sub-1", ts, sig, key));
+  assert(!(await verifyPaidyAutoSignature("sub-2", ts, sig, key)), "another submission");
+  assert(!(await verifyPaidyAutoSignature("sub-1", ts, sig, "other-key")), "another key");
+  assert(!(await verifyPaidyAutoSignature("sub-1", String(Date.now() - 10 * 60_000), sig, key)), "stale");
+  assert(!(await verifyPaidyAutoSignature("sub-1", ts, null, key)), "missing");
+  assert(!(await verifyPaidyAutoSignature("sub-1", ts, sig, undefined)), "no key configured");
+});
