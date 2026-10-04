@@ -63,6 +63,15 @@ email-js peer ≥1.0.0) and CI went red until the files were put back.
 **Check after every Lovable commit to main:** `git show --stat <sha> | grep -E 'package|bun.lock'`
 must print nothing.
 
+**Every migration APPLY does it anyway.** Lovable's `lov_database--migration` tool commits
+drizzle-kit / drizzle-orm / postgres to package.json + bun.lock, plus drizzle.config.ts and a
+drizzle/ copy of the migration, on every apply — even when the message says not to
+(2026-10-03 b558a3ac → reverted aa3645a3 #355/#356; 2026-10-04 bdc42eb8/fc360ab8 → reverted
+c78dfbbd). Expect it after every apply: restore package.json + bun.lock from the release
+commit (checksums must match .github/package-guard.sha256), `git rm -r drizzle.config.ts
+drizzle`, KEEP the regenerated src/integrations/supabase/types.ts, and release the revert in
+the same session, after any follow-up deploy has finished.
+
 ### A TRANSPORT TIMEOUT IS NOT A LOST MESSAGE (2026-10-03, second duplicate)
 
 The 36-function deploy message of 15:44 JST timed out at the MCP transport after
