@@ -6027,3 +6027,25 @@ Migration `20261103100000_paidy_followup.sql`; docs/PAIDY.md "Follow-up".
   re-checks; `cash_order_payment_lock` + trigger on every payment route.
 - R18 sweep starvation, other-environment rows counted as errors, `ok:true` with row errors →
   oldest-check-first, environment skip, lag fields, `ok` = no errors.
+
+### Website order numbers collided with hand-typed invoice numbers (2026-10-05)
+
+Found in the Paidy test run of 2026-10-03: draft CJ-W-900059 could never be
+confirmed ("invoice_number TEST-900059 already exists on cash_order") because staff
+had hand-typed a Hub test order as 900059 on 1 Oct, and `web_order_number_seq` never
+looked at `invoice_numbers`. The draft had to be declined and the customer had to
+order again. The reverse was open too: staff could type a number a waiting draft or
+a signed layaway quote held, and that Confirm would then fail the same way.
+
+Fixed by migration `20261105100000_web_invoice_numbers_respect_registry.sql`
+(md5-guarded in-place patches of the live bodies): new `next_web_invoice_seq()`
+skips numbers already registered (bare or `TEST-`), on a draft, or reserved by a
+quote, and all five call sites (quote reservation trigger, create_web_draft_atomic
+×2, create_web_layaway_atomic, create_web_order_atomic) use it;
+`register_invoice_number()` refuses a number a `to_confirm` draft or a live layaway
+quote holds, except the draft's own order / the quote's own account. Staff see
+"invoice_number N is held by a website order awaiting confirmation — use another
+number" (create-cash-order / create-layaway-account already pass the DB message
+through). Harness: `harness/web-invoice-registry/` (23/23). Rule:
+docs/WEB-ORDER-DRAFTS.md.
+
