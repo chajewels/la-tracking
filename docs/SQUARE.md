@@ -193,3 +193,58 @@ Deploy (Lovable DEPLOY-ONLY after the two secrets exist): `website`, `review-pay
    `https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/square-webhook` for
    `payment.updated`, `refund.created`, `refund.updated`, `dispute.created` →
    its **signature key** → Lovable secret `SQUARE_WEBHOOK_SIGNATURE_KEY` only.
+
+## Integrity (2026-10-04, review SQ01–SQ23 — docs/SQUARE-INTEGRITY.md)
+
+Migration 20261103100000_square_integrity.sql; `_shared/square-sync.ts`; new `square-reconcile`.
+
+- **Attempt first.** Every CreatePayment has a `square_card_attempts` row reserved under the order lock
+  BEFORE Square is called (`reserve_square_attempt`): exact integer yen = remaining balance, one
+  unresolved commitment per order, caps 5 failures per order / 10 declines per customer (24 h). Square
+  sees the attempt's immutable request (amount, location, idempotency key, `reference_id` = `cja_…`).
+  A retried token replays the same request (same key → no second hold). An ambiguous failure leaves the
+  attempt `unknown` and the customer is told it is being confirmed — never "not charged".
+- **One gate.** `square_order_unresolved(order)` = an attempt reserved/unknown/cancelling, a live hold,
+  or captured card money not yet recorded. While true: no other card attempt, no Paidy, no transfer
+  submission (website + submit-cash-payment), no expiry, no cancel (terminate_web_order_atomic →
+  `card_payment_unresolved`, staff included). After a verified decline/void it opens again (owner 3A).
+- **Filing** (`file_square_authorization_atomic`): hold + submission + audit + `card_authorized` bell in
+  one transaction, idempotent on the Square payment id. A hold the order cannot take is recorded with an
+  exception and no submission (`unfiled_hold` bell; never auto-voided). Amount/location/currency
+  mismatch → exception + void. Risk HIGH → void + fraud cancel.
+- **Provider truth** (`apply_square_payment_state`): COMPLETED is captured even after a local close
+  (exception `captured_after_close`); captured never downgrades; APPROVED after a local close →
+  `void_unconfirmed`; CANCELED/FAILED of a live hold → voided/expired/failed and a waiting submission
+  rejected. Older observations (Square `updated_at`) are ignored. Bells are written in the same
+  transaction (durable outbox).
+- **Confirm** reads Square before and after CompletePayment (with `version_token`), claims the hold
+  (`claim_square_action` 'capture' — a Reject cannot void it meanwhile), resumes with "Finish recording"
+  after a 5-minute lease, records via `finalize_cash_submission_atomic` (Square guard: captured, same
+  order + customer, JPY, exact captured yen, not already allocated; binds `cash_payment_id`). date_paid
+  = capture day in Japan time. **Reject** claims 'void', reads Square first, voids, and rejects only
+  when Square shows CANCELED/FAILED; a COMPLETED payment is never rejected.
+- **Provider-linked submissions are locked** (`guard_provider_submission`): method, amount, order,
+  customer and link cannot change; a card submission cannot be cancelled (only Reject); nothing becomes
+  `square` without its hold. Customers cannot edit/cancel card or Paidy submissions.
+- **Webhook = durable inbox**: stored, claimed with a lease, processed through square-sync, finished as
+  done / ignored / quarantined / failed (retry with backoff; dead after 12 → bell). Failed answers 500
+  so Square redelivers; square-reconcile retries hourly.
+- **Refunds and disputes**: one row each (`square_refunds`, `square_disputes`), lifecycle + staff
+  decision (`decide_square_case`); refunds never change order accounting (owner 2A); dispute evidence in
+  the Square Dashboard, reminders 3 d / 1 d before `due_at`. Subscribe `dispute.state.updated`.
+- **Fraud (owner 2026-10-04)**: 5 declines on the order or 10 across the customer's orders in 24 h, or
+  Square risk HIGH → void any hold, then `square_fraud_cancel` cancels the invoice (source system, stock
+  back); refused (bell) when card money is unresolved or other money was received. Revive with
+  `revive_web_cash_order_atomic`.
+- **Secrets per environment**: sandbox `SQUARE_SANDBOX_ACCESS_TOKEN` → `SQUARE_ACCESS_TOKEN`; production
+  `SQUARE_PRODUCTION_ACCESS_TOKEN` → `SQUARE_ACCESS_TOKEN`; webhook keys
+  `SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY` and `SQUARE_WEBHOOK_SIGNATURE_KEY` both tried. Every row
+  carries its environment, so old sandbox holds stay readable after go-live.
+- **3DS evidence** is `sdk_tokenize_with_verification` / `verification_token_supplied` / `unknown` —
+  never "verified". **Billing** is the cardholder's (name field + "same as delivery"), never a gift
+  recipient. **Agreement** must bind this customer and amount (Card.gs v3 signed link); a changed amount
+  means signing again.
+- **Operator panel + settlement report**: Website → Settings → Card payments (Square), under the
+  settings card (`SquareOperationsPanel`): active holds, open attempts, captured-unrecorded/exceptions
+  (Resolve), refunds, disputes, webhook problems, settlement by Japan day (gross, Square fees, refunds,
+  lost disputes, net; CSV). Bank payouts stay in the Square Dashboard.

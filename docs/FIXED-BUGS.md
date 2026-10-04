@@ -5951,6 +5951,35 @@ silently. Frontend only; no edge-function change.
 **Guard:** src/test/portal-token-calls-send-session.test.ts — every file under src/ that puts
 `?token=` on a customer-portal URL must also send `session_id` (fails on the pre-fix file).
 
+## 2026-10-04 — Square card payment integrity (review SQ01–SQ23)
+
+**Symptoms (found in review; Square is still sandbox-only, no real money):** a webhook whose processing
+failed became an unrecoverable duplicate; webhook writes ignored their errors and reported "synced"; an
+early/unknown webhook was dropped, so a hold whose create answer was lost was never found; a retried card
+attempt could make a second hold; concurrent requests beat the one-payment and 5-attempt gates; a capture
+error was read as "expired, pay again" without reading Square; Square had no "Finish recording", no
+ledger binding and no captured guard in the finalizer; rounded yen equality; a local "voided/expired"
+hid a Square COMPLETED; the hold warning ignored Square's real deadline and was stamped before the bell;
+refunds and disputes were only aggregates; billing used the gift recipient; 3DS evidence said
+"VERIFIED"; no CSP on the card page; the agreement was not bound to customer/amount.
+
+**Fix:** migration 20261103100000 (square_card_attempts reserved under the order lock before Square is
+called; durable webhook inbox; square_refunds / square_disputes; guard_provider_submission; atomic RPCs
+reserve/resolve/file/apply/claim/record/ring/claim_event/finish_event/fraud_cancel/decide_square_case/
+square_settlement_report; finalize_cash_submission_atomic Square guard + cash_payment_id binding;
+terminate_web_order_atomic stands down for unresolved card money); `_shared/square-sync.ts` shared by
+square-webhook, new square-reconcile, website and review-payment-submission; per-environment secrets,
+timeouts and retries; storefront billing fields, CSP (enforced on pay-card), signed agreement link
+(Card.gs v3). Fraud rule (owner): 5 declines/order or 10/customer in 24 h or Square risk HIGH → void +
+invoice auto-cancelled (never with money taken). Full rules: docs/SQUARE.md "Integrity",
+docs/SQUARE-INTEGRITY.md.
+
+**Guards:** src/test/card-rules.test.ts, src/test/square-ops.test.ts, development/square-integrity.test.ts
+(CI), the migration's pre-check + self-check blocks; 44 SQL scenarios run on Postgres 16 (attempt
+reserve/replay, mismatch exception, filing idempotency, trigger refusals, terminate refusals, claim
+exclusivity, finalize guard + binding, provider-truth transitions, stale observations, refunds,
+disputes, deadline bells, inbox lease/retry, staff decisions, settlement report, fraud cancel).
+
 ## 2026-10-04 — Paidy payment integrity (review P01–P12)
 
 **Symptoms (found in review, none seen in production — Paidy is still in test):** a Paidy record could

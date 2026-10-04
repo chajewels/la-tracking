@@ -1079,8 +1079,15 @@ Rules: docs/PAGE365-IMPORT.md "STOCK". Left out on purpose:
   mode test with the owner's pk_test_ key and the Test Customer run. Owner still to:
   compare the tokusho rows with Paidy's 記載例, add the Paidy FAQ entries in the Hub,
   register the webhook URL in the Paidy console, answer Paidy's self-check sheet.
-- Square: PLAN ONLY (claude/square-build-plan-2026-10-03.md,
-  claude/card-and-paidy-setup-and-disputes-2026-10-03.md); after Paidy.
+- Square: S1–S4 RELEASED and sandbox-tested 4 Oct (square_mode = test). INTEGRITY pass
+  (review SQ01–SQ23 + settlement report + operator panel) BUILT 4 Oct on Hub
+  fix/square-integrity + storefront fix/card-integrity (docs/SQUARE-INTEGRITY.md). NOT yet
+  released / applied / deployed: develop → main, Lovable SQL-ONLY (20261103100000) then
+  DEPLOY-ONLY (website, review-payment-submission, square-webhook, square-reconcile NEW,
+  auto-expire-cash-orders, edit-payment-submission, submit-cash-payment), square-reconcile cron
+  (:53), Card.gs v3 + card.html (owner), Square Dashboard webhook events incl.
+  dispute.state.updated, Events API enable. Production keys later (new optional secrets
+  SQUARE_PRODUCTION_ACCESS_TOKEN / SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY).
 - OPEN (3 Oct): the Hub frontend deploy from main fails at `npm install` (ERESOLVE) since
   Lovable re-added `@lovable.dev/email-js` / `@react-email/components` / `webhooks-js` /
   pinned `@types/react` on main at 09:41 JST (its own "preview fix" after a SQL-only message;
