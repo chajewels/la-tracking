@@ -59,3 +59,18 @@ Deno.test('no edge function interpolates an unmasked email into a log line', asy
   }
   assertEquals(offenders, [])
 })
+
+// 2026-10-04 deep scan: send-transactional-email logged `{ effectiveRecipient }`
+// (object shorthand) — a form the interpolation check above cannot see. Any
+// console.* line that names a recipient/email variable bare must mask it.
+Deno.test('no console line passes a bare recipient variable', async () => {
+  const offenders: string[] = []
+  const bare = /console\.(log|warn|error|info)\(.*[{,]\s*(effectiveRecipient|recipientEmail|recipient_email|toEmail|customerEmail)\s*[,}]/
+  for await (const f of walk('supabase/functions')) {
+    const src = await Deno.readTextFile(f)
+    src.split('\n').forEach((line, i) => {
+      if (bare.test(line)) offenders.push(`${f}:${i + 1}: ${line.trim()}`)
+    })
+  }
+  assertEquals(offenders, [])
+})
