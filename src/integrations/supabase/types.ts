@@ -4266,12 +4266,14 @@ export type Database = {
           amount_jpy: number
           authorized_at: string
           capture_id: string | null
+          capture_started_at: string | null
           captured_at: string | null
           cash_order_id: string
           closed_at: string | null
           closed_reason: string | null
           created_at: string
           customer_id: string | null
+          expires_at: string | null
           id: string
           last_payload: Json | null
           last_webhook_at: string | null
@@ -4285,12 +4287,14 @@ export type Database = {
           amount_jpy: number
           authorized_at?: string
           capture_id?: string | null
+          capture_started_at?: string | null
           captured_at?: string | null
           cash_order_id: string
           closed_at?: string | null
           closed_reason?: string | null
           created_at?: string
           customer_id?: string | null
+          expires_at?: string | null
           id?: string
           last_payload?: Json | null
           last_webhook_at?: string | null
@@ -4304,12 +4308,14 @@ export type Database = {
           amount_jpy?: number
           authorized_at?: string
           capture_id?: string | null
+          capture_started_at?: string | null
           captured_at?: string | null
           cash_order_id?: string
           closed_at?: string | null
           closed_reason?: string | null
           created_at?: string
           customer_id?: string | null
+          expires_at?: string | null
           id?: string
           last_payload?: Json | null
           last_webhook_at?: string | null
@@ -4332,6 +4338,54 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paidy_refunds: {
+        Row: {
+          amount_jpy: number
+          cash_order_id: string
+          created_at: string
+          id: string
+          paidy_payment_row: string
+          payload: Json | null
+          refund_id: string
+          refunded_at: string | null
+        }
+        Insert: {
+          amount_jpy: number
+          cash_order_id: string
+          created_at?: string
+          id?: string
+          paidy_payment_row: string
+          payload?: Json | null
+          refund_id: string
+          refunded_at?: string | null
+        }
+        Update: {
+          amount_jpy?: number
+          cash_order_id?: string
+          created_at?: string
+          id?: string
+          paidy_payment_row?: string
+          payload?: Json | null
+          refund_id?: string
+          refunded_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paidy_refunds_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paidy_refunds_paidy_payment_row_fkey"
+            columns: ["paidy_payment_row"]
+            isOneToOne: false
+            referencedRelation: "paidy_payments"
             referencedColumns: ["id"]
           },
         ]
@@ -4705,6 +4759,7 @@ export type Database = {
           payment_date: string
           payment_method: string
           portal_token: string | null
+          processing_started_at: string | null
           proof_url: string | null
           reference_number: string | null
           reviewer_notes: string | null
@@ -4730,6 +4785,7 @@ export type Database = {
           payment_date: string
           payment_method: string
           portal_token?: string | null
+          processing_started_at?: string | null
           proof_url?: string | null
           reference_number?: string | null
           reviewer_notes?: string | null
@@ -4755,6 +4811,7 @@ export type Database = {
           payment_date?: string
           payment_method?: string
           portal_token?: string | null
+          processing_started_at?: string | null
           proof_url?: string | null
           reference_number?: string | null
           reviewer_notes?: string | null
@@ -8719,6 +8776,33 @@ export type Database = {
         }[]
       }
       fc_portfolio_value: { Args: never; Returns: number }
+      file_paidy_submission_atomic: {
+        Args: {
+          p_amount_jpy: number
+          p_authorized_at: string
+          p_cash_order_id: string
+          p_customer_id: string
+          p_expires_at: string
+          p_notes: string
+          p_paidy_payment_id: string
+          p_path?: string
+          p_payload: Json
+          p_payment_date: string
+          p_sender_name: string
+          p_test: boolean
+        }
+        Returns: Json
+      }
+      finalize_cash_submission_atomic: {
+        Args: {
+          p_date_paid: string
+          p_reviewer_notes: string
+          p_reviewer_user_id: string
+          p_submission_id: string
+          p_submitted_by_type: string
+        }
+        Returns: Json
+      }
       find_customer_matches: {
         Args: {
           p_email?: string
