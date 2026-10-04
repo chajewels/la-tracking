@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { resolveItemImages, type ImageableLine } from "../_shared/item-images.ts";
+import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 
 /** A line row as this function selects it — enough for resolveItemImages. */
 // deno-lint-ignore no-explicit-any
@@ -512,10 +513,12 @@ Deno.serve(async (req) => {
     const cashPendingSubmissionsPromise = cashOrderIds.length > 0
       ? supabase
           .from("payment_submissions")
-          .select("id, cash_order_id, submitted_amount, payment_method, status")
+          .select("id, cash_order_id, submitted_amount, payment_method, status, paidy_payment_id")
           .eq("customer_id", customerId)
           .in("cash_order_id", cashOrderIds)
-          .in("status", ["submitted", "under_review"])
+          // A Confirm claimed but not yet recorded is still "being checked"
+          // (the money may already be taken) — R16, 2026-10-04.
+          .or(PENDING_SUBMISSION_OR)
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] as any[] });
 
@@ -997,7 +1000,18 @@ Deno.serve(async (req) => {
       itemsByOrder.set(it.cash_order_id, list);
     }
 
+    // Owner rule 2026-10-04: while Paidy is processing an order (window open,
+    // authorisation waiting, capture not yet recorded) the customer is offered
+    // no other way to pay. cash_order_payment_lock() is the one answer; read
+    // for open orders only. A read error hides the Submit button (fail closed).
+    const paidyLockByOrder = new Map<string, boolean>();
+    await Promise.all((cashOrdersRaw as any[]).filter((o: any) => o.status === "pending").map(async (o: any) => {
+      const { data: lock, error: lockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: o.id });
+      paidyLockByOrder.set(o.id, !!lockErr || (typeof lock === "string" && lock.startsWith("paidy")));
+    }));
+
     const cashOrdersPayload = (cashOrdersRaw as any[]).map((o: any) => ({
+      paidy_processing: paidyLockByOrder.get(o.id) === true,
       id: o.id,
       invoice_number: o.invoice_number,
       customer_id: o.customer_id,
@@ -1042,7 +1056,8 @@ Deno.serve(async (req) => {
       cash_order_id: s.cash_order_id,
       submitted_amount: Number(s.submitted_amount),
       payment_method: s.payment_method ?? null,
-      status: s.status,
+      status: s.status === "confirmed" ? "under_review" : s.status,
+      is_paidy: !!s.paidy_payment_id,
     }));
 
     // Birthday reward computation (Asia/Manila day/month/year):

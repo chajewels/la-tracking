@@ -789,15 +789,14 @@
 
 ## 2026-10-04 — Paidy integrity follow-ups (independent review, non-blocking)
 
-- **Reject talks to the provider before its guarded status write.** The write is a compare-and-set
-  (never overwrites a `confirmed` submission), so no money is lost, but a losing reviewer may already
-  have closed the Paidy authorisation / cancelled the Square hold before getting 409, and a Square
-  cancel on a captured payment rings a misleading `card_void_failed` bell. Cleaner: flip to
-  `rejected` with the guard first, then close / void.
-- **INVARIANT 12 for a claimed-but-unrecorded Confirm is enforced in the expiry sweep's TypeScript
-  pre-filter, not inside the SQL expiry functions** (`terminate_web_order_atomic` /
-  `expire_web_layaway_atomic` still freeze on submitted / under_review only). A seconds-wide race
-  remains. Changing those bodies must start from live (Bug #280 rule).
-- **submit-cash-payment still accepts a bank transfer while a Paidy Confirm is claimed but not
-  recorded** (owner Q2: transfer path untouched). Outcome is safe — finalize refuses and the
-  "Paidy captured — the order can no longer take it" bell fires — but it can mean a refund decision.
+- ~~Reject talks to the provider before its guarded status write~~ — FIXED for Paidy by the
+  follow-up (2026-10-04, R04): the guarded write claims the rejection, then the winner closes.
+  Square still cancels before its write (Square out of scope of the Paidy review).
+- **INVARIANT 12 / the Paidy lock in the expiry SQL functions.** The expiry sweep checks
+  `cash_order_payment_lock` in TypeScript before `terminate_web_order_atomic` /
+  `expire_web_layaway_atomic`; those bodies still freeze on submitted / under_review only. A
+  seconds-wide race remains. Changing those bodies must start from live (Bug #280 rule).
+- ~~submit-cash-payment still accepts a bank transfer while Paidy is processing~~ — FIXED
+  (follow-up R16): the payment lock trigger refuses it on every route.
+- **Paidy owner checks still open:** the address-line mapping (Paidy line1 = building/room) and the
+  negative-price "Discount" line — confirm both with Paidy (docs/PAIDY.md "Follow-up").

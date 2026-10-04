@@ -167,6 +167,26 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 4. Owner rule 2026-10-04: while a Paidy payment is open, processing or
+    //    taken-but-not-recorded on this order, no other payment is accepted
+    //    (the database refuses it too — trg_guard_payment_submission_paidy).
+    //    Staff Reject the Paidy submission first; then the customer may pay
+    //    another way.
+    {
+      const { data: lock, error: lockErr } = await supabase.rpc('cash_order_payment_lock', { p_cash_order_id: cash_order_id });
+      if (lockErr) {
+        return new Response(JSON.stringify({ error: 'Could not check this order. Please try again.' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (typeof lock === 'string' && lock.startsWith('paidy')) {
+        return new Response(JSON.stringify({
+          error: 'paidy_in_progress',
+          message: 'This order is being paid with Paidy. Another payment can be sent only if the Paidy payment is declined or released.',
+        }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // 4a. Block exact-duplicate pending submission for this cash order.
     // Different amounts / different methods are allowed — legitimate sequential
     // partial payments. Only block when a row with the SAME amount AND SAME

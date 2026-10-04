@@ -3,7 +3,8 @@ import {
   isPaidyPublicKey, paidyAddressComplete, paidyAmountMatches, paidyAuthorizationExpired,
   normalizePaidyStatus, paidyModeFrom, paidyNotOfferedReason, paidyZip,
   paidyExpiryTime, paidyAuthorizationLapsed, paidyProviderOutcome, paidyCapturedAmount, paidyLatestCapture,
-  paidyCaptureAmountProblem, paidyJapanDate, paidyLastOrderAmount, paidyNewRefunds, paidyConfirmLeaseExpired,
+  paidyRecordProblem, paidyJapanDate, paidyBuyerHistory, paidyNewRefunds, paidyConfirmLeaseExpired,
+  paidyYen, paidyJapaneseMobile, paidyAddressLines, paidyCheckoutBreakdown, paidyRefundTotal,
   PAIDY_CONFIRM_LEASE_MS,
   paidyFilingMismatch,
 } from "../../supabase/functions/_shared/paidy-rules.ts";
@@ -75,6 +76,12 @@ describe("when Paidy is offered (the order page and the ready email agree)", () 
     ["address_not_jp_or_incomplete", { address: { ...jp, country: "PH" } }],
     ["address_not_jp_or_incomplete", { address: null }],
     ["submission_pending", { pendingSubmissions: 1 }],
+    ["amount_not_whole_yen", { order: { ...order, remaining_balance: 236799.5 } }],
+    ["part_paid", { totalPaid: 1000 }],
+    ["payment_in_progress", { paymentLock: "paidy_checkout_open" }],
+    ["payment_in_progress", { paymentLock: "submission_pending" }],
+    ["no_buyer_name", { buyerName: "  " }],
+    ["breakdown_mismatch", { breakdownOk: false }],
   ])("refused: %s", (reason, over) => {
     expect(paidyNotOfferedReason({ ...base, ...over })).toBe(reason);
   });
@@ -93,10 +100,12 @@ describe("capture guards", () => {
     expect(paidyAuthorizationExpired("2026-10-03T23:59:59Z", now)).toBe(true);
     expect(paidyAuthorizationExpired("garbage", now)).toBe(true);
   });
-  it("the amount must be the remaining balance, to the yen", () => {
+  it("the amount must be the remaining balance, to the yen — never rounded (R14)", () => {
     expect(paidyAmountMatches(236800, "236800.00")).toBe(true);
     expect(paidyAmountMatches(236800, 236801)).toBe(false);
     expect(paidyAmountMatches(0, 0)).toBe(false);
+    expect(paidyAmountMatches(52000, 51999.6)).toBe(false);
+    expect(paidyAmountMatches(52000.4, 52000)).toBe(false);
   });
 });
 
@@ -153,20 +162,26 @@ describe("P03 decisions come from Paidy's read-back, never from an HTTP code", (
   it("captured amount and the latest capture", () => {
     const p = { captures: [{ id: "cap_1", amount: 1000 }, { id: "cap_2", amount: "500" }] };
     expect(paidyCapturedAmount(p)).toBe(1500);
+    expect(paidyCapturedAmount({ captures: [{ id: "c", amount: 999.5 }] })).toBeNaN();
     expect(paidyLatestCapture(p)).toEqual({ id: "cap_2", amount: 500, created_at: undefined });
     expect(paidyLatestCapture({ captures: [] })).toBeNull();
   });
 });
 
-describe("P08 amounts agree before a capture", () => {
-  const ok = { providerAmount: 236800, recordAmount: "236800.00", submittedAmount: 236800, remainingBalance: 236800 };
-  it("all equal → no problem", () => expect(paidyCaptureAmountProblem(ok)).toBeNull());
+describe("recording a dashboard capture: exact yen, nothing refunded (R14/R17, owner D4)", () => {
+  const ok = { capturedAmount: 236800, recordAmount: "236800.00", submittedAmount: 236800, refundedAmount: 0 };
+  it("all equal → no problem", () => expect(paidyRecordProblem(ok)).toBeNull());
   it.each([
-    [{ providerAmount: 0 }, "provider_amount_missing"],
-    [{ providerAmount: 236000 }, "provider_vs_record"],
-    [{ submittedAmount: 236000 }, "record_vs_submission"],
-    [{ remainingBalance: 100000 }, "exceeds_remaining"],
-  ])("%o → %s", (patch, want) => expect(paidyCaptureAmountProblem({ ...ok, ...patch })).toBe(want));
+    [{ capturedAmount: NaN }, "captured_amount_invalid"],
+    [{ capturedAmount: 236000 }, "captured_vs_authorized"],
+    [{ submittedAmount: 236799.6 }, "authorized_vs_submission"],
+    [{ refundedAmount: 1000 }, "refunded"],
+  ])("%o → %s", (patch, want) => expect(paidyRecordProblem({ ...ok, ...patch })).toBe(want));
+});
+
+describe("paidyYen — exact whole yen or nothing (R14)", () => {
+  it.each([[52000, 52000], ["52000.00", 52000], [51999.6, null], [-1, null], [0, null], [NaN, null], [Infinity, null], ["", null], [null, null], [true, null]])(
+    "%o → %o", (raw, want) => expect(paidyYen(raw)).toBe(want));
 });
 
 describe("Q5 the capture day is Japan time", () => {
@@ -176,23 +191,78 @@ describe("Q5 the capture day is Japan time", () => {
   });
 });
 
-describe("P10 last_order_amount is the latest COMPLETED order", () => {
-  it("sorts by completed_at, ignores unpaid and pending", () => {
-    expect(paidyLastOrderAmount([
-      { total_paid: 50000, status: "completed", completed_at: "2026-09-30T00:00:00Z" },
-      { total_paid: 12000, status: "completed", completed_at: "2026-08-01T00:00:00Z" },
-      { total_paid: 99000, status: "pending", completed_at: null },
-      { total_paid: 0, status: "completed", completed_at: "2026-10-01T00:00:00Z" },
-    ])).toBe(50000);
+describe("R12 buyer history: completed yen orders, not Paidy, not refunded, by order value", () => {
+  const now = new Date("2026-10-04T00:00:00Z");
+  it("counts the right orders and dates the last one in days", () => {
+    expect(paidyBuyerHistory([
+      { status: "completed", currency: "JPY", total_amount: 50000, completed_at: "2026-09-30T00:00:00Z" },
+      { status: "completed", currency: "JPY", total_amount: 12000, completed_at: "2026-08-01T00:00:00Z" },
+      { status: "completed", currency: "JPY", total_amount: 80000, completed_at: "2026-10-01T00:00:00Z", paid_by_paidy: true },
+      { status: "completed", currency: "JPY", total_amount: 7000, completed_at: "2026-10-02T00:00:00Z", refunded: true },
+      { status: "cancelled", currency: "JPY", total_amount: 9000, completed_at: null },
+      { status: "completed", currency: "PHP", total_amount: 9000, completed_at: "2026-10-02T00:00:00Z" },
+    ], now)).toEqual({ order_count: 2, ltv: 62000, last_order_amount: 50000, last_order_at: 4 });
   });
-  it("none → undefined", () => expect(paidyLastOrderAmount([])).toBeUndefined());
+  it("a first-time customer: zeros and no last-order fields (never invented)", () =>
+    expect(paidyBuyerHistory([], now)).toEqual({ order_count: 0, ltv: 0 }));
+});
+
+describe("R13 contact and address", () => {
+  it("only a Japanese mobile is prefilled", () => {
+    expect(paidyJapaneseMobile("090-1234-5678")).toBe("09012345678");
+    expect(paidyJapaneseMobile("+81 80 1234 5678")).toBe("08012345678");
+    expect(paidyJapaneseMobile("03-1234-5678")).toBeNull();
+    expect(paidyJapaneseMobile("+63 917 123 4567")).toBeNull();
+    expect(paidyJapaneseMobile(null)).toBeNull();
+  });
+  it("building in line1, street in line2 (Paidy Checkout's convention)", () => {
+    expect(paidyAddressLines(jp)).toEqual({ line1: "301", line2: "立石1-2-3", city: "葛飾区", state: "東京都", zip: "124-0012" });
+    expect(paidyAddressLines({ ...jp, line2: "" }).line1).toBeUndefined();
+  });
+});
+
+describe("R10 one charge breakdown that adds up to the amount", () => {
+  const o = { total_amount: 101500, remaining_balance: 101500, shipping_fee: 1500, discount_amount: 0 };
+  const line = (price: number, qty = 1) => ({ sku: "R1", quantity: qty, title: "Ring", unit_price_jpy: price });
+  it("items + shipping = amount", () => {
+    const b = paidyCheckoutBreakdown(o, [line(50000, 2)], "CJ-W-1")!;
+    expect(b.amount).toBe(101500);
+    expect(b.items).toEqual([{ id: "R1", quantity: 2, title: "Ring", unit_price: 50000 }]);
+  });
+  it("a discount is its own negative line", () => {
+    const b = paidyCheckoutBreakdown({ ...o, total_amount: 96500, remaining_balance: 96500, discount_amount: 5000 }, [line(100000)], "CJ-W-1")!;
+    expect(b.items.at(-1)).toEqual({ id: "discount", quantity: 1, title: "Discount", unit_price: -5000 });
+    expect(b.items.reduce((s, i) => s + i.unit_price * i.quantity, 0) + b.shipping).toBe(96500);
+  });
+  it("a staff-added fee becomes an explicit line", () => {
+    const b = paidyCheckoutBreakdown({ ...o, total_amount: 104500, remaining_balance: 104500 }, [line(100000)], "CJ-W-1")!;
+    expect(b.items.at(-1)).toEqual({ id: "other", quantity: 1, title: "Other charges", unit_price: 3000 });
+  });
+  it("no item lines → one line for the order", () => {
+    const b = paidyCheckoutBreakdown(o, [], "12345")!;
+    expect(b.items).toEqual([{ id: "12345", quantity: 1, title: "Order 12345", unit_price: 100000 }]);
+  });
+  it("part-paid, fractional, or lines that claim more than the order → not offered", () => {
+    expect(paidyCheckoutBreakdown({ ...o, remaining_balance: 81500 }, [line(100000)], "x")).toBeNull();
+    expect(paidyCheckoutBreakdown({ ...o, total_amount: 101500.5, remaining_balance: 101500.5 }, [line(100000)], "x")).toBeNull();
+    expect(paidyCheckoutBreakdown(o, [line(200000)], "x")).toBeNull();
+  });
 });
 
 describe("P11 refunds are recorded once per refund id", () => {
   it("returns only unseen, positive refunds", () => {
     const p = { refunds: [{ id: "ref_1", amount: 1000 }, { id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z" }, { id: "ref_3", amount: 0 }] };
-    expect(paidyNewRefunds(p, ["ref_1"])).toEqual([{ id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z" }]);
+    expect(paidyNewRefunds(p, ["ref_1"]).map(({ raw: _raw, ...r }) => r)).toEqual([{ id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z", capture_id: undefined, reason: null }]);
     expect(paidyNewRefunds({}, [])).toEqual([]);
+  });
+  it("R17: keeps the capture link and the full refund object", () => {
+    const r = { id: "ref_9", amount: 2000, capture_id: "cap_1", reason: "requested_by_customer", created_at: "2026-10-05T00:00:00Z" };
+    const [n] = paidyNewRefunds({ refunds: [r] }, []);
+    expect(n.capture_id).toBe("cap_1");
+    expect(n.raw).toEqual(r);
+  });
+  it("R06: the refund total is always the whole ledger", () => {
+    expect(paidyRefundTotal({ refunds: [{ amount: 2000 }, { amount: 500 }] })).toBe(2500);
   });
 });
 

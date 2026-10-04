@@ -12,10 +12,13 @@ import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_sh
 import { maskEmail } from "../_shared/redact.ts";
 import { PaidyError, paidy, type PaidyPayment } from "../_shared/paidy.ts";
 import {
-  PAIDY_CONFIRM_LEASE_MS, paidyCaptureAmountProblem, paidyCapturedAmount, paidyConfirmLeaseExpired,
-  paidyJapanDate, paidyLatestCapture, paidyProviderOutcome,
+  PAIDY_CONFIRM_LEASE_MS, paidyCapturedAmount, paidyConfirmLeaseExpired,
+  paidyJapanDate, paidyLatestCapture, paidyProviderOutcome, paidyRecordProblem, paidyRefundTotal,
 } from "../_shared/paidy-rules.ts";
 import { paidyBell } from "../_shared/paidy-filing.ts";
+import { openPaidyCase } from "../_shared/paidy-sync.ts";
+import { PAIDY_AUTO_ACTOR } from "../_shared/paidy-autorecord.ts";
+import { isServiceRole } from "../_shared/jwt-claims.ts";
 import { SquareError, square } from "../_shared/square.ts";
 import { cardHoldExpired } from "../_shared/card-rules.ts";
 
@@ -210,16 +213,33 @@ Deno.serve(async (req) => {
     );
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { submission_id, action, reviewer_notes } = body;
+
+    // Owner 2026-10-04 (capture in the Paidy dashboard, the Hub records it):
+    // the service role may call this ONLY as the automatic Paidy recorder
+    // (_shared/paidy-autorecord.ts) — action "confirmed" on a Paidy
+    // submission (checked once the submission is loaded). It acts with no
+    // user (reviewer_user_id NULL; audit rows say actor paidy_auto).
+    const isAutoRecorder = isServiceRole(token);
+    let user: { id: string | null };
+    if (isAutoRecorder) {
+      if (body.actor !== PAIDY_AUTO_ACTOR || action !== "confirmed") {
+        return new Response(JSON.stringify({ error: "Service callers may only record a Paidy capture." }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      user = { id: null };
+    } else {
+      const { data: { user: authUser }, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !authUser) {
+        return new Response(JSON.stringify({ error: "Invalid token" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      user = { id: authUser.id };
+    }
 
     if (!submission_id || !action) {
       return new Response(JSON.stringify({ error: "Missing submission_id or action" }), {
@@ -245,9 +265,11 @@ Deno.serve(async (req) => {
     };
 
     const requiredPermission = permissionByAction[action];
-    const isAllowed = requiredPermission
-      ? await checkPermission(supabase, user.id, requiredPermission)
-      : false;
+    const isAllowed = isAutoRecorder
+      ? true // gated above to the Paidy auto-record and re-checked on the submission below
+      : requiredPermission && user.id
+        ? await checkPermission(supabase, user.id, requiredPermission)
+        : false;
 
     if (!isAllowed) {
       return new Response(JSON.stringify({ error: "Access denied for this submission action." }), {
@@ -280,6 +302,11 @@ Deno.serve(async (req) => {
     // SQUARE (S2, 2026-10-04, docs/SQUARE.md): the same exception — the proof
     // is the card authorisation the Hub read back from Square.
     const isSquareSubmission = submission.payment_method === "square" && !!submission.square_payment_id;
+    if (isAutoRecorder && !(isPaidySubmission && submission.cash_order_id)) {
+      return new Response(JSON.stringify({ error: "Service callers may only record a Paidy capture." }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     if (action === "confirmed" && !isPaidySubmission && !isSquareSubmission && (typeof submission.proof_url !== "string" || submission.proof_url.trim().length === 0)) {
       return new Response(JSON.stringify({ error: "Proof of payment is required to confirm this submission." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -332,6 +359,15 @@ Deno.serve(async (req) => {
     // and optional restore reason are captured in audit_logs. Short-circuits
     // both the cash-order and layaway branches.
     if (action === "restore") {
+      // R03 (2026-10-04): a rejected or cancelled Paidy submission is a
+      // deliberate end — never re-queued (the database refuses it too). The
+      // customer pays again, or staff resolve a Paidy case.
+      if (isPaidySubmission) {
+        return new Response(JSON.stringify({
+          error: "paidy_submission_ended",
+          message: "A rejected Paidy submission cannot be restored. If Paidy has taken the money, it appears under Paidy cases; otherwise the customer pays again.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       if (submission.status !== "rejected") {
         return new Response(JSON.stringify({
           error: `Cannot restore submission with status '${submission.status}'. Only rejected submissions can be restored.`,
@@ -494,114 +530,85 @@ Deno.serve(async (req) => {
         if (error) console.error("[review-payment-submission] cash claim revert failed:", error);
       };
 
-      // 2d. PAIDY CAPTURE (2026-10-03; integrity rework 2026-10-04, P03/P07/
-      //     P08/P09, docs/PAIDY.md "Integrity"). Every decision is taken from
-      //     Paidy's OWN read-back, never from an HTTP status: Paidy is read
-      //     BEFORE the capture and again AFTER any capture error.
-      //       captured   → record it (never ask the customer to pay again)
-      //       authorized → amounts must agree, then capture
-      //       expired / closed / rejected (no capture) → reject; customer pays again
-      //       unknown / Paidy unreachable → claim released, bell, nothing recorded
+      // 2d. PAIDY — RECORD, NEVER CAPTURE (owner 2026-10-04). Staff capture
+      //     in Paidy's merchant dashboard; the Hub only records what Paidy's
+      //     OWN read-back reports (docs/PAIDY.md "Follow-up"):
+      //       captured   → record it: exact yen, nothing refunded, this order
+      //       authorized → nothing changes: "capture it in the Paidy dashboard"
+      //       expired / closed / rejected (no capture) → submission rejected;
+      //                    the customer may pay again
+      //       unknown / Paidy unreachable → claim released, nothing recorded
       //     date_paid is the capture day in JAPAN time (owner Q5).
-      let paidyCaptureId: string | null = null;
       let paidyDatePaid: string | null = null;
-      let paidyCaptured = false;
+      let paidyRecordId: string | null = null;
       if (isPaidySubmission) {
         const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
           status, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
         const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
         const { data: pp, error: ppErr } = await supabase
-          .from("paidy_payments").select("id, paidy_payment_id, status, authorized_at, expires_at, amount_jpy, capture_id, captured_at")
+          .from("paidy_payments").select("id, cash_order_id, customer_id, paidy_payment_id, status, authorized_at, expires_at, amount_jpy, refund_jpy, capture_id, captured_at")
           .eq("id", submission.paidy_payment_id).maybeSingle();
         if (ppErr || !pp) {
           await revertCashClaim();
           return json(500, { error: ppErr ? "Could not read the Paidy record for this submission." : "Paidy record missing for this submission." });
         }
+        paidyRecordId = pp.id;
+        if (pp.cash_order_id !== cashOrder.id || pp.customer_id !== cashOrder.customer_id || submission.customer_id !== cashOrder.customer_id) {
+          // R02: a capture is recorded only on its own order and customer.
+          await revertCashClaim();
+          return json(409, { error: "paidy_binding_mismatch", message: "This Paidy payment does not belong to this order. Nothing was recorded." });
+        }
         const unverified = async (why: string) => {
           await revertCashClaim();
-          await paidyBell(supabase, "paidy_capture_unverified", "Paidy Confirm could not be verified",
-            `${ref} · ${pp.paidy_payment_id} · ${why} — nothing was recorded; Confirm again later (the Hub reads Paidy first, so a capture that did happen is recorded, never repeated)`,
-            { cash_order_id: cashOrder.id, submission_id, paidy_payment_id: pp.paidy_payment_id, reason: why });
-          return json(502, { error: "paidy_unverified", message: `Could not confirm with Paidy (${why}). Nothing was recorded. Try Confirm again in a few minutes.` });
+          if (!isAutoRecorder) {
+            await paidyBell(supabase, "paidy_capture_unverified", "Paidy payment could not be checked",
+              `${ref} · ${pp.paidy_payment_id} · ${why} — nothing was recorded; try again later (the Hub reads Paidy first and never records twice)`,
+              { cash_order_id: cashOrder.id, submission_id, paidy_payment_id: pp.paidy_payment_id, reason: why });
+          }
+          return json(502, { error: "paidy_unverified", message: `Could not check this payment with Paidy (${why}). Nothing was recorded. Try again in a few minutes.` });
         };
         const endSubmission = async (outcome: "expired" | "closed" | "rejected", detail: string) => {
           const at = new Date().toISOString();
-          const recStatus = outcome === "rejected" ? "rejected" : outcome === "closed" ? "closed" : "expired";
           const { error: recErr } = await supabase.from("paidy_payments")
-            .update({ status: recStatus, closed_at: at, closed_reason: detail, updated_at: at }).eq("id", pp.id);
-          const why = outcome === "expired" ? "Paidy authorisation expired (30 days)"
+            .update({ status: outcome, closed_at: at, closed_reason: detail, updated_at: at }).eq("id", pp.id).eq("status", "authorized");
+          const why = outcome === "expired" ? "Paidy authorisation expired (30 days) before it was captured"
             : outcome === "closed" ? "Paidy shows this authorisation as closed with nothing captured"
             : "Paidy declined this payment";
           const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
-            reviewer_notes: `${why} — the customer must pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
+            reviewer_notes: `${why} — nothing was charged; the customer may pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
           }).eq("id", submission_id).eq("processing_started_at", claimAt).select("id");
           if (!subErr && (!rejRows || rejRows.length === 0)) {
-            // Lost the claim to another Confirm: it reads Paidy itself and decides.
             return json(409, { error: "confirm_in_progress", message: "Another Confirm took over this Paidy payment. Refresh the page." });
           }
           const { error: audErr } = await supabase.from("audit_logs").insert({
             entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
-            new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pp.paidy_payment_id, detail },
+            new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pp.paidy_payment_id, detail, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff" },
             performed_by_user_id: user.id,
           });
           if (recErr || subErr || audErr) {
             console.error("[review-payment-submission] Paidy end-of-authorisation writes failed:", recErr, subErr, audErr);
             return json(500, { error: "paidy_reject_write_failed", message: `Paidy says: ${why}. Recording that in the Hub failed — refresh and Reject this submission.` });
           }
-          return json(409, { error: outcome === "expired" ? "paidy_authorization_expired" : `paidy_${outcome}`, message: `${why}. The submission was rejected; ask the customer to pay again.` });
+          return json(409, { error: outcome === "expired" ? "paidy_authorization_expired" : `paidy_${outcome}`, message: `${why}. The submission was rejected; the customer may pay again.` });
         };
 
         let live: PaidyPayment;
         try {
           live = await paidy.get(pp.paidy_payment_id);
         } catch (e) {
-          console.error("[review-payment-submission] paidy.get before capture failed:", e);
+          console.error("[review-payment-submission] paidy.get before recording failed:", e);
           return await unverified(e instanceof PaidyError ? `Paidy ${e.status} ${e.code}` : "Paidy unreachable");
         }
-        let outcome = paidyProviderOutcome(live);
-
-        if (outcome === "authorized" && (cashOrder.status === "cancelled" || cashOrder.status === "expired")) {
-          // Not captured yet and the order is closed: never take the money.
-          await revertCashClaim();
-          return json(400, { error: `cash_order is ${cashOrder.status}, cannot confirm payment. Nothing was captured — Reject this submission to release the Paidy authorisation.` });
-        }
+        const outcome = paidyProviderOutcome(live);
         if (outcome === "authorized") {
-          // P08: what Paidy holds, what the Hub recorded, what the submission
-          // says and what the order still owes must all agree before money moves.
-          const problem = paidyCaptureAmountProblem({
-            providerAmount: live.amount, recordAmount: pp.amount_jpy,
-            submittedAmount: submission.submitted_amount, remainingBalance: cashOrder.remaining_balance,
+          await revertCashClaim();
+          return json(409, {
+            error: "paidy_not_captured_yet",
+            message: "Paidy has not taken this payment yet. Capture it in the Paidy merchant dashboard — the Hub records it automatically once Paidy reports the capture (or press Confirm again afterwards).",
           });
-          if (problem) {
-            await revertCashClaim();
-            return json(409, { error: "amount_mismatch", detail: problem, message: `Paidy holds ¥${Math.round(Number(live.amount)).toLocaleString("en-US")}, the submission says ¥${Math.round(submittedAmount).toLocaleString("en-US")} and the order owes ¥${Math.round(liveRemaining).toLocaleString("en-US")} (${problem}). Nothing was captured. Reject it and ask the customer to pay again.` });
-          }
-          const { error: stampErr } = await supabase.from("paidy_payments")
-            .update({ capture_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", pp.id);
-          if (stampErr) {
-            await revertCashClaim();
-            return json(500, { error: "Could not prepare the Paidy capture. Nothing was captured; try again." });
-          }
-          try {
-            live = await paidy.capture(pp.paidy_payment_id, { invoice: String(cashOrder.invoice_number ?? ""), submission_id });
-          } catch (e) {
-            console.error("[review-payment-submission] paidy.capture failed — reading Paidy back:", e);
-            try {
-              live = await paidy.get(pp.paidy_payment_id);
-            } catch (e2) {
-              console.error("[review-payment-submission] paidy.get after capture error failed:", e2);
-              return await unverified(e instanceof PaidyError ? `capture answered ${e.status} ${e.code}; Paidy then unreachable` : "capture and read-back failed");
-            }
-          }
-          outcome = paidyProviderOutcome(live);
-          if (outcome === "authorized") {
-            // Paidy still holds it uncaptured after our request: not taken.
-            return await unverified("Paidy did not capture the payment");
-          }
         }
-
         if (outcome === "expired" || outcome === "closed" || outcome === "rejected") {
           return await endSubmission(outcome, `Paidy status ${String(live.status)} at Confirm`);
         }
@@ -609,32 +616,43 @@ Deno.serve(async (req) => {
           return await unverified(`Paidy status "${String(live.status)}"`);
         }
 
-        // Captured: the money is taken. From here the submission is never
-        // reverted to the queue; any failure leaves it for "Finish recording".
-        paidyCaptured = true;
-        const latest = paidyLatestCapture(live);
+        // Captured in the Paidy dashboard. Record it only when it is exactly
+        // this submission's yen and nothing has been refunded (owner D4: a
+        // refund before recording is a staff decision, R14/R17).
         const capturedYen = paidyCapturedAmount(live);
-        paidyCaptureId = latest?.id ?? (pp.capture_id ?? null);
+        const refunded = Math.max(paidyRefundTotal(live), Number(pp.refund_jpy ?? 0) || 0);
+        const problem = paidyRecordProblem({ capturedAmount: capturedYen, recordAmount: pp.amount_jpy, submittedAmount: submission.submitted_amount, refundedAmount: refunded });
+        if (problem) {
+          await revertCashClaim();
+          const kind = problem === "refunded" ? "refund_before_record" : "record_failed";
+          try {
+            await openPaidyCase(supabase, {
+              kind, paidy_payment_id: pp.paidy_payment_id, cash_order_id: cashOrder.id, paidy_payment_row: pp.id, submission_id,
+              detail: { reason: problem, captured_jpy: capturedYen, authorized_jpy: pp.amount_jpy, submitted_jpy: submission.submitted_amount, refunded_jpy: refunded },
+              bell: { title: problem === "refunded" ? "Paidy refund before the payment was recorded" : "Paidy capture does not match its submission",
+                body: `${ref} · ${pp.paidy_payment_id} · captured ¥${Number.isFinite(capturedYen) ? capturedYen.toLocaleString("en-US") : "?"} · ${problem}. Nothing was recorded — Payment Submissions → Paidy cases.` },
+            });
+          } catch (e) { console.error("[review-payment-submission] open case failed:", e); }
+          return json(409, {
+            error: problem === "refunded" ? "paidy_refunded" : "paidy_capture_amount_mismatch",
+            message: problem === "refunded"
+              ? "Paidy shows a refund on this payment. Nothing was recorded — decide it under Paidy cases."
+              : `Paidy's capture does not match this submission (${problem}). Nothing was recorded — check the Paidy dashboard; it is listed under Paidy cases.`,
+          });
+        }
+        const latest = paidyLatestCapture(live);
         const capturedAt = latest?.created_at ?? pp.captured_at ?? new Date().toISOString();
         paidyDatePaid = paidyJapanDate(capturedAt);
         const { error: capRecErr } = await supabase.from("paidy_payments").update({
-          status: "captured", captured_at: capturedAt, capture_id: paidyCaptureId,
+          status: "captured", captured_at: capturedAt, capture_id: latest?.id ?? pp.capture_id ?? null,
           expires_at: live.expires_at ?? pp.expires_at ?? null, last_payload: live, updated_at: new Date().toISOString(),
         }).eq("id", pp.id);
         if (capRecErr) {
-          // finalize_cash_submission_atomic refuses a Paidy payment whose
-          // record is not 'captured' (paidy_not_captured), so this ends in the
-          // "Finish recording" bell below; the resume reads Paidy again and
-          // re-writes the record. Never money in the books without it.
+          // finalize refuses a Paidy payment whose record is not captured; the
+          // claim is released and the next sync records it.
           console.error("[review-payment-submission] paidy_payments captured update failed:", capRecErr);
-        }
-        if (capturedYen !== Math.round(submittedAmount)) {
-          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id).eq("processing_started_at", claimAt);
-          if (leaseErr) console.error("[review-payment-submission] lease release failed:", leaseErr);
-          await paidyBell(supabase, "paidy_recording_failed", "Paidy captured an amount that does not match",
-            `${ref} · Paidy captured ¥${capturedYen.toLocaleString("en-US")} but the submission is ¥${Math.round(submittedAmount).toLocaleString("en-US")} — nothing recorded; check the Paidy dashboard and record it by hand`,
-            { cash_order_id: cashOrder.id, submission_id, paidy_payment_id: pp.paidy_payment_id, captured_jpy: capturedYen, submitted_jpy: submittedAmount });
-          return json(409, { error: "paidy_capture_amount_mismatch", message: `Paidy captured ¥${capturedYen.toLocaleString("en-US")}, which does not match this submission. Nothing was recorded in the Hub; check the Paidy dashboard.` });
+          await revertCashClaim();
+          return json(500, { error: "paidy_record_write_failed", message: "Could not save Paidy's capture. Nothing was recorded; it will be retried." });
         }
       }
 
@@ -733,23 +751,19 @@ Deno.serve(async (req) => {
       if (finErr || !finRes.ok) {
         const code = finErr ? "rpc_failed" : String(finRes.error ?? "unknown");
         console.error("[review-payment-submission] finalize_cash_submission_atomic failed:", finErr ?? finRes);
-        if (isPaidySubmission && paidyCaptured) {
-          // Paidy has the money; the Hub has nothing written. Keep the claim
-          // (status 'confirmed', no payment) so it shows "Finish recording",
-          // release the lease, and tell staff (owner Q4 a).
-          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id).eq("processing_started_at", claimAt);
-          if (leaseErr) console.error("[review-payment-submission] lease release failed:", leaseErr);
-          const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
-          const cannotTake = code === "order_closed" || code === "exceeds_remaining";
-          await paidyBell(supabase, "paidy_recording_failed", cannotTake ? "Paidy captured — the order can no longer take it" : "Paidy captured — recording in the Hub failed",
-            cannotTake
-              ? `${ref} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · Paidy took the money but the order is closed or already paid (${code}). Nothing was recorded. Decide with the owner: record it by hand or refund it in the Paidy dashboard.`
-              : `${ref} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · Paidy took the money but the Hub could not record it (${code}). Open Payment Submissions and press "Finish recording".`,
-            { cash_order_id: cashOrder.id, submission_id, capture_id: paidyCaptureId, error: code });
-          return new Response(JSON.stringify({
-            error: "paidy_recording_failed",
-            message: `Paidy captured the payment but recording it failed (${code}). Nothing was written. Use "Finish recording" on this submission.`,
-          }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (isPaidySubmission) {
+          // Paidy holds the money (staff captured it); the Hub could not
+          // record it. Release the claim (the sweep retries) and keep a
+          // durable case so it is never only a bell (R16/R18).
+          try {
+            await openPaidyCase(supabase, {
+              kind: "record_failed", paidy_payment_id: String(submission.reference_number ?? submission.paidy_payment_id),
+              cash_order_id: cashOrder.id, paidy_payment_row: paidyRecordId, submission_id,
+              detail: { reason: code, remaining_balance: finRes.remaining_balance ?? null, order_status: finRes.status ?? null },
+              bell: { title: code === "order_closed" || code === "exceeds_remaining" ? "Paidy captured — the order can no longer take it" : "Paidy captured — recording in the Hub failed",
+                body: `${customerReference(cashOrder as never) || cashOrder.invoice_number} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · ${code}. Nothing was recorded. Decide under Payment Submissions → Paidy cases (record it, or refund it in the Paidy dashboard).` },
+            });
+          } catch (e) { console.error("[review-payment-submission] open case failed:", e); }
         }
         await revertCashClaim();
         const status = code === "exceeds_remaining" || code === "order_closed" ? 400 : code === "not_claimed" ? 409 : 500;
@@ -1125,7 +1139,7 @@ Deno.serve(async (req) => {
           submission.payment_method,
           submission.reference_number,
           `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)}`,
-          user.id,
+          user.id as string, // layaway path: never the service caller (gated to Paidy cash above)
           account?.currency || "PHP",
           submissionIsDP,
           "customer",
@@ -1207,7 +1221,7 @@ Deno.serve(async (req) => {
             submission.payment_method,
             submission.reference_number,
             `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)} (${alloc.invoice_number})`,
-            user.id,
+            user.id as string, // layaway path: never the service caller
             account?.currency || "PHP",
             submissionIsDP,
             "customer",
@@ -1278,21 +1292,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    // PAIDY: Reject releases the authorisation (no charge, no fee). Paidy is
-    // read FIRST (P05, 2026-10-04): a payment Paidy has already captured is
-    // never rejected — the money is taken, so it is Confirmed (the Hub
-    // records the capture, it never charges twice). A submission a Confirm
-    // has claimed is never rejected either. Closing stays best effort — a
-    // Paidy refusal must not stop the reviewer; the bell says so.
+    // PAIDY: Reject releases the authorisation (no charge, no fee) — owner
+    // 2026-10-04: this is the staff fallback; the order stays open and the
+    // customer may then pay another way. Order of work (R04): read Paidy
+    // (a payment Paidy has taken is never rejected), then the guarded status
+    // write below CLAIMS the rejection, and only the winner closes at Paidy.
+    // A close Paidy refuses becomes a durable case the sweep retries.
+    let paidyCloseAfterReject: { id: string; paidy_payment_id: string; cash_order_id: string } | null = null;
     if (action === "rejected" && isPaidySubmission) {
       const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
       if (submission.status === "confirmed") {
-        return json(409, { error: "paidy_confirm_in_progress", message: "A Confirm already claimed this Paidy payment. Use \"Finish recording\" instead of Reject." });
+        return json(409, { error: "paidy_confirm_in_progress", message: "This Paidy payment is being recorded. Refresh the page." });
       }
       const { data: pp, error: ppErr } = await supabase
-        .from("paidy_payments").select("id, paidy_payment_id, status").eq("id", submission.paidy_payment_id).maybeSingle();
+        .from("paidy_payments").select("id, paidy_payment_id, status, cash_order_id").eq("id", submission.paidy_payment_id).maybeSingle();
       if (ppErr) return json(500, { error: "Could not read the Paidy record. Nothing was changed; try again." });
       if (pp && (pp.status === "authorized" || pp.status === "captured")) {
         let live: PaidyPayment;
@@ -1305,25 +1320,14 @@ Deno.serve(async (req) => {
         const outcome = paidyProviderOutcome(live);
         const at = new Date().toISOString();
         if (outcome === "captured") {
-          return json(409, { error: "paidy_already_captured", message: "Paidy has already taken this payment. Do not reject it — press Confirm: the Hub records the capture and does not charge the customer again." });
+          return json(409, { error: "paidy_already_captured", message: "Paidy has already taken this payment (captured in the Paidy dashboard). Do not reject it — press Confirm: the Hub records it and never charges twice." });
         }
         if (outcome === "authorized" || outcome === "expired") {
-          try {
-            const closed = await paidy.close(pp.paidy_payment_id);
-            const { error: recErr } = await supabase.from("paidy_payments").update({
-              status: "closed", closed_at: at, closed_reason: "rejected by reviewer", last_payload: closed, updated_at: at,
-            }).eq("id", pp.id);
-            if (recErr) console.error("[review-payment-submission] paidy_payments closed update failed:", recErr);
-          } catch (e) {
-            console.warn("[review-payment-submission] paidy.close on reject failed (non-blocking):", e);
-            await paidyBell(supabase, "paidy_close_failed", "Paidy authorisation could not be released",
-              `Submission ${submission_id} was rejected but Paidy did not accept the close: ${e instanceof Error ? e.message : String(e)}. It expires by itself after 30 days.`,
-              { submission_id, paidy_payment_id: pp.paidy_payment_id });
-          }
+          paidyCloseAfterReject = { id: pp.id, paidy_payment_id: pp.paidy_payment_id, cash_order_id: pp.cash_order_id };
         } else if (outcome === "closed" || outcome === "rejected") {
           const { error: recErr } = await supabase.from("paidy_payments").update({
             status: outcome, closed_at: at, closed_reason: `Paidy status ${String(live.status)} at reject`, last_payload: live, updated_at: at,
-          }).eq("id", pp.id);
+          }).eq("id", pp.id).eq("status", "authorized");
           if (recErr) console.error("[review-payment-submission] paidy_payments status update failed:", recErr);
         }
       }
@@ -1375,6 +1379,8 @@ Deno.serve(async (req) => {
       .update(updateData)
       .eq("id", submission_id);
     if (action !== "confirmed") updateQuery = updateQuery.neq("status", "confirmed");
+    // R04: a Paidy Reject claims only a still-queued submission.
+    if (isPaidySubmission && action === "rejected") updateQuery = updateQuery.in("status", ["submitted", "under_review"]);
     const { data: updatedRows, error: updateErr } = await updateQuery.select("id");
 
     if (!updateErr && action !== "confirmed" && (!updatedRows || updatedRows.length === 0)) {
@@ -1390,6 +1396,28 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // R04: only the reviewer whose Reject won the status write closes at Paidy.
+    if (paidyCloseAfterReject) {
+      const pc = paidyCloseAfterReject;
+      const at = new Date().toISOString();
+      try {
+        const closed = await paidy.close(pc.paidy_payment_id);
+        const { error: recErr } = await supabase.from("paidy_payments").update({
+          status: "closed", closed_at: at, closed_reason: "rejected by reviewer", last_payload: closed, updated_at: at,
+        }).eq("id", pc.id).eq("status", "authorized");
+        if (recErr) console.error("[review-payment-submission] paidy_payments closed update failed:", recErr);
+      } catch (e) {
+        console.warn("[review-payment-submission] paidy.close on reject failed — case opened, the sweep retries:", e);
+        try {
+          await openPaidyCase(supabase, {
+            kind: "close_failed", paidy_payment_id: pc.paidy_payment_id, cash_order_id: pc.cash_order_id, paidy_payment_row: pc.id, submission_id,
+            detail: { error: e instanceof Error ? e.message : String(e) },
+            bell: { title: "Paidy authorisation not released yet", body: `Submission ${submission_id} was rejected but Paidy did not accept the close (${e instanceof Error ? e.message : String(e)}). The hourly check retries; do not capture it in the Paidy dashboard.` },
+          });
+        } catch (e2) { console.error("[review-payment-submission] close_failed case could not be opened:", e2); }
+      }
     }
 
     // Fire-and-forget: archive the proof into payment_proofs (layaway).

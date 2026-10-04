@@ -5971,3 +5971,30 @@ docs/PAIDY.md "Integrity".
 **Guards:** src/test/paidy-rules.test.ts (rules), development/paidy-sync.test.ts (sync, CI), the
 migration's self-check block; both RPCs tested on Postgres 16 incl. failure injection and two-session
 races (second filing → `submission_pending`; second finalize → `already_recorded`, one payment).
+
+
+## 2026-10-04 — Paidy follow-up review (R01–R18 + hide payment options while Paidy processes)
+
+Owner answers: capture in the Paidy dashboard, the Hub records it automatically; Paidy only
+when nothing is paid; fallback = staff Reject; a refund before recording is a staff decision.
+Migration `20261103100000_paidy_followup.sql`; docs/PAIDY.md "Follow-up".
+- R01 a Paidy submission could be relabelled (staff dropdown / customer edit) and confirmed as a
+  transfer → method/amount/link immutable (trigger + UI lock + customer endpoint refusal).
+- R02/R14/R17 finalize did not bind the capture to its order/customer/amount, compared rounded
+  yen, and could record a refunded capture → exact yen, binding checks, `provider_capture_id`
+  UNIQUE, `paidy_refunded` refusal.
+- R03 customer cancel did not close Paidy and the sweep could re-file it → customers cannot
+  cancel Paidy rows here; cancelled/rejected Paidy submissions are never re-filed or restored;
+  cancel/edit are compare-and-set.
+- R04 Reject closed at Paidy before winning its status write → claim first, close second.
+- R05/R06/R07 sync retries skipped work keyed on the old local status; the refund total stayed
+  stale; expiries never transitioned → every pass re-derives from Paidy.
+- R08/R09 webhook acknowledged events with no durable trace; no Paidy timeout → inbox table,
+  8 s deadline, 6 s per Paidy call, durable `paidy_cases`.
+- R10–R13 Checkout amount vs items, purchaser replaced by recipient, wrong history population,
+  foreign/recipient phone, address lines → exact breakdown, buyer = customer, history rules,
+  Japanese mobile only, Paidy's line convention.
+- R15/R16 stale order state at filing; competing payments while Paidy was active → locked
+  re-checks; `cash_order_payment_lock` + trigger on every payment route.
+- R18 sweep starvation, other-environment rows counted as errors, `ok:true` with row errors →
+  oldest-check-first, environment skip, lag fields, `ok` = no errors.
