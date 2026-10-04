@@ -110,9 +110,28 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
     };
   }
 
+  // CHECKOUT POINTS (2026-10-05, owner C3–C5): held by the draft, approved by
+  // the Confirm in the same transaction. They are a discount in the order's
+  // currency; never on shipping (full payment) and never more than the
+  // deposit (layaway — the whole deposit is allowed). A Confirm that would
+  // break either is refused here and again in materialize_web_draft_atomic.
+  const pointsValue = Math.max(0, Number(draft.points_value ?? 0));
+  const deposit = layaway ? Number(layaway.deposit ?? 0) : null;
+  if (pointsValue > 0) {
+    if (draft.mode === "layaway" && deposit !== null && pointsValue > deposit) errors.push("points_exceed_deposit");
+    if (draft.mode !== "layaway" && pointsValue > total - (shipping ?? 0)) errors.push("points_exceed_total");
+  }
+
   return {
     errors,
     currency,
+    // C1: the method the customer chose (transfer | paidy | square).
+    payment_method: String(draft.payment_method ?? "transfer"),
+    points: Math.max(0, Number(draft.points ?? 0)),
+    points_value: pointsValue,
+    // What the customer will owe after Confirm: the total (full) or the
+    // deposit (layaway) less the points.
+    due_now: draft.mode === "layaway" ? Math.max(0, Number(deposit ?? 0) - pointsValue) : total - pointsValue,
     fx_rate: rate,
     order_date: orderDate,
     products,

@@ -293,7 +293,7 @@ describe("website/index.ts wiring (comment lines stripped)", () => {
   it("no float peso conversion is left in the website function", () => {
     expect(src).not.toMatch(/Math\.round\([^)]*\* ?(fx\.jpy_php|fxRate)\)/);
     expect(src).toMatch(/v\.price_php = variantPricePhp\(/);
-    expect(src.match(/const toSettle = \(jpy: number\) => \(fxRate === null \? jpy : jpyToPhpHalfUp\(jpy, fxRate\)\);/g)?.length).toBe(2);
+    expect(src.match(/const toSettle = \(jpy: number\) => \(fxRate === null \? jpy : jpyToPhpHalfUp\(jpy, fxRate\)\);/g)?.length).toBe(3); // POST + GET /checkout/quote, and applyCheckoutChoice (2026-10-05)
   });
 
   it("/layaway/quote goes through planLayawayQuote", () => {

@@ -79,6 +79,12 @@ export interface CardOfferInput {
   pendingSubmissions: number;
   /** square_order_unresolved: an attempt in flight, a live hold or unrecorded captured money (SQ11). */
   cardUnresolved?: boolean;
+  /**
+   * cash_orders.payment_method (owner C1, 2026-10-05): a WEBSITE order offers
+   * card only when card ('square') is its method (null = transfer). Omitted =
+   * not checked (older callers).
+   */
+  paymentMethod?: string | null;
 }
 
 /** Why card payment is not offered, or null when it is. One reason, the first that fails. No address rule (D4: any country). */
@@ -90,6 +96,7 @@ export function cardNotOfferedReason(i: CardOfferInput): string | null {
   if (i.mode === "test" && family !== "sandbox") return "app_id_mode_mismatch";
   if (i.mode === "on" && family !== "production") return "app_id_mode_mismatch";
   if (typeof i.locationId !== "string" || i.locationId.trim() === "") return "no_location_id";
+  if (i.paymentMethod !== undefined && i.order.source_channel === "web" && (i.paymentMethod ?? "transfer") !== "square") return "method_not_chosen";
   if (String(i.order.currency ?? "") !== "JPY") return "not_jpy";
   if (i.order.status !== "pending") return "order_not_open";
   if (i.order.payment_status !== "pending_transfer") return "no_payment_due";

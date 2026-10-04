@@ -41,7 +41,39 @@ export interface OrderConfirmationProps {
    * the transfer methods pointing at the order page; the figures are unchanged.
    */
   paidy?: boolean
+  /**
+   * C1 (owner 2026-10-05): the method the customer chose at checkout. Once
+   * staff confirm, the email shows ONLY that one: 'transfer' (or absent) the
+   * accounts as before; 'paidy' / 'card' no bank details, a pointer to the
+   * order page instead.
+   */
+  chosenMethod?: 'transfer' | 'paidy' | 'card'
+  /** Points used at checkout, already taken off (order currency). Absent/0 = none. */
+  pointsApplied?: number
 }
+
+/** C1: how to pay when the customer chose Paidy or card (no bank details). */
+export const CHOSEN_METHOD_LINE = {
+  paidy: {
+    ja: 'お支払い方法：あと払い（ペイディ）。ご注文ページの「ペイディで支払う」から、期限までにお手続きください。',
+    en: 'You chose Paidy (あと払い). Choose "Pay with Paidy" on your order page before the deadline.',
+  },
+  card: {
+    ja: 'お支払い方法：クレジットカード・デビットカード（日本円でのお支払い）。ご注文ページの「カードで支払う」から、期限までにお手続きください。',
+    en: 'You chose to pay by card (charged in yen). Choose "Pay by card" on your order page before the deadline.',
+  },
+} as const
+
+const PAY_BY = {
+  ja: { heading: 'お支払い方法', deadline: (when: string) => `お支払い期限：${when}` },
+  en: { heading: 'How to pay', deadline: (when: string) => `Pay by: ${when}` },
+} as const
+
+/** The 'ready' opening line when the customer chose Paidy or card. */
+const READY_INTRO_NOT_TRANSFER = {
+  ja: (ref: string) => `ご注文番号 ${ref} のお品物を確認いたしました。下記のお支払い方法で、期限までにお支払いをお願いいたします。お支払いの確認後、発送の準備に入ります。`,
+  en: (ref: string) => `We have confirmed your piece for order ${ref}. Please pay with the method below before the deadline. We prepare shipment once the payment is confirmed.`,
+} as const
 
 export const PAIDY_LINE = {
   ja: 'あと払い（ペイディ）もご利用いただけます。ご注文ページの「ペイディで支払う」からお進みください（日本国内のお届け先のみ）。',
@@ -89,16 +121,23 @@ const READY_COPY = {
 
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; primary: boolean }) => {
   const c = p.variant === 'ready' ? READY_COPY[lang] : COPY[lang]
+  const other = p.chosenMethod === 'paidy' || p.chosenMethod === 'card' ? p.chosenMethod : null
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
-      <Text style={text}>{c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
+      <Text style={text}>{other ? READY_INTRO_NOT_TRANSFER[lang](p.reference) : c.intro(p.reference)}</Text>
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
       {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
-      <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.payHeading}</Text>
-      <MethodCards methods={p.methods} lang={lang} />
-      {p.paidy && <Text style={text}>{PAIDY_LINE[lang]}</Text>}
-      <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
+      <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].heading : c.payHeading}</Text>
+      {other ? (
+        <Text style={text}>{CHOSEN_METHOD_LINE[other][lang]}</Text>
+      ) : (
+        <>
+          <MethodCards methods={p.methods} lang={lang} />
+          {p.paidy && <Text style={text}>{PAIDY_LINE[lang]}</Text>}
+        </>
+      )}
+      <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].deadline(formatDeadline(p.transferDueAt, p.region, lang)) : c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
       <Text style={muted}>{c.deadlineNote}</Text>
       {p.orderUrl && (
         <Section style={buttonWrap}>

@@ -414,3 +414,7 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   The reserve-first path (web_reservation_mode, confirm-web-order-ready,
   decline-web-reservation, the old-flow RPCs) is DROPPED — never re-add a
   checkout that writes an order or plan directly.
+
+## Checkout payment choice + points (2026-10-05)
+
+See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".

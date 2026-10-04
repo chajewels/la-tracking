@@ -1,5 +1,6 @@
 import * as React from "npm:react@18.3.1";
 import { paidyModeFrom, paidyNotOfferedReason } from "./paidy-rules.ts";
+import { publicMethod } from "./checkout-choice.ts";
 import {
   pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
   STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
@@ -43,7 +44,7 @@ export type ReservationEmailResult = SendStorefrontEmailResult | { sent: false; 
 async function loadOrder(supabase: Db, orderId: string) {
   const { data: order } = await supabase
     .from("cash_orders")
-    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, status, payment_status, remaining_balance, source_channel, ready_confirmed_at, ship_to_snapshot, customers(email, is_test)")
+    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, status, payment_status, payment_method, remaining_balance, source_channel, ready_confirmed_at, ship_to_snapshot, customers(email, is_test)")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return null;
@@ -177,21 +178,35 @@ export function sendLayawayReservedEmail(supabase: Db, accountId: string): Promi
  * the new deadline: the confirmation's own key (`order-ready-<id>`) was spent
  * at confirm time and would silently drop the revival email.
  */
-export type ReadyEmailOpts = { revived?: boolean };
+export type ReadyEmailOpts = {
+  revived?: boolean;
+  /**
+   * Staff changed how the order is paid (change-payment-method, owner C1
+   * 2026-10-05): the same content again, showing ONLY the new method, under a
+   * key of its own (the confirm key was spent).
+   */
+  methodChanged?: boolean;
+};
 
 export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEmailOpts = {}): Promise<ReservationEmailResult> {
-  const label = opts.revived ? "order-revived" : "order-ready";
+  const label = opts.methodChanged ? "order-method-changed" : opts.revived ? "order-revived" : "order-ready";
   return guarded(label, async () => {
     const o = await loadOrder(supabase, orderId);
     if (!o) return { sent: false, reason: "not_found" };
     const currency = String(o.order.currency ?? "JPY");
-    const methods = await transferMethods(supabase, currency);
+    // C1 (2026-10-05): a website order's email shows ONLY the method the
+    // customer chose; bank details only for transfer.
+    const chosen = o.order.source_channel === "web" ? publicMethod(o.order.payment_method) : "transfer";
+    const methods = chosen === "transfer" ? await transferMethods(supabase, currency) : [];
+    const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
     return await sendStorefrontEmail({
       to: o.to,
       subject: orderReadySubject(o.reference),
       label,
       reference: o.reference,
-      idempotencyKey: opts.revived
+      idempotencyKey: opts.methodChanged
+        ? `order-method-changed-${orderId}-${String(o.order.payment_method ?? "transfer")}-${Date.now()}`
+        : opts.revived
         ? `order-revived-${orderId}-${String(o.order.transfer_due_at ?? "")}`
         : `order-ready-${orderId}`,
       element: React.createElement(OrderConfirmationEmail, {
@@ -207,7 +222,9 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         orderUrl: storefrontOrderUrl(orderId),
         variant: "ready",
         courier: await courierName(supabase, o.order.planned_shipping_method_id),
-        paidy: await paidyOfferedForEmail(supabase, o.order, o.to.is_test),
+        paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
+        chosenMethod: chosen,
+        pointsApplied: Number(ptsPaid ?? 0),
       }),
     });
   });
@@ -232,6 +249,7 @@ async function paidyOfferedForEmail(supabase: Db, order: AnyRec, customerIsTest:
       order: order as never,
       address: snap ? { line1: snap.line1 as string, city: snap.city as string, region: snap.region as string, postal_code: snap.postal_code as string, country: snap.country as string } : null,
       pendingSubmissions: 0,
+      paymentMethod: (order.payment_method ?? null) as string | null,
     }) === null;
   } catch (e) {
     console.warn("[reservation-emails] paidy offer check failed (line omitted):", e);
@@ -271,6 +289,8 @@ export function sendLayawayReadyEmail(
       }));
     }
     const methods = await transferMethods(supabase, p.currency);
+    // Points used at checkout paid part or all of the deposit (2026-10-05).
+    const { data: ptsPaid } = await supabase.rpc("layaway_points_paid", { p_account_id: accountId });
     // Website orders PR 6: what the plan is for. Product lines carry a
     // variant; the service lines staff added on the review screen do not.
     const { data: lineRows } = await supabase
@@ -301,6 +321,7 @@ export function sendLayawayReadyEmail(
         pieces,
         services,
         courier: await courierName(supabase, p.plan.planned_shipping_method_id),
+        pointsApplied: Number(ptsPaid ?? 0),
       }),
     });
   });
@@ -404,7 +425,7 @@ export function storefrontDraftUrl(draftId: string): string {
 async function loadDraft(supabase: Db, draftId: string) {
   const { data: draft } = await supabase
     .from("web_order_drafts")
-    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, customers(email, is_test)")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, points_value, customers(email, is_test)")
     .eq("id", draftId)
     .maybeSingle();
   if (!draft) return null;
@@ -476,6 +497,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
         currency: d.currency,
         orderUrl: storefrontDraftUrl(draftId),
         provisional: true,
+        pointsApplied: Number(d.draft.points_value ?? 0),
       }),
     });
   });

@@ -46,6 +46,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
 - docs/PAIDY.md — Paidy あと払い: offer rule, dashboard capture + Hub auto-record, payment lock, cases, webhook inbox, go-live
 - docs/SQUARE.md — Square card payments: switch + public ids, square_payments ledger, agreement, capture/void
+- docs/CHECKOUT-CHOICE.md — payment method chosen at checkout (locked) + points at checkout
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path; rules moved 2026-10-02
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4); rules moved 2026-10-02
 - docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
@@ -1423,6 +1424,11 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     refund before recording is a staff case. docs/PAIDY.md "Follow-up".
   - PAIDY INTEGRITY: file only via file_paidy_submission_atomic; record only
     via finalize_cash_submission_atomic (exact yen, provider_capture_id).
+  - CHECKOUT CHOICE (owner C1–C7, 2026-10-05; docs/CHECKOUT-CHOICE.md): the
+    customer picks transfer/paidy/card at checkout, LOCKED for her; staff change
+    it ONLY via change_web_payment_method_atomic. Checkout points = LOYALTY-
+    discount (not money), approved at Confirm; 'nothing paid' checks use
+    cash_order_points_paid / layaway_deposit_started, never total_paid alone.
   - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
     on that order, any route (trigger); fallback = staff Reject. Paidy rows
     are immutable, never restored; exceptions go to paidy_cases.
@@ -1482,6 +1488,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
      /loyalty/join NEVER enrolls. docs/LOYALTY-RULES.md "Rules moved from CLAUDE.md".
   2. review-payment-submission is the SOLE award path: layaway on DP confirm,
      cash on full completion. NEVER on installments. No DB-trigger award path.
+     ONE exception: confirm-web-draft awards when checkout points paid the
+     WHOLE deposit / order (docs/CHECKOUT-CHOICE.md).
   3. Awards are currency-agnostic, based on loyalty_jpy_amount; skip
      'no_loyalty_amount' when <= 0 or null.
   4. system_settings.loyalty_enabled gates award and join server-side,
