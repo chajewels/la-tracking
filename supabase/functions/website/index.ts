@@ -27,6 +27,10 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
+import {
+  CHECKOUT_METHODS, type CheckoutMethod, checkoutMethodOptions, maxUsablePoints, pointsChoiceProblem, pointsUnavailableReason,
+  pointsValue, publicMethod, storedMethod,
+} from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
 /**
@@ -344,6 +348,18 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   agreement_missing: 400,
   unsupported_mode: 400,
   checkout_mode_not_draft: 409,
+  // Checkout payment choice + points (2026-10-05): create_web_draft_atomic's
+  // re-checks of what /checkout/quote/:id/choice already validated.
+  bad_method: 400,
+  method_full_payment_only: 409,
+  method_requires_yen: 409,
+  method_unavailable: 409,
+  bad_points: 400,
+  points_unavailable: 409,
+  points_not_enrolled: 409,
+  points_insufficient: 409,
+  points_exceed_subtotal: 409,
+  points_exceed_deposit: 409,
 };
 
 /**
@@ -353,7 +369,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
  * decline_reason is the reason the customer is told; staff notes never leave.
  */
 const DRAFT_FIELDS =
-  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id";
+  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id, payment_method, points, points_value";
 
 function shapeDraft(d: AnyRec): AnyRec {
   return {
@@ -377,6 +393,11 @@ function shapeDraft(d: AnyRec): AnyRec {
     // Set once staff confirm: the storefront redirects to the real order.
     order_id: d.cash_order_id ?? null,
     account_id: d.layaway_account_id ?? null,
+    // C1–C5 (2026-10-05): the method she chose (locked for her) and the points
+    // she used — held now, taken when staff confirm, given back if declined.
+    payment_method: publicMethod(d.payment_method),
+    points: Number(d.points ?? 0),
+    points_value: Number(d.points_value ?? 0),
   };
 }
 
@@ -428,6 +449,18 @@ async function paymentLock(supabase: any, orderId: string, opts: { ignorePaidyRo
 }
 
 /**
+ * Yen/peso applied to a cash order by points chosen at checkout (the LOYALTY-
+ * discount lines, public.cash_order_points_paid). A discount, never money.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function orderPointsApplied(supabase: any, orderId: string): Promise<number> {
+  const { data, error } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
+  if (error) throw error;
+  const n = Number(data ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * PAIDY ato-barai ON A CONFIRMED ORDER (2026-10-03; follow-up 2026-10-04,
  * docs/PAIDY.md).
  *
@@ -456,16 +489,21 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const publicKey = typeof rawKey === "string" ? rawKey : (rawKey == null ? "" : String(rawKey));
 
   const orderRef = customerReference(order as never);
-  const [{ data: money }, { data: cust }] = await Promise.all([
+  const [{ data: money }, { data: cust }, pointsApplied] = await Promise.all([
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
     supabase.from("customers").select("created_at, mobile_number, full_name").eq("id", customer.id).maybeSingle(),
+    orderPointsApplied(supabase, String(order.id)),
   ]);
-  const breakdown = paidyCheckoutBreakdown({ ...(order as AnyRec), ...((money ?? {}) as AnyRec) }, items, orderRef);
+  // Points used at checkout (2026-10-05) are a discount already applied: the
+  // breakdown carries a negative "Points" line and they are not "paid".
+  const breakdown = paidyCheckoutBreakdown({ ...(order as AnyRec), ...((money ?? {}) as AnyRec), points_applied: pointsApplied }, items, orderRef);
   const buyerName = String((cust as AnyRec | null)?.full_name ?? customer.full_name ?? "").trim();
 
   const reason = paidyNotOfferedReason({
     mode, publicKey, customerIsTest: customer.is_test === true, order, address, pendingSubmissions: pendingCount,
-    totalPaid: Number(order.total_paid ?? 0), paymentLock: lock, buyerName, breakdownOk: breakdown != null,
+    totalPaid: Number(order.total_paid ?? 0) - pointsApplied, paymentLock: lock, buyerName, breakdownOk: breakdown != null,
+    // C1: a website order takes Paidy only when the customer chose Paidy.
+    paymentMethod: (order.payment_method ?? null) as string | null,
   });
   if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch" };
 
@@ -545,6 +583,8 @@ async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pending
   const agreementMin = Number(typeof minRaw === "string" ? minRaw.replace(/"/g, "") : minRaw ?? 0);
   const reason = cardNotOfferedReason({
     mode, appId, locationId, customerIsTest: customer.is_test === true, order, pendingSubmissions: pendingCount, cardUnresolved,
+    // C1: a website order takes a card only when the customer chose card.
+    paymentMethod: (order.payment_method ?? null) as string | null,
   });
   if (reason) return { offered: false as const, reason };
   // Exact integer yen (SQ12): cardNotOfferedReason refused anything else.
@@ -636,6 +676,166 @@ async function shippingFor(supabase: any, country: string, subtotalJpy: number):
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function transferAvailable(supabase: any, currency: string): Promise<boolean> {
   return (await transferMethods(supabase, currency)).length > 0;
+}
+
+/**
+ * CHECKOUT PAYMENT CHOICE + POINTS (owner C1–C7, 2026-10-05). What the payment
+ * step offers for a quote, and every figure the "Use points" panel shows. All
+ * money is the Hub's: the storefront renders these numbers and computes none.
+ *
+ *   payment_options  transfer | paidy | card → { available, reason } (C2/C6:
+ *                    greyed with a reason, never hidden)
+ *   payment_method   the method stored on the quote (null until chosen)
+ *   points           balance / held / spendable now, the most this checkout
+ *                    can take (pieces subtotal; deposit on a layaway — owner:
+ *                    the whole deposit is allowed), what is chosen, and why
+ *                    points cannot be used when they cannot (C7)
+ *   totals           the total and the amount due now after the chosen points
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
+  mode: "full" | "layaway"; currency: "JPY" | "PHP"; fxRate: number | null; country: string | null;
+  subtotalJpy: number; subtotalSettle: number; totalSettle: number; deposit: number | null;
+  paymentMethod: unknown; points: unknown;
+}) {
+  const { data: settings, error: setErr } = await supabase.from("system_settings").select("key, value")
+    .in("key", ["paidy_mode", "square_mode", "loyalty_enabled"]);
+  if (setErr) throw setErr;
+  const setting = (k: string) => ((settings ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
+  const loyaltyRaw = setting("loyalty_enabled");
+  const loyaltyEnabled = loyaltyRaw === true || loyaltyRaw === "true";
+  const options = checkoutMethodOptions({
+    mode: q.mode, currency: q.currency, country: q.country,
+    paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
+    customerIsTest: customer.is_test === true,
+    transferAvailable: await transferAvailable(supabase, q.currency),
+  });
+
+  const { data: member, error: memErr } = await supabase.from("loyalty_members")
+    .select("id, remaining_points").eq("customer_id", customer.id).maybeSingle();
+  if (memErr) throw memErr;
+  let held = 0;
+  if (member) {
+    const { data: pend, error: pendErr } = await supabase.from("loyalty_redemptions")
+      .select("points_redeemed").eq("member_id", (member as AnyRec).id).eq("status", "pending");
+    if (pendErr) throw pendErr;
+    held = ((pend ?? []) as AnyRec[]).reduce((s, r) => s + Number(r.points_redeemed ?? 0), 0);
+  }
+  const balance = Math.max(0, Math.floor(Number((member as AnyRec | null)?.remaining_points ?? 0)));
+  const reason = pointsUnavailableReason({ loyaltyEnabled, enrolled: !!member, remainingPoints: balance, heldPoints: held });
+  const available = reason ? 0 : Math.max(0, balance - held);
+  const limit = q.mode === "layaway" ? Number(q.deposit ?? 0) : q.subtotalSettle;
+  const max = reason ? 0 : maxUsablePoints({ available, subtotalJpy: q.subtotalJpy, limitSettle: limit, currency: q.currency, rate: q.fxRate });
+  const chosenRaw = Math.floor(Number(q.points ?? 0));
+  const chosen = Number.isSafeInteger(chosenRaw) && chosenRaw > 0 && chosenRaw <= max ? chosenRaw : 0;
+  const chosenValue = pointsValue(chosen, q.currency, q.fxRate);
+  const method = q.paymentMethod == null || q.paymentMethod === "" ? null : publicMethod(q.paymentMethod);
+  return {
+    // Plan A.1: one entry per method, in display order; `offered: false`
+    // carries why (the storefront greys it out with that reason).
+    payment_options: CHECKOUT_METHODS.map((m) => ({ method: m, offered: options[m].available, reason: options[m].reason })),
+    payment_method: method,
+    points: {
+      usable: reason === null && max > 0,
+      reason,
+      balance,
+      held,
+      available,
+      // "You have 1,250 points (= ¥1,250)" — the value in THIS order's currency.
+      available_value: pointsValue(available, q.currency, q.fxRate),
+      max_points: max,
+      max_value: pointsValue(max, q.currency, q.fxRate),
+      chosen,
+      chosen_value: chosenValue,
+      applies_to: q.mode === "layaway" ? "deposit" : "pieces",
+    },
+    totals: {
+      total_after_points: q.totalSettle - chosenValue,
+      due_now_after_points: q.mode === "layaway" ? Math.max(0, Number(q.deposit ?? 0) - chosenValue) : q.totalSettle - chosenValue,
+    },
+  };
+}
+
+/** The delivery country of one of THIS customer's addresses, upper-case, or null. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function addressCountry(supabase: any, customerId: string, addressId: unknown): Promise<string | null> {
+  if (!addressId) return null;
+  const { data, error } = await supabase.from("customer_addresses").select("country")
+    .eq("id", String(addressId)).eq("customer_id", customerId).maybeSingle();
+  if (error) throw error;
+  const c = String((data as AnyRec | null)?.country ?? "").trim().toUpperCase();
+  return c || null;
+}
+
+/**
+ * Validate and store the customer's payment choice + points on her own unspent
+ * quote (C1–C7). Re-derives every figure from the stored quote, exactly as
+ * GET /checkout/quote/:id does, so the answer is the Hub's.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: string, body: AnyRec):
+  Promise<{ block: AnyRec } | { error: true; status: number; body: AnyRec }> {
+  const fail = (status: number, b: AnyRec) => ({ error: true as const, status, body: b });
+  if (!quoteId) return fail(400, { error: "quote_id_required" });
+  const { data: q, error: qErr } = await supabase.from("checkout_quotes")
+    .select("id, mode, term_months, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, expires_at, consumed_at, ship_to_address_id, payment_method, points")
+    .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
+  if (qErr) throw qErr;
+  if (!q) return fail(404, { error: "quote_not_found" });
+  const row = q as AnyRec;
+  if (row.consumed_at) return fail(409, { error: "quote_already_used" });
+  if (row.expires_at && new Date(String(row.expires_at)) <= new Date()) return fail(409, { error: "quote_expired" });
+
+  const mode: "full" | "layaway" = String(row.mode) === "layaway" ? "layaway" : "full";
+  const currency: "JPY" | "PHP" = String(row.settlement_currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+  const fxRate = row.fx_rate == null ? null : Number(row.fx_rate);
+  const subtotalJpy = Number(row.subtotal_jpy ?? 0);
+  const shippingJpy = row.shipping_jpy == null ? null : Number(row.shipping_jpy);
+  const totalJpy = Number(row.total_jpy ?? 0);
+  let totalSettle: number, subtotalSettle: number, shippingSettle: number | null;
+  if (mode === "full" && fxRate !== null) {
+    ({ total: totalSettle, shipping: shippingSettle, subtotal: subtotalSettle } = settleFullPaymentInPhp(totalJpy, shippingJpy, fxRate));
+  } else {
+    const toSettle = (jpy: number) => (fxRate === null ? jpy : jpyToPhpHalfUp(jpy, fxRate));
+    totalSettle = toSettle(totalJpy);
+    shippingSettle = shippingJpy === null ? null : toSettle(shippingJpy);
+    subtotalSettle = totalSettle - (shippingSettle ?? 0);
+  }
+  let deposit: number | null = null;
+  if (mode === "layaway") {
+    // The same call create_web_draft_atomic makes, so the cap is its deposit.
+    const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
+      p_price: subtotalSettle, p_term_months: Number(row.term_months ?? 3), p_currency: currency,
+      p_order_date: phtToday(), p_shipping: shippingSettle ?? 0, p_services: 0,
+    });
+    if (lqErr) throw lqErr;
+    deposit = Number((lq as AnyRec | null)?.deposit ?? 0);
+  }
+  const country = await addressCountry(supabase, String(customer.id), row.ship_to_address_id);
+  const figures = { mode, currency, fxRate, country, subtotalJpy, subtotalSettle, totalSettle, deposit };
+
+  // The method: as sent, else what the quote already holds, else transfer.
+  const methodIn = body.payment_method === undefined || body.payment_method === null || body.payment_method === ""
+    ? (row.payment_method ?? "transfer") : body.payment_method;
+  const stored = storedMethod(methodIn);
+  if (!stored) return fail(400, { error: "bad_method" });
+  const pointsIn = body.points === undefined || body.points === null ? Number(row.points ?? 0) : Number(body.points);
+
+  const before = await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: null, points: 0 });
+  const option = (before.payment_options as { method: CheckoutMethod; offered: boolean; reason: string | null }[])
+    .find((o) => o.method === publicMethod(stored))!;
+  if (!option.offered) {
+    return fail(409, { error: "method_unavailable", method: publicMethod(stored), reason: option.reason });
+  }
+  const problem = pointsChoiceProblem(pointsIn, before.points.max_points, before.points.reason);
+  if (problem) {
+    return fail(409, { error: problem, max_points: before.points.max_points, points_available: before.points.available });
+  }
+  const { error: upErr } = await supabase.from("checkout_quotes")
+    .update({ payment_method: stored, points: pointsIn })
+    .eq("id", quoteId).eq("customer_id", customer.id).is("consumed_at", null);
+  if (upErr) throw upErr;
+  return { block: await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: stored, points: pointsIn }) };
 }
 
 /**
@@ -2007,6 +2207,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // nothing says the deadline without a number rather than inventing
         // one, which is the whole defect this replaces.
         deposit_deadline_hours: depositDeadlineHours,
+        // C1–C7 (2026-10-05): the payment choice and the points panel.
+        ...(await checkoutChoiceBlock(supabase, customer, {
+          mode: mode as "full" | "layaway", currency: settlement as "JPY" | "PHP", fxRate,
+          country: String(address.country ?? "").toUpperCase() || null,
+          subtotalJpy: subtotal, subtotalSettle, totalSettle,
+          deposit: layaway ? Number(layaway.deposit ?? 0) : null,
+          paymentMethod: null, points: 0,
+        })),
       }));
     }
 
@@ -2045,7 +2253,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: q, error: qErr } = await supabase
         .from("checkout_quotes")
-        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id, reserved_invoice_seq")
+        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id, reserved_invoice_seq, payment_method, points")
         .eq("id", quoteId)
         .eq("customer_id", customer.id)
         .maybeSingle();
@@ -2151,7 +2359,33 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         order_type: row.order_type ?? "SELF",
         expires_at: row.expires_at,
         deposit_deadline_hours: depositDeadlineHours,
+        // C1–C7 (2026-10-05): as POST /checkout/quote, with what she chose.
+        ...(await checkoutChoiceBlock(supabase, customer, {
+          mode: String(row.mode ?? "full") === "layaway" ? "layaway" : "full",
+          currency: settlement === "PHP" ? "PHP" : "JPY", fxRate,
+          country: await addressCountry(supabase, String(customer.id), row.ship_to_address_id),
+          subtotalJpy, subtotalSettle, totalSettle,
+          deposit: layawayOut ? Number(layawayOut.deposit ?? 0) : null,
+          paymentMethod: row.payment_method, points: row.points,
+        })),
       }));
+    }
+
+    // POST /checkout/quote/:id/choice — the customer picks how to pay and how
+    // many points to use (owner C1–C7, 2026-10-05). Stored on HER unspent
+    // quote; /checkout/pay carries it into the draft, where
+    // create_web_draft_atomic checks it again. Answers the same figures as the
+    // quote reads, so the panel always shows the Hub's numbers.
+    if (req.method === "POST" && segments[0] === "checkout" && segments[1] === "quote" && segments[2] && segments[3] === "choice" && !segments[4]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = (await req.json().catch(() => ({}))) as AnyRec;
+      const quoteId = decodeURIComponent(segments[2]).trim();
+      const chosen = await applyCheckoutChoice(supabase, customer, quoteId, body);
+      if ("error" in chosen) return jsonResponse(chosen.body, chosen.status);
+      return jsonResponse(scrub(chosen.block));
     }
 
     // POST /checkout/pay — turn a quote into a real order.
@@ -2162,11 +2396,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!customer) return jsonResponse({ error: "not_linked" }, 404);
 
       const body = (await req.json().catch(() => ({}))) as AnyRec;
-      const method = String(body.method ?? "transfer");
-      if (method === "square") return jsonResponse({ error: "not_yet" }, 501);
-      if (method !== "transfer") return jsonResponse({ error: "bad_method" }, 400);
       const quoteId = String(body.quote_id ?? "").trim();
       if (!quoteId) return jsonResponse({ error: "quote_id_required" }, 400);
+      // C1 (2026-10-05): the method she chose (transfer | paidy | card) and the
+      // points she used. Sent here or stored earlier by /checkout/quote/:id/choice;
+      // checked against what this quote may take, then again in SQL.
+      if (body.method !== undefined || body.points !== undefined) {
+        const chosen = await applyCheckoutChoice(supabase, customer, quoteId, {
+          payment_method: body.method, points: body.points,
+        });
+        if ("error" in chosen) return jsonResponse(chosen.body, chosen.status);
+      }
       // The language the storefront was in. Stored on the order so every
       // later email about it (payment received, expired) reads the same.
       const lang = pickLang(body.lang);
@@ -2177,14 +2417,16 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // to send the money is worse than no order.
       const { data: quoteRow } = await supabase
         .from("checkout_quotes")
-        .select("mode, settlement_currency")
+        .select("mode, settlement_currency, payment_method")
         .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
       // Refuse BEFORE the order exists when nothing can receive the currency the
       // quote was taken in. Currency-scoped on purpose: the other currency stays
       // available, so the customer's escape is the toggle they already have
       // rather than a dead checkout.
       const quoteSettlement = String((quoteRow as AnyRec | null)?.settlement_currency ?? "JPY");
-      if (!(await transferAvailable(supabase, quoteSettlement))) {
+      // Only a TRANSFER needs a bank account for the currency (Paidy / card do not).
+      const quoteMethod = publicMethod((quoteRow as AnyRec | null)?.payment_method);
+      if (quoteMethod === "transfer" && !(await transferAvailable(supabase, quoteSettlement))) {
         return jsonResponse({
           error: "transfer_unavailable",
           currency: quoteSettlement,
@@ -2237,6 +2479,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           shipping_pending: draft.shipping_pending === true,
           deposit: draft.deposit ?? null,
           term_months: draft.term_months ?? null,
+          // C1–C5: what she chose; locked for her from here.
+          payment_method: publicMethod(draft.payment_method),
+          points: Number(draft.points ?? 0),
+          points_value: Number(draft.points_value ?? 0),
           provisional: true,
           awaiting_confirmation: true,
           reservation_mode: true,
@@ -2474,6 +2720,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const cardPayment = await cardPaymentState(supabase, String(order.id));
       const blockedByCard = cardPayment !== null || lock === "card_payment_unresolved";
       const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length, lock);
+      // C1 (2026-10-05): the method she chose at checkout. After staff Confirm
+      // the order page shows ONLY that one (staff change it in the Hub).
+      const chosenMethod = publicMethod((order as AnyRec).payment_method);
+      const isWebOrder = (order as AnyRec).source_channel === "web";
+      const pointsApplied = await orderPointsApplied(supabase, String(order.id));
       const cardBlock = lock || blockedByCard
         ? { offered: false as const, reason: blockedByCard ? "card_payment_unresolved" : "payment_in_progress" }
         : await cardOffer(supabase, customer, order as AnyRec, (pendingSubs ?? []).length, false);
@@ -2503,11 +2754,18 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // processing (answer not known yet) | held (authorised, awaiting
         // staff) | capturing | recording — or null. Never "paid" before it is.
         card_payment: cardPayment,
+        // C1: transfer | paidy | card — what she chose at checkout (or staff since).
+        chosen_method: chosenMethod,
+        // Points used at checkout, already taken off (a discount, in the order's
+        // currency). 0 when none. The storefront shows "Points −¥N".
+        points_applied: pointsApplied,
         transfer_region: regionForCurrency(String((order as AnyRec).currency ?? "JPY")),
         // Methods are only actionable while the transfer is outstanding — and
         // never before staff confirm the piece (reserve-first A2; a reservation
         // reads payment_status awaiting_confirmation, so this is belt and braces).
+        // C1: on a website order only when transfer is the chosen method.
         transfer_methods: (order as AnyRec).payment_status === "pending_transfer" && !isUnconfirmedReservation(order as AnyRec) && !paidyProcessing && !blockedByCard
+            && (!isWebOrder || chosenMethod === "transfer")
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
@@ -2967,7 +3225,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         ),
       );
 
-      const depositPaid = Number(plan.total_paid ?? 0) > 0;
+      // Points used at checkout pay part or all of the deposit (2026-10-05):
+      // they are a discount, not money. The deposit counts as paid once money
+      // has arrived or points cover all of it (public.layaway_deposit_started).
+      const [{ data: started, error: startedErr }, { data: ptsPaid, error: ptsErr }] = await Promise.all([
+        supabase.rpc("layaway_deposit_started", { p_account_id: plan.id }),
+        supabase.rpc("layaway_points_paid", { p_account_id: plan.id }),
+      ]);
+      if (startedErr) throw startedErr;
+      if (ptsErr) throw ptsErr;
+      const depositPaid = started === true;
+      const pointsApplied = Number(ptsPaid ?? 0);
 
       return jsonResponse(scrub({
         plan: {
@@ -2989,6 +3257,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         payments: paid ?? [],
         pending_submissions: pending ?? [],
         deposit_paid: depositPaid,
+        // Points taken off the deposit at checkout, and what is still due on
+        // the deposit (null once it is paid). Hub figures, plan currency.
+        points_applied: pointsApplied,
+        deposit_due: depositPaid ? null : Math.max(0, Number((plan as AnyRec).downpayment_amount ?? 0) - pointsApplied),
         transfer_region: regionForCurrency(String((plan as AnyRec).currency ?? "JPY")),
         // Methods stay actionable for the life of the plan: every instalment is
         // paid the same way the deposit was — and in the plan's currency, which
@@ -3057,8 +3329,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       // The first payment on a plan is its deposit. review-payment-submission
-      // keys the loyalty award off submission_type = 'downpayment'.
-      const isDeposit = Number(plan.total_paid ?? 0) <= 0;
+      // keys the loyalty award off submission_type = 'downpayment'. Points used
+      // at checkout are not a payment (2026-10-05): a deposit only partly paid
+      // by points is still the deposit.
+      const { data: depStarted, error: depErr } = await supabase.rpc("layaway_deposit_started", { p_account_id: plan.id });
+      if (depErr) throw depErr;
+      const isDeposit = depStarted !== true;
 
       const { data: created, error: subErr } = await supabase
         .from("payment_submissions")

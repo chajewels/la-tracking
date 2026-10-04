@@ -168,3 +168,26 @@ describe("review screen", () => {
     expect((call[1] as { body: Rec }).body).toMatchObject({ draft_id: "d1", reason: "Sold at the shop" });
   });
 });
+
+describe("payment choice + points (owner C1–C5, 2026-10-05)", () => {
+  it("shows the method the customer chose, the points held, and the Hub's amount to pay", async () => {
+    draft = { ...draft, payment_method: "paidy", points: 3000, points_value: 3000 };
+    preview = { ...preview, payment_method: "paidy", points: 3000, points_value: 3000, due_now: 17800 };
+    mount();
+    expect(await screen.findByTestId("web-review-method")).toHaveTextContent("Paidy");
+    expect(screen.getByTestId("web-review-points")).toHaveTextContent("3,000 pts");
+    await waitFor(() => expect(screen.getByTestId("web-review-due")).toHaveTextContent("17,800"));
+  });
+  it("Change payment method sends the staff's choice and reason to change-payment-method", async () => {
+    draft = { ...draft, payment_method: "paidy", points: 0, points_value: 0 };
+    mount();
+    fireEvent.click(await screen.findByTestId("web-review-change-method"));
+    const dialog = await screen.findByTestId("change-payment-method-dialog");
+    fireEvent.click(within(dialog).getByLabelText("Bank transfer"));
+    fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Paidy declined" } });
+    fireEvent.click(within(dialog).getByTestId("change-payment-method-save"));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("change-payment-method", {
+      body: { entity_type: "draft", entity_id: "d1", method: "transfer", reason: "Paidy declined" },
+    }));
+  });
+});

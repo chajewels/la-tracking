@@ -234,3 +234,13 @@ describe("environment, evidence, binding, dates (SQ18/SQ20/SQ21/SQ22)", () => {
     expect(jstDate("2026-10-04T14:59:59Z")).toBe("2026-10-04");
   });
 });
+
+describe("C1 method lock (2026-10-05): a website order offers card only when card is its method", () => {
+  it("transfer / paidy / null → method_not_chosen; square → offered; omitted → not checked", () => {
+    expect(cardNotOfferedReason({ ...base, paymentMethod: "transfer" })).toBe("method_not_chosen");
+    expect(cardNotOfferedReason({ ...base, paymentMethod: "paidy" })).toBe("method_not_chosen");
+    expect(cardNotOfferedReason({ ...base, paymentMethod: null })).toBe("method_not_chosen");
+    expect(cardNotOfferedReason({ ...base, paymentMethod: "square" })).toBeNull();
+    expect(cardNotOfferedReason(base)).toBeNull();
+  });
+});

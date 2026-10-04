@@ -51,6 +51,8 @@ import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines'
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
+import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
+import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -403,6 +405,8 @@ export default function CashOrderDetail() {
   const isPaidOrCompleted = !!order && (order.status === 'completed' || Number(order.total_paid ?? 0) > 0);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const [statementOpen, setStatementOpen] = useState(false);
+  // C1 (2026-10-05): staff change how a website order is paid.
+  const [methodOpen, setMethodOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
   const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // SQUARE (S1, 2026-10-04): a card hold awaiting Confirm (capture) / Reject (void).
@@ -1431,7 +1435,20 @@ export default function CashOrderDetail() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm font-medium">
-                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : squarePending ? 'Card authorised (Square) — awaiting your Confirm' : 'Awaiting bank / GCash / Paidy / card'}
+                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : squarePending ? 'Card authorised (Square) — awaiting your Confirm' : `Awaiting payment — ${WEB_METHOD_LABEL[webMethodOf(order.payment_method)]}`}
+                </p>
+                {/* C1 (2026-10-05): the method the customer chose at checkout.
+                    She sees only this one; staff change it with a reason. */}
+                <p className="text-xs text-muted-foreground" data-testid="cash-order-chosen-method">
+                  Customer chose <span className="font-medium text-foreground">{WEB_METHOD_LABEL[webMethodOf(order.payment_method)]}</span>
+                  {can('confirm_payment') && !providerHold && (
+                    <>
+                      {' · '}
+                      <button type="button" className="underline hover:text-primary" onClick={() => setMethodOpen(true)} data-testid="cash-order-change-method">
+                        Change payment method
+                      </button>
+                    </>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Invoice <span className="font-mono">{order.invoice_number}</span>
@@ -1489,6 +1506,20 @@ export default function CashOrderDetail() {
               )}
             </div>
           </div>
+        )}
+
+        {order.source_channel === 'web' && order.payment_status === 'pending_transfer' && (
+          <ChangePaymentMethodDialog
+            open={methodOpen}
+            onOpenChange={setMethodOpen}
+            entityType="cash_order"
+            entityId={order.id}
+            current={webMethodOf(order.payment_method)}
+            layaway={false}
+            peso={String(order.currency) === 'PHP'}
+            reference={cashOrderRef(order)}
+            onChanged={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+          />
         )}
 
         {/* Actions */}

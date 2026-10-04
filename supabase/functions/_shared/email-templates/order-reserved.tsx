@@ -30,6 +30,8 @@ export interface OrderReservedProps {
    * confirm, so the total is provisional. Absent reads exactly as before.
    */
   provisional?: boolean
+  /** Points the customer chose at checkout (held until staff confirm), order currency. Absent/0 = none. */
+  pointsApplied?: number
 }
 
 export const orderReservedSubject = (reference: string) =>
@@ -58,7 +60,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primar
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
       {p.provisional && <Text style={muted}>{c.provisional}</Text>}
       <Text style={text}>{c.next}</Text>
       <Text style={notice}>{c.nothingYet}</Text>
