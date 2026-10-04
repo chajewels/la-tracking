@@ -112,6 +112,14 @@ every hand-written migration. Comment-only differences are real rows and are
 worth clearing anyway — a body that differs at all is a body nobody can diff at
 a glance.
 
+**An md5-guarded IN-PLACE patch (a DO block that EXECUTEs the edited live body) is
+invisible to the audit**, which reads only CREATE FUNCTION statements — so after Lovable
+applies one, commit a record-only migration with the post-patch body (newest repo CREATE
+plus exactly the patch), checked against live with the audit's comparator. Reference:
+`20261105100100_record_live_patched_bodies.sql` (2026-10-05). Quick whole-database check:
+compare `md5(string_agg(name||':'||md5_12, ',' ORDER BY name COLLATE "C"))` on live with
+the same hash over the audit's repo list — equal means all three buckets are 0.
+
 The full census on 2026-09-17 found **17 (a) + 15 (b) + 2 (c)**. All 32 live
 bodies are now recorded and all three buckets are 0. Keep them there.
 
