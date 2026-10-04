@@ -44,6 +44,14 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Card (Square) and Paidy payments are filed only by their own provider
+    // routes with the provider's record (SQ10, 2026-10-04) — never by hand here.
+    if (['square', 'paidy'].includes(String(payment_method).trim().toLowerCase())) {
+      return new Response(JSON.stringify({ error: "This payment method is filed automatically by its provider." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const submittedNum = Number(submitted_amount);
     if (!Number.isFinite(submittedNum) || submittedNum <= 0) {
       return new Response(JSON.stringify({ error: "submitted_amount must be a positive number" }), {
@@ -179,6 +187,16 @@ Deno.serve(async (req) => {
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+      // Owner 3A / SQ11 (2026-10-04): the same one answer also says when a
+      // card attempt is in flight, a card hold is live or captured card money
+      // is not yet recorded (square_order_unresolved). After a verified
+      // decline or void the gate opens again.
+      if (lock === 'card_payment_unresolved') {
+        return new Response(JSON.stringify({
+          error: 'card_payment_unresolved',
+          message: 'A card payment on this order is still being processed. Please wait for it to finish before sending another payment.',
+        }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       if (typeof lock === 'string' && lock.startsWith('paidy')) {
         return new Response(JSON.stringify({
           error: 'paidy_in_progress',
@@ -198,6 +216,7 @@ Deno.serve(async (req) => {
       .eq('submitted_amount', submittedNum)
       .eq('payment_method', payment_method)
       .in('status', ['submitted', 'under_review'])
+      .limit(1)
       .maybeSingle();
 
     if (existingSubmission) {

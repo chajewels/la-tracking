@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, CARD_HOLD_WARN_DAYS, agreementRequired, cardAmountMatches, cardHoldExpired, cardHoldWarnDue,
-  cardIdempotencyKey, cardNotOfferedReason, isSquarePaymentId, nextSquareRowStatus, normalizeSquareStatus, squareAppIdFamily, squareModeFrom,
+  CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, CARD_HOLD_WARN_BEFORE_DAYS, CARD_REFUSALS_PER_CUSTOMER, CARD_REFUSALS_PER_ORDER,
+  agreementBindingProblem, agreementRequired, canonicalYen, cardAmountMatches, cardHoldDeadline, cardHoldExpired, cardHoldWarnDue,
+  cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, isAttemptReference, isCanonicalYen, isCaptureAfterClose,
+  isSquarePaymentId, jstDate, newAttemptReference, nextSquareRowStatus, normalizeSquareStatus, squareAppIdFamily,
+  squareEnvironmentOf, squareModeFrom, termsTimeProblem,
 } from "../../supabase/functions/_shared/card-rules.ts";
 
 // Square card payments on a confirmed web order (S2, 2026-10-04, docs/SQUARE.md).
@@ -73,50 +76,60 @@ describe("cardNotOfferedReason — the first failing reason, in order", () => {
   it("never while a submission is being checked (INVARIANT 12)", () => {
     expect(cardNotOfferedReason({ ...base, pendingSubmissions: 1 })).toBe("submission_pending");
   });
+  it("never while a card attempt / hold / capture is unresolved (SQ11, owner 3A)", () => {
+    expect(cardNotOfferedReason({ ...base, cardUnresolved: true })).toBe("card_payment_unresolved");
+  });
+  it("never on a fractional balance — it is not rounded into a card amount (SQ12)", () => {
+    expect(cardNotOfferedReason({ ...base, order: { ...order, remaining_balance: 51999.6 } })).toBe("fractional_balance");
+    expect(cardNotOfferedReason({ ...base, order: { ...order, remaining_balance: "52000.00" } })).toBeNull();
+  });
 });
 
-describe("hold window", () => {
-  it("constants: 7-day card hold, warning at day 5", () => {
+describe("hold window — Square's own deadline (SQ14)", () => {
+  it("constants: 7-day fallback window, warning 2 days before the deadline", () => {
     expect(CARD_HOLD_DAYS).toBe(7);
-    expect(CARD_HOLD_WARN_DAYS).toBe(5);
+    expect(CARD_HOLD_WARN_BEFORE_DAYS).toBe(2);
   });
   const t0 = new Date("2026-10-04T00:00:00Z");
   const day = (n: number) => new Date(t0.getTime() + n * 86_400_000);
-  it("expires after 7 full days, not before", () => {
+  it("deadline: delayed_until when known, else authorised + 7 days, else null", () => {
+    expect(cardHoldDeadline(t0.toISOString(), day(3).toISOString())?.toISOString()).toBe(day(3).toISOString());
+    expect(cardHoldDeadline(t0.toISOString(), null)?.toISOString()).toBe(day(7).toISOString());
+    expect(cardHoldDeadline("nope", "also nope")).toBeNull();
+  });
+  it("past the deadline by the clock (time, not proof)", () => {
     expect(cardHoldExpired(t0.toISOString(), day(6.99))).toBe(false);
     expect(cardHoldExpired(t0.toISOString(), day(7))).toBe(false);
     expect(cardHoldExpired(t0.toISOString(), day(7.01))).toBe(true);
-  });
-  it("Square's own delayed_until (capture_by) wins over the 7-day rule", () => {
     expect(cardHoldExpired(t0.toISOString(), day(3), day(2).toISOString())).toBe(true);
     expect(cardHoldExpired(t0.toISOString(), day(7.5), day(8).toISOString())).toBe(false);
-    expect(cardHoldExpired(t0.toISOString(), day(7.5), "garbage")).toBe(true);
-    expect(cardHoldExpired(t0.toISOString(), day(6), null)).toBe(false);
+    expect(cardHoldExpired("nope", t0)).toBe(true);
   });
-  it("warning is due from day 5 on, including past expiry (then it says Reject)", () => {
+  it("warning follows the real deadline: a short Square deadline warns early", () => {
     expect(cardHoldWarnDue(t0.toISOString(), day(4.99))).toBe(false);
     expect(cardHoldWarnDue(t0.toISOString(), day(5))).toBe(true);
-    expect(cardHoldWarnDue(t0.toISOString(), day(6.5))).toBe(true);
+    expect(cardHoldWarnDue(t0.toISOString(), day(1), day(3).toISOString())).toBe(true);
+    expect(cardHoldWarnDue(t0.toISOString(), day(0.5), day(3).toISOString())).toBe(false);
     expect(cardHoldWarnDue(t0.toISOString(), day(7.5))).toBe(true);
+    expect(cardHoldWarnDue("nope", t0)).toBe(false);
   });
-  it("nextSquareRowStatus: settled rows never move; CANCELED → expired past the window, else voided; PENDING/UNKNOWN change nothing", () => {
+  it("nextSquareRowStatus: provider COMPLETED always wins (SQ13); captured never moves; APPROVED reopens a wrongly closed row; CANCELED/FAILED close a live hold only", () => {
     const at = t0.toISOString();
-    for (const cur of ["captured", "expired", "voided", "failed"]) {
-      expect(nextSquareRowStatus(cur, "CANCELED", at, null, day(1))).toBe(cur);
-      expect(nextSquareRowStatus(cur, "COMPLETED", at, null, day(1))).toBe(cur);
+    for (const cur of ["authorized", "expired", "voided", "failed", "rejected", "captured"]) {
+      expect(nextSquareRowStatus(cur, "COMPLETED", at, null, day(1))).toBe("captured");
     }
-    expect(nextSquareRowStatus("authorized", "COMPLETED", at, null, day(1))).toBe("captured");
+    expect(nextSquareRowStatus("captured", "CANCELED", at, null, day(1))).toBe("captured");
+    expect(nextSquareRowStatus("captured", "APPROVED", at, null, day(1))).toBe("captured");
+    expect(nextSquareRowStatus("voided", "APPROVED", at, null, day(1))).toBe("authorized");
+    expect(nextSquareRowStatus("expired", "CANCELED", at, null, day(1))).toBe("expired");
     expect(nextSquareRowStatus("authorized", "FAILED", at, null, day(1))).toBe("failed");
     expect(nextSquareRowStatus("authorized", "CANCELED", at, null, day(1))).toBe("voided");
     expect(nextSquareRowStatus("authorized", "CANCELED", at, null, day(8))).toBe("expired");
     expect(nextSquareRowStatus("authorized", "CANCELED", at, day(2).toISOString(), day(3))).toBe("expired");
     expect(nextSquareRowStatus("authorized", "PENDING", at, null, day(1))).toBe("authorized");
     expect(nextSquareRowStatus("authorized", "UNKNOWN", at, null, day(1))).toBe("authorized");
-    expect(nextSquareRowStatus("authorized", "APPROVED", at, null, day(1))).toBe("authorized");
-  });
-  it("an unparsable timestamp counts as expired and not warnable", () => {
-    expect(cardHoldExpired("nope", t0)).toBe(true);
-    expect(cardHoldWarnDue("nope", t0)).toBe(false);
+    expect(isCaptureAfterClose("expired", "COMPLETED")).toBe(true);
+    expect(isCaptureAfterClose("authorized", "COMPLETED")).toBe(false);
   });
 });
 
@@ -132,18 +145,35 @@ describe("idempotency key — one per card token (review B1)", () => {
     expect(a.length).toBeLessThanOrEqual(45);
     expect(a).toMatch(/^cj-card-[0-9a-f]{36}$/);
   });
-  it("the card-attempt cap is 5 per order per day", () => {
+  it("caps and fraud thresholds: 5 per order, 10 per customer, per rolling day", () => {
     expect(CARD_ATTEMPTS_PER_DAY).toBe(5);
+    expect(CARD_REFUSALS_PER_ORDER).toBe(5);
+    expect(CARD_REFUSALS_PER_CUSTOMER).toBe(10);
+  });
+  it("attempt reference: cja_ + hex, ≤ 40 chars (Square reference_id)", () => {
+    const r = newAttemptReference(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 255]));
+    expect(r).toBe("cja_000102030405060708090aff");
+    expect(r.length).toBeLessThanOrEqual(40);
+    expect(isAttemptReference(newAttemptReference())).toBe(true);
+    expect(isAttemptReference("TEST-900063")).toBe(false);
   });
 });
 
 describe("amounts, ids, statuses, agreement", () => {
-  it("whole-yen equality, positive only", () => {
+  it("exact integer-yen equality — never rounded (SQ12)", () => {
     expect(cardAmountMatches(236800, "236800")).toBe(true);
     expect(cardAmountMatches(236800, 236800.0)).toBe(true);
+    expect(cardAmountMatches(236800, "236800.00")).toBe(true);
     expect(cardAmountMatches(236800, 236801)).toBe(false);
+    expect(cardAmountMatches(52000, 51999.6)).toBe(false);
     expect(cardAmountMatches(0, 0)).toBe(false);
     expect(cardAmountMatches("x", 1)).toBe(false);
+  });
+  it("canonical yen: positive safe integers only", () => {
+    for (const ok of [1, 52000, "52000", "52000.00"]) expect(isCanonicalYen(ok)).toBe(true);
+    for (const bad of [0, -1, 1.5, "1.5", NaN, Infinity, 2 ** 60, "", "1e3", null, undefined, "52,000"]) expect(isCanonicalYen(bad)).toBe(false);
+    expect(canonicalYen("24980")).toBe(24980);
+    expect(canonicalYen(24979.5)).toBeNull();
   });
   it("Square payment ids", () => {
     expect(isSquarePaymentId("hYy9pRFVxpDsO1FB05SunFWUe9JZY")).toBe(true);
@@ -167,5 +197,40 @@ describe("amounts, ids, statuses, agreement", () => {
     expect(agreementRequired(50000, 50000)).toBe(true);
     expect(agreementRequired(50000, "50000" as unknown as number)).toBe(true);
     expect(agreementRequired(1, NaN)).toBe(true);
+  });
+});
+
+describe("environment, evidence, binding, dates (SQ18/SQ20/SQ21/SQ22)", () => {
+  it("mode → environment", () => {
+    expect(squareEnvironmentOf("test")).toBe("sandbox");
+    expect(squareEnvironmentOf("on")).toBe("production");
+    expect(squareEnvironmentOf("off")).toBeNull();
+  });
+  it("3DS evidence says only what the Hub can establish — never 'verified'", () => {
+    expect(cardVerificationEvidence("sdk_tokenize_with_verification", false)).toBe("sdk_tokenize_with_verification");
+    expect(cardVerificationEvidence(undefined, false)).toBe("unknown");
+    expect(cardVerificationEvidence("anything", true)).toBe("verification_token_supplied");
+    for (const v of ["sdk_tokenize_with_verification", "unknown", "verification_token_supplied"]) expect(v).not.toMatch(/VERIFIED/i);
+  });
+  const now = new Date("2026-10-04T10:00:00Z");
+  const good = { version: "card-2026-v1", signed_at: "2026-10-04T09:00:00Z", customer_id: "c-1", amount_jpy: 24980, bound: true };
+  it("agreement binds this customer and this amount (owner 5A)", () => {
+    expect(agreementBindingProblem(good, "c-1", 24980, now)).toBeNull();
+    expect(agreementBindingProblem(null, "c-1", 24980, now)).toBe("agreement_missing");
+    expect(agreementBindingProblem({ ...good, bound: false }, "c-1", 24980, now)).toBe("agreement_unbound");
+    expect(agreementBindingProblem(good, "c-2", 24980, now)).toBe("agreement_other_customer");
+    expect(agreementBindingProblem(good, "c-1", 30000, now)).toBe("agreement_amount_changed");
+    expect(agreementBindingProblem({ ...good, signed_at: "2026-10-05T10:00:00Z" }, "c-1", 24980, now)).toBe("agreement_time_invalid");
+    expect(agreementBindingProblem({ ...good, signed_at: "nope" }, "c-1", 24980, now)).toBe("agreement_missing");
+  });
+  it("terms time: real, not in the future, within a day", () => {
+    expect(termsTimeProblem("2026-10-04T09:59:00Z", now)).toBeNull();
+    expect(termsTimeProblem("2026-10-04T11:00:00Z", now)).toBe("terms_time_invalid");
+    expect(termsTimeProblem("2026-10-02T09:00:00Z", now)).toBe("terms_stale");
+    expect(termsTimeProblem(undefined, now)).toBe("terms_missing");
+  });
+  it("date_paid of a capture is its Japan calendar day", () => {
+    expect(jstDate("2026-10-04T15:30:00Z")).toBe("2026-10-05");
+    expect(jstDate("2026-10-04T14:59:59Z")).toBe("2026-10-04");
   });
 });

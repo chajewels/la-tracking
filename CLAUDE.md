@@ -1430,9 +1430,12 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
     EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
     change ONLY via set_square_settings (admin, audited, guard, refuses a
-    token). SQUARE_ACCESS_TOKEN / SQUARE_WEBHOOK_SIGNATURE_KEY: edge secrets
-    ONLY. Yen cash orders, any country, never layaway. Authorise on pay,
-    CAPTURE only on reviewer Confirm, VOID on Reject.
+    token). SQUARE_[PRODUCTION_]ACCESS_TOKEN / _WEBHOOK_SIGNATURE_KEY: edge
+    secrets ONLY. Yen cash orders, any country, never layaway. Authorise
+    on pay, CAPTURE only on Confirm, VOID on Reject.
+  - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
+    file_square_authorization_atomic / apply_square_payment_state; lock
+    card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

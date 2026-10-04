@@ -29,6 +29,7 @@ import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
 import { PaidySettingsCard } from "@/components/settings/PaidySettingsCard";
 import { SquareSettingsCard } from "@/components/settings/SquareSettingsCard";
+import { SquareOperationsPanel } from "@/components/website/SquareOperationsPanel";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
 
 /**
@@ -247,8 +248,13 @@ export default function Website() {
                   Agreement threshold. set_square_settings re-checks the role.
                   The access token never comes here (Lovable secret). */}
               {isAdmin && (
-                <section id={WEBSITE_SETTINGS_SECTIONS.square} className="scroll-mt-20">
+                <section id={WEBSITE_SETTINGS_SECTIONS.square} className="scroll-mt-20 space-y-6">
                   <SquareSettingsCard />
+                  {/* Square integrity (2026-10-04): the operator panel — holds,
+                      open attempts, exceptions, refunds, disputes, webhook
+                      problems and the settlement report. Admin only, like the
+                      settings above; decide_square_case is staff-checked. */}
+                  <SquareOperationsPanel />
                 </section>
               )}
               {/* Admin only (website-orders PR 2): the storefront shipping

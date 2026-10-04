@@ -69,6 +69,8 @@ export interface PortalCashOrder {
    * is offered until it is declined or released.
    */
   paidy_processing?: boolean;
+  /** A card payment (Square) is in flight, held or not yet recorded (owner 3A). */
+  card_processing?: boolean;
   discount_amount?: number;
   discount_type?: string | null;
   discount_value?: number | null;
@@ -454,6 +456,17 @@ function CashOrderCard({
           </p>
           <p style={{ color: M.ts, fontSize: 11, marginTop: 4 }}>
             No other payment is needed for now. If Paidy declines it, you can pay another way here.
+          </p>
+        </div>
+      ) : isPending && order.card_processing ? (
+        <div
+          style={{ background: `hsl(${hslTriplets.success} / 0.10)`, border: `1px solid hsl(${hslTriplets.success} / 0.3)`, borderRadius: 8, padding: '10px 14px', marginTop: 12 }}
+        >
+          <p style={{ color: M.success, fontSize: 12, margin: 0, fontWeight: 600 }}>
+            ⏳ Card payment being processed
+          </p>
+          <p style={{ color: M.ts, fontSize: 11, marginTop: 4 }}>
+            No other payment is needed for now. If the card payment is declined or released, you can pay another way here.
           </p>
         </div>
       ) : isPending ? (
