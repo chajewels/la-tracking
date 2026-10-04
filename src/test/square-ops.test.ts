@@ -42,6 +42,7 @@ describe("decisions mirror decide_square_case", () => {
   it("explains refusals", () => {
     expect(squareDecisionRefusal("note_required")).toMatch(/note is required/);
     expect(squareDecisionRefusal("not_found")).toMatch(/Refresh/);
+    expect(squareDecisionRefusal("not_permitted")).toMatch(/admin or finance/);
     expect(squareDecisionRefusal("weird")).toBe("weird");
   });
 });

@@ -64,7 +64,7 @@ BEGIN
    WHERE oid = 'public.finalize_cash_submission_atomic(uuid,uuid,text,date,text)'::regprocedure;
   SELECT md5(prosrc) INTO v_l FROM pg_proc
    WHERE oid = 'public.cash_order_payment_lock(uuid,uuid,boolean)'::regprocedure;
-  IF v_t NOT IN ('8422cf9aa5bcc8b94036f4e8ee3d6ce4', '8166a3aa57b578a53c0e0c72f56fa206') THEN
+  IF v_t NOT IN ('8422cf9aa5bcc8b94036f4e8ee3d6ce4', '873059443104e55b35d3b209f361bd7a') THEN
     RAISE EXCEPTION 'square integrity: terminate_web_order_atomic on live has moved (md5 %) — stop, read live, rebuild', v_t;
   END IF;
   IF v_f NOT IN ('ebb5309c38b192d8e301277d9f14b9ae', '15daada758f0ed1446975306b3f4d302') THEN
@@ -684,6 +684,14 @@ BEGIN
     END IF;
     SELECT * INTO v_sub FROM public.payment_submissions WHERE square_payment_id = v_sq.id
      ORDER BY created_at DESC LIMIT 1;
+    -- The payment is already recorded: its attempt is answered. An attempt
+    -- still open here (a lost answer recovered later, a cancel-by-key that put
+    -- it back to unknown) would lock the order forever — close it; the
+    -- square_payments row now carries the lock until the hold is closed.
+    UPDATE public.square_card_attempts
+       SET status = 'authorized', square_payment_id = p_square_payment_id,
+           resolved_at = coalesce(resolved_at, now()), updated_at = now()
+     WHERE id = v_att.id AND status IN ('reserved','unknown','cancelling');
     IF v_sub.id IS NOT NULL THEN
       RETURN jsonb_build_object('ok', true, 'outcome', 'already_filed', 'filed', true,
         'submission', to_jsonb(v_sub), 'square_row_id', v_sq.id);
@@ -754,10 +762,14 @@ BEGIN
     UPDATE public.square_card_attempts
        SET status = CASE WHEN v_exc = 'risk_high' THEN 'risk_cancelled'
                          WHEN v_exc = 'amount_mismatch' THEN 'mismatch'
-                         ELSE status END,
+                         -- unfiled_hold: Square answered APPROVED, so the
+                         -- attempt is answered; the hold (square_payments
+                         -- row, exception set) carries the order lock until
+                         -- it is voided, captured or decided by staff.
+                         ELSE 'authorized' END,
            square_payment_id = p_square_payment_id, risk_level = coalesce(p_risk_level, risk_level),
            detail = left(coalesce(v_reason, detail), 500),
-           resolved_at = CASE WHEN v_exc IN ('risk_high','amount_mismatch') THEN now() ELSE resolved_at END,
+           resolved_at = now(),
            updated_at = now()
      WHERE id = v_att.id AND status IN ('reserved','unknown','authorized');
     INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json)
@@ -847,6 +859,17 @@ BEGIN
   v_ref := coalesce(v_order.web_reference, v_order.invoice_number, '');
   v_amt := '¥' || to_char(coalesce(p_amount_jpy, round(v_sq.amount_jpy)::bigint), 'FM999,999,999');
 
+  -- The payment exists in Square and in the Hub: its attempt is answered. An
+  -- attempt still open (lost answer recovered by webhook/reconcile, a
+  -- cancel-by-key that put it back to unknown) would lock the order forever
+  -- (review 2026-10-04 #1) — close it; this row carries the lock from here.
+  UPDATE public.square_card_attempts
+     SET status = CASE WHEN v_ps IN ('CANCELED','FAILED') THEN 'cancelled' ELSE 'authorized' END,
+         square_payment_id = coalesce(square_payment_id, p_square_payment_id),
+         resolved_at = coalesce(resolved_at, now()), updated_at = now()
+   WHERE status IN ('reserved','unknown','cancelling')
+     AND (id = v_sq.attempt_id OR (v_sq.reference IS NOT NULL AND reference = v_sq.reference));
+
   -- An older observation never overwrites a newer one.
   IF p_provider_updated_at IS NOT NULL AND v_sq.provider_updated_at IS NOT NULL
      AND p_provider_updated_at < v_sq.provider_updated_at THEN
@@ -935,7 +958,12 @@ BEGIN
          WHERE id = v_sq.id;
       END IF;
     END IF;
-    IF coalesce(p_source, '') <> 'capture' OR v_exc IS NOT NULL THEN
+    -- A reviewer's Confirm that already claimed the submission (status
+    -- 'confirmed', not yet recorded) is the Hub's own capture: no "captured
+    -- outside the Hub" bell for it (webhook racing the Confirm, Finish recording).
+    IF v_exc IS NOT NULL
+       OR (coalesce(p_source, '') <> 'capture'
+           AND NOT (v_sub.id IS NOT NULL AND v_sub.status::text = 'confirmed' AND v_sub.confirmed_payment_id IS NULL)) THEN
       INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
       VALUES (CASE WHEN v_exc IS NOT NULL THEN 'card_capture_exception' ELSE 'card_captured_externally' END,
               CASE WHEN v_exc IS NOT NULL THEN 'Card money captured — needs a decision' ELSE 'Card captured outside the Hub' END,
@@ -1362,6 +1390,12 @@ BEGIN
       RETURN jsonb_build_object('error', 'bad_decision');
     END IF;
     IF coalesce(btrim(p_note), '') = '' THEN RETURN jsonb_build_object('error', 'note_required'); END IF;
+    -- Resolving an exception releases the order gate while card money may be
+    -- unrecorded: admin or finance only (CLAUDE.md: mutating paths check a
+    -- real role, Bug #170).
+    IF NOT (public.has_role(v_uid, 'admin') OR public.has_role(v_uid, 'finance')) THEN
+      RETURN jsonb_build_object('error', 'not_permitted');
+    END IF;
     UPDATE public.square_payments SET exception_resolved_at = now(), exception_resolved_by = v_uid,
            exception_note = left(coalesce(exception_note, '') || ' | resolved: ' || p_decision || ' — ' || p_note, 1000),
            updated_at = now()
@@ -1393,7 +1427,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.decide_square_case(text, uuid, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.decide_square_case(text, uuid, text, text) TO authenticated, service_role;
 COMMENT ON FUNCTION public.decide_square_case(text, uuid, text, text) IS
-  'Staff record the decision on a card refund (order_cancelled_refunded | partial_refund_order_kept | refund_failed_followed_up | other), dispute (evidence_submitted | accepted | won | lost | other) or exception (recorded_manually | refunded_in_square | voided_in_square | other; note required — it releases the order gate). Audited. Staff only (is_staff).';
+  'Staff record the decision on a card refund (order_cancelled_refunded | partial_refund_order_kept | refund_failed_followed_up | other), dispute (evidence_submitted | accepted | won | lost | other) or exception (recorded_manually | refunded_in_square | voided_in_square | other; note required — it releases the order gate; admin or finance only). Audited. Staff only (is_staff).';
 
 -- ---------------------------------------------------------------------------
 -- 6l. square_settlement_report — gross card receipts vs Square fees, refunds
@@ -1671,7 +1705,7 @@ BEGIN
   -- captured card money not yet recorded stops EVERY termination, staff
   -- included — the hold is closed (Reject) or the capture recorded first, so a
   -- cancelled order never leaves money on a card.
-  IF NOT p_preview AND public.square_order_unresolved(p_order_id) THEN
+  IF public.square_order_unresolved(p_order_id) THEN
     RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'card_payment_unresolved',
       'status', v_status);
   END IF;
@@ -1904,7 +1938,7 @@ BEGIN
     RAISE EXCEPTION 'square integrity: cash_order_payment_lock body is not this file''s';
   END IF;
   IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)'::regprocedure)
-     <> '8166a3aa57b578a53c0e0c72f56fa206' THEN
+     <> '873059443104e55b35d3b209f361bd7a' THEN
     RAISE EXCEPTION 'square integrity: terminate_web_order_atomic body is not this file''s';
   END IF;
 END

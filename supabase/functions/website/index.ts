@@ -2807,7 +2807,29 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         if (st === "declined") return jsonResponse({ error: "card_declined", code: attempt.error_code ?? null }, 402);
         if (st === "cancelling") return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st } }, 409);
         if (st !== "reserved" && st !== "unknown") return jsonResponse({ error: "card_mismatch", detail: st }, 409);
-        // reserved / unknown: replay the SAME immutable request (same key → no second hold).
+        // reserved / unknown (review 2026-10-04 #2): NEVER call CreatePayment
+        // again — a changed body or a request still in flight answers 4xx and
+        // would wrongly close an attempt that may hold money. A fresh one is
+        // still in flight; an older one is resolved by READING Square (found
+        // by its reference → filed/resolved; nothing after 2 min → cancelled
+        // by its key).
+        const updatedAt = Date.parse(String(attempt.updated_at ?? attempt.created_at));
+        if (st === "reserved" && Date.now() - updatedAt < 2 * 60 * 1000) {
+          return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st } }, 409);
+        }
+        let recovered: string;
+        try { recovered = await recoverAttempt(supabase, attempt, 2 * 60 * 1000, "website_replay"); }
+        catch (e) { console.warn("[website] replay recovery failed:", e); recovered = "waiting"; }
+        if (recovered === "waiting") return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st } }, 409);
+        if (recovered === "exception") return jsonResponse({ error: "card_hold_unfiled", detail: "recovered_exception" }, 409);
+        const { data: after, error: afterErr } = await supabase.from("square_card_attempts")
+          .select("status, error_code, square_payment_id").eq("id", attempt.id).maybeSingle();
+        if (afterErr) throw afterErr;
+        const st2 = String(after?.status ?? "");
+        if (st2 === "authorized") return jsonResponse({ ok: true, submission: null, card: { status: "authorized" }, attempt: { reference: attempt.reference } });
+        if (st2 === "declined") return jsonResponse({ error: "card_declined", code: after?.error_code ?? null, hold: "none" }, 402);
+        if (st2 === "cancelled" || st2 === "failed") return jsonResponse({ error: "card_mismatch", detail: st2, hold: "voided" }, 409);
+        return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st2 } }, 409);
       }
 
       const resolve = (status: string, from: string[], extra: AnyRec = {}) => resolveAttempt(supabase, String(attempt.id), status, from, extra);
@@ -2859,10 +2881,16 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const filed = await fileForAttempt(supabase, attempt, payment, "website_card");
       if (filed.error) throw new Error(`file_square_authorization_atomic: ${filed.error}`);
+      // A replay of a hold already recorded as an exception has no submission
+      // either: never answer "authorised" for it (review 2026-10-04 #3).
+      if (filed.outcome === "already_recorded_exception") return jsonResponse({ error: "card_hold_unfiled", detail: filed.reason }, 409);
       if (filed.outcome === "exception") {
         const action = await handleFilingException(supabase, attemptEnv, attempt, payment, filed);
         if (filed.exception === "amount_mismatch") return jsonResponse({ error: "card_mismatch", detail: "amount", hold: action === "mismatch_voided" ? "voided" : "void_pending" }, 409);
-        if (filed.exception === "risk_high") return jsonResponse({ error: "card_declined", code: "risk_high", order_cancelled: action === "risk_high_cancelled" }, 402);
+        // risk HIGH: Square approved, the Hub refused. hold "voided" only when
+        // the fraud cancel went through (it voids first); otherwise the hold
+        // may still be on her card and is being handled — never "not charged".
+        if (filed.exception === "risk_high") return jsonResponse({ error: "card_declined", code: "risk_high", order_cancelled: action === "risk_high_cancelled", hold: action === "risk_high_cancelled" ? "voided" : "held" }, 402);
         if (filed.reason === "paidy_in_progress") return jsonResponse({ error: "paidy_in_progress", hold: action === "paidy_voided" ? "voided" : "void_pending" }, 409);
         return jsonResponse({ error: "card_hold_unfiled", detail: filed.reason }, 409);
       }

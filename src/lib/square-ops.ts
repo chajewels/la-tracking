@@ -61,6 +61,7 @@ export function squareDecisionRefusal(code: string): string {
     case 'decision_required': return 'Choose a decision.';
     case 'bad_decision': return 'That decision is not allowed for this case.';
     case 'note_required': return 'A note is required: say what was done with the money.';
+    case 'not_permitted': return 'Only an admin or finance can resolve a card exception (it reopens the order for payment).';
     case 'not_found': return 'The case was not found, or it is already resolved. Refresh the panel.';
     case 'bad_kind': return 'Unknown case type.';
     case 'not_staff': return 'Only staff can record a decision.';
