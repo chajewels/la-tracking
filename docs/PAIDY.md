@@ -289,3 +289,7 @@ phone `08000000001`, SMS code `8888`.
 - `src/components/settings/PaidySettingsCard.tsx`, `paidy-settings.ts`, `src/pages/Website.tsx`
 - `src/pages/PaymentSubmissions.tsx` (Paidy pill, dialog copy, Confirm enabled without a file, Finish recording), `src/pages/CashOrderDetail.tsx` (panel line)
 - Storefront: `cha-jewels-web` PR "feat(orders): Paidy ato-barai on a confirmed order"; contract `supabase/contracts/api.md` (both repos)
+
+## Checkout payment choice + points (2026-10-05)
+
+See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".

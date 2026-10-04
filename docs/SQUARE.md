@@ -259,3 +259,7 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
   settings card (`SquareOperationsPanel`): active holds, open attempts, captured-unrecorded/exceptions
   (Resolve), refunds, disputes, webhook problems, settlement by Japan day (gross, Square fees, refunds,
   lost disputes, net; CSV). Bank payouts stay in the Square Dashboard.
+
+## Checkout payment choice + points (2026-10-05)
+
+See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".

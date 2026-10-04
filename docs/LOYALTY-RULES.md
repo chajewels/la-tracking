@@ -264,3 +264,7 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   March-2026 import contamination — see docs/SCHEMA-FACTS.md
   ("customers.created_at import contamination"; the Dashboard New
   Customers trend clips at NEW_CUSTOMER_TREND_CUTOFF = 2026-04).
+
+## Checkout payment choice + points (2026-10-05)
+
+See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".
