@@ -38,6 +38,15 @@ PR 4 / PR 6 ship.
   reserved at draft time for **both** modes. A layaway uses the number reserved
   on its quote (the agreement was signed against it); a cash draft draws one.
   Declined / expired drafts leave gaps — by design.
+- Numbers respect the invoice registry (2026-10-05, migration 20261105100000):
+  every website writer draws through `next_web_invoice_seq()`, never
+  `nextval('web_order_number_seq')` — it skips a number already in
+  `invoice_numbers` (bare or `TEST-`), on a draft, or reserved by a quote. And
+  `register_invoice_number()` refuses a hand-typed or renamed number that a
+  `to_confirm` draft or a live unconsumed layaway quote holds ("is held by a
+  website order awaiting confirmation"), except the draft's own order (same
+  `web_reference`) / the quote's own account (same `quote_id`). So Confirm
+  always gets its number. Never re-add a direct nextval() writer.
 - A layaway draft must carry the signed agreement (CHECK + writer refusal
   `agreement_missing`) — "no unsigned plan" is now a database gate.
 - RLS: SELECT for staff holding `confirm_web_order_ready`; no browser writes.
