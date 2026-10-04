@@ -9900,6 +9900,7 @@ export type Database = {
           total_paid: number
         }[]
       }
+      next_web_invoice_seq: { Args: never; Returns: number }
       notify_deadline_label: { Args: { p_at: string }; Returns: string }
       notify_money_label: {
         Args: { p_amount: number; p_currency: string }
