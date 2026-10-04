@@ -542,6 +542,7 @@ export type Database = {
           entered_by_user_id: string | null
           id: string
           payment_method: string | null
+          provider_capture_id: string | null
           reference_number: string | null
           remarks: string | null
           submitted_by_name: string | null
@@ -559,6 +560,7 @@ export type Database = {
           entered_by_user_id?: string | null
           id?: string
           payment_method?: string | null
+          provider_capture_id?: string | null
           reference_number?: string | null
           remarks?: string | null
           submitted_by_name?: string | null
@@ -576,6 +578,7 @@ export type Database = {
           entered_by_user_id?: string | null
           id?: string
           payment_method?: string | null
+          provider_capture_id?: string | null
           reference_number?: string | null
           remarks?: string | null
           submitted_by_name?: string | null
@@ -4261,6 +4264,122 @@ export type Database = {
           },
         ]
       }
+      paidy_cases: {
+        Row: {
+          attempts: number
+          cash_order_id: string | null
+          detail: Json
+          id: string
+          kind: string
+          last_seen_at: string
+          opened_at: string
+          paidy_payment_id: string
+          paidy_payment_row: string | null
+          resolution: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          submission_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          cash_order_id?: string | null
+          detail?: Json
+          id?: string
+          kind: string
+          last_seen_at?: string
+          opened_at?: string
+          paidy_payment_id: string
+          paidy_payment_row?: string | null
+          resolution?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          submission_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          cash_order_id?: string | null
+          detail?: Json
+          id?: string
+          kind?: string
+          last_seen_at?: string
+          opened_at?: string
+          paidy_payment_id?: string
+          paidy_payment_row?: string | null
+          resolution?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          submission_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paidy_cases_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paidy_cases_paidy_payment_row_fkey"
+            columns: ["paidy_payment_row"]
+            isOneToOne: false
+            referencedRelation: "paidy_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paidy_checkout_attempts: {
+        Row: {
+          amount_jpy: number
+          cash_order_id: string
+          customer_id: string
+          end_reason: string | null
+          ended_at: string | null
+          expires_at: string
+          id: string
+          paidy_payment_id: string | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          amount_jpy: number
+          cash_order_id: string
+          customer_id: string
+          end_reason?: string | null
+          ended_at?: string | null
+          expires_at: string
+          id?: string
+          paidy_payment_id?: string | null
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          amount_jpy?: number
+          cash_order_id?: string
+          customer_id?: string
+          end_reason?: string | null
+          ended_at?: string | null
+          expires_at?: string
+          id?: string
+          paidy_payment_id?: string | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paidy_checkout_attempts_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       paidy_payments: {
         Row: {
           amount_jpy: number
@@ -4269,12 +4388,14 @@ export type Database = {
           capture_started_at: string | null
           captured_at: string | null
           cash_order_id: string
+          check_failures: number
           closed_at: string | null
           closed_reason: string | null
           created_at: string
           customer_id: string | null
           expires_at: string | null
           id: string
+          last_checked_at: string | null
           last_payload: Json | null
           last_webhook_at: string | null
           paidy_payment_id: string
@@ -4290,12 +4411,14 @@ export type Database = {
           capture_started_at?: string | null
           captured_at?: string | null
           cash_order_id: string
+          check_failures?: number
           closed_at?: string | null
           closed_reason?: string | null
           created_at?: string
           customer_id?: string | null
           expires_at?: string | null
           id?: string
+          last_checked_at?: string | null
           last_payload?: Json | null
           last_webhook_at?: string | null
           paidy_payment_id: string
@@ -4311,12 +4434,14 @@ export type Database = {
           capture_started_at?: string | null
           captured_at?: string | null
           cash_order_id?: string
+          check_failures?: number
           closed_at?: string | null
           closed_reason?: string | null
           created_at?: string
           customer_id?: string | null
           expires_at?: string | null
           id?: string
+          last_checked_at?: string | null
           last_payload?: Json | null
           last_webhook_at?: string | null
           paidy_payment_id?: string
@@ -4389,6 +4514,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      paidy_webhook_events: {
+        Row: {
+          attempts: number
+          event: string | null
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          paidy_payment_id: string
+          processed_at: string | null
+          received_at: string
+        }
+        Insert: {
+          attempts?: number
+          event?: string | null
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          paidy_payment_id: string
+          processed_at?: string | null
+          received_at?: string
+        }
+        Update: {
+          attempts?: number
+          event?: string | null
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          paidy_payment_id?: string
+          processed_at?: string | null
+          received_at?: string
+        }
+        Relationships: []
       }
       pancake_events: {
         Row: {
@@ -8476,6 +8634,14 @@ export type Database = {
           unsubscribe_token: string
         }[]
       }
+      cash_order_payment_lock: {
+        Args: {
+          p_cash_order_id: string
+          p_ignore_attempts?: boolean
+          p_ignore_paidy_row?: string
+        }
+        Returns: string
+      }
       change_payment_plan_atomic: {
         Args: {
           p_account_id: string
@@ -8511,6 +8677,10 @@ export type Database = {
       claim_web_payment_reminder: {
         Args: { p_deadline: string; p_entity_id: string; p_entity_type: string }
         Returns: string
+      }
+      close_paidy_case_system: {
+        Args: { p_case_id: string; p_note: string; p_resolution: string }
+        Returns: Json
       }
       confirm_loyalty_award_claim: {
         Args: {
@@ -8612,6 +8782,10 @@ export type Database = {
       }
       email_delivery_report: { Args: { p_hours?: number }; Returns: Json }
       email_queue_dispatch: { Args: never; Returns: undefined }
+      end_paidy_checkout_attempt: {
+        Args: { p_attempt_id: string; p_customer_id: string; p_reason: string }
+        Returns: Json
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -9295,6 +9469,17 @@ export type Database = {
         Args: { p_amount: number; p_currency: string }
         Returns: string
       }
+      open_paidy_case: {
+        Args: {
+          p_cash_order_id?: string
+          p_detail?: Json
+          p_kind: string
+          p_paidy_payment_id: string
+          p_paidy_payment_row?: string
+          p_submission_id?: string
+        }
+        Returns: Json
+      }
       page365_apply_stock: {
         Args: {
           p_actor?: string
@@ -9513,6 +9698,10 @@ export type Database = {
         Args: { p_line_id: string; p_note: string }
         Returns: Json
       }
+      resolve_paidy_case: {
+        Args: { p_case_id: string; p_note: string; p_resolution: string }
+        Returns: Json
+      }
       restore_lots_for_redemption: {
         Args: { p_redemption_id: string }
         Returns: number
@@ -9684,6 +9873,14 @@ export type Database = {
           p_type: string
         }
         Returns: undefined
+      }
+      start_paidy_checkout_attempt: {
+        Args: {
+          p_cash_order_id: string
+          p_customer_id: string
+          p_ttl_minutes?: number
+        }
+        Returns: Json
       }
       terminate_web_order_atomic: {
         Args: {
