@@ -53,6 +53,18 @@
   _shared/reassign-owner-rules.ts.
 
 
+## Paidy orders (owner 2026-10-04, migration 20261104100000)
+
+A cash order with ANY Paidy history — a `paidy_payments` row, a
+`paidy_checkout_attempts` row, or a `payment_submissions` row with
+`payment_method = 'paidy'` or a `paidy_payment_id` — is refused with code
+`paidy_order`: "This order was paid, or started to be paid, with Paidy. A Paidy
+order belongs to the customer who signed in and paid, and cannot change owner."
+Owner reason: a web order needs a signed-in account, so its owner cannot be
+wrong. Layaway plans are never affected (Paidy is cash-order only). Before this
+refusal the move failed late with the raw `paidy_submission_locked` exception.
+Harness: `harness/paidy-owner-answers/` (R1–R6).
+
 ## Rules moved from CLAUDE.md (2026-10-02, verbatim)
 
 Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.

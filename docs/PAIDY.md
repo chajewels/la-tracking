@@ -203,6 +203,41 @@ refund on an unrecorded payment is **held for a staff decision**.
   `expire_web_layaway_atomic` bodies — the expiry sweep checks the lock in
   TypeScript first; a seconds-wide race remains (docs/OPEN-BUGS.md).
 
+## Owner answers (2026-10-04, second round) — migration 20261104100000
+- REASSIGN OWNER — a cash order with ANY Paidy history (a `paidy_payments` row,
+  a checkout attempt, or a Paidy submission) is REFUSED with code `paidy_order`
+  and a plain reason. A web order belongs to the signed-in customer who paid;
+  Paidy rows keep their customer. Added to `reassign_order_owner_atomic` by an
+  md5-guarded in-place patch of the live body (Bug #280 rule).
+- NOTHING ELSE WHILE PAIDY HOLDS THE ORDER — trigger
+  `trg_guard_cash_payment_paidy` (BEFORE INSERT OR UPDATE OF voided_at,
+  cash_order_id, payment_method on `cash_payments`) refuses any non-Paidy
+  payment row, an un-void, a live row moved onto the order and a relabel into
+  'paidy', while `cash_order_payment_lock` says `paidy_*`. This closes the three writers that
+  never went through a submission: store credit (`redeem_store_credit_atomic`),
+  a loyalty discount (`approve_redemption_atomic`) and Restore payment
+  (`restore-cash-payment`). Their edge functions answer 409 in plain words
+  ("…only after staff Reject the Paidy payment"); the whole write rolls back, so
+  no credit, points or payment are spent. Paidy's own recording, voids and
+  everything after a Reject still work. A Square Confirm checks the lock
+  BEFORE taking the card money (review-payment-submission), so a held order
+  never ends with a captured card and nothing recorded.
+- LAYAWAY — Paidy never pays a layaway deposit or instalment (it is offered on
+  yen CASH orders only, `paidyNotOfferedReason`), and a Paidy-paid order never
+  becomes a layaway (no path converts a cash order into a plan). Forfeit and
+  refund-to-customer rules do not apply to Paidy money: Paidy pays the shop,
+  the customer pays Paidy.
+- LOYALTY — points are earned ONCE PAID: the Paidy recording that completes the
+  order goes through review-payment-submission, which awards exactly as for a
+  bank transfer (cash: on completion).
+- PROCESS RULE (not a code bug) — staff capture ONLY a Paidy payment that is
+  listed in the Hub (Payment Submissions, Paidy pill). The Hub files every
+  authorisation before anyone can capture; a capture with no Hub record can
+  happen only if someone captures an unlisted payment in the dashboard, and the
+  system still opens a `captured_no_submission` case for it.
+- BULK IMPORT — never touches Paidy: it imports LAYAWAY payments only
+  (`BulkPaymentImport.tsx`), and Paidy is cash-order only.
+
 ## Rules (also one line each in CLAUDE.md)
 - The secret key is the edge-function secret `PAIDY_SECRET_KEY` only — never
   the database, the repo, chat or a Lovable prompt body. `set_paidy_settings`
@@ -243,7 +278,7 @@ Test accounts: `successful.payment@paidy.com` / `rejected.payment@paidy.com`,
 phone `08000000001`, SMS code `8888`.
 
 ## Files
-- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers), `20261103100000_paidy_followup.sql` (lock, attempts, cases, inbox, guards, stricter writers)
+- `supabase/migrations/20261030100000_paidy_payments.sql`, `20261102100000_paidy_integrity.sql` (expires_at, capture_started_at, processing_started_at, paidy_refunds, the two atomic writers), `20261103100000_paidy_followup.sql` (lock, attempts, cases, inbox, guards, stricter writers), `20261104100000_paidy_owner_answers.sql` (Reassign refusal `paidy_order`, `cash_payments` guard; harness `harness/paidy-owner-answers/`)
 - `supabase/functions/_shared/paidy-events.ts` (one webhook event; webhook + sweep), `_shared/paidy-autorecord.ts` (the service-role recorder), `src/components/payments/PaidyCasesPanel.tsx`
 - `supabase/functions/_shared/paidy-filing.ts` (file / adopt an authorisation), `_shared/paidy-sync.ts` (webhook + hourly sync; `development/paidy-sync.test.ts`)
 - `supabase/functions/paidy-reconcile/index.ts` (hourly, service role)
