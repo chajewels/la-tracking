@@ -1,7 +1,7 @@
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import {
-  FREEZING_SUBMISSION_STATUSES,
+  PENDING_SUBMISSION_OR,
   partitionExpiryCandidates,
 } from "../_shared/web-order-rules.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
         .from("payment_submissions")
         .select("cash_order_id")
         .not("cash_order_id", "is", null)
-        .in("status", [...FREEZING_SUBMISSION_STATUSES])
+        .or(PENDING_SUBMISSION_OR)
         .range(from, from + 999);
       if (subErr) {
         // Fail closed: without the freeze list we cannot honour INVARIANT 12,
@@ -205,7 +205,7 @@ Deno.serve(async (req) => {
             .from("payment_submissions")
             .select("id", { count: "exact", head: true })
             .eq("cash_order_id", order.id)
-            .in("status", [...FREEZING_SUBMISSION_STATUSES]);
+            .or(PENDING_SUBMISSION_OR);
           if (pendErr) throw new Error(`pending-submission re-check failed: ${pendErr.message}`);
           if ((pendingCount ?? 0) > 0) {
             frozenResults.push({

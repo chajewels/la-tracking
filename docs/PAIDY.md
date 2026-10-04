@@ -105,6 +105,18 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   refund button is not built.
 - EVERY WRITE IS CHECKED (P05): the webhook answers 5xx on any failed read or
   write so Paidy retries (about 5 hours of back-off); a 200 stops the retries.
+- "CLAIMED, NOT RECORDED" IS PENDING (independent review 2026-10-04): a
+  submission in status `confirmed` with no `confirmed_payment_id` counts as
+  pending everywhere a pending payment matters — the filing writer, the
+  website's offer and Paidy/card routes (`PENDING_SUBMISSION_OR`,
+  `_shared/web-order-rules.ts`), and the cash-order expiry sweep — and the
+  customer sees it as "being checked". Reject / under review / clarification
+  never overwrite a `confirmed` submission (compare-and-set, 409). A
+  rejected authorisation is never refiled; a waiting one is recorded (no
+  submission) so the hourly check files or releases it; the writer refuses an
+  order that can no longer take a payment; `finalize_cash_submission_atomic`
+  refuses a Paidy payment whose record is not `captured`. Every write made
+  under a Confirm's claim carries that claim's lease stamp.
 - `buyer_data.last_order_amount` is the most recently COMPLETED paid order by
   `completed_at` (P10, `paidyLastOrderAmount()`).
 - The storefront enables the Paidy button on `onReady` as well as `onLoad`

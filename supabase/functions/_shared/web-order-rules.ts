@@ -14,6 +14,16 @@
  */
 export const FREEZING_SUBMISSION_STATUSES = ["submitted", "under_review"] as const;
 
+/**
+ * The same freeze as a PostgREST `.or()` filter, PLUS a Confirm that claimed a
+ * submission but has not recorded its payment yet (status 'confirmed',
+ * confirmed_payment_id NULL). A Paidy capture may already have taken the money
+ * in that state, so it is as pending as a queued submission: no automated
+ * expiry, no second Paidy / card payment on the order (Paidy integrity review
+ * 2026-10-04 #1, docs/PAIDY.md "Integrity").
+ */
+export const PENDING_SUBMISSION_OR = "status.in.(submitted,under_review),and(status.eq.confirmed,confirmed_payment_id.is.null)";
+
 export function isFreezingSubmissionStatus(status: string | null | undefined): boolean {
   return (FREEZING_SUBMISSION_STATUSES as readonly string[]).includes(String(status ?? ""));
 }

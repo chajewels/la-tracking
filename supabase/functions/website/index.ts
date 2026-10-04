@@ -23,6 +23,7 @@ import { CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, agreementRequired, cardAmountMat
 import { SquareError, square, type SquarePayment } from "../_shared/square.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
+import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
@@ -2393,7 +2394,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const { data: pendingSubs, error: pendErr } = await supabase
         .from("payment_submissions")
         .select("id, submitted_amount, payment_date, payment_method, status, created_at")
-        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]).order("created_at");
+        .eq("cash_order_id", order.id).or(PENDING_SUBMISSION_OR).order("created_at");
       if (pendErr) throw pendErr;
       const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
       const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length);
@@ -2407,7 +2408,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           ship_to_address: shipTo,
         },
         items: lines,
-        pending_submissions: pendingSubs ?? [],
+        // A Confirm that claimed a payment but has not recorded it yet is
+        // still "being checked" for the customer (review 2026-10-04 #1): the
+        // storefront then hides the payment options, so no second payment.
+        pending_submissions: ((pendingSubs ?? []) as AnyRec[]).map((p) => p.status === "confirmed" ? { ...p, status: "under_review" } : p),
         // Paidy ato-barai (2026-10-03): the block the order page renders, or
         // null with the reason it is not offered (logged, never shown).
         paidy: paidyBlock.offered ? paidyBlock : null,
@@ -2463,7 +2467,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { count: pendingCount, error: pendErr } = await supabase
         .from("payment_submissions").select("id", { count: "exact", head: true })
-        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]);
+        .eq("cash_order_id", order.id).or(PENDING_SUBMISSION_OR);
       if (pendErr) throw pendErr;
       if ((pendingCount ?? 0) > 0) return jsonResponse({ error: "submission_pending" }, 409);
 
@@ -2552,7 +2556,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { count: pendingCount } = await supabase
         .from("payment_submissions").select("id", { count: "exact", head: true })
-        .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]);
+        .eq("cash_order_id", order.id).or(PENDING_SUBMISSION_OR);
       if ((pendingCount ?? 0) > 0) return jsonResponse({ error: "submission_pending" }, 409);
 
       // The same rule that showed the button must still hold now.

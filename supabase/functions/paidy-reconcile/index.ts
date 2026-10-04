@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   const supabase = auth.supabase;
 
   const report = {
-    checked: 0, refiled: 0, synced: 0, captured_unrecorded: 0, refunds: 0,
+    checked: 0, refiled: 0, waiting: 0, synced: 0, captured_unrecorded: 0, refunds: 0,
     stuck_confirms: 0, paidy_errors: 0, write_errors: 0, skipped_mode_off: false,
   };
 
@@ -84,24 +84,34 @@ Deno.serve(async (req) => {
             if (orderErr) throw orderErr;
             if (order) {
               const o = order as Record<string, unknown> & { customer?: { id: string; full_name?: string | null } };
-              const canTake = o.status === "pending" && o.payment_status === "pending_transfer";
-              if (canTake) {
-                const r = await filePaidyAuthorization(supabase, {
-                  order: o, customer: { id: String(o.customer?.id ?? o.customer_id), full_name: o.customer?.full_name ?? null },
-                  payment, expectTest: mode === "test", path: "paidy_reconcile",
-                });
-                if (r.ok) report.refiled++;
-                else console.warn(`${LOG} refile ${row.paidy_payment_id} refused: ${r.error} ${r.detail ?? ""}`);
-                if (!r.ok && r.error === "paidy_mismatch") {
-                  await paidyBellOnce(supabase, "paidy_unmatched_authorization", "Paidy authorisation could not be filed",
-                    `${row.paidy_payment_id} · ${r.detail ?? r.error}${r.released ? " — released, no charge" : ""}`,
-                    { cash_order_id: o.id, paidy_payment_id: String(row.paidy_payment_id), detail: r.detail ?? null });
-                }
+              // The writer decides whether the order can still take it
+              // (file_paidy_submission_atomic: order open, money due, not an
+              // unconfirmed reservation, no other pending payment, never an
+              // authorisation a reviewer rejected).
+              const r = await filePaidyAuthorization(supabase, {
+                order: o, customer: { id: String(o.customer?.id ?? o.customer_id), full_name: o.customer?.full_name ?? null },
+                payment, expectTest: mode === "test", path: "paidy_reconcile",
+              });
+              const pid = String(row.paidy_payment_id);
+              if (r.ok) {
+                report.refiled++;
+              } else if (r.error === "submission_pending") {
+                // Waiting behind another payment: the record stays; the next run tries again.
+                report.waiting++;
+              } else if (r.error === "order_cannot_take_payment" || r.error === "paidy_payment_rejected_by_reviewer") {
+                let released = false;
+                try { await paidy.close(pid); released = true; } catch (e) { console.warn(`${LOG} close ${pid} failed:`, e); }
+                const why = r.error === "paidy_payment_rejected_by_reviewer"
+                  ? "a reviewer rejected it"
+                  : `the order is ${String(o.status)}/${String(o.payment_status)} and can no longer take it`;
+                await paidyBellOnce(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
+                  `${pid} · ${why}${released ? " — released, no charge" : " — release it in the Paidy dashboard"}`,
+                  { cash_order_id: o.id, paidy_payment_id: pid, reason: r.error, released });
               } else {
-                try { await paidy.close(String(row.paidy_payment_id)); } catch (e) { console.warn(`${LOG} close ${row.paidy_payment_id} failed:`, e); }
-                await paidyBellOnce(supabase, "paidy_unmatched_authorization", "Paidy authorisation released",
-                  `${row.paidy_payment_id} · the order is ${o.status}/${o.payment_status} and can no longer take it — released, no charge`,
-                  { cash_order_id: o.id, paidy_payment_id: String(row.paidy_payment_id) });
+                // paidy_mismatch closes inside filePaidyAuthorization.
+                await paidyBellOnce(supabase, "paidy_unmatched_authorization", "Paidy authorisation could not be filed",
+                  `${pid} · ${r.detail ?? r.error}${r.released ? " — released, no charge" : ""}`,
+                  { cash_order_id: o.id, paidy_payment_id: pid, reason: r.error, detail: r.detail ?? null });
               }
               // Re-read so the sync below sees the post-close state.
               try { payment = await paidy.get(String(row.paidy_payment_id)); } catch { /* sync with what we have */ }
@@ -118,20 +128,28 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Confirms left half-way (claimed, no payment) past the lease.
+    // 2. Cash-order Confirms left half-way (claimed, no payment) past the
+    //    lease. Paidy ones have "Finish recording"; for any other method
+    //    (bank transfer, card) there is no resume button, so staff are told
+    //    to check the order by hand (review 2026-10-04 #8).
     const { data: stuck, error: stuckErr } = await supabase
       .from("payment_submissions")
-      .select("id, cash_order_id, processing_started_at, paidy_payment_id, paidy:paidy_payments(paidy_payment_id)")
-      .eq("payment_method", "paidy").eq("status", "confirmed").is("confirmed_payment_id", null)
-      .not("paidy_payment_id", "is", null).limit(100);
+      .select("id, cash_order_id, payment_method, reference_number, processing_started_at, paidy_payment_id, paidy:paidy_payments(paidy_payment_id)")
+      .not("cash_order_id", "is", null).eq("status", "confirmed").is("confirmed_payment_id", null).limit(100);
     if (stuckErr) throw stuckErr;
     for (const s of (stuck ?? []) as Record<string, any>[]) {
       if (!paidyConfirmLeaseExpired(s.processing_started_at)) continue;
       report.stuck_confirms++;
-      const pid = String(s.paidy?.paidy_payment_id ?? s.paidy_payment_id);
-      await paidyBellOnce(supabase, "paidy_confirm_interrupted", "Paidy Confirm did not finish",
-        `A Confirm of ${pid} stopped before the payment was recorded. Open Payment Submissions and press "Finish recording" (it reads Paidy first and never charges twice).`,
-        { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: pid });
+      if (s.payment_method === "paidy" && s.paidy_payment_id) {
+        const pid = String(s.paidy?.paidy_payment_id ?? s.paidy_payment_id);
+        await paidyBellOnce(supabase, "paidy_confirm_interrupted", "Paidy Confirm did not finish",
+          `A Confirm of ${pid} stopped before the payment was recorded. Open Payment Submissions and press "Finish recording" (it reads Paidy first and never charges twice).`,
+          { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: pid });
+      } else {
+        await paidyBellOnce(supabase, "cash_confirm_interrupted", "Payment Confirm did not finish",
+          `A Confirm of a ${String(s.payment_method ?? "cash")} payment (ref ${String(s.reference_number ?? "—")}) stopped before it was recorded. The submission shows Confirmed but no payment is on the order — check the order and the card/bank record before doing anything.`,
+          { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: `submission:${s.id}` });
+      }
     }
 
     return jsonResponse({ ok: true, ...report });

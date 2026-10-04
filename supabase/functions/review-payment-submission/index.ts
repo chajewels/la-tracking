@@ -420,7 +420,11 @@ Deno.serve(async (req) => {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (cashOrder.status === "cancelled" || cashOrder.status === "expired") {
+      // A RESUMED Paidy Confirm skips the two checks below until Paidy has
+      // been read: the money may already be taken, and a silent 400 here
+      // would hide it (review 2026-10-04 #1). The Paidy block re-applies them
+      // before any capture, and finalize re-checks on the locked order.
+      if (!resumingPaidy && (cashOrder.status === "cancelled" || cashOrder.status === "expired")) {
         return new Response(JSON.stringify({ error: `cash_order is ${cashOrder.status}, cannot confirm payment` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -430,7 +434,7 @@ Deno.serve(async (req) => {
       //    finalize_cash_submission_atomic checks it again on the LOCKED balance.
       const submittedAmount = Number(submission.submitted_amount);
       const liveRemaining = Number(cashOrder.remaining_balance);
-      if (submittedAmount > liveRemaining + 0.005) {
+      if (!resumingPaidy && submittedAmount > liveRemaining + 0.005) {
         return new Response(JSON.stringify({
           error: `submitted_amount (${submittedAmount}) exceeds current remaining_balance (${liveRemaining})`,
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -451,7 +455,7 @@ Deno.serve(async (req) => {
             .eq("id", submission_id)
             .eq("status", "confirmed")
             .is("confirmed_payment_id", null)
-            .or(`processing_started_at.is.null,processing_started_at.lt.${new Date(Date.now() - PAIDY_CONFIRM_LEASE_MS).toISOString()}`)
+            .or(`processing_started_at.is.null,processing_started_at.lt."${new Date(Date.now() - PAIDY_CONFIRM_LEASE_MS).toISOString()}"`)
             .select("id")
         : supabase
             .from("payment_submissions")
@@ -481,10 +485,12 @@ Deno.serve(async (req) => {
               .from("payment_submissions")
               .update({ processing_started_at: null })
               .eq("id", submission_id)
+              .eq("processing_started_at", claimAt)
           : await supabase
               .from("payment_submissions")
               .update({ status: submission.status, reviewer_user_id: submission.reviewer_user_id ?? null, processing_started_at: null })
-              .eq("id", submission_id);
+              .eq("id", submission_id)
+              .eq("processing_started_at", claimAt);
         if (error) console.error("[review-payment-submission] cash claim revert failed:", error);
       };
 
@@ -530,7 +536,7 @@ Deno.serve(async (req) => {
           const { error: subErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
             reviewer_notes: `${why} — the customer must pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
-          }).eq("id", submission_id);
+          }).eq("id", submission_id).eq("processing_started_at", claimAt);
           const { error: audErr } = await supabase.from("audit_logs").insert({
             entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
             new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pp.paidy_payment_id, detail },
@@ -552,6 +558,11 @@ Deno.serve(async (req) => {
         }
         let outcome = paidyProviderOutcome(live);
 
+        if (outcome === "authorized" && (cashOrder.status === "cancelled" || cashOrder.status === "expired")) {
+          // Not captured yet and the order is closed: never take the money.
+          await revertCashClaim();
+          return json(400, { error: `cash_order is ${cashOrder.status}, cannot confirm payment. Nothing was captured — Reject this submission to release the Paidy authorisation.` });
+        }
         if (outcome === "authorized") {
           // P08: what Paidy holds, what the Hub recorded, what the submission
           // says and what the order still owes must all agree before money moves.
@@ -607,12 +618,14 @@ Deno.serve(async (req) => {
           expires_at: live.expires_at ?? pp.expires_at ?? null, last_payload: live, updated_at: new Date().toISOString(),
         }).eq("id", pp.id);
         if (capRecErr) {
-          // Not fatal: the next read of Paidy (Confirm, webhook, hourly check)
-          // sees the capture again. The books are what matters next.
-          console.error("[review-payment-submission] paidy_payments captured update failed (continuing to record):", capRecErr);
+          // finalize_cash_submission_atomic refuses a Paidy payment whose
+          // record is not 'captured' (paidy_not_captured), so this ends in the
+          // "Finish recording" bell below; the resume reads Paidy again and
+          // re-writes the record. Never money in the books without it.
+          console.error("[review-payment-submission] paidy_payments captured update failed:", capRecErr);
         }
         if (capturedYen !== Math.round(submittedAmount)) {
-          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id);
+          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id).eq("processing_started_at", claimAt);
           if (leaseErr) console.error("[review-payment-submission] lease release failed:", leaseErr);
           await paidyBell(supabase, "paidy_recording_failed", "Paidy captured an amount that does not match",
             `${ref} · Paidy captured ¥${capturedYen.toLocaleString("en-US")} but the submission is ¥${Math.round(submittedAmount).toLocaleString("en-US")} — nothing recorded; check the Paidy dashboard and record it by hand`,
@@ -720,11 +733,14 @@ Deno.serve(async (req) => {
           // Paidy has the money; the Hub has nothing written. Keep the claim
           // (status 'confirmed', no payment) so it shows "Finish recording",
           // release the lease, and tell staff (owner Q4 a).
-          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id);
+          const { error: leaseErr } = await supabase.from("payment_submissions").update({ processing_started_at: null }).eq("id", submission_id).eq("processing_started_at", claimAt);
           if (leaseErr) console.error("[review-payment-submission] lease release failed:", leaseErr);
           const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
-          await paidyBell(supabase, "paidy_recording_failed", "Paidy captured — recording in the Hub failed",
-            `${ref} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · Paidy took the money but the Hub could not record it (${code}). Open Payment Submissions and press "Finish recording".`,
+          const cannotTake = code === "order_closed" || code === "exceeds_remaining";
+          await paidyBell(supabase, "paidy_recording_failed", cannotTake ? "Paidy captured — the order can no longer take it" : "Paidy captured — recording in the Hub failed",
+            cannotTake
+              ? `${ref} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · Paidy took the money but the order is closed or already paid (${code}). Nothing was recorded. Decide with the owner: record it by hand or refund it in the Paidy dashboard.`
+              : `${ref} · ¥${Math.round(submittedAmount).toLocaleString("en-US")} · Paidy took the money but the Hub could not record it (${code}). Open Payment Submissions and press "Finish recording".`,
             { cash_order_id: cashOrder.id, submission_id, capture_id: paidyCaptureId, error: code });
           return new Response(JSON.stringify({
             error: "paidy_recording_failed",
@@ -1347,10 +1363,22 @@ Deno.serve(async (req) => {
       updateData.confirmed_payment_id = confirmedPaymentIds[0];
     }
 
-    const { error: updateErr } = await supabase
+    // Review 2026-10-04 #2: Reject / under review / clarification never
+    // overwrite a submission a Confirm has claimed or recorded (it may hold
+    // money Paidy already took). Compare-and-set; 0 rows → 409.
+    let updateQuery = supabase
       .from("payment_submissions")
       .update(updateData)
       .eq("id", submission_id);
+    if (action !== "confirmed") updateQuery = updateQuery.neq("status", "confirmed");
+    const { data: updatedRows, error: updateErr } = await updateQuery.select("id");
+
+    if (!updateErr && action !== "confirmed" && (!updatedRows || updatedRows.length === 0)) {
+      return new Response(JSON.stringify({ error: "This submission was confirmed by another reviewer in the meantime. Refresh the page." }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (updateErr) {
       console.error("Update error:", updateErr);

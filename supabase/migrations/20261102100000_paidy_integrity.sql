@@ -126,16 +126,27 @@ BEGIN
     IF v_rec.status <> 'authorized' THEN
       RETURN jsonb_build_object('error', 'paidy_payment_not_authorized', 'status', v_rec.status);
     END IF;
+    -- A reviewer already REJECTED this authorisation (its close at Paidy may
+    -- have failed): never hand it a new submission (review 2026-10-04 #3).
+    IF EXISTS (SELECT 1 FROM public.payment_submissions
+                WHERE paidy_payment_id = v_rec.id AND status = 'rejected') THEN
+      RETURN jsonb_build_object('error', 'paidy_payment_rejected_by_reviewer');
+    END IF;
     v_outcome := 'recovered';
   END IF;
 
-  -- One pending payment per order (owner Q2). A transfer or card submission
-  -- already waiting for review blocks a Paidy filing.
-  IF EXISTS (SELECT 1 FROM public.payment_submissions
-              WHERE cash_order_id = v_order.id AND status IN ('submitted','under_review')) THEN
-    RETURN jsonb_build_object('error', 'submission_pending');
+  -- The order must still be able to take a payment — one rule for the
+  -- website callback, the webhook and the hourly check (review 2026-10-04 #7).
+  IF v_order.status::text <> 'pending' OR coalesce(v_order.payment_status, '') <> 'pending_transfer'
+     OR (v_order.source_channel = 'web' AND v_order.ready_confirmed_at IS NULL) THEN
+    RETURN jsonb_build_object('error', 'order_cannot_take_payment', 'status', v_order.status::text,
+                              'payment_status', v_order.payment_status);
   END IF;
 
+  -- The record is written BEFORE the one-pending check, so an authorisation
+  -- that has to wait behind another payment is still known to the Hub and the
+  -- hourly check files or releases it later (review 2026-10-04 #4). Returning
+  -- an error below does not roll this insert back (no exception is raised).
   IF v_rec.id IS NULL THEN
     INSERT INTO public.paidy_payments (cash_order_id, customer_id, paidy_payment_id, status, test,
                                        amount_jpy, authorized_at, expires_at, last_payload)
@@ -149,6 +160,17 @@ BEGIN
            updated_at = now()
      WHERE id = v_rec.id
     RETURNING * INTO v_rec;
+  END IF;
+
+  -- One pending payment per order (owner Q2). A transfer or card submission
+  -- waiting for review, or a Confirm claimed but not yet recorded (status
+  -- 'confirmed', no payment linked — the money may be with Paidy), blocks a
+  -- Paidy filing (review 2026-10-04 #1).
+  IF EXISTS (SELECT 1 FROM public.payment_submissions
+              WHERE cash_order_id = v_order.id
+                AND (status IN ('submitted','under_review')
+                     OR (status = 'confirmed' AND confirmed_payment_id IS NULL))) THEN
+    RETURN jsonb_build_object('error', 'submission_pending', 'paidy_record_id', v_rec.id);
   END IF;
 
   INSERT INTO public.payment_submissions (account_id, cash_order_id, customer_id, submitted_amount,
@@ -172,7 +194,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.file_paidy_submission_atomic(uuid, uuid, text, numeric, boolean, timestamptz, timestamptz, jsonb, date, text, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.file_paidy_submission_atomic(uuid, uuid, text, numeric, boolean, timestamptz, timestamptz, jsonb, date, text, text, text) TO service_role;
 COMMENT ON FUNCTION public.file_paidy_submission_atomic(uuid, uuid, text, numeric, boolean, timestamptz, timestamptz, jsonb, date, text, text, text) IS
-  'Files a Paidy authorisation the caller has ALREADY read back from Paidy: paidy_payments + payment_submissions + audit_logs in one transaction under a lock on the order. Outcomes created | existing (retry: same submission returned, nothing written) | recovered (record had no live submission: one is created). Errors: bad_id, bad_amount, order_not_found, paidy_payment_other_order, paidy_payment_not_authorized, submission_pending. service_role only (website POST /orders/:id/paidy, paidy-reconcile).';
+  'Files a Paidy authorisation the caller has ALREADY read back from Paidy: paidy_payments + payment_submissions + audit_logs in one transaction under a lock on the order. Outcomes created | existing (retry: same submission returned, nothing written) | recovered (record had no live submission: one is created). Errors: bad_id, bad_amount, order_not_found, order_cannot_take_payment, paidy_payment_other_order, paidy_payment_not_authorized, paidy_payment_rejected_by_reviewer, submission_pending (the paidy_payments record IS kept so the hourly check can file or release it). service_role only (website POST /orders/:id/paidy, paidy-reconcile).';
 
 -- ---------------------------------------------------------------------------
 -- 4. finalize_cash_submission_atomic
@@ -222,6 +244,14 @@ BEGIN
   END IF;
   IF v_order.status::text IN ('cancelled', 'expired') THEN
     RETURN jsonb_build_object('error', 'order_closed', 'status', v_order.status::text);
+  END IF;
+
+  -- A Paidy payment is recorded only once the Hub holds Paidy's capture
+  -- (review 2026-10-04 #6): never money in the books that Paidy has not taken.
+  IF v_sub.payment_method = 'paidy' AND v_sub.paidy_payment_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.paidy_payments
+                      WHERE id = v_sub.paidy_payment_id AND status = 'captured') THEN
+    RETURN jsonb_build_object('error', 'paidy_not_captured');
   END IF;
 
   v_amount := v_sub.submitted_amount;
@@ -279,7 +309,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) TO service_role;
 COMMENT ON FUNCTION public.finalize_cash_submission_atomic(uuid, uuid, text, date, text) IS
-  'Records a CLAIMED cash-order payment submission in one transaction: cash_payments insert, cash_orders total_paid / remaining_balance / completed, submission confirmed + confirmed_payment_id, audit_logs confirm. Locks the order and the submission. Idempotent (already_recorded). Errors: submission_not_found, not_a_cash_submission, cash_order_not_found, not_claimed, order_closed, bad_amount, exceeds_remaining. service_role only (review-payment-submission, every cash method).';
+  'Records a CLAIMED cash-order payment submission in one transaction: cash_payments insert, cash_orders total_paid / remaining_balance / completed, submission confirmed + confirmed_payment_id, audit_logs confirm. Locks the order and the submission. Idempotent (already_recorded). Errors: submission_not_found, not_a_cash_submission, cash_order_not_found, not_claimed, order_closed, paidy_not_captured (a Paidy submission whose paidy_payments row is not captured), bad_amount, exceeds_remaining. service_role only (review-payment-submission, every cash method).';
 
 -- ---------------------------------------------------------------------------
 -- 5. Self-checks.
