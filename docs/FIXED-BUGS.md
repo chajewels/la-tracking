@@ -5950,3 +5950,24 @@ silently. Frontend only; no edge-function change.
 
 **Guard:** src/test/portal-token-calls-send-session.test.ts — every file under src/ that puts
 `?token=` on a customer-portal URL must also send `session_id` (fails on the pre-fix file).
+
+## 2026-10-04 — Paidy payment integrity (review P01–P12)
+
+**Symptoms (found in review, none seen in production — Paidy is still in test):** a Paidy record could
+exist with no submission (two separate inserts); a Confirm that died between capture and the books left
+money with Paidy and nothing in the Hub, and the next Confirm said "pay again"; real expiry / closed
+answers (400 `payment.authorization.expired`, 403 `service.forbidden`) never hit the 404/409 branch;
+unchecked writes in the webhook returned 200 so Paidy never retried; refunds were ignored; an
+authorisation whose callback was lost was ignored by the webhook; `last_order_amount` came from an
+unordered row; the storefront button could stay disabled when Paidy's script was already loaded.
+
+**Fix:** migration 20261102100000 (`file_paidy_submission_atomic`, `finalize_cash_submission_atomic`,
+`paidy_refunds`, `expires_at`, `capture_started_at`, `processing_started_at`); review-payment-submission
+reads Paidy before and after capture and records every cash Confirm in one transaction; "Finish
+recording" for an interrupted Paidy Confirm; paidy-webhook + new paidy-reconcile share
+`_shared/paidy-sync.ts`; storefront `onReady`. Owner answers Q1–Q5 (2026-10-04). Full rules:
+docs/PAIDY.md "Integrity".
+
+**Guards:** src/test/paidy-rules.test.ts (rules), development/paidy-sync.test.ts (sync, CI), the
+migration's self-check block; both RPCs tested on Postgres 16 incl. failure injection and two-session
+races (second filing → `submission_pending`; second finalize → `already_recorded`, one payment).

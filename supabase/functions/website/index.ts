@@ -16,12 +16,13 @@ import {
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
 import {
-  isPaidyPublicKey, paidyAmountMatches, paidyModeFrom, paidyNotOfferedReason, paidyZip,
+  isPaidyPublicKey, paidyLastOrderAmount, paidyModeFrom, paidyNotOfferedReason, paidyZip,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { CARD_ATTEMPTS_PER_DAY, CARD_HOLD_DAYS, agreementRequired, cardAmountMatches, cardIdempotencyKey, cardNotOfferedReason, squareModeFrom } from "../_shared/card-rules.ts";
 import { SquareError, square, type SquarePayment } from "../_shared/square.ts";
 import { customerReference } from "../_shared/order-reference.ts";
+import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 
@@ -435,7 +436,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   // buyer_data: Paidy asks for the customer's history with us (it raises
   // approval rates). Lifetime value = yen actually received on her cash orders.
   const [{ data: history }, { data: cust }] = await Promise.all([
-    supabase.from("cash_orders").select("total_paid, status, currency").eq("customer_id", customer.id).in("status", ["completed", "pending"]).eq("currency", "JPY"),
+    supabase.from("cash_orders").select("total_paid, status, currency, completed_at, order_date").eq("customer_id", customer.id).in("status", ["completed", "pending"]).eq("currency", "JPY"),
     supabase.from("customers").select("created_at, mobile_number").eq("id", customer.id).maybeSingle(),
   ]);
   const paidOrders = ((history ?? []) as AnyRec[]).filter((o) => Number(o.total_paid ?? 0) > 0);
@@ -463,7 +464,8 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
         ltv,
         account_registration_date: registered || undefined,
         order_count: paidOrders.length,
-        last_order_amount: paidOrders.length ? Math.round(Number(paidOrders[paidOrders.length - 1].total_paid ?? 0)) : undefined,
+        // P10: the most recently COMPLETED paid order, never "the last row returned".
+        last_order_amount: paidyLastOrderAmount(paidOrders),
       },
       order: {
         items: items.map((l) => ({
@@ -2442,9 +2444,27 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!order) return notFound();
       if (isUnconfirmedReservation(order as AnyRec)) return jsonResponse({ error: NOT_READY_FOR_PAYMENT }, 409);
 
-      const { count: pendingCount } = await supabase
+      // P01 (2026-10-04): a retried click (or a lost response) for an
+      // authorisation already filed on THIS order gets that submission back,
+      // instead of "submission_pending" for its own payment.
+      const { data: known, error: knownErr } = await supabase
+        .from("paidy_payments").select("id, cash_order_id").eq("paidy_payment_id", paidyPaymentId).maybeSingle();
+      if (knownErr) throw knownErr;
+      if (known) {
+        if ((known as AnyRec).cash_order_id !== order.id) return jsonResponse({ error: "paidy_mismatch", detail: "other_order" }, 409);
+        const { data: live, error: liveErr } = await supabase
+          .from("payment_submissions").select("id, status, submitted_amount, payment_date")
+          .eq("paidy_payment_id", (known as AnyRec).id).in("status", ["submitted", "under_review", "confirmed"])
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (liveErr) throw liveErr;
+        if (live) return jsonResponse(scrub({ ok: true, submission: live }));
+        // A record with no live submission falls through: the writer recovers it.
+      }
+
+      const { count: pendingCount, error: pendErr } = await supabase
         .from("payment_submissions").select("id", { count: "exact", head: true })
         .eq("cash_order_id", order.id).in("status", ["submitted", "under_review"]);
+      if (pendErr) throw pendErr;
       if ((pendingCount ?? 0) > 0) return jsonResponse({ error: "submission_pending" }, 409);
 
       // The same rule that showed the button must still hold now.
@@ -2454,9 +2474,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       // 3 per 24 h per order, like submit-cash-payment (rejected ones excluded).
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { count: recent } = await supabase
+      const { count: recent, error: recentErr } = await supabase
         .from("payment_submissions").select("id", { count: "exact", head: true })
         .eq("cash_order_id", order.id).not("status", "in", '("rejected","cancelled")').gte("created_at", since);
+      if (recentErr) throw recentErr;
       if ((recent ?? 0) >= 3) return jsonResponse({ error: "too_many_submissions" }, 429);
 
       // Read the authorisation back from Paidy with the secret key — the only
@@ -2470,74 +2491,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         console.error("[website] paidy.get failed:", e);
         return jsonResponse({ error: "paidy_unavailable" }, 502);
       }
-      const mismatch =
-        payment.status !== "AUTHORIZED" ? "not_authorized"
-        : payment.currency !== "JPY" ? "not_jpy"
-        : payment.test !== offer.test ? "test_flag"
-        : !paidyAmountMatches(payment.amount, (order as AnyRec).remaining_balance) ? "amount"
-        : String(payment.order?.order_ref ?? "") !== customerReference(order as never) ? "order_ref"
-        : null;
-      if (mismatch) {
-        // Not ours, or not this order: release it so nothing stays reserved
-        // against the customer's Paidy limit.
-        if (payment.status === "AUTHORIZED") { try { await paidy.close(paidyPaymentId); } catch (e) { console.warn("[website] paidy.close after mismatch failed:", e); } }
-        return jsonResponse({ error: "paidy_mismatch", detail: mismatch }, 409);
-      }
 
-      const { data: rec, error: recErr } = await supabase
-        .from("paidy_payments")
-        .insert({
-          cash_order_id: order.id, customer_id: customer.id, paidy_payment_id: payment.id,
-          status: "authorized", test: payment.test === true, amount_jpy: Math.round(Number(payment.amount)),
-          authorized_at: payment.created_at ?? new Date().toISOString(), last_payload: payment,
-        })
-        .select("id").maybeSingle();
-      if (recErr) {
-        // UNIQUE paidy_payment_id: the same authorisation filed twice is a
-        // retried click, not a second payment.
-        if (String(recErr.code) === "23505") return jsonResponse({ error: "submission_pending" }, 409);
-        throw recErr;
-      }
-
-      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
-      const { data: created, error: subErr } = await supabase
-        .from("payment_submissions")
-        .insert({
-          account_id: null,
-          cash_order_id: order.id,
-          customer_id: customer.id,
-          submitted_amount: Math.round(Number(payment.amount)),
-          payment_date: today,
-          payment_method: "paidy",
-          reference_number: payment.id,
-          sender_name: customer.full_name ?? null,
-          // PD1: a Paidy submission carries no proof file — its proof is the
-          // authorisation read back above.
-          proof_url: null,
-          notes: `Paidy authorisation from the website (${customerReference(order as never)})`,
-          status: "submitted",
-          submission_type: "cash_payment",
-          paidy_payment_id: (rec as AnyRec).id,
-        })
-        .select("id, status, submitted_amount, payment_date").maybeSingle();
-      if (subErr) throw subErr;
-
-      await supabase.from("audit_logs").insert({
-        entity_type: "cash_payment_submission", entity_id: (created as AnyRec).id, action: "submission_created",
-        new_value_json: { cash_order_id: order.id, invoice_number: (order as AnyRec).invoice_number, amount: Math.round(Number(payment.amount)), method: "paidy", reference: payment.id, path: "website_paidy" },
+      // Validation + paidy_payments + payment_submissions + audit in ONE
+      // transaction under the order lock (P01/P04, _shared/paidy-filing.ts).
+      // A mismatch releases the authorisation so nothing stays reserved
+      // against the customer's Paidy limit.
+      const filed = await filePaidyAuthorization(supabase, {
+        order: order as AnyRec,
+        customer: { id: String(customer.id), full_name: customer.full_name == null ? null : String(customer.full_name) },
+        payment, expectTest: offer.test, path: "website_paidy",
       });
-      try {
-        await supabase.from("staff_notifications").insert({
-          type: "paidy_authorized",
-          title: "Paidy payment awaiting Confirm",
-          body: `${customerReference(order as never)} · ¥${Math.round(Number(payment.amount)).toLocaleString("en-US")} · ${customer.full_name ?? ""} · capture on Confirm (valid 30 days)`,
-          metadata: { cash_order_id: order.id, submission_id: (created as AnyRec).id, paidy_payment_id: payment.id, test: payment.test === true },
-        });
-      } catch (notifyErr) {
-        console.warn("[website] paidy_authorized notification failed (non-blocking):", notifyErr);
+      if (!filed.ok) {
+        if (filed.error === "paidy_mismatch") return jsonResponse({ error: "paidy_mismatch", detail: filed.detail }, 409);
+        if (filed.error === "submission_pending") return jsonResponse({ error: "submission_pending" }, 409);
+        if (filed.error === "paidy_payment_other_order") return jsonResponse({ error: "paidy_mismatch", detail: "other_order" }, 409);
+        if (filed.error === "order_not_found") return notFound();
+        return jsonResponse({ error: "paidy_mismatch", detail: filed.error }, 409);
       }
-
-      return jsonResponse(scrub({ ok: true, submission: created }));
+      return jsonResponse(scrub({ ok: true, submission: filed.submission }));
     }
 
     // POST /orders/:id/card — the customer's card was tokenised (3-D Secure
