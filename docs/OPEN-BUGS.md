@@ -785,3 +785,19 @@
   always undefined, so those branches never fire. DP detection works through
   `reference_number` / `remarks` (INVARIANT 11). Harmless; delete the dead
   branches when someone is in those files for a real change.
+
+
+## 2026-10-04 — Paidy integrity follow-ups (independent review, non-blocking)
+
+- **Reject talks to the provider before its guarded status write.** The write is a compare-and-set
+  (never overwrites a `confirmed` submission), so no money is lost, but a losing reviewer may already
+  have closed the Paidy authorisation / cancelled the Square hold before getting 409, and a Square
+  cancel on a captured payment rings a misleading `card_void_failed` bell. Cleaner: flip to
+  `rejected` with the guard first, then close / void.
+- **INVARIANT 12 for a claimed-but-unrecorded Confirm is enforced in the expiry sweep's TypeScript
+  pre-filter, not inside the SQL expiry functions** (`terminate_web_order_atomic` /
+  `expire_web_layaway_atomic` still freeze on submitted / under_review only). A seconds-wide race
+  remains. Changing those bodies must start from live (Bug #280 rule).
+- **submit-cash-payment still accepts a bank transfer while a Paidy Confirm is claimed but not
+  recorded** (owner Q2: transfer path untouched). Outcome is safe — finalize refuses and the
+  "Paidy captured — the order can no longer take it" bell fires — but it can mean a refund decision.

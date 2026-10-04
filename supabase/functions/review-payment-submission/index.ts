@@ -533,10 +533,14 @@ Deno.serve(async (req) => {
           const why = outcome === "expired" ? "Paidy authorisation expired (30 days)"
             : outcome === "closed" ? "Paidy shows this authorisation as closed with nothing captured"
             : "Paidy declined this payment";
-          const { error: subErr } = await supabase.from("payment_submissions").update({
+          const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
             reviewer_notes: `${why} — the customer must pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
-          }).eq("id", submission_id).eq("processing_started_at", claimAt);
+          }).eq("id", submission_id).eq("processing_started_at", claimAt).select("id");
+          if (!subErr && (!rejRows || rejRows.length === 0)) {
+            // Lost the claim to another Confirm: it reads Paidy itself and decides.
+            return json(409, { error: "confirm_in_progress", message: "Another Confirm took over this Paidy payment. Refresh the page." });
+          }
           const { error: audErr } = await supabase.from("audit_logs").insert({
             entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
             new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pp.paidy_payment_id, detail },
