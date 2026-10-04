@@ -211,7 +211,7 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
   transfer or staff submission (`guard_provider_submission` trigger, any route; website,
   submit-cash-payment, customer portal hide/refuse it), no expiry, no cancel (terminate_web_order_atomic →
   `card_payment_unresolved`, staff included). After a verified decline/void it opens again (owner 3A).
-  Direct `cash_payments` writes are covered too (20261106100000): `trg_guard_cash_payment_paidy` refuses
+  Direct `cash_payments` writes are covered too (20261106110000): `trg_guard_cash_payment_paidy` refuses
   store credit, a loyalty-points discount, an un-void or a relabel while the lock is
   `card_payment_unresolved`; only Square's own recording (a row inserted as `square` by
   `finalize_cash_submission_atomic`) passes. The Hub order page then shows "Open in Payments" instead of

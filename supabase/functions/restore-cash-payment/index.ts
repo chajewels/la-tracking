@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       if (String(unvoidErr.message ?? "").includes("paidy_in_progress")) {
         return jsonResponse(409, { error: "This order is being paid with Paidy. A payment can be restored only after staff Reject the Paidy payment." });
       }
-      // Same rule for a live card hold (20261106100000).
+      // Same rule for a live card hold (20261106110000).
       if (String(unvoidErr.message ?? "").includes("card_payment_unresolved")) {
         return jsonResponse(409, { error: "This order has a card payment waiting for Confirm or Reject. A payment can be restored only after staff Confirm or Reject the card payment in Payments." });
       }

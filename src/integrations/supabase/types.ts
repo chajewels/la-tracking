@@ -9712,6 +9712,7 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      is_team_member: { Args: { _user_id: string }; Returns: boolean }
       issue_store_credit_atomic: {
         Args: {
           p_amount: number

@@ -6050,6 +6050,24 @@ through). Harness: `harness/web-invoice-registry/` (23/23). Rule:
 docs/WEB-ORDER-DRAFTS.md.
 
 
+## 2026-10-04 — Customers could read and change the sales log, commissions and inquiries (deep-scan triage)
+
+**Found:** while triaging the 2026-10-04 deep scan (the scanner did not name it). Five tables had
+`USING (true) WITH CHECK (true)` for role `authenticated`: sales_log (1,084 rows — client_name,
+item_amount, invoice_number), commission_agents (7), commission_splits (10), product_inquiries (924 —
+inquirer_name) and inquiry_dropdown_options (21). Every portal customer with a password (139) holds an
+`authenticated` session, so any of them could read, edit or delete these rows through PostgREST.
+
+**Fix:** migration 20261106100000 — new `public.is_team_member(uuid)` (any user_roles row; SECURITY
+DEFINER, EXECUTE revoked from PUBLIC/anon) and one team-members-only FOR ALL policy per table. NOT
+`is_staff()`: it omits the `live_agent` role, whose 2 members can open /commissions. Every team member
+keeps today's access. Dry run on live inside a forced-rollback block: customer 0/0/0/0/0 rows and 0
+updates; live_agent and staff 1084/924/7/10/21 rows and 1 update.
+
+**Same scan, same PR:** send-transactional-email logged the full recipient as `{ effectiveRecipient }`
+(object shorthand) on the suppressed and enqueued lines — masked with maskEmail; the 2026-10-03 guard
+only caught `${…}` interpolation, so development/log-redaction.test.ts gains a bare-recipient check
+(2 offenders before, 0 after).
 ### Store credit / loyalty discount could be added under a live card hold (2026-10-04)
 
 Found while closing out the Square integrity work: `guard_provider_submission` refused other
@@ -6060,7 +6078,7 @@ captured the full held amount, `finalize_cash_submission_atomic` refused a captu
 balance, and the money landed as a `captured_unallocated` exception (bell, staff case) — caught, not
 prevented. Same gap the Paidy lock had (closed 20261104110000).
 
-Fixed by `20261106100000_card_hold_cash_payment_guard.sql`: the existing cash_payments trigger also
+Fixed by `20261106110000_card_hold_cash_payment_guard.sql`: the existing cash_payments trigger also
 refuses while `cash_order_payment_lock` = `card_payment_unresolved`, except a row inserted as `square`
 (Square's own recording). md5-guarded full replace of the live body (4e270015… → 5e1c032a…; the
 reversed edit equals live). The three edge functions answer 409 with a plain sentence. The Hub order
