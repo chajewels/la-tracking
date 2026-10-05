@@ -6085,3 +6085,19 @@ reversed edit equals live). The three edge functions answer 409 with a plain sen
 page shows "Open in Payments" during a hold instead of buttons the server refuses. Local test 9/9
 (store credit, loyalty, un-void, relabel refused; square insert, voided insert, no-lock allowed; Paidy
 unchanged); replay no-op; moved-live stop.
+
+### Square close-out review QC01–QC15 (2026-10-05)
+Independent review of the card integration found four money blockers: (1) a capture refunded in the
+Square Dashboard before the Hub recorded it could still be credited in full; (2) a staff exception
+decision ("other", "refunded in Square") reopened the order without any refund or ledger evidence;
+(3) a direct `cash_payments` INSERT labelled `square` / `paidy` (staff/admin RLS) could manufacture
+provider credit or pass a live card lock, and card receipts had no provider id; (4) void-cash-payment
+could void a recorded card receipt, reopening the invoice while Square still had the money. Plus
+recovery gaps (refund/dispute before its payment ignored for good, Events API 2 h / one page, refunds
+on captures older than 120 days and missed disputes never discovered, a 5-page search treated as
+"absent" and cancelled by key, webhook processing past Square's 10 s window, a first-insert race in the
+refund/dispute upsert, reconcile reporting ok while failing, balance edits during a hold) and accuracy
+items (report presented as settlement, body read outside the timeout, "risk HIGH (voided)").
+Fixed in migration 20261108100000 + six edge functions + the Card payments panel — docs/SQUARE.md
+"QC fixes". Do not reintroduce: a provider label as proof of provider money; a staff decision as proof
+of a refund; a local void of a provider receipt; "not found once" as proof a payment does not exist.
