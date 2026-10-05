@@ -35,6 +35,7 @@ import {
   pointsValue, publicMethod, storedMethod,
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
+import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 
 /**
  * Public website API (server-to-server).
@@ -3573,13 +3574,28 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         return jsonResponse({ error: "too_many_submissions" }, 429);
       }
 
-      // The first payment on a plan is its deposit. review-payment-submission
-      // keys the loyalty award off submission_type = 'downpayment'. Points used
-      // at checkout are not a payment (2026-10-05): a deposit only partly paid
-      // by points is still the deposit.
-      const { data: depStarted, error: depErr } = await supabase.rpc("layaway_deposit_started", { p_account_id: plan.id });
-      if (depErr) throw depErr;
-      const isDeposit = depStarted !== true;
+      // A report is the DEPOSIT while the DP portion paid (plus DP reports still
+      // pending) is below downpayment_amount — a part-paid deposit keeps filing
+      // deposits (qc-audit P2-1, 2026-10-06). review-payment-submission keys the
+      // DP split and the loyalty award off submission_type = 'downpayment'.
+      // Detection mirrors allocate_payment_atomic / submissionIsDP exactly:
+      // _shared/layaway-deposit-rules.ts. Points used at checkout count only
+      // as the DP rows they already are (LOYALTY-, remarks "downpayment").
+      const [{ data: dpAcct, error: dpAcctErr }, { data: dpPays, error: dpPaysErr }, { data: dpPending, error: dpPendErr }] = await Promise.all([
+        supabase.from("layaway_accounts").select("downpayment_amount").eq("id", plan.id).maybeSingle(),
+        supabase.from("payments").select("amount_paid, reference_number, remarks")
+          .eq("account_id", plan.id).is("voided_at", null),
+        supabase.from("payment_submissions").select("submitted_amount, submission_type, reference_number, notes")
+          .eq("account_id", plan.id).in("status", ["submitted", "under_review"]),
+      ]);
+      if (dpAcctErr) throw dpAcctErr;
+      if (dpPaysErr) throw dpPaysErr;
+      if (dpPendErr) throw dpPendErr;
+      const isDeposit = webLayawaySubmissionIsDeposit({
+        downpaymentAmount: Number((dpAcct as AnyRec | null)?.downpayment_amount ?? 0),
+        payments: (dpPays ?? []) as DepositPaymentRow[],
+        pendingSubmissions: (dpPending ?? []) as PendingSubmissionRow[],
+      });
 
       const { data: created, error: subErr } = await supabase
         .from("payment_submissions")

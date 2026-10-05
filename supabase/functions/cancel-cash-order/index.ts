@@ -6,6 +6,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderCancelledEmail, orderCancelledSubject, type RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
+import { terminateRefusalMessage } from "../_shared/terminate-refusals.ts";
 
 const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
 
@@ -184,8 +185,11 @@ Deno.serve(async (req) => {
       return json({ error: msg, code: msg.split(":")[0] }, status);
     }
     if (isWeb && (data as any)?.ok === false) {
-      // already_terminal / not_web_order — nothing was written.
-      return json({ error: (data as any).reason ?? "not_cancellable", ...(data as any) }, 409);
+      // already_terminal / not_web_order — nothing was written. Unresolved
+      // Paidy or card money (paidy_payment_unresolved / card_payment_unresolved)
+      // gets a plain-English message for staff; the code stays on `code`.
+      const reason = (data as any).reason ?? "not_cancellable";
+      return json({ ...(data as any), error: terminateRefusalMessage(reason) ?? reason, code: reason }, 409);
     }
 
     // Emit staff bell notifications. The cancellation already succeeded — neither

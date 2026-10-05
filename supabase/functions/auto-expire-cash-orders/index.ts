@@ -217,7 +217,8 @@ Deno.serve(async (req) => {
           const { data: exp, error: expErr } = await supabase.rpc("expire_web_order_atomic", { p_order_id: order.id });
           if (expErr) throw new Error(`expire_web_order_atomic failed: ${expErr.message}`);
           if (!(exp as any)?.ok) {
-            if ((exp as any)?.reason === "submission_pending" || (exp as any)?.reason === "card_payment_unresolved") {
+            if ((exp as any)?.reason === "submission_pending" || (exp as any)?.reason === "card_payment_unresolved"
+                || (exp as any)?.reason === "paidy_payment_unresolved") {
               // A submission arrived after step 0 — the RPC's own INVARIANT 12
               // check caught it under the row lock. Report it with the others.
               frozenResults.push({

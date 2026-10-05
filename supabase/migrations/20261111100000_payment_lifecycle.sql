@@ -29,11 +29,27 @@
 --      never a per-row fan-out). It calls the existing function per id, so the
 --      answer is identical by construction. At most 100 ids.
 --
---   web_payment_reminder_eligible is deliberately NOT touched (controller
---   ruling R1): the reminder sender reads cash_orders.payment_method itself.
+--   4. QC money/safety fixes (H10, qc-audit P2-2 / P2-3), md5-guarded
+--      in-place patches of LIVE bodies (pg_temp.cj_patch, Bug #280):
+--      a. web_payment_reminder_eligible — the cash branch skips an order
+--         whose public.cash_order_payment_lock(o.id) IS NOT NULL (a Paidy
+--         authorisation / capture / open window, an unresolved card attempt
+--         or a pending submission): never "please pay" while money may
+--         already be held. claim_web_payment_reminder re-applies the rule by
+--         CALLING this function under its row lock (live body md5
+--         3a9669eaadaecf1e8f9576e567a8c96d, read 2026-10-06), so it needs no
+--         patch of its own. The layaway branch is unchanged (no lock there).
+--         The R1 ruling (method-specific wording) is unaffected: this adds
+--         only the lock condition.
+--      b. terminate_web_order_atomic — refuses EVERY caller, staff included,
+--         with reason 'paidy_payment_unresolved' while
+--         cash_order_payment_lock(p_order_id) LIKE 'paidy%', mirroring the
+--         Square guard (card_payment_unresolved). cancel-cash-order turns it
+--         into "Reject or record the Paidy payment first".
 --
--- FUNCTION RULES (CLAUDE.md, Bug #280): no existing function body changes
--- here. The two new functions are created fresh; REVOKE/GRANT asserted below.
+-- FUNCTION RULES (CLAUDE.md, Bug #280): the two new functions are created
+-- fresh; the two patched bodies are changed in place from the live text
+-- (md5-guarded, anchors must match exactly once). REVOKE/GRANT asserted below.
 
 SET lock_timeout = '15s';
 
@@ -180,7 +196,112 @@ COMMENT ON FUNCTION public.cash_order_payment_locks(uuid[]) IS
   'Payment lifecycle (2026-10-05): cash_order_payment_lock for up to 100 orders in one call (the website order list). Same answer per id by construction. Service role only.';
 
 -- ---------------------------------------------------------------------------
--- 4. Post-checks. Any failure rolls the whole migration back.
+-- 4. QC money/safety fixes (H10): in-place patches of live bodies.
+--    Live pg_get_functiondef md5s read 2026-10-06:
+--      web_payment_reminder_eligible(text,uuid)            a6283f61ccdb12cdf4b3522e87e10fb7
+--      terminate_web_order_atomic(uuid,text,...,boolean)   7ca713d878fd2b115d10ba7560eeb0d9
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pg_temp.cj_patch(p_sig text, p_before text, p_edits jsonb)
+RETURNS void LANGUAGE plpgsql AS $p$
+DECLARE
+  v_fn   regprocedure;
+  v_def  text;
+  v_new  text;
+  e      jsonb;
+  v_n    integer;
+  v_done boolean := true;
+BEGIN
+  v_fn := to_regprocedure(p_sig);
+  IF v_fn IS NULL THEN
+    RAISE EXCEPTION 'STOP — % is not on live; nothing changed', p_sig;
+  END IF;
+  v_def := pg_get_functiondef(v_fn);
+  FOR e IN SELECT * FROM jsonb_array_elements(p_edits) LOOP
+    IF position(e ->> 'new' IN v_def) = 0 THEN v_done := false; END IF;
+  END LOOP;
+  IF v_done THEN
+    RAISE NOTICE '% already patched — no change', p_sig;
+    RETURN;
+  END IF;
+  IF md5(v_def) <> p_before THEN
+    RAISE EXCEPTION 'STOP — % has moved on live (md5 %); re-read it before patching. Nothing changed.', p_sig, md5(v_def);
+  END IF;
+  v_new := v_def;
+  FOR e IN SELECT * FROM jsonb_array_elements(p_edits) LOOP
+    v_n := (length(v_new) - length(replace(v_new, e ->> 'old', ''))) / length(e ->> 'old');
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'STOP — % anchor found % times, expected 1: %', p_sig, v_n, left(e ->> 'old', 120);
+    END IF;
+    v_new := replace(v_new, e ->> 'old', e ->> 'new');
+  END LOOP;
+  EXECUTE v_new;
+  IF md5(pg_get_functiondef(v_fn)) <> md5(v_new) THEN
+    RAISE EXCEPTION 'STOP — % did not store the patched body exactly; rolled back', p_sig;
+  END IF;
+END
+$p$;
+
+-- 4a. web_payment_reminder_eligible — no reminder under a payment lock (P2-2).
+SELECT pg_temp.cj_patch('public.web_payment_reminder_eligible(text,uuid)', 'a6283f61ccdb12cdf4b3522e87e10fb7', jsonb_build_array(
+  jsonb_build_object('old', $o$       AND o.web_released_at IS NULL   -- W2-7: a part-paid web order is not chased
+$o$, 'new', $n$       AND o.web_released_at IS NULL   -- W2-7: a part-paid web order is not chased
+       AND public.cash_order_payment_lock(o.id) IS NULL   -- H10: Paidy/card money may already be held
+$n$)));
+
+-- 4b. terminate_web_order_atomic — Paidy money stops every cancel (P2-3).
+SELECT pg_temp.cj_patch('public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', '7ca713d878fd2b115d10ba7560eeb0d9', jsonb_build_array(
+  jsonb_build_object('old', $o$  IF public.square_order_unresolved(p_order_id) THEN
+    RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'card_payment_unresolved',
+      'status', v_status);
+  END IF;
+$o$, 'new', $n$  IF public.square_order_unresolved(p_order_id) THEN
+    RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'card_payment_unresolved',
+      'status', v_status);
+  END IF;
+  -- Paidy (H10, qc-audit P2-3): a Paidy authorisation, a capture not yet
+  -- recorded, a Paidy submission awaiting Confirm or an open Paidy window stops
+  -- EVERY termination, staff included — Reject or record the Paidy payment
+  -- first, so a cancelled order never leaves Paidy money behind.
+  IF coalesce(public.cash_order_payment_lock(p_order_id), '') LIKE 'paidy%' THEN
+    RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'paidy_payment_unresolved',
+      'status', v_status);
+  END IF;
+$n$)));
+
+-- Grants unchanged by CREATE OR REPLACE; re-asserted to the live ACL
+-- (service_role only, read 2026-10-06).
+REVOKE ALL ON FUNCTION public.web_payment_reminder_eligible(text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.web_payment_reminder_eligible(text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. Post-checks. Any failure rolls the whole migration back.
+-- ---------------------------------------------------------------------------
+DO $check$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('public.web_payment_reminder_eligible(text,uuid)', 'cash_order_payment_lock(o.id) IS NULL'),
+      ('public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', 'paidy_payment_unresolved')
+    ) AS t(sig, marker)
+  LOOP
+    IF position(r.marker IN pg_get_functiondef(to_regprocedure(r.sig))) = 0 THEN
+      RAISE EXCEPTION 'STOP — % is missing its patch (%); rolled back', r.sig, r.marker;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('authenticated', 'public.web_payment_reminder_eligible(text,uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.web_payment_reminder_eligible(text,uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOP — a patched function is executable by a signed-in or anonymous caller; rolled back';
+  END IF;
+END
+$check$;
+
+-- ---------------------------------------------------------------------------
+-- 6. Post-checks (H1). Any failure rolls the whole migration back.
 -- ---------------------------------------------------------------------------
 DO $check$
 BEGIN

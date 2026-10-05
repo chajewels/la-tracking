@@ -413,8 +413,9 @@ export default function CashOrderDetail() {
   const squarePending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'square' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // While Paidy or a card hold waits for Confirm / Reject, nothing else can be
   // paid or credited on this order (trg_guard_cash_payment_paidy); a card hold
-  // also blocks cancelling (terminate_web_order_atomic card_payment_unresolved —
-  // a Paidy cancel stays allowed). The page points staff to Payments instead of
+  // also blocks cancelling (terminate_web_order_atomic card_payment_unresolved;
+  // Paidy money too since H10, paidy_payment_unresolved — cancel-cash-order
+  // answers "Reject or record the Paidy payment first"). The page points staff to Payments instead of
   // offering buttons the server would refuse (2026-10-04).
   const providerHold = paidyPending ?? squarePending;
   const { data: orderItems } = useCashOrderItems(id);
