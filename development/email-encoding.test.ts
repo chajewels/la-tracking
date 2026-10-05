@@ -25,6 +25,8 @@ import { OrderPaymentDueEmail } from '../supabase/functions/_shared/email-templa
 import { OrderPaymentReceivedEmail } from '../supabase/functions/_shared/email-templates/order-payment-received.tsx'
 import { OrderReservationLapsedEmail } from '../supabase/functions/_shared/email-templates/order-reservation-lapsed.tsx'
 import { OrderPaymentNotAcceptedEmail } from '../supabase/functions/_shared/email-templates/order-payment-not-accepted.tsx'
+import { OrderUpdateEmail } from '../supabase/functions/_shared/email-templates/order-update.tsx'
+import { LayawayUpdateEmail } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
 import { LayawayReservedEmail } from '../supabase/functions/_shared/email-templates/layaway-reserved.tsx'
 import { LayawayPlanCreatedEmail } from '../supabase/functions/_shared/email-templates/layaway-plan-created.tsx'
 import { LayawayDeclinedEmail } from '../supabase/functions/_shared/email-templates/layaway-declined.tsx'
@@ -121,6 +123,9 @@ function storefrontFixtures(): Fixture[] {
         for (const kind of ['staff', 'provider_ended'])
           for (const open of [true, false])
             add('order-payment-not-accepted.tsx', `order-payment-not-accepted ${k} ${method} ${kind} open=${open}`, el(OrderPaymentNotAcceptedEmail, { lang, currency, reference: base.reference, method, kind, amount: 317980, reason: kind === 'staff' ? 'お届け先の番地を確認させてください。 / Please confirm the street number.' : null, remaining: open ? 317980 : null, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+      // Payment lifecycle H4: generic web-order updates, every variant.
+      for (const variant of ['needs_info', 'deadline_moved', 'shipped', 'details_received'])
+        add('order-update.tsx', `order-update ${k} ${variant}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 317980, message: variant === 'needs_info' ? 'お振込名義を教えてください。 / Please tell us the transfer name.' : null, deadline: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', courier: 'ヤマト運輸 / Yamato', trackingNumber: '4725-7551-6733', trackingUrl: 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733', orderUrl }))
       // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])
@@ -136,6 +141,9 @@ function storefrontFixtures(): Fixture[] {
         add('layaway-reserved.tsx', `layaway-reserved ${currency} draft`, el(LayawayReservedEmail, { ...plan, planUrl, provisional: true }))
         for (const kind of ['declined', 'lapsed'])
           add('layaway-declined.tsx', `layaway-declined ${currency} ${kind}`, el(LayawayDeclinedEmail, { reference: plan.reference, kind, reason: 'The piece did not pass our final inspection.', shopUrl }))
+        // Payment lifecycle H4: web-layaway updates, English only.
+        for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped'])
+          add('layaway-update.tsx', `layaway-update ${currency} ${variant}`, el(LayawayUpdateEmail, { variant, currency, reference: plan.reference, amount: 36000, message: 'The receipt shows a different amount.', deadline: due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl }))
         add('layaway-deposit-due.tsx', `layaway-deposit-due ${currency}`, el(LayawayDepositDueEmail, { reference: plan.reference, currency, deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl }))
       }
     }

@@ -13,6 +13,8 @@ import { LayawayDepositDueEmail, layawayDepositDueSubject } from './layaway-depo
 import type { OrderEmailMethod } from './order-shared.tsx'
 import { CartReminderEmail, cartReminderSubject } from './cart-reminder.tsx'
 import { OrderPaymentNotAcceptedEmail, orderPaymentNotAcceptedSubject } from './order-payment-not-accepted.tsx'
+import { OrderUpdateEmail, orderUpdateSubject } from './order-update.tsx'
+import { LayawayUpdateEmail, layawayUpdateSubject } from './layaway-update.tsx'
 
 /**
  * PREVIEWS FOR THE STOREFRONT EMAILS (reserve-first A2, 2026-09-24).
@@ -174,6 +176,56 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     component: OrderPaymentNotAcceptedEmail,
     subject: orderPaymentNotAcceptedSubject('CJ-W-000128', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000128', method: 'transfer', kind: 'staff', amount: 72980, currency: 'JPY', reason: 'The receipt shows a different amount. Please reply with the receipt for ¥72,980.', remaining: 72980, transferDueAt: due, region: 'JP', orderUrl },
+  },
+  // Payment lifecycle H4: generic web-order / web-layaway updates
+  // (_shared/order-update-email.ts). One entry per variant.
+  'storefront-order-update-needs-info-ja': {
+    displayName: 'Web order — payment needs clarification (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('needs_info', 'CJ-W-000129', 'ja'),
+    previewData: { lang: 'ja', variant: 'needs_info', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, message: 'お振込名義を教えてください。', deadline: due, region: 'JP', orderUrl },
+  },
+  'storefront-order-update-deadline-moved-ja': {
+    displayName: 'Web order — payment deadline moved (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('deadline_moved', 'CJ-W-000129', 'ja'),
+    previewData: { lang: 'ja', variant: 'deadline_moved', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, deadline: due, region: 'JP', orderUrl },
+  },
+  'storefront-order-update-shipped-en': {
+    displayName: 'Web order — shipped, with tracking (EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('shipped', 'CJ-W-000129', 'en'),
+    previewData: { lang: 'en', variant: 'shipped', reference: 'CJ-W-000129', currency: 'JPY', region: 'JP', courier: 'Yamato Transport', trackingNumber: '4725-7551-6733', trackingUrl: 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733', orderUrl },
+  },
+  'storefront-order-update-details-received-ja': {
+    displayName: 'Web order — staff recorded her payment, awaiting check (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('details_received', 'CJ-W-000129', 'ja'),
+    previewData: { lang: 'ja', variant: 'details_received', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, region: 'JP', orderUrl },
+  },
+  'storefront-layaway-update-rejected': {
+    displayName: 'Web layaway — payment rejected (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('rejected', 'CJ-W-000124'),
+    previewData: { variant: 'rejected', reference: 'CJ-W-000124', currency: 'PHP', amount: 8000, message: 'The receipt shows a different amount.', planUrl },
+  },
+  'storefront-layaway-update-needs-info': {
+    displayName: 'Web layaway — payment needs clarification (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('needs_info', 'CJ-W-000124'),
+    previewData: { variant: 'needs_info', reference: 'CJ-W-000124', currency: 'JPY', amount: 36000, message: 'Please send the receipt for the second transfer.', planUrl },
+  },
+  'storefront-layaway-update-deadline-moved': {
+    displayName: 'Web layaway — deposit deadline moved (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('deadline_moved', 'CJ-W-000124'),
+    previewData: { variant: 'deadline_moved', reference: 'CJ-W-000124', currency: 'JPY', amount: 36000, deadline: due, planUrl },
+  },
+  'storefront-layaway-update-shipped': {
+    displayName: 'Web layaway — shipped, with tracking (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('shipped', 'CJ-W-000124'),
+    previewData: { variant: 'shipped', reference: 'CJ-W-000124', currency: 'PHP', courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl },
   },
   'storefront-order-payment-due-en': {
     displayName: 'Web order — payment reminder (EN)',

@@ -31,6 +31,7 @@ import { LayawayDepositDueEmail, layawayDepositDueSubject } from '../supabase/fu
 import { LayawayExpiredEmail, layawayExpiredSubject } from '../supabase/functions/_shared/email-templates/layaway-expired.tsx'
 import { LayawayForfeitedEmail, layawayForfeitedSubject } from '../supabase/functions/_shared/email-templates/layaway-forfeited.tsx'
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from '../supabase/functions/_shared/email-templates/layaway-payment-received.tsx'
+import { LayawayUpdateEmail, layawayUpdateSubject } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
 
 /** Hiragana, katakana, CJK ideographs, CJK punctuation, full-width forms. */
 const JAPANESE = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/
@@ -81,6 +82,10 @@ function cases(): Case[] {
     for (const isDeposit of [true, false])
       for (const last of [false, true])
         out.push({ file: 'layaway-payment-received.tsx', name: `payment-received ${currency} deposit=${isDeposit} paidInFull=${last}`, subject: layawayPaymentReceivedSubject(ref, isDeposit), element: el(LayawayPaymentReceivedEmail, { reference: ref, currency, isDeposit, amountReceived: 36000, remaining: last ? 0 : 84000, schedule, nextDueDate: last ? null : '2026-11-24', nextDueAmount: last ? null : 28000, planUrl }) })
+    // Payment lifecycle H4: web-layaway updates (reject, needs info, deadline, shipped).
+    for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped'] as const)
+      for (const message of ['The receipt shows a different amount.', null])
+        out.push({ file: 'layaway-update.tsx', name: `update ${currency} ${variant} message=${!!message}`, subject: layawayUpdateSubject(variant, ref), element: el(LayawayUpdateEmail, { variant, reference: ref, currency, amount: 36000, message, deadline: due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl }) })
     for (const final of [false, true])
       out.push({ file: 'layaway-forfeited.tsx', name: `forfeited ${currency} final=${final}`, subject: layawayForfeitedSubject(ref), element: el(LayawayForfeitedEmail, { reference: ref, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }) })
   }
