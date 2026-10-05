@@ -12,7 +12,9 @@
  * 20261109100000_payment_lifecycle.sql), which re-checks everything under a
  * row lock. The refusal order here MUST equal the SQL order:
  *   not_web_order, not_payable, payment_in_progress, not_rejected,
- *   bad_method, unchanged, method_requires_yen
+ *   already_switched, bad_method, unchanged, method_requires_yen
+ * already_switched (H6 fix round 1): ONE customer switch per rejection — a
+ * customer switch audited after the deciding rejection spends it.
  * (not_found — wrong order id or another customer's order — exists only in SQL.)
  * Change one, change the other.
  */
@@ -34,6 +36,11 @@ export interface SwitchInput {
    * needs_clarification / confirmed submissions. Only 'rejected' allows a switch.
    */
   latestDecision: 'rejected' | 'needs_clarification' | 'confirmed' | null
+  /**
+   * A customer switch (audit_logs payment_method_changed, actor customer) was
+   * recorded after the deciding rejection (its updated_at, else created_at).
+   */
+  switchedSinceDecision: boolean
   /** cash_orders.currency */
   currency: string
   /** the stored method (null on the order reads as 'transfer', as in SQL) */
@@ -51,6 +58,7 @@ export function canCustomerSwitch(input: SwitchInput): SwitchVerdict {
   }
   if (input.lock !== null && input.lock !== undefined) return { ok: false, error: 'payment_in_progress' }
   if (input.latestDecision !== 'rejected') return { ok: false, error: 'not_rejected' }
+  if (input.switchedSinceDecision) return { ok: false, error: 'already_switched' }
   if (!(CUSTOMER_METHODS as readonly string[]).includes(input.to)) return { ok: false, error: 'bad_method' }
   if ((input.from ?? 'transfer') === input.to) return { ok: false, error: 'unchanged' }
   if (input.to !== 'transfer' && input.currency !== 'JPY') return { ok: false, error: 'method_requires_yen' }
@@ -65,4 +73,14 @@ export function canCustomerSwitch(input: SwitchInput): SwitchVerdict {
  */
 export function switchTargets(base: Omit<SwitchInput, 'to'>): CustomerMethod[] {
   return CUSTOMER_METHODS.filter((to) => canCustomerSwitch({ ...base, to }).ok)
+}
+
+/**
+ * The idempotency key of the order-method-changed email sent after the
+ * CUSTOMER's own switch (H6 fix round 1): one email per (order, deciding
+ * rejection, new stored method), so a repeated request never sends twice.
+ * The staff path (change-payment-method) keeps its own keys.
+ */
+export function customerSwitchEmailKey(orderId: string, decisionId: string, method: string): string {
+  return `order-method-changed-${orderId}-${decisionId}-${method}`
 }

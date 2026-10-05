@@ -188,6 +188,13 @@ export type ReadyEmailOpts = {
    * key of its own (the confirm key was spent).
    */
   methodChanged?: boolean;
+  /**
+   * Overrides the idempotency key (H6 fix round 1): the customer's own switch
+   * passes `order-method-changed-<order>-<deciding submission>-<new method>`
+   * so a repeated request never sends twice. Unset = today's keys (the staff
+   * path is unchanged).
+   */
+  idempotencyKey?: string;
 };
 
 export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEmailOpts = {}): Promise<ReservationEmailResult> {
@@ -211,7 +218,8 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
       subject: opts.methodChanged ? orderMethodChangedSubject(o.reference, o.lang) : orderReadySubject(o.reference, o.lang),
       label,
       reference: o.reference,
-      idempotencyKey: opts.methodChanged
+      idempotencyKey: opts.idempotencyKey ? opts.idempotencyKey
+        : opts.methodChanged
         ? `order-method-changed-${orderId}-${String(o.order.payment_method ?? "transfer")}-${Date.now()}`
         : opts.revived
         ? `order-revived-${orderId}-${String(o.order.transfer_due_at ?? "")}`

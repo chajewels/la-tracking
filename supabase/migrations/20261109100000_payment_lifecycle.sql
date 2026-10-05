@@ -18,12 +18,22 @@
 --      order that is not hers answers not_found (never reveals existence).
 --      TS mirror of the refusal order: supabase/functions/_shared/method-switch-rules.ts
 --      (canCustomerSwitch) — change one, change the other.
+--      ONE SWITCH PER REJECTION (controller ruling, H6 fix round 1): after a
+--      rejection she may switch once; a second switch before another decision
+--      answers already_switched. Refusal order:
+--        not_found, not_web_order, not_payable, payment_in_progress,
+--        not_rejected, already_switched, bad_method, unchanged,
+--        method_requires_yen
+--   3. cash_order_payment_locks(uuid[]) — the batched read of
+--      cash_order_payment_lock for the website's order list (one call per page,
+--      never a per-row fan-out). It calls the existing function per id, so the
+--      answer is identical by construction. At most 100 ids.
 --
 --   web_payment_reminder_eligible is deliberately NOT touched (controller
 --   ruling R1): the reminder sender reads cash_orders.payment_method itself.
 --
 -- FUNCTION RULES (CLAUDE.md, Bug #280): no existing function body changes
--- here. The one new function is created fresh; REVOKE/GRANT asserted below.
+-- here. The two new functions are created fresh; REVOKE/GRANT asserted below.
 
 SET lock_timeout = '15s';
 
@@ -67,6 +77,8 @@ DECLARE
   v_lock     text;
   v_ref      text;
   v_decision text;
+  v_decision_id uuid;
+  v_decided_at timestamptz;
 BEGIN
   IF p_order_id IS NULL OR p_customer_id IS NULL THEN
     RETURN jsonb_build_object('error', 'not_found');
@@ -96,7 +108,8 @@ BEGIN
   -- C1: only after her latest DECIDED payment was rejected. Latest decision =
   -- newest by updated_at (decision time) among rejected / needs_clarification /
   -- confirmed.
-  SELECT s.status::text INTO v_decision
+  SELECT s.status::text, s.id, coalesce(s.updated_at, s.created_at)
+    INTO v_decision, v_decision_id, v_decided_at
     FROM public.payment_submissions s
    WHERE s.cash_order_id = p_order_id
      AND s.status IN ('rejected', 'needs_clarification', 'confirmed')
@@ -104,6 +117,18 @@ BEGIN
    LIMIT 1;
   IF v_decision IS DISTINCT FROM 'rejected' THEN
     RETURN jsonb_build_object('error', 'not_rejected');
+  END IF;
+  -- One customer switch per rejection: a customer switch audited AFTER the
+  -- deciding rejection (its updated_at, else created_at) spends it. Staff
+  -- switches never count against her.
+  IF EXISTS (
+    SELECT 1 FROM public.audit_logs a
+     WHERE a.entity_type = 'cash_order' AND a.entity_id = p_order_id
+       AND a.action = 'payment_method_changed'
+       AND a.new_value_json->>'actor' = 'customer'
+       AND a.created_at > v_decided_at
+  ) THEN
+    RETURN jsonb_build_object('error', 'already_switched');
   END IF;
   IF p_method IS NULL OR p_method NOT IN ('transfer', 'paidy', 'square') THEN
     RETURN jsonb_build_object('error', 'bad_method');
@@ -124,7 +149,8 @@ BEGIN
                              'customer_id', p_customer_id, 'reference', v_ref),
           NULL);
 
-  RETURN jsonb_build_object('ok', true, 'old_method', v_old, 'payment_method', p_method, 'reference', v_ref);
+  RETURN jsonb_build_object('ok', true, 'old_method', v_old, 'payment_method', p_method, 'reference', v_ref,
+                            'decision_id', v_decision_id);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.switch_web_payment_method_by_customer_atomic(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
@@ -133,7 +159,28 @@ COMMENT ON FUNCTION public.switch_web_payment_method_by_customer_atomic(uuid, uu
   'Payment lifecycle (2026-10-05): the customer changes how she pays a website cash order, ONLY after her latest decided payment was rejected and with no payment in progress (C1 otherwise holds). Audited with actor customer. Service role only (the website edge function passes the signed-in customer). TS mirror: _shared/method-switch-rules.ts.';
 
 -- ---------------------------------------------------------------------------
--- 3. Post-checks. Any failure rolls the whole migration back.
+-- 3. Batched payment-lock read for the website's order list.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.cash_order_payment_locks(p_ids uuid[])
+RETURNS TABLE(id uuid, lock text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+AS $fn$
+BEGIN
+  IF coalesce(cardinality(p_ids), 0) > 100 THEN
+    RAISE EXCEPTION 'cash_order_payment_locks: at most 100 ids (got %)', cardinality(p_ids);
+  END IF;
+  RETURN QUERY
+    SELECT x.order_id, public.cash_order_payment_lock(x.order_id)
+      FROM unnest(coalesce(p_ids, ARRAY[]::uuid[])) AS x(order_id);
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.cash_order_payment_locks(uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cash_order_payment_locks(uuid[]) TO service_role;
+COMMENT ON FUNCTION public.cash_order_payment_locks(uuid[]) IS
+  'Payment lifecycle (2026-10-05): cash_order_payment_lock for up to 100 orders in one call (the website order list). Same answer per id by construction. Service role only.';
+
+-- ---------------------------------------------------------------------------
+-- 4. Post-checks. Any failure rolls the whole migration back.
 -- ---------------------------------------------------------------------------
 DO $check$
 BEGIN
@@ -148,6 +195,13 @@ BEGIN
   END IF;
   IF NOT has_function_privilege('service_role', 'public.switch_web_payment_method_by_customer_atomic(uuid,uuid,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOP — service_role cannot execute the customer switch; rolled back';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.cash_order_payment_locks(uuid[])', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.cash_order_payment_locks(uuid[])', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOP — the batched lock read is executable by a signed-in or anonymous caller; rolled back';
+  END IF;
+  IF NOT has_function_privilege('service_role', 'public.cash_order_payment_locks(uuid[])', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOP — service_role cannot execute the batched lock read; rolled back';
   END IF;
 END
 $check$;

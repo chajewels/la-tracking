@@ -97,3 +97,18 @@ export function latestDecision(rows: DecisionRow[]): LatestDecision | null {
     message: msg,
   };
 }
+
+/**
+ * ONE CUSTOMER SWITCH PER REJECTION (H6 fix round 1). True when a customer
+ * switch (audit_logs payment_method_changed, actor customer, created_at =
+ * `lastCustomerSwitchAt`) is later than the deciding rejection's decision time
+ * (updated_at, else created_at) — the SQL's
+ * `a.created_at > coalesce(s.updated_at, s.created_at)`. No decision or no
+ * switch → false (the SQL's comparison with NULL is never true).
+ */
+export function switchedSinceDecision(decision: DecisionRow | null, lastCustomerSwitchAt: string | null | undefined): boolean {
+  if (!decision) return false;
+  const decidedAt = timestampMicros(decision.updated_at) ?? timestampMicros(decision.created_at);
+  const switchedAt = timestampMicros(lastCustomerSwitchAt);
+  return decidedAt !== null && switchedAt !== null && switchedAt > decidedAt;
+}

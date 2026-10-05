@@ -7,8 +7,8 @@ import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
 import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
-import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, type DecisionRow } from "../_shared/latest-decision.ts";
-import { type CustomerMethod, type SwitchInput, canCustomerSwitch, switchTargets } from "../_shared/method-switch-rules.ts";
+import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from "../_shared/latest-decision.ts";
+import { type CustomerMethod, type SwitchInput, canCustomerSwitch, customerSwitchEmailKey, switchTargets } from "../_shared/method-switch-rules.ts";
 import {
   loyaltyEnabledFrom, previewEarn, previewEarnAsNewMember,
   type EarnMember, type EarnPromo, type EarnTier,
@@ -673,14 +673,36 @@ function newestDecisionStatus(rows: DecisionRow[]): SwitchInput["latestDecision"
   return s === "rejected" || s === "needs_clarification" || s === "confirmed" ? s : null;
 }
 
+/**
+ * One customer switch per rejection (H6 fix round 1): when her newest
+ * decision is a rejection, has she already switched since it? One read of the
+ * newest customer-actor payment_method_changed audit row — the same fact the
+ * SQL writer checks (already_switched). No read when the newest decision is
+ * not a rejection (canCustomerSwitch refuses not_rejected first anyway).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function customerSwitchedSinceDecision(supabase: any, orderId: string, decided: DecisionRow[]): Promise<boolean> {
+  const newest = newestDecided(decided);
+  if (!newest || newest.status !== "rejected") return false;
+  const { data, error } = await supabase.from("audit_logs")
+    .select("created_at")
+    .eq("entity_type", "cash_order").eq("entity_id", orderId)
+    .eq("action", "payment_method_changed").eq("new_value_json->>actor", "customer")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  const at = (data as AnyRec | null)?.created_at;
+  return switchedSinceDecision(newest, typeof at === "string" ? at : null);
+}
+
 /** canCustomerSwitch's inputs for an order (everything except the target). */
-function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[]): Omit<SwitchInput, "to"> {
+function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[], switchedSince: boolean): Omit<SwitchInput, "to"> {
   return {
     status: String(order.status ?? ""),
     paymentStatus: (order.payment_status ?? null) as string | null,
     sourceChannel: (order.source_channel ?? null) as string | null,
     lock,
     latestDecision: newestDecisionStatus(decided),
+    switchedSinceDecision: switchedSince,
     currency: String(order.currency ?? ""),
     from: (order.payment_method ?? null) as string | null,
   };
@@ -705,7 +727,8 @@ async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRe
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function customerSwitchMethods(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, decided: DecisionRow[]): Promise<CheckoutMethod[]> {
   const out: CheckoutMethod[] = [];
-  for (const to of switchTargets(switchBase(order, lock, decided))) {
+  const switchedSince = await customerSwitchedSinceDecision(supabase, String(order.id), decided);
+  for (const to of switchTargets(switchBase(order, lock, decided, switchedSince))) {
     if (await switchTargetOffered(supabase, customer, order, shipTo, items, pendingCount, lock, cardUnresolved, to)) out.push(publicMethod(to));
   }
   return out;
@@ -718,6 +741,7 @@ const SWITCH_ERROR_STATUS: Record<string, number> = {
   not_payable: 409,
   payment_in_progress: 409,
   not_rejected: 409,
+  already_switched: 409,
   unchanged: 409,
   method_not_offered: 409,
   bad_method: 400,
@@ -2743,9 +2767,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const firstItemByOrder = new Map<string, AnyRec>();
       for (const l of firstOrderLines) firstItemByOrder.set(String(l.cash_order_id), l);
       // Payment lifecycle H6: "being checked" = an open submission (one query
-      // for the whole page) or a payment lock. cash_order_payment_lock takes
-      // one order at a time, so it is called only for this page's OPEN
-      // (pending) orders — at most 50, in parallel; a closed order holds none.
+      // for the whole page) or a payment lock (one batched call,
+      // cash_order_payment_locks, for this page's OPEN orders — a closed
+      // order holds none; the page is at most 50, the function's cap 100).
       const { data: openSubs, error: osErr } = orderIds.length
         ? await supabase.from("payment_submissions").select("cash_order_id")
             .in("cash_order_id", orderIds).or(PENDING_SUBMISSION_OR)
@@ -2753,8 +2777,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (osErr) throw osErr;
       const checking = new Set(((openSubs ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
       const pendingIds = orders.filter((o) => o.status === "pending" && !checking.has(String(o.id))).map((o) => String(o.id));
-      const locks = await Promise.all(pendingIds.map((id) => paymentLock(supabase, id)));
-      pendingIds.forEach((id, i) => { if (locks[i]) checking.add(id); });
+      if (pendingIds.length) {
+        const { data: lockRows, error: lockErr } = await supabase.rpc("cash_order_payment_locks", { p_ids: pendingIds });
+        if (lockErr) throw lockErr;
+        for (const r of (lockRows ?? []) as AnyRec[]) if (typeof r.lock === "string" && r.lock) checking.add(String(r.id));
+      }
       return jsonResponse(scrub(orders.map((o) => {
         const first = firstItemByOrder.get(String(o.id));
         return {
@@ -2915,7 +2942,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!to || !CHECKOUT_METHODS.includes(String(body.method ?? "").trim().toLowerCase() as CheckoutMethod)) {
         return jsonResponse({ error: "bad_method" }, 400);
       }
-      if (!/^[0-9a-f-]{36}$/i.test(segments[1])) return jsonResponse({ error: "not_found" }, 404);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segments[1])) return jsonResponse({ error: "not_found" }, 404);
       const { data: order, error } = await supabase
         .from("cash_orders")
         .select(`${ORDER_FIELDS}, ship_to_snapshot, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
@@ -2933,7 +2960,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (itemsErr) throw itemsErr;
       if (pendErr) throw pendErr;
       // Early refusal, same codes and order as the SQL writer.
-      const verdict = canCustomerSwitch({ ...switchBase(order as AnyRec, lock, decided), to });
+      const switchedSince = await customerSwitchedSinceDecision(supabase, orderId, decided);
+      const verdict = canCustomerSwitch({ ...switchBase(order as AnyRec, lock, decided, switchedSince), to });
       if (!verdict.ok) return jsonResponse({ error: verdict.error }, SWITCH_ERROR_STATUS[verdict.error] ?? 409);
       const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
       const offered = await switchTargetOffered(
@@ -2953,7 +2981,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
       // The order-method-changed email: how to pay now, only the new method.
       // guarded() inside never throws — a failed send never fails the switch.
-      const email = await sendOrderReadyEmail(supabase, orderId, { methodChanged: true });
+      // Deterministic key: one email per (order, deciding rejection, new method).
+      const decisionId = String(r.decision_id ?? newestDecided(decided)?.id ?? "");
+      const email = await sendOrderReadyEmail(supabase, orderId, {
+        methodChanged: true,
+        idempotencyKey: customerSwitchEmailKey(orderId, decisionId, String(r.payment_method)),
+      });
       console.log(JSON.stringify({ customer_payment_method_switch: orderId, from: r.old_method, to: r.payment_method, email_sent: email?.sent === true }));
       return jsonResponse({ ok: true, payment_method: publicMethod(r.payment_method) });
     }

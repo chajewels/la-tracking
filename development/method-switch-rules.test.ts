@@ -7,7 +7,7 @@
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/method-switch-rules.test.ts
  */
 import { assertEquals } from 'jsr:@std/assert@1'
-import { canCustomerSwitch, type SwitchInput } from '../supabase/functions/_shared/method-switch-rules.ts'
+import { canCustomerSwitch, customerSwitchEmailKey, type SwitchInput } from '../supabase/functions/_shared/method-switch-rules.ts'
 
 const base: SwitchInput = {
   status: 'pending',
@@ -15,6 +15,7 @@ const base: SwitchInput = {
   sourceChannel: 'web',
   lock: null,
   latestDecision: 'rejected',
+  switchedSinceDecision: false,
   currency: 'JPY',
   from: 'paidy',
   to: 'transfer',
@@ -74,7 +75,8 @@ Deno.test('refusal order mirrors the SQL', () => {
   assertEquals(err({ sourceChannel: 'hub', status: 'completed', lock: 'x', latestDecision: null, to: 'bitcoin' }), 'not_web_order')
   assertEquals(err({ status: 'completed', lock: 'x', latestDecision: null, to: 'bitcoin' }), 'not_payable')
   assertEquals(err({ lock: 'x', latestDecision: null, to: 'bitcoin' }), 'payment_in_progress')
-  assertEquals(err({ latestDecision: null, to: 'bitcoin' }), 'not_rejected')
+  assertEquals(err({ latestDecision: null, switchedSinceDecision: true, to: 'bitcoin' }), 'not_rejected')
+  assertEquals(err({ switchedSinceDecision: true, to: 'bitcoin' }), 'already_switched')
   assertEquals(err({ to: 'bitcoin', currency: 'PHP' }), 'bad_method')
   assertEquals(err({ from: 'square', to: 'square', currency: 'PHP' }), 'unchanged')
 })
@@ -86,4 +88,27 @@ Deno.test('latest decision confirmed -> not_rejected', () => {
 Deno.test('null stored method reads as transfer', () => {
   assertEquals(err({ from: null, to: 'transfer' }), 'unchanged')
   assertEquals(err({ from: null, to: 'paidy' }), 'ok')
+})
+
+Deno.test('one switch per rejection -> already_switched', () => {
+  assertEquals(err({ switchedSinceDecision: true }), 'already_switched')
+  assertEquals(err({ switchedSinceDecision: true, from: 'transfer', to: 'paidy' }), 'already_switched')
+})
+
+Deno.test('a switch before the rejection does not count', () => {
+  assertEquals(err({ switchedSinceDecision: false, from: 'transfer', to: 'paidy' }), 'ok')
+})
+
+Deno.test('already_switched comes after payment_in_progress and not_rejected', () => {
+  assertEquals(err({ switchedSinceDecision: true, lock: 'x' }), 'payment_in_progress')
+  assertEquals(err({ switchedSinceDecision: true, latestDecision: 'needs_clarification' }), 'not_rejected')
+  assertEquals(err({ switchedSinceDecision: true, from: 'paidy', to: 'paidy' }), 'already_switched')
+})
+
+Deno.test('customer switch email key is deterministic per order, decision and method', () => {
+  const k = customerSwitchEmailKey('o-1', 'd-1', 'square')
+  assertEquals(k, 'order-method-changed-o-1-d-1-square')
+  assertEquals(customerSwitchEmailKey('o-1', 'd-1', 'square'), k)
+  assertEquals(customerSwitchEmailKey('o-1', 'd-2', 'square') === k, false)
+  assertEquals(customerSwitchEmailKey('o-1', 'd-1', 'paidy') === k, false)
 })

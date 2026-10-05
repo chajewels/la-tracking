@@ -8,7 +8,7 @@
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/latest-decision.test.ts
  */
 import { assertEquals } from 'jsr:@std/assert@1'
-import { latestDecision, newestDecided, type DecisionRow } from '../supabase/functions/_shared/latest-decision.ts'
+import { latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from '../supabase/functions/_shared/latest-decision.ts'
 import { switchTargets, type SwitchInput } from '../supabase/functions/_shared/method-switch-rules.ts'
 
 const row = (over: Partial<DecisionRow>): DecisionRow => ({
@@ -110,7 +110,7 @@ Deno.test('amount is a number; decided_at falls back to created_at', () => {
 // switchTargets: the methods canCustomerSwitch allows, in public names.
 const base: Omit<SwitchInput, 'to'> = {
   status: 'pending', paymentStatus: 'pending_transfer', sourceChannel: 'web', lock: null,
-  latestDecision: 'rejected', currency: 'JPY', from: 'paidy',
+  latestDecision: 'rejected', switchedSinceDecision: false, currency: 'JPY', from: 'paidy',
 }
 
 Deno.test('switchTargets: rejected Paidy on yen -> transfer and card', () => {
@@ -128,4 +128,19 @@ Deno.test('switchTargets: none when not rejected, locked or not web', () => {
   assertEquals(switchTargets({ ...base, latestDecision: null }), [])
   assertEquals(switchTargets({ ...base, lock: 'payment_pending' }), [])
   assertEquals(switchTargets({ ...base, sourceChannel: 'hub' }), [])
+})
+
+Deno.test('switchTargets: none once she has switched since the rejection', () => {
+  assertEquals(switchTargets({ ...base, switchedSinceDecision: true }), [])
+})
+
+Deno.test('switchedSinceDecision: a customer switch after the decision counts, before does not', () => {
+  const d = row({ updated_at: '2026-10-05T02:00:00.000001+00:00' })
+  assertEquals(switchedSinceDecision(d, '2026-10-05T02:00:00.000002+00:00'), true)
+  assertEquals(switchedSinceDecision(d, '2026-10-05T02:00:00.000001+00:00'), false)
+  assertEquals(switchedSinceDecision(d, '2026-10-05T01:00:00+00:00'), false)
+  assertEquals(switchedSinceDecision(d, null), false)
+  assertEquals(switchedSinceDecision(null, '2026-10-05T03:00:00+00:00'), false)
+  // decision time falls back to created_at when updated_at is null
+  assertEquals(switchedSinceDecision(row({ updated_at: null, created_at: '2026-10-05T01:00:00+00:00' }), '2026-10-05T01:30:00+00:00'), true)
 })
