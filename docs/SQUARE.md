@@ -355,7 +355,7 @@ state change vs a Finish — each reproduced on the earlier body, none now); `de
 Review of the integration against developer.squareup.com (Project doc
 `claude/square-docs-gap-review-2026-10-05.md`). Migration
 `20261110100000_square_docs_gap.sql`; acceptance `development/sql/square-docs-gap-acceptance.sql`
-(15 passed; 3 before the migration); deno `development/square-integrity.test.ts` (HUB-1, HUB-4).
+(15 passed; 5 before the migration); deno `development/square-integrity.test.ts` (HUB-1, HUB-4).
 
 - **HUB-1** `_shared/square.ts` `call()`: a money-moving write (CreatePayment, Complete, Cancel,
   CancelByIdempotencyKey) whose earlier try may have reached Square (network, timeout, 5xx, 429) and
@@ -367,9 +367,10 @@ Review of the integration against developer.squareup.com (Project doc
   (`DISPUTE_CLOSED_STATES`). `record_square_dispute` does NOT treat it as terminal and square-reconcile
   keeps re-reading it: Square's docs do not say whether a closed inquiry can be escalated on the same
   dispute id, so a later open state is still recorded.
-- **HUB-3** risk rising to HIGH after filing → `apply_square_payment_state` sets exception `risk_high`
-  (never over an open one) + bell `card_risk_high`; square-reconcile voids an APPROVED `risk_high` hold
-  (existing rule); Confirm refuses 409 `risk_high`. The order is not fraud-cancelled on this path.
+- **HUB-3** risk rising to HIGH after filing → bell `card_risk_high` once (no exception, so
+  square-reconcile does NOT void the hold by itself); Confirm refuses 409 `risk_high`; the reviewer
+  Rejects (void). The order is not fraud-cancelled on this path. Whether such a hold should be voided
+  automatically within the hour is an OPEN OWNER DECISION (today only filing-time HIGH is automatic).
 - **HUB-4** CreatePayment sends `buyer_email_address` (the Hub customer's email, plain address only).
 - **HUB-5** a decline answered as a FAILED payment with HTTP 200 counts toward the fraud rule.
 - **HUB-6** Reject on a PENDING payment → 409 `card_pending`, no `card_void_failed` bell.

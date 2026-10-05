@@ -1,7 +1,7 @@
 -- Square docs-gap acceptance tests (2026-10-05, migration 20261110100000). NOT a migration — never
 -- applied to live. Runs on a local Postgres copy of the live schema (or the column-subset stub the
 -- review used) with 20261110100000 applied, auth.uid() stubbed as current_setting('test.uid') and
--- is_staff / has_role answering true. One transaction, rolled back. Expected: 15 passed, 0 failed (before the migration: 3 passed, 12 failed).
+-- is_staff / has_role answering true. One transaction, rolled back. Expected: 15 passed, 0 failed (before the migration: 5 passed, 10 failed).
 \set QUIET on
 BEGIN;
 CREATE TEMP TABLE t_results (n serial, name text, pass boolean, detail text);
@@ -23,16 +23,16 @@ CREATE FUNCTION pg_temp.apply(p_id text, p_status text, p_risk text) RETURNS jso
   SELECT public.apply_square_payment_state(p_id, p_status, 8640, 0, 'JPY', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                                            p_risk, NULL, NULL, 'reconcile', NULL) $$;
 
--- HUB-3: risk rises PENDING → HIGH on a live hold
-SELECT pg_temp.ok((pg_temp.apply('sq_risk', 'APPROVED', 'HIGH'))->>'exception' = 'risk_high', 'HUB-3 rise to HIGH answers exception risk_high');
-SELECT pg_temp.ok((SELECT exception = 'risk_high' AND exception_resolved_at IS NULL AND risk_level = 'HIGH' AND status = 'authorized'
-                     FROM public.square_payments WHERE square_payment_id = 'sq_risk'), 'HUB-3 row carries risk_high, still authorized');
+-- HUB-3: risk rises PENDING → HIGH on a live hold → one bell, no exception (no automatic void)
+SELECT pg_temp.ok((pg_temp.apply('sq_risk', 'APPROVED', 'HIGH'))->>'to' = 'authorized', 'HUB-3 rise to HIGH keeps the hold authorised');
+SELECT pg_temp.ok((SELECT exception IS NULL AND risk_level = 'HIGH' AND status = 'authorized'
+                     FROM public.square_payments WHERE square_payment_id = 'sq_risk'), 'HUB-3 risk stored, no exception (reconcile never auto-voids it)');
 SELECT pg_temp.ok((SELECT count(*) = 1 FROM public.staff_notifications WHERE type = 'card_risk_high'), 'HUB-3 one card_risk_high bell');
 SELECT pg_temp.ok((pg_temp.apply('sq_risk', 'APPROVED', 'HIGH'))->>'exception' IS NULL
                   AND (SELECT count(*) = 1 FROM public.staff_notifications WHERE type = 'card_risk_high'), 'HUB-3 HIGH again: no second bell');
 SELECT pg_temp.ok((pg_temp.apply('sq_mism', 'APPROVED', 'HIGH'))->>'exception' IS NULL
                   AND (SELECT exception = 'amount_mismatch' FROM public.square_payments WHERE square_payment_id = 'sq_mism'),
-                  'HUB-3 an open exception is never overwritten');
+                  'HUB-3 an open exception is left as it is');
 
 -- HUB-7: CANCELED without capture_by → authorized_at + 7 days decides expired vs voided
 SELECT pg_temp.ok((pg_temp.apply('sq_nocb_old', 'CANCELED', NULL))->>'to' = 'expired', 'HUB-7 no capture_by, authorised 8 days ago → expired');

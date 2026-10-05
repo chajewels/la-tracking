@@ -3124,8 +3124,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Network / timeout / 5xx / 429 after retries: Square MAY have
         // authorised. The attempt stays open; the website or square-reconcile
         // resolves it by reading Square. The customer must not pay again yet.
-        console.error("[website] square.create ambiguous:", e);
-        await resolve("unknown", ["reserved"], { detail: e instanceof Error ? e.message : String(e) }).catch(() => null);
+        console.error("[website] square.create ambiguous:", e instanceof SquareError ? `${e.status} ${e.code}` : "", e);
+        // HUB-1: a payment Square attached to the error lets recovery read it directly.
+        await resolve("unknown", ["reserved"], { squarePaymentId: e instanceof SquareError ? e.payment?.id ?? null : null, detail: e instanceof Error ? e.message : String(e) }).catch(() => null);
         return jsonResponse({ ok: false, status: "unknown", attempt: { reference: attempt.reference } }, 202);
       }
 

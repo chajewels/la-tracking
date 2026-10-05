@@ -10,9 +10,9 @@
 --          escalated on the same dispute id, so INQUIRY_CLOSED is not made
 --          terminal there — a later open state is still recorded, never hidden.
 --   HUB-3  apply_square_payment_state: a live hold whose Square risk rises to
---          HIGH after filing becomes the risk_high exception + bell
---          'card_risk_high' (square-reconcile already voids an APPROVED
---          risk_high hold; review-payment-submission now refuses to capture it).
+--          HIGH after filing rings bell 'card_risk_high' once. No exception is
+--          set, so square-reconcile does not void it automatically;
+--          review-payment-submission refuses to capture it; the reviewer Rejects.
 --   HUB-7  a hold without capture_by falls back to authorized_at + 7 days
 --          (Square's default online window) in apply_square_payment_state
 --          (expired vs voided) and ring_square_deadline_bells (the warning) —
@@ -34,7 +34,7 @@ DO $guard$
 DECLARE r record; v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-    ('public.apply_square_payment_state(text,text,bigint,bigint,text,text,timestamptz,timestamptz,timestamptz,text,text,text,text,jsonb,jsonb,text,uuid)', '8ad64c42440eb9dea459007baea8a9df', '6961da686227e24afa2ed717c7759814'),
+    ('public.apply_square_payment_state(text,text,bigint,bigint,text,text,timestamptz,timestamptz,timestamptz,text,text,text,text,jsonb,jsonb,text,uuid)', '8ad64c42440eb9dea459007baea8a9df', '7829cbc0647cafc24122719b37c991ee'),
     ('public.decide_square_case(text,uuid,text,text)', '983c3d19218a2687008677a83f42bbfb', '6e988fb59d643953abe56ae77aad8864'),
     ('public.ring_square_deadline_bells(timestamptz)', '1645c0b5880aed4fe9ff44bc0153f91a', '49c2fc5cc13621d5b8192a91653721d2'),
     ('public.square_ops_health()', 'd3c93ebcfde5c865b321c086b4df5c82', '01a39c90b6c3e05cae0da29459696e23')) AS t(sig, live_md5, new_md5)
@@ -78,7 +78,6 @@ DECLARE
   v_ref    text;
   v_amt    text;
   v_old_risk     text;
-  v_old_exc_open boolean;
 BEGIN
   -- One lock order everywhere (review 2026-10-05 A): the latest submission,
   -- then the card row — the order finalize_cash_submission_atomic and
@@ -92,7 +91,6 @@ BEGIN
   SELECT * INTO v_order FROM public.cash_orders WHERE id = v_sq.cash_order_id;
   v_from := v_sq.status;
   v_old_risk := upper(coalesce(v_sq.risk_level, ''));
-  v_old_exc_open := v_sq.exception IS NOT NULL AND v_sq.exception_resolved_at IS NULL;
   v_ref := coalesce(v_order.web_reference, v_order.invoice_number, '');
   v_amt := '¥' || to_char(coalesce(p_amount_jpy, round(v_sq.amount_jpy)::bigint), 'FM999,999,999');
 
@@ -166,22 +164,15 @@ BEGIN
   RETURNING * INTO v_sq;
 
   -- HUB-3 (2026-10-05): Square's risk can rise to HIGH after the hold was
-  -- filed (it was PENDING then). A live hold now rated HIGH becomes the
-  -- risk_high exception (square-reconcile voids an APPROVED risk_high hold;
-  -- review-payment-submission refuses to capture it) and staff are told.
-  -- An exception already open is never overwritten.
-  IF v_to = 'authorized' AND upper(coalesce(p_risk_level, '')) = 'HIGH' AND v_old_risk <> 'HIGH'
-     AND v_exc IS NULL AND NOT v_old_exc_open THEN
-    v_exc := 'risk_high';
-    UPDATE public.square_payments
-       SET exception = v_exc, exception_at = now(),
-           exception_note = 'Square raised the risk to HIGH after the hold was filed',
-           exception_resolved_at = NULL, updated_at = now()
-     WHERE id = v_sq.id
-    RETURNING * INTO v_sq;
+  -- filed (it was PENDING then). Staff are told once (bell 'card_risk_high');
+  -- review-payment-submission refuses to capture while Square says HIGH, so
+  -- the reviewer Rejects (the hold is voided, nothing is charged). No
+  -- exception is set here: an automatic void of a customer's hold stays the
+  -- filing-time fraud rule only (owner decision pending; docs/SQUARE.md).
+  IF v_to = 'authorized' AND upper(coalesce(p_risk_level, '')) = 'HIGH' AND v_old_risk <> 'HIGH' THEN
     INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
     VALUES ('card_risk_high', 'Card payment now HIGH risk',
-            v_ref || ' · ' || v_amt || ' — Square raised this card payment to HIGH risk after it was filed. Do not capture it: Confirm is refused and the hourly check voids the hold (nothing is charged).',
+            v_ref || ' · ' || v_amt || ' — Square raised this card payment to HIGH risk after it was filed. Do not capture it: Confirm is refused. Reject it in Payments Hub (the hold is voided, nothing is charged).',
             v_order.customer_id, v_order.invoice_number,
             jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id,
                                'risk_level', 'HIGH', 'source', p_source, 'test', v_sq.test));

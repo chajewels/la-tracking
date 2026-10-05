@@ -795,7 +795,12 @@ Deno.serve(async (req) => {
           if (String(live.risk_evaluation?.risk_level ?? "").toUpperCase() === "HIGH") {
             await releaseSquareAction();
             if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
-            return json(409, { error: "risk_high", message: "Square now rates this card payment HIGH risk. Nothing was captured. Reject it (the hold is voided, nothing is charged)." });
+            return json(409, {
+              error: "risk_high",
+              message: resuming
+                ? "Square now rates this card payment HIGH risk. Nothing was captured. Void the hold in the Square Dashboard, then press \"Finish recording\": the Hub reads Square, sees the hold closed and rejects the submission."
+                : "Square now rates this card payment HIGH risk. Nothing was captured. Reject it (the hold is voided, nothing is charged).",
+            });
           }
           try {
             live = await square.complete(env, sp.square_payment_id, live.version_token ?? null);
