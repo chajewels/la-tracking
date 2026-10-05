@@ -6560,6 +6560,9 @@ export type Database = {
           environment: string | null
           exception: string | null
           exception_at: string | null
+          exception_decided_at: string | null
+          exception_decided_by: string | null
+          exception_decision: string | null
           exception_note: string | null
           exception_resolved_at: string | null
           exception_resolved_by: string | null
@@ -6572,6 +6575,7 @@ export type Database = {
           provider_verification: Json | null
           provider_version: string | null
           receipt_url: string | null
+          reconciled_at: string | null
           reference: string | null
           refund_jpy: number
           risk_level: string | null
@@ -6618,6 +6622,9 @@ export type Database = {
           environment?: string | null
           exception?: string | null
           exception_at?: string | null
+          exception_decided_at?: string | null
+          exception_decided_by?: string | null
+          exception_decision?: string | null
           exception_note?: string | null
           exception_resolved_at?: string | null
           exception_resolved_by?: string | null
@@ -6630,6 +6637,7 @@ export type Database = {
           provider_verification?: Json | null
           provider_version?: string | null
           receipt_url?: string | null
+          reconciled_at?: string | null
           reference?: string | null
           refund_jpy?: number
           risk_level?: string | null
@@ -6676,6 +6684,9 @@ export type Database = {
           environment?: string | null
           exception?: string | null
           exception_at?: string | null
+          exception_decided_at?: string | null
+          exception_decided_by?: string | null
+          exception_decision?: string | null
           exception_note?: string | null
           exception_resolved_at?: string | null
           exception_resolved_by?: string | null
@@ -6688,6 +6699,7 @@ export type Database = {
           provider_verification?: Json | null
           provider_version?: string | null
           receipt_url?: string | null
+          reconciled_at?: string | null
           reference?: string | null
           refund_jpy?: number
           risk_level?: string | null
@@ -6811,6 +6823,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      square_sync_state: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
       }
       square_webhook_events: {
         Row: {
@@ -10417,6 +10447,7 @@ export type Database = {
         Returns: Json
       }
       square_mode: { Args: never; Returns: string }
+      square_ops_health: { Args: never; Returns: Json }
       square_order_unresolved: {
         Args: { p_order_id: string }
         Returns: boolean
@@ -10432,6 +10463,7 @@ export type Database = {
           day: string
           disputes_lost_jpy: number
           fees_jpy: number
+          fees_missing: number
           gross_jpy: number
           net_jpy: number
           refunds_completed_jpy: number
