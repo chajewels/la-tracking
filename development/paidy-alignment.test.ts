@@ -8,7 +8,7 @@ import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.t
 import {
   PAIDY_WEBHOOK_IPS, isPaidyWebhookIp, paidyBillingAddress, paidyBuyerHistory, paidyCaptureDeadlineText,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyPointsBeforeOrder,
-  paidyWebhookIpCheckOn,
+  paidyWebhookIpCheckOn, paidyWebhookSourceIp,
 } from "../supabase/functions/_shared/paidy-rules.ts";
 
 const root = new URL("../", import.meta.url);
@@ -94,12 +94,19 @@ Deno.test("webhook IP: each of Paidy's 5 published IPs passes", () => {
     assert(isPaidyWebhookIp(ip), ip);
   }
 });
-Deno.test("webhook IP: others, empty and null are refused; first x-forwarded-for entry decides", () => {
+Deno.test("webhook IP: others, empty and null are not Paidy", () => {
   assertEquals(isPaidyWebhookIp("1.2.3.4"), false);
   assertEquals(isPaidyWebhookIp(""), false);
   assertEquals(isPaidyWebhookIp(null), false);
-  assertEquals(isPaidyWebhookIp("13.114.134.35, 10.0.0.1"), true);
-  assertEquals(isPaidyWebhookIp("10.0.0.1, 13.114.134.35"), false);
+  assertEquals(isPaidyWebhookIp(" 13.114.134.35 "), true);
+});
+const hdrs = (h: Record<string, string>) => new Headers(h);
+Deno.test("source IP: cf-connecting-ip wins; else the LAST x-forwarded-for entry; missing → null", () => {
+  assertEquals(paidyWebhookSourceIp(hdrs({ "cf-connecting-ip": "52.199.50.20", "x-forwarded-for": "1.1.1.1, 2.2.2.2" })), "52.199.50.20");
+  assertEquals(paidyWebhookSourceIp(hdrs({ "x-forwarded-for": "13.114.134.35, 10.0.0.1" })), "10.0.0.1");
+  assertEquals(paidyWebhookSourceIp(hdrs({ "x-forwarded-for": "1.2.3.4, 13.114.134.35 " })), "13.114.134.35");
+  assertEquals(paidyWebhookSourceIp(hdrs({})), null);
+  assertEquals(paidyWebhookSourceIp(hdrs({ "x-forwarded-for": " , " })), null);
 });
 Deno.test("webhook IP check: only the exact 'off' disables it", () => {
   assertEquals(paidyWebhookIpCheckOn("off"), false);
@@ -151,13 +158,27 @@ Deno.test("wiring: website builds the payload with the helpers and never sends t
   assert(/paidyPointsBeforeOrder\(/.test(w));
   assert(/paidyDob\(/.test(w));
 });
-Deno.test("wiring: webhook checks the source IP before any write", () => {
+Deno.test("wiring: webhook source check is SOFT — never drops a delivery (R14)", () => {
   const w = code("supabase/functions/paidy-webhook/index.ts");
-  const gate = w.indexOf("isPaidyWebhookIp(");
-  const insert = w.indexOf('.from("paidy_webhook_events")');
-  assert(gate > 0 && insert > gate);
+  assert(/paidyWebhookSourceIp\(req\.headers\)/.test(w));
   assert(/Deno\.env\.get\("PAIDY_WEBHOOK_IP_CHECK"\)/.test(w));
-  assert(/ignored:\s*true/.test(w));
+  assertEquals(/ignored:\s*true/.test(w), false);
+  assert(/"webhook", 0, \{ recognisedSource \}\)/.test(w));
+  assert(w.indexOf('.from("paidy_webhook_events")') > 0);
+  const e = code("supabase/functions/_shared/paidy-events.ts");
+  const gate = e.indexOf("opts.recognisedSource === false");
+  assert(gate > 0 && gate < e.indexOf('kind: "provider_unreadable"'));
+});
+Deno.test("wiring: test accounts stay out of both buyer-history queries", () => {
+  const w = code("supabase/functions/website/index.ts");
+  assertEquals((w.match(/\.filter\("invoice_number", "match", "\^\[0-9\]\+\$"\)/g) ?? []).length >= 2, true);
+  assert(/\.from\("cash_orders"\)\s*\.select\("id, status, currency, total_amount, completed_at, order_date"\)[\s\S]{0,250}\.filter\("invoice_number", "match"/.test(w));
+  assert(/\.from\("layaway_accounts"\)[\s\S]{0,250}\.filter\("invoice_number", "match"/.test(w));
+});
+Deno.test("wiring: expiry note names Paidy's expires_at, 30 days only as fallback", () => {
+  const r = code("supabase/functions/review-payment-submission/index.ts");
+  assertEquals(/expired \(30 days\)/.test(r), false);
+  assert(/passed Paidy's expiry \(its expires_at/.test(r));
 });
 Deno.test("wiring: the authorised bell uses Paidy's expires_at", () => {
   const f = code("supabase/functions/_shared/paidy-filing.ts");

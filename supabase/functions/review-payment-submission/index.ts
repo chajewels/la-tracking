@@ -586,7 +586,7 @@ Deno.serve(async (req) => {
           const at = new Date().toISOString();
           const { error: recErr } = await supabase.from("paidy_payments")
             .update({ status: outcome, closed_at: at, closed_reason: detail, updated_at: at }).eq("id", pp.id).eq("status", "authorized");
-          const why = outcome === "expired" ? "Paidy authorisation expired (30 days) before it was captured"
+          const why = outcome === "expired" ? "Paidy authorisation passed Paidy's expiry (its expires_at; 30 days after authorisation only when Paidy sent none) before it was captured"
             : outcome === "closed" ? "Paidy shows this authorisation as closed with nothing captured"
             : "Paidy declined this payment";
           const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({

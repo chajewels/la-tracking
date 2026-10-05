@@ -526,9 +526,13 @@ export function paidyCheckoutPayload(a: {
 /**
  * H9 / P2-6: the IPs Paidy sends webhooks from, as published at
  * https://paidy.com/docs/en/webhook.html ("Paidy sends webhook notifications
- * from the following IP addresses"). Change ONLY when Paidy's page changes;
- * the PAIDY_WEBHOOK_IP_CHECK=off edge secret disables the check without a
- * deploy (docs/PAIDY.md).
+ * from the following IP addresses"). Change ONLY when Paidy's page changes.
+ *
+ * SOFT GATE (controller ruling R14, 2026-10-06): the source never decides
+ * whether a delivery is processed — every one is stored and re-read from
+ * Paidy. It only decides whether an id Paidy does not know may open a
+ * `provider_unreadable` case + staff bell. The PAIDY_WEBHOOK_IP_CHECK=off
+ * edge secret treats every source as recognised (docs/PAIDY.md).
  */
 export const PAIDY_WEBHOOK_IPS: readonly string[] = [
   "13.114.134.35",
@@ -538,10 +542,22 @@ export const PAIDY_WEBHOOK_IPS: readonly string[] = [
   "52.199.62.26",
 ];
 
-/** True only when the FIRST x-forwarded-for entry is one of Paidy's IPs. Missing / empty → false. */
-export function isPaidyWebhookIp(forwardedFor: string | null | undefined): boolean {
-  const ip = String(forwardedFor ?? "").split(",")[0].trim();
-  return ip !== "" && PAIDY_WEBHOOK_IPS.includes(ip);
+/**
+ * The address that connected: `cf-connecting-ip` when present, else the LAST
+ * x-forwarded-for entry (the one the platform adds; earlier entries are
+ * client-supplied). null when neither is there.
+ */
+export function paidyWebhookSourceIp(headers: { get(name: string): string | null }): string | null {
+  const cf = String(headers.get("cf-connecting-ip") ?? "").trim();
+  if (cf) return cf;
+  const entries = String(headers.get("x-forwarded-for") ?? "").split(",").map((e) => e.trim()).filter(Boolean);
+  return entries.length ? entries[entries.length - 1] : null;
+}
+
+/** True only for one of Paidy's published IPs. Missing / empty → false. */
+export function isPaidyWebhookIp(ip: string | null | undefined): boolean {
+  const v = String(ip ?? "").trim();
+  return v !== "" && PAIDY_WEBHOOK_IPS.includes(v);
 }
 
 /** The check is on unless the env value is exactly "off". */

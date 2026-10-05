@@ -531,6 +531,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const { data: past } = await supabase.from("cash_orders")
     .select("id, status, currency, total_amount, completed_at, order_date")
     .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
+    .filter("invoice_number", "match", "^[0-9]+$")
     .order("completed_at", { ascending: false }).limit(200);
   const pastIds = ((past ?? []) as AnyRec[]).map((o) => String(o.id));
   const [{ data: paidyPaid }, { data: refunded }, { data: billing }, { data: plans }, { data: member }] = await Promise.all([
@@ -543,6 +544,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     supabase.from("layaway_accounts")
       .select("status, currency, total_amount, completed_at, order_date")
       .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY")
+      .filter("invoice_number", "match", "^[0-9]+$")
       .order("completed_at", { ascending: false }).limit(200),
     supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle(),
   ]);

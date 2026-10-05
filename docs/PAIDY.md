@@ -271,13 +271,30 @@ Checked against paidy.com/docs/en/paidycheckout.html and webhook.html.
   already deducted them; 1 pt = ¥1). Omitted when she is not a member.
 - `order.tax` is omitted (optional; prices are tax-inclusive — 0 was wrong).
 - `metadata` = `{ cash_order_id, customer_id, source: "web" }` (max 20 keys).
-- WEBHOOK SOURCE IP: only Paidy's 5 published IPs (`PAIDY_WEBHOOK_IPS`,
-  13.114.134.35, 13.113.94.100, 18.182.135.232, 52.199.50.20, 52.199.62.26),
-  read from the first `x-forwarded-for` entry. Anything else → 200
-  `{ ignored: true }`, nothing written, no Paidy call, no bell. ESCAPE HATCH:
-  edge secret `PAIDY_WEBHOOK_IP_CHECK=off` turns the check off without a
-  deploy (e.g. if Paidy changes IPs before the list is updated); any other
-  value or no secret = on.
+- WEBHOOK SOURCE CHECK IS SOFT (controller ruling R14): EVERY delivery is
+  processed exactly as before (inbox row, re-read from Paidy) — a dropped real
+  webhook is unrecoverable for an authorisation the Hub does not know (P12),
+  and the header can be appended to or misread. The source IP is
+  `cf-connecting-ip` when present, else the LAST `x-forwarded-for` entry (the
+  one the platform adds), `paidyWebhookSourceIp()`. It is compared with
+  Paidy's 5 published IPs (`PAIDY_WEBHOOK_IPS`: 13.114.134.35, 13.113.94.100,
+  18.182.135.232, 52.199.50.20, 52.199.62.26) and decides ONE thing: whether
+  an id Paidy does not know (404) may open a `provider_unreadable` case + staff
+  bell. Recognised → as before. Unrecognised → no case, no bell, the inbox row
+  is marked `(unrecognised source)` and the function logs
+  `[paidy-webhook] unrecognised source <ip>` (IP only). ESCAPE HATCH: edge
+  secret `PAIDY_WEBHOOK_IP_CHECK=off` treats every source as recognised; any
+  other value or no secret = on. Edge case: a delivery that passes the 8 s
+  deadline is finished by the sweep, which does not know the source and opens
+  the case as before.
+- GO-LIVE CHECK (source IP): after the first deploy, log the raw
+  `cf-connecting-ip` and `x-forwarded-for` headers of ONE real Paidy test
+  webhook (temporary log, then remove) and confirm the platform supplies
+  Paidy's IP in `cf-connecting-ip` or as the last XFF entry. If not, real
+  Paidy 404s would be logged as "unrecognised source" with no bell — set
+  `PAIDY_WEBHOOK_IP_CHECK=off` until the parsing is fixed.
+- Buyer history (cash and layaway) leaves out test accounts: numeric invoice
+  numbers only (`invoice_number ~ '^[0-9]+$'`).
 
 Open for owner (NOT implemented):
 - P2-1 `buyer.name1`: Paidy asks for kanji, FAMILY name first, space-separated;
