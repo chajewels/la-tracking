@@ -276,10 +276,10 @@ const ActionDialogModal = memo(function ActionDialogModal({
                 : `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
               : actionDialog.action === 'rejected'
               ? isPaidy(actionDialog.sub)
-                ? 'This submission will be marked as rejected and the Paidy authorisation released — the customer is not charged. The customer will see your reason.'
+                ? 'This submission will be marked as rejected and the Paidy authorisation released — the customer is not charged. The customer is emailed that the Paidy payment was cancelled, with your reason, and can pay again. Paidy itself sends no cancellation email.'
                 : isSquare(actionDialog.sub)
-                ? 'The Hub reads this card payment from Square, then asks Square to VOID the hold. The submission is rejected only once Square confirms the void — then the customer is not charged and sees your reason. If Square has already taken the money, nothing is rejected: use Confirm instead (it records the capture without charging again).'
-                : 'This submission will be marked as rejected. The customer will see your reason.'
+                ? 'The Hub reads this card payment from Square, then asks Square to VOID the hold. The submission is rejected only once Square confirms the void — then the customer is not charged and is emailed that the hold was released, with your reason. If Square has already taken the money, nothing is rejected: use Confirm instead (it records the capture without charging again).'
+                : 'This submission will be marked as rejected. The customer is emailed your reason.'
               : actionDialog.action === 'restore'
               ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
               : 'Send a message to the customer requesting more information.'}

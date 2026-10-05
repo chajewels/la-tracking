@@ -10,6 +10,7 @@
 
 import { isAttemptReference, squareEnvironmentOf, squareModeFrom, type SquareEnvironment } from "./card-rules.ts";
 import { paymentFacts, square, SquareError, type SquareDispute, type SquarePayment, type SquareRefund } from "./square.ts";
+import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -53,13 +54,24 @@ export function phtToday(now: Date = new Date()): string {
 /** Applies a Square read-back to the Hub (apply_square_payment_state). */
 export async function applyPaymentState(db: Db, p: SquarePayment, source: string, userId: string | null = null): Promise<AnyRec> {
   const f = paymentFacts(p);
-  return await rpc(db, "apply_square_payment_state", {
+  const result = await rpc(db, "apply_square_payment_state", {
     p_square_payment_id: p.id, p_provider_status: p.status, p_amount_jpy: f.amountJpy, p_refunded_jpy: f.refundedJpy,
     p_currency: f.currency, p_provider_version: f.providerVersion, p_provider_updated_at: f.providerUpdatedAt,
     p_captured_at: f.capturedAt, p_capture_by: f.captureBy, p_card_brand: f.cardBrand, p_card_last4: f.cardLast4,
     p_receipt_url: f.receiptUrl, p_risk_level: f.riskLevel, p_provider_verification: f.verification,
     p_payload: p, p_source: source, p_user_id: userId,
   });
+  // Square ended the hold itself (webhook / reconcile) and the SQL rejected the
+  // waiting submission: tell the customer (owner 2026-10-05). A reviewer's
+  // Reject ('void') and a Confirm's read-back ('review', 'capture') send their
+  // own email from review-payment-submission, so they are skipped here.
+  if ((result as AnyRec | null)?.submission_action === "rejected" && !["void", "review", "capture"].includes(source)) {
+    const { data: sub } = await db.from("payment_submissions").select("id")
+      .eq("square_payment_id", (result as AnyRec).square_row_id).eq("status", "rejected")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (sub?.id) await sendCashPaymentRejectedEmail(db, { submissionId: String(sub.id), kind: "provider_ended" });
+  }
+  return result;
 }
 
 /** The labels a filing carries: customer reference, invoice, sender name. */

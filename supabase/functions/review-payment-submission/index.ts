@@ -21,6 +21,7 @@ import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-aut
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
+import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -602,6 +603,8 @@ Deno.serve(async (req) => {
             console.error("[review-payment-submission] Paidy end-of-authorisation writes failed:", recErr, subErr, audErr);
             return json(500, { error: "paidy_reject_write_failed", message: `Paidy says: ${why}. Recording that in the Hub failed — refresh and Reject this submission.` });
           }
+          // The customer hears it from us — Paidy never emails a cancellation.
+          await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "provider_ended" });
           return json(409, { error: outcome === "expired" ? "paidy_authorization_expired" : `paidy_${outcome}`, message: `${why}. The submission was rejected; the customer may pay again.` });
         };
 
@@ -757,6 +760,7 @@ Deno.serve(async (req) => {
             new_value_json: { reason: "card_hold_closed", square_payment_id: sp.square_payment_id, square_status: live.status },
             performed_by_user_id: user.id,
           });
+          if (!rejErr) await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "provider_ended" });
           return json(409, { error: "card_hold_closed", message: `Square shows this card hold as ${live.status}: nothing was charged. The submission was rejected; the customer can pay again.` });
         };
 
@@ -1745,6 +1749,14 @@ Deno.serve(async (req) => {
       },
       old_value_json: { status: submission.status },
     });
+
+    // A CASH-ORDER submission (web or Hub) rejected by a reviewer: the
+    // customer's email, with the reviewer's message (owner 2026-10-05). The
+    // block below reads layaway_accounts only, so before this a cash-order
+    // Reject told the customer nothing. Never throws.
+    if (action === "rejected" && submission.cash_order_id) {
+      await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+    }
 
     // Send status-change email to customer (fire-and-forget)
     try {
