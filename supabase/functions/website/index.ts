@@ -6,7 +6,9 @@ import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
-import { sendDraftReservedEmail } from "../_shared/reservation-emails.ts";
+import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
+import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, type DecisionRow } from "../_shared/latest-decision.ts";
+import { type CustomerMethod, type SwitchInput, canCustomerSwitch, switchTargets } from "../_shared/method-switch-rules.ts";
 import {
   loyaltyEnabledFrom, previewEarn, previewEarnAsNewMember,
   type EarnMember, type EarnPromo, type EarnTier,
@@ -398,7 +400,21 @@ function shapeDraft(d: AnyRec): AnyRec {
     payment_method: publicMethod(d.payment_method),
     points: Number(d.points ?? 0),
     points_value: Number(d.points_value ?? 0),
+    // Payment lifecycle H6 (2026-10-05): what is left to pay once the points
+    // are taken off — the Hub's figure, the storefront computes nothing. On a
+    // layaway draft the points pay the DEPOSIT (the deposit already shows
+    // that), so the total is unchanged.
+    total_after_points: draftTotalAfterPoints(d),
   };
+}
+
+/** max(0, total − points_value) on a full-payment draft; the total itself on a layaway draft. */
+function draftTotalAfterPoints(d: AnyRec): number {
+  const total = Number(d.total ?? 0);
+  if (!Number.isFinite(total)) return 0;
+  if (d.mode === "layaway") return total;
+  const pv = Number(d.points_value ?? 0);
+  return Math.max(0, total - (Number.isFinite(pv) ? pv : 0));
 }
 
 /** What a customer may see of their own layaway plan. */
@@ -631,6 +647,82 @@ async function cardPaymentState(supabase: any, orderId: string): Promise<AnyRec 
   const state = hold.status === "captured" ? "recording" : hold.action === "capture" ? "capturing" : "held";
   return { state, reference: hold.reference ?? null, since: hold.authorized_at, capture_by: hold.capture_by, brand: hold.card_brand, last4: hold.card_last4 };
 }
+
+/**
+ * PAYMENT LIFECYCLE H6 (2026-10-05): the decided submissions (rejected /
+ * needs_clarification / confirmed) on one order or plan, newest first in the
+ * SQL writer's own order. A SEPARATE read from pending_submissions, which
+ * keeps its exact shape. Feeds latestDecision / newestDecided.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function decidedSubmissions(supabase: any, column: "cash_order_id" | "account_id", id: string): Promise<DecisionRow[]> {
+  const { data, error } = await supabase.from("payment_submissions")
+    .select(DECISION_FIELDS)
+    .eq(column, id).in("status", [...DECIDED_STATUSES])
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as DecisionRow[];
+}
+
+/** The newest decided status, typed for canCustomerSwitch (confirmed included). */
+function newestDecisionStatus(rows: DecisionRow[]): SwitchInput["latestDecision"] {
+  const s = newestDecided(rows)?.status;
+  return s === "rejected" || s === "needs_clarification" || s === "confirmed" ? s : null;
+}
+
+/** canCustomerSwitch's inputs for an order (everything except the target). */
+function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[]): Omit<SwitchInput, "to"> {
+  return {
+    status: String(order.status ?? ""),
+    paymentStatus: (order.payment_status ?? null) as string | null,
+    sourceChannel: (order.source_channel ?? null) as string | null,
+    lock,
+    latestDecision: newestDecisionStatus(decided),
+    currency: String(order.currency ?? ""),
+    from: (order.payment_method ?? null) as string | null,
+  };
+}
+
+/**
+ * D1: is this target method OFFERED on the order right now, as if she had
+ * chosen it? Transfer always; Paidy and card through the same offer rules
+ * the order page uses (paidyOffer / cardOffer), with the order read as
+ * carrying the target method (C1's method_not_chosen otherwise refuses).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, to: CustomerMethod): Promise<boolean> {
+  if (to === "transfer") return true;
+  const as = { ...order, payment_method: to };
+  if (to === "paidy") return (await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock)).offered;
+  if (cardUnresolved) return false;
+  return (await cardOffer(supabase, customer, as, pendingCount, false)).offered;
+}
+
+/** D1: the methods (public names) she may switch to now — allowed by the rules AND offered. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function customerSwitchMethods(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, decided: DecisionRow[]): Promise<CheckoutMethod[]> {
+  const out: CheckoutMethod[] = [];
+  for (const to of switchTargets(switchBase(order, lock, decided))) {
+    if (await switchTargetOffered(supabase, customer, order, shipTo, items, pendingCount, lock, cardUnresolved, to)) out.push(publicMethod(to));
+  }
+  return out;
+}
+
+/** POST /orders/:id/payment-method — HTTP status per refusal code. */
+const SWITCH_ERROR_STATUS: Record<string, number> = {
+  not_found: 404,
+  not_web_order: 409,
+  not_payable: 409,
+  payment_in_progress: 409,
+  not_rejected: 409,
+  unchanged: 409,
+  method_not_offered: 409,
+  bad_method: 400,
+  method_requires_yen: 400,
+};
 
 const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
@@ -2650,12 +2742,31 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       );
       const firstItemByOrder = new Map<string, AnyRec>();
       for (const l of firstOrderLines) firstItemByOrder.set(String(l.cash_order_id), l);
+      // Payment lifecycle H6: "being checked" = an open submission (one query
+      // for the whole page) or a payment lock. cash_order_payment_lock takes
+      // one order at a time, so it is called only for this page's OPEN
+      // (pending) orders — at most 50, in parallel; a closed order holds none.
+      const { data: openSubs, error: osErr } = orderIds.length
+        ? await supabase.from("payment_submissions").select("cash_order_id")
+            .in("cash_order_id", orderIds).or(PENDING_SUBMISSION_OR)
+        : { data: [], error: null };
+      if (osErr) throw osErr;
+      const checking = new Set(((openSubs ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
+      const pendingIds = orders.filter((o) => o.status === "pending" && !checking.has(String(o.id))).map((o) => String(o.id));
+      const locks = await Promise.all(pendingIds.map((id) => paymentLock(supabase, id)));
+      pendingIds.forEach((id, i) => { if (locks[i]) checking.add(id); });
       return jsonResponse(scrub(orders.map((o) => {
         const first = firstItemByOrder.get(String(o.id));
         return {
           ...withReservationFlags(o, "cash_order"),
           first_item: first ? { title: first.title ?? null, title_ja: first.title_ja ?? null, image_url: first.image_url ?? null } : null,
           item_count: countByOrder.get(String(o.id)) ?? 0,
+          // C1: transfer | paidy | card on a website order; null on any other.
+          chosen_method: o.source_channel === "web" ? publicMethod(o.payment_method) : null,
+          being_checked: checking.has(String(o.id)),
+          // What is left to pay: remaining_balance, which already nets points
+          // used at checkout (they are a payment row on the order).
+          amount_due: Number(o.remaining_balance ?? 0),
         };
       })));
     }
@@ -2728,6 +2839,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const cardBlock = lock || blockedByCard
         ? { offered: false as const, reason: blockedByCard ? "card_payment_unresolved" : "payment_in_progress" }
         : await cardOffer(supabase, customer, order as AnyRec, (pendingSubs ?? []).length, false);
+      // Payment lifecycle H6 / D1: her latest decided payment (separate read —
+      // pending_submissions keeps its shape) and, after a rejection with
+      // nothing in progress, the other methods she may switch to herself.
+      const decided = await decidedSubmissions(supabase, "cash_order_id", String(order.id));
+      const switchMethods = await customerSwitchMethods(
+        supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length, lock, blockedByCard, decided,
+      );
 
       return jsonResponse(scrub({
         order: {
@@ -2756,6 +2874,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         card_payment: cardPayment,
         // C1: transfer | paidy | card — what she chose at checkout (or staff since).
         chosen_method: chosenMethod,
+        // H6: { status: rejected | needs_clarification, method, amount,
+        // decided_at, message } for her newest decided payment, or null (none,
+        // or a confirmed one is newer). message = the reviewer's words to her.
+        latest_decision: latestDecision(decided),
+        // D1: true when she may pick another way to pay herself
+        // (POST /orders/:id/payment-method); switch_methods = the ones offered.
+        can_switch_method: switchMethods.length > 0,
+        switch_methods: switchMethods,
         // Points used at checkout, already taken off (a discount, in the order's
         // currency). 0 when none. The storefront shows "Points −¥N".
         points_applied: pointsApplied,
@@ -2769,6 +2895,67 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
+    }
+
+    // POST /orders/:id/payment-method — D1 (payment lifecycle, 2026-10-05):
+    // after her latest payment was REJECTED and nothing is in progress, the
+    // customer picks another way to pay. Body { method: transfer | paidy | card }.
+    // C1 otherwise holds. The writer is
+    // switch_web_payment_method_by_customer_atomic (row lock, audited, actor
+    // customer); the checks here are the TS mirror for an early refusal plus
+    // the one thing SQL cannot know — whether Paidy / card is OFFERED on this
+    // order right now (409 method_not_offered). Internal lock names never leave.
+    if (req.method === "POST" && segments[0] === "orders" && segments[1] && segments[2] === "payment-method" && !segments[3]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = await req.json().catch(() => ({})) as AnyRec;
+      const to = storedMethod(body.method);
+      if (!to || !CHECKOUT_METHODS.includes(String(body.method ?? "").trim().toLowerCase() as CheckoutMethod)) {
+        return jsonResponse({ error: "bad_method" }, 400);
+      }
+      if (!/^[0-9a-f-]{36}$/i.test(segments[1])) return jsonResponse({ error: "not_found" }, 404);
+      const { data: order, error } = await supabase
+        .from("cash_orders")
+        .select(`${ORDER_FIELDS}, ship_to_snapshot, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
+        .eq("id", segments[1]).eq("customer_id", customer.id).maybeSingle();
+      if (error) throw error;
+      if (!order) return jsonResponse({ error: "not_found" }, 404);
+      const orderId = String((order as AnyRec).id);
+      const [{ data: offerItems, error: itemsErr }, { data: pendingSubs, error: pendErr }, lock, decided, cardPayment] = await Promise.all([
+        supabase.from("cash_order_items").select("id, variant_id, sku, title, quantity, unit_price_jpy").eq("cash_order_id", orderId).order("created_at"),
+        supabase.from("payment_submissions").select("id").eq("cash_order_id", orderId).or(PENDING_SUBMISSION_OR),
+        paymentLock(supabase, orderId),
+        decidedSubmissions(supabase, "cash_order_id", orderId),
+        cardPaymentState(supabase, orderId),
+      ]);
+      if (itemsErr) throw itemsErr;
+      if (pendErr) throw pendErr;
+      // Early refusal, same codes and order as the SQL writer.
+      const verdict = canCustomerSwitch({ ...switchBase(order as AnyRec, lock, decided), to });
+      if (!verdict.ok) return jsonResponse({ error: verdict.error }, SWITCH_ERROR_STATUS[verdict.error] ?? 409);
+      const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
+      const offered = await switchTargetOffered(
+        supabase, customer, order as AnyRec, shipTo, (offerItems ?? []) as AnyRec[], (pendingSubs ?? []).length, lock,
+        cardPayment !== null || lock === "card_payment_unresolved", to,
+      );
+      if (!offered) return jsonResponse({ error: "method_not_offered" }, 409);
+
+      const { data: switched, error: swErr } = await supabase.rpc("switch_web_payment_method_by_customer_atomic", {
+        p_order_id: orderId, p_customer_id: customer.id, p_method: to,
+      });
+      if (swErr) throw swErr;
+      const r = (switched ?? {}) as AnyRec;
+      if (!r.ok) {
+        const code = String(r.error ?? "not_payable");
+        return jsonResponse({ error: code }, SWITCH_ERROR_STATUS[code] ?? 409);
+      }
+      // The order-method-changed email: how to pay now, only the new method.
+      // guarded() inside never throws — a failed send never fails the switch.
+      const email = await sendOrderReadyEmail(supabase, orderId, { methodChanged: true });
+      console.log(JSON.stringify({ customer_payment_method_switch: orderId, from: r.old_method, to: r.payment_method, email_sent: email?.sent === true }));
+      return jsonResponse({ ok: true, payment_method: publicMethod(r.payment_method) });
     }
 
     // POST /orders/:id/paidy/start — persist the customer's Paidy window
@@ -3236,6 +3423,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (ptsErr) throw ptsErr;
       const depositPaid = started === true;
       const pointsApplied = Number(ptsPaid ?? 0);
+      // Payment lifecycle H6: her newest decided payment on the plan (separate
+      // read — pending_submissions keeps its shape). A plan never switches
+      // method (layaway is transfer only), so no switch fields here.
+      const decided = await decidedSubmissions(supabase, "account_id", String(plan.id));
 
       return jsonResponse(scrub({
         plan: {
@@ -3256,6 +3447,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         items: lines,
         payments: paid ?? [],
         pending_submissions: pending ?? [],
+        latest_decision: latestDecision(decided),
         deposit_paid: depositPaid,
         // Points taken off the deposit at checkout, and what is still due on
         // the deposit (null once it is paid). Hub figures, plan currency.

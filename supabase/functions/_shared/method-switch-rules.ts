@@ -56,3 +56,13 @@ export function canCustomerSwitch(input: SwitchInput): SwitchVerdict {
   if (input.to !== 'transfer' && input.currency !== 'JPY') return { ok: false, error: 'method_requires_yen' }
   return { ok: true }
 }
+
+/**
+ * The methods (stored names) she may switch to right now by the rules alone,
+ * in CUSTOMER_METHODS order. Whether Paidy / card are currently OFFERED on the
+ * order is a separate check (website: paidyOffer / cardOffer) — the caller
+ * filters this list by it. Empty = no switch.
+ */
+export function switchTargets(base: Omit<SwitchInput, 'to'>): CustomerMethod[] {
+  return CUSTOMER_METHODS.filter((to) => canCustomerSwitch({ ...base, to }).ok)
+}
