@@ -70,11 +70,13 @@ export async function sendClaimedPaymentReminder(
       });
     }
 
+    // The language the claim recorded under the row lock (SQL decides it).
+    const lang = String(r.lang) === "en" ? "en" : "ja";
     return await sendStorefrontEmail({
       ...common,
-      subject: orderPaymentDueSubject(reference),
+      subject: orderPaymentDueSubject(reference, lang),
       element: React.createElement(OrderPaymentDueEmail, {
-        lang: String(r.lang) === "en" ? "en" : "ja",
+        lang,
         reference,
         currency,
         amount: Number(r.amount ?? 0),

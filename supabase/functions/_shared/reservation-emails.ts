@@ -2,7 +2,7 @@ import * as React from "npm:react@18.3.1";
 import { paidyModeFrom, paidyNotOfferedReason } from "./paidy-rules.ts";
 import { publicMethod } from "./checkout-choice.ts";
 import {
-  pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
+  emailLang, sendStorefrontEmail, snapshotCountry, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
   STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
 } from "./storefront-email.ts";
 import { regionForCurrency, transferMethods } from "./transfer-methods.ts";
@@ -75,7 +75,7 @@ async function loadOrder(supabase: Db, orderId: string) {
     reference: String((order as AnyRec).web_reference ?? (order as AnyRec).invoice_number ?? ""),
     // shipping_fee and total_amount are in this currency (pesos on a peso order).
     currency: (String((order as AnyRec).currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
-    lang: pickLang((order as AnyRec).customer_lang),
+    lang: emailLang((order as AnyRec).customer_lang, snapshotCountry(order as AnyRec)),
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
 }
@@ -125,7 +125,7 @@ export function sendOrderReservedEmail(supabase: Db, orderId: string): Promise<R
     if (!o) return { sent: false, reason: "not_found" };
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderReservedSubject(o.reference),
+      subject: orderReservedSubject(o.reference, o.lang),
       label: "order-reserved",
       reference: o.reference,
       idempotencyKey: `order-reserved-${orderId}`,
@@ -201,7 +201,7 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
     const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderReadySubject(o.reference),
+      subject: orderReadySubject(o.reference, o.lang),
       label,
       reference: o.reference,
       idempotencyKey: opts.methodChanged
@@ -338,7 +338,7 @@ export function sendOrderCantSupplyEmail(supabase: Db, orderId: string, reason: 
     if (!o) return { sent: false, reason: "not_found" };
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderCancelledSubject(o.reference),
+      subject: orderCancelledSubject(o.reference, o.lang),
       label: "order-cancelled",
       reference: o.reference,
       idempotencyKey: `order-cancelled-${orderId}`,
@@ -392,7 +392,7 @@ export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): 
     if (!o) return { sent: false, reason: "not_found" };
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderReservationLapsedSubject(o.reference),
+      subject: orderReservationLapsedSubject(o.reference, o.lang),
       label: "order-reservation-lapsed",
       reference: o.reference,
       idempotencyKey: `order-reservation-lapsed-${orderId}`,
@@ -425,7 +425,7 @@ export function storefrontDraftUrl(draftId: string): string {
 async function loadDraft(supabase: Db, draftId: string) {
   const { data: draft } = await supabase
     .from("web_order_drafts")
-    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, points_value, customers(email, is_test)")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, customers(email, is_test)")
     .eq("id", draftId)
     .maybeSingle();
   if (!draft) return null;
@@ -454,7 +454,7 @@ async function loadDraft(supabase: Db, draftId: string) {
     reference: String(d.web_reference ?? ""),
     // Draft money is in the settlement currency (converted once at checkout).
     currency: (String(d.settlement_currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
-    lang: pickLang(d.customer_lang),
+    lang: emailLang(d.customer_lang, snapshotCountry(d)),
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
 }
@@ -484,7 +484,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
     }
     return await sendStorefrontEmail({
       to: d.to,
-      subject: orderReservedSubject(d.reference),
+      subject: orderReservedSubject(d.reference, d.lang),
       label: "order-reserved",
       reference: d.reference,
       idempotencyKey: `draft-reserved-${draftId}`,
@@ -536,7 +536,7 @@ export function sendDraftClosedEmail(
     if (kind === "lapsed") {
       return await sendStorefrontEmail({
         to: d.to,
-        subject: orderReservationLapsedSubject(d.reference),
+        subject: orderReservationLapsedSubject(d.reference, d.lang),
         label: "order-reservation-lapsed",
         reference: d.reference,
         idempotencyKey: `draft-lapsed-${draftId}`,
@@ -553,7 +553,7 @@ export function sendDraftClosedEmail(
     }
     return await sendStorefrontEmail({
       to: d.to,
-      subject: orderCancelledSubject(d.reference),
+      subject: orderCancelledSubject(d.reference, d.lang),
       label: "order-cancelled",
       reference: d.reference,
       idempotencyKey: `draft-declined-${draftId}`,

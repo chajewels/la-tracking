@@ -19,7 +19,7 @@
 // Fire-and-forget: NEVER throws — a failed email must not undo a rejection.
 // Idempotent per submission (one logical send: `payment-rejected-<id>`).
 import * as React from "npm:react@18.3.1";
-import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "./storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontOrderUrl } from "./storefront-email.ts";
 import { sendTemplateEmail } from "./transactional-email-templates/send-email.ts";
 import { customerReference } from "./order-reference.ts";
 import { regionForCurrency } from "./transfer-methods.ts";
@@ -51,7 +51,7 @@ export async function sendCashPaymentRejectedEmail(
 
     const { data: order, error: ordErr } = await db
       .from("cash_orders")
-      .select("id, invoice_number, web_reference, source_channel, customer_lang, currency, status, remaining_balance, transfer_due_at, customers(full_name, email, is_test)")
+      .select("id, invoice_number, web_reference, source_channel, customer_lang, ship_to_snapshot, currency, status, remaining_balance, transfer_due_at, customers(full_name, email, is_test)")
       .eq("id", sub.cash_order_id)
       .maybeSingle();
     if (ordErr || !order) return;
@@ -65,14 +65,15 @@ export async function sendCashPaymentRejectedEmail(
       const reference = String(order.web_reference ?? order.invoice_number);
       const open = String(order.status) === "pending";
       const remaining = open ? Number(order.remaining_balance ?? 0) : null;
+      const lang = emailLang(order.customer_lang, snapshotCountry(order));
       await sendStorefrontEmail({
         to: { email, is_test: customer.is_test === true },
-        subject: orderPaymentNotAcceptedSubject(reference),
+        subject: orderPaymentNotAcceptedSubject(reference, lang),
         label: "order-payment-not-accepted",
         reference,
         idempotencyKey,
         element: React.createElement(OrderPaymentNotAcceptedEmail, {
-          lang: pickLang(order.customer_lang),
+          lang,
           reference,
           method: notAcceptedMethod(sub.payment_method),
           kind: args.kind,

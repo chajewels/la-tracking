@@ -3,7 +3,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, orderMoney, type Lang } from '../storefront-email.ts'
-import { MethodCards, Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailMethod, type OrderCurrency } from './order-shared.tsx'
+import { MethodCards, Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailMethod, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * STAGE D PAYMENT REMINDER for a confirmed web ORDER (docs/WEB-PAYMENT-
@@ -32,8 +32,8 @@ export interface OrderPaymentDueProps {
   orderUrl: string | null
 }
 
-export const orderPaymentDueSubject = (reference: string) =>
-  `お支払い期限のご案内 ${reference} / Payment reminder — Cha Jewels order ${reference}`
+export const orderPaymentDueSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払い期限のご案内 ${reference}`, `Payment reminder — Cha Jewels order ${reference}`)
 
 const COPY = {
   ja: {
@@ -87,7 +87,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentDueProps; prim
 export const OrderPaymentDueEmail = (p: OrderPaymentDueProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderPaymentDueSubject(p.reference)}</Preview>
+    <Preview>{orderPaymentDueSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

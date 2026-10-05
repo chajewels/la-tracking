@@ -3,7 +3,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
-import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shared/email-templates/order-payment-received.tsx";
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_shared/email-templates/layaway-payment-received.tsx";
 import * as React from "npm:react@18.3.1";
@@ -458,7 +458,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, shipping_fee, total_amount")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, ship_to_snapshot, shipping_fee, total_amount")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -998,14 +998,15 @@ Deno.serve(async (req) => {
             return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
           });
           const reference = String((cashOrder as any).web_reference ?? cashOrder.invoice_number);
+          const lang = emailLang((cashOrder as any).customer_lang, snapshotCountry(cashOrder as any));
           await sendStorefrontEmail({
             to: { email: customerEmail, is_test: (customer as any)?.is_test === true },
-            subject: orderPaymentReceivedSubject(reference),
+            subject: orderPaymentReceivedSubject(reference, lang),
             label: "order-payment-received",
             reference,
             idempotencyKey: `order-payment-received-${cashPayment.id}`,
             element: React.createElement(OrderPaymentReceivedEmail, {
-              lang: pickLang((cashOrder as any).customer_lang),
+              lang,
               reference,
               items,
               shippingJpy: Number((cashOrder as any).shipping_fee ?? 0),

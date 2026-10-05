@@ -5,7 +5,7 @@ import {
   partitionExpiryCandidates,
 } from "../_shared/web-order-rules.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
-import { pickLang, sendStorefrontEmail, storefrontShopUrl } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontShopUrl } from "../_shared/storefront-email.ts";
 import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
@@ -314,14 +314,21 @@ Deno.serve(async (req) => {
         ((order as any).ship_to_snapshot?.country ?? (order as any).ship_to_address?.country) ?? "JP",
       ).toUpperCase();
             const shopUrl = storefrontShopUrl();
+            // Language: hers if stored, else the delivery country (snapshot
+            // first, the live address only when no snapshot exists).
+            const fkCountry = (order as any).ship_to_address?.country;
+            const lang = emailLang(
+              (order as any).customer_lang,
+              snapshotCountry(order as any) ?? (typeof fkCountry === "string" && fkCountry.trim() ? fkCountry.trim().toUpperCase() : null),
+            );
             await sendStorefrontEmail({
               to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
-              subject: orderExpiredSubject(reference),
+              subject: orderExpiredSubject(reference, lang),
               label: "order-expired",
               reference,
               idempotencyKey: `order-expired-${order.id}`,
               element: React.createElement(OrderExpiredEmail, {
-                lang: pickLang((order as any).customer_lang),
+                lang,
                 reference,
                 items,
                 shippingJpy: Number((order as any).shipping_fee ?? 0),

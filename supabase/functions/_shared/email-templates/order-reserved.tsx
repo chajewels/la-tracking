@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import type { Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * RESERVE-FIRST (A2). Sent by the `website` function when /checkout/pay
@@ -34,8 +34,8 @@ export interface OrderReservedProps {
   pointsApplied?: number
 }
 
-export const orderReservedSubject = (reference: string) =>
-  `ご注文を承りました ${reference} / We have your Cha Jewels order ${reference}`
+export const orderReservedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文を承りました ${reference}`, `We have your Cha Jewels order ${reference}`)
 
 const COPY = {
   ja: {
@@ -76,7 +76,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primar
 export const OrderReservedEmail = (p: OrderReservedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderReservedSubject(p.reference)}</Preview>
+    <Preview>{orderReservedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

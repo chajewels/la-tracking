@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { orderMoney, type Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * Sent by review-payment-submission when a CSR confirms the transfer for a
@@ -22,8 +22,8 @@ export interface OrderPaymentReceivedProps {
   orderUrl: string | null
 }
 
-export const orderPaymentReceivedSubject = (reference: string) =>
-  `お支払いを確認しました ${reference} / Payment received — Cha Jewels order ${reference}`
+export const orderPaymentReceivedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払いを確認しました ${reference}`, `Payment received — Cha Jewels order ${reference}`)
 
 const COPY = {
   ja: {
@@ -58,7 +58,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps;
 export const OrderPaymentReceivedEmail = (p: OrderPaymentReceivedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderPaymentReceivedSubject(p.reference)}</Preview>
+    <Preview>{orderPaymentReceivedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

@@ -51,10 +51,16 @@ export const WORDS = {
   walletNumber: { ja: '送金先番号', en: 'Account / number' },
   walletName: { ja: '登録名義', en: 'Registered name' },
   nameNotice: { ja: '振込名義はご注文者名でお願いします。', en: 'Please transfer under the name on the order.' },
-  viewOrder: { ja: 'ご注文を確認する', en: 'View your order' },
+  viewOrder: { ja: 'ご注文ページを見る', en: 'View your order' },
   footer: { ja: `${COMPANY_NAME} · 東京都葛飾区立石`, en: `${COMPANY_NAME} · Tateishi, Katsushika, Tokyo` },
   help: { ja: 'ご不明な点は、このメールにご返信ください。', en: 'Questions? Reply to this email.' },
 } as const
+
+/**
+ * An order email's subject (payment lifecycle H2): a Japanese email carries
+ * "Japanese / English"; an English one is English only.
+ */
+export const subjectFor = (lang: Lang, ja: string, en: string): string => (lang === 'ja' ? `${ja} / ${en}` : en)
 
 export const itemTitle = (i: OrderEmailItem, lang: Lang) => (lang === 'ja' && i.title_ja ? i.title_ja : i.title)
 

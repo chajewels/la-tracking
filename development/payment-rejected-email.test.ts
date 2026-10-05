@@ -66,7 +66,7 @@ Deno.test('closed order: no amount to pay, no pay-again line', async () => {
 })
 
 Deno.test('subject carries the reference in both languages', () => {
-  const s = orderPaymentNotAcceptedSubject('CJ-W-900067')
+  const s = orderPaymentNotAcceptedSubject('CJ-W-900067', 'ja')
   assert(s.includes('お支払いを確認できませんでした CJ-W-900067') && s.includes('We could not accept your payment'), s)
 })
 

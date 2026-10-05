@@ -71,25 +71,25 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
   'storefront-order-reserved-ja': {
     displayName: 'Web order — reservation received (JA + EN)',
     component: OrderReservedEmail,
-    subject: orderReservedSubject('CJ-W-000123'),
+    subject: orderReservedSubject('CJ-W-000123', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, orderUrl },
   },
   'storefront-order-reserved-en': {
     displayName: 'Web order — reservation received (EN)',
     component: OrderReservedEmail,
-    subject: orderReservedSubject('CJ-W-000123'),
+    subject: orderReservedSubject('CJ-W-000123', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, orderUrl },
   },
   'storefront-order-ready-ja': {
     displayName: 'Web order — confirmed, ready for payment (JA + EN)',
     component: OrderConfirmationEmail,
-    subject: orderReadySubject('CJ-W-000123'),
+    subject: orderReadySubject('CJ-W-000123', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, methods, transferDueAt: due, region: 'JP', orderUrl, variant: 'ready' },
   },
   'storefront-order-ready-en': {
     displayName: 'Web order — confirmed, ready for payment (EN)',
     component: OrderConfirmationEmail,
-    subject: orderReadySubject('CJ-W-000123'),
+    subject: orderReadySubject('CJ-W-000123', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, methods, transferDueAt: due, region: 'JP', orderUrl, variant: 'ready' },
   },
   // A peso full-payment order (2026-09-25): lines without prices, shipping and
@@ -97,31 +97,31 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
   'storefront-order-reserved-php-en': {
     displayName: 'Web order in pesos — reservation received (EN)',
     component: OrderReservedEmail,
-    subject: orderReservedSubject('CJ-W-000125'),
+    subject: orderReservedSubject('CJ-W-000125', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000125', items, shippingJpy: 1848, totalJpy: 27076, currency: 'PHP', orderUrl },
   },
   'storefront-order-ready-php-ja': {
     displayName: 'Web order in pesos — confirmed, ready for payment (JA + EN)',
     component: OrderConfirmationEmail,
-    subject: orderReadySubject('CJ-W-000125'),
+    subject: orderReadySubject('CJ-W-000125', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000125', items, shippingJpy: 1848, totalJpy: 27076, currency: 'PHP', methods, transferDueAt: due, region: 'OVERSEAS', orderUrl, variant: 'ready' },
   },
   'storefront-order-cant-supply-ja': {
     displayName: "Web order — can't supply (JA + EN)",
     component: OrderCancelledEmail,
-    subject: orderCancelledSubject('CJ-W-000123'),
+    subject: orderCancelledSubject('CJ-W-000123', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, reason: 'The piece did not pass our final inspection.', refundStatus: null, refundNote: null, orderUrl },
   },
   'storefront-order-reservation-lapsed-ja': {
     displayName: 'Web order — not confirmed in 72h (JA + EN)',
     component: OrderReservationLapsedEmail,
-    subject: orderReservationLapsedSubject('CJ-W-000123'),
+    subject: orderReservationLapsedSubject('CJ-W-000123', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, shopUrl },
   },
   'storefront-order-reservation-lapsed-en': {
     displayName: 'Web order — not confirmed in 72h (EN)',
     component: OrderReservationLapsedEmail,
-    subject: orderReservationLapsedSubject('CJ-W-000123'),
+    subject: orderReservationLapsedSubject('CJ-W-000123', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000123', items, shippingJpy: 4980, totalJpy: 72980, shopUrl },
   },
   'storefront-layaway-reserved': {
@@ -153,32 +153,32 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
   'storefront-order-payment-due-php-ja': {
     displayName: 'Web order in pesos — payment reminder (JA + EN)',
     component: OrderPaymentDueEmail,
-    subject: orderPaymentDueSubject('CJ-W-000125'),
+    subject: orderPaymentDueSubject('CJ-W-000125', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000125', currency: 'PHP', amount: 27076, methods, transferDueAt: due, region: 'OVERSEAS', orderUrl },
   },
   // A rejected payment on a web order (owner 2026-10-05; _shared/payment-rejected-email.ts).
   'storefront-order-payment-not-accepted-paidy-ja': {
     displayName: 'Web order — Paidy payment rejected by staff (JA + EN)',
     component: OrderPaymentNotAcceptedEmail,
-    subject: orderPaymentNotAcceptedSubject('CJ-W-000126'),
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000126', 'ja'),
     previewData: { lang: 'ja', reference: 'CJ-W-000126', method: 'paidy', kind: 'staff', amount: 980, currency: 'JPY', reason: 'お届け先の番地を確認させてください。', remaining: 980, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-order-payment-not-accepted-card-en': {
     displayName: 'Web order — card hold released by Square (EN)',
     component: OrderPaymentNotAcceptedEmail,
-    subject: orderPaymentNotAcceptedSubject('CJ-W-000127'),
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000127', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000127', method: 'card', kind: 'provider_ended', amount: 18980, currency: 'JPY', reason: null, remaining: 18980, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-order-payment-not-accepted-transfer-en': {
     displayName: 'Web order — bank transfer rejected by staff (EN)',
     component: OrderPaymentNotAcceptedEmail,
-    subject: orderPaymentNotAcceptedSubject('CJ-W-000128'),
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000128', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000128', method: 'transfer', kind: 'staff', amount: 72980, currency: 'JPY', reason: 'The receipt shows a different amount. Please upload the receipt for ¥72,980.', remaining: 72980, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-order-payment-due-en': {
     displayName: 'Web order — payment reminder (EN)',
     component: OrderPaymentDueEmail,
-    subject: orderPaymentDueSubject('CJ-W-000123'),
+    subject: orderPaymentDueSubject('CJ-W-000123', 'en'),
     previewData: { lang: 'en', reference: 'CJ-W-000123', currency: 'JPY', amount: 72980, methods, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-layaway-deposit-due': {

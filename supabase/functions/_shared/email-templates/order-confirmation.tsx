@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, type Lang } from '../storefront-email.ts'
-import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * Sent by the `website` function the moment /checkout/pay succeeds. The
@@ -80,11 +80,11 @@ export const PAIDY_LINE = {
   en: 'Paidy (あと払い) is also available for this order: pay next month, or in 3 instalments from the Paidy app. Choose "Pay with Paidy" on your order page (delivery addresses in Japan only).',
 } as const
 
-export const orderConfirmationSubject = (reference: string) =>
-  `ご注文ありがとうございます ${reference} / Your Cha Jewels order ${reference}`
+export const orderConfirmationSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文ありがとうございます ${reference}`, `Your Cha Jewels order ${reference}`)
 
-export const orderReadySubject = (reference: string) =>
-  `お支払いのご案内 ${reference} / Your Cha Jewels order ${reference} is ready for payment`
+export const orderReadySubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払いのご案内 ${reference}`, `Your Cha Jewels order ${reference} is ready for payment`)
 
 const COPY = {
   ja: {
@@ -153,7 +153,7 @@ export const OrderConfirmationEmail = (p: OrderConfirmationProps) => {
   return (
     <Html lang={p.lang} dir="ltr">
       <Head />
-      <Preview>{p.variant === 'ready' ? orderReadySubject(p.reference) : orderConfirmationSubject(p.reference)}</Preview>
+      <Preview>{p.variant === 'ready' ? orderReadySubject(p.reference, p.lang) : orderConfirmationSubject(p.reference, p.lang)}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>

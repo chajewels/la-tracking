@@ -4,7 +4,7 @@ import * as React from "npm:react@18.3.1";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import { pickLang, sendStorefrontEmail, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderCancelledEmail, orderCancelledSubject, type RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
 
 const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
@@ -59,7 +59,7 @@ async function sendWebCancellationEmail(supabase: any, orderId: string, reason: 
   try {
     const { data: order } = await supabase
       .from("cash_orders")
-      .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, customers(email, is_test)")
+      .select("id, web_reference, invoice_number, customer_lang, ship_to_snapshot, shipping_fee, total_amount, currency, customers(email, is_test)")
       .eq("id", orderId)
       .maybeSingle();
     if (!order) return;
@@ -81,14 +81,15 @@ async function sendWebCancellationEmail(supabase: any, orderId: string, reason: 
     });
     const reference = String(order.web_reference ?? order.invoice_number);
     const customer = (order as any).customers;
+    const lang = emailLang(order.customer_lang, snapshotCountry(order));
     await sendStorefrontEmail({
       to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
-      subject: orderCancelledSubject(reference),
+      subject: orderCancelledSubject(reference, lang),
       label: "order-cancelled",
       reference,
       idempotencyKey: `order-cancelled-${orderId}`,
       element: React.createElement(OrderCancelledEmail, {
-        lang: pickLang(order.customer_lang),
+        lang,
         reference,
         items,
         shippingJpy: Number(order.shipping_fee ?? 0),

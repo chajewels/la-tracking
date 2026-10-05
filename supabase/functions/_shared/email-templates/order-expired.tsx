@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, type Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * Sent by auto-expire-cash-orders when the 72-hour transfer deadline passes
@@ -22,8 +22,8 @@ export interface OrderExpiredProps {
   shopUrl: string | null
 }
 
-export const orderExpiredSubject = (reference: string) =>
-  `ご注文がキャンセルされました ${reference} / Your Cha Jewels order ${reference} has been cancelled`
+export const orderExpiredSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文がキャンセルされました ${reference}`, `Your Cha Jewels order ${reference} has been cancelled`)
 
 const COPY = {
   ja: {
@@ -60,7 +60,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderExpiredProps; primary
 export const OrderExpiredEmail = (p: OrderExpiredProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderExpiredSubject(p.reference)}</Preview>
+    <Preview>{orderExpiredSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

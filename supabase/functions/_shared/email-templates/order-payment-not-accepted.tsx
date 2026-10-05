@@ -3,7 +3,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, orderMoney, type Lang } from '../storefront-email.ts'
-import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderCurrency } from './order-shared.tsx'
+import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * A PAYMENT ON A WEB ORDER WAS NOT ACCEPTED (owner 2026-10-05, after the Paidy
@@ -43,8 +43,8 @@ export interface OrderPaymentNotAcceptedProps {
   orderUrl: string | null
 }
 
-export const orderPaymentNotAcceptedSubject = (reference: string) =>
-  `お支払いを確認できませんでした ${reference} / We could not accept your payment — Cha Jewels order ${reference}`
+export const orderPaymentNotAcceptedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払いを確認できませんでした ${reference}`, `We could not accept your payment — Cha Jewels order ${reference}`)
 
 const METHOD = {
   ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
@@ -127,7 +127,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
 export const OrderPaymentNotAcceptedEmail = (p: OrderPaymentNotAcceptedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderPaymentNotAcceptedSubject(p.reference)}</Preview>
+    <Preview>{orderPaymentNotAcceptedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>
