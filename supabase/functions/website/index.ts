@@ -21,7 +21,7 @@ import {
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
-import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
+import { SquareError, buyerEmailOf, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { fileForAttempt, fraudCancel, handleFilingException, recoverAttempt, resolveAttempt, rpc } from "../_shared/square-sync.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
@@ -601,6 +601,11 @@ async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pending
     // with it and checks the lookup's answer against it).
     customer_id: String(customer.id),
     cardholder_name: typeof customer.full_name === "string" ? customer.full_name : null,
+    // WEB-4 (2026-10-05): her own email on the Hub record, passed through for
+    // Square's buyer verification (3-D Secure: "as much buyer information as
+    // possible"). Absent or not an address → null. No phone: Square's expected
+    // phone format is not documented for Japan, and a bad one could fail the token.
+    buyer_email: buyerEmailOf(customer.email),
     // D9: the signed Card Purchase Agreement, required at or above the
     // threshold (0 = every card payment). The storefront gates on it BEFORE
     // the card form; the Hub refuses the payment without it (agreement_missing).
