@@ -160,11 +160,27 @@ export function backoffMs(attempt: number, random: number = Math.random()): numb
   return Math.round(base * (0.75 + random * 0.5));
 }
 
-async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?: unknown, opts: { retry?: boolean } = {}): Promise<Record<string, unknown>> {
+/**
+ * HUB-1 (2026-10-05, docs review): a money-moving write (CreatePayment,
+ * Complete, Cancel, CancelByIdempotencyKey) whose earlier try MAY have reached
+ * Square (network error, timeout, 5xx, 429) and whose retry with the same key
+ * then got a 4xx proves nothing: the first request can still be processing
+ * (Square's idempotency docs do not say what a same-key retry answers while
+ * the original is in flight). The final error is then AMBIGUOUS (status 0,
+ * code ambiguous_then_<code>, no category) so the caller reads Square instead
+ * of concluding nothing was created. Reads are not affected: a 404 after a
+ * timed-out GET is a real 404.
+ */
+export function afterAmbiguous(err: SquareError): SquareError {
+  return new SquareError(0, `ambiguous_then_${err.code}`, `${err.message} (an earlier try may have reached Square)`, "", err.errors, err.payment);
+}
+
+async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?: unknown, opts: { retry?: boolean; write?: boolean } = {}): Promise<Record<string, unknown>> {
   const env = envOf(e);
   const host = HOSTS[env];
   const retry = opts.retry !== false;
   let last: SquareError | null = null;
+  let sawAmbiguous = false;
   for (let attempt = 0; attempt <= (retry ? MAX_RETRIES : 0); attempt++) {
     if (attempt > 0) await sleep(backoffMs(attempt - 1));
     // QC14 (2026-10-05): the deadline covers the WHOLE exchange — headers AND
@@ -190,6 +206,7 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
     } catch (err) {
       if (err instanceof SquareError) throw err; // not configured
       last = new SquareError(0, "network", err instanceof Error ? err.message : String(err));
+      sawAmbiguous = true;
       continue;
     } finally {
       clearTimeout(timer);
@@ -201,7 +218,8 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
     const first = errors[0] ?? {};
     const payment = json.payment && typeof json.payment === "object" ? normalizeSquarePayment(json.payment) : null;
     last = new SquareError(res.status, String(first.code ?? res.status), String(first.detail ?? `Square ${res.status}`), String(first.category ?? ""), errors, payment);
-    if (!(res.status === 429 || res.status >= 500)) throw last;
+    if (!(res.status === 429 || res.status >= 500)) throw opts.write && sawAmbiguous ? afterAmbiguous(last) : last;
+    sawAmbiguous = true;
   }
   throw last ?? new SquareError(0, "network", "Square unreachable");
 }
@@ -234,6 +252,12 @@ export interface CreateCardPaymentInput {
   note: string;
   /** Cardholder billing address (SQ17) — never the gift recipient. */
   billing?: SquareBillingAddress | null;
+  /**
+   * HUB-4 (2026-10-05): the customer's email on the Hub record, sent as
+   * buyer_email_address (Square: max 255). Puts the buyer on the payment in
+   * the Dashboard (dispute evidence). Omitted when absent or not an address.
+   */
+  buyerEmail?: string | null;
 }
 export interface SquareBillingAddress {
   first_name?: string;
@@ -263,7 +287,15 @@ export function createPaymentBody(i: CreateCardPaymentInput): Record<string, unk
     statement_description_identifier: "CHA JEWELS",
     customer_details: { customer_initiated: true, seller_keyed_in: false },
     billing_address: billing && Object.keys(billing).length > 0 ? billing : undefined,
+    ...(buyerEmailOf(i.buyerEmail) ? { buyer_email_address: buyerEmailOf(i.buyerEmail) } : {}),
   };
+}
+
+/** A plain address check only (Square validates the rest); never a guess. */
+export function buyerEmailOf(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const e = v.trim();
+  return e.length > 0 && e.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
 export const square = {
@@ -273,20 +305,20 @@ export const square = {
    * nobody captured it. Retried with the SAME key on an ambiguous failure
    * (Square answers the original payment again — no second hold).
    */
-  create: (i: CreateCardPaymentInput) => call(i.env, "POST", "/payments", createPaymentBody(i)).then(paymentOf),
+  create: (i: CreateCardPaymentInput) => call(i.env, "POST", "/payments", createPaymentBody(i), { write: true }).then(paymentOf),
   /** The payment as Square holds it — the only thing the Hub trusts about a card payment. */
   get: (e: Env, id: string) => call(e, "GET", `/payments/${encodeURIComponent(id)}`).then(paymentOf),
   /** Takes the money (reviewer Confirm). version_token: Square refuses if the payment changed since our read. */
   complete: (e: Env, id: string, versionToken?: string | null) =>
-    call(e, "POST", `/payments/${encodeURIComponent(id)}/complete`, versionToken ? { version_token: versionToken } : {}).then(paymentOf),
+    call(e, "POST", `/payments/${encodeURIComponent(id)}/complete`, versionToken ? { version_token: versionToken } : {}, { write: true }).then(paymentOf),
   /** Voids the hold (Reject, mismatch, fraud). No charge, no fee. */
-  cancel: (e: Env, id: string) => call(e, "POST", `/payments/${encodeURIComponent(id)}/cancel`, {}).then(paymentOf),
+  cancel: (e: Env, id: string) => call(e, "POST", `/payments/${encodeURIComponent(id)}/cancel`, {}, { write: true }).then(paymentOf),
   /**
    * Voids whatever payment the key created, when the create outcome is unknown
    * (SQ04). Square answers success also when no payment exists for the key —
    * so this proves "nothing stays held under this key", nothing more.
    */
-  cancelByIdempotencyKey: (e: Env, idempotencyKey: string) => call(e, "POST", "/payments/cancel", { idempotency_key: idempotencyKey }).then(() => true),
+  cancelByIdempotencyKey: (e: Env, idempotencyKey: string) => call(e, "POST", "/payments/cancel", { idempotency_key: idempotencyKey }, { write: true }).then(() => true),
   /** Payments of a location in a time window (recovery of lost create responses / missed webhooks). */
   list: async (e: Env, q: { locationId: string; beginTime: string; endTime: string; cursor?: string | null; limit?: number }) => {
     const p = new URLSearchParams({ location_id: q.locationId, begin_time: q.beginTime, end_time: q.endTime, sort_order: "ASC", limit: String(q.limit ?? 100) });

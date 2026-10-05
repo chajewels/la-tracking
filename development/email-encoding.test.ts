@@ -117,12 +117,11 @@ function storefrontFixtures(): Fixture[] {
       add('order-payment-received.tsx', `order-payment-received ${k} partial`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, method: 'transfer', amountReceivedJpy: 300000, remaining: 17980, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       add('order-confirmation.tsx', `order-confirmation ${k} method changed`, el(OrderConfirmationEmail, { lang, currency, ...base, methods: [], transferDueAt: due, region: 'JP', orderUrl, variant: 'ready', chosenMethod: 'card', methodChanged: { from: 'transfer' } }))
       add('order-reservation-lapsed.tsx', `order-reservation-lapsed ${k}`, el(OrderReservationLapsedEmail, { lang, currency, ...base, shopUrl }))
-      // A rejected payment on a web order: every method, staff (with the
-      // reviewer's message) and provider-ended, open and closed order.
+      // A payment not accepted (PR #406): every method × kind, open and closed order.
       for (const method of ['transfer', 'paidy', 'card'])
         for (const kind of ['staff', 'provider_ended'])
-          for (const open of [true, false])
-            add('order-payment-not-accepted.tsx', `order-payment-not-accepted ${k} ${method} ${kind} open=${open}`, el(OrderPaymentNotAcceptedEmail, { lang, currency, reference: base.reference, method, kind, amount: 317980, reason: kind === 'staff' ? 'お届け先の番地を確認させてください。 / Please confirm the street number.' : null, remaining: open ? 317980 : null, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+          for (const remaining of [317980, null])
+            add('order-payment-not-accepted.tsx', `order-payment-not-accepted ${k} ${method} ${kind} ${remaining === null ? 'closed' : 'open'}`, el(OrderPaymentNotAcceptedEmail, { lang, currency, reference: base.reference, method, kind, amount: 317980, reason: kind === 'staff' ? '振込名義が確認できませんでした / the sender name did not match' : null, remaining, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       // Payment lifecycle H4: generic web-order updates, every variant.
       for (const variant of ['needs_info', 'deadline_moved', 'shipped', 'details_received'])
         add('order-update.tsx', `order-update ${k} ${variant}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 317980, message: variant === 'needs_info' ? 'お振込名義を教えてください。 / Please tell us the transfer name.' : null, deadline: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', courier: 'ヤマト運輸 / Yamato', trackingNumber: '4725-7551-6733', trackingUrl: 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733', orderUrl }))

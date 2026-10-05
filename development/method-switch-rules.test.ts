@@ -2,7 +2,7 @@
  * CUSTOMER PAYMENT-METHOD SWITCH (payment lifecycle H1, 2026-10-05).
  * canCustomerSwitch mirrors the refusal order of the SQL writer
  * public.switch_web_payment_method_by_customer_atomic (migration
- * 20261109100000_payment_lifecycle.sql). Pure function — no network, no database.
+ * 20261111100000_payment_lifecycle.sql). Pure function — no network, no database.
  *
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/method-switch-rules.test.ts
  */

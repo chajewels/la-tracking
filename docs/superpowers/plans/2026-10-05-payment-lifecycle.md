@@ -77,7 +77,7 @@ Every new field is optional on the storefront, so the release order cannot break
 ### Task H1: Migration — customer message, customer switch RPC, method-aware reminder
 
 **Files:**
-- Create: `supabase/migrations/20261109100000_payment_lifecycle.sql`
+- Create: `supabase/migrations/20261111100000_payment_lifecycle.sql`
 - Create: `supabase/functions/_shared/method-switch-rules.ts`
 - Test: `development/method-switch-rules.test.ts`
 
@@ -117,7 +117,7 @@ Every new field is optional on the storefront, so the release order cannot break
     - Yen rule: `currency <> 'JPY'` refuses `'paidy'` and `'square'`.
   - The `customer_message` column is nullable with no default.
 - [ ] **Step 6: Run the drift audit:** `bash scripts/function-drift-audit`. Expected: `a_differs 0, b_live_only 0, c_repo_only 0`. The new function is not live yet and is listed as pending in the audit's allow-list, as done for earlier migrations.
-- [ ] **Step 7: Commit:** `git add supabase/migrations/20261109100000_payment_lifecycle.sql supabase/functions/_shared/method-switch-rules.ts development/method-switch-rules.test.ts && git commit -m "feat(db): customer message, customer method switch, method-aware reminder rows"`
+- [ ] **Step 7: Commit:** `git add supabase/migrations/20261111100000_payment_lifecycle.sql supabase/functions/_shared/method-switch-rules.ts development/method-switch-rules.test.ts && git commit -m "feat(db): customer message, customer method switch, method-aware reminder rows"`
 
 ### Task H2: Email language and subjects per language
 
@@ -489,7 +489,7 @@ Every new field is optional on the storefront, so the release order cannot break
 - [ ] **Step 2:** Build the single Lovable apply+deploy message.
   - **Assertions:** code-only greps that differ from pre-release main. For example:
     - `grep -c "^export function emailLang" supabase/functions/_shared/storefront-email.ts` → 1;
-    - `grep -c "switch_web_payment_method_by_customer_atomic" supabase/migrations/20261109100000_payment_lifecycle.sql` ≥ 1;
+    - `grep -c "switch_web_payment_method_by_customer_atomic" supabase/migrations/20261111100000_payment_lifecycle.sql` ≥ 1;
     - `grep -c "\"/payment-method\"\\|segments\\[2\\] === \"payment-method\"" supabase/functions/website/index.ts` ≥ 1;
     - plus line counts.
   - **Apply:** the migration.

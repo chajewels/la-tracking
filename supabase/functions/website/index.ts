@@ -23,7 +23,7 @@ import {
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
-import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
+import { SquareError, buyerEmailOf, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { fileForAttempt, fraudCancel, handleFilingException, recoverAttempt, resolveAttempt, rpc } from "../_shared/square-sync.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
@@ -617,6 +617,11 @@ async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pending
     // with it and checks the lookup's answer against it).
     customer_id: String(customer.id),
     cardholder_name: typeof customer.full_name === "string" ? customer.full_name : null,
+    // WEB-4 (2026-10-05): her own email on the Hub record, passed through for
+    // Square's buyer verification (3-D Secure: "as much buyer information as
+    // possible"). Absent or not an address → null. No phone: Square's expected
+    // phone format is not documented for Japan, and a bad one could fail the token.
+    buyer_email: buyerEmailOf(customer.email),
     // D9: the signed Card Purchase Agreement, required at or above the
     // threshold (0 = every card payment). The storefront gates on it BEFORE
     // the card form; the Hub refuses the payment without it (agreement_missing).
@@ -3323,6 +3328,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           referenceId: String(attempt.reference),
           note: `${customerReference(order as never)} · ${(order as AnyRec).invoice_number ?? ""}`,
           billing,
+          buyerEmail: typeof customer.email === "string" ? customer.email : null,
         });
       } catch (e) {
         if (e instanceof SquareError && e.isCardRefusal) {
@@ -3343,13 +3349,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Network / timeout / 5xx / 429 after retries: Square MAY have
         // authorised. The attempt stays open; the website or square-reconcile
         // resolves it by reading Square. The customer must not pay again yet.
-        console.error("[website] square.create ambiguous:", e);
-        await resolve("unknown", ["reserved"], { detail: e instanceof Error ? e.message : String(e) }).catch(() => null);
+        console.error("[website] square.create ambiguous:", e instanceof SquareError ? `${e.status} ${e.code}` : "", e);
+        // HUB-1: a payment Square attached to the error lets recovery read it directly.
+        await resolve("unknown", ["reserved"], { squarePaymentId: e instanceof SquareError ? e.payment?.id ?? null : null, detail: e instanceof Error ? e.message : String(e) }).catch(() => null);
         return jsonResponse({ ok: false, status: "unknown", attempt: { reference: attempt.reference } }, 202);
       }
 
       if (payment.status === "FAILED") {
-        await resolve("declined", ["reserved", "unknown"], { squarePaymentId: payment.id, code: "payment_failed" });
+        // HUB-5 (2026-10-05): a decline answered as a FAILED payment (HTTP 200)
+        // counts toward the fraud rule exactly like a refusal answered as 4xx.
+        const res = await resolve("declined", ["reserved", "unknown"], { squarePaymentId: payment.id, code: "payment_failed" });
+        if (res.ok && res.fraud) {
+          const fc = await fraudCancel(supabase, attemptEnv, String(order.id), String(res.fraud), { attempt: attempt.reference, counts: res.counts }, null);
+          return jsonResponse({ error: "card_declined", code: "payment_failed", order_cancelled: fc.ok === true }, 402);
+        }
         return jsonResponse({ error: "card_declined", code: "payment_failed" }, 402);
       }
       if (payment.status !== "APPROVED" && payment.status !== "COMPLETED") {

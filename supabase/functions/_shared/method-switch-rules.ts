@@ -9,7 +9,7 @@
  *
  * This is a mirror for display and early refusal only. The writer is
  * public.switch_web_payment_method_by_customer_atomic (migration
- * 20261109100000_payment_lifecycle.sql), which re-checks everything under a
+ * 20261111100000_payment_lifecycle.sql), which re-checks everything under a
  * row lock. The refusal order here MUST equal the SQL order:
  *   not_web_order, not_payable, payment_in_progress, not_rejected,
  *   already_switched, bad_method, unchanged, method_requires_yen
