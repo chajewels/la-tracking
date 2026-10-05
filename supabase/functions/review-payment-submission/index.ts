@@ -23,6 +23,7 @@ import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
 import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { regionForCurrency } from "../_shared/transfer-methods.ts";
+import { isWebEntity, routeSubmissionEmail, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -590,6 +591,9 @@ Deno.serve(async (req) => {
             : "Paidy declined this payment";
           const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
+            // Provider-ended, not a staff decision: the customer sees no staff
+            // message (H5) — the reviewer_notes here are internal.
+            customer_message: null,
             reviewer_notes: `${why} — nothing was charged; the customer may pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
           }).eq("id", submission_id).eq("processing_started_at", claimAt).select("id");
           if (!subErr && (!rejRows || rejRows.length === 0)) {
@@ -753,6 +757,8 @@ Deno.serve(async (req) => {
           await releaseSquareAction();
           const { error: rejErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: new Date().toISOString(),
+            // Provider-ended, not a staff decision: no customer message (H5).
+            customer_message: null,
             reviewer_notes: `Card hold ${live.status} at Square — nothing was charged; the customer can pay again (card or bank transfer). ${reviewer_notes ?? ""}`.trim(),
           }).eq("id", submission_id).eq("processing_started_at", claimAt);
           if (rejErr) console.error("[review-payment-submission] reject after closed hold failed:", rejErr);
@@ -1558,6 +1564,10 @@ Deno.serve(async (req) => {
       status: action,
       reviewer_user_id: user.id,
       reviewer_notes: reviewer_notes || null,
+      // H1/H5: the reviewer's text the CUSTOMER sees (website order / plan
+      // page), written only on a staff Reject or Needs clarification; every
+      // other action leaves the column untouched (undefined is dropped).
+      customer_message: (action === "rejected" || action === "needs_clarification") ? (reviewer_notes || null) : undefined,
       updated_at: new Date().toISOString(),
     };
 
@@ -1761,12 +1771,42 @@ Deno.serve(async (req) => {
       old_value_json: { status: submission.status },
     });
 
+    // Which customer email a Reject / Needs clarification sends (H5, spec §5
+    // B and C) — one decision, routeSubmissionEmail, unit-tested in
+    // development/web-order-senders.test.ts. Confirm keeps its own paths.
+    const reviewAction = (action === "confirmed" || action === "rejected" || action === "needs_clarification")
+      ? action as "confirmed" | "rejected" | "needs_clarification"
+      : null;
+
     // A CASH-ORDER submission (web or Hub) rejected by a reviewer: the
     // customer's email, with the reviewer's message (owner 2026-10-05). The
     // block below reads layaway_accounts only, so before this a cash-order
-    // Reject told the customer nothing. Never throws.
-    if (action === "rejected" && submission.cash_order_id) {
-      await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+    // Reject told the customer nothing. A WEB cash order's Needs clarification
+    // sends the website "needs info" email (before H5 it sent nothing); a Hub
+    // cash order's still sends nothing. Never throws.
+    if (reviewAction && reviewAction !== "confirmed" && submission.cash_order_id) {
+      try {
+        let cashIsWeb = false;
+        if (reviewAction === "needs_clarification") {
+          const { data: co } = await supabase
+            .from("cash_orders").select("source_channel").eq("id", submission.cash_order_id).maybeSingle();
+          cashIsWeb = isWebEntity(co as { source_channel?: unknown } | null);
+        }
+        const route = routeSubmissionEmail({ action: reviewAction, isCashOrder: true, isWeb: cashIsWeb });
+        if (route === "cash_rejected") {
+          await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+        } else if (route === "order_needs_info") {
+          await sendOrderUpdateEmail(supabase, {
+            entity: "cash_order",
+            id: String(submission.cash_order_id),
+            variant: "needs_info",
+            message: reviewer_notes ?? null,
+            idempotencyKey: `needs_info-${submission_id}`,
+          });
+        }
+      } catch (cashMailErr) {
+        console.warn("[review-payment-submission] cash-order review email failed (non-blocking):", cashMailErr);
+      }
     }
 
     // Send status-change email to customer (fire-and-forget)
@@ -1830,6 +1870,21 @@ Deno.serve(async (req) => {
         } catch (mailErr) {
           console.warn("[review-payment-submission] layaway-payment-received email failed (non-blocking):", mailErr);
         }
+      } else if (
+        reviewAction && !submission.cash_order_id &&
+        routeSubmissionEmail({ action: reviewAction, isCashOrder: false, isWeb: isWebLayaway }) === "layaway_update"
+      ) {
+        // A WEB layaway's Reject / Needs clarification: the website layaway
+        // update (English only, links to /account/layaway/:id) INSTEAD of the
+        // Hub portal template (spec §5 C). Never throws.
+        const variant = action === "rejected" ? "rejected" : "needs_info";
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway",
+          id: String((acctForEmail as any).id),
+          variant,
+          message: reviewer_notes ?? null,
+          idempotencyKey: `${variant}-${submission_id}`,
+        });
       } else if (customerEmail) {
         let templateName = "";
         const baseData: Record<string, unknown> = {

@@ -6,6 +6,7 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { isWebEntity, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,8 +301,19 @@ Deno.serve(async (req) => {
     if (pathBUserId) auditRow.performed_by_user_id = pathBUserId;
     await supabase.from("audit_logs").insert(auditRow);
 
-    // 8. Fire-and-forget cash-payment-submitted email
-    try {
+    // 8. Fire-and-forget email. A WEBSITE order gets the website-style
+    // "details received" email in her language, linking to her order page
+    // (H5, spec §5 D2) instead of the Hub's English portal email; a Hub order
+    // keeps cash-payment-submitted. sendOrderUpdateEmail never throws.
+    if (isWebEntity(cashOrder)) {
+      await sendOrderUpdateEmail(supabase, {
+        entity: "cash_order",
+        id: String(cashOrder.id),
+        variant: "details_received",
+        amount: submittedNum,
+        idempotencyKey: `details-received-${submission.id}`,
+      });
+    } else try {
       const { data: customer } = await supabase
         .from("customers")
         .select("full_name, email")

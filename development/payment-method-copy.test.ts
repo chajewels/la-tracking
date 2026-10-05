@@ -112,6 +112,21 @@ Deno.test('payment received with points: points shown as points, not as money re
   assert(t.includes('Paidy'), 'names Paidy')
 })
 
+Deno.test('fully paid by points (H5, confirm-web-draft): no "received ¥0", no transfer words, says points paid it', async () => {
+  for (const method of ['transfer', 'paidy', 'card'] as Method[]) {
+    for (const lang of LANGS) {
+      const t = await render(OrderPaymentReceivedEmail, { lang, ...base, method, amountReceivedJpy: 0, pointsApplied: 68000, orderUrl })
+      // The "total after points ¥0" row is correct; any OTHER ¥0 is the bug.
+      const body = t.replace(/(Order total after points|ポイント利用後のご注文金額)\s*¥0/g, '')
+      assert(!/¥0(?![\d,])/.test(body), `${lang}/${method}: no "received ¥0"`)
+      assert(!TRANSFER_WORDS.test(body), `${lang}/${method}: no transfer wording`)
+      assert(t.includes('fully paid with your loyalty points'), `${lang}/${method}: English points-paid line`)
+      if (lang === 'ja') assert(t.includes('ポイントで全額のお支払いが完了しました'), `${method}: Japanese points-paid line`)
+      assert(t.includes('Points used'), `${lang}/${method}: points line kept`)
+    }
+  }
+})
+
 Deno.test('payment-due with Paidy and no accounts: no account field, the order page instead', async () => {
   for (const lang of LANGS) {
     const t = await render(OrderPaymentDueEmail, {

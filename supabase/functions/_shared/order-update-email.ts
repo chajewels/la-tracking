@@ -52,6 +52,31 @@ export function isWebEntity(row: { source_channel?: unknown } | null | undefined
   return row?.source_channel === "web";
 }
 
+export type SubmissionEmailRoute =
+  | "cash_rejected" | "order_needs_info" | "layaway_update" | "hub_template" | "none";
+
+/**
+ * Which email review-payment-submission sends for a review (H5, spec §5 B/C):
+ *   cash order rejected             → cash_rejected (sendCashPaymentRejectedEmail, web and Hub)
+ *   web cash order needs clarif.    → order_needs_info (sendOrderUpdateEmail 'needs_info')
+ *   Hub cash order needs clarif.    → none (unchanged)
+ *   web layaway rejected / clarif.  → layaway_update (sendOrderUpdateEmail, INSTEAD of the Hub template)
+ *   Hub layaway rejected / clarif.  → hub_template (unchanged)
+ *   confirmed                       → none (confirm has its own existing path)
+ */
+export function routeSubmissionEmail(input: {
+  action: "confirmed" | "rejected" | "needs_clarification";
+  isCashOrder: boolean;
+  isWeb: boolean;
+}): SubmissionEmailRoute {
+  if (input.action === "confirmed") return "none";
+  if (input.isCashOrder) {
+    if (input.action === "rejected") return "cash_rejected";
+    return input.isWeb ? "order_needs_info" : "none";
+  }
+  return input.isWeb ? "layaway_update" : "hub_template";
+}
+
 /** The placeholder shipping_methods.tracking_url_template uses (src/lib/tracking-link.ts). */
 const TRACKING_PLACEHOLDER = "{tracking_code}";
 

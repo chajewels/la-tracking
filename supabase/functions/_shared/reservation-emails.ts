@@ -11,6 +11,7 @@ import type { LayawayScheduleRow } from "./email-templates/layaway-shared.tsx";
 import { OrderReservedEmail, orderReservedSubject } from "./email-templates/order-reserved.tsx";
 import { LayawayReservedEmail, layawayReservedSubject } from "./email-templates/layaway-reserved.tsx";
 import { OrderConfirmationEmail, orderMethodChangedSubject, orderReadySubject } from "./email-templates/order-confirmation.tsx";
+import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "./email-templates/order-payment-received.tsx";
 import { LayawayPlanCreatedEmail, layawayReadySubject } from "./email-templates/layaway-plan-created.tsx";
 import { OrderCancelledEmail, orderCancelledSubject } from "./email-templates/order-cancelled.tsx";
 import { LayawayDeclinedEmail, layawayDeclinedSubject } from "./email-templates/layaway-declined.tsx";
@@ -232,6 +233,42 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
         ...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {}),
+      }),
+    });
+  });
+}
+
+/**
+ * Payment lifecycle H5 (spec §5 A): staff confirmed a web draft whose checkout
+ * points paid the WHOLE order, so the order is already completed. She gets
+ * "payment received — fully paid by points", never the ready email ("please
+ * pay ¥0 by transfer" + bank details). No money arrived: amountReceivedJpy 0,
+ * the points line carries the figure. Customer's language (emailLang).
+ */
+export function sendOrderPaidByPointsEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
+  return guarded("order-payment-received", async () => {
+    const o = await loadOrder(supabase, orderId);
+    if (!o) return { sent: false, reason: "not_found" };
+    const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
+    return await sendStorefrontEmail({
+      to: o.to,
+      subject: orderPaymentReceivedSubject(o.reference, o.lang),
+      label: "order-payment-received",
+      reference: o.reference,
+      idempotencyKey: `order-paid-by-points-${orderId}`,
+      element: React.createElement(OrderPaymentReceivedEmail, {
+        lang: o.lang,
+        reference: o.reference,
+        items: o.items,
+        shippingJpy: Number(o.order.shipping_fee ?? 0),
+        totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
+        amountReceivedJpy: 0,
+        orderUrl: storefrontOrderUrl(orderId),
+        method: publicMethod(o.order.payment_method),
+        pointsApplied: Number(ptsPaid ?? 0),
+        remaining: null,
+        region: regionForCurrency(String(o.order.currency ?? "JPY")),
       }),
     });
   });

@@ -14,7 +14,8 @@ import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, heade
  *
  * Points used at checkout are a LOYALTY DISCOUNT, never money received: they
  * show only as the "Points used" line under the total, never in the
- * "we have received ¥X" sentence.
+ * "we have received ¥X" sentence. When points paid the WHOLE order
+ * (amountReceivedJpy 0, confirm-web-draft) the intro says so instead.
  */
 export interface OrderPaymentReceivedProps {
   lang: Lang
@@ -50,6 +51,7 @@ const COPY = {
       paidy: (ref: string, amt: string) => `ご注文番号 ${ref} のペイディでのお支払い ${amt} を確認いたしました。ありがとうございます。`,
       card: (ref: string, amt: string) => `ご注文番号 ${ref} のカードでのお支払い ${amt} を確認いたしました。ありがとうございます。`,
     },
+    pointsIntro: (ref: string) => `ご注文番号 ${ref} は、ポイントで全額のお支払いが完了しました。ありがとうございます。`,
     partIntro: (ref: string, m: string, amt: string) => `ご注文番号 ${ref} について、${m}でのお支払い ${amt} を確認し、ご注文金額の一部を受領いたしました。ありがとうございます。`,
     stillToPay: (amt: string, when: string) => when ? `残りのお支払い金額 ${amt} を、${when} までにお支払いください。` : `残りのお支払い金額 ${amt} のお支払いをお願いいたします。`,
     partNext: 'ご注文金額のお支払いがすべて確認できましたら、発送の準備に入ります。',
@@ -63,6 +65,7 @@ const COPY = {
       paidy: (ref: string, amt: string) => `We have received your payment of ${amt} with Paidy for order ${ref}. Thank you.`,
       card: (ref: string, amt: string) => `We have received your card payment of ${amt} for order ${ref}. Thank you.`,
     },
+    pointsIntro: (ref: string) => `Order ${ref} is fully paid with your loyalty points. Thank you.`,
     partIntro: (ref: string, m: string, amt: string) => `We have received ${amt} by ${m} for order ${ref} — part of the order total. Thank you.`,
     stillToPay: (amt: string, when: string) => when ? `Amount still to pay: ${amt}, by ${when}.` : `Amount still to pay: ${amt}.`,
     partNext: 'We prepare your shipment once the order is paid in full.',
@@ -80,11 +83,14 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps;
   const method: PayMethod = p.method ?? 'transfer'
   const amt = orderMoney(p.amountReceivedJpy, p.currency)
   const partial = p.remaining !== undefined && p.remaining !== null && p.remaining > 0
+  // H5: points paid the WHOLE order (confirm-web-draft) — no money arrived, so
+  // never "we have received ¥0 by transfer".
+  const pointsOnly = !partial && !(p.amountReceivedJpy > 0) && (p.pointsApplied ?? 0) > 0
   const when = partial && p.transferDueAt ? formatDeadline(p.transferDueAt, p.region ?? 'JP', lang) : ''
   return (
     <>
       <Heading style={primary ? h1 : h2}>{partial ? c.partHeading : c.heading}</Heading>
-      <Text style={text}>{partial ? c.partIntro(p.reference, PART_METHOD[lang][method], amt) : c.intro[method](p.reference, amt)}</Text>
+      <Text style={text}>{partial ? c.partIntro(p.reference, PART_METHOD[lang][method], amt) : pointsOnly ? c.pointsIntro(p.reference) : c.intro[method](p.reference, amt)}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} afterPointsLabel={WORDS.totalAfterPoints} />
       {partial ? (
         <>

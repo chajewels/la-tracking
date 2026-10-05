@@ -22,6 +22,7 @@
 
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -93,6 +94,17 @@ Deno.serve(async (req) => {
       const status = result.error === "not_found" ? 404 : result.error === "not_live" ? 409 : 400;
       return jsonResponse(result, status);
     }
+
+    // H5 (spec §5 B): tell a WEBSITE customer her deadline moved — only after
+    // a successful move, never on a refusal. Web orders and web layaways only
+    // (sendOrderUpdateEmail skips a Hub order / plan, which keeps no email
+    // here, as before). It never throws, so the response is unchanged.
+    await sendOrderUpdateEmail(supabase, {
+      entity: entityType === "layaway" ? "layaway" : "cash_order",
+      id: entityId,
+      variant: "deadline_moved",
+      idempotencyKey: `deadline-moved-${entityId}-${String(transferDueAt)}`,
+    });
     return jsonResponse(result);
   } catch (err) {
     console.error("[set-account-deadlines] failed:", err);
