@@ -65,3 +65,28 @@ in-place patches of the live bodies; record-only migration after apply).
   in the totals, **Change payment method**.
 - Cash order (web, awaiting payment): "Customer chose …" + **Change payment
   method** (hidden while Paidy or a card hold is pending).
+
+## Rejected payment → customer email (owner 2026-10-05)
+
+Found in the Paidy live test: a Reject on a **cash order** (every website order)
+emailed the customer nothing — review-payment-submission only emailed layaway
+plans (its lookup reads layaway_accounts by account_id, null on a cash-order
+submission; 22 cash rejections had gone silent). Paidy never emails a
+cancellation itself (its 「ご利用の確認（未確定）」 email says so).
+
+- ONE sender, `_shared/payment-rejected-email.ts` `sendCashPaymentRejectedEmail`
+  — never throws, idempotent per submission (`payment-rejected-<id>`).
+- Web order → storefront email `order-payment-not-accepted.tsx` (customer's
+  language, JA then EN): Paidy "Paidy will not bill you", card "nothing was
+  charged", transfer "upload the receipt again"; amount still owed, deadline,
+  order link while the order is pending, "no longer open" otherwise.
+- Hub cash order → the Hub `payment-rejected` template (as layaway plans get).
+- Called from EVERY path that rejects a cash-order submission:
+  reviewer Reject (kind `staff`, shows the reviewer's message — the Reject
+  dialog says so); a Confirm that finds Paidy expired/closed or the card hold
+  closed; `paidy-sync` (webhook / hourly check); `applyPaymentState` when the
+  SQL rejected a waiting submission from a Square webhook / reconcile (kind
+  `provider_ended`, never a message — those notes are internal English).
+  `applyPaymentState` skips sources `void` / `review` / `capture` (their caller
+  sends it).
+- Test: development/payment-rejected-email.test.ts (CI).

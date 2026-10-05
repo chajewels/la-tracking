@@ -27,6 +27,7 @@ import {
   paidyProviderOutcome, paidyRecordProblem,
 } from "./paidy-rules.ts";
 import type { PaidyPayment } from "./paidy.ts";
+import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -171,6 +172,8 @@ export async function syncPaidyPayment(
         new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pid, event: event || null, source },
       });
       must(audErr, "audit_logs insert");
+      // The customer hears it from us — Paidy never emails a cancellation.
+      await sendCashPaymentRejectedEmail(supabase, { submissionId: sub.id, kind: "provider_ended" });
     }
     if (rejected > 0) {
       await paidyBellOnce(supabase, "paidy_closed_externally", outcome === "expired" ? "Paidy authorisation expired before capture" : "Paidy payment ended before capture",

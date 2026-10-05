@@ -12,6 +12,7 @@ import { OrderPaymentDueEmail, orderPaymentDueSubject } from './order-payment-du
 import { LayawayDepositDueEmail, layawayDepositDueSubject } from './layaway-deposit-due.tsx'
 import type { OrderEmailMethod } from './order-shared.tsx'
 import { CartReminderEmail, cartReminderSubject } from './cart-reminder.tsx'
+import { OrderPaymentNotAcceptedEmail, orderPaymentNotAcceptedSubject } from './order-payment-not-accepted.tsx'
 
 /**
  * PREVIEWS FOR THE STOREFRONT EMAILS (reserve-first A2, 2026-09-24).
@@ -154,6 +155,25 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     component: OrderPaymentDueEmail,
     subject: orderPaymentDueSubject('CJ-W-000125'),
     previewData: { lang: 'ja', reference: 'CJ-W-000125', currency: 'PHP', amount: 27076, methods, transferDueAt: due, region: 'OVERSEAS', orderUrl },
+  },
+  // A rejected payment on a web order (owner 2026-10-05; _shared/payment-rejected-email.ts).
+  'storefront-order-payment-not-accepted-paidy-ja': {
+    displayName: 'Web order — Paidy payment rejected by staff (JA + EN)',
+    component: OrderPaymentNotAcceptedEmail,
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000126'),
+    previewData: { lang: 'ja', reference: 'CJ-W-000126', method: 'paidy', kind: 'staff', amount: 980, currency: 'JPY', reason: 'お届け先の番地を確認させてください。', remaining: 980, transferDueAt: due, region: 'JP', orderUrl },
+  },
+  'storefront-order-payment-not-accepted-card-en': {
+    displayName: 'Web order — card hold released by Square (EN)',
+    component: OrderPaymentNotAcceptedEmail,
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000127'),
+    previewData: { lang: 'en', reference: 'CJ-W-000127', method: 'card', kind: 'provider_ended', amount: 18980, currency: 'JPY', reason: null, remaining: 18980, transferDueAt: due, region: 'JP', orderUrl },
+  },
+  'storefront-order-payment-not-accepted-transfer-en': {
+    displayName: 'Web order — bank transfer rejected by staff (EN)',
+    component: OrderPaymentNotAcceptedEmail,
+    subject: orderPaymentNotAcceptedSubject('CJ-W-000128'),
+    previewData: { lang: 'en', reference: 'CJ-W-000128', method: 'transfer', kind: 'staff', amount: 72980, currency: 'JPY', reason: 'The receipt shows a different amount. Please upload the receipt for ¥72,980.', remaining: 72980, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-order-payment-due-en': {
     displayName: 'Web order — payment reminder (EN)',
