@@ -89,15 +89,21 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
    the twin of Paidy's 2d): after the atomic claim and before `cash_payments`
    → **CompletePayment**. Success (COMPLETED) → `captured`; the cash payment
    is written as today. `captured` already → carry on (retried Confirm). Hold
-   amount ≠ the submission's amount → claim reverted, 409 `amount_mismatch`.
-   `cardHoldExpired` (past `capture_by`, else > 7 days) or Square answering PAYMENT_NOT_FOUND /
-   INVALID_PAYMENT_STATUS / PAYMENT_EXPIRED / canceled → `expired`, the
-   submission REJECTED with the note, audit reason `card_hold_expired`, 409
-   `card_hold_expired` (Paidy PD4 pattern); any other failure → claim
-   reverted, 502 `card_capture_failed`, nothing written.
-6. Reviewer **Reject** → **CancelPayment** (void, no fee) → `voided`,
-   `voided_reason "rejected by reviewer"`; best effort — a failure rings
-   `card_void_failed` and the reject proceeds (Square drops the hold itself).
+   amount ≠ the submission's amount → claim reverted, 409 `square_amount_mismatch`.
+   Square now rating the payment HIGH risk → claim reverted, 409 `risk_high`,
+   nothing captured (HUB-3, 2026-10-05).
+   The hold is never judged by the clock: Square is READ first. Square showing
+   it CANCELED / FAILED → the submission REJECTED with the note, audit reason
+   `card_hold_closed`, 409 `card_hold_closed` (nothing was charged; she can pay
+   again). Any failure to read or capture → nothing recorded, 502
+   `card_unverified` (+ bell `card_capture_unverified` when a capture may have
+   happened; "Finish recording" re-reads Square and never charges twice).
+6. Reviewer **Reject** → Square read first; APPROVED → **CancelPayment** (void,
+   no fee) → `voided`. COMPLETED → 409 `card_already_captured` (press Confirm).
+   PENDING → 409 `card_pending`, nothing rejected, no bell — Square is still
+   processing, try again in a few minutes (HUB-6). Any other status that is not
+   CANCELED / FAILED after the void → bell `card_void_failed`, 502, the
+   submission is NOT rejected (the hold may still be on the card).
 7. `square-webhook` (public, SIGNED): base64(HMAC-SHA256(key, registered
    notification URL + raw body)) against `x-square-hmacsha256-signature`,
    timing-safe (`verifySquareSignature`, deno test
@@ -109,10 +115,11 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
    externally is rejected with the note + audit `card_closed_externally` + bell.
    `dispute.*` → `disputed_at` / `dispute_id` + bell `card_dispute_opened`
    (D10); `refund.*` → `refund_jpy` + bell `card_refunded`.
-8. Hourly (auto-expire-cash-orders): a hold still `authorized` from day 5 rings
-   `card_hold_expiring` once (`warned_at`, migration 20261101110000; past the
-   window the bell says "expired — Reject it"). Nothing else is touched
-   (INVARIANT 12).
+8. Hourly (square-reconcile → `ring_square_deadline_bells`): a hold still
+   `authorized` rings `card_hold_expiring` once (`warned_at`) 2 days before
+   Square's own deadline `capture_by` (= `delayed_until`); when Square sent no
+   `delayed_until`, `authorized_at` + 7 days, and the bell says "about" (HUB-7).
+   Nothing else is touched (INVARIANT 12).
 9. Refunds phase 1: Square Dashboard; the Hub records `refund_status` as today.
 
 ## S1 schema (migration 20261101100000)
@@ -191,8 +198,12 @@ Deploy (Lovable DEPLOY-ONLY after the two secrets exist): `website`, `review-pay
    `SQUARE_ACCESS_TOKEN` only.
 3. Webhook subscription to
    `https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/square-webhook` for
-   `payment.updated`, `refund.created`, `refund.updated`, `dispute.created` →
-   its **signature key** → Lovable secret `SQUARE_WEBHOOK_SIGNATURE_KEY` only.
+   `payment.created`, `payment.updated`, `refund.created`, `refund.updated`,
+   `dispute.created`, `dispute.state.updated` (all six, in BOTH the sandbox and
+   the production app — `payment.created` makes a hold whose create answer was
+   lost visible at once, not only when Square cancels it ~7 days later) →
+   its **signature key** → Lovable secret `SQUARE_WEBHOOK_SIGNATURE_KEY`
+   (production: `SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY`) only.
 
 ## Integrity (2026-10-04, review SQ01–SQ23 — docs/SQUARE-INTEGRITY.md)
 
@@ -338,3 +349,34 @@ copy of the live schema; the QC10 two-session race (`square-closeout-qc-race.sh`
 body, ends COMPLETED on the new) and two deadlock races (`square-closeout-qc-deadlock.sh`: decide vs Finish, and a
 state change vs a Finish — each reproduced on the earlier body, none now); `development/square-closeout-qc.test.ts` (17) +
 `square-integrity.test.ts` (14); `src/test/square-ops.test.ts` (27).
+
+## Docs-gap fixes (2026-10-05, HUB-1..HUB-9)
+
+Review of the integration against developer.squareup.com (Project doc
+`claude/square-docs-gap-review-2026-10-05.md`). Migration
+`20261110100000_square_docs_gap.sql`; acceptance `development/sql/square-docs-gap-acceptance.sql`
+(15 passed; 3 before the migration); deno `development/square-integrity.test.ts` (HUB-1, HUB-4).
+
+- **HUB-1** `_shared/square.ts` `call()`: a money-moving write (CreatePayment, Complete, Cancel,
+  CancelByIdempotencyKey) whose earlier try may have reached Square (network, timeout, 5xx, 429) and
+  whose same-key retry then got a 4xx is AMBIGUOUS (`ambiguous_then_<code>`): the card route leaves the
+  attempt `unknown` (202) and it is resolved by reading Square — never closed as `failed` while a hold
+  may exist. A first-try 4xx and every read are unchanged.
+- **HUB-2** DisputeState `INQUIRY_CLOSED` ("the inquiry is complete") counts as closed in
+  `square_ops_health`, `decide_square_case`, the due-date index, the evidence bells and the Hub panel
+  (`DISPUTE_CLOSED_STATES`). `record_square_dispute` does NOT treat it as terminal and square-reconcile
+  keeps re-reading it: Square's docs do not say whether a closed inquiry can be escalated on the same
+  dispute id, so a later open state is still recorded.
+- **HUB-3** risk rising to HIGH after filing → `apply_square_payment_state` sets exception `risk_high`
+  (never over an open one) + bell `card_risk_high`; square-reconcile voids an APPROVED `risk_high` hold
+  (existing rule); Confirm refuses 409 `risk_high`. The order is not fraud-cancelled on this path.
+- **HUB-4** CreatePayment sends `buyer_email_address` (the Hub customer's email, plain address only).
+- **HUB-5** a decline answered as a FAILED payment with HTTP 200 counts toward the fraud rule.
+- **HUB-6** Reject on a PENDING payment → 409 `card_pending`, no `card_void_failed` bell.
+- **HUB-7** no `capture_by` → `authorized_at` + 7 days in SQL (expired vs voided; the hold warning),
+  matching `card-rules.ts` `cardHoldDeadline`.
+- **HUB-8** evidence reminders only for `EVIDENCE_REQUIRED` / `INQUIRY_EVIDENCE_REQUIRED` and not after
+  staff recorded `evidence_submitted`.
+- **HUB-9** this file (steps 5, 6, 8, webhook list); the live `square-reconcile` cron recorded in the
+  migration (created only when missing).
+

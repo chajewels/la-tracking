@@ -3103,6 +3103,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           referenceId: String(attempt.reference),
           note: `${customerReference(order as never)} · ${(order as AnyRec).invoice_number ?? ""}`,
           billing,
+          buyerEmail: typeof customer.email === "string" ? customer.email : null,
         });
       } catch (e) {
         if (e instanceof SquareError && e.isCardRefusal) {
@@ -3129,7 +3130,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       }
 
       if (payment.status === "FAILED") {
-        await resolve("declined", ["reserved", "unknown"], { squarePaymentId: payment.id, code: "payment_failed" });
+        // HUB-5 (2026-10-05): a decline answered as a FAILED payment (HTTP 200)
+        // counts toward the fraud rule exactly like a refusal answered as 4xx.
+        const res = await resolve("declined", ["reserved", "unknown"], { squarePaymentId: payment.id, code: "payment_failed" });
+        if (res.ok && res.fraud) {
+          const fc = await fraudCancel(supabase, attemptEnv, String(order.id), String(res.fraud), { attempt: attempt.reference, counts: res.counts }, null);
+          return jsonResponse({ error: "card_declined", code: "payment_failed", order_cancelled: fc.ok === true }, 402);
+        }
         return jsonResponse({ error: "card_declined", code: "payment_failed" }, 402);
       }
       if (payment.status !== "APPROVED" && payment.status !== "COMPLETED") {

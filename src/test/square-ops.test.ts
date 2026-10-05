@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  SQUARE_DECISIONS, SQUARE_EXCEPTION_LABEL, ageLabel, defaultSettlementRange, isDeadlineSoon,
+  DISPUTE_CLOSED_STATES, SQUARE_DECISIONS, SQUARE_EXCEPTION_LABEL, ageLabel, defaultSettlementRange, isDeadlineSoon,
   isOpenSquareException, jstDate, orderRef, refundNotPaidBack, settlementCsv, settlementCsvRows,
   settlementFileName, settlementTotals, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus,
   squareNoteRequired, squarePaymentStateLabel, eventsApiNotEnabled, type SettlementRow,
@@ -64,6 +64,15 @@ describe("isDeadlineSoon", () => {
     expect(isDeadlineSoon("2026-10-10T00:00:00Z", now, 3)).toBe(false);
     expect(isDeadlineSoon(null, now, 2)).toBe(false);
     expect(isDeadlineSoon("not a date", now, 2)).toBe(false);
+  });
+});
+
+describe("DISPUTE_CLOSED_STATES mirrors the SQL closed set (HUB-2)", () => {
+  it("includes INQUIRY_CLOSED and never an open state", () => {
+    expect([...DISPUTE_CLOSED_STATES].sort()).toEqual(["ACCEPTED", "INQUIRY_CLOSED", "LOST", "WON"]);
+    for (const open of ["EVIDENCE_REQUIRED", "PROCESSING", "INQUIRY_EVIDENCE_REQUIRED", "INQUIRY_PROCESSING"]) {
+      expect((DISPUTE_CLOSED_STATES as readonly string[]).includes(open)).toBe(false);
+    }
   });
 });
 

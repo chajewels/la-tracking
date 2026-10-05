@@ -125,8 +125,8 @@ export function refundNotPaidBack(status: string | null | undefined): boolean {
   return s === 'FAILED' || s === 'REJECTED';
 }
 
-/** Finished dispute states (Square). */
-export const DISPUTE_CLOSED_STATES = ['WON', 'LOST', 'ACCEPTED'] as const;
+/** Finished dispute states (Square). INQUIRY_CLOSED = "the inquiry is complete" (HUB-2, 2026-10-05). */
+export const DISPUTE_CLOSED_STATES = ['WON', 'LOST', 'ACCEPTED', 'INQUIRY_CLOSED'] as const;
 
 /**
  * The "captured, not recorded / exceptions" predicate, mirrored client-side
