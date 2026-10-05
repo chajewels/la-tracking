@@ -789,6 +789,19 @@ Deno.serve(async (req) => {
             if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
             return json(409, { error: "square_amount_mismatch", message: `Square holds ¥${f.amountJpy ?? "?"} ${f.currency ?? ""} but the submission says ¥${Number(submission.submitted_amount).toLocaleString("en-US")}. Nothing was captured; reject it (the hold is voided).` });
           }
+          // HUB-3 (2026-10-05): Square's risk can rise to HIGH after the hold
+          // was filed (it was PENDING then). Never capture a payment Square now
+          // rates HIGH; the reviewer rejects it (the hold is voided).
+          if (String(live.risk_evaluation?.risk_level ?? "").toUpperCase() === "HIGH") {
+            await releaseSquareAction();
+            if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+            return json(409, {
+              error: "risk_high",
+              message: resuming
+                ? "Square now rates this card payment HIGH risk. Nothing was captured. Void the hold in the Square Dashboard, then press \"Finish recording\": the Hub reads Square, sees the hold closed and rejects the submission."
+                : "Square now rates this card payment HIGH risk. Nothing was captured. Reject it (the hold is voided, nothing is charged).",
+            });
+          }
           try {
             live = await square.complete(env, sp.square_payment_id, live.version_token ?? null);
           } catch (e) {
@@ -1532,6 +1545,11 @@ Deno.serve(async (req) => {
       try { await applyPaymentState(supabase, live, "void", user.id); }
       catch (e) { console.error("[review-payment-submission] apply after void failed:", e); }
       await release();
+      if (live.status === "PENDING") {
+        // HUB-6 (2026-10-05): Square has not finished processing the payment,
+        // so there is nothing it can void yet. Not a void failure — no bell.
+        return json(409, { error: "card_pending", message: "Square is still processing this card payment, so it cannot be voided yet. Nothing was rejected. Try Reject again in a few minutes." });
+      }
       if (live.status !== "CANCELED" && live.status !== "FAILED") {
         await supabase.from("staff_notifications").insert({
           type: "card_void_failed", title: "Card hold could not be voided",

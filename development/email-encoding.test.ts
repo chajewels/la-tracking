@@ -24,6 +24,7 @@ import { OrderExpiredEmail } from '../supabase/functions/_shared/email-templates
 import { OrderPaymentDueEmail } from '../supabase/functions/_shared/email-templates/order-payment-due.tsx'
 import { OrderPaymentReceivedEmail } from '../supabase/functions/_shared/email-templates/order-payment-received.tsx'
 import { OrderReservationLapsedEmail } from '../supabase/functions/_shared/email-templates/order-reservation-lapsed.tsx'
+import { OrderPaymentNotAcceptedEmail } from '../supabase/functions/_shared/email-templates/order-payment-not-accepted.tsx'
 import { LayawayReservedEmail } from '../supabase/functions/_shared/email-templates/layaway-reserved.tsx'
 import { LayawayPlanCreatedEmail } from '../supabase/functions/_shared/email-templates/layaway-plan-created.tsx'
 import { LayawayDeclinedEmail } from '../supabase/functions/_shared/email-templates/layaway-declined.tsx'
@@ -106,6 +107,11 @@ function storefrontFixtures(): Fixture[] {
       add('order-payment-due.tsx', `order-payment-due ${k}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, methods, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       add('order-payment-received.tsx', `order-payment-received ${k}`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, amountReceivedJpy: 317980, orderUrl }))
       add('order-reservation-lapsed.tsx', `order-reservation-lapsed ${k}`, el(OrderReservationLapsedEmail, { lang, currency, ...base, shopUrl }))
+      // A payment not accepted (PR #406): every method × kind, open and closed order.
+      for (const method of ['transfer', 'paidy', 'card'])
+        for (const kind of ['staff', 'provider_ended'])
+          for (const remaining of [317980, null])
+            add('order-payment-not-accepted.tsx', `order-payment-not-accepted ${k} ${method} ${kind} ${remaining === null ? 'closed' : 'open'}`, el(OrderPaymentNotAcceptedEmail, { lang, currency, reference: base.reference, method, kind, amount: 317980, reason: kind === 'staff' ? '振込名義が確認できませんでした / the sender name did not match' : null, remaining, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])

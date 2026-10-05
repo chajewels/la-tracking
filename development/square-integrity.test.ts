@@ -10,7 +10,7 @@
  */
 import { assert, assertEquals, assertRejects, assertThrows } from 'jsr:@std/assert@1'
 import {
-  accessTokenNames, backoffMs, createPaymentBody, hmacSha256Base64, SquareError, squareErrorKind, verifySquareSignature,
+  accessTokenNames, backoffMs, buyerEmailOf, createPaymentBody, hmacSha256Base64, square, SquareError, squareErrorKind, verifySquareSignature,
 } from '../supabase/functions/_shared/square.ts'
 import { eventObjectId, processSquareEvent, syncSquarePayment } from '../supabase/functions/_shared/square-sync.ts'
 
@@ -181,4 +181,80 @@ Deno.test('event processing: a payment read back from Square is synced through t
     globalThis.fetch = realFetch
     Deno.env.delete('SQUARE_ACCESS_TOKEN')
   }
+})
+
+// ---------------------------------------------------------------- docs-gap review (2026-10-05)
+
+function withFetchSeq(responses: Array<() => Response | Promise<Response>>, fn: (calls: string[]) => Promise<void>) {
+  return async () => {
+    Deno.env.set('SQUARE_ACCESS_TOKEN', 'test-token-0123456789abcdef')
+    const real = globalThis.fetch
+    const calls: string[] = []
+    let i = 0
+    globalThis.fetch = ((u: string | URL | Request) => {
+      calls.push(String(u))
+      const next = responses[Math.min(i++, responses.length - 1)]
+      return Promise.resolve().then(next)
+    }) as typeof fetch
+    try { await fn(calls) } finally { globalThis.fetch = real; Deno.env.delete('SQUARE_ACCESS_TOKEN') }
+  }
+}
+const sqErr = (status: number, category: string, code: string) =>
+  () => new Response(JSON.stringify({ errors: [{ category, code, detail: code }] }), { status })
+const netDown = () => { throw new TypeError('connection reset') }
+const createInput = { env: 'sandbox' as const, sourceId: 'cnon:x', amountJpy: 8640, locationId: 'L1', idempotencyKey: 'cj-card-k', referenceId: 'cja_00', note: 'n' }
+
+Deno.test('HUB-1: CreatePayment lost on the network, then 4xx on the same-key retry → ambiguous (attempt stays unknown)', withFetchSeq(
+  [netDown, sqErr(400, 'INVALID_REQUEST_ERROR', 'IDEMPOTENCY_KEY_REUSED')],
+  async (calls) => {
+    const e = await assertRejects(() => square.create(createInput)) as SquareError
+    assertEquals(calls.length, 2)
+    assertEquals(e.kind, 'ambiguous')
+    assertEquals(e.isCardRefusal, false)
+    assertEquals(e.code, 'ambiguous_then_IDEMPOTENCY_KEY_REUSED')
+  },
+))
+
+Deno.test('HUB-1: a 5xx then a card decline on the retry is ambiguous too (never "nothing was created")', withFetchSeq(
+  [sqErr(503, 'API_ERROR', 'SERVICE_UNAVAILABLE'), sqErr(402, 'PAYMENT_METHOD_ERROR', 'CARD_DECLINED')],
+  async () => {
+    const e = await assertRejects(() => square.create(createInput)) as SquareError
+    assertEquals(e.kind, 'ambiguous')
+    assertEquals(e.isCardRefusal, false)
+  },
+))
+
+Deno.test('HUB-1: a first-try 4xx is unchanged (client / card refusal prove Square did not act)', withFetchSeq(
+  [sqErr(402, 'PAYMENT_METHOD_ERROR', 'CARD_DECLINED')],
+  async (calls) => {
+    const e = await assertRejects(() => square.create(createInput)) as SquareError
+    assertEquals(calls.length, 1)
+    assertEquals(e.kind, 'card_refusal')
+  },
+))
+
+Deno.test('HUB-1: reads are unaffected — a 404 after a lost GET is still a 404', withFetchSeq(
+  [netDown, sqErr(404, 'INVALID_REQUEST_ERROR', 'NOT_FOUND')],
+  async () => {
+    const e = await assertRejects(() => square.get('sandbox', 'sqpay_x')) as SquareError
+    assertEquals(e.status, 404)
+    assertEquals(e.kind, 'client')
+  },
+))
+
+Deno.test('HUB-1: Cancel after a lost answer then a 4xx is ambiguous (callers read Square back)', withFetchSeq(
+  [netDown, sqErr(400, 'INVALID_REQUEST_ERROR', 'BAD_REQUEST')],
+  async () => {
+    const e = await assertRejects(() => square.cancel('sandbox', 'sqpay_x')) as SquareError
+    assertEquals(e.kind, 'ambiguous')
+  },
+))
+
+Deno.test('HUB-4: buyer_email_address is sent only for a plain address', () => {
+  const b = createPaymentBody({ ...createInput, buyerEmail: '  hanako@example.jp ' })
+  assertEquals(b.buyer_email_address, 'hanako@example.jp')
+  for (const bad of [null, undefined, '', 'not-an-email', 'a@b', 'x'.repeat(250) + '@example.jp']) {
+    assertEquals('buyer_email_address' in createPaymentBody({ ...createInput, buyerEmail: bad as string | null }), false)
+  }
+  assertEquals(buyerEmailOf('a@b.co'), 'a@b.co')
 })
