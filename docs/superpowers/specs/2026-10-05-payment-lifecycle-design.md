@@ -111,6 +111,27 @@ For **web** layaways (source_channel 'web') only, the old Hub emails become webs
 
 Hub-created layaways keep their portal emails.
 
+### D2. Staff record a payment for a website order (owner question 2026-10-05 13:10)
+How it works today, checked in code and on live:
+- Both sides read one database. So a payment staff record in the Hub (Cash order → Record payment → `submit-cash-payment`) appears on her website order page right away as 「お支払いを確認中です」. When a reviewer presses Confirm, the page shows "Paid".
+- Payments she makes on the website go into the same Hub Payment Submissions queue: Paidy, card, and layaway receipt uploads. Every new submission rings the staff bell (trigger `notify_submission_created`, which labels web orders CJ-W-…).
+- Emails today:
+  - staff record → the **old Hub English email** "cash-payment-submitted", linking to `portal.chajewelsjp.com`. That is wrong for a website customer.
+  - Confirm → the website "payment received" email, which says 「お振込」 (fixed in §5 A).
+- **Fix *(recommended)*:** for a **website** order, the staff-record step sends a website-style email in her language instead: 「お支払いのご連絡を受け付けました。確認後にあらためてご連絡します」, with the amount and a link to her order page. Hub-created cash orders keep their current email.
+
+### D3. Email language (owner question 2026-10-05 13:10)
+How it works today:
+- The website writes the language of the site she checked out on (the 日本語/English toggle, cookie `cj-lang`) onto the draft and the order as `customer_lang`.
+- Every website email reads that field:
+  - `ja` → Japanese first, then the same text in English below;
+  - `en` → English only.
+- Test order CJ-W-900067 was saved as **`ja`** on both the draft and the order (checked on live). The checkout was done on the **Japanese** site. Chrome's automatic translation made it look like English, so the system followed the language that was actually set.
+- Two real gaps remain:
+  1. **The subject line is always Japanese first, even for an English customer.** Fix: the subject is in her language only, Japanese + English only for `ja`.
+  2. **When the language is missing, the email defaults to Japanese** (`pickLang`). Fix: when missing, use the delivery country (Japan → Japanese first, otherwise English).
+- Test tip: place English test orders with the site's **English** toggle, not Chrome translation.
+
 ### D. Left out of this batch (listed so nothing is forgotten)
 - Paidy / Square refund, dispute, fraud cancel, automatic card void, and manually issued store credit stay **staff-handled with no automatic email**. These are rare and each needs a personal message.
 - auto-forfeit-settlement sends the "permanently forfeited" email on the final-settlement path (PATH 3). That function is **LOCKED** by CLAUDE.md, so it is reported in docs/OPEN-BUGS.md for a separate owner decision, not changed here.
