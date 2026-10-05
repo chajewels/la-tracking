@@ -17,7 +17,7 @@
  */
 
 import { customerReference } from "./order-reference.ts";
-import { paidyFilingMismatch, paidyModeFrom, paidyYen, type PaidyMode } from "./paidy-rules.ts";
+import { paidyCaptureDeadlineText, paidyFilingMismatch, paidyModeFrom, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
 
@@ -164,7 +164,7 @@ export async function filePaidyAuthorization(supabase: Db, args: {
     const recovered = path !== "website_paidy";
     await paidyBell(supabase, "paidy_authorized",
       recovered ? "Paidy payment recovered — capture it in Paidy" : "Paidy payment authorised — capture it in Paidy",
-      `${ref} · ¥${shown} · ${customer.full_name ?? ""} · capture it in the Paidy merchant dashboard (valid 30 days); the Hub records it automatically${recovered ? " · filed after the website callback was lost" : ""}`,
+      `${ref} · ¥${shown} · ${customer.full_name ?? ""} · capture it in the Paidy merchant dashboard (${paidyCaptureDeadlineText(payment.expires_at)}); the Hub records it automatically${recovered ? " · filed after the website callback was lost" : ""}`,
       { cash_order_id: order.id, submission_id: r.submission?.id, paidy_payment_id: payment.id, test: payment.test === true, path, outcome: r.outcome });
   }
   return { ok: true, outcome: r.outcome, submission: r.submission, paidy_record_id: r.paidy_record_id };

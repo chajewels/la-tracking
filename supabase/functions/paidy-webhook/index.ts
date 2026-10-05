@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { processPaidyEvent } from "../_shared/paidy-events.ts";
 import { isPaidyPaymentId } from "../_shared/paidy.ts";
+import { isPaidyWebhookIp, paidyWebhookIpCheckOn } from "../_shared/paidy-rules.ts";
 
 /**
  * Paidy webhook receiver (docs/PAIDY.md). PUBLIC endpoint (verify_jwt =
@@ -20,6 +21,13 @@ import { isPaidyPaymentId } from "../_shared/paidy.ts";
  *      automatically (owner: staff capture in the Paidy dashboard).
  *   4. A Paidy credential/configuration failure is answered 5xx (Paidy
  *      retries); an id Paidy does not know becomes a durable case.
+ *
+ * H9 (2026-10-06): SOURCE IP. Paidy publishes the 5 IPs it sends from
+ * (https://paidy.com/docs/en/webhook.html; list in PAIDY_WEBHOOK_IPS). A
+ * request whose first x-forwarded-for entry is not one of them is answered
+ * 200 { ignored: true } and NOTHING happens — no inbox row, no Paidy call, no
+ * case, no bell — so a stranger posting random ids cannot spam the staff bell.
+ * Edge secret PAIDY_WEBHOOK_IP_CHECK=off disables the check without a deploy.
  */
 const PROCESS_DEADLINE_MS = 8000;
 
@@ -27,6 +35,9 @@ Deno.serve(async (req) => {
   const pre = corsPreflight(req);
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  if (paidyWebhookIpCheckOn(Deno.env.get("PAIDY_WEBHOOK_IP_CHECK")) && !isPaidyWebhookIp(req.headers.get("x-forwarded-for"))) {
+    return jsonResponse({ ok: true, ignored: true });
+  }
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad_json" }, 400); }

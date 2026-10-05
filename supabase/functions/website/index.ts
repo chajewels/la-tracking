@@ -18,8 +18,9 @@ import {
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
 import {
-  isPaidyPublicKey, paidyAddressComplete, paidyAddressLines, paidyBuyerHistory, paidyCheckoutBreakdown,
-  paidyJapaneseMobile, paidyModeFrom, paidyNotOfferedReason,
+  isPaidyPublicKey, paidyAddressLines, paidyBillingAddress, paidyBuyerHistory, paidyCheckoutBreakdown,
+  paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
+  paidyModeFrom, paidyNotOfferedReason, paidyPointsBeforeOrder,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
@@ -487,12 +488,14 @@ async function orderPointsApplied(supabase: any, orderId: string): Promise<numbe
  *     amount is the whole order and the items + shipping − discount add up to
  *     it exactly (R10; paidyCheckoutBreakdown, else not offered);
  *   - the buyer is the CUSTOMER — never the delivery recipient (R11); her
- *     billing address only from her own default address-book entry when it is
- *     a complete Japanese address; her phone only when it is a Japanese
- *     mobile (R13);
- *   - history = her completed yen orders not paid with Paidy and not
- *     refunded, by order value, last order in days (R12); registration date
- *     only from her customer record.
+ *     billing address from her own default address-book entry when it is a
+ *     complete Japanese address, else her own customer record when that is
+ *     (H9, paidyBillingAddress); her phone only when it is a Japanese mobile
+ *     (R13); dob from customers.birthday; points held before this order;
+ *   - history = her completed yen cash orders not paid with Paidy and not
+ *     refunded, plus her completed yen layaway plans (H9), by order value,
+ *     last order in days (R12); registration date only from her customer
+ *     record.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null) {
@@ -507,7 +510,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const orderRef = customerReference(order as never);
   const [{ data: money }, { data: cust }, pointsApplied] = await Promise.all([
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
-    supabase.from("customers").select("created_at, mobile_number, full_name").eq("id", customer.id).maybeSingle(),
+    supabase.from("customers").select("created_at, mobile_number, full_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
     orderPointsApplied(supabase, String(order.id)),
   ]);
   // Points used at checkout (2026-10-05) are a discount already applied: the
@@ -530,52 +533,54 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
     .order("completed_at", { ascending: false }).limit(200);
   const pastIds = ((past ?? []) as AnyRec[]).map((o) => String(o.id));
-  const [{ data: paidyPaid }, { data: refunded }, { data: billing }] = await Promise.all([
+  const [{ data: paidyPaid }, { data: refunded }, { data: billing }, { data: plans }, { data: member }] = await Promise.all([
     pastIds.length ? supabase.from("cash_payments").select("cash_order_id").in("cash_order_id", pastIds).eq("payment_method", "paidy").is("voided_at", null) : { data: [] },
     pastIds.length ? supabase.from("paidy_refunds").select("cash_order_id").in("cash_order_id", pastIds) : { data: [] },
     supabase.from("customer_addresses").select("line1, line2, city, region, postal_code, country")
       .eq("customer_id", customer.id).eq("is_default", true).limit(1).maybeSingle(),
+    // H9: her completed yen layaway plans count as orders too (Paidy: ltv /
+    // order_count cover every order at the store). Paidy never pays a plan.
+    supabase.from("layaway_accounts")
+      .select("status, currency, total_amount, completed_at, order_date")
+      .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY")
+      .order("completed_at", { ascending: false }).limit(200),
+    supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle(),
   ]);
   const byPaidy = new Set(((paidyPaid ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
   const byRefund = new Set(((refunded ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
-  const history = paidyBuyerHistory(((past ?? []) as AnyRec[]).map((o) => ({
-    ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)),
-  })));
+  const history = paidyBuyerHistory([
+    ...((past ?? []) as AnyRec[]).map((o) => ({ ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)) })),
+    ...paidyHistoryFromLayaway((plans ?? []) as AnyRec[]),
+  ]);
   const registered = String((cust as AnyRec | null)?.created_at ?? "").slice(0, 10);
   const phone = paidyJapaneseMobile((cust as AnyRec | null)?.mobile_number);
-  const billingAddress = billing && paidyAddressComplete(billing as AnyRec) ? paidyAddressLines(billing as AnyRec) : undefined;
+  const bill = paidyBillingAddress(billing as AnyRec | null, paidyCustomerRecordAddress(cust as AnyRec | null));
+  // No address text, no email — only why Paidy gets no billing address.
+  if (!bill.address) console.log(`[paidy] billing_address omitted: ${bill.reason}`);
 
   return {
     offered: true as const,
     public_key: publicKey,
     test: mode === "test",
-    checkout: {
+    checkout: paidyCheckoutPayload({
       amount: breakdown.amount,
-      currency: "JPY",
-      store_name: "Cha Jewels",
-      description: orderRef,
-      buyer: {
-        email: customer.email ?? undefined,
-        name1: buyerName,
-        phone: phone ?? undefined,
-      },
-      buyer_data: {
-        user_id: String(customer.customer_code ?? customer.id),
-        ltv: history.ltv,
-        order_count: history.order_count,
-        last_order_amount: history.last_order_amount,
-        last_order_at: history.last_order_at,
-        account_registration_date: registered || undefined,
-        billing_address: billingAddress,
-      },
-      order: {
-        items: breakdown.items,
-        order_ref: orderRef,
-        shipping: breakdown.shipping,
-        tax: 0,
-      },
-      shipping_address: paidyAddressLines(address as AnyRec),
-    },
+      orderRef,
+      cashOrderId: String(order.id),
+      customerId: String(customer.id),
+      userId: String(customer.customer_code ?? customer.id),
+      email: customer.email ? String(customer.email) : undefined,
+      name1: buyerName,
+      phone: phone ?? undefined,
+      dob: paidyDob((cust as AnyRec | null)?.birthday),
+      history,
+      registered: registered || undefined,
+      billing: bill.address,
+      // Points held before this order: Confirm already took this order's.
+      numberOfPoints: paidyPointsBeforeOrder(member as AnyRec | null, pointsApplied),
+      items: breakdown.items,
+      shipping: breakdown.shipping,
+      shippingAddress: paidyAddressLines(address as AnyRec),
+    }),
   };
 }
 
