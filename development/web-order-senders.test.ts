@@ -14,7 +14,7 @@
  *
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/web-order-senders.test.ts
  */
-import { routeSubmissionEmail } from '../supabase/functions/_shared/order-update-email.ts'
+import { reviewEmailKey, routeSubmissionEmail, shortHash } from '../supabase/functions/_shared/order-update-email.ts'
 
 const assertEq = (a: unknown, b: unknown, msg: string) => {
   if (a !== b) throw new Error(`${msg}: expected ${String(b)}, got ${String(a)}`)
@@ -49,4 +49,21 @@ Deno.test('confirmed → none, every combination', () => {
       assertEq(routeSubmissionEmail({ action: 'confirmed', isCashOrder, isWeb }), 'none', `confirmed cash=${isCashOrder} web=${isWeb}`)
     }
   }
+})
+
+Deno.test('shortHash: deterministic 8-hex FNV-1a; empty string hashes too', () => {
+  assertEq(shortHash('Please send the receipt'), shortHash('Please send the receipt'), 'same text, same hash')
+  assertEq(/^[0-9a-f]{8}$/.test(shortHash('x')), true, '8 hex chars')
+  assertEq(shortHash(''), '811c9dc5', 'FNV-1a offset basis for empty input')
+  assertEq(shortHash('a'), 'e40c292c', 'FNV-1a("a") reference value')
+})
+
+Deno.test('reviewEmailKey: a retry with the same text dedupes; a follow-up question sends', () => {
+  const a = reviewEmailKey('needs_info', 'sub-1', 'Which bank did you send from?')
+  assertEq(a, reviewEmailKey('needs_info', 'sub-1', 'Which bank did you send from?'), 'same text → same key')
+  assertEq(a === reviewEmailKey('needs_info', 'sub-1', 'Please also send the receipt'), false, 'different text → different key')
+  assertEq(a === reviewEmailKey('rejected', 'sub-1', 'Which bank did you send from?'), false, 'variant is part of the key')
+  assertEq(a === reviewEmailKey('needs_info', 'sub-2', 'Which bank did you send from?'), false, 'submission is part of the key')
+  assertEq(reviewEmailKey('needs_info', 'sub-1', null), reviewEmailKey('needs_info', 'sub-1', ''), 'null message = empty')
+  assertEq(a.startsWith('needs_info-sub-1-'), true, 'readable prefix')
 })

@@ -77,6 +77,30 @@ export function routeSubmissionEmail(input: {
   return input.isWeb ? "layaway_update" : "hub_template";
 }
 
+/**
+ * FNV-1a 32-bit of a string's UTF-8 bytes, as 8 lowercase hex chars.
+ * Deterministic and dependency-free: used to make an email idempotency key
+ * depend on the reviewer's message text.
+ */
+export function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(text)) {
+    h ^= b;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * Idempotency key for a review email (needs_info / rejected) on one
+ * submission: includes a hash of the reviewer's message, so a retry or a
+ * double-click with the same text dedupes, while a FOLLOW-UP question on the
+ * same submission (different text) is sent.
+ */
+export function reviewEmailKey(variant: string, submissionId: string, message: string | null | undefined): string {
+  return `${variant}-${submissionId}-${shortHash(String(message ?? ""))}`;
+}
+
 /** The placeholder shipping_methods.tracking_url_template uses (src/lib/tracking-link.ts). */
 const TRACKING_PLACEHOLDER = "{tracking_code}";
 

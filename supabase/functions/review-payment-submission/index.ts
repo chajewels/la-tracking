@@ -23,7 +23,7 @@ import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
 import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { regionForCurrency } from "../_shared/transfer-methods.ts";
-import { isWebEntity, routeSubmissionEmail, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import { isWebEntity, reviewEmailKey, routeSubmissionEmail, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1801,7 +1801,7 @@ Deno.serve(async (req) => {
             id: String(submission.cash_order_id),
             variant: "needs_info",
             message: reviewer_notes ?? null,
-            idempotencyKey: `needs_info-${submission_id}`,
+            idempotencyKey: reviewEmailKey("needs_info", String(submission_id), reviewer_notes),
           });
         }
       } catch (cashMailErr) {
@@ -1883,7 +1883,7 @@ Deno.serve(async (req) => {
           id: String((acctForEmail as any).id),
           variant,
           message: reviewer_notes ?? null,
-          idempotencyKey: `${variant}-${submission_id}`,
+          idempotencyKey: reviewEmailKey(variant, String(submission_id), reviewer_notes),
         });
       } else if (customerEmail) {
         let templateName = "";

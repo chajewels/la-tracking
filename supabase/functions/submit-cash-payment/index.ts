@@ -313,41 +313,43 @@ Deno.serve(async (req) => {
         amount: submittedNum,
         idempotencyKey: `details-received-${submission.id}`,
       });
-    } else try {
-      const { data: customer } = await supabase
-        .from("customers")
-        .select("full_name, email")
-        .eq("id", cashOrder.customer_id)
-        .single();
-      const customerEmail = customer?.email;
-      if (customerEmail) {
-        const result = await sendTemplateEmail(
-          "cash-payment-submitted",
-          customerEmail,
-          {
-            templateData: {
-              customerName: customer?.full_name || "Valued Customer",
-              // The number the customer knows: CJ-W-… on a web order, the
-              // invoice number everywhere else.
-              invoiceNumber: customerReference(cashOrder as any),
-              amountPaid: Number(submittedNum).toLocaleString("en-US"),
-              paymentDate: payment_date,
-              // Display name, never the stored key — an unresolved method
-              // prints nothing rather than "rakuten".
-              paymentMethod: paymentMethodLabel(payment_method) ?? undefined,
-              referenceNumber: reference_number || undefined,
-              currency: cashOrder.currency,
-              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
+    } else {
+      try {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("full_name, email")
+          .eq("id", cashOrder.customer_id)
+          .single();
+        const customerEmail = customer?.email;
+        if (customerEmail) {
+          const result = await sendTemplateEmail(
+            "cash-payment-submitted",
+            customerEmail,
+            {
+              templateData: {
+                customerName: customer?.full_name || "Valued Customer",
+                // The number the customer knows: CJ-W-… on a web order, the
+                // invoice number everywhere else.
+                invoiceNumber: customerReference(cashOrder as any),
+                amountPaid: Number(submittedNum).toLocaleString("en-US"),
+                paymentDate: payment_date,
+                // Display name, never the stored key — an unresolved method
+                // prints nothing rather than "rakuten".
+                paymentMethod: paymentMethodLabel(payment_method) ?? undefined,
+                referenceNumber: reference_number || undefined,
+                currency: cashOrder.currency,
+                portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
+              },
+              idempotencyKey: `cash-payment-submitted-${submission.id}`,
             },
-            idempotencyKey: `cash-payment-submitted-${submission.id}`,
-          },
-        );
-        if (!result.sent) {
-          console.log(`[submit-cash-payment] "cash-payment-submitted" suppressed for ${maskEmail(customerEmail)}`);
+          );
+          if (!result.sent) {
+            console.log(`[submit-cash-payment] "cash-payment-submitted" suppressed for ${maskEmail(customerEmail)}`);
+          }
         }
+      } catch (emailErr) {
+        console.warn("[submit-cash-payment] email send failed (non-blocking):", emailErr);
       }
-    } catch (emailErr) {
-      console.warn("[submit-cash-payment] email send failed (non-blocking):", emailErr);
     }
 
     // 9. Return created submission
