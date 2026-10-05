@@ -53,9 +53,10 @@ Deno.test('card, English: hold released, nothing charged', async () => {
   assert(!t.includes('お支払い'), 'English-only email has no Japanese block')
 })
 
-Deno.test('bank transfer: asks for the receipt again, no "nothing charged"', async () => {
+Deno.test('bank transfer: asks her to reply with the receipt, no "nothing charged"', async () => {
   const t = await render({ lang: 'en', method: 'transfer', amount: 72980, remaining: 72980 })
-  assert(t.includes('upload it again'), 'resubmit line')
+  assert(t.includes('reply to this email with your transfer receipt'), 'reply-with-receipt line (web orders have no upload)')
+  assert(!/upload/i.test(t), 'no upload wording')
   assert(!t.includes('nothing was charged'), 'no charge wording for a transfer')
 })
 

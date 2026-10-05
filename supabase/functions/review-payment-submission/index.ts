@@ -21,7 +21,8 @@ import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-aut
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
-import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
+import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
+import { regionForCurrency } from "../_shared/transfer-methods.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -458,7 +459,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, ship_to_snapshot, shipping_fee, total_amount")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, ship_to_snapshot, shipping_fee, total_amount, transfer_due_at")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -969,8 +970,10 @@ Deno.serve(async (req) => {
       await refreshPaymentTracking(cashOrder.invoice_number, "review-payment-submission/cash");
 
       // 7. Fire-and-forget: the customer's confirmation email.
-      //    Web order, fully paid → the Cha Jewels "payment received" email
-      //    (storefront branding, customer's language, shipping note).
+      //    Web order → the Cha Jewels "payment received" email (storefront
+      //    branding, customer's language), naming the method THIS payment used
+      //    (payment lifecycle H3). Fully paid → the shipping note; partly paid
+      //    → what is still to pay and by when (it used to send nothing).
       //    Anything else → the Hub's cash-payment-confirmed template as before.
       const isWebOrder = (cashOrder as any).source_channel === "web";
       try {
@@ -980,7 +983,7 @@ Deno.serve(async (req) => {
           .eq("id", cashOrder.customer_id)
           .single();
         const customerEmail = customer?.email;
-        if (isWebOrder && isFullyPaid) {
+        if (isWebOrder) {
           const { data: lines } = await supabase
             .from("cash_order_items")
             .select("website_product_id, title, quantity, line_total_jpy")
@@ -999,6 +1002,10 @@ Deno.serve(async (req) => {
           });
           const reference = String((cashOrder as any).web_reference ?? cashOrder.invoice_number);
           const lang = emailLang((cashOrder as any).customer_lang, snapshotCountry(cashOrder as any));
+          const orderCurrency = String(cashOrder.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+          // Points used at checkout: a loyalty DISCOUNT shown as its own line,
+          // never as money received. Read failure → no line (non-blocking).
+          const { data: ptsPaid } = await (supabase as any).rpc("cash_order_points_paid", { p_cash_order_id: cashOrder.id });
           await sendStorefrontEmail({
             to: { email: customerEmail, is_test: (customer as any)?.is_test === true },
             subject: orderPaymentReceivedSubject(reference, lang),
@@ -1012,14 +1019,17 @@ Deno.serve(async (req) => {
               shippingJpy: Number((cashOrder as any).shipping_fee ?? 0),
               totalJpy: Number((cashOrder as any).total_amount ?? newTotalPaid),
               amountReceivedJpy: Number(submittedAmount),
-              currency: String(cashOrder.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
+              currency: orderCurrency,
               orderUrl: storefrontOrderUrl(String(cashOrder.id)),
+              method: notAcceptedMethod(submission.payment_method),
+              pointsApplied: Number(ptsPaid ?? 0),
+              // The balance AFTER this payment (finalize's new_remaining);
+              // > 0 renders the partial variant.
+              remaining: isFullyPaid ? null : newRemaining,
+              transferDueAt: (cashOrder as any).transfer_due_at ?? null,
+              region: regionForCurrency(orderCurrency),
             }),
           });
-        } else if (isWebOrder) {
-          // Partial transfer on a web order: no email yet — the order is still
-          // awaiting the balance and the Hub template would name the wrong reference.
-          console.log(JSON.stringify({ storefront_email: "order-payment-received", reference: (cashOrder as any).web_reference, outcome: "skipped_partial_payment" }));
         } else if (customerEmail) {
           const result = await sendTemplateEmail(
             "cash-payment-confirmed",

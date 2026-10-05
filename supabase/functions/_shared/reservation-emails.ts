@@ -10,7 +10,7 @@ import type { OrderEmailItem, OrderEmailMethod } from "./email-templates/order-s
 import type { LayawayScheduleRow } from "./email-templates/layaway-shared.tsx";
 import { OrderReservedEmail, orderReservedSubject } from "./email-templates/order-reserved.tsx";
 import { LayawayReservedEmail, layawayReservedSubject } from "./email-templates/layaway-reserved.tsx";
-import { OrderConfirmationEmail, orderReadySubject } from "./email-templates/order-confirmation.tsx";
+import { OrderConfirmationEmail, orderMethodChangedSubject, orderReadySubject } from "./email-templates/order-confirmation.tsx";
 import { LayawayPlanCreatedEmail, layawayReadySubject } from "./email-templates/layaway-plan-created.tsx";
 import { OrderCancelledEmail, orderCancelledSubject } from "./email-templates/order-cancelled.tsx";
 import { LayawayDeclinedEmail, layawayDeclinedSubject } from "./email-templates/layaway-declined.tsx";
@@ -137,6 +137,7 @@ export function sendOrderReservedEmail(supabase: Db, orderId: string): Promise<R
         totalJpy: Number(o.order.total_amount ?? 0),
         currency: o.currency,
         orderUrl: storefrontOrderUrl(orderId),
+        method: o.order.source_channel === "web" ? publicMethod(o.order.payment_method) : "transfer",
       }),
     });
   });
@@ -199,9 +200,13 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
     const chosen = o.order.source_channel === "web" ? publicMethod(o.order.payment_method) : "transfer";
     const methods = chosen === "transfer" ? await transferMethods(supabase, currency) : [];
     const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
+    // Payment lifecycle H3: a method change names the OLD method too, read
+    // from the newest payment_method_changed audit row (staff or customer
+    // switch). Unreadable → the heading still says it changed, no old → new line.
+    const changedFrom = opts.methodChanged ? await previousMethod(supabase, orderId) : null;
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderReadySubject(o.reference, o.lang),
+      subject: opts.methodChanged ? orderMethodChangedSubject(o.reference, o.lang) : orderReadySubject(o.reference, o.lang),
       label,
       reference: o.reference,
       idempotencyKey: opts.methodChanged
@@ -225,9 +230,30 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
+        ...(changedFrom ? { methodChanged: { from: changedFrom } } : {}),
       }),
     });
   });
+}
+
+/**
+ * The method an order was paid with BEFORE its latest change: the newest
+ * audit_logs 'payment_method_changed' row for it (written by both
+ * change_web_payment_method_atomic and the customer switch), old_value_json
+ * ->> 'payment_method', mapped to the public name. null when there is none.
+ */
+async function previousMethod(supabase: Db, orderId: string): Promise<"transfer" | "paidy" | "card" | null> {
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("old_value_json, created_at")
+    .eq("entity_id", orderId)
+    .eq("action", "payment_method_changed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const old = ((data as AnyRec).old_value_json as AnyRec | null)?.payment_method;
+  return old ? publicMethod(old) : null;
 }
 
 /**
@@ -425,7 +451,7 @@ export function storefrontDraftUrl(draftId: string): string {
 async function loadDraft(supabase: Db, draftId: string) {
   const { data: draft } = await supabase
     .from("web_order_drafts")
-    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, customers(email, is_test)")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, payment_method, customers(email, is_test)")
     .eq("id", draftId)
     .maybeSingle();
   if (!draft) return null;
@@ -498,6 +524,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
         orderUrl: storefrontDraftUrl(draftId),
         provisional: true,
         pointsApplied: Number(d.draft.points_value ?? 0),
+        method: publicMethod(d.draft.payment_method),
       }),
     });
   });

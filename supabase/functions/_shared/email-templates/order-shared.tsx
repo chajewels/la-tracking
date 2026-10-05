@@ -56,6 +56,13 @@ export const WORDS = {
   help: { ja: 'ご不明な点は、このメールにご返信ください。', en: 'Questions? Reply to this email.' },
 } as const
 
+/** What a payment method is called in an order email (stored 'square' is 'card'). */
+export type PayMethod = 'transfer' | 'paidy' | 'card'
+export const METHOD_NAME = {
+  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
+  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card' },
+} as const
+
 /**
  * An order email's subject (payment lifecycle H2): a Japanese email carries
  * "Japanese / English"; an English one is English only.

@@ -193,6 +193,11 @@ describe("content", () => {
     const s = stripComments(code(SENDER));
     expect(s).toMatch(/select\("entity_type, entity_id, deadline, reference, email, lang, currency, amount"\)/);
     expect(s).toMatch(/transferMethods\(supabase, currency\)/);
+    // H3 (R1): an order reminder reads its method and language from the order row.
+    expect(s).toMatch(/\.select\("payment_method, customer_lang, ship_to_snapshot"\)/);
+    expect(s).toMatch(/const method = publicMethod\(o\.payment_method\)/);
+    expect(s).toMatch(/const lang = emailLang\(o\.customer_lang, snapshotCountry\(o\)\)/);
+    expect(s).toMatch(/method === "transfer"\s*\?\s*\(await transferMethods\(supabase, currency\)\)[^:]*:\s*\[\]/);
     expect(s).toMatch(/region: regionForCurrency\(currency\)/);
     expect(s).toMatch(/deposit: Number\(r\.amount \?\? 0\)/);
   });

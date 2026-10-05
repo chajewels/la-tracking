@@ -106,6 +106,14 @@ function storefrontFixtures(): Fixture[] {
       add('order-expired.tsx', `order-expired ${k}`, el(OrderExpiredEmail, { lang, currency, ...base, transferDueAt: due, region: 'JP', shopUrl }))
       add('order-payment-due.tsx', `order-payment-due ${k}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, methods, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       add('order-payment-received.tsx', `order-payment-received ${k}`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, amountReceivedJpy: 317980, orderUrl }))
+      // Payment lifecycle H3: per-method copy, points, the partial variant.
+      for (const method of ['paidy', 'card'] as const) {
+        add('order-payment-received.tsx', `order-payment-received ${k} ${method} points`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, method, amountReceivedJpy: 316980, pointsApplied: 1000, orderUrl }))
+        add('order-payment-due.tsx', `order-payment-due ${k} ${method}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, method, methods: [], transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+        add('order-reserved.tsx', `order-reserved ${k} draft ${method}`, el(OrderReservedEmail, { lang, currency, ...base, shippingJpy: null, orderUrl, provisional: true, method }))
+      }
+      add('order-payment-received.tsx', `order-payment-received ${k} partial`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, method: 'transfer', amountReceivedJpy: 300000, remaining: 17980, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+      add('order-confirmation.tsx', `order-confirmation ${k} method changed`, el(OrderConfirmationEmail, { lang, currency, ...base, methods: [], transferDueAt: due, region: 'JP', orderUrl, variant: 'ready', chosenMethod: 'card', methodChanged: { from: 'transfer' } }))
       add('order-reservation-lapsed.tsx', `order-reservation-lapsed ${k}`, el(OrderReservationLapsedEmail, { lang, currency, ...base, shopUrl }))
       // A rejected payment on a web order: every method, staff (with the
       // reviewer's message) and provider-ended, open and closed order.

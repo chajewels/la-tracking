@@ -173,7 +173,7 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     displayName: 'Web order — bank transfer rejected by staff (EN)',
     component: OrderPaymentNotAcceptedEmail,
     subject: orderPaymentNotAcceptedSubject('CJ-W-000128', 'en'),
-    previewData: { lang: 'en', reference: 'CJ-W-000128', method: 'transfer', kind: 'staff', amount: 72980, currency: 'JPY', reason: 'The receipt shows a different amount. Please upload the receipt for ¥72,980.', remaining: 72980, transferDueAt: due, region: 'JP', orderUrl },
+    previewData: { lang: 'en', reference: 'CJ-W-000128', method: 'transfer', kind: 'staff', amount: 72980, currency: 'JPY', reason: 'The receipt shows a different amount. Please reply with the receipt for ¥72,980.', remaining: 72980, transferDueAt: due, region: 'JP', orderUrl },
   },
   'storefront-order-payment-due-en': {
     displayName: 'Web order — payment reminder (EN)',
