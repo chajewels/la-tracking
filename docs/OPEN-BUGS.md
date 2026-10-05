@@ -819,3 +819,16 @@
   PR #379 (Square integrity) rewrites that block; add it on top of #379.
 - **Paidy owner checks still open:** the address-line mapping (Paidy line1 = building/room) and the
   negative-price "Discount" line — confirm both with Paidy (docs/PAIDY.md "Follow-up").
+
+## 2026-10-06 — Payment lifecycle / QC parked items (owner decisions or follow-ups)
+
+- **auto-forfeit-settlement PATH 3 sends a "permanently forfeited" email** — LOCKED function,
+  owner decision pending (the wording is wrong for a final_settlement account).
+- **Paidy P2-1:** `name1` should be family-first — owner decision.
+- **Paidy P2-7:** auto-close the Paidy authorisation on cancel/expiry — owner decision.
+- **QC P2-5:** wording of the "points are not returned" warning — owner decision.
+- **QC P3-1:** draft line prices. **P3-2:** layaway pay race / pending sum. **P3-3:** staff
+  switch offer checks. **P3-6:** separate HMAC key for the card-agreement link.
+  **P3-7:** points lapsing before Confirm (unverified).
+- **Proof guard host is hard-coded** — must move with any Supabase project move.
+- **Paidy billing fallback is inert** — `customers` has no prefecture / address line 2.

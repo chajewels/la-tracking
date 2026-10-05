@@ -90,3 +90,20 @@ cancellation itself (its 「ご利用の確認（未確定）」 email says so).
   `applyPaymentState` skips sources `void` / `review` / `capture` (their caller
   sends it).
 - Test: development/payment-rejected-email.test.ts (CI).
+
+## Payment lifecycle (2026-10-05)
+
+- **Customer switch (C1 exception).** After a REJECTED latest decision the customer may switch
+  method herself, ONCE per rejection (`switch_web_payment_method_by_customer_atomic`; a second
+  try answers `already_switched`). Never while `cash_order_payment_lock` is set, never without a
+  rejection. Staff switching (`change_web_payment_method_atomic`) is unchanged.
+- **latest_decision.** The newest by `updated_at` among submissions whose status is `rejected`,
+  `needs_clarification` or `confirmed`; only its `customer_message` is ever shown to the
+  customer (internal notes never).
+- **Emails sent by the lifecycle:** needs_info, deadline_moved, shipped, details_received,
+  partial payment-received, paid-by-points, method-changed, and the layaway update email
+  (layaway emails stay English only).
+- **Language rule.** `emailLang`: the customer's `customer_lang`, else Japan -> `ja`, else `en`.
+  `ja` subjects read "JA / EN" (both languages in the body); `en` subjects are English only.
+- Tests (CI): method-switch-rules, email-language, payment-method-copy, order-update-email,
+  web-order-senders, latest-decision, notify-shipped, paidy-alignment, qc-safety, proof-safety.

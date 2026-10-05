@@ -1429,6 +1429,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     it ONLY via change_web_payment_method_atomic. Checkout points = LOYALTY-
     discount (not money), approved at Confirm; 'nothing paid' checks use
     cash_order_points_paid / layaway_deposit_started, never total_paid alone.
+    C1 exception: after a REJECTED submission the customer may switch method herself
+    ONCE (switch_web_payment_method_by_customer_atomic), never while locked.
   - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
     on that order, any route (trigger); fallback = staff Reject. Paidy rows
     are immutable, never restored; exceptions go to paidy_cases.
