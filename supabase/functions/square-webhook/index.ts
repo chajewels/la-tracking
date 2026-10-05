@@ -85,7 +85,8 @@ Deno.serve(async (req) => {
 });
 
 /** Claims, processes and finishes one stored event. Never throws. */
-async function processStored(supabase: ReturnType<typeof createClient>, eventId: string, type: string, body: Rec): Promise<string> {
+// deno-lint-ignore no-explicit-any
+async function processStored(supabase: any, eventId: string, type: string, body: Rec): Promise<string> {
   try {
     const claim = await rpc(supabase, "claim_square_event", { p_event_id: eventId, p_lease_seconds: 120 });
     if (!claim.claimed) return String(claim.status ?? "not_claimed"); // finished already, or another worker holds it
