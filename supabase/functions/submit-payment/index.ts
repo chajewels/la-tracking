@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
         reference_number: reference_number || null,
         sender_name: sender_name || null,
         notes: notes || null,
-        proof_url: proof_url || null,
+        proof_url: proof_url.trim(),
         installment_number: installment_number || null,
         portal_token,
         status: "submitted",

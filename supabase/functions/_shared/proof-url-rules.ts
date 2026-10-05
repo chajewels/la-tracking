@@ -32,9 +32,15 @@ export function isAllowedProofUrl(url: unknown, ctx: ProofUrlCtx): boolean {
   if (typeof url !== "string") return false;
   const raw = url.trim();
   if (!raw || raw.length > 2048) return false;
-  // No control characters or backslashes anywhere in the raw string.
+  // Same character rules as the database guard
+  // (trg_guard_payment_submission_proof_url, migration 20261111100000): no
+  // whitespace, control characters or backslashes, no ".." anywhere, and no
+  // encoded dot / slash / backslash / NUL. Every producer emits encoded paths
+  // (encodeURI / sanitised names), so none of these occur legitimately.
   // deno-lint-ignore no-control-regex
-  if (/[\u0000-\u001f\u007f\\]/.test(raw)) return false;
+  if (/[\s\u0000-\u001f\u007f\\]/.test(raw)) return false;
+  if (raw.includes("..")) return false;
+  if (/%(2e|2f|5c|00)/i.test(raw)) return false;
   if (!/^https:\/\//i.test(raw)) return false;
   const expectedHost = (ctx?.host ?? "").trim().toLowerCase();
   if (!expectedHost) return false;

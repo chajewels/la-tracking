@@ -24,8 +24,11 @@ Deno.test('accepts every live producer shape', () => {
   // upload-proof (portal + storefront)
   assert(isAllowedProofUrl(ok('0b1c2d3e-0000-4000-8000-123456789abc/web-1759700000000-slip.jpg'), ctx))
   assert(isAllowedProofUrl(ok('0b1c2d3e-0000-4000-8000-123456789abc/1759700000000_19144_Cash.png'), ctx))
-  // Hub staff dialogs: unsanitised customer names (spaces) and bulk-import folder
-  assert(isAllowedProofUrl(ok('0b1c2d3e-0000-4000-8000-123456789abc/Myrna Tanaka_19144_M1_2026-06-15_abc.jpeg'), ctx))
+  // Hub staff dialogs (getPublicUrl encodes with encodeURI) and bulk-import folder
+  assert(isAllowedProofUrl(ok('0b1c2d3e-0000-4000-8000-123456789abc/Myrna%20Tanaka_19144_M1_2026-06-15_abc.jpeg'), ctx))
+  // a raw space (one legacy row) is refused for NEW writes, like the DB guard
+  assertEquals(isAllowedProofUrl(ok('0b1c2d3e-0000-4000-8000-123456789abc/Myrna Tanaka_19144.jpeg'), ctx), false)
+  assertEquals(isAllowedProofUrl(ok('a/slip..jpg'), ctx), false)
   assert(isAllowedProofUrl(ok('bulk-import/batch-1/Staff_BulkImport_2026-10-01_x.jpg'), ctx))
   // legacy one-segment and "undefined" folder rows
   assert(isAllowedProofUrl(ok('12345_DP1_2026.jpg'), ctx))
@@ -161,4 +164,46 @@ Deno.test('upload-proof ignores upsert and checks the file', () => {
   assert(/upsert: false/.test(s))
   assert(/acceptedProofType\(/.test(s))
   assert(/"unsupported_file"/.test(s))
+})
+
+// ── H11 fix round 1 (R15): migration source assertions (SQL comments stripped) ──
+const sql = Deno.readTextFileSync(new URL('../supabase/migrations/20261111100000_payment_lifecycle.sql', import.meta.url))
+  .split('\n').map((l) => l.replace(/--.*$/, '')).join('\n')
+
+Deno.test('migration: INSERT policy recreated staff-only, customer UPDATE policy dropped', () => {
+  assert(/DROP POLICY IF EXISTS "Authenticated users can insert submissions" ON public\.payment_submissions;/.test(sql))
+  const create = /CREATE POLICY "Authenticated users can insert submissions" ON public\.payment_submissions\s+FOR INSERT TO authenticated\s+WITH CHECK \(\(SELECT public\.is_staff\(\(SELECT auth\.uid\(\)\)\)\)\);/
+  assert(create.test(sql), 'staff-only INSERT policy missing')
+  assert(/DROP POLICY IF EXISTS "Session customers can cancel own cash order submissions" ON public\.payment_submissions;/.test(sql))
+  // no policy text in this migration grants a customer branch
+  assertEquals(/CREATE POLICY[^;]*auth_user_id/.test(sql), false)
+})
+
+Deno.test('migration: proof-link trigger is pinned, revoked and checked', () => {
+  assert(/CREATE OR REPLACE FUNCTION public\.guard_payment_submission_proof_url\(\)\s+RETURNS trigger\s+LANGUAGE plpgsql\s+SET search_path = public/.test(sql))
+  assert(sql.includes(String.raw`'^https://pfoicalpzdcmyxzvwyhz\.supabase\.co/storage/v1/object/(public|sign)/payment-proofs/[^/?#]'`))
+  assert(/position\('\.\.' IN NEW\.proof_url\) > 0/.test(sql))
+  assert(sql.includes(String.raw`NEW.proof_url ~ '[[:space:][:cntrl:]\\]'`))
+  assert(/TG_OP = 'INSERT' OR NEW\.proof_url IS DISTINCT FROM OLD\.proof_url/.test(sql))
+  assert(/RAISE EXCEPTION 'invalid_proof_url'\s+USING ERRCODE = 'check_violation'/.test(sql))
+  assert(/REVOKE ALL ON FUNCTION public\.guard_payment_submission_proof_url\(\) FROM PUBLIC, anon, authenticated;/.test(sql))
+  assert(/CREATE TRIGGER trg_guard_payment_submission_proof_url\s+BEFORE INSERT OR UPDATE OF proof_url ON public\.payment_submissions\s+FOR EACH ROW EXECUTE FUNCTION public\.guard_payment_submission_proof_url\(\);/.test(sql))
+  // post-checks
+  assert(/tgname = 'trg_guard_payment_submission_proof_url'/.test(sql))
+  assert(/proconfig @> ARRAY\['search_path=public'\]/.test(sql))
+  assert(/a customer branch still allows writes to payment_submissions/.test(sql))
+  // the trigger must not touch existing rows
+  assertEquals(/UPDATE public\.payment_submissions/.test(sql), false)
+})
+
+Deno.test('edge twin agrees with the DB guard on the character rules', () => {
+  assertEquals(isAllowedProofUrl(ok('a/b c.jpg'), ctx), false)
+  assertEquals(isAllowedProofUrl(ok('a/slip..jpg'), ctx), false)
+  assertEquals(isAllowedProofUrl(ok('a/%2E%2E/b.jpg'), ctx), false)
+  assertEquals(isAllowedProofUrl(ok('a/%5cb.jpg'), ctx), false)
+  assertEquals(isAllowedProofUrl(ok('a/b%20c.jpg'), ctx), true)
+})
+
+Deno.test('submit-payment stores the trimmed proof_url', () => {
+  assert(/proof_url: proof_url\.trim\(\),/.test(src('submit-payment/index.ts')))
 })

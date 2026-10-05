@@ -76,7 +76,8 @@ Deno.serve(async (req) => {
     }
     if (!owns) return json(403, { error: "Account not found or access denied" });
 
-    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    // No ".." in a stored name (the proof-link guard refuses it).
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.{2,}/g, ".");
     const objectPath = `${accountId}/${safeName}`;
 
     // QC P2-4 (2026-10-06): only JPEG / PNG / WebP / HEIC-HEIF / PDF, and the

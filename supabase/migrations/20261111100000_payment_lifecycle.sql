@@ -47,6 +47,27 @@
 --         Square guard (card_payment_unresolved). cancel-cash-order turns it
 --         into "Reject or record the Paidy payment first".
 --
+--   5. Proof safety (H11 fix round 1, qc-audit P1-1, controller ruling R15):
+--      a. payment_submissions is written only through the Hub. Live policies
+--         read 2026-10-06: the INSERT policy "Authenticated users can insert
+--         submissions" also let a signed-in CUSTOMER insert her own rows, and
+--         "Session customers can cancel own cash order submissions" let her
+--         update them. No client writes either way (portal and storefront go
+--         through service-role edge functions), so the INSERT policy is
+--         recreated with its staff condition only and the customer UPDATE
+--         policy is dropped. Staff SELECT/INSERT/UPDATE and the customer
+--         SELECT policy are unchanged.
+--      b. guard_payment_submission_proof_url + trg_guard_payment_submission_proof_url:
+--         BEFORE INSERT OR UPDATE OF proof_url — a new or changed proof_url
+--         must be a link into THIS project's payment-proofs bucket (host
+--         pfoicalpzdcmyxzvwyhz.supabase.co = the project ref, as in
+--         supabase/config.toml; not a secret), with no "..", whitespace,
+--         control characters, backslash or encoded dot/slash/backslash/NUL.
+--         Raises invalid_proof_url (check_violation). Existing rows are not
+--         touched. Covers insert_payment_submissions_batch and the staff
+--         attach-proof update too. Edge twin: _shared/proof-url-rules.ts.
+--         If the project ever moves host, this regex moves with it.
+--
 -- FUNCTION RULES (CLAUDE.md, Bug #280): the two new functions are created
 -- fresh; the two patched bodies are changed in place from the live text
 -- (md5-guarded, anchors must match exactly once). REVOKE/GRANT asserted below.
@@ -276,6 +297,44 @@ REVOKE ALL ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid,
 GRANT EXECUTE ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) TO service_role;
 
 -- ---------------------------------------------------------------------------
+-- 4c. Proof safety (H11): payment_submissions written only through the Hub.
+--     The staff condition is kept exactly as live has it (scalar sub-select).
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Authenticated users can insert submissions" ON public.payment_submissions;
+CREATE POLICY "Authenticated users can insert submissions" ON public.payment_submissions
+  FOR INSERT TO authenticated
+  WITH CHECK ((SELECT public.is_staff((SELECT auth.uid()))));
+DROP POLICY IF EXISTS "Session customers can cancel own cash order submissions" ON public.payment_submissions;
+
+-- 4d. Database guard on proof links (new and changed values only).
+CREATE OR REPLACE FUNCTION public.guard_payment_submission_proof_url()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $fn$
+BEGIN
+  IF NEW.proof_url IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.proof_url IS DISTINCT FROM OLD.proof_url) THEN
+    IF NEW.proof_url !~ '^https://pfoicalpzdcmyxzvwyhz\.supabase\.co/storage/v1/object/(public|sign)/payment-proofs/[^/?#]'
+       OR position('..' IN NEW.proof_url) > 0
+       OR NEW.proof_url ~ '[[:space:][:cntrl:]\\]'
+       OR NEW.proof_url ~* '%(2e|2f|5c|00)' THEN
+      RAISE EXCEPTION 'invalid_proof_url'
+        USING ERRCODE = 'check_violation',
+              DETAIL = 'Proof of payment must be a file in the Cha Jewels payment-proofs bucket.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.guard_payment_submission_proof_url() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_guard_payment_submission_proof_url ON public.payment_submissions;
+CREATE TRIGGER trg_guard_payment_submission_proof_url
+  BEFORE INSERT OR UPDATE OF proof_url ON public.payment_submissions
+  FOR EACH ROW EXECUTE FUNCTION public.guard_payment_submission_proof_url();
+
+-- ---------------------------------------------------------------------------
 -- 5. Post-checks. Any failure rolls the whole migration back.
 -- ---------------------------------------------------------------------------
 DO $check$
@@ -323,6 +382,39 @@ BEGIN
   END IF;
   IF NOT has_function_privilege('service_role', 'public.cash_order_payment_locks(uuid[])', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOP — service_role cannot execute the batched lock read; rolled back';
+  END IF;
+  -- H11: no policy lets a customer insert or update a submission.
+  IF EXISTS (SELECT 1 FROM pg_policies
+              WHERE schemaname = 'public' AND tablename = 'payment_submissions'
+                AND cmd IN ('INSERT', 'UPDATE', 'ALL')
+                AND (coalesce(qual, '') ILIKE '%auth_user_id%' OR coalesce(with_check, '') ILIKE '%auth_user_id%')) THEN
+    RAISE EXCEPTION 'STOP — a customer branch still allows writes to payment_submissions; rolled back';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public' AND tablename = 'payment_submissions'
+                    AND policyname = 'Authenticated users can insert submissions' AND cmd = 'INSERT'
+                    AND with_check ILIKE '%is_staff%') THEN
+    RAISE EXCEPTION 'STOP — the staff INSERT policy is missing; rolled back';
+  END IF;
+  -- H11: the proof-link guard is installed, enabled, pinned and not callable.
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                  WHERE tgrelid = 'public.payment_submissions'::regclass
+                    AND tgname = 'trg_guard_payment_submission_proof_url'
+                    AND tgenabled = 'O' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'STOP — trg_guard_payment_submission_proof_url is missing or disabled; rolled back';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc
+                  WHERE oid = 'public.guard_payment_submission_proof_url()'::regprocedure
+                    AND proconfig @> ARRAY['search_path=public']) THEN
+    RAISE EXCEPTION 'STOP — guard_payment_submission_proof_url has no pinned search_path; rolled back';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.guard_payment_submission_proof_url()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.guard_payment_submission_proof_url()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOP — the proof-link guard function is executable by a signed-in or anonymous caller; rolled back';
+  END IF;
+  IF position('payment-proofs/' IN pg_get_functiondef('public.guard_payment_submission_proof_url()'::regprocedure)) = 0
+     OR position('invalid_proof_url' IN pg_get_functiondef('public.guard_payment_submission_proof_url()'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'STOP — guard_payment_submission_proof_url body is not the expected one; rolled back';
   END IF;
 END
 $check$;
