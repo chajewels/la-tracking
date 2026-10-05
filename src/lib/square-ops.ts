@@ -16,9 +16,25 @@ export const SQUARE_EXCEPTION_LABEL: Record<string, string> = {
   captured_unallocated: 'Captured but the order could not take it',
   amount_mismatch: 'Amount does not match the submission',
   unfiled_hold: 'Hold the order could not take',
-  risk_high: 'Square risk HIGH (voided)',
+  // QC15: the risk finding only — whether the hold was voided is the
+  // payment's own state (squarePaymentStateLabel), never assumed here.
+  risk_high: 'Square risk HIGH',
   void_unconfirmed: 'Hub closed it but Square still holds it',
+  refunded_before_record: 'Square refunded (or is refunding) it before the Hub recorded it',
 };
+
+/** What Square says the money is doing now — shown beside every exception (QC15). */
+export function squarePaymentStateLabel(status: string | null | undefined): string {
+  switch ((status ?? '').toLowerCase()) {
+    case 'authorized': return 'Still held on the card';
+    case 'captured': return 'Captured — money taken';
+    case 'voided': return 'Voided — hold released';
+    case 'expired': return 'Expired — hold released';
+    case 'failed':
+    case 'rejected': return 'Closed — nothing charged';
+    default: return status ? status : 'Unknown';
+  }
+}
 
 /** Exception label; a capture with no exception code is "captured, not recorded". */
 export function squareExceptionLabel(code: string | null | undefined): string {
@@ -29,11 +45,15 @@ export function squareExceptionLabel(code: string | null | undefined): string {
 /** decide_square_case decisions per kind — the exact values the function accepts. */
 export type SquareCaseKind = 'exception' | 'refund' | 'dispute';
 export const SQUARE_DECISIONS: Record<SquareCaseKind, { value: string; label: string }[]> = {
+  // QC02: a decision is recorded; only evidence resolves it (the capture
+  // recorded on the ledger, a completed full refund, Square showing the hold
+  // closed). "Note only" never releases the order.
   exception: [
-    { value: 'recorded_manually', label: 'Recorded by hand in the Hub' },
-    { value: 'refunded_in_square', label: 'Refunded in the Square Dashboard' },
+    { value: 'record_on_order', label: 'Record the captured money on this order' },
+    { value: 'record_net_after_refund', label: 'Record the net after a completed partial refund' },
+    { value: 'refunded_in_square', label: 'Refunded in full in the Square Dashboard' },
     { value: 'voided_in_square', label: 'Voided in the Square Dashboard' },
-    { value: 'other', label: 'Other (explain in the note)' },
+    { value: 'other', label: 'Note only (does not resolve it)' },
   ],
   refund: [
     { value: 'order_cancelled_refunded', label: 'Order cancelled, refunded' },
@@ -50,7 +70,7 @@ export const SQUARE_DECISIONS: Record<SquareCaseKind, { value: string; label: st
   ],
 };
 
-/** The note is required for an exception (it releases the order); optional otherwise. */
+/** The note is required for an exception decision (it is the audit of what was done with the money); optional otherwise. */
 export function squareNoteRequired(kind: SquareCaseKind): boolean {
   return kind === 'exception';
 }
@@ -61,7 +81,18 @@ export function squareDecisionRefusal(code: string): string {
     case 'decision_required': return 'Choose a decision.';
     case 'bad_decision': return 'That decision is not allowed for this case.';
     case 'note_required': return 'A note is required: say what was done with the money.';
-    case 'not_permitted': return 'Only an admin or finance can resolve a card exception (it reopens the order for payment).';
+    case 'not_permitted': return 'Only an admin or finance can decide a card exception.';
+    case 'refund_not_verified': return 'Square does not show a completed refund covering this capture (or a refund is still pending). The decision is noted; the case stays open until Square shows the refund.';
+    case 'void_not_verified': return 'Square does not show this hold as voided (captured money cannot be voided — refund it instead). The decision is noted; the case stays open.';
+    case 'square_refunded': return 'Square shows a refund on this capture, so it cannot be recorded in full. Use "Record the net after a completed partial refund", or "Refunded in full".';
+    case 'refund_pending': return 'A refund on this capture is still pending in Square. Wait until it completes or fails.';
+    case 'no_refund': return 'Square shows no completed refund on this capture — use "Record the captured money on this order".';
+    case 'fully_refunded': return 'The capture is refunded in full — choose "Refunded in full in the Square Dashboard".';
+    case 'already_recorded': return 'This capture is already recorded on the order.';
+    case 'not_captured': return 'Square does not show this payment as captured.';
+    case 'order_closed': return 'The order is cancelled or expired, so it cannot take this money — refund it in the Square Dashboard.';
+    case 'exceeds_remaining': return 'The order no longer owes this much. Refund the excess in the Square Dashboard, then choose "Record the net after a completed partial refund".';
+    case 'state_mismatch': return 'That decision does not match what Square reports for this case yet.';
     case 'not_found': return 'The case was not found, or it is already resolved. Refresh the panel.';
     case 'bad_kind': return 'Unknown case type.';
     case 'not_staff': return 'Only staff can record a decision.';
@@ -148,6 +179,8 @@ export interface SettlementRow {
   refunds_open_jpy: number | string;
   disputes_lost_jpy: number | string;
   net_jpy: number | string;
+  /** Captures whose Square fee was not reported yet (counted as ¥0 — net is an estimate). */
+  fees_missing?: number | string;
 }
 
 export interface SettlementTotals {
@@ -158,6 +191,7 @@ export interface SettlementTotals {
   refunds_open_jpy: number;
   disputes_lost_jpy: number;
   net_jpy: number;
+  fees_missing: number;
 }
 
 const num = (v: number | string | null | undefined): number => {
@@ -169,7 +203,7 @@ const num = (v: number | string | null | undefined): number => {
 export function settlementTotals(rows: SettlementRow[]): SettlementTotals {
   const t: SettlementTotals = {
     captures: 0, gross_jpy: 0, fees_jpy: 0, refunds_completed_jpy: 0,
-    refunds_open_jpy: 0, disputes_lost_jpy: 0, net_jpy: 0,
+    refunds_open_jpy: 0, disputes_lost_jpy: 0, net_jpy: 0, fees_missing: 0,
   };
   for (const r of rows) {
     t.captures += num(r.captures);
@@ -179,24 +213,25 @@ export function settlementTotals(rows: SettlementRow[]): SettlementTotals {
     t.refunds_open_jpy += num(r.refunds_open_jpy);
     t.disputes_lost_jpy += num(r.disputes_lost_jpy);
     t.net_jpy += num(r.net_jpy);
+    t.fees_missing += num(r.fees_missing);
   }
   return t;
 }
 
 export const SETTLEMENT_CSV_HEADER = [
   'Day (Japan)', 'Captures', 'Gross JPY', 'Square fees JPY', 'Refunds completed JPY',
-  'Refunds pending JPY', 'Disputes lost JPY', 'Net JPY',
+  'Refunds pending JPY', 'Disputes lost JPY', 'Estimated net JPY', 'Captures with fee not reported',
 ];
 
 /** Header + rows (with a final Total row) for the settlement CSV. Numbers stay numbers. */
 export function settlementCsvRows(rows: SettlementRow[]): { header: string[]; rows: (string | number)[][] } {
   const body = rows.map((r) => [
     r.day, num(r.captures), num(r.gross_jpy), num(r.fees_jpy), num(r.refunds_completed_jpy),
-    num(r.refunds_open_jpy), num(r.disputes_lost_jpy), num(r.net_jpy),
+    num(r.refunds_open_jpy), num(r.disputes_lost_jpy), num(r.net_jpy), num(r.fees_missing),
   ]);
   const t = settlementTotals(rows);
   body.push(['Total', t.captures, t.gross_jpy, t.fees_jpy, t.refunds_completed_jpy,
-    t.refunds_open_jpy, t.disputes_lost_jpy, t.net_jpy]);
+    t.refunds_open_jpy, t.disputes_lost_jpy, t.net_jpy, t.fees_missing]);
   return { header: SETTLEMENT_CSV_HEADER, rows: body };
 }
 
@@ -206,9 +241,43 @@ export function settlementCsv(rows: SettlementRow[]): string {
   return toCsv(header, body);
 }
 
-/** CSV file base name for a range, e.g. "square-settlement-2026-10-01-to-2026-10-04". */
+/** CSV file base name for a range, e.g. "square-card-activity-2026-10-01-to-2026-10-04" (QC13: activity, not bank settlement). */
 export function settlementFileName(from: string, to: string): string {
-  return `square-settlement-${from}-to-${to}`;
+  return `square-card-activity-${from}-to-${to}`;
+}
+
+/** square_ops_health() (QC11) — the panel's health strip. */
+export interface SquareOpsHealth {
+  last_run?: { at?: string; finished_at?: string; status?: 'ok' | 'degraded' | 'failed'; backlog?: number; report?: { errors?: string[]; truncated?: string[]; history_gaps?: string[]; events_api?: string } } | null;
+  last_ok_at?: string | null;
+  events_backlog?: number;
+  events_dead?: number;
+  holds_live?: number;
+  attempts_open?: number;
+  captured_unrecorded?: number;
+  exceptions_open?: number;
+  refunds_open?: number;
+  disputes_open?: number;
+}
+
+/** True when the last run found Square's event history (Events API) not enabled for the account. */
+export function eventsApiNotEnabled(h: SquareOpsHealth | null | undefined): boolean {
+  return String(h?.last_run?.report?.events_api ?? '').startsWith('not_enabled');
+}
+
+/** The checks run hourly: a last good run older than this is stale (cron silent or failing). */
+export const RECONCILE_STALE_MS = 3 * 60 * 60 * 1000;
+
+/** ok | degraded | failed | stale | unknown — what the strip shows. */
+export function squareHealthStatus(h: SquareOpsHealth | null | undefined, now: Date): 'ok' | 'degraded' | 'failed' | 'stale' | 'unknown' {
+  if (!h || !h.last_run?.at) return 'unknown';
+  const lastOk = h.last_ok_at ? new Date(h.last_ok_at).getTime() : NaN;
+  if (Number.isNaN(lastOk) || now.getTime() - lastOk > RECONCILE_STALE_MS) {
+    const s = h.last_run.status;
+    return s === 'failed' || s === 'degraded' ? s : 'stale';
+  }
+  const s = h.last_run.status;
+  return s === 'failed' || s === 'degraded' ? s : (h.events_dead ?? 0) > 0 ? 'degraded' : 'ok';
 }
 
 /** Customer-facing order reference: the web reference, else the invoice number. */

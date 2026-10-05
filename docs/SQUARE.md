@@ -263,3 +263,78 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
 ## Checkout payment choice + points (2026-10-05)
 
 See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".
+
+## QC fixes (2026-10-05, independent close-out review QC01–QC15)
+
+Migration `20261108100000_square_closeout_qc.sql` (md5-guarded, every replaced body starts from live) and
+the edge functions square-webhook, square-reconcile, review-payment-submission, website (shared Square
+modules), void-cash-payment, restore-cash-payment. Plan: project doc
+`claude/square-closeout-qc-plan-2026-10-05.md`.
+
+- **Refunded money is never credited in full (QC01).** `finalize_cash_submission_atomic` refuses
+  `square_refunded` when Square reports a completed or pending refund on the capture
+  (`square_refunds` not FAILED/REJECTED, or `refund_jpy`) and flags `refunded_before_record`;
+  `record_square_refund` flags it too. The Confirm path reads the payment's refunds before recording.
+  The only way to record the net is the admin/finance decision **record_net_after_refund** (completed
+  partial refund, none pending): a `card_net_after_refund` submission for exactly captured − completed.
+- **A decision is not a resolution (QC02).** `decide_square_case` stores `exception_decision` and
+  releases the order only on evidence: the capture recorded on the ledger (`record_on_order` /
+  `record_net_after_refund` hand it to the normal Confirm path — the panel calls
+  review-payment-submission, which reads Square and the finalizer records it), a completed full
+  refund (`refunded_in_square`), or Square showing the hold closed (`voided_in_square`). **Note only**
+  (`other`) resolves nothing. Refund and dispute decisions must match Square's state
+  (`state_mismatch`).
+- **Provider receipts are bound and immutable (QC03/QC04/QC12).** `guard_cash_payment_paidy` now
+  covers INSERT, UPDATE and DELETE: a `square` / `paidy` row (or any `provider_capture_id`) is inserted
+  only with matching captured provider evidence (same order, exact yen, JPY, not refunded, not yet
+  recorded); a card receipt carries its Square payment id in `provider_capture_id` (unique — backfilled
+  for existing rows). Once written, a provider receipt cannot be voided, restored, changed or deleted
+  (`provider_payment_immutable`): money back is a refund in the provider's dashboard, recorded beside
+  the receipt. Ordinary money — and now an amount / currency change on a live row — is refused while
+  Paidy or a card holds the order. `trg_guard_cash_order_amount_during_hold` freezes the order total,
+  discount, shipping and currency during a hold (Reject, then change the order).
+- **Ordered observations (QC10).** `record_square_refund` / `record_square_dispute` take a per-case
+  advisory lock (first insert included) and the upsert refuses older observations; terminal states
+  never revert.
+- **Recovery (QC05–QC09, QC11).** A refund / dispute whose payment the Hub does not know yet recovers
+  the parent first and is quarantined (retried), never ignored, until its ancestry is known; a payment
+  Square cannot show is quarantined. The attempt search answers found / absent / incomplete — an
+  incomplete search never cancels by key. The webhook answers 200 once the event is stored and processes
+  it in the background (`EdgeRuntime.waitUntil`). square-reconcile walks the Events API and ListRefunds
+  from durable checkpoints (`square_sync_state`, every page, resumable), lists disputes, refreshes every
+  non-terminal refund whatever its capture age, orders holds fairly (`reconciled_at`), and ends
+  ok | degraded | failed (`reconcile_last_run` / `reconcile_last_ok`; bell at most every 6 h).
+  `square_ops_health()` feeds the panel's health strip ("Checks not running" after 3 h without a good run).
+- **Accuracy (QC13–QC15).** The report is **Card activity (estimated)** with `fees_missing`; it is not
+  bank money. The Square HTTP deadline covers the body read. "Square risk HIGH" no longer claims the hold
+  was voided — the panel shows Square's state on its own line.
+
+- **Independent review of the fix (same day).** A provider receipt is written only inside the
+  finalizer's own marker (`app.provider_recording` = the capture id, set and cleared around the INSERT),
+  so no other SQL path can mint one even with matching evidence. `decide_square_case` takes its locks in
+  the finalizer's order (submission → order → card row) — a decision racing a Finish no longer
+  deadlocks — and reuses a claimed submission only when it is exactly the capture. Net-after-refund
+  confirms through review-payment-submission (refunds synced first; anything but a clean sync is
+  "unverified", never recorded). The reconcile walker uses one clock per run, drops a cursor Square
+  refuses and re-reads the window, scans disputes on a rolling cursor, touches every hold it looks at,
+  and labels an Events API that is not enabled "not enabled" rather than an alarm. A saved decision on
+  a case that stays open says so ("Decision saved — case still open").
+- **Second review pass (same day).** One lock order for every writer on a card payment — the
+  submission, then the order, then the card row: `apply_square_payment_state` (webhook / reconcile)
+  now takes the submission lock first, so a state change can no longer deadlock with a Finish or a
+  decision (reproduced on the old body, gone now). A decision never replaces or rejects a Confirm
+  still inside its 5-minute lease (`confirm_in_progress`; the decision itself is saved). The hourly
+  refund check on recent captures goes round-robin by `reconciled_at`, so every capture is reached.
+  An Events API client error counts as "not enabled" only before the API has ever answered for that
+  environment; after a successful read the same error alarms. `rpc('set_config')` is not callable on
+  live (no `public.set_config`), so the recording marker cannot be set by a client.
+- **Known limits (owner decisions, not code).** A receipt recorded on the wrong order is corrected by
+  a refund in Square plus a new payment on the right order — never by editing the receipt. Test orders
+  that hold a provider receipt cannot be deleted. Finance "Collected" stays gross of a card refund made
+  after the payment was recorded; the refund is on the card row and in the Card activity report.
+
+Tests: 74 SQL acceptance checks (`development/sql/square-closeout-qc-acceptance.sql`) on a Postgres
+copy of the live schema; the QC10 two-session race (`square-closeout-qc-race.sh`, reproduced on the old
+body, ends COMPLETED on the new) and two deadlock races (`square-closeout-qc-deadlock.sh`: decide vs Finish, and a
+state change vs a Finish — each reproduced on the earlier body, none now); `development/square-closeout-qc.test.ts` (17) +
+`square-integrity.test.ts` (14); `src/test/square-ops.test.ts` (27).

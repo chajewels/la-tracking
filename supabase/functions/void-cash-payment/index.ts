@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     // 4. Fetch cash_payment + cash_order
     const { data: payment, error: payErr } = await supabase
       .from("cash_payments")
-      .select("id, cash_order_id, amount_paid, voided_at")
+      .select("id, cash_order_id, amount_paid, voided_at, payment_method, provider_capture_id")
       .eq("id", cash_payment_id)
       .maybeSingle();
     if (payErr || !payment) {
@@ -72,6 +72,20 @@ Deno.serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    // QC04 (2026-10-05): a card (Square) or Paidy receipt is money the
+    // provider holds. A local void would reopen the invoice while the provider
+    // still has the money, so it is refused here (and by the database guard,
+    // trg_guard_cash_payment_paidy). Money back = a refund in the provider's
+    // dashboard; the refund is recorded beside the receipt.
+    const method = String(payment.payment_method ?? "").toLowerCase();
+    if (method === "square" || method === "paidy" || payment.provider_capture_id) {
+      return new Response(JSON.stringify({
+        error: "provider_payment_immutable",
+        message: method === "paidy"
+          ? "This is a Paidy payment. It cannot be voided in the Hub — refund it in the Paidy dashboard; the refund is recorded on the order."
+          : "This is a card payment (Square). It cannot be voided in the Hub — refund it in the Square Dashboard; the refund is recorded on the order (Website → Card payments).",
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (payment.voided_at) {
       return new Response(JSON.stringify({ error: "cash_payment is already voided" }), {

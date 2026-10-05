@@ -27,8 +27,8 @@ import {
   DISPUTE_CLOSED_STATES, DISPUTE_WARNING_DAYS, HOLD_WARNING_DAYS, SQUARE_DECISIONS,
   ageLabel, defaultSettlementRange, isDeadlineSoon, isOpenSquareException, orderRef,
   refundNotPaidBack, settlementCsv, settlementFileName, settlementTotals,
-  squareDecisionRefusal, squareExceptionLabel, squareNoteRequired,
-  type SettlementRow, type SquareCaseKind,
+  eventsApiNotEnabled, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
+  type SettlementRow, type SquareCaseKind, type SquareOpsHealth,
 } from "@/lib/square-ops";
 
 /**
@@ -89,6 +89,7 @@ interface ExceptionRow {
   id: string; cash_order_id: string; amount_jpy: number; captured_amount_jpy: number | null; status: string;
   cash_payment_id: string | null; exception: string | null; exception_at: string | null; exception_note: string | null;
   exception_resolved_at: string | null; captured_at: string | null; created_at: string; test: boolean;
+  exception_decision: string | null; exception_decided_at: string | null;
 }
 interface RefundRow {
   id: string; cash_order_id: string; amount_jpy: number; status: string; reason: string | null; created_at: string;
@@ -152,7 +153,7 @@ export function SquareOperationsPanel() {
     queryKey: [...KEY, "exceptions"],
     staleTime: STALE,
     queryFn: async () => (await readRows<ExceptionRow>(() => db.from("square_payments")
-      .select("id, cash_order_id, amount_jpy, captured_amount_jpy, status, cash_payment_id, exception, exception_at, exception_note, exception_resolved_at, captured_at, created_at, test")
+      .select("id, cash_order_id, amount_jpy, captured_amount_jpy, status, cash_payment_id, exception, exception_at, exception_note, exception_resolved_at, exception_decision, exception_decided_at, captured_at, created_at, test")
       .is("exception_resolved_at", null)
       .or("and(status.eq.captured,cash_payment_id.is.null),exception.not.is.null")
       .order("created_at", { ascending: true }).limit(LIMIT))).filter(isOpenSquareException),
@@ -192,7 +193,15 @@ export function SquareOperationsPanel() {
     },
   });
 
-  // Settlement report — Japan days.
+  // Health strip (QC11): the last hourly check and the backlogs.
+  const health = useQuery({
+    queryKey: [...KEY, "health"],
+    staleTime: STALE,
+    queryFn: async () => (await callUntypedRpc<SquareOpsHealth | null>("square_ops_health", {})) ?? null,
+  });
+  const healthStatus = squareHealthStatus(health.data, now);
+
+  // Card activity report (estimated net — not bank money) — Japan days.
   const initialRange = useMemo(() => defaultSettlementRange(new Date()), []);
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -230,20 +239,48 @@ export function SquareOperationsPanel() {
   };
   const decide = useMutation({
     mutationFn: async (v: { kind: SquareCaseKind; id: string; decision: string; note: string }) => {
-      const out = await callUntypedRpc<{ ok?: boolean; error?: string } | null>("decide_square_case", {
+      const out = await callUntypedRpc<{ ok?: boolean; error?: string; resolved?: boolean; next?: string; submission_id?: string; decision_recorded?: boolean } | null>("decide_square_case", {
         p_kind: v.kind, p_id: v.id, p_decision: v.decision, p_note: v.note,
       });
-      if (!out?.ok) throw Object.assign(new Error(out?.error ?? "unknown"), { code: out?.error ?? "unknown" });
-      return out;
+      if (!out?.ok) throw Object.assign(new Error(out?.error ?? "unknown"), { code: out?.error ?? "unknown", saved: out?.decision_recorded === true });
+      // QC02: "record" decisions hand the capture to the normal Confirm path —
+      // review-payment-submission reads Square and the finalizer records it.
+      let recorded: string | null = null;
+      if (out.next === "confirm_submission" && out.submission_id) {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; message?: string }>("review-payment-submission", {
+          body: { submission_id: out.submission_id, action: "confirmed", reviewer_notes: v.note, submission_type: "cash_payment" },
+        });
+        if (data?.error || error) {
+          let msg = data?.message || data?.error || error?.message || "unknown error";
+          const ctx = (error as { context?: Response } | null)?.context;
+          if (ctx && typeof ctx.json === "function") {
+            try { const b = await ctx.clone().json(); msg = b?.message || b?.error || msg; } catch { /* keep msg */ }
+          }
+          recorded = `Decision saved, but recording did not finish: ${msg} Use "Finish recording" on Payment Submissions.`;
+        } else recorded = v.decision === "record_net_after_refund"
+          ? "The net was recorded on the order. If the refund was for a change to the order, lower the order total on the order page so it no longer shows the refunded part as owed."
+          : "The capture was recorded on the order.";
+      }
+      return { ...out, recorded };
     },
-    onSuccess: () => {
-      toast({ title: "Decision recorded", description: "Saved with your name in the audit log." });
+    onSuccess: (out) => {
+      toast({
+        title: out.resolved || (out.recorded !== null && !out.recorded.startsWith("Decision saved")) ? "Resolved" : "Decision recorded",
+        description: out.recorded ?? (out.resolved ? "Verified against Square and saved with your name in the audit log." : "Saved with your name in the audit log. It does not resolve the case by itself."),
+      });
       setCaseDialog(null);
       qc.invalidateQueries({ queryKey: KEY });
     },
-    onError: (e: Error & { code?: string }) => {
+    onError: (e: Error & { code?: string; saved?: boolean }) => {
       const raw = e.code ?? e.message;
-      toast({ title: "Not recorded", description: squareDecisionRefusal(raw.includes("not_staff") ? "not_staff" : raw), variant: "destructive" });
+      const why = squareDecisionRefusal(raw.includes("not_staff") ? "not_staff" : raw);
+      // The decision may be saved even when it does not resolve the case.
+      toast({
+        title: e.saved ? "Decision saved — case still open" : "Not recorded",
+        description: why,
+        variant: e.saved ? undefined : "destructive",
+      });
+      if (e.saved) { setCaseDialog(null); qc.invalidateQueries({ queryKey: KEY }); }
     },
   });
   const noteNeeded = caseDialog ? squareNoteRequired(caseDialog.kind) : false;
@@ -269,6 +306,34 @@ export function SquareOperationsPanel() {
         </p>
       </CardHeader>
       <CardContent className="space-y-5 text-sm">
+        {/* Health (QC11) */}
+        <section aria-label="Card payment checks" className={cn("rounded-md border px-3 py-2 text-xs",
+          healthStatus === "ok" ? "border-border/60" : healthStatus === "unknown" ? "border-border/60 text-muted-foreground" : "border-warning/60 bg-warning/5")}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <StatusPill
+              label={healthStatus === "ok" ? "Checks OK" : healthStatus === "degraded" ? "Checks need attention" : healthStatus === "failed" ? "Checks FAILED" : healthStatus === "stale" ? "Checks not running" : "Checks: no run yet"}
+              tone={healthStatus === "ok" ? "success" : healthStatus === "unknown" ? "muted" : healthStatus === "failed" || healthStatus === "stale" ? "danger" : "warning"} />
+            <span title={PHT_TIP}>Last run {when(health.data?.last_run?.at ?? null)} · last good run {when(health.data?.last_ok_at ?? null)}</span>
+            <span>Inbox backlog {health.data?.events_backlog ?? "—"}{(health.data?.events_dead ?? 0) > 0 ? ` · ${health.data?.events_dead} failed for good` : ""}</span>
+            <span>Refunds open {health.data?.refunds_open ?? "—"} · disputes open {health.data?.disputes_open ?? "—"}</span>
+          </div>
+          {eventsApiNotEnabled(health.data) ? (
+            <p className="mt-1 text-muted-foreground">
+              Square's event history (Events API) is not enabled for this Square account. The hourly checks still read payments, refunds
+              and disputes directly; enable it before going live so a long outage can be caught up.
+            </p>
+          ) : null}
+          {healthStatus !== "ok" && healthStatus !== "unknown" ? (
+            <p className="mt-1 text-muted-foreground">
+              {healthStatus === "stale"
+                ? "The hourly Square check has not finished a good run for over 3 hours — it may not be running. Ask for it to be checked."
+                : (health.data?.last_run?.report?.errors ?? []).slice(0, 2).join(" · ")
+                  || (health.data?.last_run?.report?.truncated ?? []).concat(health.data?.last_run?.report?.history_gaps ?? []).join(" · ")
+                  || "See the bell for details."}
+            </p>
+          ) : null}
+        </section>
+
         {/* Active holds */}
         <Section title="Active holds" count={holds.data?.length ?? 0} loading={holds.isLoading} error={holds.error}
           emptyText="No card hold is waiting for Confirm or Reject."
@@ -342,6 +407,10 @@ export function SquareOperationsPanel() {
                   <TableCell className="text-right tabular-nums">{yen(x.captured_amount_jpy ?? x.amount_jpy)}</TableCell>
                   <TableCell className="text-xs">
                     <span className={cn(x.exception && "font-medium text-danger")}>{squareExceptionLabel(x.exception)}</span>
+                    <span className="block">{squarePaymentStateLabel(x.status)}</span>
+                    {x.exception_decision ? (
+                      <span className="block text-muted-foreground">Decision: {decisionLabel("exception", x.exception_decision)} · not resolved yet</span>
+                    ) : null}
                     {x.exception_note ? <span className="block text-muted-foreground">{x.exception_note}</span> : null}
                   </TableCell>
                   <TableCell className="text-xs">{when(x.exception_at ?? x.captured_at ?? x.created_at)}</TableCell>
@@ -349,7 +418,7 @@ export function SquareOperationsPanel() {
                     {x.exception ? (
                       <Button size="sm" variant="outline" className="h-7"
                         onClick={() => openCase("exception", x.id, `${orderRef(x.order)} · ${squareExceptionLabel(x.exception)}`)}>
-                        Resolve…
+                        Decide…
                       </Button>
                     ) : <span className="text-xs text-muted-foreground">Finish recording</span>}
                   </TableCell>
@@ -468,10 +537,11 @@ export function SquareOperationsPanel() {
 
         {/* Settlement report */}
         <section className="space-y-2 border-t border-border/60 pt-4">
-          <h3 className="text-sm font-semibold">Settlement report</h3>
+          <h3 className="text-sm font-semibold">Card activity (estimated)</h3>
           <p className="text-xs text-muted-foreground">
-            Gross is what customers paid (invoice credit); net is after Square's fees, completed refunds and lost disputes.
-            Bank payouts are in the Square Dashboard.
+            Gross is what customers paid (invoice credit); the estimated net is after Square's fees as reported, completed refunds and
+            lost disputes. This is NOT bank money: payouts, money Square holds during a dispute and fee adjustments are in the Square
+            Dashboard. A fee Square has not reported yet counts as ¥0 (shown in the last column).
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
@@ -505,7 +575,8 @@ export function SquareOperationsPanel() {
                 <TableHead>Day (Japan)</TableHead><TableHead className="text-right">Captures</TableHead>
                 <TableHead className="text-right">Gross</TableHead><TableHead className="text-right">Square fees</TableHead>
                 <TableHead className="text-right">Refunds done</TableHead><TableHead className="text-right">Refunds pending</TableHead>
-                <TableHead className="text-right">Disputes lost</TableHead><TableHead className="text-right">Net</TableHead>
+                <TableHead className="text-right">Disputes lost</TableHead><TableHead className="text-right">Est. net</TableHead>
+                <TableHead className="text-right" title="Captures whose Square fee is not reported yet">Fee pending</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {(report.data ?? []).map((r) => (
@@ -518,6 +589,7 @@ export function SquareOperationsPanel() {
                     <TableCell className="text-right tabular-nums">{yen(r.refunds_open_jpy)}</TableCell>
                     <TableCell className="text-right tabular-nums">{yen(r.disputes_lost_jpy)}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums">{yen(r.net_jpy)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums", Number(r.fees_missing ?? 0) > 0 && "text-warning")}>{Number(r.fees_missing ?? 0)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -531,6 +603,7 @@ export function SquareOperationsPanel() {
                   <TableCell className="text-right tabular-nums">{yen(totals.refunds_open_jpy)}</TableCell>
                   <TableCell className="text-right tabular-nums">{yen(totals.disputes_lost_jpy)}</TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">{yen(totals.net_jpy)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{totals.fees_missing}</TableCell>
                 </TableRow>
               </TableFooter>
             </Table>
@@ -542,11 +615,13 @@ export function SquareOperationsPanel() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {caseDialog?.kind === "exception" ? "Resolve card exception" : caseDialog?.kind === "refund" ? "Record refund decision" : "Record dispute decision"}
+              {caseDialog?.kind === "exception" ? "Decide card exception" : caseDialog?.kind === "refund" ? "Record refund decision" : "Record dispute decision"}
             </DialogTitle>
             <DialogDescription>
-              {caseDialog?.title}. This records what was done; it moves no money.
-              {caseDialog?.kind === "exception" ? " Resolving releases the order, so say exactly how the money was handled." : ""}
+              {caseDialog?.title}. This records what was decided; it moves no money.
+              {caseDialog?.kind === "exception"
+                ? " The order opens for another payment only when Square or the ledger shows the money was handled — recorded on the order, refunded in full, or the hold voided."
+                : " It must match what Square reports for this case."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
