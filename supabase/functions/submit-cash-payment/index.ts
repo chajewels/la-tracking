@@ -7,6 +7,7 @@ import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
 import { isWebEntity, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +66,14 @@ Deno.serve(async (req) => {
     // unaffected. See CLAUDE.md PAYMENT SUBMISSION FLOW for the gate rule.
     if (typeof proof_url !== "string" || proof_url.trim().length === 0) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // QC P1-1 (2026-10-06): the proof must be a file in our own payment-proofs
+    // bucket — never a customer-chosen link (it is rendered in the Hub).
+    if (!isOwnProofUrl(proof_url)) {
+      return new Response(JSON.stringify(INVALID_PROOF_URL), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -158,6 +167,20 @@ Deno.serve(async (req) => {
     if (pathACustomerId && cashOrder.customer_id !== pathACustomerId) {
       return new Response(JSON.stringify({ error: "Access denied" }), {
         status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 4a'. QC P2-4 (2026-10-06): a WEB cash order is never self-filed by the
+    // customer here. It is paid through the website's own flows (transfer
+    // reported to staff, Paidy, card); a customer-filed slip would freeze its
+    // expiry (INVARIANT 12). Staff (Path B) are unaffected.
+    if (pathACustomerId && cashOrder.source_channel === "web") {
+      return new Response(JSON.stringify({
+        error: "web_order_staff_only",
+        message: "Payments for website orders are sent from your order page on the website.",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -263,7 +286,7 @@ Deno.serve(async (req) => {
       reference_number: reference_number || null,
       payment_date,
       sender_name,
-      proof_url: proof_url || null,
+      proof_url: proof_url.trim(),
       notes: notes || null,
       status: "submitted",
       submission_type: "cash_payment",

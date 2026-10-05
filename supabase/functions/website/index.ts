@@ -36,6 +36,7 @@ import {
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 /**
  * Public website API (server-to-server).
@@ -3533,6 +3534,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Proof is required on EVERY submit path, with no exception for the web.
       const proofUrl = String(body.proof_url ?? "").trim();
       if (!proofUrl) return jsonResponse({ error: "proof_required" }, 400);
+      // QC P1-1 (2026-10-06): only a file upload-proof put in our own bucket.
+      if (!isOwnProofUrl(proofUrl)) return jsonResponse(INVALID_PROOF_URL, 400);
 
       const amount = Math.round(Number(body.amount ?? 0));
       if (!Number.isFinite(amount) || amount <= 0) return jsonResponse({ error: "bad_amount" }, 400);

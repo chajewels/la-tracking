@@ -12,6 +12,7 @@
 // the service-role key, which bypasses storage RLS cleanly. No header dependency.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { acceptedProofType } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +38,8 @@ Deno.serve(async (req) => {
     const fileName = form.get("file_name");
     const portalToken = form.get("portal_token");
     const sessionId = form.get("session_id");
-    const upsert = form.get("upsert") === "true";
+    // QC P2-4 (2026-10-06): a client "upsert" flag is IGNORED — an uploaded
+    // proof is never overwritten (always upsert: false below).
 
     if (!(file instanceof File)) return json(400, { error: "Missing file" });
     if (typeof accountId !== "string" || !accountId) return json(400, { error: "Missing account_id" });
@@ -77,10 +79,20 @@ Deno.serve(async (req) => {
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `${accountId}/${safeName}`;
 
+    // QC P2-4 (2026-10-06): only JPEG / PNG / WebP / HEIC-HEIF / PDF, and the
+    // file's magic bytes must agree with the claimed type. The object is stored
+    // under the type its bytes prove, never the client's claim.
     const bytes = new Uint8Array(await file.arrayBuffer());
+    const contentType = acceptedProofType(file.type, bytes);
+    if (!contentType) {
+      return json(400, {
+        error: "unsupported_file",
+        message: "Please upload a photo (JPG, PNG, WebP, HEIC) or a PDF of your payment slip.",
+      });
+    }
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(objectPath, bytes, { contentType: file.type || "application/octet-stream", upsert });
+      .upload(objectPath, bytes, { contentType, upsert: false });
     if (upErr) return json(500, { error: `Upload failed: ${upErr.message}` });
 
     const proofUrl = `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/${BUCKET}/${objectPath}`;

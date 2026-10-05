@@ -1017,6 +1017,8 @@ Deno.serve(async (req) => {
     const cashOrdersPayload = (cashOrdersRaw as any[]).map((o: any) => ({
       paidy_processing: paidyLockByOrder.get(o.id) === true,
       card_processing: cardLockByOrder.get(o.id) === true,
+      // QC P2-4 (2026-10-06): a web order is paid from the website, not here.
+      source_channel: o.source_channel ?? null,
       id: o.id,
       invoice_number: o.invoice_number,
       customer_id: o.customer_id,

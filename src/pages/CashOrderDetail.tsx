@@ -47,6 +47,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
+import { openSafeUrl, safeHttpUrl } from '@/lib/safe-url';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
@@ -1784,7 +1785,7 @@ export default function CashOrderDetail() {
                         {!voided && proofByDate.has(p.date_paid) && (
                           <div className="mt-1">
                             <a
-                              href={proofByDate.get(p.date_paid)!.url}
+                              href={safeHttpUrl(proofByDate.get(p.date_paid)!.url) ?? undefined}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[11px] text-primary hover:underline"
@@ -1942,7 +1943,7 @@ export default function CashOrderDetail() {
                                     <span className="text-xs text-card-foreground truncate flex-1" title={sub.proof_url!.split('/').pop()}>
                                       {decodeURIComponent(sub.proof_url!.split('/').pop() || 'proof.pdf').split('?')[0]}
                                     </span>
-                                    <a href={sub.proof_url!} target="_blank" rel="noopener noreferrer"
+                                    <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer"
                                       className="text-[10px] text-primary underline whitespace-nowrap">
                                       View Proof
                                     </a>
@@ -1951,14 +1952,14 @@ export default function CashOrderDetail() {
                                   <>
                                     <button
                                       type="button"
-                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => openSafeUrl(sub.proof_url)}
                                       className="block w-full text-left">
                                       <ProofImage url={sub.proof_url!}
                                         className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => openSafeUrl(sub.proof_url)}
                                       className="text-[10px] text-primary underline inline-flex items-center gap-1">
                                       <ImageIcon className="h-3 w-3" /> View Proof
                                     </button>

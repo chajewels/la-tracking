@@ -5,6 +5,7 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +61,13 @@ Deno.serve(async (req) => {
     // unaffected. See CLAUDE.md PAYMENT SUBMISSION FLOW for the gate rule.
     if (typeof proof_url !== "string" || proof_url.trim().length === 0) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // QC P1-1 (2026-10-06): only a file in our own payment-proofs bucket.
+    if (!isOwnProofUrl(proof_url)) {
+      return new Response(JSON.stringify(INVALID_PROOF_URL), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
