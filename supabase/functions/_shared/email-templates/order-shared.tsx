@@ -38,6 +38,8 @@ export const WORDS = {
   total: { ja: '合計', en: 'Total' },
   points: { ja: 'ポイント利用', en: 'Points used' },
   amountDue: { ja: 'お支払い金額', en: 'Amount to pay' },
+  /** The after-points total on a RECEIVED email, where nothing is "to pay" (H3 fix). */
+  totalAfterPoints: { ja: 'ポイント利用後のご注文金額', en: 'Order total after points' },
   reference: { ja: 'ご注文番号', en: 'Order reference' },
   bankName: { ja: '銀行名', en: 'Bank' },
   branch: { ja: '支店名', en: 'Branch' },
@@ -123,9 +125,10 @@ export type OrderCurrency = 'JPY' | 'PHP'
 /**
  * pointsApplied (2026-10-05): points used at checkout, already taken off, in
  * the order's currency. > 0 adds "Points used −¥N" and "Amount to pay" under
- * the total. Absent / 0 = the table exactly as before.
+ * the total. Absent / 0 = the table exactly as before. `afterPointsLabel`
+ * replaces "Amount to pay" on emails where the money has already arrived.
  */
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number }) => (
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, afterPointsLabel }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; afterPointsLabel?: { ja: string; en: string } }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
@@ -139,7 +142,7 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, point
     {pointsApplied !== undefined && pointsApplied > 0 && (
       <>
         <Row k={WORDS.points[lang]} v={`−${orderMoney(pointsApplied, currency)}`} />
-        <Row k={WORDS.amountDue[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
+        <Row k={(afterPointsLabel ?? WORDS.amountDue)[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
       </>
     )}
   </Panel>

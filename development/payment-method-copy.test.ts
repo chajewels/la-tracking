@@ -147,3 +147,48 @@ Deno.test('method changed: heading and the from → to line', async () => {
     assert(t.includes('1234567'), `${lang}: the new method (transfer) instructions follow`)
   }
 })
+
+Deno.test('method changed with no previous method known: heading still says so, no from → to line', async () => {
+  for (const lang of LANGS) {
+    for (const methodChanged of [{}, { from: null }]) {
+      const t = await render(OrderConfirmationEmail, {
+        lang, ...base, methods: [], transferDueAt: due, region: 'JP', orderUrl, variant: 'ready',
+        chosenMethod: 'card', methodChanged,
+      })
+      if (lang === 'ja') assert(t.includes('お支払い方法を変更しました'), 'JA heading')
+      assert(/your payment method has changed/i.test(t), `${lang}: EN heading`)
+      assert(!t.includes('→'), `${lang}: no from → to line without a previous method`)
+    }
+  }
+})
+
+Deno.test('sender: a method change always renders the method-changed heading, audit lookup scoped to cash orders', async () => {
+  const src = await Deno.readTextFile(new URL('../supabase/functions/_shared/reservation-emails.ts', import.meta.url))
+  assert(src.includes('...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {})'), 'methodChanged passed whenever opts.methodChanged, even with no previous method')
+  const fn = src.slice(src.indexOf('async function previousMethod'), src.indexOf('async function paidyOfferedForEmail'))
+  assert(fn.includes('.eq("entity_type", "cash_order")'), 'previousMethod filters entity_type cash_order')
+  assert(fn.includes('.eq("action", "payment_method_changed")'), 'previousMethod filters the action')
+})
+
+Deno.test('received email with points: the total row is "Order total after points", never "Amount to pay"', async () => {
+  for (const lang of LANGS) {
+    for (const partial of [false, true]) {
+      const t = await render(OrderPaymentReceivedEmail, {
+        lang, ...base, method: 'card', amountReceivedJpy: partial ? 60000 : 67000, pointsApplied: 1000, orderUrl,
+        ...(partial ? { remaining: 7000, transferDueAt: due, region: 'JP' } : {}),
+      })
+      assert(t.includes('Order total after points'), `${lang} partial=${partial}: EN after-points label`)
+      if (lang === 'ja') assert(t.includes('ポイント利用後のご注文金額'), `JA partial=${partial}: after-points label`)
+      assert(!t.includes('Amount to pay'), `${lang} partial=${partial}: no "Amount to pay"`)
+      // 「残りのお支払い金額」 (the still-to-pay line) is not the items table; nothing else may say お支払い金額.
+      assert(!t.replaceAll('残りのお支払い金額', '').includes('お支払い金額'), `${lang} partial=${partial}: no 「お支払い金額」 in the items table`)
+    }
+  }
+})
+
+Deno.test('payment-due keeps "Amount to pay"', async () => {
+  const t = await render(OrderPaymentDueEmail, {
+    lang: 'ja', reference: base.reference, currency: 'JPY', amount: 68000, method: 'card', methods: [], transferDueAt: due, region: 'JP', orderUrl,
+  })
+  assert(t.includes('Amount to pay') && t.includes('お支払い金額'), 'payment-due label unchanged')
+})

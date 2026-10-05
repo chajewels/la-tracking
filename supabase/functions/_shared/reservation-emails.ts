@@ -202,7 +202,8 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
     const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
     // Payment lifecycle H3: a method change names the OLD method too, read
     // from the newest payment_method_changed audit row (staff or customer
-    // switch). Unreadable → the heading still says it changed, no old → new line.
+    // switch). Unknown → the heading still says it changed (subject and heading
+    // agree), just without the old → new line.
     const changedFrom = opts.methodChanged ? await previousMethod(supabase, orderId) : null;
     return await sendStorefrontEmail({
       to: o.to,
@@ -230,7 +231,7 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
-        ...(changedFrom ? { methodChanged: { from: changedFrom } } : {}),
+        ...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {}),
       }),
     });
   });
@@ -246,6 +247,7 @@ async function previousMethod(supabase: Db, orderId: string): Promise<"transfer"
   const { data, error } = await supabase
     .from("audit_logs")
     .select("old_value_json, created_at")
+    .eq("entity_type", "cash_order")
     .eq("entity_id", orderId)
     .eq("action", "payment_method_changed")
     .order("created_at", { ascending: false })

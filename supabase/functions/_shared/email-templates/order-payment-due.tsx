@@ -12,8 +12,12 @@ import { MethodCards, Panel, Row, WORDS, block, blockGutter, button, buttonWrap,
  * 24 hours before a 72-hour one.
  *
  * Transactional, about the customer's own order: the amount still owed in the
- * order's currency, the deadline, every transfer method for that currency, and
- * what happens if it passes. NOTHING ELSE — no products, no offers, no
+ * order's currency, the deadline, how to pay, and what happens if it passes.
+ *
+ * METHOD-AWARE (payment lifecycle H3): `method` is the one she chose. Transfer
+ * → every transfer method for the currency and the transfer wording; Paidy /
+ * card → no bank details and no bank or transfer wording at all, the order
+ * page's "Pay with Paidy" / "Pay by card" button instead (`methods` is []). NOTHING ELSE — no products, no offers, no
  * layaway. A promotion here would make it a 特定電子メール and need consent.
  *
  * Language: the customer's, Japanese first then English — the same rule as

@@ -54,8 +54,10 @@ export interface OrderConfirmationProps {
    * Payment lifecycle H3: the method was just changed (by staff, or by her
    * after a rejected payment). Heading 「お支払い方法を変更しました」 and an
    * old → new line, then the NEW method's instructions (chosenMethod).
+   * `from` unknown (no audit row) → the heading still says it changed, no
+   * old → new line, so the subject and heading always agree.
    */
-  methodChanged?: { from: PayMethod }
+  methodChanged?: { from?: PayMethod | null }
 }
 
 /** C1: how to pay when the customer chose Paidy or card (no bank details). */
@@ -140,7 +142,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
   return (
     <>
       <Heading style={primary ? h1 : h2}>{changed ? changed.heading : c.heading}</Heading>
-      {changed && p.methodChanged && (
+      {changed && p.methodChanged?.from && (
         <Text style={{ ...text, fontWeight: 'bold' as const }}>
           {changed.line(METHOD_NAME[lang][p.methodChanged.from], METHOD_NAME[lang][p.chosenMethod ?? 'transfer'])}
         </Text>

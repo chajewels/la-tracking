@@ -85,7 +85,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps;
     <>
       <Heading style={primary ? h1 : h2}>{partial ? c.partHeading : c.heading}</Heading>
       <Text style={text}>{partial ? c.partIntro(p.reference, PART_METHOD[lang][method], amt) : c.intro[method](p.reference, amt)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} afterPointsLabel={WORDS.totalAfterPoints} />
       {partial ? (
         <>
           <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.stillToPay(orderMoney(p.remaining as number, p.currency), when)}</Text>
