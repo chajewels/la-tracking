@@ -9878,6 +9878,16 @@ export type Database = {
         Args: { p_account_id: string; p_source?: string; p_user_id?: string }
         Returns: Json
       }
+      mark_web_order_refund_issued_atomic: {
+        Args: {
+          p_method: string
+          p_note?: string
+          p_order_id: string
+          p_refunded_on: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       materialize_web_draft_atomic: {
         Args: {
           p_draft_id: string
