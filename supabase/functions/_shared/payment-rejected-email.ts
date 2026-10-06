@@ -117,7 +117,7 @@ export async function sendCashPaymentRejectedEmail(
  */
 export async function sendCardHoldReleasedEmail(
   db: Db,
-  args: { orderId: string; amount: number | null; squarePaymentId: string },
+  args: { orderId: string; amount: number | null; squarePaymentId: string; otherPaymentInProgress?: boolean },
 ): Promise<void> {
   try {
     const { data: order, error } = await db
@@ -129,7 +129,8 @@ export async function sendCardHoldReleasedEmail(
     const customer = (order as Record<string, any>).customers ?? {};
     const currency = String(order.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
     const reference = String(order.web_reference ?? order.invoice_number);
-    const open = String(order.status) === "pending";
+    // Another payment of hers (Paidy) is being checked: never "pay again".
+    const open = String(order.status) === "pending" && args.otherPaymentInProgress !== true;
     const remaining = open ? Number(order.remaining_balance ?? 0) : null;
     const lang = emailLang(order.customer_lang, snapshotCountry(order));
     await sendStorefrontEmail({
@@ -150,6 +151,7 @@ export async function sendCardHoldReleasedEmail(
         transferDueAt: order.transfer_due_at ?? null,
         region: regionForCurrency(currency),
         orderUrl: storefrontOrderUrl(String(order.id)),
+        otherPaymentInProgress: args.otherPaymentInProgress === true,
       }),
     });
   } catch (e) {

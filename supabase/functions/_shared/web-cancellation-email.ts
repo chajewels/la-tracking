@@ -23,6 +23,8 @@ export interface WebCancellationEmailArgs {
   reasonByLang?: { ja: string; en: string } | null;
   refundStatus: RefundStatus | null;
   refundNote: string | null;
+  /** Overrides `order-cancelled-<order>` (the automatic fraud cancel uses its own key, so a later real cancel after a revive is never swallowed). */
+  idempotencyKey?: string;
 }
 
 export async function sendWebCancellationEmail(supabase: Db, orderId: string, args: WebCancellationEmailArgs): Promise<void> {
@@ -57,7 +59,7 @@ export async function sendWebCancellationEmail(supabase: Db, orderId: string, ar
       subject: orderCancelledSubject(reference, lang),
       label: "order-cancelled",
       reference,
-      idempotencyKey: `order-cancelled-${orderId}`,
+      idempotencyKey: args.idempotencyKey ?? `order-cancelled-${orderId}`,
       element: React.createElement(OrderCancelledEmail, {
         lang,
         reference,

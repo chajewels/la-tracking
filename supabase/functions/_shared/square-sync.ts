@@ -140,7 +140,7 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
   const res = await rpc(db, "square_fraud_cancel", { p_order_id: orderId, p_trigger: trigger, p_detail: detail });
   // Addendum §9 #10: she is told the order was cancelled because her payment
   // could not be confirmed — never "fraud". Once per order.
-  if (res.ok) await sendWebCancellationEmail(db, orderId, { reason: `${NEUTRAL_CANCEL_REASON.ja} / ${NEUTRAL_CANCEL_REASON.en}`, reasonByLang: NEUTRAL_CANCEL_REASON, refundStatus: null, refundNote: null });
+  if (res.ok) await sendWebCancellationEmail(db, orderId, { reason: `${NEUTRAL_CANCEL_REASON.ja} / ${NEUTRAL_CANCEL_REASON.en}`, reasonByLang: NEUTRAL_CANCEL_REASON, refundStatus: null, refundNote: null, idempotencyKey: `order-cancelled-auto-${orderId}` });
   return res;
 }
 
@@ -155,13 +155,14 @@ export async function handleFilingException(db: Db, env: SquareEnvironment, atte
   // Addendum §9 #10: a hold the Hub released by itself, with no submission to
   // reject, still reaches her — "the hold was released, nothing was charged",
   // never the internal reason. Once per Square payment.
-  const released = () => sendCardHoldReleasedEmail(db, { orderId: String(attempt.cash_order_id), amount: paymentFacts(p).amountJpy, squarePaymentId: p.id });
+  const released = (otherPaymentInProgress = false) => sendCardHoldReleasedEmail(db, { orderId: String(attempt.cash_order_id), amount: paymentFacts(p).amountJpy, squarePaymentId: p.id, otherPaymentInProgress });
   if (filed.exception === "amount_mismatch") {
     try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(); return "mismatch_voided"; }
     catch (e) { console.warn("[square-sync] mismatch void failed:", e instanceof Error ? e.message : e); return "mismatch_void_pending"; }
   }
   if (filed.exception === "unfiled_hold" && filed.reason === "paidy_in_progress") {
-    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(); return "paidy_voided"; }
+    // Her Paidy payment holds the order: never "pay again" — only "the card hold was released".
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(true); return "paidy_voided"; }
     catch (e) { console.warn("[square-sync] paidy-conflict void failed:", e instanceof Error ? e.message : e); return "paidy_void_pending"; }
   }
   if (filed.exception === "risk_high") {

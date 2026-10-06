@@ -59,6 +59,21 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: code }, STATUS[code] ?? 409);
     }
 
+    // A refund made in the Square / Paidy dashboard already emailed her
+    // 「返金を受け付けました」 with the provider's amount (§9 #9). Marking it
+    // issued then records it on the order only — never a second email with a
+    // possibly different amount.
+    if (method === "card" || method === "paidy") {
+      const table = method === "card" ? "square_refunds" : "paidy_refunds";
+      let q = supabase.from(table).select("id", { count: "exact", head: true }).eq("cash_order_id", orderId);
+      if (method === "card") q = q.eq("status", "COMPLETED");
+      const { count, error: rErr } = await q;
+      if (rErr) throw rErr;
+      if ((count ?? 0) > 0) {
+        return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, email_sent: false, email_skipped: "provider_refund_already_emailed" });
+      }
+    }
+
     const email = await sendOrderUpdateEmail(supabase, {
       entity: "cash_order", id: orderId, variant: "refund_issued",
       amount: Number(r.amount ?? 0), refundMethod: isRefundMethod(method) ? method as RefundMethodCode : null,

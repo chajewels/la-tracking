@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
           const graceResult = alert.sourceChannel === "web"
             ? await sendOrderUpdateEmail(supabase, {
                 entity: "layaway", id: alert.accountId, variant: "reminder", reminderStage: "grace_period",
-                amount: Math.round(alert.amount), dueDate: alert.dueDate,
+                amount: alert.amount, dueDate: alert.dueDate,
                 graceEnd: graceEndObj.toISOString().slice(0, 10), daysOverdue: alert.daysOverdue,
                 idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
               })
@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
         const emailResult = alert.sourceChannel === "web"
           ? await sendOrderUpdateEmail(supabase, {
               entity: "layaway", id: alert.accountId, variant: "reminder", reminderStage: reminderType,
-              amount: Math.round(alert.amount), dueDate: alert.dueDate, daysOverdue: alert.daysOverdue,
+              amount: alert.amount, dueDate: alert.dueDate, daysOverdue: alert.daysOverdue,
               idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
             })
           : await sendTemplateEmail(

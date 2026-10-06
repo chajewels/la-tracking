@@ -27,13 +27,15 @@ export interface StoreCreditIssuedProps {
 export const storeCreditIssuedSubject = (lang: Lang) =>
   subjectFor(lang, 'ストアクレジットを発行しました', 'Store credit has been added to your account — Cha Jewels')
 
-function expiryDay(iso: string | null, lang: Lang): string {
+/** Yen credit reads in Japan time, peso credit in Philippine time (the customer's clock). */
+function expiryDay(iso: string | null, lang: Lang, currency: 'JPY' | 'PHP'): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
+  const timeZone = currency === 'PHP' ? 'Asia/Manila' : 'Asia/Tokyo'
   return lang === 'ja'
-    ? new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric' }).format(d)
-    : new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tokyo', day: 'numeric', month: 'long', year: 'numeric' }).format(d)
+    ? new Intl.DateTimeFormat('ja-JP', { timeZone, year: 'numeric', month: 'long', day: 'numeric' }).format(d)
+    : new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric', month: 'long', year: 'numeric' }).format(d)
 }
 
 const COPY = {
@@ -63,7 +65,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: StoreCreditIssuedProps; pr
   const c = COPY[lang]
   const amount = formatMoney(p.amount, p.currency)
   const cur = p.currency === 'PHP' ? c.peso : c.yen
-  const until = expiryDay(p.expiresAt, lang)
+  const until = expiryDay(p.expiresAt, lang, p.currency)
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>

@@ -224,3 +224,34 @@ Deno.test('card hold expiring and dispute opened stay staff-bell only (#11, #12)
   const dispute = sync.slice(sync.indexOf('export async function syncSquareDispute'), sync.indexOf('export function eventObjectId'))
   assert(dispute.length > 0 && !/send[A-Za-z]*Email\(/.test(dispute), 'a dispute must not email the customer')
 })
+
+// ───────────────────────────────────────────── independent review fixes (2026-10-06)
+
+Deno.test('review #1: a card hold released while her Paidy payment is checked never says "pay again"', async () => {
+  const out = await both(React.createElement(OrderPaymentNotAcceptedEmail, { lang: 'ja', reference: 'CJ-W-1', method: 'card', kind: 'provider_ended', amount: 980, currency: 'JPY', reason: null, remaining: null, transferDueAt: null, region: 'JP', orderUrl, otherPaymentInProgress: true }))
+  assert(out.includes('新たにお支払いいただく必要はありません') && out.includes('You do not need to pay again'), 'other payment line')
+  assert(!out.includes('もう一度お支払い') && !/pay again from your order page/.test(out), 'no pay-again')
+  assert(/sendCardHoldReleasedEmail[\s\S]{0,400}otherPaymentInProgress/.test(await code('_shared/square-sync.ts')) && /await released\(true\); return "paidy_voided"/.test(await code('_shared/square-sync.ts')), 'Paidy branch passes the flag')
+})
+
+Deno.test('review #2: Mark refund issued sends no second email after a provider refund already emailed her', async () => {
+  const src = await code('mark-refund-issued/index.ts')
+  assert(/email_skipped: "provider_refund_already_emailed"/.test(src) && src.indexOf('square_refunds') < src.indexOf('variant: "refund_issued"'), 'provider check before the send')
+})
+
+Deno.test('review #3: an impossible day (2026-02-30) is bad_date, not a database error', () => {
+  const ok = { source_channel: 'web', status: 'cancelled', refund_status: 'refund_pending' }
+  assert(refundIssuedRefusal(ok, { method: 'cash', refundedOn: '2026-02-30' }, '2026-10-06') === 'bad_date', 'rolled-over day refused')
+  assert(refundIssuedRefusal(ok, { method: 'cash', refundedOn: '2026-02-28' }, '2026-10-06') === null, 'real day accepted')
+})
+
+Deno.test('review #4: web peso reminders keep their centavos (no Math.round on the amount)', async () => {
+  const src = await code('send-reminders/index.ts')
+  assert(!/amount: Math\.round\(alert\.amount\)/.test(src) && (src.match(/amount: alert\.amount,/g) ?? []).length === 2, 'unrounded amount')
+  // The sender passes the exact figure; how pesos are printed is formatMoney's (shared by every layaway email, unchanged here).
+})
+
+Deno.test('review #5: the automatic cancel has its own key, so a real cancel after a revive is still sent', async () => {
+  assert(/idempotencyKey: `order-cancelled-auto-\$\{orderId\}`/.test(await code('_shared/square-sync.ts')), 'auto key')
+  assert(!/idempotencyKey:/.test((await code('cancel-cash-order/index.ts')).match(/sendWebCancellationEmail\([^)]*\)/)?.[0] ?? ''), 'staff cancel keeps order-cancelled-<id>')
+})

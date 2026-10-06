@@ -41,6 +41,8 @@ export interface OrderPaymentNotAcceptedProps {
   transferDueAt: string | null
   region: 'JP' | 'OVERSEAS'
   orderUrl: string | null
+  /** Another payment of hers is being checked (addendum §9 #10): say so instead of "pay again" / "closed". */
+  otherPaymentInProgress?: boolean
 }
 
 export const orderPaymentNotAcceptedSubject = (reference: string, lang: Lang) =>
@@ -65,6 +67,7 @@ const COPY = {
     deadline: (when: string) => `お支払い期限：${when}`,
     again: 'ご注文ページから、もう一度お支払いいただけます。',
     closed: 'このご注文は現在お支払いを受け付けておりません。ご不明な点はこのメールにご返信ください。',
+    otherInProgress: 'このご注文の別のお支払いを確認中です。新たにお支払いいただく必要はありません。確認後に改めてご連絡します。',
   },
   en: {
     heading: 'We could not accept your payment',
@@ -79,6 +82,7 @@ const COPY = {
     deadline: (when: string) => `Pay by: ${when}`,
     again: 'You can pay again from your order page.',
     closed: 'This order is no longer open for payment. If you have any questions, reply to this email.',
+    otherInProgress: 'Another payment on this order is being checked. You do not need to pay again — we will contact you once it is confirmed.',
   },
 } as const
 
@@ -113,7 +117,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
           <Text style={text}>{c.again}</Text>
         </>
       ) : (
-        <Text style={muted}>{c.closed}</Text>
+        <Text style={muted}>{p.otherPaymentInProgress ? c.otherInProgress : c.closed}</Text>
       )}
       {p.orderUrl && (
         <Section style={buttonWrap}>

@@ -32,6 +32,8 @@ export function refundIssuedRefusal(
   if (o.refund_status !== "refund_pending") return "not_refund_pending";
   if (!isRefundMethod(input.method)) return "bad_method";
   const d = typeof input.refundedOn === "string" ? input.refundedOn.trim() : "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`)) || d > today) return "bad_date";
+  // Round-trip: Date.parse rolls 2026-02-30 over to 2 March, so only a day that survives is real.
+  const t = Date.parse(`${d}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== d || d > today) return "bad_date";
   return null;
 }
