@@ -21,6 +21,12 @@ export interface OrderCancelledProps {
   /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
   currency?: OrderCurrency
   reason: string
+  /**
+   * A reason worded per language (email addendum 10): when set, each language
+   * block shows its own text instead of `reason`. Used for the neutral
+   * 「お支払いを確認できなかったため」 on a provider-side cancel.
+   */
+  reasonByLang?: { ja: string; en: string } | null
   refundStatus: RefundStatus | null
   refundNote: string | null
   orderUrl: string | null
@@ -64,7 +70,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderCancelledProps; prima
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
-      <Text style={text}><strong>{c.reason}:</strong> {p.reason}</Text>
+      <Text style={text}><strong>{c.reason}:</strong> {p.reasonByLang ? p.reasonByLang[lang] : p.reason}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
       {p.refundStatus && <Text style={notice}>{c.refund[p.refundStatus]}</Text>}
       {p.refundNote && <Text style={text}><strong>{c.note}:</strong> {p.refundNote}</Text>}

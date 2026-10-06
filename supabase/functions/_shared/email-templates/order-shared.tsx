@@ -128,7 +128,18 @@ export type OrderCurrency = 'JPY' | 'PHP'
  * the total. Absent / 0 = the table exactly as before. `afterPointsLabel`
  * replaces "Amount to pay" on emails where the money has already arrived.
  */
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, afterPointsLabel }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; afterPointsLabel?: { ja: string; en: string } }) => (
+/**
+ * pointsCount (email addendum 7, 2026-10-06): how many points that was, from
+ * the approved redemption. > 0 names them on the points line —
+ * 「ポイント利用（1,000ポイント）」 / "Points used (1,000 points)". The figure
+ * beside it is the points' VALUE, never called money or a payment.
+ */
+export const pointsLabel = (lang: Lang, count?: number) =>
+  count !== undefined && Number.isFinite(count) && count > 0
+    ? (lang === 'ja' ? `${WORDS.points.ja}（${Math.round(count).toLocaleString('en-US')}ポイント）` : `${WORDS.points.en} (${Math.round(count).toLocaleString('en-US')} points)`)
+    : WORDS.points[lang]
+
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, pointsCount, afterPointsLabel }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; pointsCount?: number; afterPointsLabel?: { ja: string; en: string } }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
@@ -141,7 +152,7 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, point
     <Row k={WORDS.total[lang]} v={orderMoney(totalJpy, currency)} emphasis={!(pointsApplied && pointsApplied > 0)} />
     {pointsApplied !== undefined && pointsApplied > 0 && (
       <>
-        <Row k={WORDS.points[lang]} v={`−${orderMoney(pointsApplied, currency)}`} />
+        <Row k={pointsLabel(lang, pointsCount)} v={`−${orderMoney(pointsApplied, currency)}`} />
         <Row k={(afterPointsLabel ?? WORDS.amountDue)[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
       </>
     )}

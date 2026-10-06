@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
+import { sendCashPaymentRecordEmail } from "../_shared/payment-event-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -220,6 +221,12 @@ Deno.serve(async (req) => {
 
     // Sheet row now reflects the restored payment (Bug #263 follow-up). Awaited, non-blocking.
     await refreshPaymentTracking(cashOrder.invoice_number, "restore-cash-payment");
+
+    // Email addendum 6 (2026-10-06): a WEB order's customer is told the record
+    // is back — amount and the new balance. Hub orders: unchanged. Keyed by the
+    // void this restore undid, so a later void + restore is its own email.
+    // Never throws.
+    await sendCashPaymentRecordEmail(supabase, { cashPaymentId: body.cash_payment_id, kind: "restored", cycleKey: String(cashPayment.voided_at) });
 
     return jsonResponse(200, {
       success: true,

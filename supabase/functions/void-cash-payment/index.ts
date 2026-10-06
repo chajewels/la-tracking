@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
+import { sendCashPaymentRecordEmail } from "../_shared/payment-event-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -216,6 +217,12 @@ Deno.serve(async (req) => {
 
     // Sheet row now reflects the void (Bug #263 follow-up). Awaited, non-blocking.
     await refreshPaymentTracking(order.invoice_number, "void-cash-payment");
+
+    // Email addendum 6 (2026-10-06): a WEB order's customer is told the record
+    // was cancelled — amount and the new balance, never the staff reason (an
+    // internal note). Hub orders: unchanged (no email). Keyed by this void.
+    // Never throws.
+    await sendCashPaymentRecordEmail(supabase, { cashPaymentId: cash_payment_id, kind: "voided", cycleKey: voidedAt });
 
     // 8. Return updated records
     return new Response(JSON.stringify({

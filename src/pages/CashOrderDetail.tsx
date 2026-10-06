@@ -2623,6 +2623,11 @@ export default function CashOrderDetail() {
           <p className="text-sm text-muted-foreground">
             Voiding will reverse this payment against the cash order totals. If the order was already marked completed, it will revert to pending.
           </p>
+          {order?.source_channel === 'web' && (
+            <p className="text-xs text-muted-foreground">
+              Website order: the customer is emailed that this payment record was cancelled, with the amount and the new balance. Your reason below is an internal note and is not shown to her.
+            </p>
+          )}
           <div className="space-y-2">
             <Label htmlFor="void-reason">Reason *</Label>
             <Input

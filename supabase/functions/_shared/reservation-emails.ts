@@ -6,6 +6,7 @@ import {
   STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
 } from "./storefront-email.ts";
 import { regionForCurrency, transferMethods } from "./transfer-methods.ts";
+import { checkoutPointsCount } from "./payment-event-emails.ts";
 import type { OrderEmailItem, OrderEmailMethod } from "./email-templates/order-shared.tsx";
 import type { LayawayScheduleRow } from "./email-templates/layaway-shared.tsx";
 import { OrderReservedEmail, orderReservedSubject } from "./email-templates/order-reserved.tsx";
@@ -119,54 +120,6 @@ async function guarded(label: string, fn: () => Promise<ReservationEmailResult>)
   }
 }
 
-/** Checkout, reserve mode: "we have your order" — no bank details, no deadline. */
-export function sendOrderReservedEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
-  return guarded("order-reserved", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderReservedSubject(o.reference, o.lang),
-      label: "order-reserved",
-      reference: o.reference,
-      idempotencyKey: `order-reserved-${orderId}`,
-      element: React.createElement(OrderReservedEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        orderUrl: storefrontOrderUrl(orderId),
-        method: o.order.source_channel === "web" ? publicMethod(o.order.payment_method) : "transfer",
-      }),
-    });
-  });
-}
-
-/** Checkout, reserve mode: the layaway request is in. English only. */
-export function sendLayawayReservedEmail(supabase: Db, accountId: string): Promise<ReservationEmailResult> {
-  return guarded("layaway-reserved", async () => {
-    const p = await loadPlan(supabase, accountId);
-    if (!p) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: p.to,
-      subject: layawayReservedSubject(p.reference),
-      label: "layaway-reserved",
-      reference: p.reference,
-      idempotencyKey: `layaway-reserved-${accountId}`,
-      element: React.createElement(LayawayReservedEmail, {
-        reference: p.reference,
-        currency: p.currency,
-        totalAmount: Number(p.plan.total_amount ?? 0),
-        deposit: Number(p.plan.downpayment_amount ?? 0),
-        termMonths: Number(p.plan.payment_plan_months ?? 0),
-        planUrl: storefrontLayawayUrl(accountId),
-      }),
-    });
-  });
-}
-
 /**
  * Staff confirmed a cash reservation: today's order-confirmation content —
  * items, every transfer method, the deadline that has just started — headed
@@ -240,6 +193,9 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
+        // Email addendum 7: how many points that was (value above, amount
+        // after points below — ItemsTable's points rows; never called money).
+        pointsCount: Number(ptsPaid ?? 0) > 0 ? await checkoutPointsCount(supabase, orderId) : 0,
         ...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {}),
       }),
     });
@@ -395,88 +351,6 @@ export function sendLayawayReadyEmail(
         services,
         courier: await courierName(supabase, p.plan.planned_shipping_method_id),
         pointsApplied: Number(ptsPaid ?? 0),
-      }),
-    });
-  });
-}
-
-/**
- * "Can't supply" on a cash reservation: the existing order-cancelled email,
- * with the staff reason. Nothing was paid, so there is no refund line. Same
- * idempotency key cancel-cash-order uses — an order is cancelled once.
- */
-export function sendOrderCantSupplyEmail(supabase: Db, orderId: string, reason: string): Promise<ReservationEmailResult> {
-  return guarded("order-cancelled", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderCancelledSubject(o.reference, o.lang),
-      label: "order-cancelled",
-      reference: o.reference,
-      idempotencyKey: `order-cancelled-${orderId}`,
-      element: React.createElement(OrderCancelledEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        reason,
-        refundStatus: null,
-        refundNote: null,
-        orderUrl: storefrontOrderUrl(orderId),
-      }),
-    });
-  });
-}
-
-/** A layaway reservation ended unconfirmed: staff declined it, or 72 hours passed. English only. */
-export function sendLayawayDeclinedEmail(
-  supabase: Db,
-  accountId: string,
-  kind: "declined" | "lapsed",
-  reason?: string | null,
-): Promise<ReservationEmailResult> {
-  const label = kind === "lapsed" ? "layaway-reservation-lapsed" : "layaway-declined";
-  return guarded(label, async () => {
-    const p = await loadPlan(supabase, accountId);
-    if (!p) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: p.to,
-      subject: layawayDeclinedSubject(p.reference, kind),
-      label,
-      reference: p.reference,
-      idempotencyKey: `${label}-${accountId}`,
-      element: React.createElement(LayawayDeclinedEmail, {
-        reference: p.reference,
-        kind,
-        reason: reason ?? null,
-        shopUrl: storefrontShopUrl(),
-      }),
-    });
-  });
-}
-
-/** A cash reservation nobody confirmed within 72 hours was cancelled. */
-export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
-  return guarded("order-reservation-lapsed", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderReservationLapsedSubject(o.reference, o.lang),
-      label: "order-reservation-lapsed",
-      reference: o.reference,
-      idempotencyKey: `order-reservation-lapsed-${orderId}`,
-      element: React.createElement(OrderReservationLapsedEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        shopUrl: storefrontShopUrl(),
       }),
     });
   });

@@ -50,6 +50,8 @@ export interface OrderConfirmationProps {
   chosenMethod?: 'transfer' | 'paidy' | 'card'
   /** Points used at checkout, already taken off (order currency). Absent/0 = none. */
   pointsApplied?: number
+  /** How many points that was (addendum 7); absent = the line without a count. */
+  pointsCount?: number
   /**
    * Payment lifecycle H3: the method was just changed (by staff, or by her
    * after a rejected payment). Heading 「お支払い方法を変更しました」 and an
@@ -148,7 +150,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
         </Text>
       )}
       <Text style={text}>{other ? READY_INTRO_NOT_TRANSFER[lang](p.reference) : c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} pointsCount={p.pointsCount} />
       {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
       <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].heading : c.payHeading}</Text>
       {other ? (
