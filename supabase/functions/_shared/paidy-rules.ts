@@ -573,3 +573,31 @@ export function paidyCaptureDeadlineText(expiresAt: unknown): string {
   const t = typeof expiresAt === "string" ? Date.parse(expiresAt) : NaN;
   return Number.isFinite(t) ? `capture by ${paidyJapanDate(new Date(t))} JST` : "valid 30 days";
 }
+
+// Owner decision 2026-10-06: Paidy's buyer.name1 is FAMILY NAME FIRST.
+// customers has one full_name column. A name with Japanese script is kept as
+// written (already family-first); a name in Latin letters moves its last word
+// to the front ("Maria Santos" → "Santos Maria"). Known limit: a two-word
+// surname ("Maria Dela Cruz") gives "Cruz Maria Dela".
+export function paidyFamilyFirstName(raw: unknown): string {
+  const name = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!name) return "";
+  if (/[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(name)) return name;
+  const parts = name.split(" ");
+  if (parts.length < 2) return name;
+  return [parts[parts.length - 1], ...parts.slice(0, -1)].join(" ");
+}
+
+// Owner decision 2026-10-06: a staff CANCEL closes an open Paidy authorisation
+// first. What to do with one authorisation, decided from Paidy's own read-back:
+//   close  — still authorised (or past expires_at): close it at Paidy
+//   mark   — Paidy already ended it: record that, nothing to call
+//   refuse — Paidy has taken the money: never cancel over captured money
+//   retry  — Paidy's answer could not be read: refuse, nothing changed
+export type PaidyCancelStep = "close" | "mark" | "refuse" | "retry";
+export function paidyCancelStep(outcome: PaidyProviderOutcome): PaidyCancelStep {
+  if (outcome === "captured") return "refuse";
+  if (outcome === "authorized" || outcome === "expired") return "close";
+  if (outcome === "closed" || outcome === "rejected") return "mark";
+  return "retry";
+}

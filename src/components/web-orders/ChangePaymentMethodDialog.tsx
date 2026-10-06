@@ -25,6 +25,7 @@ const REFUSAL: Record<string, string> = {
   payment_in_progress: 'A payment is in progress on this order (Paidy, a card hold or a submission waiting). Reject or confirm it first.',
   method_full_payment_only: 'A layaway is paid by bank transfer only.',
   method_requires_yen: 'Paidy and card are yen only — this order is in pesos.',
+  method_unavailable: 'This order cannot take that method now: Paidy needs Paidy switched on and a delivery address in Japan; card needs card payments switched on.',
   unchanged: 'That is already the payment method.',
   not_open: 'This website order is no longer waiting for confirmation.',
   not_payable: 'This order is not waiting for payment.',
