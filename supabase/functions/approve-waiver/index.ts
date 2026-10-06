@@ -3,6 +3,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { routeLayawayEmail, sendWebLayawayEmail, webWaiverKey } from "../_shared/web-layaway-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -221,9 +222,11 @@ Deno.serve(async (req) => {
       .filter((d): d is string => !!d)
       .sort();
     let graceDeadline: string | undefined;
+    let graceDeadlineIso: string | null = null;
     if (penaltyDates.length > 0) {
       const deadline = new Date(`${penaltyDates[0]}T00:00:00Z`);
       deadline.setUTCDate(deadline.getUTCDate() + waiverGraceDays);
+      graceDeadlineIso = deadline.toISOString().slice(0, 10);
       graceDeadline = new Intl.DateTimeFormat("en-GB", {
         day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
       }).format(deadline);
@@ -233,12 +236,25 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, web_reference, source_channel, currency, customers(full_name, email)")
+        .select("id, invoice_number, web_reference, source_channel, currency, customers(full_name, email, is_test)")
         .eq("id", accountId)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if (routeLayawayEmail(acctForEmail as any) === "website") {
+        // Email addendum B (item 3): website-style English email for a WEB
+        // plan, INSTEAD of the Hub template. Keyed per waiver batch, so a
+        // retry never sends twice (the Hub key below uses Date.now()).
+        await sendWebLayawayEmail(supabase, {
+          accountId,
+          variant: "penalty_waived",
+          row: acctForEmail as any,
+          amount: Number(totalWaived),
+          remaining: Number(newRemaining),
+          dateDeadline: graceDeadlineIso,
+          idempotencyKey: webWaiverKey(accountId, waiver_request_ids),
+        });
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "penalty-waived",

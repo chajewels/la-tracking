@@ -4,6 +4,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { routeLayawayEmail, sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -268,12 +269,27 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, web_reference, source_channel, currency, customers(full_name, email)")
+        .select("id, invoice_number, web_reference, source_channel, currency, customers(full_name, email, is_test)")
         .eq("id", payment.account_id)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if (routeLayawayEmail(acctForEmail as any) === "website") {
+        // Email addendum B (item 3): website-style English email for a WEB
+        // plan, INSTEAD of the Hub template; same key. A points line
+        // (LOYALTY-…) is not a payment she made — never emailed as one.
+        if (!String(payment.reference_number ?? "").startsWith("LOYALTY-")) {
+          await sendWebLayawayEmail(supabase, {
+            accountId: String(payment.account_id),
+            variant: "payment_voided",
+            row: acctForEmail as any,
+            amount: Number(payment.amount_paid),
+            message: reason || null,
+            remaining: Number(newRemainingBalance),
+            idempotencyKey: `payment-voided-${payment_id}`,
+          });
+        }
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "payment-voided",

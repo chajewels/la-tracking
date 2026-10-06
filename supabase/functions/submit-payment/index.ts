@@ -5,6 +5,7 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { routeLayawayEmail, sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
@@ -319,11 +320,23 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, web_reference, source_channel, currency, customers(full_name, email)")
+        .select("id, invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email, is_test)")
         .eq("id", primaryAccountId)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
-      if (customerEmail) {
+      if (routeLayawayEmail(acctForEmail as any) === "website") {
+        // Email addendum B (item 2): a WEBSITE plan gets the website-style
+        // English "We received your payment details", linking to her plan
+        // page, INSTEAD of the Hub portal email. Same key: one per submission.
+        await sendWebLayawayEmail(supabase, {
+          accountId: primaryAccountId,
+          variant: "payment_received_details",
+          row: acctForEmail as any,
+          amount: Number(submitted_amount),
+          paymentDate: payment_date ?? null,
+          idempotencyKey: `payment-submitted-${submission.id}`,
+        });
+      } else if (customerEmail) {
         const result = await sendTemplateEmail(
           "payment-submitted",
           customerEmail,

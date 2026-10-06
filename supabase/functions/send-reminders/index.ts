@@ -3,6 +3,7 @@ import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { reminderKindFor, routeLayawayEmail, sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,6 +27,8 @@ interface AlertItem {
   scheduleId: string;
   customerEmail?: string | null;
   hasPenalties?: boolean;
+  /** The plan row as read (email addendum B): a web plan gets the website email. */
+  planRow?: Record<string, unknown>;
 }
 
 function formatCurrency(amount: number, currency: string): string {
@@ -120,7 +123,7 @@ Deno.serve(async (req) => {
     // Only get the EARLIEST unpaid installment per account to avoid flooding
     const { data: rawItems, error: queryErr } = await supabase
       .from("layaway_schedule")
-      .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, web_reference, source_channel, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link))")
+      .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, web_reference, source_channel, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link, is_test))")
       .in("status", ["pending", "overdue", "partially_paid"])
       .in("layaway_accounts.status", ["active", "overdue"])
       .filter("layaway_accounts.is_test", "eq", false)
@@ -175,6 +178,7 @@ Deno.serve(async (req) => {
         scheduleId: s.id,
         customerEmail: cust?.email,
         hasPenalties,
+        planRow: acc,
       });
     }
 
@@ -232,6 +236,43 @@ Deno.serve(async (req) => {
         alert.daysOverdue >= 1 && alert.daysOverdue <= 7 && !alert.hasPenalties;
 
       try {
+        // Email addendum B (item 3): a WEBSITE plan gets the website-style
+        // English reminder (plan link, no portal) INSTEAD of the Hub template.
+        // Same keys as the Hub sends; no extra query — the row is the one read above.
+        if (routeLayawayEmail(alert.planRow) === "website") {
+          const dueDateObj = new Date(alert.dueDate + "T00:00:00Z");
+          const graceEndIso = new Date(dueDateObj.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+          const webResult = await sendWebLayawayEmail(supabase, {
+            accountId: alert.accountId,
+            variant: "instalment_reminder",
+            row: alert.planRow,
+            reminderKind: reminderKindFor(alert.stage, isGracePeriod),
+            amount: alert.amount,
+            dueDate: alert.dueDate,
+            daysOverdue: alert.daysOverdue,
+            dateDeadline: isGracePeriod ? graceEndIso : null,
+            idempotencyKey: isGracePeriod
+              ? `grace-period-${alert.scheduleId}-${today}`
+              : `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+          });
+          if (webResult?.sent) {
+            emailsSent++;
+            await supabase
+              .from("reminder_logs")
+              .update({ channel: "email", delivery_status: "sent", recipient: alert.customerEmail })
+              .eq("schedule_id", alert.scheduleId)
+              .eq("customer_id", alert.customerId)
+              .order("created_at", { ascending: false })
+              .limit(1);
+          } else {
+            console.log(`[send-reminders] web reminder email not sent for ${maskEmail(alert.customerEmail)}`);
+          }
+          if (emailAlerts.length > 1) {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          continue;
+        }
+
         if (isGracePeriod) {
           const dueDateObj = new Date(alert.dueDate + "T00:00:00Z");
           const graceEndObj = new Date(dueDateObj.getTime() + 7 * 86_400_000);

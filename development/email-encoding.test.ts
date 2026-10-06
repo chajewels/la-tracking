@@ -151,6 +151,11 @@ function storefrontFixtures(): Fixture[] {
         // Payment lifecycle H4: web-layaway updates, English only.
         for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped'])
           add('layaway-update.tsx', `layaway-update ${currency} ${variant}`, el(LayawayUpdateEmail, { variant, currency, reference: plan.reference, amount: 36000, message: 'The receipt shows a different amount.', deadline: due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl }))
+        // Email addendum B: every routine web-layaway event, English only.
+        for (const variant of ['payment_received_details', 'penalty_applied', 'penalty_escalation', 'penalty_waived', 'payment_voided', 'reactivated'])
+          add('layaway-update.tsx', `layaway-update ${currency} ${variant}`, el(LayawayUpdateEmail, { variant, currency, reference: plan.reference, amount: 3000, message: variant === 'payment_voided' ? 'Duplicate entry.' : null, dueDate: '2026-10-24', dateDeadline: '2026-11-24', remaining: 84000, totalPenalty: 6000, daysOverdue: 40, paymentDate: '2026-10-20', planUrl }))
+        for (const reminderKind of ['upcoming', 'due_today', 'overdue', 'grace_period'])
+          add('layaway-update.tsx', `layaway-update ${currency} reminder ${reminderKind}`, el(LayawayUpdateEmail, { variant: 'instalment_reminder', reminderKind, currency, reference: plan.reference, amount: 28000, dueDate: '2026-10-24', dateDeadline: '2026-10-31', daysOverdue: 3, planUrl }))
         add('layaway-deposit-due.tsx', `layaway-deposit-due ${currency}`, el(LayawayDepositDueEmail, { reference: plan.reference, currency, deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl }))
       }
     }

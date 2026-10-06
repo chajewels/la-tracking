@@ -37,6 +37,7 @@ import {
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
+import { sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 
 /**
  * Public website API (server-to-server).
@@ -3620,6 +3621,19 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select("id, status, submitted_amount, payment_date")
         .maybeSingle();
       if (subErr) throw subErr;
+
+      // Email addendum B (item 2): "We received your payment details" — the
+      // portal sends it, the website used to send nothing. Same key as the
+      // portal path (one per submission). Never throws, never changes the answer.
+      if (created) {
+        await sendWebLayawayEmail(supabase, {
+          accountId: String(plan.id),
+          variant: "payment_received_details",
+          amount: Number((created as AnyRec).submitted_amount ?? amount),
+          paymentDate: String((created as AnyRec).payment_date ?? paymentDate),
+          idempotencyKey: `payment-submitted-${(created as AnyRec).id}`,
+        });
+      }
 
       return jsonResponse(scrub({ ok: true, submission: created, is_deposit: isDeposit }));
     }

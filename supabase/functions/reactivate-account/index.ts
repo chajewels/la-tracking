@@ -4,6 +4,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import { customerReference } from "../_shared/order-reference.ts";
 import { reactivateRefusal } from "../_shared/web-order-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { routeLayawayEmail, sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -278,12 +279,23 @@ Deno.serve(async (req) => {
     try {
       const { data: acctForEmail } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
+        .select("id, invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email, is_test)")
         .eq("id", account_id)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if (routeLayawayEmail(acctForEmail as any) === "website") {
+        // Email addendum B (item 4): "Your plan has been reactivated" — new
+        // settle-by date and the plan link — for a WEB plan, INSTEAD of the
+        // Hub's extension-granted email. Same key (reactivation is one-time).
+        await sendWebLayawayEmail(supabase, {
+          accountId: account_id,
+          variant: "reactivated",
+          row: acctForEmail as any,
+          dateDeadline: extensionEndDate,
+          idempotencyKey: `extension-granted-${account_id}`,
+        });
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "extension-granted",

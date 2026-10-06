@@ -3,6 +3,7 @@ import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { routeLayawayEmail, sendWebLayawayEmail } from "../_shared/web-layaway-emails.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -641,7 +642,7 @@ Deno.serve(async (req) => {
 
         const { data: acctForEmail } = await supabase
           .from("layaway_accounts")
-          .select("invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email)")
+          .select("id, invoice_number, web_reference, source_channel, currency, remaining_balance, customers(full_name, email, is_test)")
           .eq("id", p.account_id)
           .single();
         const customerEmail = (acctForEmail as any)?.customers?.email;
@@ -657,6 +658,25 @@ Deno.serve(async (req) => {
           (s: number, x: any) => s + Number(x.penalty_amount),
           0,
         );
+
+        // Email addendum B (item 3): a WEBSITE plan gets the website-style
+        // English email INSTEAD of the Hub template — same figures, same key,
+        // no extra query (the row above and the fee sum are already read).
+        if (routeLayawayEmail(acctForEmail as any) === "website") {
+          await sendWebLayawayEmail(supabase, {
+            accountId: p.account_id,
+            variant: templateName === "penalty-applied" ? "penalty_applied" : "penalty_escalation",
+            row: acctForEmail as any,
+            amount: templateName === "penalty-applied"
+              ? Number(p.penalty_amount)
+              : Number(schedItem.total_due_amount ?? 0),
+            totalPenalty,
+            dueDate,
+            daysOverdue,
+            idempotencyKey: `${templateName}-${p.account_id}-${p.schedule_id}-${p.penalty_stage}-${p.penalty_cycle}`,
+          });
+          continue;
+        }
 
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
 

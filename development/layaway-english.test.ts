@@ -86,6 +86,11 @@ function cases(): Case[] {
     for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped'] as const)
       for (const message of ['The receipt shows a different amount.', null])
         out.push({ file: 'layaway-update.tsx', name: `update ${currency} ${variant} message=${!!message}`, subject: layawayUpdateSubject(variant, ref), element: el(LayawayUpdateEmail, { variant, reference: ref, currency, amount: 36000, message, deadline: due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl }) })
+    // Email addendum B: every routine web-layaway event.
+    for (const variant of ['payment_received_details', 'penalty_applied', 'penalty_escalation', 'penalty_waived', 'payment_voided', 'reactivated'] as const)
+      out.push({ file: 'layaway-update.tsx', name: `update ${currency} ${variant}`, subject: layawayUpdateSubject(variant, ref), element: el(LayawayUpdateEmail, { variant, reference: ref, currency, amount: 3000, message: variant === 'payment_voided' ? 'Duplicate entry.' : null, dueDate: '2026-10-24', dateDeadline: '2026-11-24', remaining: 84000, totalPenalty: 6000, daysOverdue: 40, paymentDate: '2026-10-20', planUrl }) })
+    for (const reminderKind of ['upcoming', 'due_today', 'overdue', 'grace_period'] as const)
+      out.push({ file: 'layaway-update.tsx', name: `update ${currency} reminder ${reminderKind}`, subject: layawayUpdateSubject('instalment_reminder', ref, reminderKind), element: el(LayawayUpdateEmail, { variant: 'instalment_reminder', reminderKind, reference: ref, currency, amount: 28000, dueDate: '2026-10-24', dateDeadline: '2026-10-31', daysOverdue: 3, planUrl }) })
     for (const final of [false, true])
       out.push({ file: 'layaway-forfeited.tsx', name: `forfeited ${currency} final=${final}`, subject: layawayForfeitedSubject(ref), element: el(LayawayForfeitedEmail, { reference: ref, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }) })
   }
