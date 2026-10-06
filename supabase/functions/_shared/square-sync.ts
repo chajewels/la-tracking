@@ -11,7 +11,6 @@
 import { isAttemptReference, squareEnvironmentOf, squareModeFrom, type SquareEnvironment } from "./card-rules.ts";
 import { paymentFacts, square, SquareError, type SquareDispute, type SquarePayment, type SquareRefund } from "./square.ts";
 import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
-import { sendCardHoldReleasedEmail, sendPaymentFiledEmail, sendProviderCancelledEmail } from "./payment-event-emails.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -91,7 +90,7 @@ export async function orderLabels(db: Db, orderId: string): Promise<{ reference:
 export async function fileForAttempt(db: Db, attempt: AnyRec, p: SquarePayment, path: string): Promise<AnyRec> {
   const f = paymentFacts(p);
   const labels = await orderLabels(db, attempt.cash_order_id);
-  const filed = await rpc(db, "file_square_authorization_atomic", {
+  return await rpc(db, "file_square_authorization_atomic", {
     p_attempt_id: attempt.id, p_square_payment_id: p.id, p_amount_jpy: f.amountJpy, p_currency: f.currency,
     p_location_id: p.location_id ?? null, p_card_brand: f.cardBrand, p_card_last4: f.cardLast4, p_receipt_url: f.receiptUrl,
     p_authorized_at: f.authorizedAt, p_capture_by: f.captureBy, p_risk_level: f.riskLevel,
@@ -100,12 +99,6 @@ export async function fileForAttempt(db: Db, attempt: AnyRec, p: SquarePayment, 
     p_notes: `Card authorisation (Square) from the website (${labels.reference})`,
     p_reference_label: labels.reference, p_path: path,
   });
-  // Email addendum 1 (2026-10-06): a hold newly filed as a submission →
-  // 「お支払いを受け付けました」 (brand •last4 and "held, not charged yet" from
-  // the stored square_payments row). Keyed by the submission: the website and
-  // the webhook / reconcile recovery send it once between them. Never throws.
-  if (filed.outcome === "filed" && filed.submission?.id) await sendPaymentFiledEmail(db, String(filed.submission.id));
-  return filed;
 }
 
 export async function resolveAttempt(db: Db, attemptId: string, status: string, from: string[], extra: { squarePaymentId?: string | null; code?: string | null; detail?: string | null; risk?: string | null } = {}): Promise<AnyRec> {
@@ -131,14 +124,7 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
       try { await applyPaymentState(db, await square.get(env, holdSquareId), "reconcile"); } catch { /* reconcile retries */ }
     }
   }
-  const res = await rpc(db, "square_fraud_cancel", { p_order_id: orderId, p_trigger: trigger, p_detail: detail });
-  // Email addendum 10 (2026-10-06): ONE neutral customer email, never naming
-  // fraud. Cancelled → the order-cancelled email (「お支払いを確認できなかった
-  // ため」); the cancel stood down but the hold was voided → the hold-released
-  // (not-accepted, provider_ended) email. Both never throw.
-  if (res.ok === true) await sendProviderCancelledEmail(db, orderId);
-  else if (holdSquareId) await sendCardHoldReleasedEmail(db, holdSquareId);
-  return res;
+  return await rpc(db, "square_fraud_cancel", { p_order_id: orderId, p_trigger: trigger, p_detail: detail });
 }
 
 /**
@@ -147,16 +133,14 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
  * took the order (unfiled_hold / paidy_in_progress) → void it (the order is
  * Paidy's; nothing is charged). Any other unfiled hold (order could not take
  * it) is NOT voided automatically — staff decide (bell rung in SQL).
- * A void that went through tells the customer (addendum 10): the neutral
- * not-accepted email, sent only once the stored row reads 'voided'.
  */
 export async function handleFilingException(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec): Promise<string> {
   if (filed.exception === "amount_mismatch") {
-    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await sendCardHoldReleasedEmail(db, p.id); return "mismatch_voided"; }
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "mismatch_voided"; }
     catch (e) { console.warn("[square-sync] mismatch void failed:", e instanceof Error ? e.message : e); return "mismatch_void_pending"; }
   }
   if (filed.exception === "unfiled_hold" && filed.reason === "paidy_in_progress") {
-    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await sendCardHoldReleasedEmail(db, p.id); return "paidy_voided"; }
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "paidy_voided"; }
     catch (e) { console.warn("[square-sync] paidy-conflict void failed:", e instanceof Error ? e.message : e); return "paidy_void_pending"; }
   }
   if (filed.exception === "risk_high") {

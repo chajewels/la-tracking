@@ -203,37 +203,6 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     subject: orderUpdateSubject('details_received', 'CJ-W-000129', 'ja'),
     previewData: { lang: 'ja', variant: 'details_received', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, region: 'JP', orderUrl },
   },
-  // Email addendum A (2026-10-06, _shared/payment-event-emails.ts).
-  'storefront-order-update-payment-filed-card-ja': {
-    displayName: 'Web order — card payment received, held not charged (JA + EN)',
-    component: OrderUpdateEmail,
-    subject: orderUpdateSubject('payment_filed', 'CJ-W-000129', 'ja'),
-    previewData: { lang: 'ja', variant: 'payment_filed', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, region: 'JP', orderUrl, method: 'card', cardBrand: 'VISA', cardLast4: '4242', held: true, holdUntil: due },
-  },
-  'storefront-order-update-payment-filed-paidy-en': {
-    displayName: 'Web order — Paidy payment received (EN)',
-    component: OrderUpdateEmail,
-    subject: orderUpdateSubject('payment_filed', 'CJ-W-000129', 'en'),
-    previewData: { lang: 'en', variant: 'payment_filed', reference: 'CJ-W-000129', currency: 'JPY', amount: 72980, region: 'JP', orderUrl, method: 'paidy' },
-  },
-  'storefront-order-update-payment-voided-ja': {
-    displayName: 'Web order — payment record voided by staff (JA + EN)',
-    component: OrderUpdateEmail,
-    subject: orderUpdateSubject('payment_voided', 'CJ-W-000129', 'ja'),
-    previewData: { lang: 'ja', variant: 'payment_voided', reference: 'CJ-W-000129', currency: 'JPY', amount: 30000, region: 'JP', orderUrl, balance: 42980 },
-  },
-  'storefront-order-update-payment-restored-en': {
-    displayName: 'Web order — payment record restored by staff (EN)',
-    component: OrderUpdateEmail,
-    subject: orderUpdateSubject('payment_restored', 'CJ-W-000129', 'en'),
-    previewData: { lang: 'en', variant: 'payment_restored', reference: 'CJ-W-000129', currency: 'JPY', amount: 30000, region: 'JP', orderUrl, balance: 0 },
-  },
-  'storefront-order-cancelled-provider-ja': {
-    displayName: 'Web order — cancelled, payment could not be confirmed (neutral, JA + EN)',
-    component: OrderCancelledEmail,
-    subject: orderCancelledSubject('CJ-W-000129', 'ja'),
-    previewData: { lang: 'ja', reference: 'CJ-W-000129', items: [{ title: 'K18 Diamond Pendant', title_ja: 'K18 ダイヤモンド ペンダント', qty: 1, line_total_jpy: 72980 }], shippingJpy: 0, totalJpy: 72980, currency: 'JPY', reason: 'お支払いを確認できなかったため', reasonByLang: { ja: 'お支払いを確認できなかったため', en: 'we could not confirm the payment' }, refundStatus: null, refundNote: null, orderUrl },
-  },
   'storefront-layaway-update-rejected': {
     displayName: 'Web layaway — payment rejected (EN only)',
     component: LayawayUpdateEmail,

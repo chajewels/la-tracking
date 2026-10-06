@@ -125,14 +125,6 @@ function storefrontFixtures(): Fixture[] {
       // Payment lifecycle H4: generic web-order updates, every variant.
       for (const variant of ['needs_info', 'deadline_moved', 'shipped', 'details_received'])
         add('order-update.tsx', `order-update ${k} ${variant}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 317980, message: variant === 'needs_info' ? 'お振込名義を教えてください。 / Please tell us the transfer name.' : null, deadline: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', courier: 'ヤマト運輸 / Yamato', trackingNumber: '4725-7551-6733', trackingUrl: 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733', orderUrl }))
-      // Email addendum A (2026-10-06): payment filed (card held / Paidy), record voided / restored.
-      add('order-update.tsx', `order-update ${k} payment_filed card held`, el(OrderUpdateEmail, { lang, variant: 'payment_filed', currency, reference: base.reference, amount: 317980, region: 'JP', orderUrl, method: 'card', cardBrand: 'VISA', cardLast4: '4242', held: true, holdUntil: due }))
-      add('order-update.tsx', `order-update ${k} payment_filed paidy`, el(OrderUpdateEmail, { lang, variant: 'payment_filed', currency, reference: base.reference, amount: 317980, region: 'JP', orderUrl, method: 'paidy' }))
-      for (const variant of ['payment_voided', 'payment_restored'])
-        for (const balance of [17980, 0])
-          add('order-update.tsx', `order-update ${k} ${variant} balance=${balance}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 300000, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl, balance }))
-      add('order-cancelled.tsx', `order-cancelled ${k} neutral provider reason`, el(OrderCancelledEmail, { lang, currency, ...base, reason: 'お支払いを確認できなかったため', reasonByLang: { ja: 'お支払いを確認できなかったため', en: 'we could not confirm the payment' }, refundStatus: null, refundNote: null, orderUrl }))
-      add('order-confirmation.tsx', `order-confirmation ${k} ready points count`, el(OrderConfirmationEmail, { lang, currency, ...base, methods: [], transferDueAt: due, region: 'JP', orderUrl, variant: 'ready', chosenMethod: 'card', pointsApplied: 1000, pointsCount: 100 }))
       // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])

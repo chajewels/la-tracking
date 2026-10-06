@@ -55,10 +55,6 @@ const JA_EXACT: Record<OrderUpdateVariant, string> = {
   deadline_moved: 'お支払い期限を',
   shipped: '発送しました',
   details_received: 'お支払いのご連絡を受け付けました。確認後にあらためてご連絡します',
-  // Addendum A variants — covered in email-addendum-a.test.ts.
-  payment_filed: 'お支払いを受け付けました',
-  payment_voided: 'お支払い記録を取り消しました',
-  payment_restored: 'お支払い記録を復元しました',
 }
 
 Deno.test('every order variant in Japanese carries the spec\'s exact Japanese, then English', async () => {

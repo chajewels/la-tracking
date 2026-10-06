@@ -3,7 +3,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Link, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, orderMoney, type Lang } from '../storefront-email.ts'
-import { Panel, Row, WORDS, METHOD_NAME, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderCurrency, type PayMethod, subjectFor } from './order-shared.tsx'
+import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * ONE SMALL UPDATE ABOUT A WEB ORDER (payment lifecycle H4, spec §5 B and D2).
@@ -15,22 +15,13 @@ import { Panel, Row, WORDS, METHOD_NAME, block, blockGutter, button, buttonWrap,
  *                     courier, tracking number, tracking link.
  *   details_received  staff recorded a payment she told them about; it waits
  *                     for a reviewer's Confirm.
- *   payment_filed     SHE paid by Paidy or card on the website and the Hub
- *                     filed it (email addendum 1, 2026-10-06): method, the
- *                     Hub's amount, card brand •last4 and the hold's end date
- *                     (JST) when the stored Square record has them. A card is
- *                     HELD, never "charged" — capture happens on Confirm.
- *   payment_voided    staff voided a recorded payment on her web order
- *   payment_restored  … or restored one (addendum 6): amount, new balance.
  *
  * Sent ONLY for website orders by _shared/order-update-email.ts; a Hub order
  * keeps its Hub email. Language: the customer's, Japanese first then English;
  * an English email is English only. The staff message is rendered as TEXT —
  * React escapes it; never dangerouslySetInnerHTML.
  */
-export type OrderUpdateVariant =
-  | 'needs_info' | 'deadline_moved' | 'shipped' | 'details_received'
-  | 'payment_filed' | 'payment_voided' | 'payment_restored'
+export type OrderUpdateVariant = 'needs_info' | 'deadline_moved' | 'shipped' | 'details_received'
 
 export interface OrderUpdateEmailProps {
   lang: Lang
@@ -48,35 +39,6 @@ export interface OrderUpdateEmailProps {
   trackingNumber?: string | null
   trackingUrl?: string | null
   orderUrl: string | null
-  /** payment_filed: how she paid ('paidy' | 'card'). */
-  method?: PayMethod | null
-  /** payment_filed, card: from the stored Square record only (never the browser). */
-  cardBrand?: string | null
-  cardLast4?: string | null
-  /** payment_filed, card: true only when the stored Square record says the money is HELD (status 'authorized'). */
-  held?: boolean
-  /** payment_filed, card: the hold's end (square_payments.capture_by), shown in JST. */
-  holdUntil?: string | null
-  /** payment_voided / payment_restored: the Hub's remaining balance after the change. */
-  balance?: number | null
-}
-
-/** "VISA" → "Visa", "AMERICAN_EXPRESS" → "American Express"; unknown brands title-cased. */
-export function cardBrandLabel(brand: string | null | undefined): string {
-  const b = String(brand ?? '').trim().toUpperCase()
-  if (!b) return ''
-  const known: Record<string, string> = {
-    VISA: 'Visa', MASTERCARD: 'Mastercard', AMERICAN_EXPRESS: 'American Express', JCB: 'JCB',
-    DISCOVER: 'Discover', DISCOVER_DINERS: 'Diners Club', DINERS: 'Diners Club', CHINA_UNIONPAY: 'UnionPay', UNIONPAY: 'UnionPay',
-  }
-  return known[b] ?? b.toLowerCase().split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-}
-
-/** "Visa •1234" from the stored brand and last 4; '' when neither is known. */
-export function cardLabel(brand: string | null | undefined, last4: string | null | undefined): string {
-  const l4 = /^[0-9]{4}$/.test(String(last4 ?? '')) ? String(last4) : ''
-  const name = cardBrandLabel(brand)
-  return [name, l4 ? `\u2022${l4}` : ''].filter(Boolean).join(' ')
 }
 
 const SUBJECT = {
@@ -84,9 +46,6 @@ const SUBJECT = {
   deadline_moved: { ja: 'お支払い期限を変更しました', en: 'Your payment deadline has changed' },
   shipped: { ja: '発送しました', en: 'Your order has shipped' },
   details_received: { ja: 'お支払いのご連絡を受け付けました', en: 'We have received your payment details' },
-  payment_filed: { ja: 'お支払いを受け付けました', en: 'We have received your payment' },
-  payment_voided: { ja: 'お支払い記録を取り消しました', en: 'A payment record has been cancelled' },
-  payment_restored: { ja: 'お支払い記録を復元しました', en: 'A payment record has been restored' },
 } as const
 
 export const orderUpdateSubject = (variant: OrderUpdateVariant, reference: string, lang: Lang) =>
@@ -109,22 +68,6 @@ const COPY = {
     receivedIntro: (ref: string) => `ご注文番号 ${ref} について、お支払いのご連絡を受け付けました。確認後にあらためてご連絡します。`,
     amount: 'お支払い金額',
     message: '担当者からのメッセージ',
-    filedHeading: 'お支払いを受け付けました',
-    filedIntro: (ref: string, m: string) => `ご注文番号 ${ref} について、${m}でのお支払いを受け付けました。確認後に改めてご連絡します。`,
-    method: 'お支払い方法',
-    card: 'カード',
-    held: '仮売上（まだ請求されていません）',
-    holdState: 'ご請求の状況',
-    holdUntil: '仮売上の期限',
-    heldNote: 'カードは仮売上の状態で、まだ請求されていません。当店で確認後に確定します。',
-    paidyNote: 'ペイディでのお支払いは、当店で確認後に確定します。',
-    voidedHeading: 'お支払い記録を取り消しました',
-    voidedIntro: (ref: string) => `ご注文番号 ${ref} のお支払い記録を1件取り消しました。`,
-    restoredHeading: 'お支払い記録を復元しました',
-    restoredIntro: (ref: string) => `ご注文番号 ${ref} のお支払い記録を1件復元しました。`,
-    recordAmount: '対象のお支払い金額',
-    balance: '残りのお支払い金額',
-    paidInFull: 'お支払いは完了しています。',
   },
   en: {
     needsInfoHeading: 'We need to check your payment',
@@ -142,29 +85,7 @@ const COPY = {
     receivedIntro: (ref: string) => `We have received your payment details for order ${ref}. We will check them and contact you again.`,
     amount: 'Amount',
     message: 'Message from our team',
-    filedHeading: 'We have received your payment',
-    filedIntro: (ref: string, m: string) => `We have received your ${m} payment for order ${ref}. We will check it and contact you again.`,
-    method: 'Payment method',
-    card: 'Card',
-    held: 'Held, not charged yet',
-    holdState: 'Status',
-    holdUntil: 'Hold ends',
-    heldNote: 'The amount is held on your card and has not been charged yet. It is charged only once we have checked your order.',
-    paidyNote: 'Your Paidy payment is finalised once we have checked your order.',
-    voidedHeading: 'A payment record has been cancelled',
-    voidedIntro: (ref: string) => `We have cancelled one payment record on order ${ref}.`,
-    restoredHeading: 'A payment record has been restored',
-    restoredIntro: (ref: string) => `We have restored one payment record on order ${ref}.`,
-    recordAmount: 'Payment amount',
-    balance: 'Amount still to pay',
-    paidInFull: 'Your order is paid in full.',
   },
-} as const
-
-/** The method as a row value (sentence-cased in English). */
-const METHOD_ROW = {
-  ja: METHOD_NAME.ja,
-  en: { transfer: 'Bank transfer', paidy: 'Paidy', card: 'Card' },
 } as const
 
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderUpdateEmailProps; primary: boolean }) => {
@@ -182,18 +103,8 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderUpdateEmailProps; pri
     case 'needs_info': heading = c.needsInfoHeading; intro = c.needsInfoIntro(p.reference); break
     case 'deadline_moved': heading = c.deadlineHeading(when); intro = c.deadlineIntro(p.reference); break
     case 'shipped': heading = c.shippedHeading; intro = c.shippedIntro(p.reference); break
-    case 'payment_filed': heading = c.filedHeading; intro = c.filedIntro(p.reference, METHOD_NAME[lang][p.method ?? 'card']); break
-    case 'payment_voided': heading = c.voidedHeading; intro = c.voidedIntro(p.reference); break
-    case 'payment_restored': heading = c.restoredHeading; intro = c.restoredIntro(p.reference); break
     default: heading = c.receivedHeading; intro = c.receivedIntro(p.reference)
   }
-  const filed = p.variant === 'payment_filed'
-  const record = p.variant === 'payment_voided' || p.variant === 'payment_restored'
-  const isCard = filed && p.method === 'card'
-  const card = isCard ? cardLabel(p.cardBrand, p.cardLast4) : ''
-  const held = isCard && p.held === true
-  const holdUntil = held && p.holdUntil ? formatDeadline(p.holdUntil, 'JP', lang) : ''
-  const hasBalance = record && typeof p.balance === 'number' && Number.isFinite(p.balance)
 
   return (
     <>
@@ -209,19 +120,11 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderUpdateEmailProps; pri
       <Panel gutter={blockGutter} box={block}>
         {/* Row is a table, not flex — Gmail drops display:flex. See order-shared. */}
         <Row k={WORDS.reference[lang]} v={p.reference} />
-        {filed && <Row k={c.method} v={METHOD_ROW[lang][p.method ?? 'card']} />}
-        {p.variant !== 'shipped' && hasAmount && <Row k={record ? c.recordAmount : c.amount} v={orderMoney(p.amount as number, p.currency)} />}
-        {card && <Row k={c.card} v={card} />}
-        {held && <Row k={c.holdState} v={c.held} />}
-        {holdUntil && <Row k={c.holdUntil} v={holdUntil} />}
-        {hasBalance && (p.balance as number) > 0 && <Row k={c.balance} v={orderMoney(p.balance as number, p.currency)} emphasis />}
+        {p.variant !== 'shipped' && hasAmount && <Row k={c.amount} v={orderMoney(p.amount as number, p.currency)} />}
         {p.variant === 'deadline_moved' && when && <Row k={c.newDeadline} v={when} emphasis />}
         {p.variant === 'shipped' && courier && <Row k={c.courier} v={courier} />}
         {p.variant === 'shipped' && tracking && <Row k={c.tracking} v={tracking} mono />}
       </Panel>
-      {held && <Text style={notice}>{c.heldNote}</Text>}
-      {filed && p.method === 'paidy' && <Text style={notice}>{c.paidyNote}</Text>}
-      {hasBalance && (p.balance as number) <= 0 && <Text style={text}>{c.paidInFull}</Text>}
       {p.variant === 'shipped' && p.trackingUrl && (
         <Text style={text}>
           {c.trackLink}: <Link href={p.trackingUrl}>{p.trackingUrl}</Link>

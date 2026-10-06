@@ -7,7 +7,6 @@ import {
   syncSquareDispute, syncSquareRefund,
 } from "../_shared/square-sync.ts";
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
-import { sendCardHoldReleasedEmail } from "../_shared/payment-event-emails.ts";
 
 /**
  * square-reconcile — the hourly Square safety net (integrity 2026-10-04, SQ14;
@@ -255,13 +254,6 @@ Deno.serve(async (req) => {
             report.voids_retried++;
           }
           const r = await applyPaymentState(db, p, "reconcile");
-          // Email addendum 10: a retried exception void (mismatch / risk HIGH)
-          // that went through → the neutral hold-released email. It sends only
-          // when the row now reads 'voided' and no submission owns the hold;
-          // keyed by the hold, so a later sweep never repeats it.
-          if (p.status === "CANCELED" && (row.exception === "amount_mismatch" || row.exception === "risk_high")) {
-            await sendCardHoldReleasedEmail(db, String(p.id));
-          }
           if (r.changed) report.holds_changed++;
           for (const rid of p.refund_ids ?? []) {
             const rf = await square.getRefund(got.env, rid);

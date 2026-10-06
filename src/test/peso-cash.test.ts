@@ -265,8 +265,7 @@ describe("order emails print the order's currency (D1)", () => {
   });
 
   it.each([
-    ["supabase/functions/_shared/reservation-emails.ts", 5], // ready + paid-by-points + 3 draft emails (email addendum A deleted the 3 dead reserve-first order senders)
-    ["supabase/functions/_shared/payment-event-emails.ts", 4], // email addendum A: payment filed, record voided/restored, hold released, provider cancel
+    ["supabase/functions/_shared/reservation-emails.ts", 8], // 5 order emails (H5: + paid-by-points) + 3 draft emails (website orders PR 6)
     ["supabase/functions/auto-expire-cash-orders/index.ts", 1],
     ["supabase/functions/cancel-cash-order/index.ts", 1],
     ["supabase/functions/review-payment-submission/index.ts", 1],
