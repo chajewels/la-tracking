@@ -67,7 +67,7 @@ must print nothing.
 drizzle-kit / drizzle-orm / postgres to package.json + bun.lock, plus drizzle.config.ts and a
 drizzle/ copy of the migration, on every apply — even when the message says not to
 (2026-10-03 b558a3ac → reverted aa3645a3 #355/#356; 2026-10-04 bdc42eb8/fc360ab8 → reverted
-c78dfbbd). Expect it after every apply: restore package.json + bun.lock from the release
+c78dfbbd; 2026-10-06 50126d4b/9fd738cd/484333c0 after the #411 apply). Expect it after every apply: restore package.json + bun.lock from the release
 commit (checksums must match .github/package-guard.sha256), `git rm -r drizzle.config.ts
 drizzle`, KEEP the regenerated src/integrations/supabase/types.ts, and release the revert in
 the same session, after any follow-up deploy has finished.
