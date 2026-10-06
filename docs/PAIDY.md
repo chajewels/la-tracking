@@ -364,3 +364,10 @@ phone `08000000001`, SMS code `8888`.
 ## Checkout payment choice + points (2026-10-05)
 
 See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the customer (staff change it with change-payment-method); points used at checkout are a LOYALTY- discount approved at staff Confirm, never "money paid".
+
+## Owner decisions 2026-10-06 (Paidy chat)
+
+- **buyer.name1 is family name first.** `paidyFamilyFirstName` (`_shared/paidy-rules.ts`): a name in Japanese script is sent as written; a name in Latin letters moves its last word to the front ("Maria Santos" → "Santos Maria"). Known limit: a two-word surname ("Maria Dela Cruz") gives "Cruz Maria Dela" — customers has one `full_name` column.
+- **A staff cancel closes an open Paidy authorisation first.** `cancel-cash-order` → `releasePaidyForCancel` (`_shared/paidy-cancel-release.ts`): reads each authorised payment back from Paidy; still authorised → `POST /payments/:id/close`, the row → `closed`, its pending submission rejected quietly (the customer gets the cancellation email only); already captured → the cancel is REFUSED (record it, refund in the Paidy dashboard); Paidy unreachable or the close refused → the cancel is refused and nothing changes. The staff cancel PREVIEW no longer refuses on a Paidy lock (`terminate_web_order_atomic`, migration 20261114100000); the real cancel still does while any Paidy money is unresolved.
+- **Expired:** an order with an open Paidy payment never expires (INVARIANT 12 freeze); when Paidy's own `expires_at` passes, the Hub rejects the submission (PD4) and Paidy can no longer capture it.
+- **Reopen:** Paidy documents a closed payment as final (only refund / retrieve / status / update are valid after CLOSED). A reopened (revived) invoice is paid with a NEW Paidy checkout — never by reopening the old authorisation.
