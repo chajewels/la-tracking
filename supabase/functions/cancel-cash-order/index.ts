@@ -6,6 +6,7 @@ import { emitNotification } from "../_shared/emit-notification.ts";
 import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
 import { sendWebCancellationEmail } from "../_shared/web-cancellation-email.ts";
 import { terminateRefusalMessage } from "../_shared/terminate-refusals.ts";
+import { releasePaidyForCancel } from "../_shared/paidy-cancel-release.ts";
 
 const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
 
@@ -100,6 +101,25 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!orderRow) return json({ error: "cash_order_not_found" }, 404);
     const isWeb = orderRow.source_channel === "web";
+
+    // Owner decision 2026-10-06: a staff cancel of a web order closes an open
+    // Paidy authorisation first (read back from Paidy; captured money refuses
+    // the cancel). Only when the order is actually locked by Paidy; a preview
+    // writes nothing and only says that the authorisation would be closed.
+    let paidyClosed = 0;
+    if (isWeb) {
+      const { data: lock } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cash_order_id });
+      const lockReason = typeof lock === "string" ? lock : null;
+      if (lockReason === "paidy_submission_pending" || lockReason === "paidy_authorized") {
+        if (preview) {
+          paidyClosed = -1;
+        } else {
+          const rel = await releasePaidyForCancel(supabase, cash_order_id, user.id);
+          if (!rel.ok) return json({ ok: false, error: rel.message, code: rel.code }, rel.code === "paidy_already_captured" ? 409 : 502);
+          paidyClosed = rel.closed;
+        }
+      }
+    }
 
     const { data, error } = isWeb
       ? await supabase.rpc("terminate_web_order_atomic", {
@@ -256,7 +276,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    return json({ ...(data ?? {}), shopify_sync });
+    return json({ ...(data ?? {}), shopify_sync, ...(paidyClosed !== 0 ? { paidy_authorisation: paidyClosed < 0 ? "will_close" : "closed" } : {}) });
   } catch (e) {
     console.error("[cancel-cash-order] unhandled:", e);
     return json({ error: String((e as any)?.message ?? e) }, 500);

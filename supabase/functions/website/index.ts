@@ -20,7 +20,7 @@ import {
 import {
   isPaidyPublicKey, paidyAddressLines, paidyBillingAddress, paidyBuyerHistory, paidyCheckoutBreakdown,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
-  paidyModeFrom, paidyNotOfferedReason, paidyPointsBeforeOrder,
+  paidyFamilyFirstName, paidyModeFrom, paidyNotOfferedReason, paidyPointsBeforeOrder,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
@@ -341,6 +341,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   quote_already_used: 409,
   out_of_stock: 409,
   variant_missing: 409,
+  product_unavailable: 409, // QC 2026-10-06: unpublished after the quote
   layaway_not_yet: 501,
   shipping_quote_required: 400,
   unsupported_method: 400,
@@ -575,7 +576,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
       customerId: String(customer.id),
       userId: String(customer.customer_code ?? customer.id),
       email: customer.email ? String(customer.email) : undefined,
-      name1: buyerName,
+      name1: paidyFamilyFirstName(buyerName),
       phone: phone ?? undefined,
       dob: paidyDob((cust as AnyRec | null)?.birthday),
       history,

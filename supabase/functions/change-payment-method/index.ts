@@ -38,6 +38,7 @@ const ERROR_STATUS: Record<string, number> = {
   unchanged: 409,
   method_full_payment_only: 409,
   method_requires_yen: 409,
+  method_unavailable: 409, // QC 2026-10-06: Paidy off or not shipping to Japan; card off
 };
 
 Deno.serve(async (req) => {
