@@ -1,6 +1,6 @@
 # Website payment lifecycle — one-batch fix (design spec)
 
-Date: 2026-10-05. Status: **DRAFT — waiting for owner approval.**
+Date: 2026-10-05. Status: **APPROVED** by the owner 2026-10-05 15:28 JST; §9 added by owner directive 2026-10-06 08:51 JST.
 Repos: Hub `chajewels/la-tracking` (one PR) + storefront `chajewels/cha-jewels-web` (one PR).
 Builds on: `claude/checkout-payment-choice-and-points-plan-2026-10-04.md` (C1–C7) and
 `docs/CHECKOUT-CHOICE.md`.
@@ -133,7 +133,7 @@ How it works today:
 - Test tip: place English test orders with the site's **English** toggle, not Chrome translation.
 
 ### D. Left out of this batch (listed so nothing is forgotten)
-- Paidy / Square refund, dispute, fraud cancel, automatic card void, and manually issued store credit stay **staff-handled with no automatic email**. These are rare and each needs a personal message.
+- ~~Paidy / Square refund, dispute, fraud cancel, automatic card void, and manually issued store credit stay staff-handled with no automatic email.~~ **Superseded 2026-10-06 by §9** (owner: "full notifications … all cycles"): refunds, fraud cancel, automatic card void and manual store credit now email the customer; card-hold-expiring and dispute stay staff-bell only.
 - auto-forfeit-settlement sends the "permanently forfeited" email on the final-settlement path (PATH 3). That function is **LOCKED** by CLAUDE.md, so it is reported in docs/OPEN-BUGS.md for a separate owner decision, not changed here.
 - Layaway "expired" says "nothing was paid" even when points were used. It gets a separate wording fix in the same Hub PR (template only, no logic).
 
@@ -178,3 +178,36 @@ How it works today:
   It then goes `develop` → `main` with the Hub UI tracking-card call in the same release.
 - One storefront PR into `develop` → `main`. It is merged **after** the Hub release is deployed, because it reads the new API fields. Every new field is read defensively, so the order of the two releases cannot break the live site.
 - Then one Lovable apply+deploy message, sent by Claude Code after the owner's OK.
+
+## 9. Addendum — every payment cycle reaches her (owner directive 2026-10-06 08:51 JST)
+
+Owner: "I want the full notifications, from payment, placing order, confirmation, rejection, cancellation, abandoned, all cycles — implemented all, not asking 1 by 1." Source: `claude/payment-lifecycle-email-addendum-2026-10-06.md` (audit of Hub main 8421e9ee + storefront main b425859). Live finding: on CJ-W-900068 the card hold (08:24 JST) sent **no email**; only Confirm (08:31) sent "payment received".
+
+Every email below is sent by the Hub through `sendStorefrontEmail` (test gate, Reply-To, one `email_send_log` row per attempt), never throws, and is **web only** (`source_channel = 'web'`) unless stated. Order emails: her language (`emailLang`, JA first + EN, EN-only for `en`). Layaway emails: English only, no `lang` prop.
+
+| # | Moment | Email (JA / EN heading) | Sent from | Once per |
+|---|---|---|---|---|
+| 1 | She pays by Paidy or card herself (website, or the same authorisation recovered by webhook / hourly check) | 「お支払いを受け付けました」 / "We have received your payment": method, amount (the Hub's filed figure), card brand •last4; card: 「仮売上（まだ請求されていません）」 / "card hold — not charged yet" + hold end date (`formatDeadline`, JST/PHT); 「確認後に改めてご連絡します」; order button. The wording makes **no claim** about any message from Paidy itself (not established — see "Checked during build"). | `filePaidyAuthorization` (outcome created/recovered) and `fileForAttempt` (outcome `filed`) — the two writers every path uses | submission id (`payment-submitted-<submission>`) |
+| 2 | Web **layaway** payment reported — by her upload (website `POST /layaway/:id/pay`) or by staff (submit-payment) | "We have received your payment details" + amount + plan link `/account/layaway/:id` | website, submit-payment (web plan: instead of the portal "payment-submitted") | submission id |
+| 3 | Routine web layaway emails: instalment reminder + grace period (send-reminders), penalty applied / escalation / waiver revoked (penalty-engine), penalty waived (approve-waiver), payment voided (void-payment) | Website-style EN `layaway-update` variants `reminder`, `penalty`, `penalty_reinstated`, `penalty_waived`, `payment_voided`; plan link | the same functions; a Hub-created plan keeps its portal template | the existing keys, unchanged |
+| 4 | Web layaway reactivated after forfeit (reactivate-account) | "Your plan has been reactivated" + new deadline (`extension_end_date`) + remaining + plan link | reactivate-account, **email block only** (LOCKED function: owner-approved email change, logic untouched) | account id (existing key) |
+| 5 | Loyalty emails on a web order / web plan: points earned, promo bonus, tier upgrade, tier restored | Website-style `web-loyalty` template, her language (layaway: EN), CJ-W reference, button to the website `/loyalty` | award-loyalty-points (web source only; Hub sources keep their templates) | the existing keys, unchanged |
+| 6 | Staff void / restore a payment on a web cash order | 「お支払い記録を取り消しました」 / 「お支払い記録を復元しました」 + amount, reason (void), new balance, order link. The Hub void dialog tells staff the website customer sees the reason. | void-cash-payment, restore-cash-payment | payment id + void time |
+| 7 | Points used at checkout | No separate email — the ready email already shows "Points used −¥X" and the after-points amount (`ItemsTable pointsApplied`, built in H3). Confirmed. | — | — |
+| 8 | Refund pending on a cancelled web order is paid | Hub action **"Mark refund issued"** on the cancelled web order (refund method, date, optional note; audited; only while `refund_status = 'refund_pending'`) → 「返金が完了しました」 / "Your refund has been sent" + amount, method, date | new RPC `mark_web_order_refund_issued_atomic` + new edge function `mark-refund-issued` | order id |
+| 9 | Refund made in the Square or Paidy dashboard (webhook / reconcile records it) | 「返金を受け付けました」 / "We have processed your refund" + amount, method, 「反映まで日数がかかる場合があります」 | `syncSquareRefund` (only when `record_square_refund` reports a change to `COMPLETED`), `syncPaidyPayment` (a newly inserted `paidy_refunds` row) | provider refund id |
+| 10 | Fraud cancel / automatic card void / mismatch void | Fraud cancel → the order-cancelled email with the neutral reason 「お支払いを確認できなかったため」 / "We could not confirm your payment". A card hold voided automatically with no submission (amount mismatch, Paidy took the order, risk HIGH not cancelled) → order-payment-not-accepted, `provider_ended`, card. **Never names fraud.** The website order page shows the same neutral reason instead of the stored staff reason. | `fraudCancel`, `handleFilingException` | order id / Square payment id |
+| 11 | Card hold expiring | No customer email — staff bell only (unchanged). | — | — |
+| 12 | Dispute opened | No customer email — staff bell only (unchanged). | — | — |
+| 13 | Store credit issued manually | 「ストアクレジットを発行しました」 / "Store credit has been added to your account" + amount, currency, expiry (1 year), how to use (staff apply it to her next order in the same currency). Every customer (Hub and web), language from her latest web order else her country. | issue-store-credit | lot id |
+| 14 | auto-forfeit PATH 3 | LOCKED — docs/OPEN-BUGS.md only, unchanged. | — | — |
+
+Dead code removed in the same PR (no callers since PR 10): `sendOrderReservedEmail`, `sendLayawayReservedEmail`, `sendOrderCantSupplyEmail`, `sendLayawayDeclinedEmail`, `sendOrderReservationLapsedEmail`.
+
+### Checked during build (2026-10-06, repo + live read-only)
+- **Does Paidy email her on authorisation?** Not established by any doc in the repo or the project. Paidy states it sends no cancellation email (order-payment-not-accepted header). Item 1 is therefore worded without any reference to a Paidy message.
+- **Does approving checkout points enqueue anything?** No. Live: `loyalty_redemptions` has no triggers; `loyalty_transactions` has only `trg_loyalty_transactions_immutable` and `trg_note_loyalty_transaction` (writes order notes, no notification). No live function inserts into `loyalty_notifications`. `confirm-web-draft` approves through `approve_redemption_atomic` (SQL), not `process-loyalty-redemption`.
+- **Any path that changes `refund_status` after cancel?** No. Live: the only function whose body mentions `refund_status` is `terminate_web_order_atomic` (md5 7ca713d8…). Item 8 adds the first one.
+
+### Tests added (R2 live)
+Card sandbox: pay → "received" email within a minute (JA+EN); Confirm → "payment received"; Reject → "not accepted". Paidy test A: filing email. Web layaway: upload receipt → EN received email. Square sandbox refund → refund email. Every new template variant has a fixture in `development/email-encoding.test.ts` (CI fails otherwise).

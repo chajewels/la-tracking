@@ -345,6 +345,55 @@ Every new field is optional on the storefront, so the release order cannot break
 
 ---
 
+# Part A2 — Addendum 2026-10-06 (spec §9, items 1–13)
+
+Owner directive 2026-10-06 08:51 JST: build all of §9 in this batch, no per-item questions. Same branch `feat/payment-lifecycle` (PR #410). Already rebased on main 8421e9ee (merge 23656e2b).
+
+### Task H9: Template variants
+
+**Files:**
+- Modify: `email-templates/order-update.tsx` — new variants `payment_submitted` (item 1), `payment_voided`, `payment_restored` (item 6), `refund_issued` (item 8), `refund_received` (item 9). New optional props: `method`, `cardBrand`, `cardLast4`, `holdUntil`, `reason`, `balance`, `refundMethod`, `refundDate`.
+- Modify: `email-templates/layaway-update.tsx` — new variants `details_received` (item 2), `reminder`, `penalty`, `penalty_reinstated`, `penalty_waived`, `payment_voided` (item 3), `reactivated` (item 4). New optional props: `reminderStage` (`upcoming|due_today|overdue|grace_period`), `dueDate`, `graceEnd`, `penaltyAmount`, `totalPenalty`, `remaining`, `reason`.
+- Create: `email-templates/web-loyalty.tsx` (item 5): variants `earned|bonus|tier_upgrade|tier_restored`, `lang` (layaway callers always pass `'en'`), CJ-W reference, button to `${STOREFRONT_PUBLIC_URL}/loyalty`.
+- Create: `email-templates/store-credit-issued.tsx` (item 13).
+- Modify: `email-templates/order-cancelled.tsx` — optional `reasonByLang?: {ja,en}` (item 10 neutral reason).
+- Modify: `preview-registry.ts` (one entry per new variant), `development/email-encoding.test.ts` (fixture per new template/variant, JA+EN where it has a language).
+- Test: extend `development/order-update-email.test.ts`; `development/layaway-english.test.ts` covers the new layaway variants and the `web-loyalty` render with `lang:'en'`.
+- Rules: no 振込/transfer in Paidy/card renders; layaway variants and EN renders have no CJK; the card variant says 「仮売上（まだ請求されていません）」 and shows the hold end; no variant names fraud.
+
+### Task H10: Senders — item 1, 2, 9, 10
+
+- `_shared/order-update-email.ts`: accept the new variants; `details_received` allowed for layaway. Add `sendPaymentSubmittedEmail(db, submissionId, card?)` (reads the submission + order; Paidy or card only).
+- `_shared/paidy-filing.ts` `filePaidyAuthorization`: after a filing whose outcome is not `existing` → `sendPaymentSubmittedEmail` (key `payment-submitted-<submission>`).
+- `_shared/square-sync.ts` `fileForAttempt`: after outcome `filed` → the same, with brand/last4/capture_by from `paymentFacts`.
+- `website` `POST /layaway/:id/pay` → layaway `details_received` (key `details-received-<submission>`); `submit-payment` → web plan sends the same instead of "payment-submitted".
+- Refunds: `syncSquareRefund` → when `record_square_refund` returns `changed` and `refund.status = 'COMPLETED'` → `refund_received` (method card, key `refund-received-square-<refund id>`). `syncPaidyPayment` → per newly inserted `paidy_refunds` row → `refund_received` (method Paidy, key `refund-received-paidy-<refund id>`).
+- Item 10: move `sendWebCancellationEmail` to `_shared/web-cancellation-email.ts` (cancel-cash-order imports it). `fraudCancel` → on `ok` sends it with the neutral reason. `handleFilingException` → `sendCardHoldReleasedEmail(db, orderId, amount, squarePaymentId)` (order-payment-not-accepted, provider_ended, card; key `card-hold-released-<square id>`) when the hold was voided and the order was not cancelled. `customerCancellationReason(reason)` maps the stored fraud reason to the neutral text; website order detail + list return it instead of the stored text.
+
+### Task H11: Senders — item 3, 4, 5, 6, 13
+
+- send-reminders, penalty-engine, approve-waiver, void-payment, reactivate-account: `source_channel === 'web'` → `sendOrderUpdateEmail({entity:'layaway', …})` with the existing idempotency key; else the existing Hub template. reactivate-account: email block only (LOCKED header gets the owner-approval line).
+- award-loyalty-points: resolve the source row (`cash_orders` / `layaway_accounts` → `source_channel`, `web_reference`, `customer_lang`, `ship_to_snapshot`); web → `web-loyalty` via `sendStorefrontEmail` with the same gates and keys; else unchanged.
+- void-cash-payment / restore-cash-payment: web order → `payment_voided` / `payment_restored` (keys `payment-voided-<payment>-<voided_at>`, `payment-restored-<payment>-<previous voided_at>`). Hub void dialog: one line "On a website order the customer is emailed this reason."
+- issue-store-credit: on `success` → `store-credit-issued` (key `store-credit-issued-<lot id>`).
+
+### Task H12: Item 8 — Mark refund issued
+
+- Migration `supabase/migrations/20261112100000_payment_lifecycle_refund_issued.sql` (sorts after 20261111100000): `mark_web_order_refund_issued_atomic(p_order_id uuid, p_user_id uuid, p_method text, p_refunded_on date, p_note text) RETURNS jsonb`, SECURITY DEFINER, service_role only. Locks the order; refuses `not_web_order`, `not_cancelled`, `not_refund_pending`, `bad_method` (`bank_transfer|paidy|card|cash|other`), `user_identity_required`; sets `refund_status = 'refund_issued'` (+ note appended to `refund_note`), one audit row `refund_marked_issued` (method, date, amount = money received, as terminate computes it), returns `{ok, amount, currency, method, refunded_on}`. New function, no live body to start from.
+- Edge function `mark-refund-issued` (`verify_jwt = true`, permission `cancel_cash_order`) → RPC → `refund_issued` email (key `refund-issued-<order>`).
+- Hub UI `CashOrderDetail`: button "Mark refund issued" on a cancelled web order with `refund_status = 'refund_pending'`, dialog (method, date, note).
+- Test: `development/refund-issued.test.ts` (pure method/refusal helper).
+
+### Task H13: Dead code, docs, CI
+- Delete the five dead senders from `_shared/reservation-emails.ts` (grep proves no caller).
+- Docs: `docs/EMAIL-DELIVERY.md` (email inventory), `docs/STORE-CREDIT.md` (credit email now built), `docs/SQUARE.md` / `docs/PAIDY.md` (refund email), `docs/CHECKOUT-CHOICE.md` (lifecycle list).
+- CI line: add `development/refund-issued.test.ts`.
+
+### Task H14: Verify
+Same as H8 Step 1, plus an independent review agent over the H9–H13 diff.
+
+---
+
 # Part B — Storefront (`/home/claude/cha-jewels-web`)
 
 ### Task S1: One pure display helper
@@ -509,3 +558,4 @@ Every new field is optional on the storefront, so the release order cannot break
 - [ ] **Step 4:** On a test order, run needs-clarification, then deadline move, then a staff-recorded payment, then mark shipped. Expect four emails, each method-correct and each linking to the website.
 - [ ] **Step 5:** Run the remaining live tests from the spec §7: Paidy test A, card sandbox with points, layaway agreement + C2.
 - [ ] **Step 6:** Phone width (375 px) on the order page and the draft page. Update the project status doc and give the owner the visual checklist.
+- [ ] **Step 7 (addendum §9):** Card sandbox: pay → 「お支払いを受け付けました」 within a minute (JA+EN, brand •last4, hold end); Confirm → "payment received"; Reject → "not accepted". Paidy test A: filing email. Web layaway: upload a receipt → EN "received your payment details". Square sandbox refund → 「返金を受け付けました」. Cancel a test web order with refund pending → Mark refund issued → 「返金が完了しました」.
