@@ -25,6 +25,10 @@ import { OrderPaymentDueEmail } from '../supabase/functions/_shared/email-templa
 import { OrderPaymentReceivedEmail } from '../supabase/functions/_shared/email-templates/order-payment-received.tsx'
 import { OrderReservationLapsedEmail } from '../supabase/functions/_shared/email-templates/order-reservation-lapsed.tsx'
 import { OrderPaymentNotAcceptedEmail } from '../supabase/functions/_shared/email-templates/order-payment-not-accepted.tsx'
+import { OrderUpdateEmail } from '../supabase/functions/_shared/email-templates/order-update.tsx'
+import { LayawayUpdateEmail } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
+import { WebLoyaltyEmail } from '../supabase/functions/_shared/email-templates/web-loyalty.tsx'
+import { StoreCreditIssuedEmail } from '../supabase/functions/_shared/email-templates/store-credit-issued.tsx'
 import { LayawayReservedEmail } from '../supabase/functions/_shared/email-templates/layaway-reserved.tsx'
 import { LayawayPlanCreatedEmail } from '../supabase/functions/_shared/email-templates/layaway-plan-created.tsx'
 import { LayawayDeclinedEmail } from '../supabase/functions/_shared/email-templates/layaway-declined.tsx'
@@ -44,7 +48,7 @@ import { ReauthenticationEmail } from '../supabase/functions/_shared/email-templ
 import { NewsletterCampaignEmail } from '../supabase/functions/_shared/transactional-email-templates/newsletter-campaign.tsx'
 import { TEMPLATES } from '../supabase/functions/_shared/transactional-email-templates/registry.ts'
 import { STOREFRONT_PREVIEWS } from '../supabase/functions/_shared/email-templates/preview-registry.ts'
-import { storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl } from '../supabase/functions/_shared/storefront-email.ts'
+import { storefrontLayawayUrl, storefrontLoyaltyUrl, storefrontOrderUrl, storefrontShopUrl } from '../supabase/functions/_shared/storefront-email.ts'
 import { SITE as NEWSLETTER_SITE, unsubscribeUrl as newsletterUnsubscribeUrl } from '../supabase/functions/_shared/newsletter/render.tsx'
 
 // The WEBSITE_URL secret once built every storefront link, and was set to the
@@ -106,12 +110,37 @@ function storefrontFixtures(): Fixture[] {
       add('order-expired.tsx', `order-expired ${k}`, el(OrderExpiredEmail, { lang, currency, ...base, transferDueAt: due, region: 'JP', shopUrl }))
       add('order-payment-due.tsx', `order-payment-due ${k}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, methods, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
       add('order-payment-received.tsx', `order-payment-received ${k}`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, amountReceivedJpy: 317980, orderUrl }))
+      // Payment lifecycle H3: per-method copy, points, the partial variant.
+      for (const method of ['paidy', 'card'] as const) {
+        add('order-payment-received.tsx', `order-payment-received ${k} ${method} points`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, method, amountReceivedJpy: 316980, pointsApplied: 1000, orderUrl }))
+        add('order-payment-due.tsx', `order-payment-due ${k} ${method}`, el(OrderPaymentDueEmail, { lang, currency, reference: base.reference, amount: 317980, method, methods: [], transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+        add('order-reserved.tsx', `order-reserved ${k} draft ${method}`, el(OrderReservedEmail, { lang, currency, ...base, shippingJpy: null, orderUrl, provisional: true, method }))
+      }
+      add('order-payment-received.tsx', `order-payment-received ${k} partial`, el(OrderPaymentReceivedEmail, { lang, currency, ...base, method: 'transfer', amountReceivedJpy: 300000, remaining: 17980, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+      add('order-confirmation.tsx', `order-confirmation ${k} method changed`, el(OrderConfirmationEmail, { lang, currency, ...base, methods: [], transferDueAt: due, region: 'JP', orderUrl, variant: 'ready', chosenMethod: 'card', methodChanged: { from: 'transfer' } }))
       add('order-reservation-lapsed.tsx', `order-reservation-lapsed ${k}`, el(OrderReservationLapsedEmail, { lang, currency, ...base, shopUrl }))
       // A payment not accepted (PR #406): every method × kind, open and closed order.
       for (const method of ['transfer', 'paidy', 'card'])
         for (const kind of ['staff', 'provider_ended'])
           for (const remaining of [317980, null])
             add('order-payment-not-accepted.tsx', `order-payment-not-accepted ${k} ${method} ${kind} ${remaining === null ? 'closed' : 'open'}`, el(OrderPaymentNotAcceptedEmail, { lang, currency, reference: base.reference, method, kind, amount: 317980, reason: kind === 'staff' ? '振込名義が確認できませんでした / the sender name did not match' : null, remaining, transferDueAt: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', orderUrl }))
+      // Payment lifecycle H4: generic web-order updates, every variant.
+      for (const variant of ['needs_info', 'deadline_moved', 'shipped', 'details_received'])
+        add('order-update.tsx', `order-update ${k} ${variant}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 317980, message: variant === 'needs_info' ? 'お振込名義を教えてください。 / Please tell us the transfer name.' : null, deadline: due, region: currency === 'PHP' ? 'OVERSEAS' : 'JP', courier: 'ヤマト運輸 / Yamato', trackingNumber: '4725-7551-6733', trackingUrl: 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733', orderUrl }))
+      // Addendum §9 (owner directive 2026-10-06): every new order update.
+      const region = currency === 'PHP' ? 'OVERSEAS' : 'JP'
+      for (const method of ['paidy', 'card'] as const)
+        add('order-update.tsx', `order-update ${k} payment_submitted ${method}`, el(OrderUpdateEmail, { lang, variant: 'payment_submitted', currency, reference: base.reference, amount: 317980, method, cardBrand: 'VISA', cardLast4: '1111', holdUntil: due, region, orderUrl }))
+      for (const variant of ['payment_voided', 'payment_restored'])
+        add('order-update.tsx', `order-update ${k} ${variant}`, el(OrderUpdateEmail, { lang, variant, currency, reference: base.reference, amount: 100000, message: '二重に記録されていたため / recorded twice', balance: 217980, region, orderUrl }))
+      for (const refundMethod of ['bank_transfer', 'paidy', 'card', 'cash', 'other'])
+        add('order-update.tsx', `order-update ${k} refund_issued ${refundMethod}`, el(OrderUpdateEmail, { lang, variant: 'refund_issued', currency, reference: base.reference, amount: 317980, refundMethod, refundDate: '2026-10-06', region, orderUrl }))
+      for (const refundMethod of ['paidy', 'card'])
+        add('order-update.tsx', `order-update ${k} refund_received ${refundMethod}`, el(OrderUpdateEmail, { lang, variant: 'refund_received', currency, reference: base.reference, amount: 317980, refundMethod, region, orderUrl }))
+      add('order-cancelled.tsx', `order-cancelled ${k} neutral reason`, el(OrderCancelledEmail, { lang, currency, ...base, reason: 'x', reasonByLang: { ja: 'お支払いを確認できなかったため', en: 'We could not confirm your payment' }, refundStatus: null, refundNote: null, orderUrl }))
+      for (const variant of ['earned', 'bonus', 'tier_upgrade', 'tier_restored'])
+        add('web-loyalty.tsx', `web-loyalty ${k} ${variant}`, el(WebLoyaltyEmail, { lang, variant, reference: base.reference, points: 3000, balance: 15000, level: 'Radiant', previousLevel: 'Glimmer', multiplier: 2, promoName: '秋のボーナス / Autumn bonus', promoEnd: '31 Oct 2026', loyaltyUrl: storefrontLoyaltyUrl() }))
+      add('store-credit-issued.tsx', `store-credit-issued ${k}`, el(StoreCreditIssuedEmail, { lang, amount: 25000, currency, expiresAt: '2027-10-06T00:00:00.000Z' }))
       // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])
@@ -127,6 +156,9 @@ function storefrontFixtures(): Fixture[] {
         add('layaway-reserved.tsx', `layaway-reserved ${currency} draft`, el(LayawayReservedEmail, { ...plan, planUrl, provisional: true }))
         for (const kind of ['declined', 'lapsed'])
           add('layaway-declined.tsx', `layaway-declined ${currency} ${kind}`, el(LayawayDeclinedEmail, { reference: plan.reference, kind, reason: 'The piece did not pass our final inspection.', shopUrl }))
+        // Payment lifecycle H4: web-layaway updates, English only.
+        for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped', 'details_received', 'reminder', 'penalty', 'penalty_reinstated', 'penalty_waived', 'payment_voided', 'reactivated'])
+          add('layaway-update.tsx', `layaway-update ${currency} ${variant}`, el(LayawayUpdateEmail, { variant, currency, reference: plan.reference, amount: 36000, message: 'The receipt shows a different amount.', deadline: variant === 'reactivated' ? '2026-12-24' : due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl, reminderStage: 'grace_period', penaltyStage: 'P8', dueDate: '2026-10-24', graceEnd: '2026-10-31', daysOverdue: 90, totalPenalty: 6000, remaining: 84000 }))
         add('layaway-deposit-due.tsx', `layaway-deposit-due ${currency}`, el(LayawayDepositDueEmail, { reference: plan.reference, currency, deposit: 36000, methods, transferDueAt: due, region: 'JP', planUrl }))
       }
     }

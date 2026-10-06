@@ -6101,3 +6101,19 @@ items (report presented as settlement, body read outside the timeout, "risk HIGH
 Fixed in migration 20261108100000 + six edge functions + the Card payments panel — docs/SQUARE.md
 "QC fixes". Do not reintroduce: a provider label as proof of provider money; a staff decision as proof
 of a refund; a local void of a provider receipt; "not found once" as proof a payment does not exist.
+
+### Payment lifecycle QC fixes (2026-10-05/06)
+- **proof_url unvalidated (QC P1-1).** Any submit path accepted an arbitrary URL as proof; now
+  allow-listed on every path and the Hub renders only safe links. Do not accept a proof URL
+  without the host/path check.
+- **Customer self-filed web transfer reports + direct-insert RLS (QC P2-4).** A customer could
+  file a transfer report on a web cash order herself, and upload-proof allowed any MIME and a
+  customer upsert. Refused for web cash orders; MIME allow-list; no customer upsert.
+- **Layaway part-deposit filed as an instalment (QC P2-1).** A partial deposit was classified as
+  an instalment payment; now classified as deposit.
+- **Reminders ignored the payment lock (QC P2-2).** Payment reminders went out for orders under a
+  Paidy/card lock; `web_payment_reminder_eligible` / `claim_` now skip locked orders.
+- **Staff cancel ignored Paidy money (QC P2-3).** terminate_web_order_atomic now refuses a
+  `paidy_*` lock for every caller.
+- **email-encoding fixture CI red.** The email-encoding test fixture was out of date with the
+  templates and failed CI; fixture corrected.

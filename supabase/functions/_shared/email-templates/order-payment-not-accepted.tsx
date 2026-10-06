@@ -3,7 +3,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, orderMoney, type Lang } from '../storefront-email.ts'
-import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderCurrency } from './order-shared.tsx'
+import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * A PAYMENT ON A WEB ORDER WAS NOT ACCEPTED (owner 2026-10-05, after the Paidy
@@ -41,10 +41,12 @@ export interface OrderPaymentNotAcceptedProps {
   transferDueAt: string | null
   region: 'JP' | 'OVERSEAS'
   orderUrl: string | null
+  /** Another payment of hers is being checked (addendum §9 #10): say so instead of "pay again" / "closed". */
+  otherPaymentInProgress?: boolean
 }
 
-export const orderPaymentNotAcceptedSubject = (reference: string) =>
-  `お支払いを確認できませんでした ${reference} / We could not accept your payment — Cha Jewels order ${reference}`
+export const orderPaymentNotAcceptedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払いを確認できませんでした ${reference}`, `We could not accept your payment — Cha Jewels order ${reference}`)
 
 const METHOD = {
   ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
@@ -57,7 +59,7 @@ const COPY = {
     intro: (ref: string, m: string, a: string) => `ご注文番号 ${ref} について、${m}でのお支払い（${a}）を確認できませんでした。`,
     paidy: 'ペイディのお申込みは取り消されました。このお申込みについて、ペイディからのご請求は発生しません。',
     card: 'カードの与信（仮売上）は取り消されました。このお支払いでのご請求は発生しません。',
-    transfer: 'お振込の控えをご確認のうえ、ご注文ページから再度ご提出いただくか、このメールにご返信ください。',
+    transfer: 'お振込の控えをこのメールにご返信ください。確認のうえご連絡いたします。',
     paidyEnded: 'ペイディでのお手続きが完了しなかったため、お申込みは取り消されました。ご請求は発生しません。',
     cardEnded: 'カードの与信（仮売上）が取り消されたため、ご請求は発生しません。',
     reason: '担当者からのメッセージ',
@@ -65,13 +67,14 @@ const COPY = {
     deadline: (when: string) => `お支払い期限：${when}`,
     again: 'ご注文ページから、もう一度お支払いいただけます。',
     closed: 'このご注文は現在お支払いを受け付けておりません。ご不明な点はこのメールにご返信ください。',
+    otherInProgress: 'このご注文の別のお支払いを確認中です。新たにお支払いいただく必要はありません。確認後に改めてご連絡します。',
   },
   en: {
     heading: 'We could not accept your payment',
     intro: (ref: string, m: string, a: string) => `We could not accept your ${m} payment (${a}) for order ${ref}.`,
     paidy: 'Your Paidy payment was cancelled — Paidy will not bill you for it.',
     card: 'The hold on your card was released — nothing was charged.',
-    transfer: 'Please check your transfer receipt and upload it again on your order page, or reply to this email.',
+    transfer: 'Please reply to this email with your transfer receipt and we will check it.',
     paidyEnded: 'Your Paidy payment was not completed, so it was cancelled — Paidy will not bill you for it.',
     cardEnded: 'The hold on your card was released — nothing was charged.',
     reason: 'Message from our team',
@@ -79,6 +82,7 @@ const COPY = {
     deadline: (when: string) => `Pay by: ${when}`,
     again: 'You can pay again from your order page.',
     closed: 'This order is no longer open for payment. If you have any questions, reply to this email.',
+    otherInProgress: 'Another payment on this order is being checked. You do not need to pay again — we will contact you once it is confirmed.',
   },
 } as const
 
@@ -113,7 +117,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
           <Text style={text}>{c.again}</Text>
         </>
       ) : (
-        <Text style={muted}>{c.closed}</Text>
+        <Text style={muted}>{p.otherPaymentInProgress ? c.otherInProgress : c.closed}</Text>
       )}
       {p.orderUrl && (
         <Section style={buttonWrap}>
@@ -127,7 +131,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
 export const OrderPaymentNotAcceptedEmail = (p: OrderPaymentNotAcceptedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderPaymentNotAcceptedSubject(p.reference)}</Preview>
+    <Preview>{orderPaymentNotAcceptedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

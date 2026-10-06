@@ -1,10 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +62,13 @@ Deno.serve(async (req) => {
     // unaffected. See CLAUDE.md PAYMENT SUBMISSION FLOW for the gate rule.
     if (typeof proof_url !== "string" || proof_url.trim().length === 0) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // QC P1-1 (2026-10-06): only a file in our own payment-proofs bucket.
+    if (!isOwnProofUrl(proof_url)) {
+      return new Response(JSON.stringify(INVALID_PROOF_URL), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -241,7 +250,7 @@ Deno.serve(async (req) => {
         reference_number: reference_number || null,
         sender_name: sender_name || null,
         notes: notes || null,
-        proof_url: proof_url || null,
+        proof_url: proof_url.trim(),
         installment_number: installment_number || null,
         portal_token,
         status: "submitted",
@@ -315,7 +324,14 @@ Deno.serve(async (req) => {
         .eq("id", primaryAccountId)
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
-      if (customerEmail) {
+      if ((acctForEmail as any)?.source_channel === "web") {
+        // Addendum §9 #2: a WEB plan gets the website-style English email
+        // linking to her plan page, never the portal email. Same key.
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(primaryAccountId), variant: "details_received",
+          amount: Number(submitted_amount), idempotencyKey: `payment-submitted-${submission.id}`,
+        });
+      } else if (customerEmail) {
         const result = await sendTemplateEmail(
           "payment-submitted",
           customerEmail,

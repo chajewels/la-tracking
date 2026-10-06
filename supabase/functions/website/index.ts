@@ -6,7 +6,9 @@ import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
-import { sendDraftReservedEmail } from "../_shared/reservation-emails.ts";
+import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
+import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from "../_shared/latest-decision.ts";
+import { type CustomerMethod, type SwitchInput, canCustomerSwitch, customerSwitchEmailKey, switchTargets } from "../_shared/method-switch-rules.ts";
 import {
   loyaltyEnabledFrom, previewEarn, previewEarnAsNewMember,
   type EarnMember, type EarnPromo, type EarnTier,
@@ -16,8 +18,9 @@ import {
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
 import {
-  isPaidyPublicKey, paidyAddressComplete, paidyAddressLines, paidyBuyerHistory, paidyCheckoutBreakdown,
-  paidyJapaneseMobile, paidyModeFrom, paidyNotOfferedReason,
+  isPaidyPublicKey, paidyAddressLines, paidyBillingAddress, paidyBuyerHistory, paidyCheckoutBreakdown,
+  paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
+  paidyModeFrom, paidyNotOfferedReason, paidyPointsBeforeOrder,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
@@ -32,6 +35,10 @@ import {
   pointsValue, publicMethod, storedMethod,
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
+import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
+import { customerCancellationReason } from "../_shared/customer-reasons.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 /**
  * Public website API (server-to-server).
@@ -398,7 +405,21 @@ function shapeDraft(d: AnyRec): AnyRec {
     payment_method: publicMethod(d.payment_method),
     points: Number(d.points ?? 0),
     points_value: Number(d.points_value ?? 0),
+    // Payment lifecycle H6 (2026-10-05): what is left to pay once the points
+    // are taken off — the Hub's figure, the storefront computes nothing. On a
+    // layaway draft the points pay the DEPOSIT (the deposit already shows
+    // that), so the total is unchanged.
+    total_after_points: draftTotalAfterPoints(d),
   };
+}
+
+/** max(0, total − points_value) on a full-payment draft; the total itself on a layaway draft. */
+function draftTotalAfterPoints(d: AnyRec): number {
+  const total = Number(d.total ?? 0);
+  if (!Number.isFinite(total)) return 0;
+  if (d.mode === "layaway") return total;
+  const pv = Number(d.points_value ?? 0);
+  return Math.max(0, total - (Number.isFinite(pv) ? pv : 0));
 }
 
 /** What a customer may see of their own layaway plan. */
@@ -471,12 +492,14 @@ async function orderPointsApplied(supabase: any, orderId: string): Promise<numbe
  *     amount is the whole order and the items + shipping − discount add up to
  *     it exactly (R10; paidyCheckoutBreakdown, else not offered);
  *   - the buyer is the CUSTOMER — never the delivery recipient (R11); her
- *     billing address only from her own default address-book entry when it is
- *     a complete Japanese address; her phone only when it is a Japanese
- *     mobile (R13);
- *   - history = her completed yen orders not paid with Paidy and not
- *     refunded, by order value, last order in days (R12); registration date
- *     only from her customer record.
+ *     billing address from her own default address-book entry when it is a
+ *     complete Japanese address, else her own customer record when that is
+ *     (H9, paidyBillingAddress); her phone only when it is a Japanese mobile
+ *     (R13); dob from customers.birthday; points held before this order;
+ *   - history = her completed yen cash orders not paid with Paidy and not
+ *     refunded, plus her completed yen layaway plans (H9), by order value,
+ *     last order in days (R12); registration date only from her customer
+ *     record.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null) {
@@ -491,7 +514,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const orderRef = customerReference(order as never);
   const [{ data: money }, { data: cust }, pointsApplied] = await Promise.all([
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
-    supabase.from("customers").select("created_at, mobile_number, full_name").eq("id", customer.id).maybeSingle(),
+    supabase.from("customers").select("created_at, mobile_number, full_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
     orderPointsApplied(supabase, String(order.id)),
   ]);
   // Points used at checkout (2026-10-05) are a discount already applied: the
@@ -512,54 +535,58 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const { data: past } = await supabase.from("cash_orders")
     .select("id, status, currency, total_amount, completed_at, order_date")
     .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
+    .filter("invoice_number", "match", "^[0-9]+$")
     .order("completed_at", { ascending: false }).limit(200);
   const pastIds = ((past ?? []) as AnyRec[]).map((o) => String(o.id));
-  const [{ data: paidyPaid }, { data: refunded }, { data: billing }] = await Promise.all([
+  const [{ data: paidyPaid }, { data: refunded }, { data: billing }, { data: plans }, { data: member }] = await Promise.all([
     pastIds.length ? supabase.from("cash_payments").select("cash_order_id").in("cash_order_id", pastIds).eq("payment_method", "paidy").is("voided_at", null) : { data: [] },
     pastIds.length ? supabase.from("paidy_refunds").select("cash_order_id").in("cash_order_id", pastIds) : { data: [] },
     supabase.from("customer_addresses").select("line1, line2, city, region, postal_code, country")
       .eq("customer_id", customer.id).eq("is_default", true).limit(1).maybeSingle(),
+    // H9: her completed yen layaway plans count as orders too (Paidy: ltv /
+    // order_count cover every order at the store). Paidy never pays a plan.
+    supabase.from("layaway_accounts")
+      .select("status, currency, total_amount, completed_at, order_date")
+      .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY")
+      .filter("invoice_number", "match", "^[0-9]+$")
+      .order("completed_at", { ascending: false }).limit(200),
+    supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle(),
   ]);
   const byPaidy = new Set(((paidyPaid ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
   const byRefund = new Set(((refunded ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
-  const history = paidyBuyerHistory(((past ?? []) as AnyRec[]).map((o) => ({
-    ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)),
-  })));
+  const history = paidyBuyerHistory([
+    ...((past ?? []) as AnyRec[]).map((o) => ({ ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)) })),
+    ...paidyHistoryFromLayaway((plans ?? []) as AnyRec[]),
+  ]);
   const registered = String((cust as AnyRec | null)?.created_at ?? "").slice(0, 10);
   const phone = paidyJapaneseMobile((cust as AnyRec | null)?.mobile_number);
-  const billingAddress = billing && paidyAddressComplete(billing as AnyRec) ? paidyAddressLines(billing as AnyRec) : undefined;
+  const bill = paidyBillingAddress(billing as AnyRec | null, paidyCustomerRecordAddress(cust as AnyRec | null));
+  // No address text, no email — only why Paidy gets no billing address.
+  if (!bill.address) console.log(`[paidy] billing_address omitted: ${bill.reason}`);
 
   return {
     offered: true as const,
     public_key: publicKey,
     test: mode === "test",
-    checkout: {
+    checkout: paidyCheckoutPayload({
       amount: breakdown.amount,
-      currency: "JPY",
-      store_name: "Cha Jewels",
-      description: orderRef,
-      buyer: {
-        email: customer.email ?? undefined,
-        name1: buyerName,
-        phone: phone ?? undefined,
-      },
-      buyer_data: {
-        user_id: String(customer.customer_code ?? customer.id),
-        ltv: history.ltv,
-        order_count: history.order_count,
-        last_order_amount: history.last_order_amount,
-        last_order_at: history.last_order_at,
-        account_registration_date: registered || undefined,
-        billing_address: billingAddress,
-      },
-      order: {
-        items: breakdown.items,
-        order_ref: orderRef,
-        shipping: breakdown.shipping,
-        tax: 0,
-      },
-      shipping_address: paidyAddressLines(address as AnyRec),
-    },
+      orderRef,
+      cashOrderId: String(order.id),
+      customerId: String(customer.id),
+      userId: String(customer.customer_code ?? customer.id),
+      email: customer.email ? String(customer.email) : undefined,
+      name1: buyerName,
+      phone: phone ?? undefined,
+      dob: paidyDob((cust as AnyRec | null)?.birthday),
+      history,
+      registered: registered || undefined,
+      billing: bill.address,
+      // Points held before this order: Confirm already took this order's.
+      numberOfPoints: paidyPointsBeforeOrder(member as AnyRec | null, pointsApplied),
+      items: breakdown.items,
+      shipping: breakdown.shipping,
+      shippingAddress: paidyAddressLines(address as AnyRec),
+    }),
   };
 }
 
@@ -636,6 +663,106 @@ async function cardPaymentState(supabase: any, orderId: string): Promise<AnyRec 
   const state = hold.status === "captured" ? "recording" : hold.action === "capture" ? "capturing" : "held";
   return { state, reference: hold.reference ?? null, since: hold.authorized_at, capture_by: hold.capture_by, brand: hold.card_brand, last4: hold.card_last4 };
 }
+
+/**
+ * PAYMENT LIFECYCLE H6 (2026-10-05): the decided submissions (rejected /
+ * needs_clarification / confirmed) on one order or plan, newest first in the
+ * SQL writer's own order. A SEPARATE read from pending_submissions, which
+ * keeps its exact shape. Feeds latestDecision / newestDecided.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function decidedSubmissions(supabase: any, column: "cash_order_id" | "account_id", id: string): Promise<DecisionRow[]> {
+  const { data, error } = await supabase.from("payment_submissions")
+    .select(DECISION_FIELDS)
+    .eq(column, id).in("status", [...DECIDED_STATUSES])
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as DecisionRow[];
+}
+
+/** The newest decided status, typed for canCustomerSwitch (confirmed included). */
+function newestDecisionStatus(rows: DecisionRow[]): SwitchInput["latestDecision"] {
+  const s = newestDecided(rows)?.status;
+  return s === "rejected" || s === "needs_clarification" || s === "confirmed" ? s : null;
+}
+
+/**
+ * One customer switch per rejection (H6 fix round 1): when her newest
+ * decision is a rejection, has she already switched since it? One read of the
+ * newest customer-actor payment_method_changed audit row — the same fact the
+ * SQL writer checks (already_switched). No read when the newest decision is
+ * not a rejection (canCustomerSwitch refuses not_rejected first anyway).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function customerSwitchedSinceDecision(supabase: any, orderId: string, decided: DecisionRow[]): Promise<boolean> {
+  const newest = newestDecided(decided);
+  if (!newest || newest.status !== "rejected") return false;
+  const { data, error } = await supabase.from("audit_logs")
+    .select("created_at")
+    .eq("entity_type", "cash_order").eq("entity_id", orderId)
+    .eq("action", "payment_method_changed").eq("new_value_json->>actor", "customer")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  const at = (data as AnyRec | null)?.created_at;
+  return switchedSinceDecision(newest, typeof at === "string" ? at : null);
+}
+
+/** canCustomerSwitch's inputs for an order (everything except the target). */
+function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[], switchedSince: boolean): Omit<SwitchInput, "to"> {
+  return {
+    status: String(order.status ?? ""),
+    paymentStatus: (order.payment_status ?? null) as string | null,
+    sourceChannel: (order.source_channel ?? null) as string | null,
+    lock,
+    latestDecision: newestDecisionStatus(decided),
+    switchedSinceDecision: switchedSince,
+    currency: String(order.currency ?? ""),
+    from: (order.payment_method ?? null) as string | null,
+  };
+}
+
+/**
+ * D1: is this target method OFFERED on the order right now, as if she had
+ * chosen it? Transfer always; Paidy and card through the same offer rules
+ * the order page uses (paidyOffer / cardOffer), with the order read as
+ * carrying the target method (C1's method_not_chosen otherwise refuses).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, to: CustomerMethod): Promise<boolean> {
+  if (to === "transfer") return true;
+  const as = { ...order, payment_method: to };
+  if (to === "paidy") return (await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock)).offered;
+  if (cardUnresolved) return false;
+  return (await cardOffer(supabase, customer, as, pendingCount, false)).offered;
+}
+
+/** D1: the methods (public names) she may switch to now — allowed by the rules AND offered. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function customerSwitchMethods(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, decided: DecisionRow[]): Promise<CheckoutMethod[]> {
+  const out: CheckoutMethod[] = [];
+  const switchedSince = await customerSwitchedSinceDecision(supabase, String(order.id), decided);
+  for (const to of switchTargets(switchBase(order, lock, decided, switchedSince))) {
+    if (await switchTargetOffered(supabase, customer, order, shipTo, items, pendingCount, lock, cardUnresolved, to)) out.push(publicMethod(to));
+  }
+  return out;
+}
+
+/** POST /orders/:id/payment-method — HTTP status per refusal code. */
+const SWITCH_ERROR_STATUS: Record<string, number> = {
+  not_found: 404,
+  not_web_order: 409,
+  not_payable: 409,
+  payment_in_progress: 409,
+  not_rejected: 409,
+  already_switched: 409,
+  unchanged: 409,
+  method_not_offered: 409,
+  bad_method: 400,
+  method_requires_yen: 400,
+};
 
 const LAYAWAY_FIELDS =
   "id, web_reference, invoice_number, status, currency, total_amount, total_paid, " +
@@ -858,6 +985,9 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
  */
 function withReservationFlags(row: AnyRec, kind: ReservationKind): AnyRec {
   const { ready_confirmed_at: _ready, ...rest } = row;
+  // Addendum §9 #10: an automatic fraud cancel is shown with the neutral
+  // reason — the stored staff text never reaches the customer.
+  if ("cancellation_reason" in rest) rest.cancellation_reason = customerCancellationReason(rest.cancellation_reason);
   return { ...rest, ...reservationFlags(row, kind) };
 }
 
@@ -2655,12 +2785,34 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       );
       const firstItemByOrder = new Map<string, AnyRec>();
       for (const l of firstOrderLines) firstItemByOrder.set(String(l.cash_order_id), l);
+      // Payment lifecycle H6: "being checked" = an open submission (one query
+      // for the whole page) or a payment lock (one batched call,
+      // cash_order_payment_locks, for this page's OPEN orders — a closed
+      // order holds none; the page is at most 50, the function's cap 100).
+      const { data: openSubs, error: osErr } = orderIds.length
+        ? await supabase.from("payment_submissions").select("cash_order_id")
+            .in("cash_order_id", orderIds).or(PENDING_SUBMISSION_OR)
+        : { data: [], error: null };
+      if (osErr) throw osErr;
+      const checking = new Set(((openSubs ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
+      const pendingIds = orders.filter((o) => o.status === "pending" && !checking.has(String(o.id))).map((o) => String(o.id));
+      if (pendingIds.length) {
+        const { data: lockRows, error: lockErr } = await supabase.rpc("cash_order_payment_locks", { p_ids: pendingIds });
+        if (lockErr) throw lockErr;
+        for (const r of (lockRows ?? []) as AnyRec[]) if (typeof r.lock === "string" && r.lock) checking.add(String(r.id));
+      }
       return jsonResponse(scrub(orders.map((o) => {
         const first = firstItemByOrder.get(String(o.id));
         return {
           ...withReservationFlags(o, "cash_order"),
           first_item: first ? { title: first.title ?? null, title_ja: first.title_ja ?? null, image_url: first.image_url ?? null } : null,
           item_count: countByOrder.get(String(o.id)) ?? 0,
+          // C1: transfer | paidy | card on a website order; null on any other.
+          chosen_method: o.source_channel === "web" ? publicMethod(o.payment_method) : null,
+          being_checked: checking.has(String(o.id)),
+          // What is left to pay: remaining_balance, which already nets points
+          // used at checkout (they are a payment row on the order).
+          amount_due: Number(o.remaining_balance ?? 0),
         };
       })));
     }
@@ -2733,6 +2885,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const cardBlock = lock || blockedByCard
         ? { offered: false as const, reason: blockedByCard ? "card_payment_unresolved" : "payment_in_progress" }
         : await cardOffer(supabase, customer, order as AnyRec, (pendingSubs ?? []).length, false);
+      // Payment lifecycle H6 / D1: her latest decided payment (separate read —
+      // pending_submissions keeps its shape) and, after a rejection with
+      // nothing in progress, the other methods she may switch to herself.
+      const decided = await decidedSubmissions(supabase, "cash_order_id", String(order.id));
+      const switchMethods = await customerSwitchMethods(
+        supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length, lock, blockedByCard, decided,
+      );
 
       return jsonResponse(scrub({
         order: {
@@ -2761,6 +2920,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         card_payment: cardPayment,
         // C1: transfer | paidy | card — what she chose at checkout (or staff since).
         chosen_method: chosenMethod,
+        // H6: { status: rejected | needs_clarification, method, amount,
+        // decided_at, message } for her newest decided payment, or null (none,
+        // or a confirmed one is newer). message = the reviewer's words to her.
+        latest_decision: latestDecision(decided),
+        // D1: true when she may pick another way to pay herself
+        // (POST /orders/:id/payment-method); switch_methods = the ones offered.
+        can_switch_method: switchMethods.length > 0,
+        switch_methods: switchMethods,
         // Points used at checkout, already taken off (a discount, in the order's
         // currency). 0 when none. The storefront shows "Points −¥N".
         points_applied: pointsApplied,
@@ -2774,6 +2941,73 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
+    }
+
+    // POST /orders/:id/payment-method — D1 (payment lifecycle, 2026-10-05):
+    // after her latest payment was REJECTED and nothing is in progress, the
+    // customer picks another way to pay. Body { method: transfer | paidy | card }.
+    // C1 otherwise holds. The writer is
+    // switch_web_payment_method_by_customer_atomic (row lock, audited, actor
+    // customer); the checks here are the TS mirror for an early refusal plus
+    // the one thing SQL cannot know — whether Paidy / card is OFFERED on this
+    // order right now (409 method_not_offered). Internal lock names never leave.
+    if (req.method === "POST" && segments[0] === "orders" && segments[1] && segments[2] === "payment-method" && !segments[3]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = await req.json().catch(() => ({})) as AnyRec;
+      const to = storedMethod(body.method);
+      if (!to || !CHECKOUT_METHODS.includes(String(body.method ?? "").trim().toLowerCase() as CheckoutMethod)) {
+        return jsonResponse({ error: "bad_method" }, 400);
+      }
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segments[1])) return jsonResponse({ error: "not_found" }, 404);
+      const { data: order, error } = await supabase
+        .from("cash_orders")
+        .select(`${ORDER_FIELDS}, ship_to_snapshot, ship_to_address:customer_addresses(id, recipient_name, line1, line2, city, region, postal_code, country, phone)`)
+        .eq("id", segments[1]).eq("customer_id", customer.id).maybeSingle();
+      if (error) throw error;
+      if (!order) return jsonResponse({ error: "not_found" }, 404);
+      const orderId = String((order as AnyRec).id);
+      const [{ data: offerItems, error: itemsErr }, { data: pendingSubs, error: pendErr }, lock, decided, cardPayment] = await Promise.all([
+        supabase.from("cash_order_items").select("id, variant_id, sku, title, quantity, unit_price_jpy").eq("cash_order_id", orderId).order("created_at"),
+        supabase.from("payment_submissions").select("id").eq("cash_order_id", orderId).or(PENDING_SUBMISSION_OR),
+        paymentLock(supabase, orderId),
+        decidedSubmissions(supabase, "cash_order_id", orderId),
+        cardPaymentState(supabase, orderId),
+      ]);
+      if (itemsErr) throw itemsErr;
+      if (pendErr) throw pendErr;
+      // Early refusal, same codes and order as the SQL writer.
+      const switchedSince = await customerSwitchedSinceDecision(supabase, orderId, decided);
+      const verdict = canCustomerSwitch({ ...switchBase(order as AnyRec, lock, decided, switchedSince), to });
+      if (!verdict.ok) return jsonResponse({ error: verdict.error }, SWITCH_ERROR_STATUS[verdict.error] ?? 409);
+      const shipTo = shipToAddress((order as AnyRec).ship_to_snapshot, (order as AnyRec).ship_to_address);
+      const offered = await switchTargetOffered(
+        supabase, customer, order as AnyRec, shipTo, (offerItems ?? []) as AnyRec[], (pendingSubs ?? []).length, lock,
+        cardPayment !== null || lock === "card_payment_unresolved", to,
+      );
+      if (!offered) return jsonResponse({ error: "method_not_offered" }, 409);
+
+      const { data: switched, error: swErr } = await supabase.rpc("switch_web_payment_method_by_customer_atomic", {
+        p_order_id: orderId, p_customer_id: customer.id, p_method: to,
+      });
+      if (swErr) throw swErr;
+      const r = (switched ?? {}) as AnyRec;
+      if (!r.ok) {
+        const code = String(r.error ?? "not_payable");
+        return jsonResponse({ error: code }, SWITCH_ERROR_STATUS[code] ?? 409);
+      }
+      // The order-method-changed email: how to pay now, only the new method.
+      // guarded() inside never throws — a failed send never fails the switch.
+      // Deterministic key: one email per (order, deciding rejection, new method).
+      const decisionId = String(r.decision_id ?? newestDecided(decided)?.id ?? "");
+      const email = await sendOrderReadyEmail(supabase, orderId, {
+        methodChanged: true,
+        idempotencyKey: customerSwitchEmailKey(orderId, decisionId, String(r.payment_method)),
+      });
+      console.log(JSON.stringify({ customer_payment_method_switch: orderId, from: r.old_method, to: r.payment_method, email_sent: email?.sent === true }));
+      return jsonResponse({ ok: true, payment_method: publicMethod(r.payment_method) });
     }
 
     // POST /orders/:id/paidy/start — persist the customer's Paidy window
@@ -3249,6 +3483,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (ptsErr) throw ptsErr;
       const depositPaid = started === true;
       const pointsApplied = Number(ptsPaid ?? 0);
+      // Payment lifecycle H6: her newest decided payment on the plan (separate
+      // read — pending_submissions keeps its shape). A plan never switches
+      // method (layaway is transfer only), so no switch fields here.
+      const decided = await decidedSubmissions(supabase, "account_id", String(plan.id));
 
       return jsonResponse(scrub({
         plan: {
@@ -3269,6 +3507,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         items: lines,
         payments: paid ?? [],
         pending_submissions: pending ?? [],
+        latest_decision: latestDecision(decided),
         deposit_paid: depositPaid,
         // Points taken off the deposit at checkout, and what is still due on
         // the deposit (null once it is paid). Hub figures, plan currency.
@@ -3300,6 +3539,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Proof is required on EVERY submit path, with no exception for the web.
       const proofUrl = String(body.proof_url ?? "").trim();
       if (!proofUrl) return jsonResponse({ error: "proof_required" }, 400);
+      // QC P1-1 (2026-10-06): only a file upload-proof put in our own bucket.
+      if (!isOwnProofUrl(proofUrl)) return jsonResponse(INVALID_PROOF_URL, 400);
 
       const amount = Math.round(Number(body.amount ?? 0));
       if (!Number.isFinite(amount) || amount <= 0) return jsonResponse({ error: "bad_amount" }, 400);
@@ -3341,13 +3582,28 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         return jsonResponse({ error: "too_many_submissions" }, 429);
       }
 
-      // The first payment on a plan is its deposit. review-payment-submission
-      // keys the loyalty award off submission_type = 'downpayment'. Points used
-      // at checkout are not a payment (2026-10-05): a deposit only partly paid
-      // by points is still the deposit.
-      const { data: depStarted, error: depErr } = await supabase.rpc("layaway_deposit_started", { p_account_id: plan.id });
-      if (depErr) throw depErr;
-      const isDeposit = depStarted !== true;
+      // A report is the DEPOSIT while the DP portion paid (plus DP reports still
+      // pending) is below downpayment_amount — a part-paid deposit keeps filing
+      // deposits (qc-audit P2-1, 2026-10-06). review-payment-submission keys the
+      // DP split and the loyalty award off submission_type = 'downpayment'.
+      // Detection mirrors allocate_payment_atomic / submissionIsDP exactly:
+      // _shared/layaway-deposit-rules.ts. Points used at checkout count only
+      // as the DP rows they already are (LOYALTY-, remarks "downpayment").
+      const [{ data: dpAcct, error: dpAcctErr }, { data: dpPays, error: dpPaysErr }, { data: dpPending, error: dpPendErr }] = await Promise.all([
+        supabase.from("layaway_accounts").select("downpayment_amount").eq("id", plan.id).maybeSingle(),
+        supabase.from("payments").select("amount_paid, reference_number, remarks")
+          .eq("account_id", plan.id).is("voided_at", null),
+        supabase.from("payment_submissions").select("submitted_amount, submission_type, reference_number, notes")
+          .eq("account_id", plan.id).in("status", ["submitted", "under_review"]),
+      ]);
+      if (dpAcctErr) throw dpAcctErr;
+      if (dpPaysErr) throw dpPaysErr;
+      if (dpPendErr) throw dpPendErr;
+      const isDeposit = webLayawaySubmissionIsDeposit({
+        downpaymentAmount: Number((dpAcct as AnyRec | null)?.downpayment_amount ?? 0),
+        payments: (dpPays ?? []) as DepositPaymentRow[],
+        pendingSubmissions: (dpPending ?? []) as PendingSubmissionRow[],
+      });
 
       const { data: created, error: subErr } = await supabase
         .from("payment_submissions")
@@ -3369,6 +3625,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select("id, status, submitted_amount, payment_date")
         .maybeSingle();
       if (subErr) throw subErr;
+
+      // Addendum §9 #2: she hears that her payment details arrived (English —
+      // a layaway email). Never throws; once per submission.
+      if (created?.id) {
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(plan.id), variant: "details_received",
+          amount: amount, idempotencyKey: `details-received-${created.id}`,
+        });
+      }
 
       return jsonResponse(scrub({ ok: true, submission: created, is_deposit: isDeposit }));
     }

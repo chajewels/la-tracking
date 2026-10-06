@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -176,6 +177,15 @@ serve(async (req) => {
     });
   }
 
+  // QC P1-1 (2026-10-06): a replacement proof must be a file in our own
+  // payment-proofs bucket. Proof stays required, so it is never cleared here.
+  if (proof_url !== undefined && !isOwnProofUrl(proof_url)) {
+    return new Response(JSON.stringify(INVALID_PROOF_URL), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const updates: Record<string, any> = {
     customer_edited_at: now,
     updated_at: now,
@@ -183,7 +193,7 @@ serve(async (req) => {
 
   if (submitted_amount !== undefined) updates.submitted_amount = Number(submitted_amount);
   if (payment_method !== undefined) updates.payment_method = payment_method;
-  if (proof_url !== undefined) updates.proof_url = proof_url;
+  if (proof_url !== undefined) updates.proof_url = String(proof_url).trim();
   if (reference_number !== undefined) updates.reference_number = reference_number || null;
   if (sender_name !== undefined) updates.sender_name = sender_name || null;
   if (notes !== undefined) updates.notes = notes || null;

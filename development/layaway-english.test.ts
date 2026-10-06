@@ -31,6 +31,7 @@ import { LayawayDepositDueEmail, layawayDepositDueSubject } from '../supabase/fu
 import { LayawayExpiredEmail, layawayExpiredSubject } from '../supabase/functions/_shared/email-templates/layaway-expired.tsx'
 import { LayawayForfeitedEmail, layawayForfeitedSubject } from '../supabase/functions/_shared/email-templates/layaway-forfeited.tsx'
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from '../supabase/functions/_shared/email-templates/layaway-payment-received.tsx'
+import { LayawayUpdateEmail, layawayUpdateSubject } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
 
 /** Hiragana, katakana, CJK ideographs, CJK punctuation, full-width forms. */
 const JAPANESE = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/
@@ -81,6 +82,15 @@ function cases(): Case[] {
     for (const isDeposit of [true, false])
       for (const last of [false, true])
         out.push({ file: 'layaway-payment-received.tsx', name: `payment-received ${currency} deposit=${isDeposit} paidInFull=${last}`, subject: layawayPaymentReceivedSubject(ref, isDeposit), element: el(LayawayPaymentReceivedEmail, { reference: ref, currency, isDeposit, amountReceived: 36000, remaining: last ? 0 : 84000, schedule, nextDueDate: last ? null : '2026-11-24', nextDueAmount: last ? null : 28000, planUrl }) })
+    // Payment lifecycle H4: web-layaway updates (reject, needs info, deadline, shipped).
+    for (const variant of ['rejected', 'needs_info', 'deadline_moved', 'shipped', 'details_received', 'penalty_reinstated', 'penalty_waived', 'payment_voided', 'reactivated'] as const)
+      for (const message of ['The receipt shows a different amount.', null])
+        out.push({ file: 'layaway-update.tsx', name: `update ${currency} ${variant} message=${!!message}`, subject: layawayUpdateSubject(variant, ref), element: el(LayawayUpdateEmail, { variant, reference: ref, currency, amount: 36000, message, deadline: variant === 'reactivated' ? '2026-12-24' : due, courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl, remaining: 84000, graceEnd: '2026-10-31' }) })
+    // Addendum §9 #3: reminders (every stage) and late-fee notices (every stage).
+    for (const reminderStage of ['upcoming', 'due_today', 'overdue', 'grace_period'] as const)
+      out.push({ file: 'layaway-update.tsx', name: `update ${currency} reminder ${reminderStage}`, subject: layawayUpdateSubject('reminder', ref, { reminderStage }), element: el(LayawayUpdateEmail, { variant: 'reminder', reminderStage, reference: ref, currency, amount: 28000, dueDate: '2026-10-24', graceEnd: '2026-10-31', daysOverdue: 3, planUrl }) })
+    for (const penaltyStage of ['applied', 'P4', 'P5', 'P6', 'P7', 'P8'] as const)
+      out.push({ file: 'layaway-update.tsx', name: `update ${currency} penalty ${penaltyStage}`, subject: layawayUpdateSubject('penalty', ref, { penaltyStage }), element: el(LayawayUpdateEmail, { variant: 'penalty', penaltyStage, reference: ref, currency, amount: 1000, totalPenalty: 2000, dueDate: '2026-10-24', daysOverdue: 40, remaining: 86000, planUrl }) })
     for (const final of [false, true])
       out.push({ file: 'layaway-forfeited.tsx', name: `forfeited ${currency} final=${final}`, subject: layawayForfeitedSubject(ref), element: el(LayawayForfeitedEmail, { reference: ref, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }) })
   }

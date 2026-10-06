@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAllocations } from "../_shared/payment-validation.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 import { firstUnconfirmedReservation, staffNotReadyForPaymentBody } from "../_shared/web-reservation-rules.ts";
 
 const corsHeaders = {
@@ -91,6 +92,11 @@ Deno.serve(async (req) => {
     // non-empty proof_url. Preview writes nothing, so it is exempt.
     if (!preview_only && (typeof proof_url !== "string" || proof_url.trim().length === 0)) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // QC P1-1 (2026-10-06): only a file in our own payment-proofs bucket.
+    if (!preview_only && !isOwnProofUrl(proof_url)) {
+      return new Response(JSON.stringify(INVALID_PROOF_URL), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

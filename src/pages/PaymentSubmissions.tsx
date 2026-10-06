@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 import { getProofSignedUrl } from '@/lib/proof-url';
+import { openSafeUrl, safeHttpUrl } from '@/lib/safe-url';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 
@@ -306,7 +307,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
                     {decodeURIComponent(actionDialog.sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
                   </span>
                   <a
-                    href={actionDialog.sub.proof_url}
+                    href={safeHttpUrl(actionDialog.sub.proof_url) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[10px] text-primary underline whitespace-nowrap">
@@ -326,7 +327,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => window.open(actionDialog.sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                    onClick={() => openSafeUrl(actionDialog.sub.proof_url)}
                     className="text-[10px] text-primary underline inline-flex items-center gap-1">
                     <ImageIcon className="h-3 w-3" /> View Proof
                   </button>
@@ -682,7 +683,7 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
           <span className="text-xs text-foreground truncate flex-1" title={url.split('/').pop()}>
             {proofFileName(url)}
           </span>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
+          <a href={safeHttpUrl(url) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
             View Proof
           </a>
         </div>
@@ -693,13 +694,13 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
               className={cn(imageClassName, 'rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in')} />
           </button>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => window.open(url, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
+            <button type="button" onClick={() => openSafeUrl(url)} className="text-[10px] text-primary underline flex items-center gap-1">
               <ImageIcon className="h-3 w-3" /> View Proof
             </button>
             <button onClick={(e) => onExpand(url, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
               View full size
             </button>
-            <a href={url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+            <a href={safeHttpUrl(url) ?? undefined} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
               Download
             </a>
           </div>
@@ -1500,7 +1501,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         if (!hasProof(url)) return isPaidy(sub) ? <StatusPill label="Paidy" tone="info" /> : isSquare(sub) ? <StatusPill label="Card" tone="info" /> : <StatusPill label="No proof" tone="danger" />;
         if (isPdf(url)) {
           return (
-            <a href={url} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
+            <a href={safeHttpUrl(url) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
               className="flex h-10 w-10 items-center justify-center rounded border border-gold-500/25 bg-gold-500/5 text-gold-300 hover:border-gold-500/60">
               <FileText className="h-4 w-4" />
             </a>
@@ -1627,16 +1628,16 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               </div>
               <div className="flex flex-wrap gap-2">
                 {isPdf(sub.proof_url) ? (
-                  <a href={sub.proof_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">View Proof</a>
+                  <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">View Proof</a>
                 ) : (
                   <>
-                    <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
+                    <button type="button" onClick={() => openSafeUrl(sub.proof_url)} className="text-[10px] text-primary underline flex items-center gap-1">
                       <ImageIcon className="h-3 w-3" /> View Proof
                     </button>
                     <button onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                       View full size
                     </button>
-                    <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                    <a href={safeHttpUrl(sub.proof_url) ?? undefined} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                       Download
                     </a>
                   </>
@@ -2150,18 +2151,18 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           {proofDialog && (
             <div className="mt-2 space-y-2">
               {proofDialog.match(/\.pdf$/i) ? (
-                <a href={proofDialog} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm flex items-center gap-2">
+                <a href={safeHttpUrl(proofDialog) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Open PDF
                 </a>
               ) : (
                 <>
                   <ProofImage url={proofDialog} className="w-full rounded-lg border border-[hsl(var(--border))]" />
                   <div className="flex gap-3 pt-1">
-                    <a href={proofDialog} download target="_blank" rel="noopener noreferrer"
+                    <a href={safeHttpUrl(proofDialog) ?? undefined} download target="_blank" rel="noopener noreferrer"
                       className="text-xs text-muted-foreground underline flex items-center gap-1">
                       Download
                     </a>
-                    <a href={proofDialog} target="_blank" rel="noopener noreferrer"
+                    <a href={safeHttpUrl(proofDialog) ?? undefined} target="_blank" rel="noopener noreferrer"
                       className="text-xs text-primary underline flex items-center gap-1">
                       <ImageIcon className="h-3 w-3" /> Open in new tab
                     </a>

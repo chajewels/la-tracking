@@ -2,6 +2,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendStoreCreditIssuedEmail } from "../_shared/store-credit-email.ts";
 
 async function resolveCustomerName(
   supabase: any,
@@ -134,6 +135,16 @@ Deno.serve(async (req) => {
       }
     } catch (notifyErr) {
       console.warn("[issue-store-credit] staff_notifications insert failed (non-blocking):", notifyErr);
+    }
+
+    // Addendum §9 #13: she is told the credit is on her account — amount,
+    // currency, 1-year expiry, how it is used. Once per lot. Never throws.
+    if ((data as any)?.success === true && (data as any)?.lot_id) {
+      await sendStoreCreditIssuedEmail(supabase, {
+        customerId: String(customer_id), lotId: String((data as any).lot_id),
+        amount: Number((data as any).amount ?? amount), currency: ((data as any).currency ?? currency) === "PHP" ? "PHP" : "JPY",
+        expiresAt: (data as any).expires_at ?? null,
+      });
     }
 
     // Mirror the issuance into Shopify (credit). Non-blocking.

@@ -114,8 +114,16 @@ Permission key in brackets.
 - **Customer portal** (`loyalty_notifications`, via `emitNotification` —
   member-scoped, NOT `customer_id`): "Points revoked" and "Store credit issued"
   on cancellation.
-- **Not built:** no email is sent on points revocation or credit issuance. Only
-  in-app.
+- **Email (2026-10-06, payment lifecycle addendum §9 #13):** a credit an admin
+  issues by hand (`issue-store-credit`, source `manual_admin`) emails the
+  customer 「ストアクレジットを発行しました」 / "Store credit has been added to your
+  account" — amount, currency (never converted), expiry (1 year), "our staff
+  apply it to your next order". `_shared/store-credit-email.ts` +
+  `email-templates/store-credit-issued.tsx`; language = her latest web order's
+  `customer_lang`, else her country (Japan → JA first); once per lot
+  (`store-credit-issued-<lot>`). The admin's note is internal and never shown.
+  Cancellation-sourced credit keeps its order-cancelled email (refund line). Points
+  revocation still sends no email.
 
 ## PHASE B — SHOPIFY CANCELLATION → STORE CREDIT
 

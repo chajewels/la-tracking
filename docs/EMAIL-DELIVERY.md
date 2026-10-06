@@ -69,6 +69,16 @@ silence from them is normal while `web_payment_reminders_mode` is off. Staff see
 both per order under **Customer emails** (get_order_email_history).
 docs/WEB-PAYMENT-REMINDERS.md.
 
+## Payment lifecycle emails (added 2026-10-06)
+
+The addendum emails (received, voided/restored, refund issued/received, neutral
+cancel, card hold released, web-layaway routine emails, web loyalty, store
+credit) all go through `sendStorefrontEmail`, so each attempt leaves an
+`email_send_log` row (channel `storefront`; labels `order-update-<variant>`,
+`layaway-update-<variant>`, `web-loyalty-<variant>`, `store-credit-issued`,
+`order-cancelled`, `order-payment-not-accepted`). Full table:
+docs/CHECKOUT-CHOICE.md "Every payment cycle reaches her".
+
 ## One in-call retry (2026-10-02)
 
 Both senders (`sendTemplateEmail`, `sendStorefrontEmail`) go through

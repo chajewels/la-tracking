@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import type { Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
  * RESERVE-FIRST (A2). Sent by web-reservation-sweep when nobody confirmed a
@@ -24,8 +24,8 @@ export interface OrderReservationLapsedProps {
   shopUrl: string | null
 }
 
-export const orderReservationLapsedSubject = (reference: string) =>
-  `ご注文のご案内 ${reference} / We could not confirm your Cha Jewels order ${reference}`
+export const orderReservationLapsedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文のご案内 ${reference}`, `We could not confirm your Cha Jewels order ${reference}`)
 
 const COPY = {
   ja: {
@@ -65,7 +65,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservationLapsedProp
 export const OrderReservationLapsedEmail = (p: OrderReservationLapsedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderReservationLapsedSubject(p.reference)}</Preview>
+    <Preview>{orderReservationLapsedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

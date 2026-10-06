@@ -5,7 +5,7 @@ import {
   partitionExpiryCandidates,
 } from "../_shared/web-order-rules.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
-import { pickLang, sendStorefrontEmail, storefrontShopUrl } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontShopUrl } from "../_shared/storefront-email.ts";
 import { OrderExpiredEmail, orderExpiredSubject } from "../_shared/email-templates/order-expired.tsx";
 import { LayawayExpiredEmail, layawayExpiredSubject } from "../_shared/email-templates/layaway-expired.tsx";
 import * as React from "npm:react@18.3.1";
@@ -217,7 +217,8 @@ Deno.serve(async (req) => {
           const { data: exp, error: expErr } = await supabase.rpc("expire_web_order_atomic", { p_order_id: order.id });
           if (expErr) throw new Error(`expire_web_order_atomic failed: ${expErr.message}`);
           if (!(exp as any)?.ok) {
-            if ((exp as any)?.reason === "submission_pending" || (exp as any)?.reason === "card_payment_unresolved") {
+            if ((exp as any)?.reason === "submission_pending" || (exp as any)?.reason === "card_payment_unresolved"
+                || (exp as any)?.reason === "paidy_payment_unresolved") {
               // A submission arrived after step 0 — the RPC's own INVARIANT 12
               // check caught it under the row lock. Report it with the others.
               frozenResults.push({
@@ -314,14 +315,21 @@ Deno.serve(async (req) => {
         ((order as any).ship_to_snapshot?.country ?? (order as any).ship_to_address?.country) ?? "JP",
       ).toUpperCase();
             const shopUrl = storefrontShopUrl();
+            // Language: hers if stored, else the delivery country (snapshot
+            // first, the live address only when no snapshot exists).
+            const fkCountry = (order as any).ship_to_address?.country;
+            const lang = emailLang(
+              (order as any).customer_lang,
+              snapshotCountry(order as any) ?? (typeof fkCountry === "string" && fkCountry.trim() ? fkCountry.trim().toUpperCase() : null),
+            );
             await sendStorefrontEmail({
               to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
-              subject: orderExpiredSubject(reference),
+              subject: orderExpiredSubject(reference, lang),
               label: "order-expired",
               reference,
               idempotencyKey: `order-expired-${order.id}`,
               element: React.createElement(OrderExpiredEmail, {
-                lang: pickLang((order as any).customer_lang),
+                lang,
                 reference,
                 items,
                 shippingJpy: Number((order as any).shipping_fee ?? 0),

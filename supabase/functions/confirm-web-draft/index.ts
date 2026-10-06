@@ -32,7 +32,7 @@
 
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
-import { sendDraftClosedEmail, sendLayawayReadyEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
+import { sendDraftClosedEmail, sendLayawayReadyEmail, sendOrderPaidByPointsEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 import { computeWebDraftFigures } from "../_shared/web-draft-figures.ts";
 
 type AnyRec = Record<string, unknown>;
@@ -204,8 +204,21 @@ Deno.serve(async (req) => {
     }
 
     // The ready email reads the order back from the row just written.
+    // H5 (spec §5 A): a cash order the checkout points paid in FULL is already
+    // completed — re-read it, and send "payment received (fully paid by
+    // points)" INSTEAD of the ready email ("pay ¥0 by transfer"). A layaway
+    // whose deposit points covered keeps the layaway ready email (English
+    // only, unchanged). A failed re-read falls back to the ready email.
+    let paidByPoints = false;
+    if (result.entity_type === "cash_order") {
+      const { data: after } = await supabase
+        .from("cash_orders").select("status").eq("id", String(result.entity_id)).maybeSingle();
+      paidByPoints = (after as AnyRec | null)?.status === "completed";
+    }
     const email = result.entity_type === "cash_order"
-      ? await sendOrderReadyEmail(supabase, String(result.entity_id))
+      ? (paidByPoints
+        ? await sendOrderPaidByPointsEmail(supabase, String(result.entity_id))
+        : await sendOrderReadyEmail(supabase, String(result.entity_id)))
       : await sendLayawayReadyEmail(supabase, String(result.entity_id), (schedule ?? null) as never);
 
     // W2-6: the service requests this draft carried (re-pointed to the new
@@ -226,6 +239,7 @@ Deno.serve(async (req) => {
       reference: result.web_reference ?? null,
       by: user.id,
       email: email.sent ? "sent" : (email as { reason?: string }).reason ?? "not_sent",
+      paid_by_points: paidByPoints,
     }));
 
     return jsonResponse({ ...result, figures, email, service_requests: serviceRequests, loyalty_award: loyaltyAward });

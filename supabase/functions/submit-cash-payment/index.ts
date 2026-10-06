@@ -6,6 +6,8 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { paymentMethodLabel } from "../_shared/payment-method-label.ts";
 import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-reservation-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { isWebEntity, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,6 +66,14 @@ Deno.serve(async (req) => {
     // unaffected. See CLAUDE.md PAYMENT SUBMISSION FLOW for the gate rule.
     if (typeof proof_url !== "string" || proof_url.trim().length === 0) {
       return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // QC P1-1 (2026-10-06): the proof must be a file in our own payment-proofs
+    // bucket — never a customer-chosen link (it is rendered in the Hub).
+    if (!isOwnProofUrl(proof_url)) {
+      return new Response(JSON.stringify(INVALID_PROOF_URL), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -157,6 +167,20 @@ Deno.serve(async (req) => {
     if (pathACustomerId && cashOrder.customer_id !== pathACustomerId) {
       return new Response(JSON.stringify({ error: "Access denied" }), {
         status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 4a'. QC P2-4 (2026-10-06): a WEB cash order is never self-filed by the
+    // customer here. It is paid through the website's own flows (transfer
+    // reported to staff, Paidy, card); a customer-filed slip would freeze its
+    // expiry (INVARIANT 12). Staff (Path B) are unaffected.
+    if (pathACustomerId && cashOrder.source_channel === "web") {
+      return new Response(JSON.stringify({
+        error: "web_order_staff_only",
+        message: "Payments for website orders are sent from your order page on the website.",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -262,7 +286,7 @@ Deno.serve(async (req) => {
       reference_number: reference_number || null,
       payment_date,
       sender_name,
-      proof_url: proof_url || null,
+      proof_url: proof_url.trim(),
       notes: notes || null,
       status: "submitted",
       submission_type: "cash_payment",
@@ -300,42 +324,55 @@ Deno.serve(async (req) => {
     if (pathBUserId) auditRow.performed_by_user_id = pathBUserId;
     await supabase.from("audit_logs").insert(auditRow);
 
-    // 8. Fire-and-forget cash-payment-submitted email
-    try {
-      const { data: customer } = await supabase
-        .from("customers")
-        .select("full_name, email")
-        .eq("id", cashOrder.customer_id)
-        .single();
-      const customerEmail = customer?.email;
-      if (customerEmail) {
-        const result = await sendTemplateEmail(
-          "cash-payment-submitted",
-          customerEmail,
-          {
-            templateData: {
-              customerName: customer?.full_name || "Valued Customer",
-              // The number the customer knows: CJ-W-… on a web order, the
-              // invoice number everywhere else.
-              invoiceNumber: customerReference(cashOrder as any),
-              amountPaid: Number(submittedNum).toLocaleString("en-US"),
-              paymentDate: payment_date,
-              // Display name, never the stored key — an unresolved method
-              // prints nothing rather than "rakuten".
-              paymentMethod: paymentMethodLabel(payment_method) ?? undefined,
-              referenceNumber: reference_number || undefined,
-              currency: cashOrder.currency,
-              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
+    // 8. Fire-and-forget email. A WEBSITE order gets the website-style
+    // "details received" email in her language, linking to her order page
+    // (H5, spec §5 D2) instead of the Hub's English portal email; a Hub order
+    // keeps cash-payment-submitted. sendOrderUpdateEmail never throws.
+    if (isWebEntity(cashOrder)) {
+      await sendOrderUpdateEmail(supabase, {
+        entity: "cash_order",
+        id: String(cashOrder.id),
+        variant: "details_received",
+        amount: submittedNum,
+        idempotencyKey: `details-received-${submission.id}`,
+      });
+    } else {
+      try {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("full_name, email")
+          .eq("id", cashOrder.customer_id)
+          .single();
+        const customerEmail = customer?.email;
+        if (customerEmail) {
+          const result = await sendTemplateEmail(
+            "cash-payment-submitted",
+            customerEmail,
+            {
+              templateData: {
+                customerName: customer?.full_name || "Valued Customer",
+                // The number the customer knows: CJ-W-… on a web order, the
+                // invoice number everywhere else.
+                invoiceNumber: customerReference(cashOrder as any),
+                amountPaid: Number(submittedNum).toLocaleString("en-US"),
+                paymentDate: payment_date,
+                // Display name, never the stored key — an unresolved method
+                // prints nothing rather than "rakuten".
+                paymentMethod: paymentMethodLabel(payment_method) ?? undefined,
+                referenceNumber: reference_number || undefined,
+                currency: cashOrder.currency,
+                portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
+              },
+              idempotencyKey: `cash-payment-submitted-${submission.id}`,
             },
-            idempotencyKey: `cash-payment-submitted-${submission.id}`,
-          },
-        );
-        if (!result.sent) {
-          console.log(`[submit-cash-payment] "cash-payment-submitted" suppressed for ${maskEmail(customerEmail)}`);
+          );
+          if (!result.sent) {
+            console.log(`[submit-cash-payment] "cash-payment-submitted" suppressed for ${maskEmail(customerEmail)}`);
+          }
         }
+      } catch (emailErr) {
+        console.warn("[submit-cash-payment] email send failed (non-blocking):", emailErr);
       }
-    } catch (emailErr) {
-      console.warn("[submit-cash-payment] email send failed (non-blocking):", emailErr);
     }
 
     // 9. Return created submission

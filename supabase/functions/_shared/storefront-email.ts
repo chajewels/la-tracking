@@ -41,8 +41,28 @@ export const STOREFRONT_REPLY_TO = 'sales@chajewelsjp.com'
 const OWNER_ADDRESSES = new Set(['chajewelsjapan@gmail.com'])
 const OWNER_DOMAIN = '@chajewelsjp.com'
 
+/**
+ * The language an email goes out in (payment lifecycle H2, 2026-10-05).
+ * The customer's own stored language wins; with none, the delivery country
+ * decides — JP gets Japanese, anything else (or unknown) gets English.
+ */
+export function emailLang(customerLang: unknown, country: string | null | undefined): Lang {
+  if (customerLang === 'en') return 'en'
+  if (customerLang === 'ja') return 'ja'
+  return country === 'JP' ? 'ja' : 'en'
+}
+
+/** Old rule (missing language → Japanese), kept for callers not yet given a country. */
 export function pickLang(v: unknown): Lang {
-  return v === 'en' ? 'en' : 'ja'
+  return emailLang(v, 'JP')
+}
+
+/** The delivery country on an order's / draft's ship_to_snapshot, or null. */
+export function snapshotCountry(row: { ship_to_snapshot?: unknown }): string | null {
+  const s = row?.ship_to_snapshot
+  if (!s || typeof s !== 'object') return null
+  const c = (s as Record<string, unknown>).country
+  return typeof c === 'string' && c.trim() ? c.trim().toUpperCase() : null
 }
 
 /**
@@ -66,6 +86,11 @@ export function storefrontLayawayUrl(accountId: string): string {
 }
 
 /** The storefront home page ("visit the shop" links). */
+/** The website's loyalty page (addendum §9 #5: web-order loyalty emails link here, never the portal). */
+export function storefrontLoyaltyUrl(): string {
+  return `${STOREFRONT_PUBLIC_URL}/loyalty`
+}
+
 export function storefrontShopUrl(): string {
   return STOREFRONT_PUBLIC_URL
 }

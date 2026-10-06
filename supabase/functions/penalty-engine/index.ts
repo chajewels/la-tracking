@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
 
@@ -686,7 +687,17 @@ Deno.serve(async (req) => {
                 portalUrl,
               };
 
-        const result = await sendTemplateEmail(
+        // Addendum §9 #3: a WEB plan gets the website-style English notice
+        // linking to her plan page; same idempotency key.
+        const result = (acctForEmail as any)?.source_channel === "web"
+          ? await sendOrderUpdateEmail(supabase, {
+              entity: "layaway", id: String(p.account_id), variant: "penalty",
+              penaltyStage: templateName === "penalty-applied" ? "applied" : (stage as "P4" | "P5" | "P6" | "P7" | "P8"),
+              amount: Number(p.penalty_amount), totalPenalty, dueDate, daysOverdue,
+              balance: Number((acctForEmail as any)?.remaining_balance ?? 0),
+              idempotencyKey: `${templateName}-${p.account_id}-${p.schedule_id}-${p.penalty_stage}-${p.penalty_cycle}`,
+            })
+          : await sendTemplateEmail(
           templateName,
           customerEmail,
           {
@@ -711,7 +722,13 @@ Deno.serve(async (req) => {
           .eq("id", r.accountId).single();
         const email = (acct as any)?.customers?.email;
         if (!email) continue;
-        const result = await sendTemplateEmail(
+        const result = (acct as any)?.source_channel === "web"
+          ? await sendOrderUpdateEmail(supabase, {
+              entity: "layaway", id: String(r.accountId), variant: "penalty_reinstated",
+              amount: Number(r.penaltyAmount), balance: Number((acct as any)?.remaining_balance ?? 0),
+              idempotencyKey: `waiver-revoked-${r.id}`,
+            })
+          : await sendTemplateEmail(
           "penalty-waiver-revoked",
           email,
           {

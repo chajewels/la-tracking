@@ -12,7 +12,8 @@ import {
 } from "../_shared/loyalty-notification-templates.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import * as React from "npm:react@18.3.1";
-import { sendStorefrontEmail } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontLoyaltyUrl, type Lang } from "../_shared/storefront-email.ts";
+import { WebLoyaltyEmail, webLoyaltySubject, type WebLoyaltyVariant } from "../_shared/email-templates/web-loyalty.tsx";
 import { LevelRestoredEmail, levelRestoredSubject } from "../_shared/email-templates/loyalty-level.tsx";
 import { catchUpPurchaseDates, expiredOnAward } from "../_shared/reassign-owner-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
@@ -133,14 +134,18 @@ Deno.serve(async (req) => {
     let invoiceNumber = "";
     let sourceKind: "layaway" | "cash" = "layaway";
     let sourceCurrency: string | null = null;
+    // Addendum §9 #5: a WEBSITE order / plan gets website-style loyalty
+    // emails (her language — a plan's are English — CJ-W reference, /loyalty).
+    let webSource: { reference: string; lang: Lang } | null = null;
 
     if (account_id) {
       const { data, error } = await supabase
         .from("layaway_accounts")
-        .select("customer_id, loyalty_jpy_amount, invoice_number, currency")
+        .select("customer_id, loyalty_jpy_amount, invoice_number, currency, source_channel, web_reference")
         .eq("id", account_id)
         .single();
       if (error || !data) return json({ skipped: true, reason: "account_not_found" });
+      if (data.source_channel === "web") webSource = { reference: String(data.web_reference ?? data.invoice_number), lang: "en" };
       customerId = data.customer_id;
       loyaltyJpy = Number(data.loyalty_jpy_amount ?? 0);
       invoiceNumber = data.invoice_number;
@@ -149,10 +154,11 @@ Deno.serve(async (req) => {
     } else {
       const { data, error } = await supabase
         .from("cash_orders")
-        .select("customer_id, loyalty_jpy_amount, invoice_number, currency")
+        .select("customer_id, loyalty_jpy_amount, invoice_number, currency, source_channel, web_reference, customer_lang, ship_to_snapshot")
         .eq("id", cash_order_id!)
         .single();
       if (error || !data) return json({ skipped: true, reason: "cash_order_not_found" });
+      if (data.source_channel === "web") webSource = { reference: String(data.web_reference ?? data.invoice_number), lang: emailLang(data.customer_lang, snapshotCountry(data)) };
       customerId = data.customer_id;
       loyaltyJpy = Number(data.loyalty_jpy_amount ?? 0);
       invoiceNumber = data.invoice_number;
@@ -633,9 +639,22 @@ Deno.serve(async (req) => {
       if (recipientEmail) {
         const customerName = customer?.full_name || "Valued Customer";
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
+        const web = webSource;
+        const sendWebLoyalty = (variant: WebLoyaltyVariant, extra: Record<string, unknown>, idempotencyKey: string) =>
+          sendStorefrontEmail({
+            to: { email: recipientEmail, is_test: customer?.is_test ?? false },
+            subject: webLoyaltySubject(variant, web!.reference, web!.lang),
+            element: React.createElement(WebLoyaltyEmail, { lang: web!.lang, variant, reference: web!.reference, loyaltyUrl: storefrontLoyaltyUrl(), ...extra }),
+            label: `web-loyalty-${variant}`,
+            reference: web!.reference,
+            idempotencyKey,
+          });
 
         if (await gate("loyalty_email_earned")) {
-          const result = await sendTemplateEmail(
+          const result = web
+            ? await sendWebLoyalty("earned", { points, balance: newRemaining, level: effectiveTierName, multiplier: effectiveMultiplier },
+                `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`)
+            : await sendTemplateEmail(
             "loyalty-earned",
             recipientEmail,
             {
@@ -665,7 +684,10 @@ Deno.serve(async (req) => {
         if (activePromo) {
           if (await gate("loyalty_email_bonus")) {
             try {
-              const result = await sendTemplateEmail(
+              const result = web
+                ? await sendWebLoyalty("bonus", { points: bonusTxPoints, balance: newRemaining, promoName: activePromo.name, promoEnd: fmtFriendlyDate(activePromo.end_date) },
+                    `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`)
+                : await sendTemplateEmail(
                 "loyalty-bonus",
                 recipientEmail,
                 {
@@ -698,7 +720,10 @@ Deno.serve(async (req) => {
         if (isRestoration) {
           if (await gate("loyalty_email_tier_restored")) {
             try {
-              await sendStorefrontEmail({
+              if (web) {
+                await sendWebLoyalty("tier_restored", { previousLevel: oldTierName, level: newTierName, multiplier: Number(newTierRow!.points_multiplier ?? 1), balance: newRemaining },
+                  `loyalty-level-restored-${member.id}-${sourceKind}-${account_id ?? cash_order_id}`);
+              } else await sendStorefrontEmail({
                 to: { email: recipientEmail, is_test: customer?.is_test ?? false },
                 subject: levelRestoredSubject(),
                 element: React.createElement(LevelRestoredEmail, {
@@ -724,7 +749,10 @@ Deno.serve(async (req) => {
         } else if (tierUpgraded) {
           if (await gate("loyalty_email_tier_upgrade")) {
             try {
-              const result = await sendTemplateEmail(
+              const result = web
+                ? await sendWebLoyalty("tier_upgrade", { previousLevel: oldTierName, level: newTierName, multiplier: Number(newTierRow!.points_multiplier ?? 1), balance: newRemaining },
+                    `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`)
+                : await sendTemplateEmail(
                 "loyalty-tier-upgrade",
                 recipientEmail,
                 {

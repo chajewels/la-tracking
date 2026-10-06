@@ -193,6 +193,11 @@ describe("content", () => {
     const s = stripComments(code(SENDER));
     expect(s).toMatch(/select\("entity_type, entity_id, deadline, reference, email, lang, currency, amount"\)/);
     expect(s).toMatch(/transferMethods\(supabase, currency\)/);
+    // H3 (R1): an order reminder reads its method and language from the order row.
+    expect(s).toMatch(/\.select\("payment_method, customer_lang, ship_to_snapshot"\)/);
+    expect(s).toMatch(/const method = publicMethod\(o\.payment_method\)/);
+    expect(s).toMatch(/const lang = emailLang\(o\.customer_lang, snapshotCountry\(o\)\)/);
+    expect(s).toMatch(/method === "transfer"\s*\?\s*\(await transferMethods\(supabase, currency\)\)[^:]*:\s*\[\]/);
     expect(s).toMatch(/region: regionForCurrency\(currency\)/);
     expect(s).toMatch(/deposit: Number\(r\.amount \?\? 0\)/);
   });
@@ -255,9 +260,9 @@ describe("D17 — layaway-expired is always English", () => {
     const branch = src.slice(src.indexOf('label: "layaway-expired"'), src.indexOf("layawayResults.push"));
     expect(branch).toMatch(/React\.createElement\(LayawayExpiredEmail, \{\s+reference,/);
     expect(branch).not.toMatch(/\blang\b/);
-    expect(src).not.toMatch(/pickLang\(\(plan as any\)\.customer_lang\)/);
+    expect(src).not.toMatch(/(pickLang|emailLang)\(\s*\(plan as any\)\.customer_lang/);
     // The cash branch keeps the customer's language.
-    expect(src).toMatch(/lang: pickLang\(\(order as any\)\.customer_lang\)/);
+    expect(src).toMatch(/emailLang\(\s*\(order as any\)\.customer_lang/);
   });
   it("the template has no lang prop and no Japanese (owner rule 2026-09-27)", () => {
     const t = code("supabase/functions/_shared/email-templates/layaway-expired.tsx");

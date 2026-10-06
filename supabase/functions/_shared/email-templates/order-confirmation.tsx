@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import { formatDeadline, type Lang } from '../storefront-email.ts'
-import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency, type PayMethod, METHOD_NAME, subjectFor } from './order-shared.tsx'
 
 /**
  * Sent by the `website` function the moment /checkout/pay succeeds. The
@@ -50,6 +50,14 @@ export interface OrderConfirmationProps {
   chosenMethod?: 'transfer' | 'paidy' | 'card'
   /** Points used at checkout, already taken off (order currency). Absent/0 = none. */
   pointsApplied?: number
+  /**
+   * Payment lifecycle H3: the method was just changed (by staff, or by her
+   * after a rejected payment). Heading 「お支払い方法を変更しました」 and an
+   * old → new line, then the NEW method's instructions (chosenMethod).
+   * `from` unknown (no audit row) → the heading still says it changed, no
+   * old → new line, so the subject and heading always agree.
+   */
+  methodChanged?: { from?: PayMethod | null }
 }
 
 /** C1: how to pay when the customer chose Paidy or card (no bank details). */
@@ -80,11 +88,19 @@ export const PAIDY_LINE = {
   en: 'Paidy (あと払い) is also available for this order: pay next month, or in 3 instalments from the Paidy app. Choose "Pay with Paidy" on your order page (delivery addresses in Japan only).',
 } as const
 
-export const orderConfirmationSubject = (reference: string) =>
-  `ご注文ありがとうございます ${reference} / Your Cha Jewels order ${reference}`
+export const orderConfirmationSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文ありがとうございます ${reference}`, `Your Cha Jewels order ${reference}`)
 
-export const orderReadySubject = (reference: string) =>
-  `お支払いのご案内 ${reference} / Your Cha Jewels order ${reference} is ready for payment`
+export const orderMethodChangedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払い方法を変更しました ${reference}`, `Your payment method has changed — Cha Jewels order ${reference}`)
+
+const METHOD_CHANGED = {
+  ja: { heading: 'お支払い方法を変更しました', line: (from: string, to: string) => `お支払い方法：${from} → ${to}` },
+  en: { heading: 'Your payment method has changed', line: (from: string, to: string) => `Payment method: ${from} → ${to}` },
+} as const
+
+export const orderReadySubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `お支払いのご案内 ${reference}`, `Your Cha Jewels order ${reference} is ready for payment`)
 
 const COPY = {
   ja: {
@@ -122,9 +138,15 @@ const READY_COPY = {
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; primary: boolean }) => {
   const c = p.variant === 'ready' ? READY_COPY[lang] : COPY[lang]
   const other = p.chosenMethod === 'paidy' || p.chosenMethod === 'card' ? p.chosenMethod : null
+  const changed = p.methodChanged ? METHOD_CHANGED[lang] : null
   return (
     <>
-      <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
+      <Heading style={primary ? h1 : h2}>{changed ? changed.heading : c.heading}</Heading>
+      {changed && p.methodChanged?.from && (
+        <Text style={{ ...text, fontWeight: 'bold' as const }}>
+          {changed.line(METHOD_NAME[lang][p.methodChanged.from], METHOD_NAME[lang][p.chosenMethod ?? 'transfer'])}
+        </Text>
+      )}
       <Text style={text}>{other ? READY_INTRO_NOT_TRANSFER[lang](p.reference) : c.intro(p.reference)}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
       {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
@@ -153,7 +175,7 @@ export const OrderConfirmationEmail = (p: OrderConfirmationProps) => {
   return (
     <Html lang={p.lang} dir="ltr">
       <Head />
-      <Preview>{p.variant === 'ready' ? orderReadySubject(p.reference) : orderConfirmationSubject(p.reference)}</Preview>
+      <Preview>{p.methodChanged ? orderMethodChangedSubject(p.reference, p.lang) : p.variant === 'ready' ? orderReadySubject(p.reference, p.lang) : orderConfirmationSubject(p.reference, p.lang)}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>
