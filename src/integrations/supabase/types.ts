@@ -4926,6 +4926,7 @@ export type Database = {
           created_at: string
           customer_edited_at: string | null
           customer_id: string
+          customer_message: string | null
           id: string
           installment_number: number | null
           notes: string | null
@@ -4952,6 +4953,7 @@ export type Database = {
           created_at?: string
           customer_edited_at?: string | null
           customer_id: string
+          customer_message?: string | null
           id?: string
           installment_number?: number | null
           notes?: string | null
@@ -4978,6 +4980,7 @@ export type Database = {
           created_at?: string
           customer_edited_at?: string | null
           customer_id?: string
+          customer_message?: string | null
           id?: string
           installment_number?: number | null
           notes?: string | null
@@ -9091,6 +9094,13 @@ export type Database = {
         }
         Returns: string
       }
+      cash_order_payment_locks: {
+        Args: { p_ids: string[] }
+        Returns: {
+          id: string
+          lock: string
+        }[]
+      }
       cash_order_points_paid: {
         Args: { p_cash_order_id: string }
         Returns: number
@@ -9868,6 +9878,16 @@ export type Database = {
         Args: { p_account_id: string; p_source?: string; p_user_id?: string }
         Returns: Json
       }
+      mark_web_order_refund_issued_atomic: {
+        Args: {
+          p_method: string
+          p_note?: string
+          p_order_id: string
+          p_refunded_on: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       materialize_web_draft_atomic: {
         Args: {
           p_draft_id: string
@@ -10489,6 +10509,10 @@ export type Database = {
           p_customer_id: string
           p_ttl_minutes?: number
         }
+        Returns: Json
+      }
+      switch_web_payment_method_by_customer_atomic: {
+        Args: { p_customer_id: string; p_method: string; p_order_id: string }
         Returns: Json
       }
       terminate_web_order_atomic: {
