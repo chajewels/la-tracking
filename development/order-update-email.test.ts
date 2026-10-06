@@ -29,8 +29,15 @@ const assert = (ok: unknown, msg: string) => { if (!ok) throw new Error(msg) }
 const CJK = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/
 const noCompany = (s: string) => s.split(COMPANY_NAME).join('')
 
-const ORDER_VARIANTS: OrderUpdateVariant[] = ['needs_info', 'deadline_moved', 'shipped', 'details_received']
-const LAYAWAY_VARIANTS: LayawayUpdateVariant[] = ['rejected', 'needs_info', 'deadline_moved', 'shipped']
+const ORDER_VARIANTS: OrderUpdateVariant[] = [
+  'needs_info', 'deadline_moved', 'shipped', 'details_received',
+  // Addendum §9 (owner directive 2026-10-06).
+  'payment_submitted', 'payment_voided', 'payment_restored', 'refund_issued', 'refund_received',
+]
+const LAYAWAY_VARIANTS: LayawayUpdateVariant[] = [
+  'rejected', 'needs_info', 'deadline_moved', 'shipped',
+  'details_received', 'reminder', 'penalty', 'penalty_reinstated', 'penalty_waived', 'payment_voided', 'reactivated',
+]
 const due = '2026-10-10T05:00:00.000Z'
 const trackingUrl = 'https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=472575516733'
 
@@ -55,6 +62,11 @@ const JA_EXACT: Record<OrderUpdateVariant, string> = {
   deadline_moved: 'お支払い期限を',
   shipped: '発送しました',
   details_received: 'お支払いのご連絡を受け付けました。確認後にあらためてご連絡します',
+  payment_submitted: 'お支払いを受け付けました',
+  payment_voided: 'お支払い記録を取り消しました',
+  payment_restored: 'お支払い記録を復元しました',
+  refund_issued: '返金が完了しました',
+  refund_received: '返金を受け付けました',
 }
 
 Deno.test('every order variant in Japanese carries the spec\'s exact Japanese, then English', async () => {
@@ -166,10 +178,17 @@ Deno.test('sender: cash order + rejected returns without reading anything (sendC
   assert(db.reads.length === 0, `reads: ${db.reads.join(',')}`)
 })
 
-Deno.test('sender: layaway + details_received is not a layaway variant — no send', async () => {
+Deno.test('sender: layaway + payment_submitted is not a layaway variant — no send', async () => {
   const db = fakeDb({ id: 'a1', source_channel: 'web' })
-  await sendOrderUpdateEmail(db, { entity: 'layaway', id: 'a1', variant: 'details_received', idempotencyKey: 'k' })
-  assert(db.reads.length === 0, `reads: ${db.reads.join(',')}`)
+  const r = await sendOrderUpdateEmail(db, { entity: 'layaway', id: 'a1', variant: 'payment_submitted', idempotencyKey: 'k' })
+  assert(db.reads.length === 0 && r.sent === false, `reads: ${db.reads.join(',')}`)
+})
+
+Deno.test('sender: a web layaway + details_received (addendum §9 #2) reaches the send path', async () => {
+  const db = fakeDb({ id: 'a1', source_channel: 'web', web_reference: 'CJ-W-2', currency: 'JPY', customers: { email: null, is_test: false } })
+  const r = await sendOrderUpdateEmail(db, { entity: 'layaway', id: 'a1', variant: 'details_received', amount: 36000, idempotencyKey: 'k' })
+  assert(db.reads.join(',') === 'layaway_accounts', `reads: ${db.reads.join(',')}`)
+  assert(r.sent === false && r.reason === 'not_sent_no_address', `result: ${JSON.stringify(r)}`)
 })
 
 Deno.test('sender: never throws, even when the database does', async () => {

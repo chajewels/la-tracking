@@ -53,6 +53,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
+import { MarkRefundIssuedDialog, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
@@ -124,6 +125,8 @@ interface CashOrderRow {
   completed_at: string | null;
   cancellation_reason?: string | null;
   cancelled_at?: string | null;
+  /** Web orders: the refund decision recorded at cancel (refund_pending until marked issued). */
+  refund_status?: string | null;
   cancelled_by_user_id?: string | null;
   created_at: string;
   is_trade?: boolean;
@@ -470,6 +473,7 @@ export default function CashOrderDetail() {
   // Web orders only: required when money was received (see refundDecisionRequired).
   const [refundStatus, setRefundStatus] = useState<RefundStatus | ''>('');
   const [refundNote, setRefundNote] = useState('');
+  const [refundIssuedOpen, setRefundIssuedOpen] = useState(false);
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -1254,6 +1258,14 @@ export default function CashOrderDetail() {
                     {' '}by {cancelledByProfile?.full_name || 'Unknown user'}
                     {order.cancellation_reason ? ` — ${order.cancellation_reason}` : ''}
                   </p>
+                )}
+                {canMarkRefundIssued(order) && can('cancel_cash_order') && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-warning">Refund pending — the customer is waiting for her money back.</span>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setRefundIssuedOpen(true)}>
+                      Mark refund issued
+                    </Button>
+                  </div>
                 )}
             </div>
             <div className="shrink-0">
@@ -2611,6 +2623,16 @@ export default function CashOrderDetail() {
         </DialogContent>
       </Dialog>
 
+      {order && canMarkRefundIssued(order) && (
+        <MarkRefundIssuedDialog
+          open={refundIssuedOpen}
+          onOpenChange={setRefundIssuedOpen}
+          orderId={order.id}
+          reference={cashOrderRef(order)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+        />
+      )}
+
       {/* Void confirmation */}
       <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
         <DialogContent className="max-w-sm">
@@ -2632,6 +2654,9 @@ export default function CashOrderDetail() {
               placeholder="Why is this payment being voided?"
               className="bg-background border-border"
             />
+            {order?.source_channel === 'web' && (
+              <p className="text-xs text-muted-foreground">The customer is emailed and sees this reason.</p>
+            )}
           </div>
           <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
           <DialogFooter className="gap-2">

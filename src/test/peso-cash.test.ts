@@ -265,9 +265,10 @@ describe("order emails print the order's currency (D1)", () => {
   });
 
   it.each([
-    ["supabase/functions/_shared/reservation-emails.ts", 8], // 5 order emails (H5: + paid-by-points) + 3 draft emails (website orders PR 6)
+    ["supabase/functions/_shared/reservation-emails.ts", 5], // 2 order emails (ready + paid-by-points; the 3 dead reserve-first senders were removed, addendum 2026-10-06) + 3 draft emails (website orders PR 6)
     ["supabase/functions/auto-expire-cash-orders/index.ts", 1],
-    ["supabase/functions/cancel-cash-order/index.ts", 1],
+    ["supabase/functions/cancel-cash-order/index.ts", 0], // moved to _shared/web-cancellation-email.ts (addendum §9 #10)
+    ["supabase/functions/_shared/web-cancellation-email.ts", 1],
     ["supabase/functions/review-payment-submission/index.ts", 1],
     [WEBSITE, 0], // PR 10: the order-confirmation email moved to confirm-web-draft (materialize) — website sends none
   ] as const)("%s passes the order currency on every order email (%i)", (f, n) => {
@@ -277,8 +278,8 @@ describe("order emails print the order's currency (D1)", () => {
     for (const s of sends) expect(s).toMatch(/currency: /);
   });
 
-  it("cancel-cash-order selects the currency it passes", () => {
-    expect(code("supabase/functions/cancel-cash-order/index.ts")).toMatch(/shipping_fee, total_amount, currency, customers\(email, is_test\)/);
+  it("the web cancellation email selects the currency it passes", () => {
+    expect(code("supabase/functions/_shared/web-cancellation-email.ts")).toMatch(/shipping_fee, total_amount, currency, customers\(email, is_test\)/);
   });
 });
 

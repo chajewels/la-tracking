@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,6 +168,14 @@ Deno.serve(async (req) => {
         new_total_paid: newTotalPaid,
         new_remaining: newRemaining,
       },
+    });
+
+    // Addendum §9 #6: on a WEBSITE order she is told the record is back and
+    // what is still owed. Once per restore of one void. Never throws.
+    await sendOrderUpdateEmail(supabase, {
+      entity: "cash_order", id: String(cashOrder.id), variant: "payment_restored",
+      amount, balance: newRemaining,
+      idempotencyKey: `payment-restored-${body.cash_payment_id}-${cashPayment.voided_at}`,
     });
 
     // --- Fire-and-forget: loyalty restore if order is now completed ---

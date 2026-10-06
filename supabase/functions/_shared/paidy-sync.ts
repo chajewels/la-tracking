@@ -28,6 +28,7 @@ import {
 } from "./paidy-rules.ts";
 import type { PaidyPayment } from "./paidy.ts";
 import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
+import { sendOrderUpdateEmail } from "./order-update-email.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -123,7 +124,18 @@ export async function syncPaidyPayment(
       amount_jpy: r.amount, refunded_at: r.created_at ?? null, payload: r.raw,
     }, { onConflict: "refund_id", ignoreDuplicates: true }).select("id");
     must(insErr, "paidy_refunds insert");
-    if ((ins ?? []).length > 0) newRefunds++;
+    if ((ins ?? []).length > 0) {
+      newRefunds++;
+      // Addendum §9 #9: a refund made in the Paidy dashboard reaches her —
+      // once per Paidy refund id, only when this pass recorded it (web orders
+      // only; never throws, never blocks the sync).
+      if (row.cash_order_id) {
+        await sendOrderUpdateEmail(supabase, {
+          entity: "cash_order", id: String(row.cash_order_id), variant: "refund_received",
+          amount: r.amount, refundMethod: "paidy", idempotencyKey: `refund-received-paidy-${r.id}`,
+        });
+      }
+    }
   }
   if (fresh.length > 0) flagged.push("refund");
 

@@ -10,7 +10,10 @@
 
 import { isAttemptReference, squareEnvironmentOf, squareModeFrom, type SquareEnvironment } from "./card-rules.ts";
 import { paymentFacts, square, SquareError, type SquareDispute, type SquarePayment, type SquareRefund } from "./square.ts";
-import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
+import { sendCardHoldReleasedEmail, sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
+import { sendOrderUpdateEmail, sendPaymentSubmittedEmail } from "./order-update-email.ts";
+import { sendWebCancellationEmail } from "./web-cancellation-email.ts";
+import { NEUTRAL_CANCEL_REASON } from "./customer-reasons.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -90,7 +93,7 @@ export async function orderLabels(db: Db, orderId: string): Promise<{ reference:
 export async function fileForAttempt(db: Db, attempt: AnyRec, p: SquarePayment, path: string): Promise<AnyRec> {
   const f = paymentFacts(p);
   const labels = await orderLabels(db, attempt.cash_order_id);
-  return await rpc(db, "file_square_authorization_atomic", {
+  const filed = await rpc(db, "file_square_authorization_atomic", {
     p_attempt_id: attempt.id, p_square_payment_id: p.id, p_amount_jpy: f.amountJpy, p_currency: f.currency,
     p_location_id: p.location_id ?? null, p_card_brand: f.cardBrand, p_card_last4: f.cardLast4, p_receipt_url: f.receiptUrl,
     p_authorized_at: f.authorizedAt, p_capture_by: f.captureBy, p_risk_level: f.riskLevel,
@@ -99,6 +102,16 @@ export async function fileForAttempt(db: Db, attempt: AnyRec, p: SquarePayment, 
     p_notes: `Card authorisation (Square) from the website (${labels.reference})`,
     p_reference_label: labels.reference, p_path: path,
   });
+  // Addendum §9 #1 (live finding CJ-W-900068: the hold sent nothing): she
+  // hears that her card payment arrived and is a HOLD, not a charge — from
+  // whichever path filed it. Only a NEW filing; once per submission.
+  if (filed.outcome === "filed" && filed.submission?.id) {
+    await sendPaymentSubmittedEmail(db, {
+      submissionId: String(filed.submission.id),
+      card: { brand: f.cardBrand, last4: f.cardLast4, holdUntil: f.captureBy },
+    });
+  }
+  return filed;
 }
 
 export async function resolveAttempt(db: Db, attemptId: string, status: string, from: string[], extra: { squarePaymentId?: string | null; code?: string | null; detail?: string | null; risk?: string | null } = {}): Promise<AnyRec> {
@@ -124,7 +137,11 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
       try { await applyPaymentState(db, await square.get(env, holdSquareId), "reconcile"); } catch { /* reconcile retries */ }
     }
   }
-  return await rpc(db, "square_fraud_cancel", { p_order_id: orderId, p_trigger: trigger, p_detail: detail });
+  const res = await rpc(db, "square_fraud_cancel", { p_order_id: orderId, p_trigger: trigger, p_detail: detail });
+  // Addendum §9 #10: she is told the order was cancelled because her payment
+  // could not be confirmed — never "fraud". Once per order.
+  if (res.ok) await sendWebCancellationEmail(db, orderId, { reason: `${NEUTRAL_CANCEL_REASON.ja} / ${NEUTRAL_CANCEL_REASON.en}`, reasonByLang: NEUTRAL_CANCEL_REASON, refundStatus: null, refundNote: null });
+  return res;
 }
 
 /**
@@ -135,17 +152,28 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
  * it) is NOT voided automatically — staff decide (bell rung in SQL).
  */
 export async function handleFilingException(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec): Promise<string> {
+  // Addendum §9 #10: a hold the Hub released by itself, with no submission to
+  // reject, still reaches her — "the hold was released, nothing was charged",
+  // never the internal reason. Once per Square payment.
+  const released = () => sendCardHoldReleasedEmail(db, { orderId: String(attempt.cash_order_id), amount: paymentFacts(p).amountJpy, squarePaymentId: p.id });
   if (filed.exception === "amount_mismatch") {
-    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "mismatch_voided"; }
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(); return "mismatch_voided"; }
     catch (e) { console.warn("[square-sync] mismatch void failed:", e instanceof Error ? e.message : e); return "mismatch_void_pending"; }
   }
   if (filed.exception === "unfiled_hold" && filed.reason === "paidy_in_progress") {
-    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); return "paidy_voided"; }
+    try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(); return "paidy_voided"; }
     catch (e) { console.warn("[square-sync] paidy-conflict void failed:", e instanceof Error ? e.message : e); return "paidy_void_pending"; }
   }
   if (filed.exception === "risk_high") {
     const res = await fraudCancel(db, env, attempt.cash_order_id, "risk_high", { square_payment_id: p.id, attempt: attempt.reference }, p.id);
-    return res.ok ? "risk_high_cancelled" : "risk_high_flagged";
+    if (res.ok) return "risk_high_cancelled";
+    // Not cancelled (staff decide): the hold was voided first — tell her so,
+    // only if Square now says it is no longer held.
+    try {
+      const after = await square.get(env, p.id);
+      if (after.status === "CANCELED") await released();
+    } catch { /* reconcile re-reads it; no email without proof the hold is gone */ }
+    return "risk_high_flagged";
   }
   return String(filed.exception ?? "exception");
 }
@@ -225,6 +253,16 @@ export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: S
   if (!res.ok) return { outcome: "failed" };
   const got = await readPaymentAnyEnv(env, refund.payment_id);
   if (got) await applyPaymentState(db, got.payment, "reconcile");
+  // Addendum §9 #9: a refund made in the Square Dashboard reaches her once it
+  // COMPLETES — once per refund id (web orders only; never throws).
+  const rec = (res.refund ?? {}) as AnyRec;
+  if (res.changed === true && String(rec.status ?? "").toUpperCase() === "COMPLETED" && rec.cash_order_id) {
+    await sendOrderUpdateEmail(db, {
+      entity: "cash_order", id: String(rec.cash_order_id), variant: "refund_received",
+      amount: Number(rec.amount_jpy ?? 0), refundMethod: "card",
+      idempotencyKey: `refund-received-square-${refund.id}`,
+    });
+  }
   return { outcome: "synced" };
 }
 

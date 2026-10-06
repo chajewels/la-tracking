@@ -115,7 +115,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   (UNIQUE refund id), `paidy_payments.refund_jpy` is the total, bell
   `paidy_refund_recorded`. Order balances and refund decisions are NEVER
   changed from it. Refunds are made in the Paidy merchant dashboard; a Hub
-  refund button is not built.
+  refund button is not built. Customer email (addendum §9 #9, 2026-10-06): a
+  refund newly stored in `paidy_refunds` sends 「返金を受け付けました」 on a web order
+  (`refund-received-paidy-<refund id>`). A filed authorisation sends
+  「お支払いを受け付けました」 from `filePaidyAuthorization`, whichever path filed it
+  (§9 #1).
 - EVERY WRITE IS CHECKED (P05): the webhook answers 5xx on any failed read or
   write so Paidy retries (about 5 hours of back-off); a 200 stops the retries.
 - "CLAIMED, NOT RECORDED" IS PENDING (independent review 2026-10-04): a

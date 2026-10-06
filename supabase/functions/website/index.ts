@@ -37,6 +37,8 @@ import {
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
+import { customerCancellationReason } from "../_shared/customer-reasons.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 /**
  * Public website API (server-to-server).
@@ -983,6 +985,9 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
  */
 function withReservationFlags(row: AnyRec, kind: ReservationKind): AnyRec {
   const { ready_confirmed_at: _ready, ...rest } = row;
+  // Addendum §9 #10: an automatic fraud cancel is shown with the neutral
+  // reason — the stored staff text never reaches the customer.
+  if ("cancellation_reason" in rest) rest.cancellation_reason = customerCancellationReason(rest.cancellation_reason);
   return { ...rest, ...reservationFlags(row, kind) };
 }
 
@@ -3620,6 +3625,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .select("id, status, submitted_amount, payment_date")
         .maybeSingle();
       if (subErr) throw subErr;
+
+      // Addendum §9 #2: she hears that her payment details arrived (English —
+      // a layaway email). Never throws; once per submission.
+      if (created?.id) {
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(plan.id), variant: "details_received",
+          amount: amount, idempotencyKey: `details-received-${created.id}`,
+        });
+      }
 
       return jsonResponse(scrub({ ok: true, submission: created, is_deposit: isDeposit }));
     }

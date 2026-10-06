@@ -20,6 +20,7 @@ import { customerReference } from "./order-reference.ts";
 import { paidyCaptureDeadlineText, paidyFilingMismatch, paidyModeFrom, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
+import { sendPaymentSubmittedEmail } from "./order-update-email.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -166,6 +167,9 @@ export async function filePaidyAuthorization(supabase: Db, args: {
       recovered ? "Paidy payment recovered — capture it in Paidy" : "Paidy payment authorised — capture it in Paidy",
       `${ref} · ¥${shown} · ${customer.full_name ?? ""} · capture it in the Paidy merchant dashboard (${paidyCaptureDeadlineText(payment.expires_at)}); the Hub records it automatically${recovered ? " · filed after the website callback was lost" : ""}`,
       { cash_order_id: order.id, submission_id: r.submission?.id, paidy_payment_id: payment.id, test: payment.test === true, path, outcome: r.outcome });
+    // Addendum §9 #1: she hears that her Paidy payment arrived — whichever
+    // path filed it. Once per submission; web orders only; never throws.
+    if (r.submission?.id) await sendPaymentSubmittedEmail(supabase, { submissionId: String(r.submission.id) });
   }
   return { ok: true, outcome: r.outcome, submission: r.submission, paidy_record_id: r.paidy_record_id };
 }

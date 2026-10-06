@@ -15,6 +15,8 @@ import { CartReminderEmail, cartReminderSubject } from './cart-reminder.tsx'
 import { OrderPaymentNotAcceptedEmail, orderPaymentNotAcceptedSubject } from './order-payment-not-accepted.tsx'
 import { OrderUpdateEmail, orderUpdateSubject } from './order-update.tsx'
 import { LayawayUpdateEmail, layawayUpdateSubject } from './layaway-update.tsx'
+import { WebLoyaltyEmail, webLoyaltySubject } from './web-loyalty.tsx'
+import { StoreCreditIssuedEmail, storeCreditIssuedSubject } from './store-credit-issued.tsx'
 
 /**
  * PREVIEWS FOR THE STOREFRONT EMAILS (reserve-first A2, 2026-09-24).
@@ -226,6 +228,115 @@ export const STOREFRONT_PREVIEWS: Record<string, StorefrontPreview> = {
     component: LayawayUpdateEmail,
     subject: layawayUpdateSubject('shipped', 'CJ-W-000124'),
     previewData: { variant: 'shipped', reference: 'CJ-W-000124', currency: 'PHP', courier: 'Pabitbit', trackingNumber: 'LBC123456', trackingUrl: 'https://www.lbcexpress.com/track/?tracking_no=LBC123456', planUrl },
+  },
+  // Addendum §9 (owner directive 2026-10-06): every new customer email.
+  'storefront-order-update-payment-submitted-card-ja': {
+    displayName: 'Web order — card payment received, hold not charged yet (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('payment_submitted', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'payment_submitted', reference: 'CJ-W-000130', currency: 'JPY', amount: 72980, method: 'card', cardBrand: 'VISA', cardLast4: '1111', holdUntil: due, region: 'JP', orderUrl },
+  },
+  'storefront-order-update-payment-submitted-paidy-ja': {
+    displayName: 'Web order — Paidy payment received (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('payment_submitted', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'payment_submitted', reference: 'CJ-W-000130', currency: 'JPY', amount: 72980, method: 'paidy', region: 'JP', orderUrl },
+  },
+  'storefront-order-update-payment-voided-ja': {
+    displayName: 'Web order — payment record voided by staff (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('payment_voided', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'payment_voided', reference: 'CJ-W-000130', currency: 'JPY', amount: 30000, message: '二重に記録されていたため', balance: 42980, region: 'JP', orderUrl },
+  },
+  'storefront-order-update-payment-restored-en': {
+    displayName: 'Web order — payment record restored (EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('payment_restored', 'CJ-W-000130', 'en'),
+    previewData: { lang: 'en', variant: 'payment_restored', reference: 'CJ-W-000130', currency: 'JPY', amount: 30000, balance: 12980, region: 'JP', orderUrl },
+  },
+  'storefront-order-update-refund-issued-ja': {
+    displayName: 'Web order — refund sent (staff marked it issued) (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('refund_issued', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'refund_issued', reference: 'CJ-W-000130', currency: 'JPY', amount: 72980, refundMethod: 'bank_transfer', refundDate: '2026-10-06', region: 'JP', orderUrl },
+  },
+  'storefront-order-update-refund-received-ja': {
+    displayName: 'Web order — refund made in the Square / Paidy dashboard (JA + EN)',
+    component: OrderUpdateEmail,
+    subject: orderUpdateSubject('refund_received', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'refund_received', reference: 'CJ-W-000130', currency: 'JPY', amount: 72980, refundMethod: 'card', region: 'JP', orderUrl },
+  },
+  'storefront-order-cancelled-neutral-ja': {
+    displayName: 'Web order — cancelled automatically, payment not confirmed (JA + EN)',
+    component: OrderCancelledEmail,
+    subject: orderCancelledSubject('CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', reference: 'CJ-W-000130', items, shippingJpy: 0, totalJpy: 72980, reason: 'x', reasonByLang: { ja: 'お支払いを確認できなかったため', en: 'We could not confirm your payment' }, refundStatus: null, refundNote: null, orderUrl },
+  },
+  'storefront-layaway-update-details-received': {
+    displayName: 'Web layaway — payment details received (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('details_received', 'CJ-W-000124'),
+    previewData: { variant: 'details_received', reference: 'CJ-W-000124', currency: 'JPY', amount: 28000, planUrl },
+  },
+  'storefront-layaway-update-reminder': {
+    displayName: 'Web layaway — instalment reminder, grace period (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('reminder', 'CJ-W-000124', { reminderStage: 'grace_period' }),
+    previewData: { variant: 'reminder', reminderStage: 'grace_period', reference: 'CJ-W-000124', currency: 'JPY', amount: 28000, dueDate: '2026-10-24', graceEnd: '2026-10-31', daysOverdue: 3, planUrl },
+  },
+  'storefront-layaway-update-penalty': {
+    displayName: 'Web layaway — late fee applied (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('penalty', 'CJ-W-000124', { penaltyStage: 'applied' }),
+    previewData: { variant: 'penalty', penaltyStage: 'applied', reference: 'CJ-W-000124', currency: 'JPY', amount: 1000, totalPenalty: 1000, dueDate: '2026-10-24', daysOverdue: 8, remaining: 85000, planUrl },
+  },
+  'storefront-layaway-update-penalty-final': {
+    displayName: 'Web layaway — final notice (P8) (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('penalty', 'CJ-W-000124', { penaltyStage: 'P8' }),
+    previewData: { variant: 'penalty', penaltyStage: 'P8', reference: 'CJ-W-000124', currency: 'PHP', totalPenalty: 3000, dueDate: '2026-07-24', daysOverdue: 92, remaining: 45000, planUrl },
+  },
+  'storefront-layaway-update-penalty-reinstated': {
+    displayName: 'Web layaway — waived late fee reinstated (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('penalty_reinstated', 'CJ-W-000124'),
+    previewData: { variant: 'penalty_reinstated', reference: 'CJ-W-000124', currency: 'JPY', amount: 1000, remaining: 85000, planUrl },
+  },
+  'storefront-layaway-update-penalty-waived': {
+    displayName: 'Web layaway — late fee waived (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('penalty_waived', 'CJ-W-000124'),
+    previewData: { variant: 'penalty_waived', reference: 'CJ-W-000124', currency: 'JPY', amount: 1000, graceEnd: '2026-10-31', remaining: 84000, planUrl },
+  },
+  'storefront-layaway-update-payment-voided': {
+    displayName: 'Web layaway — payment voided (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('payment_voided', 'CJ-W-000124'),
+    previewData: { variant: 'payment_voided', reference: 'CJ-W-000124', currency: 'JPY', amount: 28000, message: 'Duplicate record — the original payment was already recorded.', remaining: 56000, planUrl },
+  },
+  'storefront-layaway-update-reactivated': {
+    displayName: 'Web layaway — plan reactivated (EN only)',
+    component: LayawayUpdateEmail,
+    subject: layawayUpdateSubject('reactivated', 'CJ-W-000124'),
+    previewData: { variant: 'reactivated', reference: 'CJ-W-000124', currency: 'JPY', deadline: '2026-12-24', remaining: 84000, planUrl },
+  },
+  'storefront-web-loyalty-earned-ja': {
+    displayName: 'Web order — loyalty points earned (JA + EN)',
+    component: WebLoyaltyEmail,
+    subject: webLoyaltySubject('earned', 'CJ-W-000130', 'ja'),
+    previewData: { lang: 'ja', variant: 'earned', reference: 'CJ-W-000130', points: 1400, balance: 13400, level: 'Radiant', multiplier: 2, loyaltyUrl: 'https://www.chajewelsjp.com/loyalty' },
+  },
+  'storefront-web-loyalty-tier-upgrade-en': {
+    displayName: 'Web plan — membership level up (EN)',
+    component: WebLoyaltyEmail,
+    subject: webLoyaltySubject('tier_upgrade', 'CJ-W-000124', 'en'),
+    previewData: { lang: 'en', variant: 'tier_upgrade', reference: 'CJ-W-000124', previousLevel: 'Glimmer', level: 'Radiant', multiplier: 2, balance: 13400, loyaltyUrl: 'https://www.chajewelsjp.com/loyalty' },
+  },
+  'storefront-store-credit-issued-ja': {
+    displayName: 'Store credit issued by staff (JA + EN)',
+    component: StoreCreditIssuedEmail,
+    subject: storeCreditIssuedSubject('ja'),
+    previewData: { lang: 'ja', amount: 25000, currency: 'JPY', expiresAt: '2027-10-06T00:00:00.000Z' },
   },
   'storefront-order-payment-due-en': {
     displayName: 'Web order — payment reminder (EN)',

@@ -5,12 +5,19 @@
 //   shipped           staff entered a tracking number (notify-shipped);
 //   details_received  staff recorded a payment for a web ORDER (D2);
 //   rejected          a reviewer rejected a payment on a web LAYAWAY (§5 C).
+// Addendum §9 (owner directive 2026-10-06, "every cycle"):
+//   payment_submitted   she paid by Paidy / card herself (order; #1);
+//   payment_voided / payment_restored   staff voided / restored a payment (order #6, layaway #3);
+//   refund_issued / refund_received     a refund was sent / processed (order #8 / #9);
+//   details_received    a web LAYAWAY payment was reported (#2);
+//   reminder, penalty, penalty_reinstated, penalty_waived, reactivated   the
+//                       routine web-layaway emails (#3, #4).
 //
 // ONLY for source_channel 'web'. A Hub order / plan returns without sending and
 // the caller keeps its existing Hub email. A cash-order 'rejected' is NOT sent
 // here: sendCashPaymentRejectedEmail (_shared/payment-rejected-email.ts) owns it.
-// 'details_received' is an order email only — layaway receipts are uploaded by
-// the customer herself.
+// 'details_received' covers both: staff recording a web-order payment, and a
+// web-layaway payment reported by her upload or by staff (§9 #2).
 //
 // Order emails: the customer's language (emailLang). Layaway emails: English
 // only, no language prop (owner rule). Every send goes through
@@ -23,29 +30,51 @@ import {
 } from "./storefront-email.ts";
 import { regionForCurrency } from "./transfer-methods.ts";
 import {
-  OrderUpdateEmail, orderUpdateSubject, type OrderUpdateVariant,
+  OrderUpdateEmail, orderUpdateSubject, type OrderUpdateVariant, type RefundMethod,
 } from "./email-templates/order-update.tsx";
 import {
-  LayawayUpdateEmail, layawayUpdateSubject, type LayawayUpdateVariant,
+  LayawayUpdateEmail, layawayUpdateSubject, type LayawayUpdateVariant, type PenaltyStage, type ReminderStage,
 } from "./email-templates/layaway-update.tsx";
+import type { PayMethod } from "./email-templates/order-shared.tsx";
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase-js client, typed by the caller
 type Db = any;
 type AnyRec = Record<string, unknown>;
 
-export type { OrderUpdateVariant, LayawayUpdateVariant };
+export type { OrderUpdateVariant, LayawayUpdateVariant, RefundMethod, ReminderStage, PenaltyStage };
 
 export interface SendOrderUpdateArgs {
   entity: "cash_order" | "layaway";
   id: string;
-  variant: OrderUpdateVariant | "rejected";
-  /** Staff message, shown to the customer as plain text. */
+  variant: OrderUpdateVariant | LayawayUpdateVariant;
+  /** Staff message / void reason, shown to the customer as plain text. */
   message?: string | null;
-  /** The payment the update is about, in the order's / plan's currency. */
+  /** The payment / fee / refund the update is about, in the order's / plan's currency. */
   amount?: number | null;
   idempotencyKey: string;
+  /** payment_submitted: how she paid, the card and when its hold ends. */
+  method?: PayMethod | null;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  holdUntil?: string | null;
+  /** Order: balance after a void / restore. Layaway: remaining after the change. */
+  balance?: number | null;
+  refundMethod?: RefundMethod | null;
+  /** refund_issued: YYYY-MM-DD. */
+  refundDate?: string | null;
+  /** Layaway reminder / penalty details. */
+  reminderStage?: ReminderStage | null;
+  dueDate?: string | null;
+  graceEnd?: string | null;
+  daysOverdue?: number | null;
+  penaltyStage?: PenaltyStage | null;
+  totalPenalty?: number | null;
+  /** Layaway 'reactivated': the extension end (YYYY-MM-DD), shown instead of transfer_due_at. */
+  planOpenUntil?: string | null;
 }
+
+export type OrderUpdateResult = { sent: boolean; reason?: string };
 
 /** True only for a website order / plan. */
 export function isWebEntity(row: { source_channel?: unknown } | null | undefined): boolean {
@@ -123,8 +152,19 @@ export function trackingUrlFor(
   return t.replace(TRACKING_PLACEHOLDER, encodeURIComponent(n.replace(/[\s\u3000-]/g, "").trim()));
 }
 
-const ORDER_VARIANTS = new Set<string>(["needs_info", "deadline_moved", "shipped", "details_received"]);
-const LAYAWAY_VARIANTS = new Set<string>(["rejected", "needs_info", "deadline_moved", "shipped"]);
+const ORDER_VARIANTS = new Set<string>([
+  "needs_info", "deadline_moved", "shipped", "details_received",
+  "payment_submitted", "payment_voided", "payment_restored", "refund_issued", "refund_received",
+]);
+const LAYAWAY_VARIANTS = new Set<string>([
+  "rejected", "needs_info", "deadline_moved", "shipped",
+  "details_received", "reminder", "penalty", "penalty_reinstated", "penalty_waived", "payment_voided", "reactivated",
+]);
+
+/** Which variants each kind of row can carry (exported for tests). */
+export function variantAllowed(entity: "cash_order" | "layaway", variant: string): boolean {
+  return (entity === "cash_order" ? ORDER_VARIANTS : LAYAWAY_VARIANTS).has(variant);
+}
 
 const ORDER_COLUMNS =
   "id, web_reference, invoice_number, source_channel, customer_lang, ship_to_snapshot, currency, transfer_due_at, tracking_number, shipping_method_id, customers(email, is_test)";
@@ -150,18 +190,18 @@ async function shippingMethod(db: Db, id: unknown): Promise<AnyRec | null> {
   return (data ?? null) as AnyRec | null;
 }
 
-export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): Promise<void> {
-  const log = (outcome: string) =>
+export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): Promise<OrderUpdateResult> {
+  const log = (outcome: string): OrderUpdateResult => {
     console.log(JSON.stringify({ order_update_email: args.variant, entity: args.entity, id: args.id, outcome }));
+    return { sent: outcome === "sent", reason: outcome === "sent" ? undefined : outcome };
+  };
   try {
     if (args.entity === "cash_order" && !ORDER_VARIANTS.has(args.variant)) {
       // 'rejected' on a cash order is sendCashPaymentRejectedEmail's job.
-      log("skipped_variant_not_for_orders");
-      return;
+      return log("skipped_variant_not_for_orders");
     }
     if (args.entity === "layaway" && !LAYAWAY_VARIANTS.has(args.variant)) {
-      log("skipped_variant_not_for_layaway");
-      return;
+      return log("skipped_variant_not_for_layaway");
     }
 
     const table = args.entity === "cash_order" ? "cash_orders" : "layaway_accounts";
@@ -170,14 +210,8 @@ export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): P
       .select(args.entity === "cash_order" ? ORDER_COLUMNS : LAYAWAY_COLUMNS)
       .eq("id", args.id)
       .maybeSingle();
-    if (error || !row) {
-      log("not_found");
-      return;
-    }
-    if (!isWebEntity(row)) {
-      log("skipped_not_web");
-      return;
-    }
+    if (error || !row) return log("not_found");
+    if (!isWebEntity(row)) return log("skipped_not_web");
 
     const r = row as AnyRec;
     const customer = (r.customers ?? {}) as AnyRec;
@@ -187,6 +221,7 @@ export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): P
     const region = regionForCurrency(currency);
     const message = String(args.message ?? "").trim() || null;
     const amount = typeof args.amount === "number" && Number.isFinite(args.amount) ? args.amount : null;
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
     let courier: string | null = null;
     let trackingNumber: string | null = null;
@@ -201,7 +236,7 @@ export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): P
     if (args.entity === "cash_order") {
       const variant = args.variant as OrderUpdateVariant;
       const lang = emailLang(r.customer_lang, snapshotCountry(r));
-      await sendStorefrontEmail({
+      const res = await sendStorefrontEmail({
         to,
         subject: orderUpdateSubject(variant, reference, lang),
         label: `order-update-${variant}`,
@@ -212,26 +247,66 @@ export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): P
           deadline: (r.transfer_due_at as string | null) ?? null,
           region, courier, trackingNumber, trackingUrl,
           orderUrl: storefrontOrderUrl(String(r.id)),
+          method: args.method ?? null, cardBrand: args.cardBrand ?? null, cardLast4: args.cardLast4 ?? null,
+          holdUntil: args.holdUntil ?? null, balance: num(args.balance),
+          refundMethod: args.refundMethod ?? null, refundDate: args.refundDate ?? null,
         }),
       });
-      return;
+      return log(res.sent ? "sent" : `not_sent_${res.reason}`);
     }
 
     const variant = args.variant as LayawayUpdateVariant;
-    await sendStorefrontEmail({
+    const res = await sendStorefrontEmail({
       to,
-      subject: layawayUpdateSubject(variant, reference),
+      subject: layawayUpdateSubject(variant, reference, { reminderStage: args.reminderStage, penaltyStage: args.penaltyStage }),
       label: `layaway-update-${variant}`,
       reference,
       idempotencyKey: args.idempotencyKey,
       element: React.createElement(LayawayUpdateEmail, {
         variant, reference, currency, amount, message,
-        deadline: (r.transfer_due_at as string | null) ?? null,
+        deadline: variant === "reactivated" ? (args.planOpenUntil ?? null) : ((r.transfer_due_at as string | null) ?? null),
         region, courier, trackingNumber, trackingUrl,
         planUrl: storefrontLayawayUrl(String(r.id)),
+        reminderStage: args.reminderStage ?? null, dueDate: args.dueDate ?? null, graceEnd: args.graceEnd ?? null,
+        daysOverdue: num(args.daysOverdue), penaltyStage: args.penaltyStage ?? null,
+        totalPenalty: num(args.totalPenalty), remaining: num(args.balance),
       }),
     });
+    return log(res.sent ? "sent" : `not_sent_${res.reason}`);
   } catch (e) {
     console.warn("[order-update-email] send failed (non-blocking):", (e as Error)?.message ?? String(e));
+    return { sent: false, reason: "error" };
+  }
+}
+
+/**
+ * Addendum §9 #1: she paid by Paidy or card herself and the authorisation was
+ * FILED as a submission (by the website, the provider's webhook or the hourly
+ * check — whichever filed it). One email per submission. Web orders only (the
+ * sender checks source_channel). Never throws.
+ */
+export async function sendPaymentSubmittedEmail(
+  db: Db,
+  args: { submissionId: string; card?: { brand?: string | null; last4?: string | null; holdUntil?: string | null } | null },
+): Promise<OrderUpdateResult> {
+  try {
+    const { data: sub, error } = await db
+      .from("payment_submissions")
+      .select("id, cash_order_id, payment_method, submitted_amount")
+      .eq("id", args.submissionId)
+      .maybeSingle();
+    if (error || !sub?.cash_order_id) return { sent: false, reason: "no_submission" };
+    const m = String(sub.payment_method ?? "").toLowerCase();
+    const method: PayMethod | null = m === "paidy" ? "paidy" : m === "square" || m === "card" ? "card" : null;
+    if (!method) return { sent: false, reason: "not_provider_payment" };
+    return await sendOrderUpdateEmail(db, {
+      entity: "cash_order", id: String(sub.cash_order_id), variant: "payment_submitted",
+      amount: Number(sub.submitted_amount ?? 0), method,
+      cardBrand: args.card?.brand ?? null, cardLast4: args.card?.last4 ?? null, holdUntil: args.card?.holdUntil ?? null,
+      idempotencyKey: `payment-submitted-${sub.id}`,
+    });
+  } catch (e) {
+    console.warn("[order-update-email] payment-submitted failed (non-blocking):", (e as Error)?.message ?? String(e));
+    return { sent: false, reason: "error" };
   }
 }

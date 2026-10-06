@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -176,6 +177,15 @@ Deno.serve(async (req) => {
         status_changed_to: newStatus,
       },
       performed_by_user_id: user.id,
+    });
+
+    // Addendum §9 #6: on a WEBSITE order she is told, in her language, with
+    // the reason (the void dialog says the customer sees it) and what is
+    // still owed. Hub orders: unchanged (sender checks). Never throws.
+    await sendOrderUpdateEmail(supabase, {
+      entity: "cash_order", id: String(order.id), variant: "payment_voided",
+      amount, message: String(void_reason).trim(), balance: newRemaining,
+      idempotencyKey: `payment-voided-${cash_payment_id}-${voidedAt}`,
     });
 
     // Bug #99 — fire-and-forget loyalty revoke for voided cash payment.

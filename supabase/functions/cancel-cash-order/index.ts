@@ -1,11 +1,10 @@
 // supabase/functions/cancel-cash-order/index.ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as React from "npm:react@18.3.1";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontOrderUrl } from "../_shared/storefront-email.ts";
-import { OrderCancelledEmail, orderCancelledSubject, type RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
+import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
+import { sendWebCancellationEmail } from "../_shared/web-cancellation-email.ts";
 import { terminateRefusalMessage } from "../_shared/terminate-refusals.ts";
 
 const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
@@ -48,62 +47,6 @@ async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
   } catch (e) {
     console.warn("[sync-to-shopify] failed (non-blocking):", e);
     return { success: false, error: String((e as Error)?.message ?? e) };
-  }
-}
-
-/**
- * Web order: the Cha Jewels cancellation email — reason and refund decision,
- * the same two lines the customer sees on /account/orders. Fire-and-forget;
- * the helper logs one line per send.
- */
-async function sendWebCancellationEmail(supabase: any, orderId: string, reason: string, refundStatus: RefundStatus | null, refundNote: string | null) {
-  try {
-    const { data: order } = await supabase
-      .from("cash_orders")
-      .select("id, web_reference, invoice_number, customer_lang, ship_to_snapshot, shipping_fee, total_amount, currency, customers(email, is_test)")
-      .eq("id", orderId)
-      .maybeSingle();
-    if (!order) return;
-    const { data: lines } = await supabase
-      .from("cash_order_items")
-      .select("website_product_id, title, quantity, line_total_jpy")
-      .eq("cash_order_id", orderId)
-      .order("created_at");
-    const ids = [...new Set(((lines ?? []) as any[]).map((l) => l.website_product_id).filter(Boolean))];
-    const { data: prods } = ids.length
-      ? await supabase.from("website_products").select("id, name, name_ja").in("id", ids)
-      : { data: [] as any[] };
-    const byId = new Map<string, any>(((prods ?? []) as any[]).map((p) => [String(p.id), p]));
-    const items = ((lines ?? []) as any[]).map((l) => {
-      const pr = l.website_product_id ? byId.get(String(l.website_product_id)) : undefined;
-      const title = String(l.title ?? "");
-      const title_ja = pr?.name && pr?.name_ja && title.startsWith(pr.name) ? pr.name_ja + title.slice(pr.name.length) : null;
-      return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
-    });
-    const reference = String(order.web_reference ?? order.invoice_number);
-    const customer = (order as any).customers;
-    const lang = emailLang(order.customer_lang, snapshotCountry(order));
-    await sendStorefrontEmail({
-      to: { email: customer?.email ?? null, is_test: customer?.is_test === true },
-      subject: orderCancelledSubject(reference, lang),
-      label: "order-cancelled",
-      reference,
-      idempotencyKey: `order-cancelled-${orderId}`,
-      element: React.createElement(OrderCancelledEmail, {
-        lang,
-        reference,
-        items,
-        shippingJpy: Number(order.shipping_fee ?? 0),
-        totalJpy: Number(order.total_amount ?? 0),
-        currency: String(order.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
-        reason,
-        refundStatus,
-        refundNote,
-        orderUrl: storefrontOrderUrl(orderId),
-      }),
-    });
-  } catch (mailErr) {
-    console.warn("[cancel-cash-order] order-cancelled email failed (non-blocking):", mailErr);
   }
 }
 
@@ -292,7 +235,7 @@ Deno.serve(async (req) => {
 
         // (c) Web order: the cancellation email (reason + refund decision).
         if (isWeb) {
-          await sendWebCancellationEmail(supabase, cash_order_id, reason, c.refund_status ?? refundStatus, refundNote);
+          await sendWebCancellationEmail(supabase, cash_order_id, { reason, refundStatus: c.refund_status ?? refundStatus, refundNote });
         }
       }
     }

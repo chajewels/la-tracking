@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
 
@@ -26,6 +27,8 @@ interface AlertItem {
   scheduleId: string;
   customerEmail?: string | null;
   hasPenalties?: boolean;
+  /** 'web' → the website-style English reminder (addendum §9 #3), else the portal template. */
+  sourceChannel?: string | null;
 }
 
 function formatCurrency(amount: number, currency: string): string {
@@ -175,6 +178,7 @@ Deno.serve(async (req) => {
         scheduleId: s.id,
         customerEmail: cust?.email,
         hasPenalties,
+        sourceChannel: acc.source_channel ?? null,
       });
     }
 
@@ -240,7 +244,16 @@ Deno.serve(async (req) => {
             day: "numeric",
             year: "numeric",
           });
-          const graceResult = await sendTemplateEmail(
+          // Addendum §9 #3: a WEB plan gets the website-style English
+          // reminder linking to her plan page; same idempotency key.
+          const graceResult = alert.sourceChannel === "web"
+            ? await sendOrderUpdateEmail(supabase, {
+                entity: "layaway", id: alert.accountId, variant: "reminder", reminderStage: "grace_period",
+                amount: Math.round(alert.amount), dueDate: alert.dueDate,
+                graceEnd: graceEndObj.toISOString().slice(0, 10), daysOverdue: alert.daysOverdue,
+                idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+              })
+            : await sendTemplateEmail(
             "payment-reminder",
             alert.customerEmail!,
             {
@@ -275,7 +288,16 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const emailResult = await sendTemplateEmail(
+        const reminderType = alert.stage === 'overdue' || alert.stage === 'penalty' ? 'overdue'
+          : alert.stage === 'due_today' ? 'due_today'
+          : 'upcoming';
+        const emailResult = alert.sourceChannel === "web"
+          ? await sendOrderUpdateEmail(supabase, {
+              entity: "layaway", id: alert.accountId, variant: "reminder", reminderStage: reminderType,
+              amount: Math.round(alert.amount), dueDate: alert.dueDate, daysOverdue: alert.daysOverdue,
+              idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
+            })
+          : await sendTemplateEmail(
           "payment-reminder",
           alert.customerEmail!,
           {

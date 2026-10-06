@@ -86,6 +86,11 @@ export function storefrontLayawayUrl(accountId: string): string {
 }
 
 /** The storefront home page ("visit the shop" links). */
+/** The website's loyalty page (addendum §9 #5: web-order loyalty emails link here, never the portal). */
+export function storefrontLoyaltyUrl(): string {
+  return `${STOREFRONT_PUBLIC_URL}/loyalty`
+}
+
 export function storefrontShopUrl(): string {
   return STOREFRONT_PUBLIC_URL
 }

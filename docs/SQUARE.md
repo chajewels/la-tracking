@@ -251,6 +251,13 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
 - **Webhook = durable inbox**: stored, claimed with a lease, processed through square-sync, finished as
   done / ignored / quarantined / failed (retry with backoff; dead after 12 → bell). Failed answers 500
   so Square redelivers; square-reconcile retries hourly.
+- **Customer emails (addendum §9, 2026-10-06)**: a new hold filing (`fileForAttempt`, outcome
+  `filed`) sends 「お支払いを受け付けました」 with 「仮売上（まだ請求されていません）」, brand •last4 and the hold
+  end; a refund that reaches `COMPLETED` sends 「返金を受け付けました」 once per refund id; a fraud
+  cancel sends the order-cancelled email with the neutral reason 「お支払いを確認できなかったため」 (never
+  "fraud"); a hold the Hub voids with no submission (amount mismatch, Paidy took the order, risk HIGH
+  not cancelled) sends order-payment-not-accepted (card, provider_ended). Dispute and hold-expiring
+  stay staff-bell only.
 - **Refunds and disputes**: one row each (`square_refunds`, `square_disputes`), lifecycle + staff
   decision (`decide_square_case`); refunds never change order accounting (owner 2A); dispute evidence in
   the Square Dashboard, reminders 3 d / 1 d before `due_at`. Subscribe `dispute.state.updated`.

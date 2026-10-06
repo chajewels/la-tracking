@@ -105,3 +105,54 @@ export async function sendCashPaymentRejectedEmail(
     console.warn("[payment-rejected-email] send failed (non-blocking):", e);
   }
 }
+
+/**
+ * Addendum §9 #10 (owner directive 2026-10-06): a card HOLD the Hub voided by
+ * itself with NO submission to reject — the amount did not match the order,
+ * Paidy had taken the order meanwhile, or Square rated it high risk and the
+ * order was not cancelled. She is told only what matters to her: the hold was
+ * released and nothing was charged (order-payment-not-accepted, provider_ended,
+ * card). The internal reason is never shown. Web orders only. Once per Square
+ * payment. Never throws.
+ */
+export async function sendCardHoldReleasedEmail(
+  db: Db,
+  args: { orderId: string; amount: number | null; squarePaymentId: string },
+): Promise<void> {
+  try {
+    const { data: order, error } = await db
+      .from("cash_orders")
+      .select("id, invoice_number, web_reference, source_channel, customer_lang, ship_to_snapshot, currency, status, remaining_balance, transfer_due_at, customers(email, is_test)")
+      .eq("id", args.orderId)
+      .maybeSingle();
+    if (error || !order || order.source_channel !== "web") return;
+    const customer = (order as Record<string, any>).customers ?? {};
+    const currency = String(order.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+    const reference = String(order.web_reference ?? order.invoice_number);
+    const open = String(order.status) === "pending";
+    const remaining = open ? Number(order.remaining_balance ?? 0) : null;
+    const lang = emailLang(order.customer_lang, snapshotCountry(order));
+    await sendStorefrontEmail({
+      to: { email: customer.email ?? null, is_test: customer.is_test === true },
+      subject: orderPaymentNotAcceptedSubject(reference, lang),
+      label: "order-payment-not-accepted",
+      reference,
+      idempotencyKey: `card-hold-released-${args.squarePaymentId}`,
+      element: React.createElement(OrderPaymentNotAcceptedEmail, {
+        lang,
+        reference,
+        method: "card",
+        kind: "provider_ended",
+        amount: Number(args.amount ?? 0),
+        currency,
+        reason: null,
+        remaining: remaining !== null && remaining > 0 ? remaining : null,
+        transferDueAt: order.transfer_due_at ?? null,
+        region: regionForCurrency(currency),
+        orderUrl: storefrontOrderUrl(String(order.id)),
+      }),
+    });
+  } catch (e) {
+    console.warn("[payment-rejected-email] hold-released send failed (non-blocking):", e);
+  }
+}

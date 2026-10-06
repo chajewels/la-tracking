@@ -21,6 +21,12 @@ export interface OrderCancelledProps {
   /** The order's settlement currency; shippingJpy/totalJpy are in it. Absent = yen. */
   currency?: OrderCurrency
   reason: string
+  /**
+   * The reason in each language, shown instead of `reason` when given — used
+   * for the neutral wording of an automatic cancel (addendum §9 #10: never
+   * names fraud).
+   */
+  reasonByLang?: { ja: string; en: string } | null
   refundStatus: RefundStatus | null
   refundNote: string | null
   orderUrl: string | null
@@ -64,7 +70,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderCancelledProps; prima
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
-      <Text style={text}><strong>{c.reason}:</strong> {p.reason}</Text>
+      <Text style={text}><strong>{c.reason}:</strong> {p.reasonByLang ? p.reasonByLang[lang] : p.reason}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
       {p.refundStatus && <Text style={notice}>{c.refund[p.refundStatus]}</Text>}
       {p.refundNote && <Text style={text}><strong>{c.note}:</strong> {p.refundNote}</Text>}
