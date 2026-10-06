@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
@@ -273,7 +274,14 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if ((acctForEmail as any)?.source_channel === "web") {
+        // Addendum §9 #3: a WEB plan gets the website-style English email.
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(payment.account_id), variant: "payment_voided",
+          amount: Number(payment.amount_paid), message: reason || "Payment voided by administrator",
+          balance: Number(newRemainingBalance), idempotencyKey: `payment-voided-${payment_id}`,
+        });
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "payment-voided",

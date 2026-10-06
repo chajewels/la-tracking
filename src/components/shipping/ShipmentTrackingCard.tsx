@@ -157,6 +157,7 @@ export default function ShipmentTrackingCard({
     nextShippedAt: string | null,
     successMessage: string,
     signedOutMessage: string,
+    afterSave?: () => void,
   ) => {
     setSaving(true);
     try {
@@ -196,6 +197,7 @@ export default function ShipmentTrackingCard({
       toast.success(successMessage);
       setConfirmingUndo(false);
       onSaved();
+      afterSave?.();
     } catch (err) {
       toast.error((err as Error).message || 'Failed to update shipping status');
     } finally {
@@ -204,7 +206,19 @@ export default function ShipmentTrackingCard({
   };
 
   const handleMarkShipped = () =>
-    writeShippedAt(getPHTToday(), 'Marked as shipped', 'You must be signed in to mark as shipped.');
+    writeShippedAt(
+      getPHTToday(),
+      'Marked as shipped',
+      'You must be signed in to mark as shipped.',
+      // Email the web customer (notify-shipped). Fire-and-forget: never blocks
+      // the save, no toast on failure. Not sent on undo.
+      () => {
+        void supabase.functions
+          .invoke('notify-shipped', { body: { kind, record_id: recordId } })
+          .then(({ error }) => { if (error) console.error('[notify-shipped]', error); })
+          .catch((err) => console.error('[notify-shipped]', err));
+      },
+    );
 
   const handleUndoShipped = () =>
     writeShippedAt(null, 'Shipped mark removed', 'You must be signed in to change shipping status.');

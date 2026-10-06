@@ -2,7 +2,7 @@ import * as React from "npm:react@18.3.1";
 import { paidyModeFrom, paidyNotOfferedReason } from "./paidy-rules.ts";
 import { publicMethod } from "./checkout-choice.ts";
 import {
-  pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
+  emailLang, sendStorefrontEmail, snapshotCountry, storefrontLayawayUrl, storefrontOrderUrl, storefrontShopUrl,
   STOREFRONT_PUBLIC_URL, type SendStorefrontEmailResult,
 } from "./storefront-email.ts";
 import { regionForCurrency, transferMethods } from "./transfer-methods.ts";
@@ -10,7 +10,8 @@ import type { OrderEmailItem, OrderEmailMethod } from "./email-templates/order-s
 import type { LayawayScheduleRow } from "./email-templates/layaway-shared.tsx";
 import { OrderReservedEmail, orderReservedSubject } from "./email-templates/order-reserved.tsx";
 import { LayawayReservedEmail, layawayReservedSubject } from "./email-templates/layaway-reserved.tsx";
-import { OrderConfirmationEmail, orderReadySubject } from "./email-templates/order-confirmation.tsx";
+import { OrderConfirmationEmail, orderMethodChangedSubject, orderReadySubject } from "./email-templates/order-confirmation.tsx";
+import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "./email-templates/order-payment-received.tsx";
 import { LayawayPlanCreatedEmail, layawayReadySubject } from "./email-templates/layaway-plan-created.tsx";
 import { OrderCancelledEmail, orderCancelledSubject } from "./email-templates/order-cancelled.tsx";
 import { LayawayDeclinedEmail, layawayDeclinedSubject } from "./email-templates/layaway-declined.tsx";
@@ -75,7 +76,7 @@ async function loadOrder(supabase: Db, orderId: string) {
     reference: String((order as AnyRec).web_reference ?? (order as AnyRec).invoice_number ?? ""),
     // shipping_fee and total_amount are in this currency (pesos on a peso order).
     currency: (String((order as AnyRec).currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
-    lang: pickLang((order as AnyRec).customer_lang),
+    lang: emailLang((order as AnyRec).customer_lang, snapshotCountry(order as AnyRec)),
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
 }
@@ -118,53 +119,6 @@ async function guarded(label: string, fn: () => Promise<ReservationEmailResult>)
   }
 }
 
-/** Checkout, reserve mode: "we have your order" — no bank details, no deadline. */
-export function sendOrderReservedEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
-  return guarded("order-reserved", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderReservedSubject(o.reference),
-      label: "order-reserved",
-      reference: o.reference,
-      idempotencyKey: `order-reserved-${orderId}`,
-      element: React.createElement(OrderReservedEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        orderUrl: storefrontOrderUrl(orderId),
-      }),
-    });
-  });
-}
-
-/** Checkout, reserve mode: the layaway request is in. English only. */
-export function sendLayawayReservedEmail(supabase: Db, accountId: string): Promise<ReservationEmailResult> {
-  return guarded("layaway-reserved", async () => {
-    const p = await loadPlan(supabase, accountId);
-    if (!p) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: p.to,
-      subject: layawayReservedSubject(p.reference),
-      label: "layaway-reserved",
-      reference: p.reference,
-      idempotencyKey: `layaway-reserved-${accountId}`,
-      element: React.createElement(LayawayReservedEmail, {
-        reference: p.reference,
-        currency: p.currency,
-        totalAmount: Number(p.plan.total_amount ?? 0),
-        deposit: Number(p.plan.downpayment_amount ?? 0),
-        termMonths: Number(p.plan.payment_plan_months ?? 0),
-        planUrl: storefrontLayawayUrl(accountId),
-      }),
-    });
-  });
-}
-
 /**
  * Staff confirmed a cash reservation: today's order-confirmation content —
  * items, every transfer method, the deadline that has just started — headed
@@ -186,6 +140,13 @@ export type ReadyEmailOpts = {
    * key of its own (the confirm key was spent).
    */
   methodChanged?: boolean;
+  /**
+   * Overrides the idempotency key (H6 fix round 1): the customer's own switch
+   * passes `order-method-changed-<order>-<deciding submission>-<new method>`
+   * so a repeated request never sends twice. Unset = today's keys (the staff
+   * path is unchanged).
+   */
+  idempotencyKey?: string;
 };
 
 export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEmailOpts = {}): Promise<ReservationEmailResult> {
@@ -199,12 +160,18 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
     const chosen = o.order.source_channel === "web" ? publicMethod(o.order.payment_method) : "transfer";
     const methods = chosen === "transfer" ? await transferMethods(supabase, currency) : [];
     const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
+    // Payment lifecycle H3: a method change names the OLD method too, read
+    // from the newest payment_method_changed audit row (staff or customer
+    // switch). Unknown → the heading still says it changed (subject and heading
+    // agree), just without the old → new line.
+    const changedFrom = opts.methodChanged ? await previousMethod(supabase, orderId) : null;
     return await sendStorefrontEmail({
       to: o.to,
-      subject: orderReadySubject(o.reference),
+      subject: opts.methodChanged ? orderMethodChangedSubject(o.reference, o.lang) : orderReadySubject(o.reference, o.lang),
       label,
       reference: o.reference,
-      idempotencyKey: opts.methodChanged
+      idempotencyKey: opts.idempotencyKey ? opts.idempotencyKey
+        : opts.methodChanged
         ? `order-method-changed-${orderId}-${String(o.order.payment_method ?? "transfer")}-${Date.now()}`
         : opts.revived
         ? `order-revived-${orderId}-${String(o.order.transfer_due_at ?? "")}`
@@ -225,9 +192,67 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
+        ...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {}),
       }),
     });
   });
+}
+
+/**
+ * Payment lifecycle H5 (spec §5 A): staff confirmed a web draft whose checkout
+ * points paid the WHOLE order, so the order is already completed. She gets
+ * "payment received — fully paid by points", never the ready email ("please
+ * pay ¥0 by transfer" + bank details). No money arrived: amountReceivedJpy 0,
+ * the points line carries the figure. Customer's language (emailLang).
+ */
+export function sendOrderPaidByPointsEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
+  return guarded("order-payment-received", async () => {
+    const o = await loadOrder(supabase, orderId);
+    if (!o) return { sent: false, reason: "not_found" };
+    const { data: ptsPaid } = await supabase.rpc("cash_order_points_paid", { p_cash_order_id: orderId });
+    return await sendStorefrontEmail({
+      to: o.to,
+      subject: orderPaymentReceivedSubject(o.reference, o.lang),
+      label: "order-payment-received",
+      reference: o.reference,
+      idempotencyKey: `order-paid-by-points-${orderId}`,
+      element: React.createElement(OrderPaymentReceivedEmail, {
+        lang: o.lang,
+        reference: o.reference,
+        items: o.items,
+        shippingJpy: Number(o.order.shipping_fee ?? 0),
+        totalJpy: Number(o.order.total_amount ?? 0),
+        currency: o.currency,
+        amountReceivedJpy: 0,
+        orderUrl: storefrontOrderUrl(orderId),
+        method: publicMethod(o.order.payment_method),
+        pointsApplied: Number(ptsPaid ?? 0),
+        remaining: null,
+        region: regionForCurrency(String(o.order.currency ?? "JPY")),
+      }),
+    });
+  });
+}
+
+/**
+ * The method an order was paid with BEFORE its latest change: the newest
+ * audit_logs 'payment_method_changed' row for it (written by both
+ * change_web_payment_method_atomic and the customer switch), old_value_json
+ * ->> 'payment_method', mapped to the public name. null when there is none.
+ */
+async function previousMethod(supabase: Db, orderId: string): Promise<"transfer" | "paidy" | "card" | null> {
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("old_value_json, created_at")
+    .eq("entity_type", "cash_order")
+    .eq("entity_id", orderId)
+    .eq("action", "payment_method_changed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const old = ((data as AnyRec).old_value_json as AnyRec | null)?.payment_method;
+  return old ? publicMethod(old) : null;
 }
 
 /**
@@ -327,88 +352,6 @@ export function sendLayawayReadyEmail(
   });
 }
 
-/**
- * "Can't supply" on a cash reservation: the existing order-cancelled email,
- * with the staff reason. Nothing was paid, so there is no refund line. Same
- * idempotency key cancel-cash-order uses — an order is cancelled once.
- */
-export function sendOrderCantSupplyEmail(supabase: Db, orderId: string, reason: string): Promise<ReservationEmailResult> {
-  return guarded("order-cancelled", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderCancelledSubject(o.reference),
-      label: "order-cancelled",
-      reference: o.reference,
-      idempotencyKey: `order-cancelled-${orderId}`,
-      element: React.createElement(OrderCancelledEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        reason,
-        refundStatus: null,
-        refundNote: null,
-        orderUrl: storefrontOrderUrl(orderId),
-      }),
-    });
-  });
-}
-
-/** A layaway reservation ended unconfirmed: staff declined it, or 72 hours passed. English only. */
-export function sendLayawayDeclinedEmail(
-  supabase: Db,
-  accountId: string,
-  kind: "declined" | "lapsed",
-  reason?: string | null,
-): Promise<ReservationEmailResult> {
-  const label = kind === "lapsed" ? "layaway-reservation-lapsed" : "layaway-declined";
-  return guarded(label, async () => {
-    const p = await loadPlan(supabase, accountId);
-    if (!p) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: p.to,
-      subject: layawayDeclinedSubject(p.reference, kind),
-      label,
-      reference: p.reference,
-      idempotencyKey: `${label}-${accountId}`,
-      element: React.createElement(LayawayDeclinedEmail, {
-        reference: p.reference,
-        kind,
-        reason: reason ?? null,
-        shopUrl: storefrontShopUrl(),
-      }),
-    });
-  });
-}
-
-/** A cash reservation nobody confirmed within 72 hours was cancelled. */
-export function sendOrderReservationLapsedEmail(supabase: Db, orderId: string): Promise<ReservationEmailResult> {
-  return guarded("order-reservation-lapsed", async () => {
-    const o = await loadOrder(supabase, orderId);
-    if (!o) return { sent: false, reason: "not_found" };
-    return await sendStorefrontEmail({
-      to: o.to,
-      subject: orderReservationLapsedSubject(o.reference),
-      label: "order-reservation-lapsed",
-      reference: o.reference,
-      idempotencyKey: `order-reservation-lapsed-${orderId}`,
-      element: React.createElement(OrderReservationLapsedEmail, {
-        lang: o.lang,
-        reference: o.reference,
-        items: o.items,
-        shippingJpy: Number(o.order.shipping_fee ?? 0),
-        totalJpy: Number(o.order.total_amount ?? 0),
-        currency: o.currency,
-        shopUrl: storefrontShopUrl(),
-      }),
-    });
-  });
-}
-
 // ─────────────────────────────────────────── website orders PR 6: DRAFTS
 //
 // A draft (web_order_drafts) is a checkout staff have not confirmed yet. It is
@@ -425,7 +368,7 @@ export function storefrontDraftUrl(draftId: string): string {
 async function loadDraft(supabase: Db, draftId: string) {
   const { data: draft } = await supabase
     .from("web_order_drafts")
-    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, points_value, customers(email, is_test)")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, payment_method, customers(email, is_test)")
     .eq("id", draftId)
     .maybeSingle();
   if (!draft) return null;
@@ -454,7 +397,7 @@ async function loadDraft(supabase: Db, draftId: string) {
     reference: String(d.web_reference ?? ""),
     // Draft money is in the settlement currency (converted once at checkout).
     currency: (String(d.settlement_currency ?? "JPY") === "PHP" ? "PHP" : "JPY") as "JPY" | "PHP",
-    lang: pickLang(d.customer_lang),
+    lang: emailLang(d.customer_lang, snapshotCountry(d)),
     to: { email: (customer?.email as string | null) ?? null, is_test: customer?.is_test === true },
   };
 }
@@ -484,7 +427,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
     }
     return await sendStorefrontEmail({
       to: d.to,
-      subject: orderReservedSubject(d.reference),
+      subject: orderReservedSubject(d.reference, d.lang),
       label: "order-reserved",
       reference: d.reference,
       idempotencyKey: `draft-reserved-${draftId}`,
@@ -498,6 +441,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
         orderUrl: storefrontDraftUrl(draftId),
         provisional: true,
         pointsApplied: Number(d.draft.points_value ?? 0),
+        method: publicMethod(d.draft.payment_method),
       }),
     });
   });
@@ -536,7 +480,7 @@ export function sendDraftClosedEmail(
     if (kind === "lapsed") {
       return await sendStorefrontEmail({
         to: d.to,
-        subject: orderReservationLapsedSubject(d.reference),
+        subject: orderReservationLapsedSubject(d.reference, d.lang),
         label: "order-reservation-lapsed",
         reference: d.reference,
         idempotencyKey: `draft-lapsed-${draftId}`,
@@ -553,7 +497,7 @@ export function sendDraftClosedEmail(
     }
     return await sendStorefrontEmail({
       to: d.to,
-      subject: orderCancelledSubject(d.reference),
+      subject: orderCancelledSubject(d.reference, d.lang),
       label: "order-cancelled",
       reference: d.reference,
       idempotencyKey: `draft-declined-${draftId}`,

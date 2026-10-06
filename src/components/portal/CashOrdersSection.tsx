@@ -71,6 +71,8 @@ export interface PortalCashOrder {
   paidy_processing?: boolean;
   /** A card payment (Square) is in flight, held or not yet recorded (owner 3A). */
   card_processing?: boolean;
+  /** 'web' = a website order: paid from the website, never filed here (QC P2-4). */
+  source_channel?: string | null;
   discount_amount?: number;
   discount_type?: string | null;
   discount_value?: number | null;
@@ -469,6 +471,10 @@ function CashOrderCard({
             No other payment is needed for now. If the card payment is declined or released, you can pay another way here.
           </p>
         </div>
+      ) : isPending && order.source_channel === 'web' ? (
+        <p style={{ color: M.ts, fontSize: 11, marginTop: 12 }}>
+          This is a website order. Please pay it from your order page on the Cha Jewels website.
+        </p>
       ) : isPending ? (
         <button
           onClick={onPay}

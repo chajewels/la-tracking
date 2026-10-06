@@ -45,6 +45,12 @@ async function failInbox(supabase: Db, inboxId: string, attempts: number, why: s
 
 export async function processPaidyEvent(
   supabase: Db, inboxId: string, pid: string, event: string, source: "webhook" | "reconcile", attempts = 0,
+  /**
+   * H9 soft gate (R14): false only for a webhook delivery from a source that is
+   * not one of Paidy's published IPs. It is still processed in full; only an
+   * id Paidy does not know opens NO case and rings NO bell.
+   */
+  opts: { recognisedSource?: boolean } = {},
 ): Promise<EventResult> {
   try {
     const { data: row, error: rowErr } = await supabase
@@ -70,7 +76,13 @@ export async function processPaidyEvent(
       const pe = e instanceof PaidyError ? e : null;
       if (pe && pe.status === 404) {
         // Paidy does not know this id (R08: distinguished from a credential
-        // problem): quarantined as a case, the event is done.
+        // problem): quarantined as a case, the event is done. From an
+        // unrecognised source (H9 soft gate) it is only noted — no case, no
+        // bell — so random ids posted by strangers cannot spam staff.
+        if (opts.recognisedSource === false) {
+          await markInbox(supabase, inboxId, { processed_at: new Date().toISOString(), last_error: `paidy ${pe.status} ${pe.code} (unrecognised source)` });
+          return { done: true, summary: { ignored: "provider_unreadable_unrecognised_source" } };
+        }
         await openPaidyCase(supabase, {
           kind: "provider_unreadable", paidy_payment_id: pid, cash_order_id: row?.cash_order_id ?? null, paidy_payment_row: row?.id ?? null,
           detail: { status: pe.status, code: pe.code, event, source },

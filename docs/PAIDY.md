@@ -20,8 +20,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
    reservation, `remaining_balance > 0`, ship-to snapshot country JP with line1,
    city, region and a 7-digit postal code, no `submitted | under_review`
    submission. `checkout` is the exact `Paidy.launch()` payload — amount =
-   remaining balance, the order's lines, `buyer_data` from this customer's paid
-   yen cash orders. The storefront passes it through untouched.
+   remaining balance, the order's lines, `buyer_data` from this customer's
+   COMPLETED yen orders that were not paid with Paidy and not refunded
+   (cancelled / expired never count), plus her completed yen layaway plans
+   (H9). Built by `paidyCheckoutPayload()`. The storefront passes it through
+   untouched.
 3. The customer finishes Paidy's window → `POST /orders/:id/paidy
    { paidy_payment_id }`. A retry for an authorisation already filed on this
    order returns that submission (P01). Otherwise the Hub re-reads the payment
@@ -66,9 +69,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   submission, ceiling re-checked on the locked balance, idempotent on
   `confirmed_payment_id`). The hand-rolled rollback is gone. Square's capture
   logic is unchanged.
-- DECIDE BY PAIDY'S READ-BACK, NEVER BY AN HTTP STATUS (P03): Paidy answers an
-  expired capture 400 `payment.authorization.expired` and a closed one 403
-  `service.forbidden` — the old 404/409 branch never fired. `paidyProviderOutcome()`
+- DECIDE BY PAIDY'S READ-BACK, NEVER BY AN HTTP STATUS (P03): in our test runs
+  Paidy answered an expired capture 400 `payment.authorization.expired` and a
+  closed one 403 `service.forbidden` (OBSERVED behaviour — these code strings
+  are not on Paidy's published API pages, which show only generic 403/409
+  examples) — the old 404/409 branch never fired. `paidyProviderOutcome()`
   maps the read-back to captured / authorized / expired / closed / rejected /
   unknown. "Pay again" is said ONLY for expired / closed / rejected with no
   capture. Unknown or Paidy unreachable → the claim is released, bell
@@ -78,8 +83,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   = the submission = no more than the order's balance
   (`paidyCaptureAmountProblem()`); after capture the captured yen must equal
   the submission or nothing is recorded (bell `paidy_recording_failed`).
-- EXPIRY IS PAIDY'S `expires_at` (P07), stored on `paidy_payments.expires_at`;
-  30 days after authorisation only when Paidy did not send it.
+- EXPIRY IS PAIDY'S `expires_at` (P07), stored on `paidy_payments.expires_at`.
+  Paidy's developer docs state no fixed authorisation length; 30 days after
+  authorisation (`PAIDY_AUTH_DAYS`) is a FALLBACK only, used when Paidy did not
+  send `expires_at`. The `paidy_authorized` bell shows the `expires_at` date
+  (JST) and says "valid 30 days" only in that fallback case.
 - DATE PAID = THE CAPTURE DAY IN JAPAN TIME (owner Q5, `paidyJapanDate()`). An
   owner exception to the PHT day boundary, for Paidy captures only; the
   submission's own `payment_date` stays PHT.
@@ -87,8 +95,9 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   stamps `payment_submissions.processing_started_at`. A Paidy submission left
   `confirmed` with no `confirmed_payment_id` shows **Finish recording** in
   Payment Submissions once the lease is older than 5 minutes; it re-runs
-  Confirm (reads Paidy first; records a capture, captures an authorisation,
-  rejects an expired one). Bells: `paidy_recording_failed` (capture taken,
+  Confirm (reads Paidy first; records a capture Paidy reports, leaves a
+  not-yet-captured authorisation alone — the Hub never captures — and rejects
+  an expired one). Bells: `paidy_recording_failed` (capture taken,
   recording failed) and `paidy_confirm_interrupted` (hourly check). Never
   automatic recording.
 - A LOST CALLBACK IS FILED, NOT LOST (P12, owner Q3): the money is with Paidy,
@@ -98,13 +107,19 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   retries). It is released (closed, no charge) only when the order can no
   longer take it; bell `paidy_unmatched_authorization` either way. Paidy has
   no "list payments" API, so only the webhook can discover an unknown id.
-- CAPTURED ON PAIDY, NOT IN THE HUB → bell `paidy_captured_unrecorded` (once per
-  24 h per payment); the Hub never records it by itself.
+- CAPTURED ON PAIDY, NOT IN THE HUB → the Hub RECORDS it automatically (step 4
+  above, actor `paidy_auto`); only when that recording cannot happen (amounts
+  disagree, refunded, no submission) does it become a case / bell
+  `paidy_captured_unrecorded` (once per 24 h per payment).
 - REFUNDS (P11): every refund Paidy reports is stored once in `paidy_refunds`
   (UNIQUE refund id), `paidy_payments.refund_jpy` is the total, bell
   `paidy_refund_recorded`. Order balances and refund decisions are NEVER
   changed from it. Refunds are made in the Paidy merchant dashboard; a Hub
-  refund button is not built.
+  refund button is not built. Customer email (addendum §9 #9, 2026-10-06): a
+  refund newly stored in `paidy_refunds` sends 「返金を受け付けました」 on a web order
+  (`refund-received-paidy-<refund id>`). A filed authorisation sends
+  「お支払いを受け付けました」 from `filePaidyAuthorization`, whichever path filed it
+  (§9 #1).
 - EVERY WRITE IS CHECKED (P05): the webhook answers 5xx on any failed read or
   write so Paidy retries (about 5 hours of back-off); a 200 stops the retries.
 - "CLAIMED, NOT RECORDED" IS PENDING (independent review 2026-10-04): a
@@ -119,8 +134,9 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
   order that can no longer take a payment; `finalize_cash_submission_atomic`
   refuses a Paidy payment whose record is not `captured`. Every write made
   under a Confirm's claim carries that claim's lease stamp.
-- `buyer_data.last_order_amount` is the most recently COMPLETED paid order by
-  `completed_at` (P10, `paidyLastOrderAmount()`).
+- `buyer_data.last_order_amount` is the most recently COMPLETED order by
+  `completed_at` (P10; computed in `paidyBuyerHistory()`, with the same
+  exclusions as `ltv`).
 - The storefront enables the Paidy button on `onReady` as well as `onLoad`
   and when `window.Paidy` already exists (P06, cha-jewels-web).
 
@@ -197,8 +213,11 @@ refund on an unrecorded payment is **held for a staff decision**.
   not paid with Paidy and not refunded, by order value, `last_order_at` in
   days; registration date only from `customers.created_at`. Address lines:
   Paidy line1 = building/room (our line2), line2 = street (our line1).
-  OWNER TO CONFIRM WITH PAIDY: the address-line mapping and the negative
-  discount line.
+  RESOLVED by Paidy's own docs (paidy.com/docs/en/paidycheckout.html, checked
+  2026-10-06): line1 = "building name, apartment number", line2 = "district,
+  land number, land number extension" — what we send; and "If the order item
+  is a discount or coupon, set the unit_price to a negative value" — our
+  "Discount" / "Points" lines.
 - NOT CHANGED (live-first rule): `terminate_web_order_atomic` /
   `expire_web_layaway_atomic` bodies — the expiry sweep checks the lock in
   TypeScript first; a seconds-wide race remains (docs/OPEN-BUGS.md).
@@ -236,6 +255,58 @@ refund on an unrecorded payment is **held for a staff decision**.
   system still opens a `captured_no_submission` case for it.
 - BULK IMPORT — never touches Paidy: it imports LAYAWAY payments only
   (`BulkPaymentImport.tsx`), and Paidy is cash-order only.
+
+## Alignment with Paidy's docs (H9, 2026-10-06)
+Checked against paidy.com/docs/en/paidycheckout.html and webhook.html.
+- `buyer_data.billing_address` (Paidy: REQUIRED, "billing address (i.e.,
+  residence)"): her default address-book entry when it is a complete JP
+  address, else her own `customers` record when THAT is complete
+  (`paidyBillingAddress()`), never the ship-to / gift recipient. Otherwise
+  omitted and the function logs `[paidy] billing_address omitted:
+  no_complete_jp_billing_address` (no address text). NOTE: `customers` has no
+  prefecture / line2 column, so the customer-record fallback cannot pass the
+  completeness check (it needs a region) until such a column exists.
+- History (`ltv`, `order_count`, `last_order_*`) adds her COMPLETED yen
+  `layaway_accounts` (value `total_amount`, date `completed_at`, else
+  `order_date`); forfeited / cancelled / final_* plans never count.
+- `buyer.dob` = `customers.birthday` (YYYY-MM-DD) when a real date.
+- `buyer_data.number_of_points` (Paidy: points held "prior to this order") =
+  `loyalty_members.remaining_points` + the points spent on this order (Confirm
+  already deducted them; 1 pt = ¥1). Omitted when she is not a member.
+- `order.tax` is omitted (optional; prices are tax-inclusive — 0 was wrong).
+- `metadata` = `{ cash_order_id, customer_id, source: "web" }` (max 20 keys).
+- WEBHOOK SOURCE CHECK IS SOFT (controller ruling R14): EVERY delivery is
+  processed exactly as before (inbox row, re-read from Paidy) — a dropped real
+  webhook is unrecoverable for an authorisation the Hub does not know (P12),
+  and the header can be appended to or misread. The source IP is
+  `cf-connecting-ip` when present, else the LAST `x-forwarded-for` entry (the
+  one the platform adds), `paidyWebhookSourceIp()`. It is compared with
+  Paidy's 5 published IPs (`PAIDY_WEBHOOK_IPS`: 13.114.134.35, 13.113.94.100,
+  18.182.135.232, 52.199.50.20, 52.199.62.26) and decides ONE thing: whether
+  an id Paidy does not know (404) may open a `provider_unreadable` case + staff
+  bell. Recognised → as before. Unrecognised → no case, no bell, the inbox row
+  is marked `(unrecognised source)` and the function logs
+  `[paidy-webhook] unrecognised source <ip>` (IP only). ESCAPE HATCH: edge
+  secret `PAIDY_WEBHOOK_IP_CHECK=off` treats every source as recognised; any
+  other value or no secret = on. Edge case: a delivery that passes the 8 s
+  deadline is finished by the sweep, which does not know the source and opens
+  the case as before.
+- GO-LIVE CHECK (source IP): after the first deploy, log the raw
+  `cf-connecting-ip` and `x-forwarded-for` headers of ONE real Paidy test
+  webhook (temporary log, then remove) and confirm the platform supplies
+  Paidy's IP in `cf-connecting-ip` or as the last XFF entry. If not, real
+  Paidy 404s would be logged as "unrecognised source" with no bell — set
+  `PAIDY_WEBHOOK_IP_CHECK=off` until the parsing is fixed.
+- Buyer history (cash and layaway) leaves out test accounts: numeric invoice
+  numbers only (`invoice_number ~ '^[0-9]+$'`).
+
+Open for owner (NOT implemented):
+- P2-1 `buyer.name1`: Paidy asks for kanji, FAMILY name first, space-separated;
+  we send `customers.full_name` as stored (often given-name first, Latin).
+  Needs a family/given (or "name as on ID") field.
+- P2-7 an order cancelled or expired while Paidy still holds an authorisation:
+  Paidy "highly recommends" closing it; today staff Reject does. Auto-close
+  would extend the close triggers in the rule below.
 
 ## Rules (also one line each in CLAUDE.md)
 - The secret key is the edge-function secret `PAIDY_SECRET_KEY` only — never

@@ -3,7 +3,7 @@ import { checkPermission } from "../_shared/check-permission.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { refreshPaymentTracking } from "../_shared/payment-tracking.ts";
-import { pickLang, sendStorefrontEmail, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
+import { emailLang, sendStorefrontEmail, snapshotCountry, storefrontLayawayUrl, storefrontOrderUrl } from "../_shared/storefront-email.ts";
 import { OrderPaymentReceivedEmail, orderPaymentReceivedSubject } from "../_shared/email-templates/order-payment-received.tsx";
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from "../_shared/email-templates/layaway-payment-received.tsx";
 import * as React from "npm:react@18.3.1";
@@ -21,7 +21,9 @@ import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-aut
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
-import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
+import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
+import { regionForCurrency } from "../_shared/transfer-methods.ts";
+import { isWebEntity, reviewEmailKey, routeSubmissionEmail, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -458,7 +460,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, shipping_fee, total_amount")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id, source_channel, web_reference, customer_lang, ship_to_snapshot, shipping_fee, total_amount, transfer_due_at")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -584,11 +586,14 @@ Deno.serve(async (req) => {
           const at = new Date().toISOString();
           const { error: recErr } = await supabase.from("paidy_payments")
             .update({ status: outcome, closed_at: at, closed_reason: detail, updated_at: at }).eq("id", pp.id).eq("status", "authorized");
-          const why = outcome === "expired" ? "Paidy authorisation expired (30 days) before it was captured"
+          const why = outcome === "expired" ? "Paidy authorisation passed Paidy's expiry (its expires_at; 30 days after authorisation only when Paidy sent none) before it was captured"
             : outcome === "closed" ? "Paidy shows this authorisation as closed with nothing captured"
             : "Paidy declined this payment";
           const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
+            // Provider-ended, not a staff decision: the customer sees no staff
+            // message (H5) — the reviewer_notes here are internal.
+            customer_message: null,
             reviewer_notes: `${why} — nothing was charged; the customer may pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
           }).eq("id", submission_id).eq("processing_started_at", claimAt).select("id");
           if (!subErr && (!rejRows || rejRows.length === 0)) {
@@ -752,6 +757,8 @@ Deno.serve(async (req) => {
           await releaseSquareAction();
           const { error: rejErr } = await supabase.from("payment_submissions").update({
             status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: new Date().toISOString(),
+            // Provider-ended, not a staff decision: no customer message (H5).
+            customer_message: null,
             reviewer_notes: `Card hold ${live.status} at Square — nothing was charged; the customer can pay again (card or bank transfer). ${reviewer_notes ?? ""}`.trim(),
           }).eq("id", submission_id).eq("processing_started_at", claimAt);
           if (rejErr) console.error("[review-payment-submission] reject after closed hold failed:", rejErr);
@@ -982,8 +989,10 @@ Deno.serve(async (req) => {
       await refreshPaymentTracking(cashOrder.invoice_number, "review-payment-submission/cash");
 
       // 7. Fire-and-forget: the customer's confirmation email.
-      //    Web order, fully paid → the Cha Jewels "payment received" email
-      //    (storefront branding, customer's language, shipping note).
+      //    Web order → the Cha Jewels "payment received" email (storefront
+      //    branding, customer's language), naming the method THIS payment used
+      //    (payment lifecycle H3). Fully paid → the shipping note; partly paid
+      //    → what is still to pay and by when (it used to send nothing).
       //    Anything else → the Hub's cash-payment-confirmed template as before.
       const isWebOrder = (cashOrder as any).source_channel === "web";
       try {
@@ -993,7 +1002,7 @@ Deno.serve(async (req) => {
           .eq("id", cashOrder.customer_id)
           .single();
         const customerEmail = customer?.email;
-        if (isWebOrder && isFullyPaid) {
+        if (isWebOrder) {
           const { data: lines } = await supabase
             .from("cash_order_items")
             .select("website_product_id, title, quantity, line_total_jpy")
@@ -1011,27 +1020,35 @@ Deno.serve(async (req) => {
             return { title, title_ja, qty: Number(l.quantity ?? 1), line_total_jpy: Number(l.line_total_jpy ?? 0) };
           });
           const reference = String((cashOrder as any).web_reference ?? cashOrder.invoice_number);
+          const lang = emailLang((cashOrder as any).customer_lang, snapshotCountry(cashOrder as any));
+          const orderCurrency = String(cashOrder.currency ?? "JPY") === "PHP" ? "PHP" : "JPY";
+          // Points used at checkout: a loyalty DISCOUNT shown as its own line,
+          // never as money received. Read failure → no line (non-blocking).
+          const { data: ptsPaid } = await (supabase as any).rpc("cash_order_points_paid", { p_cash_order_id: cashOrder.id });
           await sendStorefrontEmail({
             to: { email: customerEmail, is_test: (customer as any)?.is_test === true },
-            subject: orderPaymentReceivedSubject(reference),
+            subject: orderPaymentReceivedSubject(reference, lang),
             label: "order-payment-received",
             reference,
             idempotencyKey: `order-payment-received-${cashPayment.id}`,
             element: React.createElement(OrderPaymentReceivedEmail, {
-              lang: pickLang((cashOrder as any).customer_lang),
+              lang,
               reference,
               items,
               shippingJpy: Number((cashOrder as any).shipping_fee ?? 0),
               totalJpy: Number((cashOrder as any).total_amount ?? newTotalPaid),
               amountReceivedJpy: Number(submittedAmount),
-              currency: String(cashOrder.currency ?? "JPY") === "PHP" ? "PHP" : "JPY",
+              currency: orderCurrency,
               orderUrl: storefrontOrderUrl(String(cashOrder.id)),
+              method: notAcceptedMethod(submission.payment_method),
+              pointsApplied: Number(ptsPaid ?? 0),
+              // The balance AFTER this payment (finalize's new_remaining);
+              // > 0 renders the partial variant.
+              remaining: isFullyPaid ? null : newRemaining,
+              transferDueAt: (cashOrder as any).transfer_due_at ?? null,
+              region: regionForCurrency(orderCurrency),
             }),
           });
-        } else if (isWebOrder) {
-          // Partial transfer on a web order: no email yet — the order is still
-          // awaiting the balance and the Hub template would name the wrong reference.
-          console.log(JSON.stringify({ storefront_email: "order-payment-received", reference: (cashOrder as any).web_reference, outcome: "skipped_partial_payment" }));
         } else if (customerEmail) {
           const result = await sendTemplateEmail(
             "cash-payment-confirmed",
@@ -1565,6 +1582,10 @@ Deno.serve(async (req) => {
       status: action,
       reviewer_user_id: user.id,
       reviewer_notes: reviewer_notes || null,
+      // H1/H5: the reviewer's text the CUSTOMER sees (website order / plan
+      // page), written only on a staff Reject or Needs clarification; every
+      // other action leaves the column untouched (undefined is dropped).
+      customer_message: (action === "rejected" || action === "needs_clarification") ? (reviewer_notes || null) : undefined,
       updated_at: new Date().toISOString(),
     };
 
@@ -1768,12 +1789,42 @@ Deno.serve(async (req) => {
       old_value_json: { status: submission.status },
     });
 
+    // Which customer email a Reject / Needs clarification sends (H5, spec §5
+    // B and C) — one decision, routeSubmissionEmail, unit-tested in
+    // development/web-order-senders.test.ts. Confirm keeps its own paths.
+    const reviewAction = (action === "confirmed" || action === "rejected" || action === "needs_clarification")
+      ? action as "confirmed" | "rejected" | "needs_clarification"
+      : null;
+
     // A CASH-ORDER submission (web or Hub) rejected by a reviewer: the
     // customer's email, with the reviewer's message (owner 2026-10-05). The
     // block below reads layaway_accounts only, so before this a cash-order
-    // Reject told the customer nothing. Never throws.
-    if (action === "rejected" && submission.cash_order_id) {
-      await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+    // Reject told the customer nothing. A WEB cash order's Needs clarification
+    // sends the website "needs info" email (before H5 it sent nothing); a Hub
+    // cash order's still sends nothing. Never throws.
+    if (reviewAction && reviewAction !== "confirmed" && submission.cash_order_id) {
+      try {
+        let cashIsWeb = false;
+        if (reviewAction === "needs_clarification") {
+          const { data: co } = await supabase
+            .from("cash_orders").select("source_channel").eq("id", submission.cash_order_id).maybeSingle();
+          cashIsWeb = isWebEntity(co as { source_channel?: unknown } | null);
+        }
+        const route = routeSubmissionEmail({ action: reviewAction, isCashOrder: true, isWeb: cashIsWeb });
+        if (route === "cash_rejected") {
+          await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+        } else if (route === "order_needs_info") {
+          await sendOrderUpdateEmail(supabase, {
+            entity: "cash_order",
+            id: String(submission.cash_order_id),
+            variant: "needs_info",
+            message: reviewer_notes ?? null,
+            idempotencyKey: reviewEmailKey("needs_info", String(submission_id), reviewer_notes),
+          });
+        }
+      } catch (cashMailErr) {
+        console.warn("[review-payment-submission] cash-order review email failed (non-blocking):", cashMailErr);
+      }
     }
 
     // Send status-change email to customer (fire-and-forget)
@@ -1837,6 +1888,21 @@ Deno.serve(async (req) => {
         } catch (mailErr) {
           console.warn("[review-payment-submission] layaway-payment-received email failed (non-blocking):", mailErr);
         }
+      } else if (
+        reviewAction && !submission.cash_order_id &&
+        routeSubmissionEmail({ action: reviewAction, isCashOrder: false, isWeb: isWebLayaway }) === "layaway_update"
+      ) {
+        // A WEB layaway's Reject / Needs clarification: the website layaway
+        // update (English only, links to /account/layaway/:id) INSTEAD of the
+        // Hub portal template (spec §5 C). Never throws.
+        const variant = action === "rejected" ? "rejected" : "needs_info";
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway",
+          id: String((acctForEmail as any).id),
+          variant,
+          message: reviewer_notes ?? null,
+          idempotencyKey: reviewEmailKey(variant, String(submission_id), reviewer_notes),
+        });
       } else if (customerEmail) {
         let templateName = "";
         const baseData: Record<string, unknown> = {

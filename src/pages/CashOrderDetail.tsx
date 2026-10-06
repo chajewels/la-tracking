@@ -47,11 +47,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { getProofSignedUrl } from '@/lib/proof-url';
+import { openSafeUrl, safeHttpUrl } from '@/lib/safe-url';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
+import { MarkRefundIssuedDialog, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
@@ -123,6 +125,8 @@ interface CashOrderRow {
   completed_at: string | null;
   cancellation_reason?: string | null;
   cancelled_at?: string | null;
+  /** Web orders: the refund decision recorded at cancel (refund_pending until marked issued). */
+  refund_status?: string | null;
   cancelled_by_user_id?: string | null;
   created_at: string;
   is_trade?: boolean;
@@ -413,8 +417,9 @@ export default function CashOrderDetail() {
   const squarePending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'square' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // While Paidy or a card hold waits for Confirm / Reject, nothing else can be
   // paid or credited on this order (trg_guard_cash_payment_paidy); a card hold
-  // also blocks cancelling (terminate_web_order_atomic card_payment_unresolved —
-  // a Paidy cancel stays allowed). The page points staff to Payments instead of
+  // also blocks cancelling (terminate_web_order_atomic card_payment_unresolved;
+  // Paidy money too since H10, paidy_payment_unresolved — cancel-cash-order
+  // answers "Reject or record the Paidy payment first"). The page points staff to Payments instead of
   // offering buttons the server would refuse (2026-10-04).
   const providerHold = paidyPending ?? squarePending;
   const { data: orderItems } = useCashOrderItems(id);
@@ -468,6 +473,7 @@ export default function CashOrderDetail() {
   // Web orders only: required when money was received (see refundDecisionRequired).
   const [refundStatus, setRefundStatus] = useState<RefundStatus | ''>('');
   const [refundNote, setRefundNote] = useState('');
+  const [refundIssuedOpen, setRefundIssuedOpen] = useState(false);
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -1253,6 +1259,14 @@ export default function CashOrderDetail() {
                     {order.cancellation_reason ? ` — ${order.cancellation_reason}` : ''}
                   </p>
                 )}
+                {canMarkRefundIssued(order) && can('cancel_cash_order') && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-warning">Refund pending — the customer is waiting for her money back.</span>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setRefundIssuedOpen(true)}>
+                      Mark refund issued
+                    </Button>
+                  </div>
+                )}
             </div>
             <div className="shrink-0">
               <span className="sm:hidden"><ProgressRing percent={paidPercent} size={72} strokeWidth={6} label="paid" /></span>
@@ -1783,7 +1797,7 @@ export default function CashOrderDetail() {
                         {!voided && proofByDate.has(p.date_paid) && (
                           <div className="mt-1">
                             <a
-                              href={proofByDate.get(p.date_paid)!.url}
+                              href={safeHttpUrl(proofByDate.get(p.date_paid)!.url) ?? undefined}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[11px] text-primary hover:underline"
@@ -1941,7 +1955,7 @@ export default function CashOrderDetail() {
                                     <span className="text-xs text-card-foreground truncate flex-1" title={sub.proof_url!.split('/').pop()}>
                                       {decodeURIComponent(sub.proof_url!.split('/').pop() || 'proof.pdf').split('?')[0]}
                                     </span>
-                                    <a href={sub.proof_url!} target="_blank" rel="noopener noreferrer"
+                                    <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer"
                                       className="text-[10px] text-primary underline whitespace-nowrap">
                                       View Proof
                                     </a>
@@ -1950,14 +1964,14 @@ export default function CashOrderDetail() {
                                   <>
                                     <button
                                       type="button"
-                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => openSafeUrl(sub.proof_url)}
                                       className="block w-full text-left">
                                       <ProofImage url={sub.proof_url!}
                                         className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => openSafeUrl(sub.proof_url)}
                                       className="text-[10px] text-primary underline inline-flex items-center gap-1">
                                       <ImageIcon className="h-3 w-3" /> View Proof
                                     </button>
@@ -2609,6 +2623,16 @@ export default function CashOrderDetail() {
         </DialogContent>
       </Dialog>
 
+      {order && canMarkRefundIssued(order) && (
+        <MarkRefundIssuedDialog
+          open={refundIssuedOpen}
+          onOpenChange={setRefundIssuedOpen}
+          orderId={order.id}
+          reference={cashOrderRef(order)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+        />
+      )}
+
       {/* Void confirmation */}
       <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
         <DialogContent className="max-w-sm">
@@ -2630,6 +2654,9 @@ export default function CashOrderDetail() {
               placeholder="Why is this payment being voided?"
               className="bg-background border-border"
             />
+            {order?.source_channel === 'web' && (
+              <p className="text-xs text-muted-foreground">The customer is emailed and sees this reason.</p>
+            )}
           </div>
           <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
           <DialogFooter className="gap-2">

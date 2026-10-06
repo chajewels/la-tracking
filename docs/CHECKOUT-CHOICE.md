@@ -90,3 +90,44 @@ cancellation itself (its 「ご利用の確認（未確定）」 email says so).
   `applyPaymentState` skips sources `void` / `review` / `capture` (their caller
   sends it).
 - Test: development/payment-rejected-email.test.ts (CI).
+
+## Payment lifecycle (2026-10-05)
+
+- **Customer switch (C1 exception).** After a REJECTED latest decision the customer may switch
+  method herself, ONCE per rejection (`switch_web_payment_method_by_customer_atomic`; a second
+  try answers `already_switched`). Never while `cash_order_payment_lock` is set, never without a
+  rejection. Staff switching (`change_web_payment_method_atomic`) is unchanged.
+- **latest_decision.** The newest by `updated_at` among submissions whose status is `rejected`,
+  `needs_clarification` or `confirmed`; only its `customer_message` is ever shown to the
+  customer (internal notes never).
+- **Emails sent by the lifecycle:** needs_info, deadline_moved, shipped, details_received,
+  partial payment-received, paid-by-points, method-changed, and the layaway update email
+  (layaway emails stay English only).
+- **Language rule.** `emailLang`: the customer's `customer_lang`, else Japan -> `ja`, else `en`.
+  `ja` subjects read "JA / EN" (both languages in the body); `en` subjects are English only.
+- Tests (CI): method-switch-rules, email-language, payment-method-copy, order-update-email,
+  web-order-senders, latest-decision, notify-shipped, paidy-alignment, qc-safety, proof-safety.
+
+## Every payment cycle reaches her (addendum §9, owner directive 2026-10-06)
+
+Spec `docs/superpowers/specs/2026-10-05-payment-lifecycle-design.md` §9. All sent by the Hub through
+`sendStorefrontEmail`, web only unless stated, never throwing; order emails in her language, layaway
+emails English only.
+
+| # | Moment | Email | Sender | Key |
+|---|---|---|---|---|
+| 1 | She pays by Paidy / card (any filing path) | 「お支払いを受け付けました」; card = 「仮売上（まだ請求されていません）」 + brand •last4 + hold end | `filePaidyAuthorization`, `fileForAttempt` (outcome `filed`) | `payment-submitted-<submission>` |
+| 2 | Web layaway payment reported (her upload / staff) | layaway `details_received` | website `POST /layaway/:id/pay`, submit-payment | `details-received-<submission>` / `payment-submitted-<submission>` |
+| 3 | Web layaway reminder, late fee, fee reinstated, fee waived, payment voided | layaway `reminder` / `penalty` / `penalty_reinstated` / `penalty_waived` / `payment_voided` | send-reminders, penalty-engine, approve-waiver, void-payment | unchanged keys |
+| 4 | Web layaway reactivated | layaway `reactivated` (plan open until) | reactivate-account (email block only) | `extension-granted-<plan>` |
+| 5 | Loyalty earned / bonus / level up / restored on a web order or plan | `web-loyalty` (CJ-W reference, website `/loyalty`) | award-loyalty-points | unchanged keys |
+| 6 | Payment voided / restored on a web cash order | 「お支払い記録を取り消しました」 / 「…復元しました」 | void-cash-payment, restore-cash-payment | `payment-voided-<payment>-<voided_at>` |
+| 7 | Points used at checkout | in the ready email (Points used / amount to pay) | — | — |
+| 8 | Refund on a cancelled web order sent | Hub "Mark refund issued" → 「返金が完了しました」 | `mark-refund-issued` → `mark_web_order_refund_issued_atomic` | `refund-issued-<order>` |
+| 9 | Refund made in the Square / Paidy dashboard | 「返金を受け付けました」 | `syncSquareRefund` (COMPLETED), `syncPaidyPayment` (new ledger row) | `refund-received-<provider>-<refund id>` |
+| 10 | Fraud cancel / hold voided by the Hub | order-cancelled with 「お支払いを確認できなかったため」; order-payment-not-accepted (card, provider_ended). Never "fraud"; the website order page shows the same neutral reason (`customerCancellationReason`). | `fraudCancel`, `handleFilingException` | `order-cancelled-<order>` / `card-hold-released-<square id>` |
+| 11, 12 | Card hold expiring, dispute opened | none — staff bell only | — | — |
+| 13 | Store credit issued by hand | 「ストアクレジットを発行しました」 (every customer) | issue-store-credit | `store-credit-issued-<lot>` |
+
+Test (CI): `development/payment-lifecycle-addendum.test.ts` (copy, neutral reason, refund refusal order,
+wiring of every sender, the five dead reserve-first senders gone).

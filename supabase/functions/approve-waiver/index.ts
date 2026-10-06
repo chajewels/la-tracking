@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
 
@@ -221,9 +222,11 @@ Deno.serve(async (req) => {
       .filter((d): d is string => !!d)
       .sort();
     let graceDeadline: string | undefined;
+    let graceDeadlineDay: string | null = null;
     if (penaltyDates.length > 0) {
       const deadline = new Date(`${penaltyDates[0]}T00:00:00Z`);
       deadline.setUTCDate(deadline.getUTCDate() + waiverGraceDays);
+      graceDeadlineDay = deadline.toISOString().slice(0, 10);
       graceDeadline = new Intl.DateTimeFormat("en-GB", {
         day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
       }).format(deadline);
@@ -238,7 +241,14 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if ((acctForEmail as any)?.source_channel === "web") {
+        // Addendum §9 #3: a WEB plan gets the website-style English email.
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(accountId), variant: "penalty_waived",
+          amount: Number(totalWaived), balance: Number(newRemaining), graceEnd: graceDeadlineDay,
+          idempotencyKey: `penalty-waived-${accountId}-${Date.now()}`,
+        });
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "penalty-waived",

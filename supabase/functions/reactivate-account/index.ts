@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { reactivateRefusal } from "../_shared/web-order-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
@@ -25,6 +26,11 @@ const corsHeaders = {
  * stays forfeited — and staff get a 409 naming the piece. Every guard, the
  * penalty-engine call, the audit row, the extension-granted email and the
  * loyalty restore are unchanged and in the same order.
+ *
+ * OWNER-APPROVED CHANGE 2026-10-06 (payment lifecycle addendum §9 #4) — EMAIL
+ * ONLY: on a WEB plan the extension-granted portal email is replaced by the
+ * website-style English "Your plan has been reactivated" email (same key).
+ * No guard, action, order or value of the reactivation changed.
  *
  * GUARDS (all enforced server-side):
  *   - Account MUST be in 'forfeited' status
@@ -283,7 +289,17 @@ Deno.serve(async (req) => {
         .single();
       const customerEmail = (acctForEmail as any)?.customers?.email;
       const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
+      if ((acctForEmail as any)?.source_channel === "web") {
+        // Addendum §9 #4 (owner-approved email change 2026-10-06 — the
+        // reactivation logic above is untouched): a WEB plan gets the
+        // website-style English "reactivated" email; same key.
+        await sendOrderUpdateEmail(supabase, {
+          entity: "layaway", id: String(account_id), variant: "reactivated",
+          planOpenUntil: extensionEndDate,
+          balance: Number((acctForEmail as any)?.remaining_balance ?? 0),
+          idempotencyKey: `extension-granted-${account_id}`,
+        });
+      } else if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
         const result = await sendTemplateEmail(
           "extension-granted",

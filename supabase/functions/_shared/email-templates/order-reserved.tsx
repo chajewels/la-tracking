@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
 import type { Lang } from '../storefront-email.ts'
-import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency } from './order-shared.tsx'
+import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, type PayMethod, subjectFor } from './order-shared.tsx'
 
 /**
  * RESERVE-FIRST (A2). Sent by the `website` function when /checkout/pay
@@ -32,10 +32,15 @@ export interface OrderReservedProps {
   provisional?: boolean
   /** Points the customer chose at checkout (held until staff confirm), order currency. Absent/0 = none. */
   pointsApplied?: number
+  /**
+   * The method she chose at checkout (payment lifecycle H3). Absent = transfer.
+   * Paidy / card never read "bank details will follow".
+   */
+  method?: PayMethod
 }
 
-export const orderReservedSubject = (reference: string) =>
-  `ご注文を承りました ${reference} / We have your Cha Jewels order ${reference}`
+export const orderReservedSubject = (reference: string, lang: Lang) =>
+  subjectFor(lang, `ご注文を承りました ${reference}`, `We have your Cha Jewels order ${reference}`)
 
 const COPY = {
   ja: {
@@ -54,8 +59,28 @@ const COPY = {
   },
 } as const
 
+/** Paidy / card: what happens after staff confirm, with no bank words. */
+const OTHER_COPY = {
+  ja: {
+    next: {
+      paidy: '確認が取れ次第、メールでお知らせします。その後、ご注文ページの「ペイディで支払う」からお支払いいただけます。',
+      card: '確認が取れ次第、メールでお知らせします。その後、ご注文ページの「カードで支払う」からお支払いいただけます。',
+    },
+    nothingYet: '現時点でお支払いの必要はございません。',
+  },
+  en: {
+    next: {
+      paidy: 'As soon as it is confirmed we will email you, and you can then pay with Paidy from your order page.',
+      card: 'As soon as it is confirmed we will email you, and you can then pay by card from your order page.',
+    },
+    nothingYet: 'There is nothing to pay yet.',
+  },
+} as const
+
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primary: boolean }) => {
-  const c = COPY[lang]
+  const base = COPY[lang]
+  const other = p.method === 'paidy' || p.method === 'card' ? p.method : null
+  const c = other ? { ...base, next: OTHER_COPY[lang].next[other], nothingYet: OTHER_COPY[lang].nothingYet } : base
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
@@ -76,7 +101,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primar
 export const OrderReservedEmail = (p: OrderReservedProps) => (
   <Html lang={p.lang} dir="ltr">
     <Head />
-    <Preview>{orderReservedSubject(p.reference)}</Preview>
+    <Preview>{orderReservedSubject(p.reference, p.lang)}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={headerBar}>

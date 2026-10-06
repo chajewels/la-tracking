@@ -54,6 +54,7 @@ import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError } from '@/lib/portal-session';
 import { portalAuthBody } from '@/lib/portal-auth';
+import { safeHttpUrl } from '@/lib/safe-url';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -3104,7 +3105,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
               </div>
 
               {sub.proof_url && (
-                <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 hover:underline"
                   style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
                   <ImageIcon className="h-3 w-3" /> View proof of payment
@@ -3215,7 +3216,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
                           onError={() => setEditProofCurrentBroken(true)}
                         />
                       )}
-                      <a href={editProofCurrent} target="_blank" rel="noopener noreferrer"
+                      <a href={safeHttpUrl(editProofCurrent) ?? undefined} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1.5 hover:underline"
                         style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
                         <ImageIcon className="h-3 w-3" /> {editProofCurrentBroken ? 'View current proof' : 'View full size'} — or upload new below

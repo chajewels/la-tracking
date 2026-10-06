@@ -7,6 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { isOwnProofUrl } from '@/lib/safe-url';
+
+// QC P1-1 (2026-10-06): a row's own proof must be a file already in our
+// payment-proofs bucket (the link the Hub's own uploads produce), never an
+// outside link — proofs are opened from the review screens.
+const PROOF_URL_RULE = 'proof_url must be a Cha Jewels payment-proofs link (upload the image first)';
 
 /**
  * BULK PAYMENT IMPORT (rebuilt 2026-10-01, owner-approved plan).
@@ -19,7 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
  *
  * PROOF. The "proof required" rule applies here too. One proof image covers
  * the batch; a row may carry its own in the optional 6th CSV column
- * (proof_url, an https link to an already-uploaded image). Import is
+ * (proof_url, a link to an image already in our payment-proofs bucket). Import is
  * disabled until every row to import has a proof from one of the two.
  *
  * NOT here: the 3-per-24h submission cap (owner decision D-1 — the caller is
@@ -142,7 +148,7 @@ export default function BulkPaymentImport() {
           errs.push(`Amount ${amt} exceeds remaining balance ${acct.remaining_balance}`);
         if (!r.date_paid || !/^\d{4}-\d{2}-\d{2}$/.test(r.date_paid))
           errs.push('Date must be YYYY-MM-DD format');
-        if (r.proof_url && !/^https:\/\//.test(r.proof_url)) errs.push('proof_url must be an https link');
+        if (r.proof_url && !isOwnProofUrl(r.proof_url)) errs.push(PROOF_URL_RULE);
         return {
           ...r,
           status: errs.length === 0 ? 'valid' as const : 'error' as const,
@@ -179,7 +185,7 @@ export default function BulkPaymentImport() {
       errs.push(`Amount exceeds remaining balance`);
     if (!row.date_paid || !/^\d{4}-\d{2}-\d{2}$/.test(row.date_paid))
       errs.push('Date must be YYYY-MM-DD');
-    if (row.proof_url && !/^https:\/\//.test(row.proof_url)) errs.push('proof_url must be an https link');
+    if (row.proof_url && !isOwnProofUrl(row.proof_url)) errs.push(PROOF_URL_RULE);
     setValidated(prev => prev.map((r, i) => i === idx
       ? { ...r, status: errs.length === 0 ? 'valid' : 'error', errors: errs, accountId: acct?.id, currency: acct?.currency }
       : r));

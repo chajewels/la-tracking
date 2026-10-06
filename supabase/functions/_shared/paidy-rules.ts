@@ -4,9 +4,12 @@
  * the edge functions do (src/test/paidy-rules.test.ts). docs/PAIDY.md.
  *
  * Owner decisions (claude/paidy-build-plan-2026-10-03): P1 Paidy is offered
- * only on a confirmed order and captured on reviewer Confirm; P5 only for a
- * Japanese delivery address, yen only; PD1 a Paidy submission carries no
- * proof file; PD4 an authorisation older than 30 days cannot be captured.
+ * only on a confirmed order; staff capture it in the Paidy merchant dashboard
+ * and the Hub records what Paidy reports (owner 2026-10-04 — the Hub never
+ * captures); P5 only for a Japanese delivery address, yen only; PD1 a Paidy
+ * submission carries no proof file; PD4 an authorisation past Paidy's
+ * `expires_at` cannot be captured (Paidy's docs give no fixed length; 30 days
+ * after authorisation is only the fallback when `expires_at` is missing).
  */
 
 export type PaidyMode = "off" | "test" | "on";
@@ -114,6 +117,10 @@ export function paidyYen(raw: unknown): number | null {
   return Number.isFinite(n) && Number.isInteger(n) && n > 0 && n <= 99_999_999 ? n : null;
 }
 
+/**
+ * FALLBACK ONLY: Paidy's `expires_at` is the authority (paidyExpiryTime);
+ * Paidy's developer docs state no fixed authorisation length.
+ */
 export const PAIDY_AUTH_DAYS = 30;
 
 /** PD4: an authorisation Paidy no longer honours. `authorizedAt` ISO; `now` for tests. */
@@ -246,6 +253,79 @@ export function paidyBuyerHistory(orders: PaidyHistoryOrder[], now: Date = new D
 }
 
 /**
+ * H9 / P2-3 (2026-10-06): the customer's layaway plans as history rows for
+ * paidyBuyerHistory. Paidy's ltv / order_count / last_order_* cover every
+ * order she made at the store, so a COMPLETED yen plan counts like a completed
+ * cash order; paidyBuyerHistory keeps only status 'completed' + JPY, so a
+ * forfeited / cancelled / final_* plan never counts. Value = total_amount (the
+ * plan's obligation); date = completed_at, else order_date. Paidy never pays a
+ * layaway, so a plan is never Paidy-paid; layaway has no refund record.
+ */
+export function paidyHistoryFromLayaway(rows: {
+  status?: unknown; currency?: unknown; total_amount?: unknown; completed_at?: unknown; order_date?: unknown;
+}[]): PaidyHistoryOrder[] {
+  return rows.map((r) => ({
+    status: r.status, currency: r.currency, total_amount: r.total_amount,
+    completed_at: r.completed_at, order_date: r.order_date,
+    paid_by_paidy: false, refunded: false,
+  }));
+}
+
+/**
+ * H9 / P2-2: the customer's own address from her `customers` row. That table
+ * has address_line1, city, postal_code, country and NO line2 / prefecture
+ * column, so region is null here — never guessed from city.
+ */
+export function paidyCustomerRecordAddress(c: {
+  address_line1?: unknown; city?: unknown; postal_code?: unknown; country?: unknown;
+} | null | undefined): PaidyAddress | null {
+  if (!c) return null;
+  const s = (v: unknown) => (v == null ? null : String(v));
+  return { line1: s(c.address_line1), line2: null, city: s(c.city), region: null, postal_code: s(c.postal_code), country: s(c.country) };
+}
+
+/**
+ * H9 / P2-2: Paidy marks buyer_data.billing_address REQUIRED ("Consumer's
+ * billing address (i.e., residence)"). Her default address-book entry when it
+ * is a complete Japanese address, else her own customer record when THAT is
+ * complete, else nothing (omitted, as before) with a reason code that carries
+ * no address text. Never the order's ship-to / gift recipient (R11).
+ */
+export function paidyBillingAddress(
+  defaultEntry: PaidyAddress | null | undefined,
+  customerRecord: PaidyAddress | null | undefined,
+): { address?: ReturnType<typeof paidyAddressLines>; source: "address_book" | "customer_record" | null; reason?: string } {
+  if (paidyAddressComplete(defaultEntry)) return { address: paidyAddressLines(defaultEntry), source: "address_book" };
+  if (paidyAddressComplete(customerRecord)) return { address: paidyAddressLines(customerRecord), source: "customer_record" };
+  return { source: null, reason: "no_complete_jp_billing_address" };
+}
+
+/** H9 / P2-4: buyer.dob "YYYY-MM-DD" (Paidy Checkout) from customers.birthday; a real calendar date or undefined. */
+export function paidyDob(raw: unknown): string | undefined {
+  const s = typeof raw === "string" ? raw.trim().slice(0, 10) : "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return undefined;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3])
+    ? s : undefined;
+}
+
+/**
+ * H9 / P2-5: buyer_data.number_of_points — "points the consumer has
+ * accumulated (prior to this order)". Paidy is offered only after staff
+ * Confirm, and Confirm approves the checkout redemption, which already took
+ * those points off loyalty_members.remaining_points. So the points spent on
+ * THIS order (1 pt = ¥1, cash_order_points_paid) are added back. No member
+ * row → undefined (omitted).
+ */
+export function paidyPointsBeforeOrder(member: { remaining_points?: unknown } | null | undefined, spentOnThisOrder: unknown): number | undefined {
+  if (!member) return undefined;
+  const held = Math.max(0, Math.floor(Number(member.remaining_points ?? 0) || 0));
+  const spent = Math.max(0, Math.floor(Number(spentOnThisOrder ?? 0) || 0));
+  return held + spent;
+}
+
+/**
  * R13: a Japanese mobile number for Paidy's SMS prefill (070/080/090 + 8
  * digits; +81 accepted), or null — then Paidy Checkout asks for it. Only the
  * BUYER's own number is ever passed, never the delivery recipient's.
@@ -258,10 +338,11 @@ export function paidyJapaneseMobile(raw: unknown): string | null {
 }
 
 /**
- * R13: Paidy's address lines. Paidy Checkout's example puts the building /
- * room in line1 and the street number in line2; the Hub stores 住所1 (番地まで)
- * in line1 and 住所2 (建物名・部屋番号) in line2, so they are swapped here.
- * Owner to confirm the mapping with Paidy (docs/PAIDY.md "Follow-up").
+ * R13: Paidy's address lines. Paidy Checkout's field definitions: line1 =
+ * "building name, apartment number", line2 = "district, land number, land
+ * number extension" (paidy.com/docs/en/paidycheckout.html). The Hub stores
+ * 住所1 (番地まで) in line1 and 住所2 (建物名・部屋番号) in line2, so they are
+ * swapped here.
  */
 export function paidyAddressLines(a: PaidyAddress | null | undefined): { line1?: string; line2?: string; city?: string; state?: string; zip: string } {
   const street = String(a?.line1 ?? "").trim(), building = String(a?.line2 ?? "").trim();
@@ -279,8 +360,9 @@ export interface PaidyItem { id: string; quantity: number; title: string; unit_p
 /**
  * R10: ONE charge breakdown. Paidy is offered only when nothing has been paid
  * (owner D2), so the amount is the whole order: Σ item lines + shipping −
- * discount must equal it. A discount is a negative-price line (Paidy accepts
- * negative unit_price for discounts — owner to confirm, docs/PAIDY.md); a
+ * discount must equal it. A discount is a negative-price line (Paidy Checkout:
+ * "If the order item is a discount or coupon, set the unit_price to a negative
+ * value"); a
  * difference the lines do not explain (a staff-added fee) is an explicit
  * "Other charges" line; an order with no item lines is one line named after
  * the order. Returns null when the figures are not whole yen or cannot add up.
@@ -390,4 +472,104 @@ export function paidyAmountMatches(paidyAmount: unknown, remainingBalance: unkno
  */
 export function normalizePaidyStatus(raw: unknown): string {
   return String(raw ?? "").trim().toUpperCase();
+}
+
+/**
+ * H9 (2026-10-06): the Paidy Checkout payload (`Paidy.launch()`), built from
+ * figures the caller already computed. Field names and formats follow
+ * paidy.com/docs/en/paidycheckout.html:
+ *   - order.tax is OPTIONAL and omitted (prices are tax-inclusive; sending 0
+ *     under-reported it, P3-1);
+ *   - metadata (max 20 keys) carries the Hub ids for dashboard ↔ Hub matching
+ *     (P3-2);
+ *   - buyer.dob YYYY-MM-DD and buyer_data.number_of_points only when known.
+ * Undefined fields vanish when the storefront serialises the payload.
+ */
+export function paidyCheckoutPayload(a: {
+  amount: number; orderRef: string; cashOrderId: string; customerId: string; userId: string;
+  email?: string; name1: string; phone?: string; dob?: string;
+  history: ReturnType<typeof paidyBuyerHistory>; registered?: string;
+  billing?: ReturnType<typeof paidyAddressLines>; numberOfPoints?: number;
+  items: PaidyItem[]; shipping: number; shippingAddress: ReturnType<typeof paidyAddressLines>;
+}) {
+  return {
+    amount: a.amount,
+    currency: "JPY" as const,
+    store_name: "Cha Jewels",
+    description: a.orderRef,
+    buyer: {
+      email: a.email,
+      name1: a.name1,
+      phone: a.phone,
+      dob: a.dob,
+    },
+    buyer_data: {
+      user_id: a.userId,
+      ltv: a.history.ltv,
+      order_count: a.history.order_count,
+      last_order_amount: a.history.last_order_amount,
+      last_order_at: a.history.last_order_at,
+      account_registration_date: a.registered,
+      billing_address: a.billing,
+      number_of_points: a.numberOfPoints,
+    },
+    order: {
+      items: a.items,
+      order_ref: a.orderRef,
+      shipping: a.shipping,
+    },
+    shipping_address: a.shippingAddress,
+    metadata: { cash_order_id: a.cashOrderId, customer_id: a.customerId, source: "web" },
+  };
+}
+
+/**
+ * H9 / P2-6: the IPs Paidy sends webhooks from, as published at
+ * https://paidy.com/docs/en/webhook.html ("Paidy sends webhook notifications
+ * from the following IP addresses"). Change ONLY when Paidy's page changes.
+ *
+ * SOFT GATE (controller ruling R14, 2026-10-06): the source never decides
+ * whether a delivery is processed — every one is stored and re-read from
+ * Paidy. It only decides whether an id Paidy does not know may open a
+ * `provider_unreadable` case + staff bell. The PAIDY_WEBHOOK_IP_CHECK=off
+ * edge secret treats every source as recognised (docs/PAIDY.md).
+ */
+export const PAIDY_WEBHOOK_IPS: readonly string[] = [
+  "13.114.134.35",
+  "13.113.94.100",
+  "18.182.135.232",
+  "52.199.50.20",
+  "52.199.62.26",
+];
+
+/**
+ * The address that connected: `cf-connecting-ip` when present, else the LAST
+ * x-forwarded-for entry (the one the platform adds; earlier entries are
+ * client-supplied). null when neither is there.
+ */
+export function paidyWebhookSourceIp(headers: { get(name: string): string | null }): string | null {
+  const cf = String(headers.get("cf-connecting-ip") ?? "").trim();
+  if (cf) return cf;
+  const entries = String(headers.get("x-forwarded-for") ?? "").split(",").map((e) => e.trim()).filter(Boolean);
+  return entries.length ? entries[entries.length - 1] : null;
+}
+
+/** True only for one of Paidy's published IPs. Missing / empty → false. */
+export function isPaidyWebhookIp(ip: string | null | undefined): boolean {
+  const v = String(ip ?? "").trim();
+  return v !== "" && PAIDY_WEBHOOK_IPS.includes(v);
+}
+
+/** The check is on unless the env value is exactly "off". */
+export function paidyWebhookIpCheckOn(envValue: string | null | undefined): boolean {
+  return envValue !== "off";
+}
+
+/**
+ * H9 / P3-5: the capture deadline in the staff bell — Paidy's own `expires_at`
+ * as a Japan date; the old "valid 30 days" only when Paidy did not send it.
+ */
+export function paidyCaptureDeadlineText(expiresAt: unknown): string {
+  const t = typeof expiresAt === "string" ? Date.parse(expiresAt) : NaN;
+  return Number.isFinite(t) ? `capture by ${paidyJapanDate(new Date(t))} JST` : "valid 30 days";
 }

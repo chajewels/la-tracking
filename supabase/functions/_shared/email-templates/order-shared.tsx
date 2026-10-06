@@ -38,6 +38,8 @@ export const WORDS = {
   total: { ja: '合計', en: 'Total' },
   points: { ja: 'ポイント利用', en: 'Points used' },
   amountDue: { ja: 'お支払い金額', en: 'Amount to pay' },
+  /** The after-points total on a RECEIVED email, where nothing is "to pay" (H3 fix). */
+  totalAfterPoints: { ja: 'ポイント利用後のご注文金額', en: 'Order total after points' },
   reference: { ja: 'ご注文番号', en: 'Order reference' },
   bankName: { ja: '銀行名', en: 'Bank' },
   branch: { ja: '支店名', en: 'Branch' },
@@ -51,10 +53,23 @@ export const WORDS = {
   walletNumber: { ja: '送金先番号', en: 'Account / number' },
   walletName: { ja: '登録名義', en: 'Registered name' },
   nameNotice: { ja: '振込名義はご注文者名でお願いします。', en: 'Please transfer under the name on the order.' },
-  viewOrder: { ja: 'ご注文を確認する', en: 'View your order' },
+  viewOrder: { ja: 'ご注文ページを見る', en: 'View your order' },
   footer: { ja: `${COMPANY_NAME} · 東京都葛飾区立石`, en: `${COMPANY_NAME} · Tateishi, Katsushika, Tokyo` },
   help: { ja: 'ご不明な点は、このメールにご返信ください。', en: 'Questions? Reply to this email.' },
 } as const
+
+/** What a payment method is called in an order email (stored 'square' is 'card'). */
+export type PayMethod = 'transfer' | 'paidy' | 'card'
+export const METHOD_NAME = {
+  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
+  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card' },
+} as const
+
+/**
+ * An order email's subject (payment lifecycle H2): a Japanese email carries
+ * "Japanese / English"; an English one is English only.
+ */
+export const subjectFor = (lang: Lang, ja: string, en: string): string => (lang === 'ja' ? `${ja} / ${en}` : en)
 
 export const itemTitle = (i: OrderEmailItem, lang: Lang) => (lang === 'ja' && i.title_ja ? i.title_ja : i.title)
 
@@ -110,9 +125,10 @@ export type OrderCurrency = 'JPY' | 'PHP'
 /**
  * pointsApplied (2026-10-05): points used at checkout, already taken off, in
  * the order's currency. > 0 adds "Points used −¥N" and "Amount to pay" under
- * the total. Absent / 0 = the table exactly as before.
+ * the total. Absent / 0 = the table exactly as before. `afterPointsLabel`
+ * replaces "Amount to pay" on emails where the money has already arrived.
  */
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number }) => (
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, afterPointsLabel }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; afterPointsLabel?: { ja: string; en: string } }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
@@ -126,7 +142,7 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, point
     {pointsApplied !== undefined && pointsApplied > 0 && (
       <>
         <Row k={WORDS.points[lang]} v={`−${orderMoney(pointsApplied, currency)}`} />
-        <Row k={WORDS.amountDue[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
+        <Row k={(afterPointsLabel ?? WORDS.amountDue)[lang]} v={orderMoney(totalJpy - pointsApplied, currency)} emphasis />
       </>
     )}
   </Panel>

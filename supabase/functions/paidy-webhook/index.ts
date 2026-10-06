@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { processPaidyEvent } from "../_shared/paidy-events.ts";
 import { isPaidyPaymentId } from "../_shared/paidy.ts";
+import { isPaidyWebhookIp, paidyWebhookIpCheckOn, paidyWebhookSourceIp } from "../_shared/paidy-rules.ts";
 
 /**
  * Paidy webhook receiver (docs/PAIDY.md). PUBLIC endpoint (verify_jwt =
@@ -20,6 +21,16 @@ import { isPaidyPaymentId } from "../_shared/paidy.ts";
  *      automatically (owner: staff capture in the Paidy dashboard).
  *   4. A Paidy credential/configuration failure is answered 5xx (Paidy
  *      retries); an id Paidy does not know becomes a durable case.
+ *
+ * H9 (2026-10-06): SOFT SOURCE CHECK (controller ruling R14). Every delivery
+ * is processed exactly as before — a dropped real webhook would be
+ * unrecoverable for an authorisation the Hub does not know (P12). The source
+ * (cf-connecting-ip, else the LAST x-forwarded-for entry) is compared with
+ * Paidy's 5 published IPs (https://paidy.com/docs/en/webhook.html;
+ * PAIDY_WEBHOOK_IPS) and decides ONE thing: whether an id Paidy does not know
+ * may open a provider_unreadable case + staff bell. Unrecognised → no case, no
+ * bell, a warning with the IP only. Edge secret PAIDY_WEBHOOK_IP_CHECK=off
+ * treats every source as recognised.
  */
 const PROCESS_DEADLINE_MS = 8000;
 
@@ -27,6 +38,9 @@ Deno.serve(async (req) => {
   const pre = corsPreflight(req);
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  const sourceIp = paidyWebhookSourceIp(req.headers);
+  const recognisedSource = !paidyWebhookIpCheckOn(Deno.env.get("PAIDY_WEBHOOK_IP_CHECK")) || isPaidyWebhookIp(sourceIp);
+  if (!recognisedSource) console.warn("[paidy-webhook] unrecognised source", sourceIp);
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad_json" }, 400); }
@@ -44,7 +58,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "inbox_unavailable" }, 500);
   }
 
-  const work = processPaidyEvent(supabase, String(inbox.id), id, event, "webhook");
+  const work = processPaidyEvent(supabase, String(inbox.id), id, event, "webhook", 0, { recognisedSource });
   const timeout = new Promise<"deadline">((resolve) => setTimeout(() => resolve("deadline"), PROCESS_DEADLINE_MS));
   const result = await Promise.race([work, timeout]);
   if (result === "deadline") {
