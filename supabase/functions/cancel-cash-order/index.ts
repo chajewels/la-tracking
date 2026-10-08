@@ -106,14 +106,38 @@ Deno.serve(async (req) => {
     // Paidy authorisation first (read back from Paidy; captured money refuses
     // the cancel). Only when the order is actually locked by Paidy; a preview
     // writes nothing and only says that the authorisation would be closed.
+    // Reassessment P08: a lock that cannot be read stops the cancel; a Paidy
+    // window still open or a capture not yet recorded refuses it (preview and
+    // real alike, so the preview never promises what the cancel will refuse);
+    // the order's own eligibility is checked BEFORE anything is closed at Paidy.
     let paidyClosed = 0;
     if (isWeb) {
-      const { data: lock } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cash_order_id });
+      const { data: lock, error: lockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cash_order_id });
+      if (lockErr) {
+        console.error("[cancel-cash-order] payment lock read failed:", lockErr);
+        return json({ ok: false, error: "Could not check this order's payment state, so it was not cancelled. Try again.", code: "payment_state_unknown" }, 503);
+      }
       const lockReason = typeof lock === "string" ? lock : null;
+      if (lockReason === "paidy_checkout_open") {
+        return json({ ok: false, error: "The customer has the Paidy payment window open right now. Wait until it finishes (or the hourly check settles it), then cancel.", code: lockReason }, 409);
+      }
+      if (lockReason === "paidy_captured_unrecorded") {
+        return json({ ok: false, error: "Paidy has already taken money on this order that the Hub has not recorded yet. Record it first (Payment Submissions); a refund is then made in the Paidy dashboard.", code: lockReason }, 409);
+      }
       if (lockReason === "paidy_submission_pending" || lockReason === "paidy_authorized") {
         if (preview) {
           paidyClosed = -1;
         } else {
+          const { data: pre, error: preErr } = await supabase.rpc("terminate_web_order_atomic", {
+            p_order_id: cash_order_id, p_outcome: "cancelled", p_reason: reason || null,
+            p_user_id: user.id, p_user_email: user.email ?? null,
+            p_refund_status: refundStatus, p_refund_note: refundNote, p_source: "staff", p_preview: true,
+          });
+          if (preErr) return json({ error: preErr.message ?? "cancel failed", code: String(preErr.message ?? "").split(":")[0] }, 400);
+          if ((pre as any)?.ok === false) {
+            const r = (pre as any).reason ?? "not_cancellable";
+            return json({ ...(pre as any), error: terminateRefusalMessage(r) ?? r, code: r }, 409);
+          }
           const rel = await releasePaidyForCancel(supabase, cash_order_id, user.id);
           if (!rel.ok) return json({ ok: false, error: rel.message, code: rel.code }, rel.code === "paidy_already_captured" ? 409 : 502);
           paidyClosed = rel.closed;

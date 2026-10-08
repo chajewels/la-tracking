@@ -145,29 +145,52 @@ export async function syncPaidyPayment(
   must(ledgerErr, "paidy_refunds total read");
   const refundTotal = ((ledger ?? []) as AnyRec[]).reduce((s, r) => s + (Number(r.amount_jpy) || 0), 0);
 
-  const update: AnyRec = { last_payload: payment, updated_at: now, last_checked_at: now, check_failures: 0, refund_jpy: refundTotal };
-  if (source === "webhook") update.last_webhook_at = now;
-  if (payment.expires_at) update.expires_at = payment.expires_at;
+  // P02 (reassessment 2026-10-06): two passes for the same payment can overlap
+  // (webhook + sweep, or two deliveries). Each write below is a compare-and-set
+  // on the DATABASE row, never on the caller's cached copy, so an older answer
+  // arriving late can never undo a newer financial fact:
+  //   - a capture is terminal: nothing after it moves the status off 'captured';
+  //   - closed / rejected / expired only ever replace 'authorized';
+  //   - the refund total only ever grows (ledger rows are never deleted);
+  //   - a non-capture answer never overwrites a captured row's snapshot.
+  const touch: AnyRec = { updated_at: now, last_checked_at: now, check_failures: 0 };
+  if (source === "webhook") touch.last_webhook_at = now;
   let statusAfter = String(row.status);
   if (outcome === "captured") {
     const latest = paidyLatestCapture(payment);
-    statusAfter = "captured";
-    update.status = "captured";
-    update.capture_id = latest?.id ?? row.capture_id ?? null;
-    update.captured_at = latest?.created_at ?? row.captured_at ?? now;
-  } else if ((outcome === "closed" || outcome === "rejected" || outcome === "expired") && row.status === "authorized") {
-    statusAfter = outcome;
-    update.status = outcome;
-    update.closed_at = now;
-    update.closed_reason = `${source}: ${event || String(payment.status)}${outcome === "expired" ? " (past expires_at)" : ""}`;
+    const capUpd: AnyRec = { ...touch, last_payload: payment, status: "captured",
+      captured_at: latest?.created_at ?? row.captured_at ?? now };
+    if (latest?.id) capUpd.capture_id = latest.id;
+    if (payment.expires_at) capUpd.expires_at = payment.expires_at;
+    const { error: capErr } = await supabase.from("paidy_payments").update(capUpd).eq("id", row.id);
+    must(capErr, "paidy_payments capture update");
+  } else {
+    const meta: AnyRec = { ...touch, last_payload: payment };
+    if (payment.expires_at) meta.expires_at = payment.expires_at;
+    const { error: metaErr } = await supabase.from("paidy_payments").update(meta).eq("id", row.id).neq("status", "captured");
+    must(metaErr, "paidy_payments update");
+    if (outcome === "closed" || outcome === "rejected" || outcome === "expired") {
+      const { error: endErr } = await supabase.from("paidy_payments").update({
+        status: outcome, closed_at: now,
+        closed_reason: `${source}: ${event || String(payment.status)}${outcome === "expired" ? " (past expires_at)" : ""}`,
+      }).eq("id", row.id).eq("status", "authorized");
+      must(endErr, "paidy_payments status update");
+    }
   }
-  const { error: updErr } = await supabase.from("paidy_payments").update(update).eq("id", row.id);
-  must(updErr, "paidy_payments update");
+  const { error: refErr } = await supabase.from("paidy_payments").update({ refund_jpy: refundTotal })
+    .eq("id", row.id).or(`refund_jpy.is.null,refund_jpy.lt.${refundTotal}`);
+  must(refErr, "paidy_payments refund total");
+  // What the row says NOW (after any concurrent pass) decides what follows.
+  const { data: nowRow, error: nowErr } = await supabase.from("paidy_payments").select("status").eq("id", row.id).maybeSingle();
+  must(nowErr, "paidy_payments re-read");
+  statusAfter = String((nowRow as AnyRec | null)?.status ?? statusAfter);
 
   // 3. Paidy will never pay this one (closed / rejected / expired, nothing
   //    captured): every still-QUEUED submission is rejected — whatever the
   //    Hub's status was before (R05), so a retry finishes a half-done pass.
-  if (outcome === "closed" || outcome === "rejected" || outcome === "expired") {
+  // P02: never when the row is captured — an older "closed" arriving late must
+  // not reject the submission that records money Paidy took.
+  if ((outcome === "closed" || outcome === "rejected" || outcome === "expired") && statusAfter !== "captured") {
     let rejected = 0;
     for (const sub of subs.filter((s) => s.status === "submitted" || s.status === "under_review")) {
       const { data: flipped, error: rejErr } = await supabase.from("payment_submissions").update({
