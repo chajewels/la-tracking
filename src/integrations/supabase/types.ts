@@ -178,6 +178,108 @@ export type Database = {
         }
         Relationships: []
       }
+      card_refund_exceptions: {
+        Row: {
+          amount_jpy: number
+          approval_note: string | null
+          approved_at: string
+          approved_by: string
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          cap_jpy: number
+          card_captured_jpy: number
+          card_refunded_jpy: number
+          cash_order_id: string
+          created_at: string
+          credit_issued_jpy: number
+          customer_request: string | null
+          id: string
+          payout: string
+          recorded_at: string | null
+          recorded_by: string | null
+          square_refund_id: string | null
+          square_support_ticket: string
+          status: string
+          store_credit_lot_id: string | null
+          transfer_date: string | null
+          transfer_reference: string | null
+          trigger_kind: string
+          updated_at: string
+        }
+        Insert: {
+          amount_jpy: number
+          approval_note?: string | null
+          approved_at?: string
+          approved_by: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          cap_jpy: number
+          card_captured_jpy: number
+          card_refunded_jpy: number
+          cash_order_id: string
+          created_at?: string
+          credit_issued_jpy: number
+          customer_request?: string | null
+          id?: string
+          payout: string
+          recorded_at?: string | null
+          recorded_by?: string | null
+          square_refund_id?: string | null
+          square_support_ticket: string
+          status: string
+          store_credit_lot_id?: string | null
+          transfer_date?: string | null
+          transfer_reference?: string | null
+          trigger_kind: string
+          updated_at?: string
+        }
+        Update: {
+          amount_jpy?: number
+          approval_note?: string | null
+          approved_at?: string
+          approved_by?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          cap_jpy?: number
+          card_captured_jpy?: number
+          card_refunded_jpy?: number
+          cash_order_id?: string
+          created_at?: string
+          credit_issued_jpy?: number
+          customer_request?: string | null
+          id?: string
+          payout?: string
+          recorded_at?: string | null
+          recorded_by?: string | null
+          square_refund_id?: string | null
+          square_support_ticket?: string
+          status?: string
+          store_credit_lot_id?: string | null
+          transfer_date?: string | null
+          transfer_reference?: string | null
+          trigger_kind?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "card_refund_exceptions_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_refund_exceptions_store_credit_lot_id_fkey"
+            columns: ["store_credit_lot_id"]
+            isOneToOne: false
+            referencedRelation: "store_credit_lots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cart_reminder_sends: {
         Row: {
           claimed_at: string
@@ -9233,6 +9335,18 @@ export type Database = {
         }
         Returns: Json
       }
+      approve_card_refund_exception_atomic: {
+        Args: {
+          p_amount_jpy: number
+          p_note?: string
+          p_order_id: string
+          p_payout: string
+          p_square_refund_id: string
+          p_ticket: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       approve_redemption_atomic: {
         Args: {
           p_redemption_id: string
@@ -9264,6 +9378,10 @@ export type Database = {
           parent_table: string
           severity: string
         }[]
+      }
+      cancel_card_refund_exception_atomic: {
+        Args: { p_order_id: string; p_reason: string; p_user_id: string }
+        Returns: Json
       }
       cancel_cash_order_atomic: {
         Args: {
@@ -10768,6 +10886,8 @@ export type Database = {
         Args: {
           p_agreement_min_jpy?: number
           p_app_id?: string
+          p_audience?: string
+          p_card_customer_codes?: string[]
           p_expected_mode?: string
           p_location_id?: string
           p_mode: string
@@ -10790,6 +10910,9 @@ export type Database = {
         }
         Returns: Json
       }
+      square_audience: { Args: never; Returns: string }
+      square_card_allowed: { Args: { p_customer_id: string }; Returns: boolean }
+      square_card_customer_ids_json: { Args: never; Returns: Json }
       square_fraud_cancel: {
         Args: { p_detail: Json; p_order_id: string; p_trigger: string }
         Returns: Json
