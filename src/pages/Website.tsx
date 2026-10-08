@@ -27,6 +27,7 @@ import { HeroCutoutsCard } from "@/components/website/HeroCutoutsCard";
 import { ReviewsCard } from "@/components/website/ReviewsCard";
 import PaymentMethodsTab from "@/components/settings/PaymentMethodsTab";
 import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard";
+import { StaffBellEmailsCard } from "@/components/settings/StaffBellEmailsCard";
 import { PaidySettingsCard } from "@/components/settings/PaidySettingsCard";
 import { SquareSettingsCard } from "@/components/settings/SquareSettingsCard";
 import { SquareOperationsPanel } from "@/components/website/SquareOperationsPanel";
@@ -234,6 +235,13 @@ export default function Website() {
               {isAdmin && (
                 <section id={WEBSITE_SETTINGS_SECTIONS.paymentReminders} className="scroll-mt-20">
                   <PaymentRemindersCard />
+                </section>
+              )}
+              {/* Admin only (V11b, 2026-10-08): which Hub bells are also emailed
+                  to Brenda + admins. set_staff_bell_emails re-checks the role. */}
+              {isAdmin && (
+                <section className="scroll-mt-20">
+                  <StaffBellEmailsCard />
                 </section>
               )}
               {/* Admin only (Paidy, 2026-10-03): the ato-barai switch and the

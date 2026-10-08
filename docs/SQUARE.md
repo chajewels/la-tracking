@@ -497,3 +497,49 @@ two-session race `development/sql/square-r05-race.sh` (local copy only); deno
   refund on the same order is a new `square_refunds` row, not a change to the marker. A "remaining to
   refund" figure can be added if the owner asks; a FAILED / REJECTED Square refund stays a staff case
   (card money is never repaid by another method, S04/B01 rule).
+
+## Sign-off decisions, staff bell emails and the bounce bell (2026-10-08, third release)
+
+Live card tests C (refund → R05 refusal → Refund pending → Mark refund issued), D (credit first, refund
+later → `card_refund_after_credit`, credit untouched) and E (dispute accepted → decision recorded) passed
+on 2026-10-08 (project doc `claude/square-reassessment-response-2026-10-08.md`). Owner decisions:
+
+- **Cancellation terms (V10):** the customer terms say "order date (Japan time)"; the Hub keeps the PHT day
+  boundary (one hour behind JST), so the Hub is never stricter than the terms — a 00:30 JST cancel of a
+  23:30 JST order still gets 100 %. No code. `order_date` stays editable by an admin (Manage Invoice,
+  audited); the website reads the same column, so an edit shows on the order page and the cancellation
+  rule uses it. The terms text and the checkout "Cancellation policy" link live in the storefront
+  (`cha-jewels-web`, V10d).
+- **Bell owner (V11):** Brenda (Brendalyn Bumagat) is accountable for refund / dispute bells. Bells stay in
+  the Hub for every member; the types below are ALSO emailed to Brenda + every active admin.
+- **Go-live (V08):** only after every open item is closed and QA/QC passes.
+
+### Staff bell emails (V11b) — migration 20261127100000, edge `staff-bell-emails`
+- `system_settings.staff_bell_email_types` (seeded: card_refund_pending, card_dispute_deadline,
+  card_refund_after_credit, refund_email_failed, email_bounced) and `staff_bell_email_recipients`
+  (`{"addresses":["bumagatbrenda@gmail.com"],"roles":["admin"]}`). Changed ONLY via
+  `set_staff_bell_emails` (admin, audited `set_staff_bell_emails`); `trg_guard_staff_bell_emails`
+  refuses every other write. Hub card: Website → Settings → Staff bell emails (admin only; reader
+  `get_staff_bell_emails`).
+- `staff_bell_email_recipients()` = the addresses + the profile email of every ACTIVE user holding a
+  configured role, lower-cased, de-duplicated, max 50 — resolved and FROZEN at bell time by
+  `trg_staff_bell_email_fanout` (AFTER INSERT on staff_notifications) into `staff_bell_emails(bell_id,
+  recipient)`. A broken fan-out never fails the bell (EXCEPTION → WARNING).
+- Sender: `staff-bell-emails` (service role / system_health) claims rows (`claim_staff_bell_emails`, FOR
+  UPDATE SKIP LOCKED, a `sending` row older than 10 min is reclaimable), sends template `staff-bell`
+  (internal, English, links to app.*) with idempotency key `staff-bell-<bell id>-<recipient>` — the same
+  key on a retry, so never twice — and finishes each row (`finish_staff_bell_email`): sent / skipped
+  (recipient suppressed) / retry; 3 attempts then `failed`. Woken by the trigger (`staff_bell_emails_wake`,
+  Vault key, pattern of email_queue_wake) and by cron `staff-bell-emails-sweep` at :16 as the fallback.
+- Never a customer email. Every attempt is in email_send_log like every other send.
+
+### Email bounce bell (V13) — same migration
+- The Hub only ever knows the provider ACCEPTED a send ("sent"). A bounce / complaint comes back through
+  `handle-email-suppression` as an email_send_log row (template `system`, status `bounced` /
+  `complained`) and used to be seen by nobody. `trg_email_bounce_bell` (AFTER INSERT on email_send_log)
+  now rings `email_bounced` for every such row and for a `suppressed` refund email
+  (`order-update-refund%`), at most once per address per hour, naming the emails sent to that address in
+  the last 7 days (template + order reference — storefront senders do not store the provider message id)
+  and the customer when the address matches a customer record. `email_bounced` is on the email list, so
+  Brenda learns the customer did NOT get the refund email.
+- Opens / reads are not knowable and are not claimed anywhere.

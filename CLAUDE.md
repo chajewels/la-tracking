@@ -158,6 +158,13 @@ Reference docs (read the relevant one when a task touches that area):
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
     refund total (never the gross), refusing until one exists.
+  - STAFF BELL EMAILS (V11b, owner 2026-10-08): bells stay in the Hub for every
+    member; the types in system_settings.staff_bell_email_types are ALSO emailed
+    to Brenda + every active admin (staff_bell_email_recipients, frozen at bell
+    time); changed ONLY via set_staff_bell_emails (admin, audited, guard
+    trigger). A provider bounce / complaint, or a suppressed refund email, rings
+    bell email_bounced (V13). Never a customer email. docs/SQUARE.md "Staff bell
+    emails".
   - NO DOUBLE COMPENSATION (R05, owner 2026-10-08): money already refunded
     through Square (any square_refunds row not FAILED/REJECTED) is NEVER issued
     again as store credit — both cancel RPCs refuse (card_already_refunded);
