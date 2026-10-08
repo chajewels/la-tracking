@@ -6962,6 +6962,47 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_bell_emails: {
+        Row: {
+          attempts: number
+          bell_id: string
+          claimed_at: string | null
+          created_at: string
+          last_error: string | null
+          recipient: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          bell_id: string
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          recipient: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          bell_id?: string
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          recipient?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_bell_emails_bell_id_fkey"
+            columns: ["bell_id"]
+            isOneToOne: false
+            referencedRelation: "staff_notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_notification_reads: {
         Row: {
           notification_id: string
@@ -9231,6 +9272,21 @@ export type Database = {
         Args: { p_event_id: string; p_lease_seconds?: number }
         Returns: Json
       }
+      claim_staff_bell_emails: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          bell_created_at: string
+          bell_id: string
+          bell_type: string
+          body: string
+          customer_id: string
+          invoice_number: string
+          metadata: Json
+          recipient: string
+          title: string
+        }[]
+      }
       claim_web_payment_reminder: {
         Args: { p_deadline: string; p_entity_id: string; p_entity_type: string }
         Returns: string
@@ -9606,6 +9662,15 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_staff_bell_email: {
+        Args: {
+          p_bell_id: string
+          p_error?: string
+          p_outcome: string
+          p_recipient: string
+        }
+        Returns: boolean
+      }
       finish_web_payment_reminder: {
         Args: { p_detail: string; p_id: string; p_status: string }
         Returns: undefined
@@ -9732,6 +9797,7 @@ export type Database = {
       }
       get_shipping_rates: { Args: never; Returns: Json }
       get_square_settings: { Args: never; Returns: Json }
+      get_staff_bell_emails: { Args: never; Returns: Json }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
       get_top_outstanding_customers: {
         Args: never
@@ -10594,6 +10660,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_staff_bell_emails: {
+        Args: { p_addresses?: Json; p_roles?: Json; p_types?: Json }
+        Returns: Json
+      }
       set_web_checkout_mode: {
         Args: { p_expected?: string; p_mode: string }
         Returns: Json
@@ -10634,6 +10704,9 @@ export type Database = {
           refunds_open_jpy: number
         }[]
       }
+      staff_bell_email_recipients: { Args: never; Returns: string[] }
+      staff_bell_email_types: { Args: never; Returns: string[] }
+      staff_bell_emails_wake: { Args: never; Returns: undefined }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
       staff_notify: {
         Args: {
