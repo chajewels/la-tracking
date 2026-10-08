@@ -3120,7 +3120,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (startErr) throw startErr;
       const st = (started ?? {}) as AnyRec;
       if (!st.ok) return jsonResponse({ error: String(st.error ?? "payment_in_progress"), lock: st.lock ?? null }, 409);
-      return jsonResponse({ ok: true, attempt_id: st.attempt_id, expires_at: st.expires_at, checkout: offer.checkout });
+      // PA04 (2026-10-08): the launch carries the attempt id in Paidy's
+      // metadata, so a late authorisation (webhook, dashboard) can be tied to
+      // the window it came from. Paidy allows 20 keys; four are used.
+      const checkout = offer.checkout as AnyRec;
+      const withAttempt = { ...checkout, metadata: { ...(checkout.metadata ?? {}), attempt_id: String(st.attempt_id) } };
+      return jsonResponse({ ok: true, attempt_id: st.attempt_id, expires_at: st.expires_at, checkout: withAttempt });
     }
 
     // POST /orders/:id/paidy/abandon — Paidy's window reported closed or
@@ -3136,11 +3141,24 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const attemptId = typeof body.attempt_id === "string" && /^[0-9a-f-]{36}$/i.test(body.attempt_id) ? body.attempt_id : null;
       if (!attemptId) return jsonResponse({ error: "bad_attempt" }, 400);
       const reason = body.reason === "rejected" ? "paidy_rejected" : body.reason === "error" ? "launch_error" : "paidy_closed";
+      // PA04 (2026-10-08): Paidy's rejected / closed callback names the
+      // payment it created; the window keeps that id so the hourly sweep can
+      // VERIFY with Paidy that it holds nothing before the window ends
+      // (verified_empty) — instead of ending on the clock alone. No Paidy
+      // call here (the customer is waiting); the sweep reads it back.
+      let noted = false;
+      if (isPaidyPaymentId(body.paidy_payment_id)) {
+        const { data: n, error: nErr } = await supabase.rpc("note_paidy_checkout_attempt_payment", {
+          p_attempt_id: attemptId, p_customer_id: customer.id, p_paidy_payment_id: body.paidy_payment_id,
+        });
+        if (nErr) throw nErr;
+        noted = (n as AnyRec | null)?.noted === true;
+      }
       const { data: ended, error: endErr } = await supabase.rpc("end_paidy_checkout_attempt", {
         p_attempt_id: attemptId, p_customer_id: customer.id, p_reason: reason,
       });
       if (endErr) throw endErr;
-      return jsonResponse({ ok: true, ended: (ended as AnyRec | null)?.ended === true });
+      return jsonResponse({ ok: true, ended: (ended as AnyRec | null)?.ended === true, payment_noted: noted });
     }
 
     // POST /orders/:id/paidy — the customer finished Paidy's window; file the
