@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791452000825,
+      "tag": "0000_paidy_pr3_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791452077945,
+      "tag": "0001_record_live_paidy_pr3_body",
+      "breakpoints": true
+    }
+  ]
+}

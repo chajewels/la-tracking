@@ -4368,6 +4368,8 @@ export type Database = {
           paidy_payment_id: string | null
           started_at: string
           status: string
+          verification: string | null
+          verified_empty_at: string | null
         }
         Insert: {
           amount_jpy: number
@@ -4381,6 +4383,8 @@ export type Database = {
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
+          verification?: string | null
+          verified_empty_at?: string | null
         }
         Update: {
           amount_jpy?: number
@@ -4394,6 +4398,8 @@ export type Database = {
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
+          verification?: string | null
+          verified_empty_at?: string | null
         }
         Relationships: [
           {
@@ -4543,33 +4549,54 @@ export type Database = {
       paidy_webhook_events: {
         Row: {
           attempts: number
+          cash_order_id: string | null
+          claimed_at: string | null
+          claimed_by: string | null
           event: string | null
           id: string
           last_error: string | null
           next_attempt_at: string
           paidy_payment_id: string
+          parked_reason: string | null
           processed_at: string | null
           received_at: string
+          test: boolean | null
+          tried_live: boolean
+          tried_test: boolean
         }
         Insert: {
           attempts?: number
+          cash_order_id?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           event?: string | null
           id?: string
           last_error?: string | null
           next_attempt_at?: string
           paidy_payment_id: string
+          parked_reason?: string | null
           processed_at?: string | null
           received_at?: string
+          test?: boolean | null
+          tried_live?: boolean
+          tried_test?: boolean
         }
         Update: {
           attempts?: number
+          cash_order_id?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           event?: string | null
           id?: string
           last_error?: string | null
           next_attempt_at?: string
           paidy_payment_id?: string
+          parked_reason?: string | null
           processed_at?: string | null
           received_at?: string
+          test?: boolean | null
+          tried_live?: boolean
+          tried_test?: boolean
         }
         Relationships: []
       }
@@ -9192,6 +9219,10 @@ export type Database = {
         Args: { p_source_id: string; p_source_kind: string }
         Returns: boolean
       }
+      claim_paidy_webhook_event: {
+        Args: { p_by: string; p_id: string; p_lease_seconds?: number }
+        Returns: boolean
+      }
       claim_square_action: {
         Args: { p_action: string; p_square_row_id: string; p_user_id: string }
         Returns: Json
@@ -10055,6 +10086,14 @@ export type Database = {
         }[]
       }
       next_web_invoice_seq: { Args: never; Returns: number }
+      note_paidy_checkout_attempt_payment: {
+        Args: {
+          p_attempt_id: string
+          p_customer_id: string
+          p_paidy_payment_id: string
+        }
+        Returns: Json
+      }
       note_square_attempt_stuck: {
         Args: { p_attempt_id: string }
         Returns: Json
@@ -10187,6 +10226,38 @@ export type Database = {
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       paidy_mode: { Args: never; Returns: string }
+      paidy_unrecorded_captures: {
+        Args: { p_limit?: number; p_test: boolean }
+        Returns: {
+          amount_jpy: number
+          authorized_at: string
+          capture_id: string | null
+          capture_started_at: string | null
+          captured_at: string | null
+          cash_order_id: string
+          check_failures: number
+          closed_at: string | null
+          closed_reason: string | null
+          created_at: string
+          customer_id: string | null
+          expires_at: string | null
+          id: string
+          last_checked_at: string | null
+          last_payload: Json | null
+          last_webhook_at: string | null
+          paidy_payment_id: string
+          refund_jpy: number
+          status: string
+          test: boolean
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "paidy_payments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
