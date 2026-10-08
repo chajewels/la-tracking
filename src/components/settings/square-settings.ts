@@ -4,6 +4,25 @@
  * so the test can pin them. docs/SQUARE.md. Twin of paidy-settings.ts.
  */
 export type SquareMode = "off" | "test" | "on";
+/** D-G04 (owner 2026-10-09): who sees card payment while the mode is On. */
+export type SquareAudience = "everyone" | "listed";
+
+export interface SquareCardCustomer { id: string; code: string | null; name: string | null }
+
+/** The last production preflight (square_sync_state 'preflight:production'), D-SQV05. */
+export interface SquarePreflight {
+  environment?: string;
+  passed?: boolean;
+  token?: { state?: string; status?: number | null; code?: string | null; secret?: string | null };
+  locations?: string[];
+  location_configured?: string | null;
+  location_match?: boolean | null;
+  app_id_family?: string | null;
+  events?: { state?: string; status?: number | null; code?: string | null; first_page?: number | null; window_days?: number };
+  at?: string;
+  by?: string;
+  updated_at?: string;
+}
 
 export const SQUARE_KEY = ["square-settings"] as const;
 
@@ -21,6 +40,9 @@ export interface SquareSettingsState {
   authorized_now: number;
   captured_30d: number;
   disputes_open: number;
+  audience: SquareAudience;
+  card_customers: SquareCardCustomer[];
+  preflight: SquarePreflight | null;
 }
 
 export const SQUARE_MODE_LABEL: Record<SquareMode, string> = {
@@ -29,9 +51,11 @@ export const SQUARE_MODE_LABEL: Record<SquareMode, string> = {
   on: "On",
 };
 
-export function squareEffect(mode: SquareMode): string {
+export function squareEffect(mode: SquareMode, audience: SquareAudience = "everyone", listed = 0): string {
   switch (mode) {
-    case "on": return "Every customer sees \"Pay by card\" on a confirmed yen order (production ids and token). Money is held on pay and taken only when a reviewer clicks Confirm.";
+    case "on": return audience === "listed"
+      ? `Only the ${listed} listed customer${listed === 1 ? "" : "s"} below see "Pay by card" on a confirmed yen order (production ids and token). Everyone else sees bank transfer only.`
+      : "Every customer sees \"Pay by card\" on a confirmed yen order (production ids and token). Money is held on pay and taken only when a reviewer clicks Confirm.";
     case "test": return "Only customers flagged is_test see \"Pay by card\", against Square's SANDBOX — nothing real is charged.";
     default: return "Card payment is not offered anywhere on the website.";
   }
@@ -72,6 +96,40 @@ export function squareRefusal(code: string): string {
     case "location_id_required": return "Save the Location ID before switching on.";
     case "setting_missing": return "The card payment settings rows are missing — the migration has not been applied.";
     case "user_identity_required": return "Please sign in again.";
+    case "invalid_audience": return "Unknown audience (everyone or listed customers).";
+    case "unknown_customer_code": return "One or more customer codes do not exist.";
     default: return code;
   }
+}
+
+export const SQUARE_AUDIENCE_LABEL: Record<SquareAudience, string> = {
+  listed: "Listed customers only",
+  everyone: "Everyone",
+};
+
+/** Customer codes typed one per line / comma separated → trimmed, upper-cased, de-duplicated. */
+export function parseCustomerCodes(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[\s,;]+/)) {
+    const c = raw.trim().toUpperCase();
+    if (c !== "" && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
+export function customerCodesProblem(codes: string[]): string | null {
+  const bad = codes.filter((c) => !/^[A-Z0-9][A-Z0-9-]*$/.test(c));
+  return bad.length ? `Not a customer code (e.g. CJ-2026-00008): ${bad.join(", ")}` : null;
+}
+
+/** One line per preflight step, in plain words. Never shows a token value — only the secret NAME. */
+export function preflightLines(p: SquarePreflight | null): Array<{ ok: boolean; text: string }> {
+  if (!p) return [];
+  const st = (s?: string) => s === "ok" ? "works" : s === "auth_failed" ? "refused by Square (401/403 — wrong token or missing permission)" : s === "not_configured" ? "not set" : s === "unavailable" ? "Square did not answer — run it again" : s ?? "unknown";
+  return [
+    { ok: p.token?.state === "ok", text: `Production token${p.token?.secret ? ` (${p.token.secret})` : ""}: ${st(p.token?.state)}` },
+    { ok: p.location_match === true, text: p.location_match === true ? `Location ${p.location_configured} belongs to this token` : `Location ${p.location_configured ?? "(none saved)"} is NOT one of the token's locations${p.locations?.length ? ` (${p.locations.join(", ")})` : ""}` },
+    { ok: p.app_id_family === "production", text: p.app_id_family === "production" ? "Application ID is a production id (sq0idp-)" : `Application ID is ${p.app_id_family ?? "missing"}, not production` },
+    { ok: p.events?.state === "ok", text: p.events?.state === "ok" ? `Events API search works (${p.events.first_page ?? 0} event(s) on the first page, last ${p.events.window_days ?? 28} days)` : `Events API search: ${st(p.events?.state)}` },
+  ];
 }

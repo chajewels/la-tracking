@@ -67,7 +67,8 @@ Deno.test("PA08: the Paidy refund-received key is one helper, used by the sender
   const mark = await read("../supabase/functions/mark-refund-issued/index.ts");
   assertStringIncludes(mark, "if (await refundIssuedEmailSent(supabase, paidyRefundReceivedKey(id))) proven++;");
   assertStringIncludes(mark, 'refund_emails: { sent: proven, total: ids.length }, provider: "paidy",');
-  assertStringIncludes(mark, 'refund_emails: { sent: proven, total: ids.length }, provider: "card",');
+  // SQV06 (2026-10-09) superseded the card counter with per-refund states + one sentence.
+  assertStringIncludes(mark, 'refund_emails: coverage, refund_email_sentence: refundEmailSentence(coverage), provider: "card",');
   const resend = await read("../supabase/functions/resend-order-email/index.ts");
   assertStringIncludes(resend, "key: paidyRefundReceivedKey(String(r.refund_id))");
 });

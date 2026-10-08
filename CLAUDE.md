@@ -163,13 +163,14 @@ Reference docs (read the relevant one when a task touches that area):
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
     refund total (never the gross), refusing until one exists. ONE exception
-    (SQF06, owner D-SQF06 2026-10-08): when a Square refund FAILED / was
-    REJECTED or the capture is over 365 days old, an ADMIN records the money
-    going back outside Square — method bank_transfer_exception (or
-    store_credit_exception on the customer's written request, lot issued
-    first) — with the Square Support ticket, capped by the SQL at captured −
-    COMPLETED refunds − credit issued; a Square refund completing afterwards
-    rings card_refund_after_exception. docs/SQUARE.md "SQF06".
+    (SQF06 + SQV, owner 2026-10-09): a Square refund FAILED / REJECTED or the
+    payment AUTHORISED over one calendar year ago → an ADMIN first APPROVES
+    (after a fail-closed Square re-read; refused while any refund is
+    processing) an amount ≤ captured − COMPLETED refunds − credit issued, then
+    pays and records AGAINST the approval: bank_transfer_exception, or
+    store_credit_exception (written request; an unspent lot issued after the
+    approval, locked, never reused). Writer is service_role only.
+    docs/SQUARE.md "SQF06", "Fix revalidation".
   - SQUARE ANSWERS ARE VALIDATED (SQF02, 2026-10-09): paymentOf / refundOf /
     moneyOf in _shared/square.ts — the object asked for (id), whole-unit money
     in a named currency, our own payments in JPY, a refund with POSITIVE money
@@ -1493,7 +1494,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     change ONLY via set_square_settings (admin, audited, guard, refuses a
     token). SQUARE_[PRODUCTION_]ACCESS_TOKEN / _WEBHOOK_SIGNATURE_KEY: edge
     secrets ONLY. Yen cash orders, any country, never layaway. Authorise
-    on pay, CAPTURE only on Confirm, VOID on Reject.
+    on pay, CAPTURE only on Confirm, VOID on Reject. While On, card reaches
+    only square_card_allowed() customers (square_audience listed|everyone,
+    fail-closed listed; set_square_settings only). Preflight: square-preflight.
   - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
     file_square_authorization_atomic / apply_square_payment_state; lock
     card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).

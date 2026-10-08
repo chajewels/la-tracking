@@ -6163,3 +6163,26 @@ docs/SQUARE.md "Go-live counter-check SQF01–SQF07".
 - **SQF07 — refund-after-credit is detected, not prevented.** The 2026-10-08 closeout's "refused in
   both directions" was wrong; the SQF07 operating procedure (check for a lot before any dashboard
   refund; void the unspent lot the same day) is in docs/SQUARE.md.
+
+### Square fix revalidation SQV01–SQV06 (2026-10-09)
+Independent revalidation (HOLD) of the SQF release; response and owner decisions in project doc
+`claude/square-fix-revalidation-response-2026-10-09.md`; mechanics in docs/SQUARE.md "Fix revalidation".
+- **SQV01 — the refund writer was callable by any signed-in user.** 20261129110000 granted
+  `mark_web_order_refund_issued_atomic` to `authenticated`, which trusts `p_user_id`. Fixed: service_role
+  only. Do not reintroduce: a GRANT to authenticated on any function taking `p_user_id`.
+- **SQV02 — a store-credit lot could back two exceptions, or be spent before it was recorded.** Fixed:
+  the lot is locked FOR UPDATE, must be unspent and issued after the approval, and a unique index stops
+  reuse. Do not reintroduce: a lot check without a row lock.
+- **SQV03 — the exception was decided on a stale local refund row.** A pending Square refund could
+  complete while the money also went out by bank. Fixed: approve first (after a fail-closed Square
+  re-read, refused while any refund is processing), then record against the approval with the cap
+  recomputed (`exception_superseded`). Do not reintroduce: recording an exception without an approval.
+- **SQV04 — the age rule used the capture date and 365 days.** Fixed: `authorized_at`, one calendar year,
+  SQL and Hub alike.
+- **SQV05 — no way to prove the production token before go-live.** Added the read-only preflight
+  (`square-preflight`); a 401/403 is auth_failed, never "not enabled".
+- **SQV06 — "the hourly check will retry" was said for refunds no retry would ever touch.** Fixed: per
+  refund `sent / retrying / given_up / not_replayed`, one sentence from the edge, shown verbatim.
+- **D-G04 — card would reach every customer the moment the mode went On.** Added the allow-list
+  (`square_audience`, `square_card_customer_ids`, `square_card_allowed`), fail-closed to listed.
+

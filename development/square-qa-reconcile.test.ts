@@ -210,7 +210,9 @@ Deno.test('R06: "already emailed" is said only when the send log proves it', asy
   assert(src.includes('provider_refund_email_not_confirmed'), 'new honest outcome exists')
   assert(src.includes('refundReceivedKey('), 'checks the Square refund email key in the send log')
   const ui = (await Deno.readTextFile(new URL('../src/components/web-orders/MarkRefundIssuedDialog.tsx', import.meta.url)))
-  assert(ui.includes('provider_refund_email_not_confirmed') && ui.includes('not confirmed sent'), 'dialog states the truth')
+  // SQV06 (2026-10-09): the dialog shows the edge's one sentence; the wording lives in refund-email-state.ts.
+  const sentence = await Deno.readTextFile(new URL('../supabase/functions/_shared/refund-email-state.ts', import.meta.url))
+  assert(ui.includes('d.refund_email_sentence') && sentence.includes('not confirmed sent'), 'dialog states the truth')
 })
 
 Deno.test('R08: a 2xx with unreadable JSON is an ambiguous provider answer, not an empty page', () => {

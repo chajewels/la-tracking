@@ -466,6 +466,15 @@ export const square = {
     // refund makes the page a bad answer (read again), never a ¥0 record.
     return { refunds: listField<unknown>(json, "refunds").map((r) => refundOf({ refund: r })), cursor: cursorField(json) };
   },
+  /**
+   * D-SQV05 (2026-10-09): the merchant's locations — the cheapest read that
+   * proves an access token works for an environment (used by square-preflight,
+   * never by a payment path).
+   */
+  listLocations: async (e: Env) => {
+    const json = await call(e, "GET", "/locations");
+    return listField<{ id?: string; status?: string; name?: string }>(json, "locations");
+  },
   /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
   listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {
     const p = new URLSearchParams();
