@@ -2,8 +2,10 @@
 // order has been sent, and the customer is told 「返金が完了しました」
 // (payment lifecycle addendum §9 #8, owner directive 2026-10-06).
 //
-// POST { cash_order_id, method: bank_transfer|paidy|card|cash|other,
-//        refunded_on: YYYY-MM-DD, note? }
+// POST { cash_order_id, method: bank_transfer|paidy|card|cash|other
+//                               |bank_transfer_exception|store_credit_exception (SQF06, admin),
+//        refunded_on: YYYY-MM-DD, note?, exception?: { square_refund_id?, square_support_ticket,
+//        amount_jpy, transfer_date?, transfer_reference?, customer_request?, store_credit_lot_id? } }
 // Person only (no service-role path): the audit row names who did it.
 // Permission cancel_cash_order — the same people who record the refund
 // decision at cancel. The ONE writer is mark_web_order_refund_issued_atomic
@@ -14,7 +16,7 @@
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
-import { isRefundMethod, refundIssuedRefusal, type RefundMethodCode } from "../_shared/refund-issued-rules.ts";
+import { customerRefundMethod, isExceptionMethod, refundIssuedRefusal } from "../_shared/refund-issued-rules.ts";
 import { refundReceivedKey } from "../_shared/square-reconcile-rules.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,7 +32,20 @@ const STATUS: Record<string, number> = {
   // method 'paidy', only once the Hub has read the refund back from Paidy
   // (paidy_refunds); the amount is the verified total, never the gross.
   no_verified_paidy_refund: 409,
+  // SQF06 (owner D-SQF06, 2026-10-09): the card-refund-outside-Square exception —
+  // admin only, opened only by a FAILED/REJECTED Square refund or a capture over
+  // 365 days old, evidence (refund id / ticket / transfer) required, amount
+  // capped by the SQL at captured − completed refunds − credit issued.
+  admin_only: 403, exception_not_triggered: 409, exception_evidence_required: 400, exception_over_cap: 409,
+  exception_nothing_owed: 409, exception_lot_mismatch: 409,
 };
+
+/** SQF06: the signed-in user holds the admin role (user_roles), checked here before the SQL checks it again. */
+async function isAdmin(supabase: { from: (t: string) => any }, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+  if (error) throw error;
+  return ((data ?? []) as Array<{ role: string }>).some((r) => r.role === "admin");
+}
 
 /** True when the "refund issued" email for this order already went out (B01 retry). */
 async function refundIssuedEmailSent(supabase: { from: (t: string) => any }, key: string): Promise<boolean> {
@@ -58,6 +73,10 @@ Deno.serve(async (req) => {
     const method = typeof body?.method === "string" ? body.method.trim().toLowerCase() : "";
     const refundedOn = typeof body?.refunded_on === "string" ? body.refunded_on.trim() : "";
     const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
+    // SQF06: the exception evidence travels as one object; the SQL validates each field.
+    const exception = isExceptionMethod(method) && body?.exception && typeof body.exception === "object" && !Array.isArray(body.exception)
+      ? body.exception as Record<string, unknown> : null;
+    if (isExceptionMethod(method) && !(await isAdmin(supabase, ctx.user.id))) return jsonResponse({ error: "admin_only" }, 403);
 
     const { data: order, error } = await supabase
       .from("cash_orders").select("id, source_channel, status, refund_status").eq("id", orderId).maybeSingle();
@@ -68,6 +87,7 @@ Deno.serve(async (req) => {
 
     const { data, error: rpcErr } = await supabase.rpc("mark_web_order_refund_issued_atomic", {
       p_order_id: orderId, p_user_id: ctx.user.id, p_method: method, p_refunded_on: refundedOn, p_note: note || null,
+      p_exception: exception,
     });
     if (rpcErr) throw rpcErr;
     const r = (data ?? {}) as Record<string, unknown>;
@@ -94,13 +114,18 @@ Deno.serve(async (req) => {
       if (rErr) throw rErr;
       const ids = ((rfs ?? []) as Array<{ square_refund_id: string }>).map((x) => String(x.square_refund_id));
       if (ids.length > 0) {
-        let proven = false;
+        // SQF05 (2026-10-09): EVERY completed refund must be proven — one sent
+        // email never vouches for a second refund on the same order. The
+        // response says how many of how many, so the dialog can say
+        // "1 of 2 — the hourly check will retry".
+        let proven = 0;
         for (const id of ids) {
-          if (await refundIssuedEmailSent(supabase, refundReceivedKey(id))) { proven = true; break; }
+          if (await refundIssuedEmailSent(supabase, refundReceivedKey(id))) proven++;
         }
         return jsonResponse({
           ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false,
-          email_skipped: proven ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
+          email_skipped: proven === ids.length ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
+          refund_emails: { sent: proven, total: ids.length },
         });
       }
     } else if (method === "paidy") {
@@ -119,7 +144,7 @@ Deno.serve(async (req) => {
 
     const email = await sendOrderUpdateEmail(supabase, {
       entity: "cash_order", id: orderId, variant: "refund_issued",
-      amount: Number(r.amount ?? 0), refundMethod: isRefundMethod(method) ? method as RefundMethodCode : null,
+      amount: Number(r.amount ?? 0), refundMethod: customerRefundMethod(method),
       refundDate: String(r.refunded_on ?? refundedOn), idempotencyKey: emailKey,
     });
     return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: email.sent });

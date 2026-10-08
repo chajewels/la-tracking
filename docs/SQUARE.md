@@ -453,9 +453,11 @@ two-session race `development/sql/square-r05-race.sh` (local copy only); deno
   prevented by the Hub (the refund is made in the Square Dashboard), so `record_square_refund` now (a)
   locks the ORDER before the payment (same order as finalize: order → payment), so a cancel and a refund
   in flight at the same moment never overlap — whichever commits second sees the other's row — and (b)
-  rings `card_refund_after_credit` once per refund: a human voids the lot (Settings → Store Credit) or
-  reverses the refund. Not changed: the 30/70 formula, the PHT day, partial recording, "card money
-  only through Square".
+  rings `card_refund_after_credit` once per refund: a human voids the UNSPENT lot the same day (Settings →
+  Store Credit); a spent part is a receivable handled under the card refund exception (SQF06/SQF07 below —
+  the old wording told staff to reverse the refund, which Square does not offer). Not changed: the 30/70 formula,
+  partial recording, "card money only through Square". (The PHT day was corrected to the Japan day by
+  SQF01, below.)
 - **R01 — the payment search resumes.** `square_card_attempts.search_cursor / search_pages`:
   `findPaymentByReference` takes the saved cursor and hands back where it stopped on `incomplete`;
   `recoverAttempt` saves it and clears it when the search ends. A cursor Square refuses (window moved,
@@ -495,8 +497,9 @@ two-session race `development/sql/square-r05-race.sh` (local copy only); deno
 - **R10 — documented, no code.** The order-level `refund_issued` marker records Square's COMPLETED total at
   that moment (owner E7, partial allowed); `square_refunds` is the cumulative per-refund ledger; a later
   refund on the same order is a new `square_refunds` row, not a change to the marker. A "remaining to
-  refund" figure can be added if the owner asks; a FAILED / REJECTED Square refund stays a staff case
-  (card money is never repaid by another method, S04/B01 rule).
+  refund" figure can be added if the owner asks. A FAILED / REJECTED Square refund — or a capture Square
+  will no longer refund (over 365 days) — is handled by the admin-only "card refund outside Square"
+  exception (SQF06, below); until 2026-10-09 it "stayed a staff case" with nowhere to go.
 
 ## Sign-off decisions, staff bell emails and the bounce bell (2026-10-08, third release)
 
@@ -504,12 +507,14 @@ Live card tests C (refund → R05 refusal → Refund pending → Mark refund iss
 later → `card_refund_after_credit`, credit untouched) and E (dispute accepted → decision recorded) passed
 on 2026-10-08 (project doc `claude/square-reassessment-response-2026-10-08.md`). Owner decisions:
 
-- **Cancellation terms (V10):** the customer terms say "order date (Japan time)"; the Hub keeps the PHT day
-  boundary (one hour behind JST), so the Hub is never stricter than the terms — a 00:30 JST cancel of a
-  23:30 JST order still gets 100 %. No code. `order_date` stays editable by an admin (Manage Invoice,
-  audited); the website reads the same column, so an edit shows on the order page and the cancellation
-  rule uses it. The terms text and the checkout "Cancellation policy" link live in the storefront
-  (`cha-jewels-web`, V10d).
+- **Cancellation terms (V10):** the customer terms say "order date (Japan time)". **V10b as written here on
+  2026-10-08 ("the Hub keeps the PHT day boundary, so the Hub is never stricter than the terms") was
+  WRONG** — it covered only one midnight. An order placed 00:00–00:59 JST is dated the PREVIOUS PHT day,
+  so a cancel at noon the same Japan day read `after_order_day` → 30 % (reviewer reproduction, SQF01).
+  Corrected 2026-10-09 by D-SQF01 = A: the rule is Japan time end to end (see "SQF01" below). `order_date`
+  stays editable by an admin (Manage Invoice, audited); the website reads the same column, so an edit
+  shows on the order page and the cancellation rule uses it (as a Japan day). The terms text and the
+  checkout "Cancellation policy" link live in the storefront (`cha-jewels-web`, V10d).
 - **Bell owner (V11):** Brenda (Brendalyn Bumagat) is accountable for refund / dispute bells. Bells stay in
   the Hub for every member; the types below are ALSO emailed to Brenda + every active admin.
 - **Go-live (V08):** only after every open item is closed and QA/QC passes.
@@ -567,5 +572,98 @@ on 2026-10-08 (project doc `claude/square-reassessment-response-2026-10-08.md`).
   policy." above Place order / Reserve; order page: "Cancellation policy →" under the totals. The anchor
   is resolved by `lib/cancellation-policy.ts` from the rendered heading ids (§5 is `#s6`), guarded by
   `tests/cancellation-policy.test.mjs`.
-- The Hub's cancellation_credit_split keeps the PHT day boundary (V10b): one hour behind the terms' JST
-  day, so the Hub is never stricter than what the customer read.
+- The Hub's cancellation_credit_split compared PHT days until 2026-10-09 (V10b — wrong, see above); since
+  SQF01 it compares Japan days, exactly what the customer read.
+
+## Go-live counter-check SQF01–SQF07 (2026-10-09, fourth release)
+
+An independent reviewer's HOLD report (`Square-Go-Live-Countercheck-2026-10-08.md`; response and owner
+decisions in project doc `claude/square-go-live-countercheck-response-2026-10-08.md`) found eight items;
+seven are fixed here, SQF08 (non-blocking) is backlog. Migrations 20261129090000 (SQF01), 20261129100000
+(SQF02 + SQF06 §7/§8), 20261129110000 (SQF06). Acceptance SQL: `development/sql/sqf01-cancellation-jst-
+acceptance.sql` (12), `sqf02-square-refund-ledger-acceptance.sql` (14), `sqf06-card-refund-exception-
+acceptance.sql` (18). Deno: `development/square-sqf02-validation.test.ts`, `square-sqf03-sqf04-replay.test.ts`,
+`square-sqf05-sqf06.test.ts`; vitest `src/test/cancellation-credit.test.ts`.
+
+### SQF01 — the cancellation rule is Japan time end to end (owner D-SQF01 = A)
+- `cancellation_credit_split(currency, order_date, money, at, order_at DEFAULT NULL)` — the 4-argument
+  overload is DROPPED. The order day is the Japan day of `order_at` (`cash_orders.created_at`) while
+  `order_date` still equals the PHT day that instant produced; otherwise `order_date` itself (an admin edit,
+  V10c, or a typed Page365 / live-selling date) read as a Japan day. The cancel day is the Japan day of
+  `at`. `order_date`, the PHT boundary and every other Hub report are untouched. Result carries
+  `order_day`, `cancel_date`, `zone: 'Asia/Tokyo'`.
+- `terminate_web_order_atomic` and `cancel_cash_order_atomic` pass `created_at` (md5-guarded in-place
+  patches). TS twins `_shared/cancellation-credit.ts` / `src/lib/cancellation-credit.ts`:
+  `cancellationCreditSplit(currency, orderDate, money, at, orderAt?)`, `orderJapanDay`, `jstDate`, `phtDate`.
+- Both midnights: 00:30 JST order / noon cancel → 100 % (was 30 %); 23:30 JST order / 00:30 JST cancel →
+  after order day (the terms say Japan day; the PHT rule used to give 100 % here).
+
+### SQF02 — the financial object is validated, not just the transport
+- `square.ts`: `paymentOf(json, { id?, jpy?, referenceId?, amountJpy? })` — a payment needs an id, a
+  status and whole-unit money; `get`/`complete`/`cancel` require the id asked for; `complete`/`cancel`/
+  `create` require JPY; `create` requires the echoed `reference_id` and amount. `refundOf(json, id?)` — a
+  refund needs an id, a status, its `payment_id` and POSITIVE whole-unit money (a refund without money is
+  a bad answer, never ¥0); `getRefund` and every `listRefunds` item go through it. `moneyOf` — null, "",
+  true and a missing field are NOT zero. `listField` refuses an explicit `null` (Square omits an empty
+  list). A GetPayment of an arbitrary id (parent recovery of a refund on an unrelated in-person sale)
+  checks the shape only; the RPCs refuse `not_jpy`.
+- `square-sync.ts`: `refundMoneyJpy(refund)` → positive whole yen or null; null → `quarantined`
+  (`detail: bad_money`; the inbox retries, gives up after 12 with a bell) — never `p_amount_jpy: 0`. A
+  ledger refusal → `failed` with the reason.
+- `record_square_refund` refuses, with ONE `card_refund_unrecorded` bell per (refund id, reason):
+  `bad_amount` (≤ 0), `bad_currency` (payload `amount_money.currency` ≠ JPY — absent counts as not JPY),
+  `parent_mismatch` (the refund id is already recorded on another payment; ON CONFLICT no longer re-binds),
+  `over_ceiling` (a non-FAILED/REJECTED refund that, with the other non-FAILED/REJECTED refunds on the
+  payment, exceeds the amount captured). FAILED/REJECTED refunds have no ceiling (they moved no money).
+
+### SQF03 / SQF04 — the refund-email replay (B02) is honest and capped
+- `sendOrderUpdateEmail` answers `lookup_error` on a database error (transient) and `not_found` only on a
+  really absent row; `refundEmailNext` retries `lookup_error` and answers `alert` for `not_found`
+  (bell `refund_email_order_missing`, then out of the queue).
+- `_shared/refund-email-replay.ts` `replayRefundEmail(rf, deps)` (deno-tested against a scripted database)
+  is square-reconcile step 7: the send is CLAIMED first — `email_resends := n+1 WHERE email_resends = n AND
+  email_given_up_at IS NULL` — so at most 3 sends ever happen whatever fails afterwards; a row that used
+  its sends but is not stamped given-up gets only its bell (R07: bell first, then the stamp); the
+  `refund_email_failed` bell is one per refund (dedupe on `metadata.square_refund_id`). Before: the bell
+  failing threw before the stamp, so the email went out again every hour.
+
+### SQF05 — every completed refund is proven
+- `mark-refund-issued` checks the send log for EVERY completed Square refund id; `provider_refund_already_
+  emailed` only when all are proven; the response carries `refund_emails: { sent, total }` and the dialog
+  says "1 of 2 Square refund emails are confirmed sent — the hourly check will retry".
+
+### SQF06 — "Card refund outside Square" exception (owner D-SQF06, approved as recommended)
+1. TRIGGER: a `square_refunds` row FAILED or REJECTED on the order, or a captured `square_payments` row
+   older than 365 days — facts read back from Square; nothing else (`exception_not_triggered`).
+2. APPROVER: admin only — `has_role(p_user_id,'admin')` in the SQL and `user_roles` in the edge
+   (`admin_only`). Brenda raises, the owner approves.
+3. EVIDENCE: the Square refund id (or the over-age capture) AND a Square Support ticket number
+   (`exception_evidence_required`, `missing` = the field).
+4. PAYOUT: bank transfer in yen to the customer's own account — method **`bank_transfer_exception`**
+   (`transfer_date`, `transfer_reference`); store credit ONLY on the customer's written request — method
+   **`store_credit_exception`**: the admin first issues the manual lot (Settings → Store Credit), then
+   records it with `store_credit_lot_id` + `customer_request`; the lot must be hers, JPY, exactly the
+   amount, not tied to an order (`exception_lot_mismatch`). Never cash, never another card.
+5. CAP: captured card money − COMPLETED Square refunds − store credit already issued on the order,
+   computed by the SQL (`exception_over_cap` with the cap; `exception_nothing_owed` when ≤ 0).
+6. RECORD: `mark_web_order_refund_issued_atomic(…, p_exception jsonb)` (the 5-argument overload is dropped)
+   → `refund_status = refund_issued`; the audit row's `new_value_json.exception` keeps trigger, refund id,
+   ticket, transfer date/reference or lot id/request, and the cap figures. The order page shows "Refund
+   issued by bank transfer (Square exception) — ¥… on …" (method from the audit row, admin/finance; others
+   see "Refund issued").
+7. LATER: a Square refund that COMPLETES on an order already refunded outside Square rings
+   `card_refund_after_exception` once per refund — a staff case, never both settled.
+8. WORDING: the old "reverse the refund" instruction is gone from `record_square_refund`'s bell, the
+   staff-bell preview and this file (Square offers no such operation).
+9. EMAIL: the existing refund-issued email, method line "bank transfer" / "store credit"
+   (`customerRefundMethod`); the exception bells reach Brenda + admins through the staff bell emails
+   (V11b) once the owner adds `card_refund_unrecorded` / `card_refund_after_exception` to
+   `staff_bell_email_types` (set_staff_bell_emails; see G-checklist).
+
+### SQF07 — operating procedure (Brenda / admins): refund-after-credit is detected, not prevented
+Before ANY refund in the Square Dashboard, open the order in the Hub and check for a cancellation
+store-credit lot (Settings → Store Credit, or the order page). On `card_refund_after_credit`: void the
+UNSPENT lot the same day; if part is already spent, record the spent part as a receivable and settle it
+under the SQF06 cap (captured − completed refunds − credit issued); reconcile totals in Settings → Store
+Credit. Response-time target: same business day. The Hub cannot stop a dashboard refund; it rings the
+bell within the hour (square-reconcile) or on the webhook.

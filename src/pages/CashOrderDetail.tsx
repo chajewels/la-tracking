@@ -53,7 +53,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
-import { MarkRefundIssuedDialog, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
+import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
@@ -1304,6 +1304,9 @@ export default function CashOrderDetail() {
                     {' '}by {cancelledByProfile?.full_name || 'Unknown user'}
                     {order.cancellation_reason ? ` — ${order.cancellation_reason}` : ''}
                   </p>
+                )}
+                {order.status === 'cancelled' && order.source_channel === 'web' && order.refund_status === 'refund_issued' && (
+                  <RefundIssuedLine orderId={order.id} />
                 )}
                 {canMarkRefundIssued(order) && can('cancel_cash_order') && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">

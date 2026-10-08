@@ -30,7 +30,7 @@ export type OrderUpdateVariant =
   | 'needs_info' | 'deadline_moved' | 'shipped' | 'details_received'
   | 'payment_submitted' | 'payment_voided' | 'payment_restored' | 'refund_issued' | 'refund_received'
 
-export type RefundMethod = 'bank_transfer' | 'paidy' | 'card' | 'cash' | 'other'
+export type RefundMethod = 'bank_transfer' | 'paidy' | 'card' | 'cash' | 'other' | 'store_credit'
 
 export interface OrderUpdateEmailProps {
   lang: Lang
@@ -78,8 +78,8 @@ export const orderUpdateSubject = (variant: OrderUpdateVariant, reference: strin
   subjectFor(lang, `${SUBJECT[variant].ja} ${reference}`, `${SUBJECT[variant].en} — Cha Jewels order ${reference}`)
 
 const REFUND_METHOD = {
-  ja: { bank_transfer: '銀行振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード', cash: '現金', other: 'その他' },
-  en: { bank_transfer: 'bank transfer', paidy: 'Paidy', card: 'card', cash: 'cash', other: 'other' },
+  ja: { bank_transfer: '銀行振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード', cash: '現金', other: 'その他', store_credit: 'ストアクレジット' },
+  en: { bank_transfer: 'bank transfer', paidy: 'Paidy', card: 'card', cash: 'cash', other: 'other', store_credit: 'store credit' },
 } as const
 
 const COPY = {

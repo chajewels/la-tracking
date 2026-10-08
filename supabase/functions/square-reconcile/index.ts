@@ -8,8 +8,9 @@ import {
 } from "../_shared/square-sync.ts";
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import { replayRefundEmail, type ReplayDeps, type ReplayRefund } from "../_shared/refund-email-replay.ts";
 import {
-  attemptStuckThisRun, discoveryEnvironments, eventsErrorKind, REFUND_EMAIL_GRACE_MS, refundEmailNext, refundReceivedKey,
+  attemptStuckThisRun, discoveryEnvironments, eventsErrorKind, MAX_REFUND_EMAIL_RESENDS, REFUND_EMAIL_GRACE_MS,
 } from "../_shared/square-reconcile-rules.ts";
 
 /**
@@ -426,6 +427,10 @@ Deno.serve(async (req) => {
   //    key square-sync used, so it is never sent twice. Only refunds that
   //    arrived after the release (refund_email_replay), only once the first
   //    send had 30 minutes, at most 3 re-sends, then a bell.
+  //    SQF03/SQF04 (2026-10-09): the logic lives in _shared/refund-email-replay.ts
+  //    (deno-tested with a scripted database); the send is CLAIMED on the row
+  //    before it happens, the give-up bell is one per refund, and an order the
+  //    email cannot find rings refund_email_order_missing instead of a silent stop.
   try {
     const before = new Date(Date.now() - REFUND_EMAIL_GRACE_MS).toISOString();
     const { data: done, error } = await db.from("square_refunds")
@@ -436,48 +441,63 @@ Deno.serve(async (req) => {
       // by every hourly poll and would keep the refund ineligible for ever.
       .lte("created_at", before).order("created_at", { ascending: true }).limit(20);
     if (error) throw error;
-    for (const rf of (done ?? []) as Rec[]) {
-      const key = refundReceivedKey(String(rf.square_refund_id));
-      try {
+    const deps: ReplayDeps = {
+      alreadySent: async (key) => {
         const sent = await db.from("email_send_log").select("id", { count: "exact", head: true })
           .eq("status", "sent").eq("metadata->>idempotency_key", key);
         if (sent.error) throw sent.error;
-        if ((sent.count ?? 0) > 0) {
-          await checked(`refund_email_done ${rf.square_refund_id}`,
-            db.from("square_refunds").update({ refund_email_replay: false }).eq("id", rf.id));
-          continue;
-        }
-        const out = await sendOrderUpdateEmail(db, {
-          entity: "cash_order", id: String(rf.cash_order_id), variant: "refund_received",
-          amount: Number(rf.amount_jpy ?? 0), refundMethod: "card", idempotencyKey: key,
-        });
-        const next = refundEmailNext(out, Number(rf.email_resends ?? 0));
-        if (out.sent) report.refund_emails_resent++;
-        if (next === "done") {
-          await checked(`refund_email_done ${rf.square_refund_id}`,
-            db.from("square_refunds").update({ refund_email_replay: false, email_resends: Number(rf.email_resends ?? 0) + (out.sent ? 1 : 0) }).eq("id", rf.id));
-        } else if (next === "retry") {
-          await checked(`refund_email_retry ${rf.square_refund_id}`,
-            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1 }).eq("id", rf.id));
-        } else {
-          report.refund_emails_given_up++;
-          // R07 (2026-10-08): the bell FIRST, the give-up stamp after. If the
-          // bell cannot be written nothing is stamped or counted, so the row is
-          // tried again next hour (one send + one bell attempt per hour) until
-          // staff_notifications accepts the row; a missing alert is worse than
-          // a repeated one.
-          const { data: o } = await db.from("cash_orders").select("invoice_number, web_reference, customer_id").eq("id", rf.cash_order_id).maybeSingle();
-          const bell = await db.from("staff_notifications").insert({
-            type: "refund_email_failed",
-            title: "Refund email could not be sent",
-            body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${Number(rf.amount_jpy ?? 0).toLocaleString("en-US")} — the "refund received" email for Square refund ${rf.square_refund_id} failed 3 times (${out.reason ?? "error"}). Tell the customer another way and check Settings → Email delivery.`,
+        return (sent.count ?? 0) > 0;
+      },
+      claim: async (rf, resendsBefore) => {
+        const { data, error: e } = await db.from("square_refunds").update({ email_resends: resendsBefore + 1 })
+          .eq("id", rf.id).eq("email_resends", resendsBefore).is("email_given_up_at", null).select("id");
+        if (e) throw new Error(`refund_email_claim ${rf.square_refund_id}: ${e.message}`);
+        return (data ?? []).length === 1;
+      },
+      send: (rf, key) => sendOrderUpdateEmail(db, {
+        entity: "cash_order", id: String(rf.cash_order_id), variant: "refund_received",
+        amount: Number(rf.amount_jpy ?? 0), refundMethod: "card", idempotencyKey: key,
+      }),
+      bellExists: async (rf, type) => {
+        const { count, error: e } = await db.from("staff_notifications").select("id", { count: "exact", head: true })
+          .eq("type", type).eq("metadata->>square_refund_id", rf.square_refund_id);
+        if (e) throw new Error(`refund_email_bell_lookup ${rf.square_refund_id}: ${e.message}`);
+        return (count ?? 0) > 0;
+      },
+      ringBell: async (rf, type, reason) => {
+        // R07 (2026-10-08): the bell FIRST, the give-up stamp after. If the
+        // bell cannot be written nothing is stamped, so the row comes back next
+        // hour for its bell (and ONLY its bell — the sends were already claimed).
+        const { data: o } = await db.from("cash_orders").select("invoice_number, web_reference, customer_id").eq("id", rf.cash_order_id).maybeSingle();
+        const ref = o?.web_reference ?? o?.invoice_number ?? "";
+        const yen = Number(rf.amount_jpy ?? 0).toLocaleString("en-US");
+        const bell = await db.from("staff_notifications").insert(type === "refund_email_failed"
+          ? {
+            type, title: "Refund email could not be sent",
+            body: `${ref} · ¥${yen} — the "refund received" email for Square refund ${rf.square_refund_id} failed ${MAX_REFUND_EMAIL_RESENDS} times (${reason ?? "error"}). Tell the customer another way and check Settings → Email delivery.`,
             customer_id: o?.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
-            metadata: { cash_order_id: rf.cash_order_id, square_refund_id: rf.square_refund_id, reason: out.reason ?? null },
+            metadata: { cash_order_id: rf.cash_order_id, square_refund_id: rf.square_refund_id, reason },
+          }
+          : {
+            type, title: "Refund email: order not found",
+            body: `Square refund ${rf.square_refund_id} (¥${yen}) is COMPLETED but its order ${rf.cash_order_id} could not be found when sending the "refund received" email. A web order is never deleted — check the order and tell the customer another way.`,
+            customer_id: o?.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
+            metadata: { cash_order_id: rf.cash_order_id, square_refund_id: rf.square_refund_id, reason },
           });
-          if (bell.error) throw new Error(`refund_email_bell ${rf.square_refund_id}: ${bell.error.message}`);
-          await checked(`refund_email_give_up ${rf.square_refund_id}`,
-            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1, email_given_up_at: new Date().toISOString() }).eq("id", rf.id));
-        }
+        if (bell.error) throw new Error(`refund_email_bell ${rf.square_refund_id}: ${bell.error.message}`);
+      },
+      markDone: (rf) => checked(`refund_email_done ${rf.square_refund_id}`,
+        db.from("square_refunds").update({ refund_email_replay: false }).eq("id", rf.id)),
+      stampGivenUp: (rf) => checked(`refund_email_give_up ${rf.square_refund_id}`,
+        db.from("square_refunds").update({ email_given_up_at: new Date().toISOString() }).eq("id", rf.id)),
+    };
+    for (const row of (done ?? []) as Rec[]) {
+      const rf: ReplayRefund = { id: String(row.id), square_refund_id: String(row.square_refund_id), cash_order_id: String(row.cash_order_id), amount_jpy: Number(row.amount_jpy ?? 0), email_resends: Number(row.email_resends ?? 0) };
+      try {
+        const r = await replayRefundEmail(rf, deps);
+        if (r.action === "sent") report.refund_emails_resent++;
+        if (r.action === "given_up") report.refund_emails_given_up++;
+        if (r.action === "order_missing") note(`refund_email ${rf.square_refund_id}`, new Error("order not found — bell refund_email_order_missing"));
       } catch (e) { note(`refund_email ${rf.square_refund_id}`, e); }
     }
   } catch (e) { note("refund_emails", e); }
