@@ -8,6 +8,13 @@
       "when": 1791475363640,
       "tag": "0000_sqf01_cancellation_japan_day",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791475430313,
+      "tag": "0001_sqf02_square_refund_ledger",
+      "breakpoints": true
     }
   ]
 }
