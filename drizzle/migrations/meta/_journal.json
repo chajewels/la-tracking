@@ -8,6 +8,13 @@
       "when": 1791436481016,
       "tag": "0000_paidy_window_reopen",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791437470177,
+      "tag": "0001_square_r01_r10_closeout",
+      "breakpoints": true
     }
   ]
 }
