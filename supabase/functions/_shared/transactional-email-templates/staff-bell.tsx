@@ -61,7 +61,7 @@ export const template = {
   displayName: 'Staff bell (internal)',
   previewData: {
     title: 'Card refund on an order that already has store credit',
-    body: 'CJ-W-900069 · ¥8,563 refunded in Square (completed) but this order was cancelled with STORE CREDIT. The customer is being paid back twice: void the store-credit lot (Settings → Store Credit) or reverse the Square refund.',
+    body: 'CJ-W-900069 · ¥8,563 refunded in Square (completed) but this order was cancelled with STORE CREDIT. The customer is being paid back twice: void the UNSPENT store-credit lot the same day (Settings → Store Credit); a part already spent is a receivable — follow the card refund exception procedure (docs/SQUARE.md).',
     bellType: 'card_refund_after_credit',
     invoiceNumber: 'TEST-900069',
     when: '08 Oct 2026, 17:33 JST',

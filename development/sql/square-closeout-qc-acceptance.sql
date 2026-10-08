@@ -318,10 +318,10 @@ DO $$
 DECLARE o uuid; s uuid; r jsonb;
 BEGIN
   o := pg_temp.mk_order(); s := pg_temp.mk_sq(o, 'captured');
-  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'COMPLETED', 10000, NULL, now() - interval '1 hour', now(), '{}'::jsonb);
-  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'PENDING', 10000, NULL, now() - interval '1 hour', now() - interval '10 minutes', '{}'::jsonb);
+  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'COMPLETED', 10000, NULL, now() - interval '1 hour', now(), '{"amount_money":{"amount":10000,"currency":"JPY"}}'::jsonb);
+  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'PENDING', 10000, NULL, now() - interval '1 hour', now() - interval '10 minutes', '{"amount_money":{"amount":10000,"currency":"JPY"}}'::jsonb);
   PERFORM pg_temp.ok((SELECT status FROM public.square_refunds WHERE square_refund_id = 'rf_order_' || s) = 'COMPLETED', 'QC10 older PENDING never replaces COMPLETED', r::text);
-  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'PENDING', 10000, NULL, now() - interval '1 hour', NULL, '{}'::jsonb);
+  r := public.record_square_refund('rf_order_' || s, pg_temp.sqid(s), 'PENDING', 10000, NULL, now() - interval '1 hour', NULL, '{"amount_money":{"amount":10000,"currency":"JPY"}}'::jsonb);
   PERFORM pg_temp.ok((SELECT status FROM public.square_refunds WHERE square_refund_id = 'rf_order_' || s) = 'COMPLETED', 'QC10 terminal refund never reverts (no timestamp)', r::text);
   -- refund on captured-unrecorded money flags the payment
   PERFORM pg_temp.ok((SELECT exception FROM public.square_payments WHERE id = s) = 'refunded_before_record', 'QC01 refund on unrecorded capture flags refunded_before_record');
@@ -348,7 +348,7 @@ BEGIN
   PERFORM pg_temp.ok(coalesce(current_setting('app.provider_recording', true), '') = '', 'review#6 recording marker cleared after the insert');
 
   -- #4: a refund arriving after the capture was recorded does not flag it
-  r := public.record_square_refund('rf_after_' || s, pg_temp.sqid(s), 'PENDING', 1000, NULL, now(), now(), '{}'::jsonb);
+  r := public.record_square_refund('rf_after_' || s, pg_temp.sqid(s), 'PENDING', 1000, NULL, now(), now(), '{"amount_money":{"amount":1000,"currency":"JPY"}}'::jsonb);
   PERFORM pg_temp.ok((SELECT exception FROM public.square_payments WHERE id = s) IS NULL, 'review#4 refund on a recorded capture never flags refunded_before_record');
 
   -- #7: a claim for another amount is replaced, not reused

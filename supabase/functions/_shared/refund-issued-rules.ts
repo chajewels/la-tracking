@@ -9,8 +9,22 @@
 // (method_mismatch / no_completed_card_refund) — need the payment and refund
 // rows, so they live in the SQL only; this mirror stops at bad_date.
 
-export const REFUND_METHODS = ["bank_transfer", "paidy", "card", "cash", "other"] as const;
+// SQF06 (owner D-SQF06, 2026-10-09): the two "card refund outside Square"
+// exception methods — admin only, evidence required, capped by the SQL
+// (mark_web_order_refund_issued_atomic p_exception). The customer's email
+// names the payout (bank transfer / store credit), never the word exception.
+export const REFUND_METHODS = ["bank_transfer", "paidy", "card", "cash", "other", "bank_transfer_exception", "store_credit_exception"] as const;
 export type RefundMethodCode = typeof REFUND_METHODS[number];
+export const EXCEPTION_METHODS: readonly RefundMethodCode[] = ["bank_transfer_exception", "store_credit_exception"];
+export function isExceptionMethod(v: unknown): boolean {
+  return typeof v === "string" && (EXCEPTION_METHODS as readonly string[]).includes(v);
+}
+/** The refund method the customer is told: an exception is a bank transfer or store credit to her. */
+export function customerRefundMethod(method: string): "bank_transfer" | "paidy" | "card" | "cash" | "other" | "store_credit" | null {
+  if (method === "bank_transfer_exception") return "bank_transfer";
+  if (method === "store_credit_exception") return "store_credit";
+  return isRefundMethod(method) ? (method as "bank_transfer" | "paidy" | "card" | "cash" | "other") : null;
+}
 
 export function isRefundMethod(v: unknown): v is RefundMethodCode {
   return typeof v === "string" && (REFUND_METHODS as readonly string[]).includes(v.trim().toLowerCase());

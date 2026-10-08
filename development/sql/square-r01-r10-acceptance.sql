@@ -92,17 +92,17 @@ SELECT pg_temp.ok((SELECT original_amount = 14000 FROM public.store_credit_lots 
 -- 9052 above was cancelled with ¥14,000 credit (bank-paid). Now Square reports a refund on a capture of that order.
 INSERT INTO public.square_payments (cash_order_id, square_payment_id, status, test, amount_jpy, captured_at, environment)
 VALUES ('00000000-0000-0000-0000-00000000f0b2', 'sq_cap_b2', 'captured', true, 20000, now() - interval '2 days', 'sandbox');
-CREATE TEMP TABLE t_rr AS SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_b2', 'sq_cap_b2', 'COMPLETED', 20000, 'x', now(), now(), '{}'::jsonb)$q$) AS r;
+CREATE TEMP TABLE t_rr AS SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_b2', 'sq_cap_b2', 'COMPLETED', 20000, 'x', now(), now(), '{"amount_money":{"amount":20000,"currency":"JPY"}}'::jsonb)$q$) AS r;
 SELECT pg_temp.ok((SELECT (r ->> 'ok')::boolean FROM t_rr)
                   AND (SELECT count(*) = 1 FROM public.staff_notifications WHERE type = 'card_refund_after_credit' AND metadata ->> 'refund_id' = 'rf_b2'),
                   'R05 a Square refund landing on an order already cancelled with store credit rings card_refund_after_credit', (SELECT left(r::text, 300) FROM t_rr));
-SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_b2', 'sq_cap_b2', 'COMPLETED', 20000, 'x', now(), now() + interval '1 minute', '{}'::jsonb)$q$);
+SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_b2', 'sq_cap_b2', 'COMPLETED', 20000, 'x', now(), now() + interval '1 minute', '{"amount_money":{"amount":20000,"currency":"JPY"}}'::jsonb)$q$);
 SELECT pg_temp.ok((SELECT count(*) = 1 FROM public.staff_notifications WHERE type = 'card_refund_after_credit'),
                   'R05 the hourly re-poll of the same refund rings it only once');
 -- a refund on an order WITHOUT a cancellation lot rings nothing extra (regression)
 INSERT INTO public.square_payments (cash_order_id, square_payment_id, status, test, amount_jpy, captured_at, environment)
 VALUES ('00000000-0000-0000-0000-00000000f0a4', 'sq_cap_r54', 'captured', true, 10000, now() - interval '3 days', 'sandbox');
-SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_r5_4', 'sq_cap_r54', 'FAILED', 10000, 'x', now(), now(), '{}'::jsonb)$q$);
+SELECT pg_temp.try($q$SELECT public.record_square_refund('rf_r5_4', 'sq_cap_r54', 'FAILED', 10000, 'x', now(), now(), '{"amount_money":{"amount":10000,"currency":"JPY"}}'::jsonb)$q$);
 SELECT pg_temp.ok((SELECT count(*) = 1 FROM public.staff_notifications WHERE type = 'card_refund_after_credit'),
                   'R05 regression: a FAILED refund, or an order with no lot, rings no card_refund_after_credit');
 
