@@ -584,8 +584,6 @@ export function useCreateAccount() {
       downpayment_amount?: number;
       downpayment_paid?: number;
       remaining_dp_option?: 'split' | 'add_to_installments';
-      split_allocations?: { account_id: string; amount: number }[];
-      lump_sum_total?: number;
       custom_installments?: number[];
       loyalty_jpy_amount?: number | null;
       is_trade?: boolean;
