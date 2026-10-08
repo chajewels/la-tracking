@@ -6390,6 +6390,8 @@ export type Database = {
           reference: string
           resolved_at: string | null
           risk_level: string | null
+          search_cursor: string | null
+          search_pages: number
           square_payment_id: string | null
           status: string
           stuck_runs: number
@@ -6415,6 +6417,8 @@ export type Database = {
           reference: string
           resolved_at?: string | null
           risk_level?: string | null
+          search_cursor?: string | null
+          search_pages?: number
           square_payment_id?: string | null
           status?: string
           stuck_runs?: number
@@ -6440,6 +6444,8 @@ export type Database = {
           reference?: string
           resolved_at?: string | null
           risk_level?: string | null
+          search_cursor?: string | null
+          search_pages?: number
           square_payment_id?: string | null
           status?: string
           stuck_runs?: number
