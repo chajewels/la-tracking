@@ -9,7 +9,7 @@ import {
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import {
-  attemptStuckThisRun, discoveryEnvironments, REFUND_EMAIL_GRACE_MS, refundEmailNext, refundReceivedKey,
+  attemptStuckThisRun, discoveryEnvironments, eventsErrorKind, REFUND_EMAIL_GRACE_MS, refundEmailNext, refundReceivedKey,
 } from "../_shared/square-reconcile-rules.ts";
 
 /**
@@ -121,6 +121,19 @@ Deno.serve(async (req) => {
     } catch (e) { note(where, e); }
   };
 
+  // R09 (2026-10-08): the environment of a refund's / dispute's parent payment.
+  // A failed or empty lookup is an error for THAT child (reported, skipped),
+  // never a silent fall-back to production credentials.
+  const parentEnvironment = async (d: Db, squarePaymentId: string): Promise<SquareEnvironment> => {
+    const { data: row, error } = await d.from("square_payments").select("environment, test").eq("square_payment_id", squarePaymentId).maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error(`parent payment ${squarePaymentId} not found`);
+    const e = row.environment === "sandbox" || row.environment === "production" ? row.environment
+      : row.test === true ? "sandbox" : row.test === false ? "production" : null;
+    if (!e) throw new Error(`parent payment ${squarePaymentId} has no environment`);
+    return e;
+  };
+
   let env: SquareEnvironment | null = null;
   try { env = await currentEnvironment(db); } catch (e) { note("settings", e); }
 
@@ -151,10 +164,12 @@ Deno.serve(async (req) => {
       // real fault and alarms like any other (review round 3, #9 — Square's
       // exact "not enabled" code is not documented, so it is not guessed).
       const neverRead = !((await getState(db, `events:${env}`).catch(() => null))?.through);
-      if (e instanceof SquareError && e.kind === "client" && neverRead) {
+      const kind = eventsErrorKind(e instanceof SquareError ? e : null, neverRead);
+      if (kind === "not_enabled" && e instanceof SquareError) {
         report.events_api = `not_enabled: ${e.status} ${e.code}`;
       } else {
-        report.events_api = e instanceof SquareError ? `unavailable: ${e.status} ${e.code}` : `error: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160);
+        // R09: a 400 is our own request, never shown as an enablement state.
+        report.events_api = (kind === "unavailable" && e instanceof SquareError ? `unavailable: ${e.status} ${e.code}` : `error: ${e instanceof Error ? e.message : String(e)}`).slice(0, 160);
         note("events_api", e);
       }
     }
@@ -295,6 +310,10 @@ Deno.serve(async (req) => {
             const st = await rpc(db, "note_square_attempt_stuck", { p_attempt_id: a.id });
             if (st.ok) report.attempts_stuck++;
           }
+          // R02 (2026-10-08): a waiting attempt moves to the back of the
+          // updated_at order so attempt 31 is reached next run (fair round-robin).
+          await checked(`attempts_waiting_touch ${a.reference}`,
+            db.from("square_card_attempts").update({ updated_at: new Date().toISOString() }).eq("id", a.id).eq("status", a.status));
         }
       } catch (e) {
         note(`attempts ${a.reference}`, e);
@@ -373,8 +392,7 @@ Deno.serve(async (req) => {
     for (const r of (open ?? []) as Rec[]) {
       report.open_refunds_checked++;
       try {
-        const { data: row } = await db.from("square_payments").select("environment, test").eq("square_payment_id", r.square_payment_id).maybeSingle();
-        const rEnv = ((row?.environment as SquareEnvironment | null) ?? (row?.test ? "sandbox" : "production"));
+        const rEnv = await parentEnvironment(db, String(r.square_payment_id));
         if ((await syncSquareRefund(db, rEnv, await square.getRefund(rEnv, String(r.square_refund_id)))).outcome === "synced") report.refunds_synced++;
       } catch (e) { note(`open_refunds ${r.square_refund_id}`, e); }
       await checked(`open_refunds_touch ${r.square_refund_id}`,
@@ -385,13 +403,12 @@ Deno.serve(async (req) => {
   // 5. Open disputes.
   try {
     const { data: ds, error } = await db.from("square_disputes")
-      .select("square_dispute_id, square_payment_id").not("state", "in", "(WON,LOST,ACCEPTED)")
+      .select("square_dispute_id, square_payment_id").not("state", "in", "(WON,LOST,ACCEPTED,INQUIRY_CLOSED)")
       .order("updated_at", { ascending: true }).limit(50);
     if (error) throw error;
     for (const d of (ds ?? []) as Rec[]) {
       try {
-        const { data: row } = await db.from("square_payments").select("environment, test").eq("square_payment_id", d.square_payment_id).maybeSingle();
-        const dEnv = ((row?.environment as SquareEnvironment | null) ?? (row?.test ? "sandbox" : "production"));
+        const dEnv = await parentEnvironment(db, String(d.square_payment_id));
         const r = await syncSquareDispute(db, await square.getDispute(dEnv, String(d.square_dispute_id)), dEnv);
         if (r.outcome === "synced") report.disputes_synced++;
       } catch (e) { note(`disputes ${d.square_dispute_id}`, e); }
@@ -414,7 +431,10 @@ Deno.serve(async (req) => {
     const { data: done, error } = await db.from("square_refunds")
       .select("id, square_refund_id, cash_order_id, amount_jpy, email_resends")
       .eq("status", "COMPLETED").eq("refund_email_replay", true).is("email_given_up_at", null)
-      .lte("updated_at", before).order("updated_at", { ascending: true }).limit(20);
+      // R04 (2026-10-08): the row's created_at is when the Hub first saw the
+      // refund = when square-sync first tried the email. updated_at is rewritten
+      // by every hourly poll and would keep the refund ineligible for ever.
+      .lte("created_at", before).order("created_at", { ascending: true }).limit(20);
     if (error) throw error;
     for (const rf of (done ?? []) as Rec[]) {
       const key = refundReceivedKey(String(rf.square_refund_id));
@@ -441,16 +461,21 @@ Deno.serve(async (req) => {
             db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1 }).eq("id", rf.id));
         } else {
           report.refund_emails_given_up++;
-          await checked(`refund_email_give_up ${rf.square_refund_id}`,
-            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1, email_given_up_at: new Date().toISOString() }).eq("id", rf.id));
+          // R07 (2026-10-08): the bell FIRST, the give-up stamp after. If the
+          // bell cannot be written the row stays eligible and is tried again
+          // next hour (bounded by email_resends); a missing alert is worse
+          // than a repeated one.
           const { data: o } = await db.from("cash_orders").select("invoice_number, web_reference, customer_id").eq("id", rf.cash_order_id).maybeSingle();
-          await checked(`refund_email_bell ${rf.square_refund_id}`, db.from("staff_notifications").insert({
+          const bell = await db.from("staff_notifications").insert({
             type: "refund_email_failed",
             title: "Refund email could not be sent",
             body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${Number(rf.amount_jpy ?? 0).toLocaleString("en-US")} — the "refund received" email for Square refund ${rf.square_refund_id} failed 3 times (${out.reason ?? "error"}). Tell the customer another way and check Settings → Email delivery.`,
             customer_id: o?.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
             metadata: { cash_order_id: rf.cash_order_id, square_refund_id: rf.square_refund_id, reason: out.reason ?? null },
-          }));
+          });
+          if (bell.error) throw new Error(`refund_email_bell ${rf.square_refund_id}: ${bell.error.message}`);
+          await checked(`refund_email_give_up ${rf.square_refund_id}`,
+            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1, email_given_up_at: new Date().toISOString() }).eq("id", rf.id));
         }
       } catch (e) { note(`refund_email ${rf.square_refund_id}`, e); }
     }

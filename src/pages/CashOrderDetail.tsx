@@ -93,6 +93,8 @@ interface CancelPreview {
   cancellation_charge?: number;
   // B01: a card-paid web order cannot be closed as "refund issued" at cancel.
   paid_by_card?: boolean;
+  // R05 (owner 2026-10-08): a Square refund (not FAILED/REJECTED) exists → store credit refused.
+  card_refunded?: boolean;
 }
 
 // Refund decision for a web order that has money received. Only
@@ -1147,6 +1149,7 @@ export default function CashOrderDetail() {
   const cancelChargeShown = Number(cancelPreview?.cancellation_charge ?? 0);
   const cancelChargeApplies = cancelChargeShown > 0 && (!cancelIsWeb || refundStatus === 'store_credit_issued');
   const cancelPaidByCard = cancelIsWeb && cancelPreview?.paid_by_card === true;
+  const cancelCardRefunded = cancelPreview?.card_refunded === true;
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
   const canAwardLoyalty = can('loyalty_adjust_points');
@@ -2306,7 +2309,10 @@ export default function CashOrderDetail() {
               >
                 {REFUND_OPTIONS.map(opt => {
                   // B01: card money goes back only through Square, then "Mark refund issued".
-                  const blocked = opt.value === 'refund_issued' && cancelPaidByCard;
+                  // R05: money Square already refunded never comes back again as store credit.
+                  const blockedByCard = opt.value === 'refund_issued' && cancelPaidByCard;
+                  const blockedByRefund = opt.value === 'store_credit_issued' && cancelCardRefunded;
+                  const blocked = blockedByCard || blockedByRefund;
                   return (
                   <label
                     key={opt.value}
@@ -2320,7 +2326,9 @@ export default function CashOrderDetail() {
                     <span className="space-y-0.5">
                       <span className="block text-sm text-card-foreground">{opt.label}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {blocked
+                        {blockedByRefund
+                          ? 'Already refunded through Square: this money cannot come back a second time as store credit. Choose "Refund pending", then "Mark refund issued".'
+                          : blocked
                           ? 'Paid by card: choose "Refund pending", refund it in the Square Dashboard, then "Mark refund issued" once Square shows it completed.'
                           : opt.helper}
                       </span>

@@ -128,6 +128,8 @@ export function MarkRefundIssuedDialog({
         ? 'This refund was already recorded — nothing changed.'
         : d.email_skipped === 'provider_refund_already_emailed'
           ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. Square's refund email already told the customer.`
+          : d.email_skipped === 'provider_refund_email_not_confirmed'
+            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. The Square refund email is not confirmed sent yet — the hourly check will retry; see the order's email history.`
           : d.email_sent
             ? 'Refund recorded — the customer has been emailed.'
             : 'Refund recorded. The email was not sent (see the order\'s email history).');

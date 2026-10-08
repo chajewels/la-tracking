@@ -158,6 +158,12 @@ Reference docs (read the relevant one when a task touches that area):
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
     refund total (never the gross), refusing until one exists.
+  - NO DOUBLE COMPENSATION (R05, owner 2026-10-08): money already refunded
+    through Square (any square_refunds row not FAILED/REJECTED) is NEVER issued
+    again as store credit — both cancel RPCs refuse (card_already_refunded);
+    record_square_refund locks the ORDER first and rings
+    card_refund_after_credit when a refund lands on an order already cancelled
+    with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 

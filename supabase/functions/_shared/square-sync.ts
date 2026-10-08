@@ -364,19 +364,41 @@ export async function readPaymentAnyEnv(env: SquareEnvironment, id: string): Pro
  *                (the caller keeps the attempt open and looks again).
  */
 export const PAYMENT_SEARCH_MAX_PAGES = 20;
-export type PaymentSearch = { state: "found"; payment: SquarePayment } | { state: "absent" } | { state: "incomplete"; pages: number };
-export async function findPaymentByReference(env: SquareEnvironment, locationId: string, reference: string, createdMs: number, maxPages = PAYMENT_SEARCH_MAX_PAGES): Promise<PaymentSearch> {
+export type PaymentSearch =
+  | { state: "found"; payment: SquarePayment }
+  | { state: "absent" }
+  | { state: "incomplete"; pages: number; cursor: string | null };
+/** R01: where an earlier incomplete search stopped (square_card_attempts.search_cursor / search_pages). */
+export type PaymentSearchStart = { cursor: string | null; pages: number } | null;
+type PaymentLister = (env: SquareEnvironment, q: { locationId: string; beginTime: string; endTime: string; cursor?: string | null }) => Promise<{ payments: SquarePayment[]; cursor: string | null }>;
+export async function findPaymentByReference(
+  env: SquareEnvironment, locationId: string, reference: string, createdMs: number,
+  maxPages = PAYMENT_SEARCH_MAX_PAGES, start: PaymentSearchStart = null, lister: PaymentLister = square.list,
+): Promise<PaymentSearch> {
   const begin = new Date(createdMs - 2 * 60 * 1000).toISOString();
   const end = new Date(Math.min(Date.now(), createdMs + 30 * 60 * 1000)).toISOString();
-  let cursor: string | null = null;
+  // R01 (2026-10-08): resume where the previous run stopped instead of
+  // re-reading page 1 every hour. A cursor Square refuses (the window moved
+  // while the attempt was young, or it expired) restarts from page 1 — once.
+  let cursor: string | null = start?.cursor ?? null;
+  let readBefore = start?.pages ?? 0;
   for (let page = 0; page < maxPages; page++) {
-    const r = await square.list(env, { locationId, beginTime: begin, endTime: end, cursor });
+    let r;
+    try {
+      r = await lister(env, { locationId, beginTime: begin, endTime: end, cursor });
+    } catch (e) {
+      if (cursor && cursor === start?.cursor && e instanceof SquareError && e.kind === "client") {
+        cursor = null; readBefore = 0; page--;
+        continue;
+      }
+      throw e;
+    }
     const hit = r.payments.find((p) => p.reference_id === reference);
     if (hit) return { state: "found", payment: hit };
     if (!r.cursor) return { state: "absent" };
     cursor = r.cursor;
   }
-  return { state: "incomplete", pages: maxPages };
+  return { state: "incomplete", pages: readBefore + maxPages, cursor };
 }
 
 /**
@@ -397,9 +419,19 @@ export async function recoverAttempt(db: Db, a: AnyRec, giveUpMs: number, source
     if (got) found = got.payment;
   }
   if (!found) {
-    const search = await findPaymentByReference(env, String(a.location_id), String(a.reference), created);
-    // An incomplete search proves nothing: the attempt stays open (QC08).
-    if (search.state === "incomplete") return "waiting";
+    const search = await findPaymentByReference(env, String(a.location_id), String(a.reference), created, PAYMENT_SEARCH_MAX_PAGES,
+      a.search_cursor ? { cursor: a.search_cursor as string, pages: Number(a.search_pages ?? 0) } : null);
+    // An incomplete search proves nothing: the attempt stays open (QC08) and
+    // R01 saves where it stopped so the next run continues from there.
+    if (search.state === "incomplete") {
+      const sv = await db.from("square_card_attempts").update({ search_cursor: search.cursor, search_pages: search.pages }).eq("id", a.id);
+      if (sv.error) console.warn(`[square-sync] search cursor not saved for ${a.reference}: ${sv.error.message}`);
+      return "waiting";
+    }
+    if (a.search_cursor) {
+      const cl = await db.from("square_card_attempts").update({ search_cursor: null }).eq("id", a.id);
+      if (cl.error) console.warn(`[square-sync] search cursor not cleared for ${a.reference}: ${cl.error.message}`);
+    }
     if (search.state === "found") found = search.payment;
   }
   if (found) {

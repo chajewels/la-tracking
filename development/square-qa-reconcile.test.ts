@@ -18,6 +18,9 @@ import {
   attemptStuckThisRun, discoveryEnvironments, MAX_REFUND_EMAIL_RESENDS, refundEmailNext, refundReceivedKey,
 } from '../supabase/functions/_shared/square-reconcile-rules.ts'
 import { terminateRefusalMessage } from '../supabase/functions/_shared/terminate-refusals.ts'
+import { eventsErrorKind } from '../supabase/functions/_shared/square-reconcile-rules.ts'
+import { findPaymentByReference } from '../supabase/functions/_shared/square-sync.ts'
+import { listField, cursorField, parseSquareBody, SquareError } from '../supabase/functions/_shared/square.ts'
 import { refundIssuedRefusal } from '../supabase/functions/_shared/refund-issued-rules.ts'
 
 const assert = (ok: unknown, msg: string) => { if (!ok) throw new Error(msg) }
@@ -137,4 +140,111 @@ Deno.test('cancel-cash-order passes the credit and the charge to the email, bell
   assert(src.includes('charge: Number(c.cancellation_split?.kept ?? 0)'), 'email gets the charge')
   assert(src.includes('30% cancellation charge ${symbol}${kept.toLocaleString("en-US")} kept'), 'staff bell names the charge')
   assert(src.includes('less the 30% cancellation charge of'), 'portal note names the charge')
+})
+
+// ───────────────────────────────────────────── R01–R09 (reassessment 2026-10-08)
+
+Deno.test('R01: an incomplete search hands back its cursor and the next run resumes there (page 21 found)', async () => {
+  const calls: Array<string | null | undefined> = []
+  // 25 pages; the reference is on page 21 (index 20)
+  const lister = (_e: unknown, q: { cursor?: string | null }) => {
+    calls.push(q.cursor)
+    const page = q.cursor ? Number(q.cursor.slice(1)) : 0
+    const payments = page === 20 ? [{ id: 'pay_x', reference_id: 'REF', status: 'APPROVED' }] : [{ id: `p${page}`, reference_id: 'other', status: 'APPROVED' }]
+    return Promise.resolve({ payments, cursor: page < 24 ? `c${page + 1}` : null })
+  }
+  const created = Date.now() - 3 * 60 * 60 * 1000
+  const run1 = await findPaymentByReference('sandbox', 'L1', 'REF', created, 20, null, lister as never)
+  eq(run1.state, 'incomplete', 'run 1 incomplete')
+  eq(run1.state === 'incomplete' && run1.cursor, 'c20', 'run 1 hands back the cursor to resume at')
+  eq(run1.state === 'incomplete' && run1.pages, 20, 'run 1 read 20 pages')
+  const run2 = await findPaymentByReference('sandbox', 'L1', 'REF', created, 20, { cursor: 'c20', pages: 20 }, lister as never)
+  eq(run2.state, 'found', 'run 2 finds it')
+  eq(calls[20], 'c20', 'run 2 started from the saved cursor, not page 1')
+  eq(calls.length, 21, 'one more page read, not twenty-one')
+})
+
+Deno.test('R01: a cursor Square refuses restarts from page 1 instead of failing', async () => {
+  const calls: Array<string | null | undefined> = []
+  const lister = (_e: unknown, q: { cursor?: string | null }) => {
+    calls.push(q.cursor)
+    if (q.cursor === 'stale') return Promise.reject(new SquareError(400, 'BAD_REQUEST', 'invalid cursor'))
+    return Promise.resolve({ payments: [{ id: 'pay_x', reference_id: 'REF', status: 'APPROVED' }], cursor: null })
+  }
+  const r = await findPaymentByReference('sandbox', 'L1', 'REF', Date.now() - 3600e3, 20, { cursor: 'stale', pages: 20 }, lister as never)
+  eq(r.state, 'found', 'found after the restart')
+  eq(calls, ['stale', null], 'tried the saved cursor once, then page 1')
+})
+
+Deno.test('R01 wiring: recoverAttempt saves and clears the cursor on the attempt row', async () => {
+  const src = await code('_shared/square-sync.ts')
+  assert(src.includes('search_cursor: search.cursor'), 'incomplete → cursor saved')
+  assert(src.includes('search_cursor: null'), 'found / absent → cursor cleared')
+  assert(src.includes('{ cursor: a.search_cursor'), 'the saved cursor is passed in')
+})
+
+Deno.test('R02 wiring: every waiting attempt is touched so later attempts get their turn', async () => {
+  const src = await code('square-reconcile/index.ts')
+  assert(src.includes('checked(`attempts_waiting_touch '), 'waiting attempts advance in updated_at order')
+})
+
+Deno.test('R04 wiring: replay eligibility is the refund row\'s created_at, never the polled updated_at', async () => {
+  const src = await code('square-reconcile/index.ts')
+  const step7 = src.slice(src.indexOf('.eq("refund_email_replay", true)'))
+  const block = step7.slice(0, step7.indexOf('.limit(20)'))
+  assert(block.includes('.lte("created_at", before)'), 'uses created_at')
+  assert(!block.includes('updated_at'), 'does not use updated_at')
+})
+
+Deno.test('R07 wiring: the give-up bell is written BEFORE the row is stamped given-up', async () => {
+  const src = await code('square-reconcile/index.ts')
+  const bell = src.indexOf('`refund_email_bell ')
+  const stamp = src.indexOf('email_given_up_at: new Date()')
+  assert(bell > 0 && stamp > 0 && bell < stamp, `bell at ${bell} must precede stamp at ${stamp}`)
+})
+
+Deno.test('R06: "already emailed" is said only when the send log proves it', async () => {
+  const src = await code('mark-refund-issued/index.ts')
+  assert(src.includes('provider_refund_email_not_confirmed'), 'new honest outcome exists')
+  assert(src.includes('refundReceivedKey('), 'checks the Square refund email key in the send log')
+  const ui = (await Deno.readTextFile(new URL('../src/components/web-orders/MarkRefundIssuedDialog.tsx', import.meta.url)))
+  assert(ui.includes('provider_refund_email_not_confirmed') && ui.includes('not confirmed sent'), 'dialog states the truth')
+})
+
+Deno.test('R08: a 2xx with unreadable JSON is an ambiguous provider answer, not an empty page', () => {
+  let threw: unknown = null
+  try { parseSquareBody('<html>gateway</html>', 200) } catch (e) { threw = e }
+  assert(threw instanceof SquareError && threw.code === 'square_bad_response' && threw.kind === 'ambiguous', 'malformed 200 → square_bad_response (ambiguous)')
+  eq(parseSquareBody('', 200), {}, 'an empty 2xx body is {}')
+  eq(parseSquareBody('{"refunds":[]}', 200), { refunds: [] }, 'valid JSON parses')
+  eq(parseSquareBody('oops', 500), { raw: 'oops' }, 'a non-2xx body may be anything (error path keeps the raw text)')
+})
+
+Deno.test('R08: a list field that is present but not an array, or a cursor that is not a string, is refused; an omitted list is an empty page', () => {
+  eq(listField({}, 'refunds'), [], 'omitted → []')
+  eq(listField({ refunds: [1] }, 'refunds'), [1], 'array passes')
+  let threw: unknown = null
+  try { listField({ refunds: 'nope' }, 'refunds') } catch (e) { threw = e }
+  assert(threw instanceof SquareError && threw.code === 'square_bad_response', 'wrong type refused')
+  eq(cursorField({}), null, 'no cursor → null')
+  eq(cursorField({ cursor: 'c1' }), 'c1', 'string cursor')
+  threw = null
+  try { cursorField({ cursor: 7 }) } catch (e) { threw = e }
+  assert(threw instanceof SquareError, 'numeric cursor refused')
+})
+
+Deno.test('R09: first-Events errors — a bad request is never shown as "not enabled"', () => {
+  eq(eventsErrorKind({ kind: 'client', status: 403 }, true), 'not_enabled', '403 before any read = not enabled')
+  eq(eventsErrorKind({ kind: 'client', status: 400 }, true), 'error', '400 is our request, an alarm')
+  eq(eventsErrorKind({ kind: 'client', status: 403 }, false), 'unavailable', 'after a successful read the same 403 alarms')
+  eq(eventsErrorKind({ kind: 'ambiguous', status: 503 }, true), 'unavailable', '5xx is unavailable')
+  eq(eventsErrorKind(null, true), 'error', 'a non-Square error is an error')
+})
+
+Deno.test('R09 wiring: parent environment lookups check the error and never default to production; closed inquiries excluded in both queries', async () => {
+  const src = await code('square-reconcile/index.ts')
+  eq((src.match(/await parentEnvironment\(db, /g) ?? []).length, 2, 'both child loops use the checked lookup')
+  assert(!src.includes('(row?.test ? "sandbox" : "production")'), 'the unchecked fallback is gone')
+  eq((src.match(/\(WON,LOST,ACCEPTED,INQUIRY_CLOSED\)/g) ?? []).length, 2, 'INQUIRY_CLOSED excluded in selection AND refresh')
+  assert(src.includes('eventsErrorKind('), 'events classification goes through the rule')
 })
