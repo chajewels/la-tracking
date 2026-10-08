@@ -569,3 +569,59 @@ check finds no Paidy payment on this order" — never "confirmed with Paidy".
   a stubbed Paidy, parking + both-keys closure, counted write failures, source
   and migration guards) + the updated development/paidy-p04-p07.test.ts; in
   the CI list.
+
+### PA06 + PA14 + PA07 — PR 4, money concurrency (migration 20261128100000; owner go 2026-10-08 23:16 JST)
+
+Plan and investigation: claude/paidy-pr4-concurrency-plan-2026-10-08.md (project).
+Owner decisions applied: the Reject's Hub record is one atomic write; an
+interrupted staff cancel is finished by the sweep only from the Paidy release
+onward (an intent stuck at `started` rings a bell for staff, nothing is
+re-attempted at Paidy); a follow-up email is sent later ONLY when the Hub never
+reached the send (no email_send_log row for its key).
+
+- **PA06 — atomic Paidy Reject.** `reject_paidy_submission_atomic` (service
+  role only) takes the ORDER lock first, then the submission (FOR UPDATE);
+  refuses `already_rejected`, `conflict` (the submission is no longer
+  submitted / under_review — answered 409), `paidy_captured` (409); ends the
+  paidy_payments row compare-and-set from `authorized`, moves the submission
+  to rejected with its customer_message, writes the audit row and files the
+  customer-email INTENT (`payment_submission_followups`, key
+  `payment-rejected-<submission id>` = the sender's own idempotency key) in ONE
+  transaction. review-payment-submission calls it AFTER the Paidy close and
+  skips its generic update + audit when it ran; the intent is marked done once
+  `sendCashPaymentRejectedEmail` was reached. No direct paidy_payments update
+  remains in the reject section.
+- **PA14 — webhook budget + cancel intents.** `paidy-webhook` measures its
+  processing budget from RECEIPT (`receivedAt` before anything else;
+  `PROCESS_DEADLINE_MS` 8000 − elapsed, floor `MIN_PROCESS_BUDGET_MS` 1500), so
+  a slow inbox insert comes out of the budget, never on top of Paidy's 10 s.
+  cancel-cash-order writes a `cash_order_cancel_intents` row (stage `started`)
+  BEFORE the Paidy release on a real web cancel, advances it `paidy_released`
+  → `terminated` → `notified` → `done`, and marks a clean refusal `abandoned`
+  (a release Paidy may have acted on stays `started`). Everything after the
+  terminate RPC — bells (keyed type + cash_order_id), portal notes (once per
+  order), the cancellation email (`order-cancelled-<id>`), the Shopify mirror
+  — lives in `_shared/cancel-followups.ts`, shared with the sweep. The sweep
+  (step 6b, intents ≥ 5 min old): `started` → bell `cancel_interrupted` once
+  (bell_rung_at); `paidy_released` → terminate_web_order_atomic
+  (already_terminal is fine; another refusal → `abandoned` + bell) then the
+  Shopify mirror + follow-ups; `terminated` / `notified` →
+  `cancellationSnapshot` (rebuilt from cash_orders / store_credit_lots /
+  cash_payments) + follow-ups. Step 6a replays pending follow-up emails only
+  when `email_send_log` holds NO row with that idempotency_key (`attempted` →
+  marked `already_attempted`, never re-sent); 3 failed attempts → bell
+  `paidy_followup_failed`.
+- **PA07 — every case rings.** `_shared/paidy-case-bell.ts` gives all nine
+  case kinds a bell text (`PAIDY_CASE_KINDS`); `openPaidyCase` stamps
+  `paidy_cases.bell_rung_at` after a successful bell; the sweep (step 6c)
+  rings open cases with no stamp once (dedupe on metadata.case_id, `late:
+  true`) and stamps them.
+- Tables: payment_submission_followups (kind, idempotency_key UNIQUE, status
+  pending|done|failed, attempts), cash_order_cancel_intents (stage CHECK,
+  bell_rung_at) — RLS staff SELECT / service_role ALL.
+- Report fields added: followups_done, followups_failed,
+  cancel_intents_finished, cancel_intents_bell, case_bells_rung.
+- Tests: development/paidy-pr4-concurrency.test.ts (source + migration
+  guards; the bell catalogue) in the CI list;
+  development/payment-lifecycle-addendum.test.ts and
+  development/square-qa-reconcile.test.ts repointed at cancel-followups.ts.
