@@ -55,6 +55,23 @@ function fakeDb(tables: Record<string, Row[]>, failOn?: { table: string; op: str
       insert: (p: Row) => { op = "insert"; payload = p; return b; },
       upsert: (p: Row, o: typeof upsertOpts) => { op = "upsert"; payload = p; upsertOpts = o; return b; },
       eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return b; },
+      neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return b; },
+      // PostgREST or("a.is.null,a.lt.5"): any one clause matching keeps the row.
+      or: (expr: string) => {
+        const clauses = expr.split(",").map((s) => {
+          const [col, opr, ...rest] = s.split(".");
+          const val = rest.join(".");
+          return (r: Row) => {
+            const x = r[col];
+            if (opr === "is" && val === "null") return x === null || x === undefined;
+            if (opr === "lt") return x !== null && x !== undefined && Number(x) < Number(val);
+            if (opr === "eq") return String(x) === val;
+            throw new Error(`fakeDb.or: unsupported operator ${opr}`);
+          };
+        });
+        filters.push((r) => clauses.some((f) => f(r)));
+        return b;
+      },
       in: (c: string, v: unknown[]) => { filters.push((r) => v.includes(r[c])); return b; },
       gte: (c: string, v: string) => { filters.push((r) => String(r[c] ?? "") >= v); return b; },
       contains: (c: string, v: Row) => { filters.push((r) => Object.entries(v).every(([k, x]) => (r[c] as Row | undefined)?.[k] === x)); return b; },
@@ -257,4 +274,41 @@ Deno.test("auto-recorder signature: only the signer's own, fresh, for that submi
   assert(!(await verifyPaidyAutoSignature("sub-1", String(Date.now() - 10 * 60_000), sig, key)), "stale");
   assert(!(await verifyPaidyAutoSignature("sub-1", ts, null, key)), "missing");
   assert(!(await verifyPaidyAutoSignature("sub-1", ts, sig, undefined)), "no key configured");
+});
+
+// --- Reassessment P02: a late or stale Paidy message never undoes a capture ---
+Deno.test("P02: stale CLOSED payload after the row is captured → row stays captured, submission untouched", async () => {
+  const t = world();
+  t.paidy_payments[0].status = "captured";
+  t.paidy_payments[0].capture_id = "cap_1";
+  t.payment_submissions[0].status = "confirmed";
+  t.payment_submissions[0].confirmed_payment_id = "cp1";
+  const rec = recorder(t);
+  await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], base({ status: "CLOSED" }), "webhook", "close", { record: rec.fn });
+  assertEquals(t.paidy_payments[0].status, "captured");
+  assertEquals(t.paidy_payments[0].capture_id, "cap_1");
+  assertEquals(t.payment_submissions[0].status, "confirmed");
+  assertEquals(rec.calls.length, 0);
+});
+
+Deno.test("P02: an older payload with a smaller refund total never lowers refund_jpy", async () => {
+  const t = world();
+  t.paidy_payments[0].status = "captured";
+  t.paidy_payments[0].refund_jpy = 5000;
+  t.payment_submissions[0].status = "confirmed";
+  t.payment_submissions[0].confirmed_payment_id = "cp1";
+  await syncPaidyPayment(fakeDb(t), t.paidy_payments[0],
+    captured({ refunds: [{ id: "ref_1", amount: 2000, created_at: "2026-10-05T01:00:00Z" }] }), "reconcile");
+  assertEquals(t.paidy_payments[0].refund_jpy, 5000);
+});
+
+Deno.test("P02: row captured by another pass while this one saw CLOSED → no rejection of the submission", async () => {
+  const t = world();
+  const db = fakeDb(t);
+  // The webhook read CLOSED, but a capture landed first in the database.
+  t.paidy_payments[0].status = "captured";
+  const stale = { ...t.paidy_payments[0], status: "authorized" };
+  await syncPaidyPayment(db, stale, base({ status: "CLOSED" }), "webhook", "close");
+  assertEquals(t.paidy_payments[0].status, "captured");
+  assertEquals(t.payment_submissions[0].status, "submitted");
 });

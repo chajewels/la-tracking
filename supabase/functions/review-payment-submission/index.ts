@@ -1476,8 +1476,8 @@ Deno.serve(async (req) => {
     // 2026-10-04: this is the staff fallback; the order stays open and the
     // customer may then pay another way. Order of work (R04): read Paidy
     // (a payment Paidy has taken is never rejected), then the guarded status
-    // write below CLAIMS the rejection, and only the winner closes at Paidy.
-    // A close Paidy refuses becomes a durable case the sweep retries.
+    // authorisation is closed and read back BEFORE the rejection is written
+    // (P03, 2026-10-06); a close Paidy refuses rejects nothing.
     let paidyCloseAfterReject: { id: string; paidy_payment_id: string; cash_order_id: string } | null = null;
     if (action === "rejected" && isPaidySubmission) {
       const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
@@ -1577,6 +1577,41 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Reassessment P03 (2026-10-06): the authorisation is released at Paidy and
+    // READ BACK before the rejection is written — a local "rejected" never
+    // re-opens the other payment methods while Paidy still holds the money.
+    // A refused or lost close is read back; if Paidy still shows it authorised
+    // nothing is rejected (staff press Reject again); a capture is never
+    // rejected. A close that went through is final, so a Confirm racing this
+    // Reject finds nothing Paidy can charge.
+    if (paidyCloseAfterReject) {
+      const pc = paidyCloseAfterReject;
+      const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      let after: PaidyPayment;
+      try {
+        after = await paidy.close(pc.paidy_payment_id);
+      } catch (e) {
+        console.warn("[review-payment-submission] paidy.close on reject failed — reading Paidy back:", e);
+        try { after = await paidy.get(pc.paidy_payment_id); }
+        catch { return json(502, { error: "paidy_unverified", message: "Paidy did not confirm the release and could not be checked, so nothing was rejected. Try Reject again in a few minutes." }); }
+      }
+      const endOutcome = paidyProviderOutcome(after);
+      if (endOutcome === "captured") {
+        return json(409, { error: "paidy_already_captured", message: "Paidy has already taken this payment (captured in the Paidy dashboard). Do not reject it — press Confirm: the Hub records it and never charges twice." });
+      }
+      if (endOutcome === "authorized" || endOutcome === "unknown") {
+        return json(502, { error: "paidy_close_failed", message: "Paidy has not released this authorisation yet, so nothing was rejected and no other payment method was opened. Try Reject again in a few minutes." });
+      }
+      const at = new Date().toISOString();
+      const { error: recErr } = await supabase.from("paidy_payments").update({
+        status: endOutcome === "expired" ? "expired" : endOutcome === "rejected" ? "rejected" : "closed",
+        closed_at: at, closed_reason: "rejected by reviewer", last_payload: after, updated_at: at,
+      }).eq("id", pc.id).eq("status", "authorized");
+      if (recErr) console.error("[review-payment-submission] paidy_payments closed update failed (the sweep repairs it):", recErr);
+    }
+
     // Update submission status
     const updateData: Record<string, unknown> = {
       status: action,
@@ -1618,28 +1653,6 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    // R04: only the reviewer whose Reject won the status write closes at Paidy.
-    if (paidyCloseAfterReject) {
-      const pc = paidyCloseAfterReject;
-      const at = new Date().toISOString();
-      try {
-        const closed = await paidy.close(pc.paidy_payment_id);
-        const { error: recErr } = await supabase.from("paidy_payments").update({
-          status: "closed", closed_at: at, closed_reason: "rejected by reviewer", last_payload: closed, updated_at: at,
-        }).eq("id", pc.id).eq("status", "authorized");
-        if (recErr) console.error("[review-payment-submission] paidy_payments closed update failed:", recErr);
-      } catch (e) {
-        console.warn("[review-payment-submission] paidy.close on reject failed — case opened, the sweep retries:", e);
-        try {
-          await openPaidyCase(supabase, {
-            kind: "close_failed", paidy_payment_id: pc.paidy_payment_id, cash_order_id: pc.cash_order_id, paidy_payment_row: pc.id, submission_id,
-            detail: { error: e instanceof Error ? e.message : String(e) },
-            bell: { title: "Paidy authorisation not released yet", body: `Submission ${submission_id} was rejected but Paidy did not accept the close (${e instanceof Error ? e.message : String(e)}). The hourly check retries; do not capture it in the Paidy dashboard.` },
-          });
-        } catch (e2) { console.error("[review-payment-submission] close_failed case could not be opened:", e2); }
-      }
     }
 
     // Fire-and-forget: archive the proof into payment_proofs (layaway).

@@ -25,31 +25,43 @@ Deno.test("cancel step from Paidy's read-back", () => {
 
 // --- releasePaidyForCancel with a recording fake ---------------------------
 type Call = { table: string; op: string; values?: unknown; filters: [string, unknown][] };
-function fakeDb(rows: { id: string; paidy_payment_id: string; status: string }[], flipped: { id: string }[] = [{ id: "s1" }]) {
+function fakeDb(input: { id: string; paidy_payment_id: string; status: string }[], flipped: { id: string }[] = [{ id: "s1" }]) {
+  const rows: Record<string, unknown>[] = input.map((r) => ({ cash_order_id: "o1", ...r }));
   const calls: Call[] = [];
   const db = {
     calls,
     from(table: string) {
       const c: Call = { table, op: "select", filters: [] };
       calls.push(c);
+      // Rows matching every eq/in filter recorded so far (paidy_payments only).
+      const match = () => rows.filter((r) => c.filters.every(([k, v]) =>
+        Array.isArray(v) ? v.includes(r[k]) : r[k] === v));
+      const result = () => {
+        if (table === "paidy_payments" && c.op === "select") return { data: match(), error: null };
+        if (table === "paidy_payments" && c.op === "update") {
+          const hit = match();
+          hit.forEach((r) => Object.assign(r, c.values as object));
+          return { data: hit.map((r) => ({ id: r.id })), error: null };
+        }
+        if (table === "payment_submissions" && c.op === "update") return { data: flipped, error: null };
+        return { data: null, error: null };
+      };
       const q: Record<string, unknown> = {
         select() { return q; },
         update(v: unknown) { c.op = "update"; c.values = v; return q; },
         insert(v: unknown) { c.op = "insert"; c.values = v; return Promise.resolve({ error: null }); },
         eq(k: string, v: unknown) { c.filters.push([k, v]); return q; },
         in(k: string, v: unknown) { c.filters.push([k, v]); return q; },
-        then(res: (x: unknown) => unknown) {
-          if (table === "paidy_payments" && c.op === "select") return Promise.resolve({ data: rows, error: null }).then(res);
-          if (table === "payment_submissions" && c.op === "update") return Promise.resolve({ data: flipped, error: null }).then(res);
-          return Promise.resolve({ data: null, error: null }).then(res);
-        },
+        maybeSingle() { const r = result(); return Promise.resolve({ data: (r.data as unknown[] | null)?.[0] ?? null, error: null }); },
+        then(res: (x: unknown) => unknown) { return Promise.resolve(result()).then(res); },
       };
       return q;
     },
   };
-  return db;
+  return Object.assign(db, { rows });
 }
-const pay = (status: string, extra: Record<string, unknown> = {}) => ({ id: "pay_1", status, amount: 1000, captures: [], ...extra }) as never;
+const FUTURE = new Date(Date.now() + 20 * 86400000).toISOString();
+const pay = (status: string, extra: Record<string, unknown> = {}) => ({ id: "pay_1", status, amount: 1000, captures: [], created_at: new Date().toISOString(), expires_at: FUTURE, ...extra }) as never;
 
 Deno.test("release: authorised → closed at Paidy, row closed, submission rejected quietly", async () => {
   const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_1", status: "authorized" }]);
@@ -102,4 +114,45 @@ Deno.test("release: no open authorisation → ok, nothing to do", async () => {
     close: () => Promise.reject(new Error("must not be called")),
   });
   assertEquals(res, { ok: true, closed: 0 });
+});
+
+// --- Reassessment P08: a cancel that stopped half-way is finished by the next ---
+Deno.test("release retry: row already closed by an earlier attempt → no Paidy call, submission still rejected", async () => {
+  const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_1", status: "closed" }]);
+  const res = await releasePaidyForCancel(db, "o1", "u1", {
+    get: () => Promise.reject(new Error("must not be called")),
+    close: () => Promise.reject(new Error("must not be called")),
+  });
+  assertEquals(res, { ok: true, closed: 0 });
+  const sub = db.calls.find((c) => c.table === "payment_submissions" && c.op === "update");
+  assertEquals((sub?.values as Record<string, unknown>).status, "rejected");
+});
+Deno.test("release: close answer lost but Paidy shows CLOSED → treated as closed", async () => {
+  const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_1", status: "authorized" }]);
+  let gets = 0;
+  const res = await releasePaidyForCancel(db, "o1", "u1", {
+    get: () => Promise.resolve(pay(++gets === 1 ? "AUTHORIZED" : "CLOSED")),
+    close: () => Promise.reject(new Error("timeout")),
+  });
+  assertEquals(res, { ok: true, closed: 1 });
+  assertEquals(db.rows[0].status, "closed");
+});
+Deno.test("release: close answer lost and Paidy shows a capture → refused, row untouched", async () => {
+  const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_1", status: "authorized" }]);
+  let gets = 0;
+  const res = await releasePaidyForCancel(db, "o1", "u1", {
+    get: () => Promise.resolve(++gets === 1 ? pay("AUTHORIZED") : pay("CLOSED", { captures: [{ id: "cap_1", amount: 1000 }] })),
+    close: () => Promise.reject(new Error("timeout")),
+  });
+  assertEquals(res.ok === false && res.code, "paidy_already_captured");
+  assertEquals(db.rows[0].status, "authorized");
+});
+Deno.test("release: row turned captured between read and write → refused (compare-and-set lost)", async () => {
+  const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_1", status: "authorized" }]);
+  const res = await releasePaidyForCancel(db, "o1", "u1", {
+    get: () => Promise.resolve(pay("AUTHORIZED")),
+    close: () => { db.rows[0].status = "captured"; return Promise.resolve(pay("CLOSED")); },
+  });
+  assertEquals(res.ok === false && res.code, "paidy_already_captured");
+  assertEquals(db.calls.some((c) => c.table === "payment_submissions"), false);
 });
