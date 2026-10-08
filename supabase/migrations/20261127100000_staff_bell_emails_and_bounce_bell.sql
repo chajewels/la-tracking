@@ -310,6 +310,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.staff_bell_emails_wake() FROM PUBLIC, anon, authenticated;
 
 -- 7. Fan-out trigger on staff_notifications -----------------------------------
+-- A bell must never fail because its email fan-out did (body wrapped in EXCEPTION → WARNING).
 CREATE OR REPLACE FUNCTION public.staff_bell_email_fanout()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -330,7 +331,6 @@ BEGIN
     GET DIAGNOSTICS v_n = ROW_COUNT;
     IF v_n > 0 THEN PERFORM public.staff_bell_emails_wake(); END IF;
   EXCEPTION WHEN OTHERS THEN
-    -- A bell must never fail because its email fan-out did.
     RAISE WARNING 'staff_bell_email_fanout: %', SQLERRM;
   END;
   RETURN NEW;
