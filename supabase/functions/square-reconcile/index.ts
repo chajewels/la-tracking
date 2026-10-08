@@ -7,6 +7,10 @@ import {
   syncSquareDispute, syncSquareRefund,
 } from "../_shared/square-sync.ts";
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
+import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import {
+  attemptStuckThisRun, discoveryEnvironments, REFUND_EMAIL_GRACE_MS, refundEmailNext, refundReceivedKey,
+} from "../_shared/square-reconcile-rules.ts";
 
 /**
  * square-reconcile — the hourly Square safety net (integrity 2026-10-04, SQ14;
@@ -32,7 +36,14 @@ import { getState, putState, walkStream } from "../_shared/square-stream.ts";
  *   4. refunds    — captured payments' refund ids (recent captures) and EVERY
  *                 refund not yet terminal, whatever its capture's age (QC07);
  *   5. disputes   — open disputes refreshed (state, deadline);
- *   6. bells      — hold expiry, dispute evidence deadlines.
+ *   6. bells      — hold expiry, dispute evidence deadlines, refunds still
+ *                 pending at 7 / 14 days (S05).
+ *   7. refund emails — a completed refund whose 「返金を受け付けました」 email
+ *                 never went out is sent again, same key (B02, owner 2026-10-08).
+ * Square QA 2026-10-08: refund + dispute discovery (B, C) run for EVERY
+ * environment with card rows still worth watching, also with the mode off
+ * (S02); an attempt that stays unsettled rings a bell on the 3rd run (S01);
+ * every progress write is checked (S03).
  * The run ends with ok | degraded | failed, saved in square_sync_state
  * (reconcile_last_run / reconcile_last_ok, shown in Website → Card payments);
  * degraded or failed rings a bell (at most every 6 h). A silent cron is
@@ -83,7 +94,9 @@ Deno.serve(async (req) => {
     events_api: "not_tried" as string, events_api_pages: 0, events_api_queued: 0,
     refunds_discovered: 0, refund_discovery: "not_tried" as string,
     disputes_discovered: 0, dispute_discovery: "not_tried" as string,
+    discovery_environments: [] as string[],
     events_retried: 0, events_done: 0, events_failed: 0,
+    attempts_stuck: 0, refund_emails_resent: 0, refund_emails_given_up: 0, health_write_failed: false,
     attempts_checked: 0, attempts_filed: 0, attempts_resolved: 0, attempts_cancelled: 0, attempts_waiting: 0,
     holds_checked: 0, holds_changed: 0, voids_retried: 0, refunds_synced: 0, open_refunds_checked: 0, disputes_synced: 0,
     bells: {} as Rec, square_errors: 0, write_errors: 0, auth_errors: 0, truncated: [] as string[], history_gaps: [] as string[],
@@ -99,6 +112,13 @@ Deno.serve(async (req) => {
     report.stage_errors[stage] = (report.stage_errors[stage] ?? 0) + 1;
     if (report.errors.length < 20) report.errors.push(`${where}: ${msg}`.slice(0, 200));
     console.error(LOG, where, msg);
+  };
+  /** S03: a progress write that fails is reported (the run ends degraded), never ignored. */
+  const checked = async (where: string, q: PromiseLike<{ error: unknown }>) => {
+    try {
+      const { error } = await q;
+      if (error) note(where, error instanceof Error ? error : new Error(String((error as { message?: unknown })?.message ?? error)));
+    } catch (e) { note(where, e); }
   };
 
   let env: SquareEnvironment | null = null;
@@ -140,13 +160,42 @@ Deno.serve(async (req) => {
     }
   } else report.events_api = "mode_off";
 
-  // B. Refund discovery — every refund Square made, any capture age (QC07).
-  if (env) {
+  // S02: which environments to run discovery for — the current one plus any
+  // environment that still has card rows worth watching.
+  const currentEnv = env;
+  let envs: SquareEnvironment[] = env ? [env] : [];
+  try {
+    const since = new Date(Date.now() - REFUND_WATCH_DAYS * 24 * HOUR).toISOString();
+    const rows: Array<{ environment?: string | null; test?: boolean | null }> = [];
+    const live = await db.from("square_payments").select("environment, test")
+      .or(`status.eq.authorized,and(status.eq.captured,captured_at.gte.${since})`).limit(500);
+    if (live.error) throw live.error;
+    rows.push(...((live.data ?? []) as Rec[]));
+    for (const t of ["square_refunds", "square_disputes"]) {
+      const open = t === "square_refunds"
+        ? await db.from(t).select("square_payment_row").not("status", "in", "(COMPLETED,FAILED,REJECTED)").limit(500)
+        : await db.from(t).select("square_payment_row").not("state", "in", "(WON,LOST,ACCEPTED,INQUIRY_CLOSED)").limit(500);
+      if (open.error) throw open.error;
+      const ids = [...new Set(((open.data ?? []) as Rec[]).map((r) => r.square_payment_row).filter(Boolean))];
+      if (ids.length) {
+        const pr = await db.from("square_payments").select("environment, test").in("id", ids);
+        if (pr.error) throw pr.error;
+        rows.push(...((pr.data ?? []) as Rec[]));
+      }
+    }
+    envs = discoveryEnvironments(env, rows);
+  } catch (e) { note("environments", e); }
+  report.discovery_environments = envs;
+
+  // B. Refund discovery — every refund Square made, any capture age (QC07),
+  //    for every environment in `envs` (S02).
+  const refundDiscovery: string[] = [];
+  for (const dEnv of envs) {
     try {
-      const r = await walkStream(db, `refunds:${env}`, {
+      const r = await walkStream(db, `refunds:${dEnv}`, {
         firstLookbackMs: 30 * 24 * HOUR, overlapMs: 10 * 60 * 1000, windowMs: 7 * 24 * HOUR, maxPages: MAX_PAGES,
         fetch: async (b, e, c) => {
-          const page = await square.listRefunds(env!, { beginTime: b, endTime: e, cursor: c });
+          const page = await square.listRefunds(dEnv, { beginTime: b, endTime: e, cursor: c });
           return { items: page.refunds as unknown as Rec[], cursor: page.cursor };
         },
         handle: async (rf) => {
@@ -156,22 +205,30 @@ Deno.serve(async (req) => {
           if (await enqueue(db, payload.event_id, "refund.updated", payload, id, "refund_discovery")) report.refunds_discovered++;
         },
       });
-      report.refund_discovery = `ok (through ${r.through ?? "—"})`;
-      if (r.truncated) report.truncated.push("refund_discovery");
-    } catch (e) { report.refund_discovery = "error"; note("refund_discovery", e); }
+      refundDiscovery.push(`${dEnv}: ok (through ${r.through ?? "—"})`);
+      if (r.truncated) report.truncated.push(`refund_discovery:${env}`);
+    } catch (e) {
+      // An environment kept only for old rows may have no credentials any more:
+      // reported, not an alarm (the current environment's errors still alarm).
+      if (dEnv !== currentEnv && e instanceof SquareError && e.kind === "not_configured") refundDiscovery.push(`${dEnv}: no_credentials`);
+      else { refundDiscovery.push(`${dEnv}: error`); note(`refund_discovery ${dEnv}`, e); }
+    }
   }
+  report.refund_discovery = refundDiscovery.length ? refundDiscovery.join("; ") : "no_environment";
 
   // C. Dispute discovery — all disputes, a rolling scan that resumes from its
   //    saved cursor across runs, so any number of pages is covered (QC07,
-  //    review #8); a cursor Square refuses restarts the scan.
-  if (env) {
+  //    review #8); a cursor Square refuses restarts the scan. Every
+  //    environment in `envs` (S02).
+  const disputeDiscovery: string[] = [];
+  for (const dEnv of envs) {
     try {
-      const key = `disputes:${env}`;
+      const key = `disputes:${dEnv}`;
       let cursor: string | null = ((await getState(db, key))?.cursor as string | undefined) ?? null;
       let pages = 0;
       do {
         let page;
-        try { page = await square.listDisputes(env, { cursor }); }
+        try { page = await square.listDisputes(dEnv, { cursor }); }
         catch (e) {
           if (cursor && e instanceof SquareError && e.kind === "client") { cursor = null; await putState(db, key, { cursor: null }); continue; }
           throw e;
@@ -186,9 +243,13 @@ Deno.serve(async (req) => {
         pages++;
         await putState(db, key, { cursor, scanned_at: new Date().toISOString() });
       } while (cursor && pages < MAX_PAGES);
-      report.dispute_discovery = cursor ? `ok (scan continues next run, ${pages} pages)` : "ok";
-    } catch (e) { report.dispute_discovery = "error"; note("dispute_discovery", e); }
+      disputeDiscovery.push(cursor ? `${dEnv}: ok (scan continues next run, ${pages} pages)` : `${dEnv}: ok`);
+    } catch (e) {
+      if (dEnv !== currentEnv && e instanceof SquareError && e.kind === "not_configured") disputeDiscovery.push(`${dEnv}: no_credentials`);
+      else { disputeDiscovery.push(`${dEnv}: error`); note(`dispute_discovery ${dEnv}`, e); }
+    }
   }
+  report.dispute_discovery = disputeDiscovery.length ? disputeDiscovery.join("; ") : "no_environment";
 
   // 1. Inbox: retries, newly queued events, stuck leases (oldest first; a
   //    failing event gets a later next_attempt_at, so it cannot starve others).
@@ -227,10 +288,18 @@ Deno.serve(async (req) => {
         if (r === "filed" || r === "exception") report.attempts_filed++;
         else if (r === "resolved") report.attempts_resolved++;
         else if (r === "cancelled") report.attempts_cancelled++;
-        else report.attempts_waiting++;
+        else {
+          report.attempts_waiting++;
+          // S01: still unsettled past its give-up time → counted; the 3rd run rings one bell.
+          if (attemptStuckThisRun(a, r, Date.now(), ATTEMPT_GIVE_UP_MS)) {
+            const st = await rpc(db, "note_square_attempt_stuck", { p_attempt_id: a.id });
+            if (st.ok) report.attempts_stuck++;
+          }
+        }
       } catch (e) {
         note(`attempts ${a.reference}`, e);
-        await db.from("square_card_attempts").update({ updated_at: new Date().toISOString() }).eq("id", a.id).eq("status", a.status);
+        await checked(`attempts_touch ${a.reference}`,
+          db.from("square_card_attempts").update({ updated_at: new Date().toISOString() }).eq("id", a.id).eq("status", a.status));
       }
     }
   } catch (e) { note("attempts", e); }
@@ -261,7 +330,8 @@ Deno.serve(async (req) => {
           }
         }
       } catch (e) { note(`holds ${row.square_payment_id}`, e); }
-      await db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("id", row.id);
+      await checked(`holds_touch ${row.square_payment_id}`,
+        db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("id", row.id));
     }
   } catch (e) { note("holds", e); }
 
@@ -288,7 +358,8 @@ Deno.serve(async (req) => {
       } finally {
         // every capture looked at goes to the back of the queue, checked or not,
         // so more than MAX_CAPTURED recent captures are all reached (review #8)
-        await db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("square_payment_id", c.square_payment_id);
+        await checked(`refunds_touch ${c.square_payment_id}`,
+          db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("square_payment_id", c.square_payment_id));
       }
     }
   } catch (e) { note("refunds", e); }
@@ -306,7 +377,8 @@ Deno.serve(async (req) => {
         const rEnv = ((row?.environment as SquareEnvironment | null) ?? (row?.test ? "sandbox" : "production"));
         if ((await syncSquareRefund(db, rEnv, await square.getRefund(rEnv, String(r.square_refund_id)))).outcome === "synced") report.refunds_synced++;
       } catch (e) { note(`open_refunds ${r.square_refund_id}`, e); }
-      await db.from("square_refunds").update({ updated_at: new Date().toISOString() }).eq("square_refund_id", r.square_refund_id);
+      await checked(`open_refunds_touch ${r.square_refund_id}`,
+        db.from("square_refunds").update({ updated_at: new Date().toISOString() }).eq("square_refund_id", r.square_refund_id));
     }
   } catch (e) { note("open_refunds", e); }
 
@@ -323,13 +395,66 @@ Deno.serve(async (req) => {
         const r = await syncSquareDispute(db, await square.getDispute(dEnv, String(d.square_dispute_id)), dEnv);
         if (r.outcome === "synced") report.disputes_synced++;
       } catch (e) { note(`disputes ${d.square_dispute_id}`, e); }
-      await db.from("square_disputes").update({ updated_at: new Date().toISOString() }).eq("square_dispute_id", d.square_dispute_id);
+      await checked(`disputes_touch ${d.square_dispute_id}`,
+        db.from("square_disputes").update({ updated_at: new Date().toISOString() }).eq("square_dispute_id", d.square_dispute_id));
     }
   } catch (e) { note("disputes", e); }
 
   // 6. Deadline bells (each bell and its stamp in one SQL statement).
   try { report.bells = await rpc(db, "ring_square_deadline_bells", { p_now: new Date().toISOString() }); }
   catch (e) { note("bells", e); }
+
+  // 7. B02 (owner 2026-10-08): a COMPLETED Square refund whose
+  //    「返金を受け付けました」 email never went out is sent again with the SAME
+  //    key square-sync used, so it is never sent twice. Only refunds that
+  //    arrived after the release (refund_email_replay), only once the first
+  //    send had 30 minutes, at most 3 re-sends, then a bell.
+  try {
+    const before = new Date(Date.now() - REFUND_EMAIL_GRACE_MS).toISOString();
+    const { data: done, error } = await db.from("square_refunds")
+      .select("id, square_refund_id, cash_order_id, amount_jpy, email_resends")
+      .eq("status", "COMPLETED").eq("refund_email_replay", true).is("email_given_up_at", null)
+      .lte("updated_at", before).order("updated_at", { ascending: true }).limit(20);
+    if (error) throw error;
+    for (const rf of (done ?? []) as Rec[]) {
+      const key = refundReceivedKey(String(rf.square_refund_id));
+      try {
+        const sent = await db.from("email_send_log").select("id", { count: "exact", head: true })
+          .eq("status", "sent").eq("metadata->>idempotency_key", key);
+        if (sent.error) throw sent.error;
+        if ((sent.count ?? 0) > 0) {
+          await checked(`refund_email_done ${rf.square_refund_id}`,
+            db.from("square_refunds").update({ refund_email_replay: false }).eq("id", rf.id));
+          continue;
+        }
+        const out = await sendOrderUpdateEmail(db, {
+          entity: "cash_order", id: String(rf.cash_order_id), variant: "refund_received",
+          amount: Number(rf.amount_jpy ?? 0), refundMethod: "card", idempotencyKey: key,
+        });
+        const next = refundEmailNext(out, Number(rf.email_resends ?? 0));
+        if (out.sent) report.refund_emails_resent++;
+        if (next === "done") {
+          await checked(`refund_email_done ${rf.square_refund_id}`,
+            db.from("square_refunds").update({ refund_email_replay: false, email_resends: Number(rf.email_resends ?? 0) + (out.sent ? 1 : 0) }).eq("id", rf.id));
+        } else if (next === "retry") {
+          await checked(`refund_email_retry ${rf.square_refund_id}`,
+            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1 }).eq("id", rf.id));
+        } else {
+          report.refund_emails_given_up++;
+          await checked(`refund_email_give_up ${rf.square_refund_id}`,
+            db.from("square_refunds").update({ email_resends: Number(rf.email_resends ?? 0) + 1, email_given_up_at: new Date().toISOString() }).eq("id", rf.id));
+          const { data: o } = await db.from("cash_orders").select("invoice_number, web_reference, customer_id").eq("id", rf.cash_order_id).maybeSingle();
+          await checked(`refund_email_bell ${rf.square_refund_id}`, db.from("staff_notifications").insert({
+            type: "refund_email_failed",
+            title: "Refund email could not be sent",
+            body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${Number(rf.amount_jpy ?? 0).toLocaleString("en-US")} — the "refund received" email for Square refund ${rf.square_refund_id} failed 3 times (${out.reason ?? "error"}). Tell the customer another way and check Settings → Email delivery.`,
+            customer_id: o?.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
+            metadata: { cash_order_id: rf.cash_order_id, square_refund_id: rf.square_refund_id, reason: out.reason ?? null },
+          }));
+        }
+      } catch (e) { note(`refund_email ${rf.square_refund_id}`, e); }
+    }
+  } catch (e) { note("refund_emails", e); }
 
   // Status (QC11): failed = Square refuses our credentials, or every core
   // stage failed; degraded = anything else went wrong, a stream ran out of
@@ -347,6 +472,7 @@ Deno.serve(async (req) => {
     report.auth_errors > 0 || coreAllFailed ? "failed"
     : report.errors.length > 0 || report.truncated.length > 0 || report.history_gaps.length > 0 || backlog > BACKLOG_ALERT ? "degraded"
     : "ok";
+  let finalStatus: "ok" | "degraded" | "failed" = status;
   const summary = { at: startedAt, finished_at: new Date().toISOString(), status, backlog, report };
   try {
     await putState(db, "reconcile_last_run", summary);
@@ -364,7 +490,13 @@ Deno.serve(async (req) => {
         await putState(db, "reconcile_bell", { at: new Date().toISOString(), status });
       }
     }
-  } catch (e) { console.error(LOG, "status write failed", e instanceof Error ? e.message : e); }
+  } catch (e) {
+    // S03: the health panel could not be updated — the run is not "ok", and
+    // the response says so (the panel will show the last good run as old).
+    console.error(LOG, "status write failed", e instanceof Error ? e.message : e);
+    report.health_write_failed = true;
+    if (finalStatus === "ok") finalStatus = "degraded";
+  }
 
-  return jsonResponse({ ok: status !== "failed", status, backlog, report });
+  return jsonResponse({ ok: finalStatus !== "failed", status: finalStatus, backlog, report });
 });

@@ -65,6 +65,16 @@ wrong. Layaway plans are never affected (Paidy is cash-order only). Before this
 refusal the move failed late with the raw `paidy_submission_locked` exception.
 Harness: `harness/paidy-owner-answers/` (R1–R6).
 
+**Card orders (S04, Square QA 2026-10-08, migration 20261118100000).** The same
+rule for Square: ANY card history — a `square_card_attempts` row (even one only
+reserved, not yet filed), a `square_payments` row, or a `payment_submissions`
+row with `payment_method = 'square'` or a `square_payment_id` — is refused with
+code `card_order`: "This order was paid, or started to be paid, by card. A card
+order belongs to the customer who signed in and paid, and cannot change owner."
+The preview shows it too. The order row is locked by both this function and
+`reserve_square_attempt`, so a reserve cannot slip in between the check and the
+move. Acceptance: development/sql/square-qa-refunds-credit-acceptance.sql.
+
 ## Rules moved from CLAUDE.md (2026-10-02, verbatim)
 
 Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,12 @@ import { getPHTToday } from '@/lib/date-utils';
  * (permission cancel_cash_order, audited, one database writer) and emails the
  * customer 「返金が完了しました」 with the amount, method and date. It moves no
  * money: send the refund first (bank, Paidy or Square dashboard), then record it.
+ *
+ * B01 (Square QA, owner 2026-10-08): a CARD-paid order is refunded in Square.
+ * The dialog then offers Card only, shows what Square has COMPLETED, and the
+ * Hub records exactly that amount (partial refunds included); it refuses
+ * while Square shows no completed refund. Pressing it again after it worked
+ * returns the same answer and sends no second email.
  */
 
 const METHODS = [
@@ -36,7 +42,32 @@ const REFUSAL: Record<string, string> = {
   bad_method: 'Choose how the refund was sent.',
   bad_date: 'Enter the day the refund was sent (not a future day).',
   not_found: 'Order not found.',
+  method_mismatch: 'The method does not match how she paid. A card payment is refunded in Square and recorded as Card.',
+  no_completed_card_refund: 'Square does not show a completed refund for this order yet. Refund it in the Square Dashboard first; a pending refund is not enough.',
 };
+
+/** What the dialog needs to know about card money on the order (B01). */
+interface CardRefundFacts { paidByCard: boolean; cardPaid: number; refundedCompleted: number; refundedPending: number }
+
+async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
+  const [pays, refunds] = await Promise.all([
+    supabase.from('cash_payments').select('amount_paid, payment_method').eq('cash_order_id', orderId).is('voided_at', null),
+    supabase.from('square_refunds').select('amount_jpy, status').eq('cash_order_id', orderId),
+  ]);
+  if (pays.error) throw pays.error;
+  if (refunds.error) throw refunds.error;
+  const card = (pays.data ?? []).filter((p) => p.payment_method === 'square');
+  const rows = (refunds.data ?? []) as { amount_jpy: number | string | null; status: string | null }[];
+  const sum = (xs: { amount_jpy: number | string | null }[]) => xs.reduce((t, r) => t + Number(r.amount_jpy ?? 0), 0);
+  return {
+    paidByCard: card.length > 0,
+    cardPaid: card.reduce((t, p) => t + Number(p.amount_paid ?? 0), 0),
+    refundedCompleted: sum(rows.filter((r) => r.status === 'COMPLETED')),
+    refundedPending: sum(rows.filter((r) => r.status !== 'COMPLETED' && r.status !== 'FAILED' && r.status !== 'REJECTED')),
+  };
+}
+
+const yen = (n: number) => `¥${Math.round(n).toLocaleString('en-US')}`;
 
 async function errorCode(error: unknown): Promise<string> {
   const ctx = (error as { context?: unknown })?.context;
@@ -64,6 +95,22 @@ export function MarkRefundIssuedDialog({
   const [day, setDay] = useState<string>(getPHTToday());
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [card, setCard] = useState<CardRefundFacts | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setCard(null); setCardError(null);
+    loadCardRefundFacts(orderId)
+      .then((f) => { if (!live) return; setCard(f); if (f.paidByCard) setMethod('card'); })
+      .catch((e) => { if (live) setCardError((e as Error)?.message ?? 'Could not read the card payment.'); });
+    return () => { live = false; };
+  }, [open, orderId]);
+
+  const cardOnly = card?.paidByCard === true;
+  const cardBlocked = cardOnly && (card?.refundedCompleted ?? 0) <= 0;
+  const methods = cardOnly ? METHODS.filter((m) => m.value === 'card') : METHODS;
 
   const submit = async () => {
     setBusy(true);
@@ -76,9 +123,14 @@ export function MarkRefundIssuedDialog({
         toast.error(REFUSAL[code] ?? `Could not record the refund: ${code}`);
         return;
       }
-      toast.success((data as { email_sent?: boolean } | null)?.email_sent
-        ? 'Refund recorded — the customer has been emailed.'
-        : 'Refund recorded. The email was not sent (see the order\'s email history).');
+      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string };
+      toast.success(d.already_recorded
+        ? 'This refund was already recorded — nothing changed.'
+        : d.email_skipped === 'provider_refund_already_emailed'
+          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. Square's refund email already told the customer.`
+          : d.email_sent
+            ? 'Refund recorded — the customer has been emailed.'
+            : 'Refund recorded. The email was not sent (see the order\'s email history).');
       onOpenChange(false);
       setNote('');
       onDone();
@@ -100,7 +152,7 @@ export function MarkRefundIssuedDialog({
           <div className="space-y-2">
             <Label>How was it refunded?</Label>
             <RadioGroup value={method} onValueChange={setMethod} className="gap-2">
-              {METHODS.map((m) => (
+              {methods.map((m) => (
                 <div key={m.value} className="flex items-center gap-2">
                   <RadioGroupItem id={`refund-${m.value}`} value={m.value} />
                   <Label htmlFor={`refund-${m.value}`} className="font-normal">{m.label}</Label>
@@ -108,6 +160,16 @@ export function MarkRefundIssuedDialog({
               ))}
             </RadioGroup>
           </div>
+          {cardError && <p className="text-xs text-destructive">{cardError}</p>}
+          {cardOnly && card && (
+            <div className={`rounded-md border p-2.5 text-xs ${cardBlocked ? 'border-warning/60 bg-warning/5 text-warning' : 'border-border bg-background text-muted-foreground'}`}>
+              <p>Paid by card: {yen(card.cardPaid)}. Square shows <strong className="text-card-foreground">{yen(card.refundedCompleted)}</strong> refunded (completed).</p>
+              {card.refundedPending > 0 && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
+              {cardBlocked
+                ? <p>Refund it in the Square Dashboard first. This button works once Square shows the refund completed.</p>
+                : <p>The Hub records {yen(card.refundedCompleted)}, exactly what Square completed.</p>}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="refund-day">Day the refund was sent</Label>
             <Input id="refund-day" type="date" value={day} max={getPHTToday()} onChange={(e) => setDay(e.target.value)} className="bg-background border-border" />
@@ -119,7 +181,7 @@ export function MarkRefundIssuedDialog({
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Back</Button>
-          <Button onClick={submit} disabled={busy || !day}>{busy ? 'Saving…' : 'Mark refund issued'}</Button>
+          <Button onClick={submit} disabled={busy || !day || card === null && !cardError || cardBlocked}>{busy ? 'Saving…' : 'Mark refund issued'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

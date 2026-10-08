@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DISPUTE_CLOSED_STATES, SQUARE_DECISIONS, SQUARE_EXCEPTION_LABEL, ageLabel, defaultSettlementRange, isDeadlineSoon,
   isOpenSquareException, jstDate, orderRef, refundNotPaidBack, settlementCsv, settlementCsvRows,
-  settlementFileName, settlementTotals, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus,
+  refundPendingDays, settlementFileName, settlementTotals, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus,
   squareNoteRequired, squarePaymentStateLabel, eventsApiNotEnabled, type SettlementRow,
 } from "../lib/square-ops";
 
@@ -184,5 +184,19 @@ describe("eventsApiNotEnabled (review #9)", () => {
     expect(eventsApiNotEnabled({ last_run: { report: { events_api: "not_enabled: 400 BAD_REQUEST" } } })).toBe(true);
     expect(eventsApiNotEnabled({ last_run: { report: { events_api: "ok (through …)" } } })).toBe(false);
     expect(eventsApiNotEnabled(null)).toBe(false);
+  });
+});
+
+describe("refundPendingDays (S05, every day counts)", () => {
+  const now = new Date("2026-10-15T03:00:00Z");
+  it("null when nothing is pending", () => {
+    expect(refundPendingDays({}, now)).toBeNull();
+    expect(refundPendingDays({ refund_oldest_pending_at: null }, now)).toBeNull();
+    expect(refundPendingDays(null, now)).toBeNull();
+  });
+  it("whole days since the refund started", () => {
+    expect(refundPendingDays({ refund_oldest_pending_at: "2026-10-08T03:00:00Z" }, now)).toBe(7);
+    expect(refundPendingDays({ refund_oldest_pending_at: "2026-10-08T04:00:00Z" }, now)).toBe(6);
+    expect(refundPendingDays({ refund_oldest_pending_at: "2026-10-01T00:00:00Z" }, now)).toBe(14);
   });
 });

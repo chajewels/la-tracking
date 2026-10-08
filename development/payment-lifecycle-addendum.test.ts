@@ -152,7 +152,7 @@ Deno.test('mark refund issued: the refusal order mirrors mark_web_order_refund_i
   assert(refundIssuedRefusal(null, good, today) === 'not_found', 'not_found')
   assert(refundIssuedRefusal({ ...ok, source_channel: 'hub' }, good, today) === 'not_web_order', 'not_web_order')
   assert(refundIssuedRefusal({ ...ok, status: 'completed' }, good, today) === 'not_cancelled', 'not_cancelled')
-  assert(refundIssuedRefusal({ ...ok, refund_status: 'refund_issued' }, good, today) === 'not_refund_pending', 'already issued')
+  assert(refundIssuedRefusal({ ...ok, refund_status: 'refund_issued' }, good, today) === null, 'already issued passes to the SQL (B01 retry, 2026-10-08)')
   assert(refundIssuedRefusal({ ...ok, refund_status: 'store_credit_issued' }, good, today) === 'not_refund_pending', 'credit')
   assert(refundIssuedRefusal(ok, { method: 'bitcoin', refundedOn: today }, today) === 'bad_method', 'bad_method')
   assert(refundIssuedRefusal(ok, { method: 'card', refundedOn: '2026-10-07' }, today) === 'bad_date', 'future day')

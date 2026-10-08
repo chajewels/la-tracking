@@ -21,7 +21,19 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STATUS: Record<string, number> = {
   not_found: 404, not_web_order: 409, not_cancelled: 409, not_refund_pending: 409,
   bad_method: 400, bad_date: 400, user_identity_required: 401,
+  // B01 (2026-10-08): a card-paid order is refunded in Square — method 'card',
+  // only once Square shows a COMPLETED refund (the SQL decides; amount = what
+  // Square completed).
+  method_mismatch: 409, no_completed_card_refund: 409,
 };
+
+/** True when the "refund issued" email for this order already went out (B01 retry). */
+async function refundIssuedEmailSent(supabase: { from: (t: string) => any }, key: string): Promise<boolean> {
+  const { count, error } = await supabase.from("email_send_log").select("id", { count: "exact", head: true })
+    .eq("status", "sent").eq("metadata->>idempotency_key", key);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -59,6 +71,9 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: code }, STATUS[code] ?? 409);
     }
 
+    const emailKey = `refund-issued-${orderId}`;
+    const alreadyRecorded = r.already_recorded === true;
+
     // A refund made in the Square / Paidy dashboard already emailed her
     // 「返金を受け付けました」 with the provider's amount (§9 #9). Marking it
     // issued then records it on the order only — never a second email with a
@@ -70,16 +85,22 @@ Deno.serve(async (req) => {
       const { count, error: rErr } = await q;
       if (rErr) throw rErr;
       if ((count ?? 0) > 0) {
-        return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, email_sent: false, email_skipped: "provider_refund_already_emailed" });
+        return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false, email_skipped: "provider_refund_already_emailed" });
       }
+    }
+
+    // B01 retry (2026-10-08): the same request after it already succeeded —
+    // nothing was written again; the email goes out only if it never did.
+    if (alreadyRecorded && await refundIssuedEmailSent(supabase, emailKey)) {
+      return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: true, email_sent: false, email_skipped: "already_sent" });
     }
 
     const email = await sendOrderUpdateEmail(supabase, {
       entity: "cash_order", id: orderId, variant: "refund_issued",
       amount: Number(r.amount ?? 0), refundMethod: isRefundMethod(method) ? method as RefundMethodCode : null,
-      refundDate: refundedOn, idempotencyKey: `refund-issued-${orderId}`,
+      refundDate: String(r.refunded_on ?? refundedOn), idempotencyKey: emailKey,
     });
-    return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, email_sent: email.sent });
+    return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: email.sent });
   } catch (err) {
     console.error("[mark-refund-issued] failed:", err);
     return jsonResponse({ error: (err as Error)?.message ?? "internal_error" }, 500);
