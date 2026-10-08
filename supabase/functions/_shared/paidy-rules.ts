@@ -440,6 +440,64 @@ export function paidyRefundTotal(p: { refunds?: unknown } | null | undefined): n
   return refunds.reduce((s, r) => s + (paidyYen(r?.amount) ?? 0), 0);
 }
 
+/**
+ * PA12 (owner brief 2026-10-08): a successful HTTP answer from Paidy is a
+ * usable FINANCIAL object only when it carries what every caller then reads
+ * off it — the REQUESTED payment id, a whole-yen amount in JPY, a boolean
+ * test flag, a status, and well-formed capture / refund arrays whose refunds
+ * point at captures the payment really has. A 200 that lacks any of these
+ * (the reproduced `{ "status": "CLOSED" }`) is `paidy_bad_response`: an
+ * UNKNOWN the callers keep and re-read, never a verified uncaptured state.
+ *
+ * Deliberately NOT refused here: an unfamiliar status value (a future Paidy
+ * state). It passes through and paidyProviderOutcome answers "unknown", so
+ * Reject / cancel refuse it (PA13) instead of a false release.
+ *
+ * CLOSED without a captures ARRAY is incomplete: CLOSED is both "released"
+ * and "captured", and only the array tells them apart. AUTHORIZED / REJECTED
+ * may omit the arrays (nothing financial has happened) — treated as empty.
+ */
+export type PaidyObjectProblem =
+  | "not_object" | "missing_id" | "id_mismatch" | "status" | "amount" | "currency" | "test_flag"
+  | "captures_shape" | "capture_shape" | "closed_without_captures" | "refunds_shape" | "refund_shape" | "refund_capture_link";
+
+export function validatePaidyPaymentObject(
+  json: unknown, expectedId?: string,
+): { ok: true; payment: Record<string, unknown> & { id: string; status: string; amount: number; currency: string; test: boolean; captures: unknown[]; refunds: unknown[] } } | { ok: false; reason: PaidyObjectProblem; detail?: string } {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return { ok: false, reason: "not_object" };
+  const o = json as Record<string, unknown>;
+  const id = o.id;
+  if (typeof id !== "string" || !/^pay_[A-Za-z0-9_-]{6,80}$/.test(id)) return { ok: false, reason: "missing_id" };
+  if (expectedId !== undefined && id !== expectedId) return { ok: false, reason: "id_mismatch", detail: `${id} for ${expectedId}` };
+  const status = normalizePaidyStatus(o.status);
+  if (!status) return { ok: false, reason: "status" };
+  const amount = paidyYen(o.amount);
+  if (amount == null) return { ok: false, reason: "amount" };
+  if (String(o.currency ?? "").trim().toUpperCase() !== "JPY") return { ok: false, reason: "currency", detail: String(o.currency) };
+  if (typeof o.test !== "boolean") return { ok: false, reason: "test_flag" };
+
+  if (o.captures !== undefined && o.captures !== null && !Array.isArray(o.captures)) return { ok: false, reason: "captures_shape" };
+  if (status === "CLOSED" && !Array.isArray(o.captures)) return { ok: false, reason: "closed_without_captures" };
+  const captures = Array.isArray(o.captures) ? o.captures : [];
+  const captureIds = new Set<string>();
+  for (const c of captures) {
+    const cc = c as Record<string, unknown> | null;
+    if (!cc || typeof cc !== "object" || typeof cc.id !== "string" || !cc.id || paidyYen(cc.amount) == null) return { ok: false, reason: "capture_shape" };
+    captureIds.add(cc.id);
+  }
+  if (o.refunds !== undefined && o.refunds !== null && !Array.isArray(o.refunds)) return { ok: false, reason: "refunds_shape" };
+  const refunds = Array.isArray(o.refunds) ? o.refunds : [];
+  for (const r of refunds) {
+    const rr = r as Record<string, unknown> | null;
+    if (!rr || typeof rr !== "object" || typeof rr.id !== "string" || !rr.id || paidyYen(rr.amount) == null) return { ok: false, reason: "refund_shape" };
+    if (rr.capture_id !== undefined && rr.capture_id !== null) {
+      if (typeof rr.capture_id !== "string" || !rr.capture_id) return { ok: false, reason: "refund_shape" };
+      if (!captureIds.has(rr.capture_id)) return { ok: false, reason: "refund_capture_link", detail: `${rr.id} → ${rr.capture_id}` };
+    }
+  }
+  return { ok: true, payment: { ...o, id, status, amount, currency: "JPY", test: o.test, captures, refunds } };
+}
+
 /** P02: how long a reviewer Confirm owns a claimed submission before it may be resumed. */
 export const PAIDY_CONFIRM_LEASE_MS = 5 * 60 * 1000;
 

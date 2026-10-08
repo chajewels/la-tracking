@@ -8,7 +8,7 @@
  * disagrees with paidy_mode (website POST /orders/:id/paidy).
  */
 
-import { normalizePaidyStatus } from "./paidy-rules.ts";
+import { normalizePaidyStatus, validatePaidyPaymentObject } from "./paidy-rules.ts";
 
 const PAIDY_API = "https://api.paidy.com";
 const PAIDY_VERSION = "2018-04-10";
@@ -48,7 +48,7 @@ export function paidySecretIsTest(): boolean {
 /** R09: every Paidy call has a deadline, so a slow Paidy can never hold a webhook past its 10 s. */
 export const PAIDY_TIMEOUT_MS = 6000;
 
-async function call(method: "GET" | "POST", path: string, body?: unknown, timeoutMs = PAIDY_TIMEOUT_MS): Promise<PaidyPayment> {
+async function call(method: "GET" | "POST", path: string, expectId: string, body?: unknown, timeoutMs = PAIDY_TIMEOUT_MS): Promise<PaidyPayment> {
   const key = secretKey(); // paidy_not_configured is thrown as itself, never as a network error
   let res: Response;
   try {
@@ -70,11 +70,19 @@ async function call(method: "GET" | "POST", path: string, body?: unknown, timeou
   }
   const text = await res.text();
   let json: Record<string, unknown> = {};
-  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 500) }; }
+  let unparseable = false;
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 500) }; unparseable = true; }
   if (!res.ok) {
     throw new PaidyError(res.status, String(json.code ?? res.status), String(json.description ?? json.title ?? `Paidy ${res.status}`));
   }
-  return normalizePaidyPayment(json);
+  // PA12: a 2xx is a payment only when it is a complete financial object FOR
+  // THE ID WE ASKED ABOUT. Anything else is thrown as paidy_bad_response —
+  // every caller already treats a non-404 PaidyError as "unknown: keep the
+  // row / event and read Paidy again", never as a verified state.
+  if (unparseable) throw new PaidyError(502, "paidy_bad_response", "Paidy answered 2xx with a body that is not JSON");
+  const v = validatePaidyPaymentObject(json, expectId);
+  if (!v.ok) throw new PaidyError(502, "paidy_bad_response", `Paidy answered 2xx with an incomplete payment object: ${v.reason}${v.detail ? ` (${v.detail})` : ""}`);
+  return normalizePaidyPayment(v.payment);
 }
 
 /** Every API read-back goes through normalizePaidyStatus (paidy-rules.ts) so website / paidy-webhook compare case-safely. */
@@ -89,9 +97,9 @@ export function isPaidyPaymentId(id: unknown): id is string {
 
 export const paidy = {
   /** The authorisation as Paidy holds it — the only thing the Hub trusts about a Paidy payment. */
-  get: (id: string) => call("GET", `/payments/${encodeURIComponent(id)}`),
+  get: (id: string) => call("GET", `/payments/${encodeURIComponent(id)}`, id),
   /** Releases an authorisation (reviewer Reject, a mismatch, a stale filing). No charge.
    *  There is deliberately NO capture here (owner 2026-10-04): staff capture in
    *  Paidy's merchant dashboard and the Hub records what Paidy reports. */
-  close: (id: string) => call("POST", `/payments/${encodeURIComponent(id)}/close`, {}),
+  close: (id: string) => call("POST", `/payments/${encodeURIComponent(id)}/close`, id, {}),
 };
