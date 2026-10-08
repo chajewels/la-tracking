@@ -668,3 +668,19 @@ Plan: project doc `claude/paidy-pr5-truthfulness-plan-2026-10-09.md`.
 - Tests: development/paidy-pr5-truthfulness.test.ts in the CI list;
   paidy-alignment.test.ts and payment-lifecycle-addendum.test.ts guards moved
   to `paidyBillingChoice(` and `paidyRefundReceivedKey(r.id)`.
+
+### V03-F1 — one lock order for the Paidy Reject (migration 20261130120000; owner go 2026-10-09 02:42 JST)
+
+Found by the V03 race tests on a live-identical scratch database (project doc
+`claude/paidy-v02-v03-evidence-2026-10-09.md`). The Hub's payment writers lock
+in ONE order — the submission, then the order, then the provider row
+(`finalize_cash_submission_atomic`, `decide_square_case`,
+`apply_square_payment_state`). `reject_paidy_submission_atomic` alone took the
+ORDER first, so a Reject and a Confirm recording the same capture at the same
+moment could deadlock; Postgres cancelled one side (money stayed correct, staff
+saw an error, a cancelled Confirm left the order locked until retried). The
+Reject now takes the submission lock first; every check and write after the
+opening locks is unchanged. Re-run: the race answers `conflict` instead of a
+deadlock; V02 17/17 still pass. Rule for any new payment writer: lock the
+submission, then the order, then the provider row. Guard:
+development/paidy-v03-lock-order.test.ts (CI).
