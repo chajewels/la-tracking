@@ -42,8 +42,10 @@ const REFUSAL: Record<string, string> = {
   bad_method: 'Choose how the refund was sent.',
   bad_date: 'Enter the day the refund was sent (not a future day).',
   not_found: 'Order not found.',
-  method_mismatch: 'The method does not match how she paid. A card payment is refunded in Square and recorded as Card.',
+  method_mismatch: 'The method does not match how she paid. A card payment is refunded in Square and recorded as Card; a Paidy payment is refunded in the Paidy dashboard and recorded as Paidy.',
   no_completed_card_refund: 'Square does not show a completed refund for this order yet. Refund it in the Square Dashboard first; a pending refund is not enough.',
+  // PA03 (2026-10-08): only a Paidy refund the Hub has read back counts.
+  no_verified_paidy_refund: 'The Hub has not recorded a Paidy refund for this order yet. Refund it in the Paidy merchant dashboard first; the hourly check records it, then mark it here. The amount recorded is what Paidy refunded, never the full receipt.',
 };
 
 /** What the dialog needs to know about card money on the order (B01). */
