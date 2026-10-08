@@ -6117,3 +6117,16 @@ of a refund; a local void of a provider receipt; "not found once" as proof a pay
   `paidy_*` lock for every caller.
 - **email-encoding fixture CI red.** The email-encoding test fixture was out of date with the
   templates and failed CI; fixture corrected.
+
+### Split lump sum on New Account wrote payments into other accounts (2026-10-08)
+Lovable scan "Some actions can reach other users' records" (create-layaway-account, 2 paths).
+The "Split Lump Sum Payment" box let a CSR spread one lump sum across the new plan and the
+customer's other open accounts. create-layaway-account then INSERTED a `payments` row (SPLIT-<inv>,
+cash) straight into each target account — no proof, no reviewer Confirm, no allocate_payment_atomic,
+no refreshPaymentTracking, several separate writes — and never checked the target belonged to the
+same customer (only the page filtered it). Live: 10 SPLIT- payments ever, last 2026-03-23, all to the
+same customer's accounts, so nothing to repair. OWNER DECISION: retire it. The function now refuses
+`split_allocations` with 400 `split_payment_retired` before any write; the box, its message dialog
+and the draft fields are gone from New Account. Guard: src/test/split-lump-sum-retired.test.ts.
+Do not reintroduce: a payment written by an account-creation path; a target account id taken from
+the caller without an ownership check. Money for other accounts goes through Record Payment (review).

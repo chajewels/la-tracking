@@ -13,8 +13,9 @@ export interface AccountDraft {
   downpaymentInput: string;
   installmentMode: 'equal' | 'custom';
   customAmounts: string[];
-  enableSplitPayment: boolean;
-  lumpSumInput: string;
+  /** Retired 2026-10-08 with the split lump sum; old drafts may still carry them. */
+  enableSplitPayment?: boolean;
+  lumpSumInput?: string;
   savedAt: number;
 }
 
