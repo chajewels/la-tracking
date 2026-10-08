@@ -1,4 +1,4 @@
--- 20261118100000_paidy_p04_p05.sql
+-- 20261119100000_paidy_p04_p05.sql
 -- Paidy QA/QC reassessment (2026-10-06), owner answers 2026-10-08:
 --
 -- P04  Closing the Paidy window never unlocks the order by itself. Her close

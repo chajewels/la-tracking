@@ -65,7 +65,7 @@ Deno.test("P04 + P07: the sweep source ends windows only through the SQL guard a
 });
 
 Deno.test("P04: the migration keeps the lock on an open window regardless of the clock, and notes a close", async () => {
-  const sql = await Deno.readTextFile(new URL("../supabase/migrations/20261118100000_paidy_p04_p05.sql", import.meta.url));
+  const sql = await Deno.readTextFile(new URL("../supabase/migrations/20261119100000_paidy_p04_p05.sql", import.meta.url));
   assert(sql.includes("WHERE a.cash_order_id = p_cash_order_id AND a.status = 'open')\n$n$"), "lock no longer keyed on expires_at");
   assert(sql.includes("SET customer_closed_at = coalesce(customer_closed_at, now()),"), "close is noted, not acted on");
   assert(sql.includes("CREATE OR REPLACE FUNCTION public.expire_paidy_checkout_attempts"), "one guarded expiry path");

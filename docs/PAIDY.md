@@ -373,7 +373,7 @@ See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the
 - **Reopen:** Paidy documents a closed payment as final (only refund / retrieve / status / update are valid after CLOSED). A reopened (revived) invoice is paid with a NEW Paidy checkout — never by reopening the old authorisation.
 
 
-## Reassessment P04–P07 (owner answers 2026-10-08; migration 20261118100000)
+## Reassessment P04–P07 (owner answers 2026-10-08; migration 20261119100000)
 
 - **P04 — closing the window never unlocks the order by itself.** `/orders/:id/paidy/abandon`
   only NOTES her close (`paidy_checkout_attempts.customer_closed_at`); the attempt stays
