@@ -1509,6 +1509,17 @@ Deno.serve(async (req) => {
             status: outcome, closed_at: at, closed_reason: `Paidy status ${String(live.status)} at reject`, last_payload: live, updated_at: at,
           }).eq("id", pp.id).eq("status", "authorized");
           if (recErr) console.error("[review-payment-submission] paidy_payments status update failed:", recErr);
+        } else {
+          // PA13 (owner brief 2026-10-08): an outcome that is none of the
+          // above — a status the Hub does not know — is NOT a verified
+          // release. Falling through here used to reject the submission and
+          // unlock the order with Paidy's position unknown. Fail closed: the
+          // submission stays queued and the order stays locked; the reviewer
+          // retries once Paidy answers something the Hub understands.
+          return json(502, {
+            error: "paidy_unverified", reason: "paidy_unknown_outcome", paidy_status: String(live.status),
+            message: `Paidy answered a status the Hub does not recognise ("${String(live.status)}"), so this payment was not rejected and the order stays locked. Try again in a few minutes; if it persists, check the payment in the Paidy dashboard and report it.`,
+          });
         }
       }
     }
