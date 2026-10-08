@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""
+migration-replay-plan — the ordered list of migration files that rebuilds the
+live database from an EMPTY one (local / scratch / staging only — NEVER live).
+
+Why this exists (repo-structure catch-up, owner go 2026-10-09):
+  When Lovable applies one of our migrations it commits its own copy under a
+  uuid name (YYYYMMDDHHMMSS_<uuid>.sql). The repo therefore holds most of those
+  migrations TWICE. A plain replay runs them twice and any step that is not
+  re-runnable fails. This planner keeps every file once:
+
+    * a uuid-named file whose SQL (comments, whitespace and an outer
+      BEGIN; ... COMMIT; removed) is IDENTICAL to a named file is a copy and is
+      skipped — the named file is replayed in its place;
+    * every other file (named files, and Lovable-only migrations) is kept;
+    * order = the 14-digit version, as Supabase does.
+
+  Only exact equality after normalisation counts as a copy; anything else is
+  kept and replayed. Prints one path per line; `--explain` lists the skipped
+  copies and their twins.
+
+Usage:  scripts/migration-replay-plan [--explain] [migrations_dir]
+"""
+import re
+import sys
+from pathlib import Path
+
+UUID_NAME = re.compile(r"^\d{14}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.sql$")
+
+
+def normalise(sql: str) -> str:
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+    sql = re.sub(r"--[^\n]*", "", sql)
+    sql = re.sub(r"\s+", " ", sql).strip()
+    sql = re.sub(r"^BEGIN\s*;\s*", "", sql, flags=re.I)
+    sql = re.sub(r"\s*COMMIT\s*;$", "", sql, flags=re.I)
+    return sql.strip()
+
+
+def plan(directory: Path):
+    files = sorted(p for p in directory.glob("*.sql"))
+    named = {}
+    for p in files:
+        if not UUID_NAME.match(p.name):
+            named.setdefault(normalise(p.read_text()), p)
+    keep, skipped = [], []
+    for p in files:
+        if UUID_NAME.match(p.name):
+            twin = named.get(normalise(p.read_text()))
+            if twin is not None:
+                skipped.append((p, twin))
+                continue
+        keep.append(p)
+    return keep, skipped
+
+
+def main(argv):
+    explain = "--explain" in argv
+    args = [a for a in argv if not a.startswith("--")]
+    directory = Path(args[0]) if args else Path(__file__).resolve().parent.parent / "supabase" / "migrations"
+    keep, skipped = plan(directory)
+    if explain:
+        print(f"# {len(keep)} files replayed, {len(skipped)} Lovable copies skipped")
+        for copy, twin in skipped:
+            print(f"# skip {copy.name}  (copy of {twin.name})")
+    for p in keep:
+        print(p)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
