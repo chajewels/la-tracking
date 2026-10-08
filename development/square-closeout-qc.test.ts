@@ -22,6 +22,9 @@ function fakeDb(opts: { payments?: Record<string, Rec>; attempt?: Rec | null; rp
     let eqVal: unknown = null
     const q = {
       select: () => q, in: () => q, or: () => q, limit: () => q, order: () => q,
+      // R01: recoverAttempt saves the search cursor on the attempt row.
+      update: (patch: Rec) => { calls.push({ name: `update:${table}`, args: patch }); return q },
+      then: (res: (v: unknown) => void) => res({ data: null, error: null }),
       eq: (_c: string, v: unknown) => { eqVal = v; return q },
       maybeSingle: () => {
         if (table === 'square_payments') return Promise.resolve({ data: payments[String(eqVal)] ?? null, error: null })
@@ -145,9 +148,10 @@ Deno.test('QC08: page budget exhausted with pages left → incomplete, never abs
 
 Deno.test('QC08: an incomplete search never cancels the attempt by key', async () => {
   let cancelCalls = 0
+  const pages = pagedList(500, null) // one lister, so the page counter survives across requests
   const handler = (url: string) => {
     if (url.endsWith('/payments/cancel')) { cancelCalls++; return json({}) }
-    return pagedList(500, null)(url)
+    return pages(url)
   }
   await withFetch(handler, async () => {
     const db = fakeDb({ rpc: { resolve_square_attempt: () => ({ ok: true }) } })
@@ -156,6 +160,11 @@ Deno.test('QC08: an incomplete search never cancels the attempt by key', async (
     assertEquals(r, 'waiting')
     assertEquals(cancelCalls, 0)
     assertEquals(db.calls.filter((c) => c.name === 'resolve_square_attempt').length, 0)
+    // R01 (2026-10-08): where it stopped is saved so the next run resumes there.
+    const saved = db.calls.filter((c) => c.name === 'update:square_card_attempts')
+    assertEquals(saved.length, 1)
+    assertEquals(saved[0].args.search_cursor, 'c20')
+    assertEquals(saved[0].args.search_pages, 20)
   })()
 })
 

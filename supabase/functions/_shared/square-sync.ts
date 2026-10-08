@@ -402,6 +402,20 @@ export async function findPaymentByReference(
 }
 
 /**
+ * R01: remember (or forget) where the payment search stopped. Best effort —
+ * a failure here is logged and never changes the recovery outcome, which the
+ * next run then simply repeats from page 1.
+ */
+async function saveSearchCursor(db: Db, a: AnyRec, patch: { search_cursor: string | null; search_pages?: number }): Promise<void> {
+  try {
+    const r = await db.from("square_card_attempts").update(patch).eq("id", a.id);
+    if (r?.error) console.warn(`[square-sync] search cursor not saved for ${a.reference}: ${r.error.message}`);
+  } catch (e) {
+    console.warn(`[square-sync] search cursor not saved for ${a.reference}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/**
  * Resolves an attempt whose create answer was lost (reserved / unknown) or
  * whose cancel was interrupted (cancelling). Found in Square's list → synced
  * (filed / resolved). Not found once older than giveUpMs → cancelled by its
@@ -424,14 +438,10 @@ export async function recoverAttempt(db: Db, a: AnyRec, giveUpMs: number, source
     // An incomplete search proves nothing: the attempt stays open (QC08) and
     // R01 saves where it stopped so the next run continues from there.
     if (search.state === "incomplete") {
-      const sv = await db.from("square_card_attempts").update({ search_cursor: search.cursor, search_pages: search.pages }).eq("id", a.id);
-      if (sv.error) console.warn(`[square-sync] search cursor not saved for ${a.reference}: ${sv.error.message}`);
+      await saveSearchCursor(db, a, { search_cursor: search.cursor, search_pages: search.pages });
       return "waiting";
     }
-    if (a.search_cursor) {
-      const cl = await db.from("square_card_attempts").update({ search_cursor: null }).eq("id", a.id);
-      if (cl.error) console.warn(`[square-sync] search cursor not cleared for ${a.reference}: ${cl.error.message}`);
-    }
+    if (a.search_cursor) await saveSearchCursor(db, a, { search_cursor: null });
     if (search.state === "found") found = search.payment;
   }
   if (found) {
