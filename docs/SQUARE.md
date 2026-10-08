@@ -433,3 +433,67 @@ vitest `src/test/square-ops.test.ts`, `src/test/cancellation-credit.test.ts`. Ed
   ends it; a transient failure retries hourly, max 3, then bell `refund_email_failed` and
   `email_given_up_at`. The only exception to EMAIL DELIVERY MONITORING's "nothing re-sends".
 - **Cancellation credit rule** (website + Hub cash orders, not Shopify) — docs/STORE-CREDIT.md.
+
+## Reassessment R01–R10 close-out (2026-10-08, second release)
+
+Owner-supplied report (Square-only reassessment, 8 Oct) re-verified against source; owner decisions
+13:14 JST: **R05 = refuse**, **R01 = include**. Plan: project doc `claude/square-r01-r10-closeout-plan-2026-10-08.md`.
+Migration `20261118120000_square_r01_r10_closeout.sql` (md5-guarded patches of the LIVE bodies);
+acceptance `development/sql/square-r01-r10-acceptance.sql` (16 checks; 3 pass before, 16 after);
+two-session race `development/sql/square-r05-race.sh` (local copy only); deno
+`development/square-qa-reconcile.test.ts` (22). Edge functions to deploy (Lovable, separate message):
+`square-reconcile`, `mark-refund-issued`, `cancel-cash-order`.
+
+- **R05 — no double compensation (owner: refuse).** Money already given back through Square (any
+  `square_refunds` row not FAILED / REJECTED — a PENDING refund is committed money) can never come back a
+  second time as store credit. `terminate_web_order_atomic` refuses `store_credit_issued` with
+  `card_already_refunded` and the preview carries `card_refunded`; the cancel dialog greys "Store credit
+  issued" with the reason. `cancel_cash_order_atomic` (Hub cash orders) raises the same refusal. The
+  reverse order — a Square refund landing on an order ALREADY cancelled with store credit — cannot be
+  prevented by the Hub (the refund is made in the Square Dashboard), so `record_square_refund` now (a)
+  locks the ORDER before the payment (same order as finalize: order → payment), so a cancel and a refund
+  in flight at the same moment never overlap — whichever commits second sees the other's row — and (b)
+  rings `card_refund_after_credit` once per refund: a human voids the lot (Settings → Store Credit) or
+  reverses the refund. Not changed: the 30/70 formula, the PHT day, partial recording, "card money
+  only through Square".
+- **R01 — the payment search resumes.** `square_card_attempts.search_cursor / search_pages`:
+  `findPaymentByReference` takes the saved cursor and hands back where it stopped on `incomplete`;
+  `recoverAttempt` saves it and clears it when the search ends. A cursor Square refuses (window moved,
+  expired) restarts from page 1 once. Search bounds stay derived from `created_at` (immutable). The
+  20-page budget per run and the "incomplete proves nothing" rule (QC08) are unchanged.
+- **R02 — fair ordering.** A `waiting` attempt is touched (`attempts_waiting_touch`, checked) and
+  `note_square_attempt_stuck` also sets `updated_at`, so 30 forever-waiting attempts cannot starve #31.
+  Known limits (review 2026-10-08): a resumed search's "absent" is a conclusion assembled across
+  runs (a payment that became listable only after its page was passed would be missed and the hold
+  cancelled by its idempotency key — harmless on a hold, practically unreachable at this volume); and
+  each reconcile touch (R02) refreshes `updated_at`, so the storefront's 2-minute `card_attempt_pending`
+  gate answers "pending" for up to 2 minutes after a run instead of recovering at once.
+- **R04 — B02 replay actually fires.** Eligibility is the refund row's `created_at` (= when square-sync
+  first tried the email) ≥ 30 min ago, never `updated_at`, which every hourly re-poll of captures within
+  120 days rewrites (the replay as first shipped could never select a realistic refund).
+- **R06 — truthful staff wording.** `mark-refund-issued` answers `provider_refund_already_emailed` only
+  when `email_send_log` holds a `sent` row for `refund-received-square-<id>`; otherwise
+  `provider_refund_email_not_confirmed` ("not confirmed sent yet — the hourly check will retry"). Still
+  no second message from here (one-message policy).
+- **R07 — bell before give-up.** On the 3rd failed re-send the `refund_email_failed` bell is written
+  FIRST; the `email_given_up_at` stamp only after it succeeds. A failed bell leaves the row eligible for
+  the next hour (bounded by `email_resends`).
+- **R08 — malformed success.** `_shared/square.ts parseSquareBody`: a 2xx whose body is not a JSON
+  object is `square_bad_response` (ambiguous → retried like a 5xx, never an empty page);
+  `listField / cursorField` refuse a list field that is present but not an array or a cursor that is not
+  a string; an omitted list is still an empty page. Used by list / listRefunds / listDisputes / searchEvents.
+- **R09 — tightened reads.** `parentEnvironment()` checks the lookup error and never falls back to
+  production; the open-dispute refresh excludes `INQUIRY_CLOSED` like the environment-selection query;
+  `eventsErrorKind`: a 400 on the first Events read is `error` (our request), other 4xx before any
+  successful read `not_enabled`, 5xx `unavailable`.
+- **R03 — documented, no code (owner-accepted scope).** Events (A) runs for the CURRENT environment only;
+  the first Events scan starts 2 h back and the first refund scan 30 days back; `no_credentials` for an
+  old environment means coverage is DEFERRED, not reconciled. **Go-live step**: enable the Events API for
+  production (PUT /v2/events/enable), then run one reconcile and confirm `events_api: ok` and
+  `refund_discovery: production: ok` before the first live card; for any outage longer than 27 days a
+  one-time ListPaymentRefunds export reconciliation is an owner task.
+- **R10 — documented, no code.** The order-level `refund_issued` marker records Square's COMPLETED total at
+  that moment (owner E7, partial allowed); `square_refunds` is the cumulative per-refund ledger; a later
+  refund on the same order is a new `square_refunds` row, not a change to the marker. A "remaining to
+  refund" figure can be added if the owner asks; a FAILED / REJECTED Square refund stays a staff case
+  (card money is never repaid by another method, S04/B01 rule).
