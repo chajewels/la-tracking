@@ -83,7 +83,8 @@ export function eventsErrorKind(
   neverRead: boolean,
 ): "not_enabled" | "unavailable" | "error" {
   if (!e) return "error";
-  if (e.kind === "client" && e.status !== 400) return neverRead ? "not_enabled" : "unavailable";
-  if (e.kind === "client") return "error";
+  const fourXx = e.kind === "client" || e.kind === "auth";   // a real 401/403 is kind "auth"
+  if (fourXx && e.status !== 400) return neverRead ? "not_enabled" : "unavailable";
+  if (fourXx) return "error";
   return "unavailable";
 }

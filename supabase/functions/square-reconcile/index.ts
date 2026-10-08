@@ -462,9 +462,10 @@ Deno.serve(async (req) => {
         } else {
           report.refund_emails_given_up++;
           // R07 (2026-10-08): the bell FIRST, the give-up stamp after. If the
-          // bell cannot be written the row stays eligible and is tried again
-          // next hour (bounded by email_resends); a missing alert is worse
-          // than a repeated one.
+          // bell cannot be written nothing is stamped or counted, so the row is
+          // tried again next hour (one send + one bell attempt per hour) until
+          // staff_notifications accepts the row; a missing alert is worse than
+          // a repeated one.
           const { data: o } = await db.from("cash_orders").select("invoice_number, web_reference, customer_id").eq("id", rf.cash_order_id).maybeSingle();
           const bell = await db.from("staff_notifications").insert({
             type: "refund_email_failed",

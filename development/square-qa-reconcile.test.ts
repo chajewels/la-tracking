@@ -215,7 +215,10 @@ Deno.test('R08: a 2xx with unreadable JSON is an ambiguous provider answer, not 
   let threw: unknown = null
   try { parseSquareBody('<html>gateway</html>', 200) } catch (e) { threw = e }
   assert(threw instanceof SquareError && threw.code === 'square_bad_response' && threw.kind === 'ambiguous', 'malformed 200 → square_bad_response (ambiguous)')
-  eq(parseSquareBody('', 200), {}, 'an empty 2xx body is {}')
+  threw = null
+  try { parseSquareBody('', 200) } catch (e) { threw = e }
+  assert(threw instanceof SquareError && threw.code === 'square_bad_response', 'an empty 2xx body is a cut-off answer, not an empty page')
+  eq(parseSquareBody('', 404), {}, 'an empty non-2xx body is {} (error path)')
   eq(parseSquareBody('{"refunds":[]}', 200), { refunds: [] }, 'valid JSON parses')
   eq(parseSquareBody('oops', 500), { raw: 'oops' }, 'a non-2xx body may be anything (error path keeps the raw text)')
 })
@@ -234,9 +237,12 @@ Deno.test('R08: a list field that is present but not an array, or a cursor that 
 })
 
 Deno.test('R09: first-Events errors — a bad request is never shown as "not enabled"', () => {
-  eq(eventsErrorKind({ kind: 'client', status: 403 }, true), 'not_enabled', '403 before any read = not enabled')
-  eq(eventsErrorKind({ kind: 'client', status: 400 }, true), 'error', '400 is our request, an alarm')
-  eq(eventsErrorKind({ kind: 'client', status: 403 }, false), 'unavailable', 'after a successful read the same 403 alarms')
+  const forbidden = new SquareError(403, 'FORBIDDEN', 'not enabled')
+  const badReq = new SquareError(400, 'BAD_REQUEST', 'bad field')
+  eq(eventsErrorKind(forbidden, true), 'not_enabled', `a real 403 (kind ${forbidden.kind}) before any read = not enabled`)
+  eq(eventsErrorKind(badReq, true), 'error', '400 is our request, an alarm')
+  eq(eventsErrorKind(forbidden, false), 'unavailable', 'after a successful read the same 403 alarms')
+  eq(eventsErrorKind(new SquareError(404, 'NOT_FOUND', 'x'), true), 'not_enabled', 'a 404 before any read = not enabled')
   eq(eventsErrorKind({ kind: 'ambiguous', status: 503 }, true), 'unavailable', '5xx is unavailable')
   eq(eventsErrorKind(null, true), 'error', 'a non-Square error is an error')
 })

@@ -463,6 +463,11 @@ two-session race `development/sql/square-r05-race.sh` (local copy only); deno
   20-page budget per run and the "incomplete proves nothing" rule (QC08) are unchanged.
 - **R02 — fair ordering.** A `waiting` attempt is touched (`attempts_waiting_touch`, checked) and
   `note_square_attempt_stuck` also sets `updated_at`, so 30 forever-waiting attempts cannot starve #31.
+  Known limits (review 2026-10-08): a resumed search's "absent" is a conclusion assembled across
+  runs (a payment that became listable only after its page was passed would be missed and the hold
+  cancelled by its idempotency key — harmless on a hold, practically unreachable at this volume); and
+  each reconcile touch (R02) refreshes `updated_at`, so the storefront's 2-minute `card_attempt_pending`
+  gate answers "pending" for up to 2 minutes after a run instead of recovering at once.
 - **R04 — B02 replay actually fires.** Eligibility is the refund row's `created_at` (= when square-sync
   first tried the email) ≥ 30 min ago, never `updated_at`, which every hourly re-poll of captures within
   120 days rewrites (the replay as first shipped could never select a realistic refund).

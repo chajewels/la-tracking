@@ -238,7 +238,12 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
  * (Square's error JSON when it is one; the raw text otherwise, for the message).
  */
 export function parseSquareBody(text: string, status: number): Record<string, unknown> {
-  if (!text) return {};
+  // Square v2 always answers a 2xx with a JSON object (at least {}); an empty
+  // body is a cut-off answer, never an empty page.
+  if (!text) {
+    if (status >= 200 && status < 300) throw new SquareError(502, "square_bad_response", "Square answered 2xx with an empty body");
+    return {};
+  }
   try {
     const v = JSON.parse(text);
     if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
