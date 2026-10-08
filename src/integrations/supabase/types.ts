@@ -10117,6 +10117,7 @@ export type Database = {
       }
       mark_web_order_refund_issued_atomic: {
         Args: {
+          p_exception?: Json
           p_method: string
           p_note?: string
           p_order_id: string
