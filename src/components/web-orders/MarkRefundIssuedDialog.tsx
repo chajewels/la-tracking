@@ -371,17 +371,25 @@ export function MarkRefundIssuedDialog({
       });
       const refused = await refusalOf(error, data);
       if (refused) { toast.error(refusalText(refused)); return; }
-      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_email_sentence?: string };
-      // SQV06: the card answer carries the one truthful sentence about the refund emails.
+      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number }; provider?: 'card' | 'paidy'; refund_email_sentence?: string };
+      const amount = yen(Number(d.amount ?? 0));
+      // SQV06: a card answer carries the one truthful sentence about the Square refund emails.
+      // PA08 (2026-10-09): a Paidy refund email is never re-sent automatically (owner rule) —
+      // staff use Resend in the order's email history.
+      const paidy = d.provider === 'paidy';
+      const cov = d.refund_emails && d.refund_emails.total > 1 ? ` (${d.refund_emails.sent} of ${d.refund_emails.total} refund emails sent)` : '';
+      const paidyNotConfirmed = `${d.refund_emails && d.refund_emails.total > 1 ? `${d.refund_emails.sent} of ${d.refund_emails.total} Paidy refund emails are confirmed sent` : 'The Paidy refund email is not confirmed sent'} — use Resend in the order's email history if it should go out.`;
       toast.success(d.already_recorded
         ? 'This refund was already recorded — nothing changed.'
         : d.refund_email_sentence
-          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${d.refund_email_sentence}`
+          ? `Refund of ${amount} recorded. ${d.refund_email_sentence}`
           : d.email_skipped === 'provider_refund_already_emailed'
-            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. The provider's refund email already told the customer.`
-            : d.email_sent
-              ? 'Refund recorded — the customer has been emailed.'
-              : 'Refund recorded. The email was not sent (see the order\'s email history).');
+            ? `Refund of ${amount} recorded. ${paidy ? 'The Paidy' : "The provider's"} refund email already told the customer${cov}.`
+            : d.email_skipped === 'provider_refund_email_not_confirmed' && paidy
+              ? `Refund of ${amount} recorded. ${paidyNotConfirmed}`
+              : d.email_sent
+                ? 'Refund recorded — the customer has been emailed.'
+                : 'Refund recorded. The email was not sent (see the order\'s email history).');
       onOpenChange(false);
       setNote('');
       onDone();

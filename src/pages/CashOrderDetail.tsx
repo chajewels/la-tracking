@@ -33,6 +33,7 @@ import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import ApplyStoreCreditCard from '@/components/orders/ApplyStoreCreditCard';
 import DeadlinesCard from '@/components/accounts/DeadlinesCard';
 import OrderEmailHistory from '@/components/orders/OrderEmailHistory';
+import RefundEmailResend from '@/components/orders/RefundEmailResend';
 import { isAwaitingConfirmation } from '@/lib/web-reservations';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
@@ -1703,6 +1704,7 @@ export default function CashOrderDetail() {
 
         {/* Every storefront email about this web order, incl. the payment reminder. */}
         {orderWebFields.source_channel === 'web' && <OrderEmailHistory entityType="cash_order" entityId={order.id} />}
+        {orderWebFields.source_channel === 'web' && <RefundEmailResend orderId={order.id} />}
 
         {/* Apply existing store credit to this new, unpaid order */}
         <ApplyStoreCreditCard

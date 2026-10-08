@@ -13,7 +13,7 @@
 export type PreflightState = "ok" | "auth_failed" | "not_configured" | "unavailable" | "refused";
 
 /** One Square error (status + code + kind from SquareError) → a preflight state. */
-export function preflightStateOf(e: { status?: number; code?: string; kind?: string } | null | undefined): PreflightState {
+export function preflightStateOf(e: { status?: number | null; code?: string | null; kind?: string | null } | null | undefined): PreflightState {
   if (!e) return "unavailable";
   if (e.kind === "not_configured" || e.code === "square_not_configured") return "not_configured";
   if (e.status === 401 || e.status === 403 || e.kind === "auth") return "auth_failed";

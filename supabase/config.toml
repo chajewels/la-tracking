@@ -43,6 +43,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.mark-refund-issued]
     verify_jwt = true
+  [functions.resend-order-email]
+    verify_jwt = true
   [functions.web-reservation-sweep]
     verify_jwt = true
   [functions.web-payment-reminder-sweep]

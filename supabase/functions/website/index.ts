@@ -18,7 +18,7 @@ import {
   type ReservationKind,
 } from "../_shared/web-reservation-rules.ts";
 import {
-  isPaidyPublicKey, paidyAddressLines, paidyBillingAddress, paidyBuyerHistory, paidyCheckoutBreakdown,
+  isPaidyPublicKey, paidyAddressLines, paidyBillingChoice, paidyBuyerHistory, paidyCheckoutBreakdown,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
   paidyBuyerName, paidyModeFrom, paidyNameField, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
 } from "../_shared/paidy-rules.ts";
@@ -495,7 +495,7 @@ async function orderPointsApplied(supabase: any, orderId: string): Promise<numbe
  *   - the buyer is the CUSTOMER — never the delivery recipient (R11); her
  *     billing address from her own default address-book entry when it is a
  *     complete Japanese address, else her own customer record when that is
- *     (H9, paidyBillingAddress); her phone only when it is a Japanese mobile
+ *     (H9, paidyBillingChoice — PA15B: or the entry she chose); her phone only when it is a Japanese mobile
  *     (R13); dob from customers.birthday; points held before this order;
  *   - history = her completed yen cash orders not paid with Paidy and not
  *     refunded, plus her completed yen layaway plans (H9), by order value,
@@ -508,21 +508,49 @@ async function orderPointsApplied(supabase: any, orderId: string): Promise<numbe
  * buyer history (order_count, ltv, last order) must cover ALL her orders, not
  * the newest 200. Throws on a read error; the caller then withholds Paidy
  * rather than send Paidy incomplete figures.
+ *
+ * PA11 (2026-10-09): KEYSET paging on the primary key — `id > last id`,
+ * ordered by id — never an offset over a non-unique sort (completed_at ties
+ * and NULLs could skip or repeat rows between pages). The query handed in
+ * must select `id` and must NOT order itself.
  */
 // deno-lint-ignore no-explicit-any
 async function allRows(build: () => any): Promise<AnyRec[]> {
   const PAGE = 500;
   const out: AnyRec[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build().range(from, from + PAGE - 1);
+  let after: string | null = null;
+  for (;;) {
+    let q = build();
+    if (after !== null) q = q.gt("id", after);
+    const { data, error } = await q.order("id", { ascending: true }).limit(PAGE);
     if (error) throw error;
     const rows = (data ?? []) as AnyRec[];
     out.push(...rows);
     if (rows.length < PAGE) return out;
+    after = String(rows[rows.length - 1].id);
   }
 }
 
-async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null) {
+/**
+ * PA11 (2026-10-09): `.in()` over many ids in ONE request can exceed the URL
+ * limit for a long-standing customer and turn into a read error (Paidy then
+ * withheld for the wrong reason). The ids go in chunks of 100; every chunk is
+ * read in full (allRows) and the rows are concatenated.
+ */
+const IN_CHUNK = 100;
+// deno-lint-ignore no-explicit-any
+async function allRowsIn(ids: string[], build: (chunk: string[]) => any): Promise<AnyRec[]> {
+  const out: AnyRec[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const chunk = ids.slice(i, i + IN_CHUNK);
+    out.push(...await allRows(() => build(chunk)));
+  }
+  return out;
+}
+
+// PA15B (2026-10-09): billingAddressId = the address-book entry SHE chose for
+// Paidy's billing (POST /orders/:id/paidy/start); null = preselect (default first).
+async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, billingAddressId: string | null = null) {
   const [{ data: modeRow }, { data: keyRow }] = await Promise.all([
     supabase.from("system_settings").select("value").eq("key", "paidy_mode").maybeSingle(),
     supabase.from("system_settings").select("value").eq("key", "paidy_public_key").maybeSingle(),
@@ -536,8 +564,8 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
     supabase.from("customers").select("created_at, mobile_number, full_name, family_name, given_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
     orderPointsApplied(supabase, String(order.id)),
-    supabase.from("customer_addresses").select("line1, line2, city, region, postal_code, country")
-      .eq("customer_id", customer.id).eq("is_default", true).limit(1).maybeSingle(),
+    supabase.from("customer_addresses").select("id, is_default, line1, line2, city, region, postal_code, country")
+      .eq("customer_id", customer.id).order("created_at"),
   ]);
   if (moneyErr) throw moneyErr;
   if (custErr) throw custErr;
@@ -549,8 +577,15 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   // guess from full_name; her billing address and mobile must be Japanese.
   const c = (cust ?? {}) as AnyRec;
   const buyerName = paidyBuyerName(c.family_name, c.given_name);
-  const bill = paidyBillingAddress(billing as AnyRec | null, paidyCustomerRecordAddress(c));
+  const bill = paidyBillingChoice((billing ?? []) as AnyRec[], paidyCustomerRecordAddress(c), billingAddressId);
   const requirements = paidyRequirements({ family_name: c.family_name, given_name: c.given_name, mobile_number: c.mobile_number, billingAddressFound: !!bill.address });
+  // PA15A (2026-10-09): what is already on file, so the order page can prefill
+  // the name fields instead of starting empty (her own data, her own session).
+  const onFile = {
+    mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null,
+    names: { family_name: typeof c.family_name === "string" ? c.family_name : null, given_name: typeof c.given_name === "string" ? c.given_name : null },
+  };
+  if (bill.reason === "billing_address_invalid") return { offered: false as const, reason: "billing_address_invalid", requirements, ...onFile };
 
   const reason = paidyNotOfferedReason({
     mode, publicKey, customerIsTest: customer.is_test === true, order, address, pendingSubmissions: pendingCount,
@@ -559,7 +594,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     paymentMethod: (order.payment_method ?? null) as string | null,
     requirements,
   });
-  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements, mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null };
+  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements, ...onFile };
 
   // R12 / P06: her own completed yen orders (this one excluded) — ALL of them
   // — classified by how they were paid and whether anything was refunded. A
@@ -570,29 +605,31 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     const past = await allRows(() => supabase.from("cash_orders")
       .select("id, status, currency, total_amount, completed_at, order_date")
       .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
-      .filter("invoice_number", "match", "^[0-9]+$")
-      .order("completed_at", { ascending: false }));
+      .filter("invoice_number", "match", "^[0-9]+$"));
     const pastIds = past.map((o) => String(o.id));
-    const [paidyPaid, refunded] = await Promise.all([
-      pastIds.length ? allRows(() => supabase.from("cash_payments").select("cash_order_id").in("cash_order_id", pastIds).eq("payment_method", "paidy").is("voided_at", null).order("cash_order_id")) : Promise.resolve([] as AnyRec[]),
-      pastIds.length ? allRows(() => supabase.from("paidy_refunds").select("cash_order_id").in("cash_order_id", pastIds).order("cash_order_id")) : Promise.resolve([] as AnyRec[]),
+    // PA11: "refunded" = a verified Paidy refund OR a Square refund that did
+    // not fail (owner decision 2026-10-09) — any money given back takes the
+    // order out of her clean history.
+    const [paidyPaid, paidyRefunded, squareRefunded] = await Promise.all([
+      allRowsIn(pastIds, (chunk) => supabase.from("cash_payments").select("id, cash_order_id").in("cash_order_id", chunk).eq("payment_method", "paidy").is("voided_at", null)),
+      allRowsIn(pastIds, (chunk) => supabase.from("paidy_refunds").select("id, cash_order_id").in("cash_order_id", chunk)),
+      allRowsIn(pastIds, (chunk) => supabase.from("square_refunds").select("id, cash_order_id").in("cash_order_id", chunk).not("status", "in", "(FAILED,REJECTED)")),
     ]);
     // H9: her completed yen layaway plans count as orders too (Paidy: ltv /
     // order_count cover every order at the store). Paidy never pays a plan.
     plans = await allRows(() => supabase.from("layaway_accounts")
-      .select("status, currency, total_amount, completed_at, order_date")
+      .select("id, status, currency, total_amount, completed_at, order_date")
       .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY")
-      .filter("invoice_number", "match", "^[0-9]+$")
-      .order("completed_at", { ascending: false }));
+      .filter("invoice_number", "match", "^[0-9]+$"));
     const byPaidy = new Set(paidyPaid.map((r) => String(r.cash_order_id)));
-    const byRefund = new Set(refunded.map((r) => String(r.cash_order_id)));
+    const byRefund = new Set([...paidyRefunded, ...squareRefunded].map((r) => String(r.cash_order_id)));
     history = paidyBuyerHistory([
       ...past.map((o) => ({ ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)) })),
       ...paidyHistoryFromLayaway(plans),
     ]);
   } catch (e) {
     console.error("[paidy] buyer history unavailable — Paidy withheld:", e);
-    return { offered: false as const, reason: "history_unavailable", requirements, mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null };
+    return { offered: false as const, reason: "history_unavailable", requirements, ...onFile };
   }
   const { data: member, error: memberErr } = await supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle();
   if (memberErr) throw memberErr;
@@ -606,7 +643,12 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     public_key: publicKey,
     test: mode === "test",
     requirements,
-    mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null,
+    ...onFile,
+    // PA15B: where Paidy may bill her (her complete Japanese entries, default
+    // first) and the one this payload uses; the delivery address stays the
+    // order's own (shipping_address below).
+    billing_choices: bill.choices,
+    billing_address_id: bill.id,
     checkout: paidyCheckoutPayload({
       amount: breakdown.amount,
       orderRef,
@@ -3002,7 +3044,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         paidy: paidyBlock.offered ? paidyBlock : null,
         // P05 (2026-10-08): what Paidy still needs from her, so the order page
         // can ask for it (names, Japanese mobile, Japanese billing address).
-        paidy_requirements: paidyBlock.requirements ? { ...paidyBlock.requirements, mobile_number: paidyBlock.mobile_number ?? null } : null,
+        paidy_requirements: paidyBlock.requirements ? {
+          ...paidyBlock.requirements, mobile_number: paidyBlock.mobile_number ?? null,
+          // PA15A: prefill — the name parts already on file (either may be null).
+          family_name_on_file: paidyBlock.names?.family_name ?? null, given_name_on_file: paidyBlock.names?.given_name ?? null,
+        } : null,
         // Card payment (Square, S2 2026-10-04): the block the pay-card page
         // renders, or null (reason logged, never shown).
         card: cardBlock.offered ? cardBlock : null,
@@ -3123,8 +3169,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const { data: offerItems, error: offerItemsErr } = await supabase
         .from("cash_order_items").select("id, variant_id, sku, title, quantity, unit_price_jpy").eq("cash_order_id", order.id).order("created_at");
       if (offerItemsErr) throw offerItemsErr;
-      const offer = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (offerItems ?? []) as AnyRec[], 0, null);
-      if (!offer.offered) return jsonResponse({ error: "paidy_not_offered", reason: offer.reason }, 409);
+      // PA15B (2026-10-09): the billing address she chose on the order page —
+      // one of HER complete Japanese address-book entries, else refused (never
+      // silently replaced). Absent = the preselected one (default first).
+      const startBody = await req.json().catch(() => ({})) as AnyRec;
+      const wantedBilling = typeof startBody.billing_address_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(startBody.billing_address_id)
+        ? startBody.billing_address_id : null;
+      if (startBody.billing_address_id != null && !wantedBilling) return jsonResponse({ error: "billing_address_invalid" }, 400);
+      const offer = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (offerItems ?? []) as AnyRec[], 0, null, wantedBilling);
+      if (!offer.offered) {
+        return jsonResponse({ error: offer.reason === "billing_address_invalid" ? "billing_address_invalid" : "paidy_not_offered", reason: offer.reason }, offer.reason === "billing_address_invalid" ? 400 : 409);
+      }
       const { data: started, error: startErr } = await supabase.rpc("start_paidy_checkout_attempt", {
         p_cash_order_id: order.id, p_customer_id: customer.id, p_ttl_minutes: 30,
       });
@@ -3134,6 +3189,11 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // PA04 (2026-10-08): the launch carries the attempt id in Paidy's
       // metadata, so a late authorisation (webhook, dashboard) can be tied to
       // the window it came from. Paidy allows 20 keys; four are used.
+      // PA15B: which billing address this window sent Paidy (audit). A failed
+      // write does not stop her paying — it is logged.
+      const { error: billErr } = await supabase.from("paidy_checkout_attempts")
+        .update({ billing_address_id: offer.billing_address_id ?? null }).eq("id", st.attempt_id);
+      if (billErr) console.error("[paidy] attempt billing_address_id not recorded:", billErr);
       const checkout = offer.checkout as AnyRec;
       const withAttempt = { ...checkout, metadata: { ...(checkout.metadata ?? {}), attempt_id: String(st.attempt_id) } };
       return jsonResponse({ ok: true, attempt_id: st.attempt_id, expires_at: st.expires_at, checkout: withAttempt });
