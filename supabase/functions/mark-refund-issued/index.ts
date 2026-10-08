@@ -15,6 +15,7 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { isRefundMethod, refundIssuedRefusal, type RefundMethodCode } from "../_shared/refund-issued-rules.ts";
+import { refundReceivedKey } from "../_shared/square-reconcile-rules.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -78,11 +79,28 @@ Deno.serve(async (req) => {
     // 「返金を受け付けました」 with the provider's amount (§9 #9). Marking it
     // issued then records it on the order only — never a second email with a
     // possibly different amount.
-    if (method === "card" || method === "paidy") {
-      const table = method === "card" ? "square_refunds" : "paidy_refunds";
-      let q = supabase.from(table).select("id", { count: "exact", head: true }).eq("cash_order_id", orderId);
-      if (method === "card") q = q.eq("status", "COMPLETED");
-      const { count, error: rErr } = await q;
+    if (method === "card") {
+      // R06 (2026-10-08): a COMPLETED Square refund row is a financial fact, not
+      // a delivery receipt. "Already emailed" is said only when the send log
+      // holds a sent row for that refund's own key; otherwise the truth is
+      // "not confirmed" (the hourly check re-sends it, B02). Either way no
+      // second message is sent from here (one-message policy).
+      const { data: rfs, error: rErr } = await supabase.from("square_refunds").select("square_refund_id")
+        .eq("cash_order_id", orderId).eq("status", "COMPLETED");
+      if (rErr) throw rErr;
+      const ids = ((rfs ?? []) as Array<{ square_refund_id: string }>).map((x) => String(x.square_refund_id));
+      if (ids.length > 0) {
+        let proven = false;
+        for (const id of ids) {
+          if (await refundIssuedEmailSent(supabase, refundReceivedKey(id))) { proven = true; break; }
+        }
+        return jsonResponse({
+          ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false,
+          email_skipped: proven ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
+        });
+      }
+    } else if (method === "paidy") {
+      const { count, error: rErr } = await supabase.from("paidy_refunds").select("id", { count: "exact", head: true }).eq("cash_order_id", orderId);
       if (rErr) throw rErr;
       if ((count ?? 0) > 0) {
         return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false, email_skipped: "provider_refund_already_emailed" });

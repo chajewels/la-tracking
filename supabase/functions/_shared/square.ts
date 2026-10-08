@@ -211,8 +211,16 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
     } finally {
       clearTimeout(timer);
     }
-    let json: Record<string, unknown> = {};
-    try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 500) }; }
+    let json: Record<string, unknown>;
+    try { json = parseSquareBody(text, res.status); }
+    catch (e) {
+      // R08 (2026-10-08): a 2xx whose body is not JSON is an ambiguous answer
+      // (gateway page, cut body) — retried like a 5xx, never read as an empty
+      // page or as "nothing exists".
+      last = e as SquareError;
+      sawAmbiguous = true;
+      continue;
+    }
     if (res.ok) return json;
     const errors = Array.isArray(json.errors) ? (json.errors as SquareApiError[]) : [];
     const first = errors[0] ?? {};
@@ -222,6 +230,46 @@ async function call(e: Env, method: "GET" | "POST" | "PUT", path: string, body?:
     sawAmbiguous = true;
   }
   throw last ?? new SquareError(0, "network", "Square unreachable");
+}
+
+/**
+ * R08 (2026-10-08): the body of a Square answer. A 2xx MUST be JSON — anything
+ * else is square_bad_response (ambiguous). A non-2xx body may be anything
+ * (Square's error JSON when it is one; the raw text otherwise, for the message).
+ */
+export function parseSquareBody(text: string, status: number): Record<string, unknown> {
+  // Square v2 always answers a 2xx with a JSON object (at least {}); an empty
+  // body is a cut-off answer, never an empty page.
+  if (!text) {
+    if (status >= 200 && status < 300) throw new SquareError(502, "square_bad_response", "Square answered 2xx with an empty body");
+    return {};
+  }
+  try {
+    const v = JSON.parse(text);
+    if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+    if (status >= 200 && status < 300) throw new SquareError(502, "square_bad_response", "Square answered 2xx with a non-object body");
+    return { raw: text.slice(0, 500) };
+  } catch (e) {
+    if (e instanceof SquareError) throw e;
+    if (status >= 200 && status < 300) throw new SquareError(502, "square_bad_response", "Square answered 2xx with unreadable JSON");
+    return { raw: text.slice(0, 500) };
+  }
+}
+
+/** R08: a list field may be omitted (empty page) but, when present, must be an array. */
+export function listField<T>(json: Record<string, unknown>, key: string): T[] {
+  const v = json[key];
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) throw new SquareError(502, "square_bad_response", `Square answered with a non-list ${key}`);
+  return v as T[];
+}
+
+/** R08: a cursor may be omitted (last page) but, when present, must be a string. */
+export function cursorField(json: Record<string, unknown>): string | null {
+  const c = json.cursor;
+  if (c === undefined || c === null || c === "") return null;
+  if (typeof c !== "string") throw new SquareError(502, "square_bad_response", "Square answered with a non-string cursor");
+  return c;
 }
 
 /** Every read-back goes through normalizeSquareStatus (card-rules.ts) so every caller compares case-safely. */
@@ -324,8 +372,8 @@ export const square = {
     const p = new URLSearchParams({ location_id: q.locationId, begin_time: q.beginTime, end_time: q.endTime, sort_order: "ASC", limit: String(q.limit ?? 100) });
     if (q.cursor) p.set("cursor", q.cursor);
     const json = await call(e, "GET", `/payments?${p.toString()}`);
-    const payments = Array.isArray(json.payments) ? (json.payments as unknown[]).map(normalizeSquarePayment) : [];
-    return { payments, cursor: typeof json.cursor === "string" ? json.cursor : null };
+    const payments = listField<unknown>(json, "payments").map(normalizeSquarePayment);
+    return { payments, cursor: cursorField(json) };
   },
   /**
    * Refunds created in a time window (QC07: discovery of refunds made in the
@@ -336,7 +384,7 @@ export const square = {
     if (q.endTime) p.set("end_time", q.endTime);
     if (q.cursor) p.set("cursor", q.cursor);
     const json = await call(e, "GET", `/refunds?${p.toString()}`);
-    return { refunds: Array.isArray(json.refunds) ? json.refunds as SquareRefund[] : [], cursor: typeof json.cursor === "string" ? json.cursor : null };
+    return { refunds: listField<SquareRefund>(json, "refunds"), cursor: cursorField(json) };
   },
   /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
   listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {
@@ -345,7 +393,7 @@ export const square = {
     if (q.cursor) p.set("cursor", q.cursor);
     const qs = p.toString();
     const json = await call(e, "GET", `/disputes${qs ? `?${qs}` : ""}`);
-    return { disputes: Array.isArray(json.disputes) ? json.disputes as SquareDispute[] : [], cursor: typeof json.cursor === "string" ? json.cursor : null };
+    return { disputes: listField<SquareDispute>(json, "disputes"), cursor: cursorField(json) };
   },
   getRefund: async (e: Env, id: string): Promise<SquareRefund> => {
     const json = await call(e, "GET", `/refunds/${encodeURIComponent(id)}`);
@@ -369,7 +417,7 @@ export const square = {
       limit: 100,
       query: { filter: { event_types: q.types, created_at: { start_at: q.beginTime, end_at: q.endTime } }, sort: { field: "DEFAULT", order: "ASC" } },
     });
-    return { events: Array.isArray(json.events) ? json.events as Record<string, unknown>[] : [], cursor: typeof json.cursor === "string" ? json.cursor : null };
+    return { events: listField<Record<string, unknown>>(json, "events"), cursor: cursorField(json) };
   },
 };
 

@@ -70,3 +70,21 @@ export function refundEmailNext(
   if (!transient) return "done";
   return resendsBefore + 1 >= MAX_REFUND_EMAIL_RESENDS ? "give_up" : "retry";
 }
+
+/**
+ * R09 (2026-10-08): how a failed Events API read is shown. Square does not
+ * document the exact "not enabled" code, so: a 4xx OTHER than 400, before the
+ * Events API has ever answered for this environment, reads as not enabled
+ * (panel, not alarm). A 400 is OUR request and always alarms; a 5xx / network
+ * failure is "unavailable"; after a successful read any Square error alarms.
+ */
+export function eventsErrorKind(
+  e: { kind: string; status: number } | null | undefined,
+  neverRead: boolean,
+): "not_enabled" | "unavailable" | "error" {
+  if (!e) return "error";
+  const fourXx = e.kind === "client" || e.kind === "auth";   // a real 401/403 is kind "auth"
+  if (fourXx && e.status !== 400) return neverRead ? "not_enabled" : "unavailable";
+  if (fourXx) return "error";
+  return "unavailable";
+}
