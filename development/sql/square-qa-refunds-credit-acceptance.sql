@@ -1,5 +1,5 @@
 -- Square QA S01/S04/S05 + B01 + cancellation-credit acceptance tests (2026-10-08, migration
--- 20261117100000). NOT a migration — never applied to live. Runs on a local Postgres copy of
+-- 20261118100000). NOT a migration — never applied to live. Runs on a local Postgres copy of
 -- the live schema (column-for-column copy of the tables these functions touch, the six live
 -- function bodies byte-identical to live, helper functions not under test stubbed), with
 -- auth.uid() = current_setting('test.uid') and is_staff / has_permission answering true.
