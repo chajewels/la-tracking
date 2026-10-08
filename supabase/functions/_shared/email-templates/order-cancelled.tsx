@@ -1,7 +1,7 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
-import type { Lang } from '../storefront-email.ts'
+import { orderMoney, type Lang } from '../storefront-email.ts'
 import { ItemsTable, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, notice, rule, text, wordmark, type OrderEmailItem, type OrderCurrency, subjectFor } from './order-shared.tsx'
 
 /**
@@ -30,6 +30,13 @@ export interface OrderCancelledProps {
   refundStatus: RefundStatus | null
   refundNote: string | null
   orderUrl: string | null
+  /**
+   * The store credit actually issued and the cancellation charge kept (owner
+   * rule 2026-10-06/08: cancelled after the order day → 30% of the money paid
+   * is kept). Given → the store-credit line states both figures; absent → the
+   * older wording (no amounts).
+   */
+  storeCredit?: { amount: number; charge: number } | null
 }
 
 export const orderCancelledSubject = (reference: string, lang: Lang) =>
@@ -46,6 +53,9 @@ const COPY = {
       store_credit_issued: 'お支払いいただいた代金は、1年間有効なストアクレジットとしてお客様のアカウントに追加されました。次回のご注文時にスタッフが適用いたします。',
       no_refund: 'お支払いいただいた代金の返金はございません。ご不明な点はこのメールにご返信ください。',
     },
+    credit: (amount: string, charge: string | null) => charge
+      ? `お支払いいただいた代金から30%のキャンセル料（${charge}）を差し引いた${amount}を、1年間有効なストアクレジットとしてお客様のアカウントに追加しました。次回のご注文時にスタッフが適用いたします。`
+      : `お支払いいただいた代金${amount}を、1年間有効なストアクレジットとしてお客様のアカウントに追加しました。次回のご注文時にスタッフが適用いたします。`,
     note: 'スタッフからのご案内',
     view: 'ご注文を見る',
   },
@@ -59,6 +69,9 @@ const COPY = {
       store_credit_issued: 'The amount you paid has been added to your account as store credit, valid for one year. Our staff will apply it to your next order.',
       no_refund: 'The amount you paid is not being refunded. If you have a question about this, reply to this email.',
     },
+    credit: (amount: string, charge: string | null) => charge
+      ? `${amount} has been added to your account as store credit, valid for one year: the amount you paid, less the 30% cancellation charge of ${charge}. Our staff will apply it to your next order.`
+      : `The amount you paid, ${amount}, has been added to your account as store credit, valid for one year. Our staff will apply it to your next order.`,
     note: 'A note from our staff',
     view: 'View order',
   },
@@ -72,7 +85,16 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderCancelledProps; prima
       <Text style={text}>{c.intro(p.reference)}</Text>
       <Text style={text}><strong>{c.reason}:</strong> {p.reasonByLang ? p.reasonByLang[lang] : p.reason}</Text>
       <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} />
-      {p.refundStatus && <Text style={notice}>{c.refund[p.refundStatus]}</Text>}
+      {p.refundStatus && (
+        <Text style={notice}>
+          {p.refundStatus === 'store_credit_issued' && p.storeCredit && p.storeCredit.amount > 0
+            ? c.credit(
+                orderMoney(p.storeCredit.amount, p.currency),
+                p.storeCredit.charge > 0 ? orderMoney(p.storeCredit.charge, p.currency) : null,
+              )
+            : c.refund[p.refundStatus]}
+        </Text>
+      )}
       {p.refundNote && <Text style={text}><strong>{c.note}:</strong> {p.refundNote}</Text>}
       {p.orderUrl && (
         <Section style={buttonWrap}>
