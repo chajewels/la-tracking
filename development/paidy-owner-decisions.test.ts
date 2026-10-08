@@ -1,18 +1,35 @@
-// Owner decisions 2026-10-06 (Paidy chat): name1 family-first; a staff cancel
-// closes an open Paidy authorisation first.
+// Owner decisions 2026-10-06 / 2026-10-08 (Paidy chat): name1 = family + given
+// as entered (P05); a staff cancel closes an open Paidy authorisation first.
 import { assertEquals } from "jsr:@std/assert@1";
-import { paidyCancelStep, paidyFamilyFirstName } from "../supabase/functions/_shared/paidy-rules.ts";
+import { paidyBuyerName, paidyCancelStep, paidyNameField, paidyNotOfferedReason, paidyRequirements, paidyRequirementsMet } from "../supabase/functions/_shared/paidy-rules.ts";
 import { releasePaidyForCancel } from "../supabase/functions/_shared/paidy-cancel-release.ts";
 
-Deno.test("name1: Latin name moves the last word to the front", () => {
-  assertEquals(paidyFamilyFirstName("Maria Santos"), "Santos Maria");
-  assertEquals(paidyFamilyFirstName("  Maria   Dela Cruz "), "Cruz Maria Dela");
+Deno.test("P05 name1: family + given as entered, never guessed; either missing → empty", () => {
+  assertEquals(paidyBuyerName("Santos", "Maria"), "Santos Maria");
+  assertEquals(paidyBuyerName(" 山田 ", "太郎"), "山田 太郎");
+  assertEquals(paidyBuyerName("Dela Cruz", "Maria"), "Dela Cruz Maria");
+  assertEquals(paidyBuyerName("Santos", ""), "");
+  assertEquals(paidyBuyerName(null, "Maria"), "");
 });
-Deno.test("name1: Japanese script kept as written; one word unchanged; empty", () => {
-  assertEquals(paidyFamilyFirstName("山田 太郎"), "山田 太郎");
-  assertEquals(paidyFamilyFirstName("ヤマダ タロウ"), "ヤマダ タロウ");
-  assertEquals(paidyFamilyFirstName("Cynthia"), "Cynthia");
-  assertEquals(paidyFamilyFirstName(null), "");
+Deno.test("P05 requirements: each field reported; Paidy refused while any is missing", () => {
+  const full = paidyRequirements({ family_name: "Santos", given_name: "Maria", mobile_number: "090-1234-5678", billingAddressFound: true });
+  assertEquals(full, { family_name: true, given_name: true, jp_mobile: true, jp_billing_address: true });
+  assertEquals(paidyRequirementsMet(full), true);
+  const noMobile = paidyRequirements({ family_name: "Santos", given_name: "Maria", mobile_number: "+63 917 000 1234", billingAddressFound: true });
+  assertEquals(noMobile.jp_mobile, false);
+  assertEquals(paidyRequirementsMet(noMobile), false);
+  const base = {
+    mode: "on" as const, publicKey: "pk_live_abcdefgh1234", customerIsTest: false,
+    order: { currency: "JPY", status: "pending", payment_status: "pending_transfer", remaining_balance: 1000, source_channel: "web", ready_confirmed_at: "2026-10-08" },
+    address: { line1: "1-1", city: "葛飾区", region: "東京都", postal_code: "124-0012", country: "JP" },
+    pendingSubmissions: 0, totalPaid: 0, paymentLock: null, buyerName: "Santos Maria", breakdownOk: true, paymentMethod: "paidy",
+  };
+  assertEquals(paidyNotOfferedReason({ ...base, requirements: full }), null);
+  assertEquals(paidyNotOfferedReason({ ...base, requirements: noMobile }), "no_jp_mobile");
+  assertEquals(paidyNotOfferedReason({ ...base, requirements: { ...full, jp_billing_address: false } }), "no_jp_billing_address");
+  assertEquals(paidyNotOfferedReason({ ...base, requirements: { ...full, given_name: false } }), "no_buyer_name");
+  assertEquals(paidyNameField("  Maria  Clara "), "Maria Clara");
+  assertEquals(paidyNameField("x".repeat(61)), null);
 });
 Deno.test("cancel step from Paidy's read-back", () => {
   assertEquals(paidyCancelStep("captured"), "refuse");

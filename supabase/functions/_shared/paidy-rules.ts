@@ -77,6 +77,12 @@ export interface PaidyOfferInput {
   /** R10: false when the item breakdown cannot equal the amount. */
   breakdownOk?: boolean;
   /**
+   * P05 (owner 2026-10-08): Paidy only for a buyer with a complete Japanese
+   * billing address (prefecture included), her own Japanese mobile number
+   * and both name fields. Omitted = not checked (older callers).
+   */
+  requirements?: PaidyRequirements;
+  /**
    * cash_orders.payment_method (owner C1, 2026-10-05): the customer chose how to
    * pay at checkout, so a WEBSITE order offers Paidy only when Paidy is its
    * method (null = transfer). Omitted = not checked (older callers).
@@ -103,6 +109,11 @@ export function paidyNotOfferedReason(i: PaidyOfferInput): string | null {
   if (i.pendingSubmissions > 0) return "submission_pending";
   if (i.paymentLock) return "payment_in_progress";
   if (i.buyerName !== undefined && !String(i.buyerName ?? "").trim()) return "no_buyer_name";
+  if (i.requirements) {
+    if (!i.requirements.jp_billing_address) return "no_jp_billing_address";
+    if (!i.requirements.jp_mobile) return "no_jp_mobile";
+    if (!i.requirements.family_name || !i.requirements.given_name) return "no_buyer_name";
+  }
   if (i.breakdownOk === false) return "breakdown_mismatch";
   return null;
 }
@@ -574,18 +585,43 @@ export function paidyCaptureDeadlineText(expiresAt: unknown): string {
   return Number.isFinite(t) ? `capture by ${paidyJapanDate(new Date(t))} JST` : "valid 30 days";
 }
 
-// Owner decision 2026-10-06: Paidy's buyer.name1 is FAMILY NAME FIRST.
-// customers has one full_name column. A name with Japanese script is kept as
-// written (already family-first); a name in Latin letters moves its last word
-// to the front ("Maria Santos" → "Santos Maria"). Known limit: a two-word
-// surname ("Maria Dela Cruz") gives "Cruz Maria Dela".
-export function paidyFamilyFirstName(raw: unknown): string {
-  const name = String(raw ?? "").replace(/\s+/g, " ").trim();
-  if (!name) return "";
-  if (/[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(name)) return name;
-  const parts = name.split(" ");
-  if (parts.length < 2) return name;
-  return [parts[parts.length - 1], ...parts.slice(0, -1)].join(" ");
+// Owner decisions 2026-10-06 / 2026-10-08 (P05): Paidy's buyer.name1 is
+// FAMILY NAME FIRST, built from the two fields she (or staff) entered —
+// customers.family_name + given_name — never guessed from full_name. Either
+// missing → "" (Paidy is then not offered: no_buyer_name).
+export function paidyBuyerName(family: unknown, given: unknown): string {
+  const f = String(family ?? "").replace(/\s+/g, " ").trim();
+  const g = String(given ?? "").replace(/\s+/g, " ").trim();
+  return f && g ? `${f} ${g}` : "";
+}
+
+/** P05: a name field as she typed it — 1..60 chars after trimming, or null. */
+export function paidyNameField(raw: unknown): string | null {
+  const v = String(raw ?? "").replace(/\s+/g, " ").trim();
+  return v.length >= 1 && v.length <= 60 ? v : null;
+}
+
+/**
+ * P05 (owner 2026-10-08): what Paidy needs from the buyer herself, as the
+ * order page reports it so she can fill in what is missing. true = satisfied.
+ *   family_name / given_name — customers.family_name / given_name
+ *   jp_mobile                — her own Japanese mobile (paidyJapaneseMobile)
+ *   jp_billing_address       — a complete Japanese billing address
+ *                              (paidyBillingAddress found one)
+ */
+export interface PaidyRequirements { family_name: boolean; given_name: boolean; jp_mobile: boolean; jp_billing_address: boolean }
+export function paidyRequirements(i: {
+  family_name?: unknown; given_name?: unknown; mobile_number?: unknown; billingAddressFound: boolean;
+}): PaidyRequirements {
+  return {
+    family_name: paidyNameField(i.family_name) != null,
+    given_name: paidyNameField(i.given_name) != null,
+    jp_mobile: paidyJapaneseMobile(i.mobile_number) != null,
+    jp_billing_address: i.billingAddressFound,
+  };
+}
+export function paidyRequirementsMet(r: PaidyRequirements): boolean {
+  return r.family_name && r.given_name && r.jp_mobile && r.jp_billing_address;
 }
 
 // Owner decision 2026-10-06: a staff CANCEL closes an open Paidy authorisation

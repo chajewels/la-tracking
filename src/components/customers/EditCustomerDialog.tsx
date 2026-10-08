@@ -21,6 +21,8 @@ interface EditForm {
   full_name: string; customer_code: string; facebook_name: string; messenger_link: string;
   mobile_number: string; email: string; notes: string;
   locationType: LocationType; country: string;
+  /** P05 (2026-10-08): Paidy buyer name fields; optional for every other customer. */
+  family_name?: string; given_name?: string;
 }
 
 interface EditCustomerDialogProps {
@@ -112,7 +114,9 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
         email: editForm.email.trim() || null,
         notes: editForm.notes.trim() || null,
         location,
-      }).eq('id', editId);
+        family_name: (editForm.family_name ?? '').trim() || null,
+        given_name: (editForm.given_name ?? '').trim() || null,
+      } as never).eq('id', editId);
       if (error) throw error;
       toast.success('Customer updated');
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -174,6 +178,17 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
                   <p className="text-xs text-muted-foreground">Please select your country for delivery and payment coordination.</p>
                 </div>
               )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Family Name (Paidy)</Label>
+                <Input value={editForm.family_name ?? ''} onChange={e => setEditForm(f => ({ ...f, family_name: e.target.value }))} placeholder="姓 / Surname" maxLength={60} />
+              </div>
+              <div className="space-y-2">
+                <Label>Given Name (Paidy)</Label>
+                <Input value={editForm.given_name ?? ''} onChange={e => setEditForm(f => ({ ...f, given_name: e.target.value }))} placeholder="名 / First name" maxLength={60} />
+                <p className="text-xs text-muted-foreground">Paidy needs both names, a Japanese mobile number and a Japanese billing address.</p>
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
