@@ -428,3 +428,39 @@ right away":
   (staff SELECT on paidy_checkout_attempts) so refused Confirm / Submit /
   store-credit actions are explained; Customer Detail's Contact card shows
   the Paidy name.
+
+## Reassessment PA01–PA15 (owner brief 2026-10-08 15:38 JST)
+
+The 8 October QA/QC reassessment lists 15 Paidy findings (PA01–PA15) and 14
+validation items (V01–V14). The owner-corrected brief, the four owner
+decisions (PA08 no automatic replay + audited manual resend; PA10 never drop
+unresolved recovery at 30 days; PA15 ask Paidy about Latin names and address
+types; billing residence confirmed separately from shipping) and the build
+order live in the Project doc `claude/paidy-pa01-pa15-brief-2026-10-08.md`.
+Each finding is closed here, under its PA id, with its acceptance evidence.
+
+### PA12 + PA13 — PR 1 (edge only; no SQL)
+
+- **PA12 — a 2xx from Paidy is a payment only when it is complete.**
+  `validatePaidyPaymentObject(json, expectedId)` (paidy-rules.ts) requires the
+  REQUESTED payment id, a whole-yen amount, JPY, a boolean `test`, a status,
+  and well-formed `captures` / `refunds` (a refund's `capture_id` must name a
+  capture the payment has). `CLOSED` without a captures ARRAY is incomplete
+  (CLOSED is both "released" and "captured"; only the array tells them
+  apart). The client (paidy.ts `call`) runs it on every 2xx — and on a body
+  that is not JSON — and throws `PaidyError(502, "paidy_bad_response")`.
+  Every caller already treats a non-404 PaidyError as UNKNOWN (keep the row /
+  event, read Paidy again), so the reproduced `200 { "status": "CLOSED" }` is
+  now an unverified read, never an uncaptured state. An unfamiliar status
+  value is NOT refused by the validator: it passes through and
+  `paidyProviderOutcome` answers "unknown".
+- **PA13 — staff Reject refuses an unknown read-back.** The Paidy pre-Reject
+  branch in review-payment-submission now ends with an explicit `else` for
+  any outcome that is not captured / authorized / expired / closed / rejected:
+  HTTP 502 `paidy_unverified` (reason `paidy_unknown_outcome`), the submission
+  stays queued and the order stays locked. Before, it fell through to the
+  ordinary reject and unlocked the order with Paidy's position unknown.
+- Tests: development/paidy-pa12-pa13.test.ts (CI list). Acceptance: malformed
+  JSON, missing / mismatched id, wrong currency, bad types, invalid capture /
+  refund linkage and incomplete CLOSED all produce an unknown outcome — no
+  false rejection, no false release, no invented completion.
