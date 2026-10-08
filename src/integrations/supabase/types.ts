@@ -9271,6 +9271,7 @@ export type Database = {
           p_at: string
           p_currency: Database["public"]["Enums"]["account_currency"]
           p_money: number
+          p_order_at?: string
           p_order_date: string
         }
         Returns: Json
@@ -10116,6 +10117,7 @@ export type Database = {
       }
       mark_web_order_refund_issued_atomic: {
         Args: {
+          p_exception?: Json
           p_method: string
           p_note?: string
           p_order_id: string
