@@ -188,7 +188,7 @@ Deno.test('wiring: every addendum sender is called from its function', async () 
     ['_shared/square-sync.ts', /sendWebCancellationEmail\(db, orderId, \{ reason:/],
     ['_shared/square-sync.ts', /sendCardHoldReleasedEmail\(db, \{/],
     ['_shared/paidy-filing.ts', /await sendPaymentSubmittedEmail\(supabase, \{ submissionId:/],
-    ['_shared/paidy-sync.ts', /idempotencyKey: `refund-received-paidy-\$\{r\.id\}`/],
+    ['_shared/paidy-sync.ts', /idempotencyKey: paidyRefundReceivedKey\(r\.id\)/], // PR 5: one key helper
     ['website/index.ts', /variant: "details_received"/],
     ['website/index.ts', /rest\.cancellation_reason = customerCancellationReason\(/],
     ['submit-payment/index.ts', /entity: "layaway", id: String\(primaryAccountId\), variant: "details_received"/],
@@ -236,7 +236,8 @@ Deno.test('review #1: a card hold released while her Paidy payment is checked ne
 
 Deno.test('review #2: Mark refund issued sends no second email after a provider refund already emailed her', async () => {
   const src = await code('mark-refund-issued/index.ts')
-  assert(/email_skipped: "provider_refund_already_emailed"/.test(src) && src.indexOf('square_refunds') < src.indexOf('variant: "refund_issued"'), 'provider check before the send')
+  // PA08 (2026-10-09): both provider branches decide "already emailed" from the send log, before the send.
+  assert(/"provider_refund_already_emailed"/.test(src) && src.indexOf('square_refunds') < src.indexOf('variant: "refund_issued"') && src.indexOf('paidy_refunds') < src.indexOf('variant: "refund_issued"'), 'provider check before the send')
 })
 
 Deno.test('review #3: an impossible day (2026-02-30) is bad_date, not a database error', () => {

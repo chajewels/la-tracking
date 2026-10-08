@@ -695,3 +695,60 @@ export function paidyCancelStep(outcome: PaidyProviderOutcome): PaidyCancelStep 
   if (outcome === "closed" || outcome === "rejected") return "mark";
   return "retry";
 }
+
+/**
+ * PA08 (2026-10-09): the idempotency key of the 「返金を受け付けました」 email
+ * the Hub sends once per Paidy refund (paidy-sync). One place, so the sender,
+ * the "already emailed" proof in mark-refund-issued and the audited manual
+ * resend can never disagree on it.
+ */
+export function paidyRefundReceivedKey(refundId: string): string {
+  return `refund-received-paidy-${refundId}`;
+}
+
+/** PA15B: one of her address-book entries Paidy may bill to (a complete Japanese address). */
+export interface PaidyBillingChoice {
+  id: string; is_default: boolean;
+  line1: string | null; line2: string | null; city: string | null; region: string | null; postal_code: string | null;
+}
+
+/**
+ * PA15B (owner 2026-10-08 17:17 JST, recommended option 2026-10-09): the
+ * customer CHOOSES where Paidy bills her, separately from where the piece
+ * goes (the order's delivery address, chosen at checkout). The choices are
+ * her own address-book entries that are complete Japanese addresses, default
+ * first. With her choice (`wantedId`) that entry is used — an id that is not
+ * one of HER complete Japanese entries is refused (`billing_address_invalid`,
+ * never silently replaced). Without a choice the default entry is preselected,
+ * then any other complete entry, then her customer record (H9) — never the
+ * order's ship-to / gift recipient (R11).
+ */
+export function paidyBillingChoice(
+  entries: Array<PaidyAddress & { id?: unknown; is_default?: unknown }> | null | undefined,
+  customerRecord: PaidyAddress | null | undefined,
+  wantedId?: string | null,
+): {
+  choices: PaidyBillingChoice[];
+  address?: ReturnType<typeof paidyAddressLines>;
+  source: "address_book" | "customer_record" | null;
+  id: string | null;
+  reason?: "billing_address_invalid" | "no_complete_jp_billing_address";
+} {
+  const s = (v: unknown) => (v == null || String(v).trim() === "" ? null : String(v));
+  const choices: PaidyBillingChoice[] = (entries ?? [])
+    .filter((e) => e && e.id != null && paidyAddressComplete(e))
+    .map((e) => ({
+      id: String(e.id), is_default: e.is_default === true,
+      line1: s(e.line1), line2: s(e.line2), city: s(e.city), region: s(e.region), postal_code: s(e.postal_code),
+    }))
+    .sort((a, b) => Number(b.is_default) - Number(a.is_default));
+  const asAddress = (c: PaidyBillingChoice): PaidyAddress => ({ ...c, country: "JP" });
+  if (wantedId) {
+    const hit = choices.find((c) => c.id === wantedId);
+    if (!hit) return { choices, source: null, id: null, reason: "billing_address_invalid" };
+    return { choices, address: paidyAddressLines(asAddress(hit)), source: "address_book", id: hit.id };
+  }
+  if (choices.length > 0) return { choices, address: paidyAddressLines(asAddress(choices[0])), source: "address_book", id: choices[0].id };
+  if (paidyAddressComplete(customerRecord)) return { choices, address: paidyAddressLines(customerRecord), source: "customer_record", id: null };
+  return { choices, source: null, id: null, reason: "no_complete_jp_billing_address" };
+}

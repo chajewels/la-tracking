@@ -24,7 +24,7 @@
 import { paidyBell } from "./paidy-filing.ts";
 import {
   paidyCapturedAmount, paidyConfirmLeaseExpired, paidyLatestCapture, paidyNewRefunds,
-  paidyProviderOutcome, paidyRecordProblem,
+  paidyProviderOutcome, paidyRecordProblem, paidyRefundReceivedKey,
 } from "./paidy-rules.ts";
 import type { PaidyPayment } from "./paidy.ts";
 import { sendCashPaymentRejectedEmail } from "./payment-rejected-email.ts";
@@ -200,7 +200,7 @@ export async function syncPaidyPayment(
       if (row.cash_order_id) {
         await sendOrderUpdateEmail(supabase, {
           entity: "cash_order", id: String(row.cash_order_id), variant: "refund_received",
-          amount: r.amount, refundMethod: "paidy", idempotencyKey: `refund-received-paidy-${r.id}`,
+          amount: r.amount, refundMethod: "paidy", idempotencyKey: paidyRefundReceivedKey(r.id),
         });
       }
     }
