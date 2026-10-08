@@ -543,3 +543,15 @@ on 2026-10-08 (project doc `claude/square-reassessment-response-2026-10-08.md`).
   and the customer when the address matches a customer record. `email_bounced` is on the email list, so
   Brenda learns the customer did NOT get the refund email.
 - Opens / reads are not knowable and are not claimed anywhere.
+
+### Live since 2026-10-08 21:38 JST (release PR #452, main `7ecf7f2`)
+- Applied and deployed through Lovable; drift audit 390/390, 0 / 0 / 0. Live recipients resolve to
+  bumagatbrenda@gmail.com + sales@chajewelsjp.com (the only active admin profile email).
+- End-to-end proven 22:02 JST with a simulated provider bounce row for the Test Customer address:
+  bell `email_bounced` → 2 ledger rows → 2 `staff-bell` emails `sent` within 5 s via the trigger wake; the
+  owner checked the Hub bell (desktop + phone), both inboxes and the Settings card — all passed. A
+  `bounced` row in email_send_log suppresses nothing (real suppression is `suppressed_emails`, written
+  only by the provider webhook), so the test is repeatable.
+- APPLY LESSON: Lovable's SQL runner strips `--` comments INSIDE function bodies, so a repo body with an
+  in-body comment always shows as `a_differs` after apply (it did here for `staff_bell_email_fanout`).
+  Keep comments outside `$fn$ … $fn$` in every new migration.

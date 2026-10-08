@@ -189,3 +189,12 @@ Two things learned:
   `(?<!SELECT )(auth\.uid\(\)|is_staff\(|has_role\(|has_permission\(|is_admin\()`
   and must read 0 after the apply. New policies are written wrapped from the
   start; a bare call is a review finding.
+
+## Lovable strips in-body comments on apply (2026-10-08)
+
+Lovable applies a migration through its SQL runner, which drops `--` comment lines INSIDE a
+function body. The live `prosrc` then differs from the repo file by exactly those lines and
+`scripts/function-drift-audit` reports the function as `a_differs` (seen with
+`staff_bell_email_fanout`, migration 20261127100000). Rule: in a new migration keep every comment
+OUTSIDE the `$fn$ … $fn$` body (above the CREATE, or after it). If one slips through, move the comment
+out in the repo file (the only change) and re-run the audit — never rewrite live to match the repo.
