@@ -1312,7 +1312,9 @@ export type Database = {
           customer_code: string | null
           email: string | null
           facebook_name: string | null
+          family_name: string | null
           full_name: string
+          given_name: string | null
           id: string
           is_test: boolean
           last_birthday_award_year: number | null
@@ -1343,7 +1345,9 @@ export type Database = {
           customer_code?: string | null
           email?: string | null
           facebook_name?: string | null
+          family_name?: string | null
           full_name: string
+          given_name?: string | null
           id?: string
           is_test?: boolean
           last_birthday_award_year?: number | null
@@ -1374,7 +1378,9 @@ export type Database = {
           customer_code?: string | null
           email?: string | null
           facebook_name?: string | null
+          family_name?: string | null
           full_name?: string
+          given_name?: string | null
           id?: string
           is_test?: boolean
           last_birthday_award_year?: number | null
@@ -4353,6 +4359,7 @@ export type Database = {
         Row: {
           amount_jpy: number
           cash_order_id: string
+          customer_closed_at: string | null
           customer_id: string
           end_reason: string | null
           ended_at: string | null
@@ -4365,6 +4372,7 @@ export type Database = {
         Insert: {
           amount_jpy: number
           cash_order_id: string
+          customer_closed_at?: string | null
           customer_id: string
           end_reason?: string | null
           ended_at?: string | null
@@ -4377,6 +4385,7 @@ export type Database = {
         Update: {
           amount_jpy?: number
           cash_order_id?: string
+          customer_closed_at?: string | null
           customer_id?: string
           end_reason?: string | null
           ended_at?: string | null
@@ -9308,6 +9317,10 @@ export type Database = {
       }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
+        Returns: number
+      }
+      expire_paidy_checkout_attempts: {
+        Args: { p_cash_order_id?: string }
         Returns: number
       }
       expire_web_drafts_atomic: {
