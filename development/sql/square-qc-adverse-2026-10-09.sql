@@ -16,79 +16,15 @@ DECLARE r jsonb; BEGIN EXECUTE p_sql INTO r; RETURN coalesce(r, '{}'::jsonb); EX
 CREATE FUNCTION pg_temp.try_exec(p_sql text) RETURNS text LANGUAGE plpgsql AS $$
 BEGIN EXECUTE p_sql; RETURN 'ok'; EXCEPTION WHEN others THEN RETURN 'raised: ' || SQLERRM; END $$;
 
--- The live guard trigger on payment_submissions (body from 20261104100000, the only definition) —
--- the local copy does not carry the trigger, so install it for this transaction.
--- (inlined so the suite is reproducible from the repo)
-CREATE OR REPLACE FUNCTION public.guard_provider_submission()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $fn$
-BEGIN
-  -- Paidy's own rules (link, relabel, money fields, re-queue, Paidy holds the
-  -- order) live in trg_guard_payment_submission_paidy (Paidy follow-up). This
-  -- trigger carries the CARD rules and the card side of the payment lock.
-
-  -- Nothing is a card payment without its hold.
-  IF lower(coalesce(NEW.payment_method, '')) = 'square' AND NEW.square_payment_id IS NULL THEN
-    RAISE EXCEPTION 'square_link_required: a card (square) submission must carry its Square hold'
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  -- Owner 3A / SQ11: while a card attempt is in flight, a hold is live or
-  -- captured card money is not recorded, no OTHER payment enters the queue for
-  -- that order — a new submission, or a rejected/cancelled one restored. The
-  -- card's own filing (square_payment_id set) is the one exception. Order row
-  -- locked first, like the Paidy guard, so this check and
-  -- reserve_square_attempt serialise.
-  IF NEW.cash_order_id IS NOT NULL AND NEW.square_payment_id IS NULL
-     AND NEW.status::text IN ('submitted','under_review')
-     AND (TG_OP = 'INSERT' OR OLD.status::text NOT IN ('submitted','under_review')) THEN
-    PERFORM 1 FROM public.cash_orders WHERE id = NEW.cash_order_id FOR UPDATE;
-    IF public.square_order_unresolved(NEW.cash_order_id) THEN
-      RAISE EXCEPTION 'card_payment_unresolved: a card payment on this order is still being processed — another payment is accepted only after it is declined, voided or recorded'
-        USING ERRCODE = 'P0001';
-    END IF;
-  END IF;
-
-  IF TG_OP = 'UPDATE' THEN
-    -- A card submission keeps its money facts (SQ10): the reviewer branch,
-    -- the finalizer and the card record all rely on them.
-    IF OLD.square_payment_id IS NOT NULL AND (
-         NEW.payment_method    IS DISTINCT FROM OLD.payment_method
-      OR NEW.submitted_amount  IS DISTINCT FROM OLD.submitted_amount
-      OR NEW.cash_order_id     IS DISTINCT FROM OLD.cash_order_id
-      OR NEW.account_id        IS DISTINCT FROM OLD.account_id
-      OR NEW.customer_id       IS DISTINCT FROM OLD.customer_id
-      OR NEW.square_payment_id IS DISTINCT FROM OLD.square_payment_id) THEN
-      RAISE EXCEPTION 'provider_submission_locked: method, amount, order, customer and card hold of a card submission cannot change'
-        USING ERRCODE = 'P0001';
-    END IF;
-    -- Only file_square_authorization_atomic links a hold, at insert.
-    IF OLD.square_payment_id IS NULL AND NEW.square_payment_id IS NOT NULL THEN
-      RAISE EXCEPTION 'provider_submission_locked: a submission cannot be linked to a card hold after it was filed'
-        USING ERRCODE = 'P0001';
-    END IF;
-    -- A card submission ends by Confirm (capture) or Reject (void), never by a
-    -- plain cancel that would leave the hold on her card, and a rejected one is
-    -- never re-queued (the hold was voided; she pays again).
-    IF OLD.square_payment_id IS NOT NULL AND NEW.status::text = 'cancelled' AND OLD.status::text <> 'cancelled' THEN
-      RAISE EXCEPTION 'card_submission_not_cancellable: reject it so the hold is voided' USING ERRCODE = 'P0001';
-    END IF;
-    IF OLD.square_payment_id IS NOT NULL AND OLD.status::text IN ('rejected','cancelled')
-       AND NEW.status IS DISTINCT FROM OLD.status THEN
-      RAISE EXCEPTION 'card_submission_ended: a rejected card submission is never re-queued — the customer pays again' USING ERRCODE = 'P0001';
-    END IF;
-  END IF;
-  RETURN NEW;
-END
-$fn$;
-REVOKE ALL ON FUNCTION public.guard_provider_submission() FROM PUBLIC, anon, authenticated;
-DROP TRIGGER IF EXISTS trg_guard_provider_submission ON public.payment_submissions;
-CREATE TRIGGER trg_guard_provider_submission
-  BEFORE INSERT OR UPDATE ON public.payment_submissions
-  FOR EACH ROW EXECUTE FUNCTION public.guard_provider_submission();
+-- PREREQUISITE: the database carries the live Square/Paidy function bodies AND
+-- supabase/migrations/20261130150000_square_qc_closeout.sql (the fixes this suite proves).
+-- On the local copy, install the live bodies first, then apply the migration with
+-- check_function_bodies = off. The SANITY checks below fail if either is missing.
+SELECT pg_temp.ok(EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_guard_provider_submission'
+                            AND tgrelid = 'public.payment_submissions'::regclass),
+  'SANITY trg_guard_provider_submission is on payment_submissions');
+SELECT pg_temp.ok(position('provider_submission_status_locked' IN pg_get_functiondef('public.guard_provider_submission()'::regprocedure)) > 0,
+  'SANITY the fixed guard body (QC close-out) is installed');
 
 INSERT INTO public.user_roles (user_id, role) VALUES
   ('84a8b62c-ec75-4eeb-8ec0-e43ad8ed3457', 'admin'), ('00000000-0000-0000-0000-00000000bbbb', 'staff') ON CONFLICT DO NOTHING;
@@ -206,12 +142,23 @@ VALUES ('00000000-0000-0000-0000-00000000d005', pg_temp.o(5), '00000000-0000-000
         '00000000-0000-0000-0000-00000000b005');
 SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'cancelled' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE '%card_submission_not_cancellable%',
   'SANITY the live guard trigger is installed in this run (a card submission cannot be plainly cancelled)');
-SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'needs_clarification' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE 'raised%',
-  'F-01 a card submission cannot be moved to needs_clarification (it would strand the live hold with no Confirm/Reject)');
-SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'confirmed' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE 'raised%',
+SELECT set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000bbbb', 'role', 'service_role')::text, true);
+SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'needs_clarification' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE '%provider_submission_no_clarify%',
+  'F-01 a card submission cannot be moved to needs_clarification, even by the service role (it would strand the live hold with no Confirm/Reject)');
+SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'under_review' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) = 'ok',
+  'Q-DB1 positive: the service role (reviewer edge) still moves a card submission');
+SELECT pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'submitted' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$);
+SELECT set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000bbbb', 'role', 'authenticated')::text, true);
+SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'confirmed' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE '%provider_submission_status_locked%',
   'Q-DB1 a card submission cannot be set "confirmed" by a direct write (only the reviewer capture path, via finalize)');
-SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'rejected' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE 'raised%',
+SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET status = 'rejected' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) LIKE '%provider_submission_status_locked%',
   'Q-DB1 a card submission with a LIVE hold cannot be set "rejected" by a direct write (the hold would stay on her card)');
+SELECT pg_temp.ok(pg_temp.try_exec($q$UPDATE public.payment_submissions SET notes = 'staff note' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) = 'ok',
+  'Q-DB1 positive: a signed-in staff member still edits the notes of a card submission');
+SELECT pg_temp.ok(pg_temp.try_exec($q$SELECT set_config('app.provider_submission_writer', 'on', true); UPDATE public.payment_submissions SET status = 'under_review' WHERE id = '00000000-0000-0000-0000-00000000d005'$q$) = 'ok',
+  'Q-DB1 positive: a staff case function that marks its own transaction (decide_square_case) may move it');
+SELECT set_config('app.provider_submission_writer', '', true);
+SELECT set_config('request.jwt.claims', '', true);
 
 -- =========================================================== Q-DB2 (staff email exposure)
 SELECT set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-0000000000aa', 'role', 'authenticated')::text, true);
@@ -224,6 +171,66 @@ SELECT pg_temp.ok(NOT EXISTS (
    WHERE to_regclass('public.' || t) IS NOT NULL AND (has_table_privilege('authenticated', 'public.' || t, 'INSERT') OR has_table_privilege('authenticated', 'public.' || t, 'UPDATE')
       OR has_table_privilege('authenticated', 'public.' || t, 'DELETE'))),
   'Q-DB3 signed-in users hold no INSERT/UPDATE/DELETE grant on the Square ledger tables (RLS is not the only wall)');
+
+-- =========================================================== Q-DB2 (the reader answers staff only)
+SELECT set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-0000000000aa', 'role', 'authenticated')::text, true);
+SELECT pg_temp.ok(position('is_staff(v_uid)' IN pg_get_functiondef('public.get_staff_bell_emails()'::regprocedure)) > 0,
+  'Q-DB2 get_staff_bell_emails() answers staff only');
+SELECT set_config('request.jwt.claims', '', true);
+
+-- =========================================================== F-04 positive (the approved transfer CAN be recorded)
+CREATE TEMP TABLE t_f04b AS SELECT pg_temp.record(2, 'bank_transfer_exception', pg_temp.admin(),
+  jsonb_build_object('transfer_date', pg_temp.today(), 'transfer_reference', 'QC-TR-2')) AS r;
+SELECT pg_temp.ok((SELECT r ->> 'ok' = 'true' AND (r ->> 'amount')::numeric = 6000 FROM t_f04b),
+  'F-04 positive: the approved ¥6,000 bank transfer is recorded against the approval', (SELECT r::text FROM t_f04b));
+
+-- =========================================================== F-03 positive (her own refund counts)
+SELECT pg_temp.refund('sq_q1', 'rf_q1_own', 'COMPLETED', 10000);
+CREATE TEMP TABLE t_f03b AS SELECT pg_temp.record(1, 'card', pg_temp.admin()) AS r;
+SELECT pg_temp.ok((SELECT r ->> 'ok' = 'true' AND (r ->> 'amount')::numeric = 10000 FROM t_f03b),
+  'F-03 positive: a COMPLETED refund of the recorded capture is recorded (¥10,000, never more)', (SELECT r::text FROM t_f03b));
+
+-- =========================================================== F-02 bells (a chargeback on an order already compensated)
+CREATE TEMP TABLE t_f02c AS SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_q1', 'sq_q1', 'EVIDENCE_REQUIRED', 'FRAUD', 10000, NULL, now(), now(), '{}'::jsonb)$q$) AS r;
+INSERT INTO public.store_credit_lots (customer_id, currency, original_amount, remaining_amount, status, source_type, source_cash_order_id, expires_at)
+SELECT '00000000-0000-0000-0000-0000000000c1', 'JPY', 7000, 7000, 'active', 'cancelled_cash', pg_temp.o(6), now() + interval '1 year'
+WHERE NOT EXISTS (SELECT 1 FROM public.store_credit_lots WHERE source_cash_order_id = pg_temp.o(6));
+CREATE TEMP TABLE t_f02d AS SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_q6', 'sq_q6', 'LOST', 'FRAUD', 10000, NULL, now(), now(), '{}'::jsonb)$q$) AS r;
+SELECT pg_temp.ok(EXISTS (SELECT 1 FROM public.staff_notifications WHERE type = 'card_dispute_after_credit' AND metadata ->> 'dispute_id' = 'dp_q6'),
+  'F-02 a LOST chargeback on an order that already carries store credit rings card_dispute_after_credit', (SELECT r::text FROM t_f02d));
+SELECT pg_temp.ok(EXISTS (SELECT 1 FROM public.staff_notifications WHERE type = 'card_dispute_after_exception' AND metadata ->> 'dispute_id' = 'dp_q1') = false,
+  'F-02 no exception bell where no refund outside Square exists (order 1)', (SELECT r::text FROM t_f02c));
+CREATE TEMP TABLE t_f02e AS SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_q2', 'sq_q2', 'EVIDENCE_REQUIRED', 'FRAUD', 6000, NULL, now(), now(), '{}'::jsonb)$q$) AS r;
+SELECT pg_temp.ok(EXISTS (SELECT 1 FROM public.staff_notifications WHERE type = 'card_dispute_after_exception' AND metadata ->> 'dispute_id' = 'dp_q2'),
+  'F-02 a chargeback on an order refunded outside Square rings card_dispute_after_exception', (SELECT r::text FROM t_f02e));
+
+-- =========================================================== F-13 (Hub cash order cancel while a card hold is live)
+INSERT INTO public.cash_orders (id, invoice_number, customer_id, status, currency, order_date, total_amount, total_paid)
+VALUES (pg_temp.o(7), 'QC7', '00000000-0000-0000-0000-0000000000c1', 'pending', 'JPY', (now() AT TIME ZONE 'Asia/Manila')::date, 10000, 0);
+INSERT INTO public.square_payments (cash_order_id, square_payment_id, status, test, amount_jpy, authorized_at, environment)
+VALUES (pg_temp.o(7), 'sq_q7', 'authorized', true, 10000, now() - interval '1 hour', 'sandbox');
+CREATE TEMP TABLE t_f13 AS SELECT pg_temp.try(format('SELECT public.cancel_cash_order_atomic(%L, %L, %L, NULL, false, %L)',
+       pg_temp.o(7), 'QC live hold', pg_temp.admin(), 'staff')) AS r;
+SELECT pg_temp.ok((SELECT coalesce(r ->> 'raised', '') LIKE 'card_payment_unresolved%' FROM t_f13),
+  'F-13 a Hub cash order with a live card hold cannot be cancelled', (SELECT r::text FROM t_f13));
+CREATE TEMP TABLE t_f13p AS SELECT pg_temp.try(format('SELECT public.cancel_cash_order_atomic(%L, %L, %L, NULL, true, %L)',
+       pg_temp.o(7), 'QC live hold', pg_temp.admin(), 'staff')) AS r;
+SELECT pg_temp.ok((SELECT r ->> 'refusal' = 'card_payment_unresolved' FROM t_f13p),
+  'Q-UX1 the Hub cash cancel preview names the same refusal', (SELECT r::text FROM t_f13p));
+
+-- =========================================================== F-08 (admin closes a stuck attempt)
+INSERT INTO public.square_card_attempts (id, cash_order_id, customer_id, reference, amount_jpy, status, test, created_at)
+VALUES ('00000000-0000-0000-0000-00000000e008', pg_temp.o(5), '00000000-0000-0000-0000-0000000000c1', 'cja_qc8', 10000, 'unknown', true, now() - interval '2 hours'),
+       ('00000000-0000-0000-0000-00000000e009', pg_temp.o(5), '00000000-0000-0000-0000-0000000000c1', 'cja_qc9', 10000, 'unknown', true, now() - interval '5 minutes');
+SELECT set_config('request.jwt.claims', json_build_object('sub', '84a8b62c-ec75-4eeb-8ec0-e43ad8ed3457', 'role', 'authenticated')::text, true);
+CREATE TEMP TABLE t_f08 AS SELECT
+  pg_temp.try($q$SELECT public.close_square_attempt_atomic('00000000-0000-0000-0000-00000000e008', 'short')$q$) AS no_note,
+  pg_temp.try($q$SELECT public.close_square_attempt_atomic('00000000-0000-0000-0000-00000000e009', 'Checked the Square Dashboard: no payment exists')$q$) AS recent,
+  pg_temp.try($q$SELECT public.close_square_attempt_atomic('00000000-0000-0000-0000-00000000e008', 'Checked the Square Dashboard: no payment exists')$q$) AS closed;
+SELECT pg_temp.ok((SELECT no_note ->> 'error' = 'note_required' AND recent ->> 'error' = 'too_recent' AND closed ->> 'ok' = 'true' FROM t_f08)
+                  AND (SELECT status = 'cancelled' AND error_code = 'closed_by_admin' FROM public.square_card_attempts WHERE id = '00000000-0000-0000-0000-00000000e008'),
+  'F-08 an admin closes a stuck attempt (note required, not a fresh one), audited', (SELECT row_to_json(t)::text FROM t_f08 t));
+SELECT set_config('request.jwt.claims', '', true);
 
 SELECT format('%s %s%s', CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END, name, CASE WHEN pass OR detail IS NULL THEN '' ELSE '  -> ' || left(detail, 300) END)
   FROM t_results ORDER BY n;

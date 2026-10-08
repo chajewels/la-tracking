@@ -35,7 +35,8 @@ DELETE FROM public.cash_orders WHERE id::text LIKE '00000000-0000-0000-0000-0000
 SQL
 }
 term() { echo "SELECT set_config('test.uid','$UID1',false); SELECT public.terminate_web_order_atomic('00000000-0000-0000-0000-00000000ee$1','cancelled','race','$UID1','staff@example.com','store_credit_issued',NULL,'staff',false);"; }
-refund() { echo "SELECT public.record_square_refund('rf_race_$1','sq_race_$1','COMPLETED',10000,'race',now(),now(),'{}'::jsonb);"; }
+# Q-T1 (QC 2026-10-09): a real yen refund payload — '{}' is refused as bad_currency since SQF02, so the race never ran.
+refund() { echo "SELECT public.record_square_refund('rf_race_$1','sq_race_$1','COMPLETED',10000,'race',now(),now(),'{\"id\": \"rf_race_$1\", \"payment_id\": \"sq_race_$1\", \"amount_money\": {\"amount\": 10000, \"currency\": \"JPY\"}}'::jsonb);"; }
 
 cleanup >/dev/null 2>&1
 echo "== Case 1: cancel first, refund arrives while the cancel is still open"
