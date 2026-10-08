@@ -245,15 +245,22 @@ export function MarkRefundIssuedDialog({
         toast.error(REFUSAL[code] ?? `Could not record the refund: ${code}`);
         return;
       }
-      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number } };
+      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number }; provider?: 'card' | 'paidy' };
       // SQF05: per-refund coverage — "2 of 2 refund emails sent" / "1 of 2 — the hourly check will retry".
       const cov = d.refund_emails && d.refund_emails.total > 1 ? ` (${d.refund_emails.sent} of ${d.refund_emails.total} refund emails sent)` : '';
+      // PA08 (2026-10-09): name the provider the refund went through. A Paidy
+      // refund email is never re-sent automatically (owner rule) — staff use
+      // Resend in the order's email history; the card one has the hourly retry.
+      const paidy = d.provider === 'paidy';
+      const notConfirmed = paidy
+        ? `${d.refund_emails && d.refund_emails.total > 1 ? `${d.refund_emails.sent} of ${d.refund_emails.total} Paidy refund emails are confirmed sent` : 'The Paidy refund email is not confirmed sent'} — use Resend in the order's email history if it should go out.`
+        : `${d.refund_emails && d.refund_emails.total > 1 ? `${d.refund_emails.sent} of ${d.refund_emails.total} Square refund emails are confirmed sent` : 'The Square refund email is not confirmed sent yet'} — the hourly check will retry; see the order's email history.`;
       toast.success(d.already_recorded
         ? 'This refund was already recorded — nothing changed.'
         : d.email_skipped === 'provider_refund_already_emailed'
-          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. Square's refund email already told the customer${cov}.`
+          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${paidy ? 'The Paidy' : "Square's"} refund email already told the customer${cov}.`
           : d.email_skipped === 'provider_refund_email_not_confirmed'
-            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${d.refund_emails && d.refund_emails.total > 1 ? `${d.refund_emails.sent} of ${d.refund_emails.total} Square refund emails are confirmed sent` : 'The Square refund email is not confirmed sent yet'} — the hourly check will retry; see the order's email history.`
+            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${notConfirmed}`
           : d.email_sent
             ? 'Refund recorded — the customer has been emailed.'
             : 'Refund recorded. The email was not sent (see the order\'s email history).');
