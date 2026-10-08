@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""
+structure-drift-audit — can the repo rebuild live?  The table-level twin of
+scripts/function-drift-audit (owner go 2026-10-09, Paidy V03 finding F2).
+
+function-drift-audit compares function BODIES.  It cannot see a table, column,
+constraint, index, trigger, view, policy or grant that live has and no migration
+creates — and on 2026-10-09 there were 20 tables, 2 enum types, 16 columns, 59
+constraints, 47 indexes, 10 triggers, 1 view, 40 policies and 108 function grants
+like that.  A rebuild from supabase/migrations/ stopped at the 39th migration.
+
+How it works
+------------
+The SAME read-only query (scripts/structure-drift-audit.sql) is run on both sides:
+
+  1. LIVE: paste the query into the Supabase SQL Editor (it is one SELECT and writes
+     nothing) and export the result as CSV or JSON.  `structure-drift-audit query`
+     prints it.
+
+  2. REPO: `structure-drift-audit replay` builds an EMPTY scratch Postgres from
+     supabase/migrations/ — Supabase platform stand-ins (scripts/replay/prelude.sql),
+     the baseline, a minimal seed for the migrations whose self-checks need data
+     (scripts/replay/seed.sql), per-migration hooks for live operational settings
+     (scripts/replay/hooks/), then every migration in scripts/migration-replay-plan
+     order, each in one transaction, exactly as Supabase applies them — and runs the
+     query there.  It refuses any host that is not a local socket or localhost:
+     NEVER point it at live.
+
+  3. `structure-drift-audit compare LIVE_FILE REPLAY_FILE` prints, per kind, what live
+     has that the rebuild does not (live-only) and the reverse (repo-only).
+
+Zero lines is the goal.  A live-only line is something a rebuild would lose; a
+repo-only line is something a rebuild would create that production does not have.
+Fix both with a RECORD-ONLY migration read from live (guarded, so applying it to live
+changes nothing) — see docs/MIGRATIONS.md "Structure catch-up".
+
+Usage
+-----
+    scripts/structure-drift-audit query
+    scripts/structure-drift-audit replay --host /var/tmp/pg --port 55432 --out repo.tsv
+    scripts/structure-drift-audit compare live.csv repo.tsv
+"""
+import argparse, csv, json, os, re, subprocess, sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+QUERY = ROOT / "scripts" / "structure-drift-audit.sql"
+REPLAY = ROOT / "scripts" / "replay"
+PLAN = ROOT / "scripts" / "migration-replay-plan"
+# The Supabase platform creates these itself; the scratch prelude stands them in.
+PLATFORM_EXT = re.compile(r"^CREATE EXTENSION IF NOT EXISTS (pg_cron|pg_net|pg_stat_statements|pgmq|supabase_vault)\b.*$", re.M)
+
+
+def psql(args, db, *extra, **kw):
+    cmd = ["psql", "-h", args.host, "-p", str(args.port), "-U", args.user, "-X", "-q",
+           "-v", "ON_ERROR_STOP=1", "-d", db, *extra]
+    env = dict(os.environ, PGOPTIONS="-c check_function_bodies=off -c client_min_messages=warning")
+    return subprocess.run(cmd, env=env, capture_output=True, text=True, **kw)
+
+
+def replay(args):
+    if not (args.host.startswith("/") or args.host in ("localhost", "127.0.0.1", "::1")):
+        sys.exit("refusing: --host must be a local socket directory or localhost (never live)")
+    if not args.db.startswith("replay"):
+        sys.exit("refusing: --db must start with 'replay' (it is dropped and re-created)")
+    for sql in (f"DROP DATABASE IF EXISTS {args.db}", f"CREATE DATABASE {args.db}"):
+        r = psql(args, "postgres", "-c", sql)
+        if r.returncode: sys.exit(r.stderr)
+    r = psql(args, args.db, "-f", str(REPLAY / "prelude.sql"))
+    if r.returncode: sys.exit("prelude: " + r.stderr)
+    psql(args, args.db, "-c", f"ALTER DATABASE {args.db} SET search_path TO public, extensions")
+    plan = subprocess.run([str(PLAN)], capture_output=True, text=True, check=True).stdout.split()
+    baseline, rest = Path(plan[0]), plan[1:]
+    r = psql(args, args.db, input=PLATFORM_EXT.sub("", baseline.read_text()))
+    if r.returncode: sys.exit("baseline: " + r.stderr)
+    r = psql(args, args.db, "-f", str(REPLAY / "seed.sql"))
+    if r.returncode: sys.exit("seed: " + r.stderr)
+    for n, f in enumerate(rest, 1):
+        hook = REPLAY / "hooks" / Path(f).name
+        if hook.exists():
+            r = psql(args, args.db, "-f", str(hook))
+            if r.returncode: sys.exit(f"hook {hook.name}: {r.stderr}")
+        r = psql(args, args.db, "-1", "-f", f)
+        if r.returncode:
+            sys.exit(f"FAIL #{n} {Path(f).name}\n{r.stderr}")
+    print(f"replayed baseline + {len(rest)} migrations into {args.db}", file=sys.stderr)
+    r = psql(args, args.db, "-tA", "-F", "\t", "-f", str(QUERY))
+    if r.returncode: sys.exit(r.stderr)
+    Path(args.out).write_text(r.stdout)
+    print(f"wrote {args.out}", file=sys.stderr)
+
+
+def load(path):
+    text = Path(path).read_text()
+    rows = []
+    if text.lstrip().startswith("{") or text.lstrip().startswith("["):
+        data = json.loads(text)
+        data = data.get("rows", data) if isinstance(data, dict) else data
+        rows = [(r["kind"], r["item"]) for r in data]
+    elif path.endswith(".csv"):
+        rows = [(r["kind"], r["item"]) for r in csv.DictReader(text.splitlines())]
+    else:
+        rows = [tuple(l.split("\t", 1)) for l in text.splitlines() if "\t" in l]
+    return {(k, re.sub(r"\s+", " ", i).strip()) for k, i in rows}
+
+
+def compare(args):
+    live, repo = load(args.live), load(args.repo)
+    bad = 0
+    for kind in sorted({k for k, _ in live | repo}):
+        lo = sorted(i for k, i in live - repo if k == kind)
+        ro = sorted(i for k, i in repo - live if k == kind)
+        print(f"{kind:15} live-only {len(lo):4}   repo-only {len(ro):4}")
+        for i in lo: print(f"    live-only  {i[:220]}")
+        for i in ro: print(f"    repo-only  {i[:220]}")
+        bad += len(lo) + len(ro)
+    print("OK: the repo rebuilds live" if not bad else f"DRIFT: {bad} lines")
+    sys.exit(1 if bad else 0)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("query", help="print the read-only live query")
+    rp = sub.add_parser("replay", help="rebuild the repo into an empty LOCAL scratch database")
+    rp.add_argument("--host", required=True); rp.add_argument("--port", default=5432, type=int)
+    rp.add_argument("--user", default="postgres"); rp.add_argument("--db", default="replay")
+    rp.add_argument("--out", required=True)
+    cp = sub.add_parser("compare", help="diff the live export against the replay")
+    cp.add_argument("live"); cp.add_argument("repo")
+    args = ap.parse_args()
+    if args.cmd == "query": print(QUERY.read_text())
+    elif args.cmd == "replay": replay(args)
+    else: compare(args)
+
+
+if __name__ == "__main__":
+    main()
