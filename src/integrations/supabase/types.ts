@@ -9271,6 +9271,7 @@ export type Database = {
           p_at: string
           p_currency: Database["public"]["Enums"]["account_currency"]
           p_money: number
+          p_order_at?: string
           p_order_date: string
         }
         Returns: Json
