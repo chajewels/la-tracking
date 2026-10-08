@@ -6,6 +6,10 @@ import { PAIDY_RECORD_FIELDS, openPaidyCase, paidyBellOnce, syncPaidyPayment } f
 import { paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
+import { paidyCaseBell } from "../_shared/paidy-case-bell.ts";
+import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
+import { advanceCancelIntent, cancellationSnapshot, emitCancellationFollowups, syncStoreCreditToShopify } from "../_shared/cancel-followups.ts";
+import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
 
 /**
  * paidy-reconcile — the Paidy sweep (cron, service role, Vault key).
@@ -32,6 +36,11 @@ import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
  *      window that knows its payment id is first VERIFIED with Paidy here.
  *   4b. Orphan capture cases: closed only when Paidy reports a full refund.
  *   5. Bells cash-order Confirms left half-way past the lease.
+ *   6. PR 4 (PA06 / PA14 / PA07): follow-up emails the Hub never reached
+ *      (no email_send_log row — never a replay of a failed send), staff
+ *      cancellations interrupted after their Paidy release (finished from
+ *      the terminate step on; one interrupted before the release only rings
+ *      a bell — owner decision), and open cases whose first bell never rang.
  *
  * Only this environment's payments are read (P07); an inbox event from the
  * other environment is parked and retried daily — never dropped (owner
@@ -60,6 +69,7 @@ Deno.serve(async (req) => {
     attempts_expired: 0, windows_verified: 0, windows_recovered: 0, stuck_confirms: 0,
     other_environment: 0, paidy_errors: 0, write_errors: 0, skipped_mode_off: false,
     orphan_cases_checked: 0, orphan_cases_resolved: 0,
+    followups_done: 0, followups_failed: 0, cancel_intents_finished: 0, cancel_intents_bell: 0, case_bells_rung: 0,
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
     parked_events: null as number | null, parked_oldest_minutes: null as number | null,
   };
@@ -374,6 +384,148 @@ Deno.serve(async (req) => {
         await paidyBellOnce(supabase, "cash_confirm_interrupted", "Payment Confirm did not finish",
           `A Confirm of a ${String(s.payment_method ?? "cash")} payment (ref ${String(s.reference_number ?? "—")}) stopped before it was recorded. The submission shows Confirmed but no payment is on the order — check the order and the card/bank record before doing anything.`,
           { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: `submission:${s.id}` });
+      }
+    }
+
+    // 6a. PA06 / PA14: follow-up emails the Hub owes and never reached. A
+    //     pending intent older than 5 minutes is sent ONLY when email_send_log
+    //     holds no row for its key — the send was never attempted. A failed
+    //     send is never replayed (owner rule); such an intent is closed as done.
+    {
+      const cut = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: fus, error: fuErr } = await supabase
+        .from("payment_submission_followups").select("id, kind, submission_id, cash_order_id, idempotency_key, payload, attempts")
+        .eq("status", "pending").lte("created_at", cut).order("created_at", { ascending: true }).limit(25);
+      if (fuErr) throw fuErr;
+      for (const fu of (fus ?? []) as Record<string, any>[]) {
+        const { data: logged, error: logErr } = await supabase.from("email_send_log").select("id")
+          .contains("metadata", { idempotency_key: fu.idempotency_key }).limit(1);
+        if (logErr) { report.write_errors++; continue; }
+        const attempted = (logged ?? []).length > 0;
+        if (Number(fu.attempts ?? 0) >= 3) {
+          await supabase.from("payment_submission_followups").update({ status: "failed", last_error: "max_attempts" }).eq("id", fu.id);
+          await paidyBellOnce(supabase, "paidy_followup_failed", "A customer email could not be sent",
+            `${fu.kind} for ${fu.cash_order_id ?? fu.submission_id} was not sent after 3 attempts — send it by hand if needed.`,
+            { cash_order_id: fu.cash_order_id, submission_id: fu.submission_id, paidy_payment_id: `followup:${fu.id}` });
+          report.followups_failed++;
+          continue;
+        }
+        if (!attempted) {
+          try {
+            if (fu.kind === "paidy_rejected_email" && fu.submission_id) {
+              await sendCashPaymentRejectedEmail(supabase, { submissionId: String(fu.submission_id), kind: "staff", reason: fu.payload?.reason ?? null });
+            } else if (fu.kind === "web_cancellation_email" && fu.cash_order_id) {
+              const snap = await cancellationSnapshot(supabase, String(fu.cash_order_id));
+              if (snap) {
+                const { data: orderRow } = await supabase.from("cash_orders").select("id, web_reference, invoice_number, customer_id").eq("id", fu.cash_order_id).maybeSingle();
+                await emitCancellationFollowups(supabase, {
+                  cash_order_id: String(fu.cash_order_id), isWeb: true, c: snap, orderRow: orderRow ?? {},
+                  reason: String(fu.payload?.reason ?? ""), refundStatus: (fu.payload?.refund_status ?? null) as RefundStatus | null, refundNote: fu.payload?.refund_note ?? null,
+                });
+              }
+            }
+          } catch (e) {
+            await supabase.from("payment_submission_followups").update({ attempts: Number(fu.attempts ?? 0) + 1, last_error: e instanceof Error ? e.message : String(e) }).eq("id", fu.id);
+            report.followups_failed++;
+            continue;
+          }
+        }
+        const { error } = await supabase.from("payment_submission_followups")
+          .update({ status: "done", done_at: nowIso(), attempts: Number(fu.attempts ?? 0) + 1, last_error: attempted ? "already_attempted" : null }).eq("id", fu.id);
+        if (error) report.write_errors++; else report.followups_done++;
+      }
+    }
+
+    // 6b. PA14: staff cancellations interrupted mid-way. An intent stuck ≥ 5
+    //     minutes at paidy_released / terminated / notified is FINISHED (the
+    //     money side already happened; the order must not stay open and
+    //     unlocked); one stuck at started only rings a bell, once.
+    {
+      const cut = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: intents, error: inErr } = await supabase
+        .from("cash_order_cancel_intents").select("id, cash_order_id, user_id, user_email, reason, refund_status, refund_note, stage, bell_rung_at")
+        .in("stage", ["started", "paidy_released", "terminated", "notified"]).lte("updated_at", cut)
+        .order("updated_at", { ascending: true }).limit(20);
+      if (inErr) throw inErr;
+      for (const it of (intents ?? []) as Record<string, any>[]) {
+        const orderId = String(it.cash_order_id);
+        if (it.stage === "started") {
+          if (it.bell_rung_at) continue;
+          const rang = await paidyBellOnce(supabase, "cancel_interrupted", "A cancellation did not finish",
+            `Cancel of order ${orderId} by ${it.user_email ?? "staff"} stopped before anything was released. The order is unchanged — open it and press Cancel again if it should be cancelled.`,
+            { cash_order_id: orderId, intent_id: it.id, paidy_payment_id: `cancel:${it.id}` });
+          if (rang) { await supabase.from("cash_order_cancel_intents").update({ bell_rung_at: nowIso() }).eq("id", it.id); report.cancel_intents_bell++; }
+          continue;
+        }
+        try {
+          const { data: orderRow, error: orErr } = await supabase.from("cash_orders")
+            .select("id, source_channel, web_reference, invoice_number, customer_id, status").eq("id", orderId).maybeSingle();
+          if (orErr) throw orErr;
+          if (!orderRow) { await advanceCancelIntent(supabase, it.id, "abandoned", "order_not_found"); continue; }
+          let c: Record<string, any> | null = null;
+          if (it.stage === "paidy_released") {
+            const { data, error } = await supabase.rpc("terminate_web_order_atomic", {
+              p_order_id: orderId, p_outcome: "cancelled", p_reason: it.reason || null,
+              p_user_id: it.user_id, p_user_email: it.user_email ?? null,
+              p_refund_status: it.refund_status, p_refund_note: it.refund_note, p_source: "staff", p_preview: false,
+            });
+            if (error) throw error;
+            const d = (data ?? {}) as Record<string, any>;
+            if (d.ok === false && d.reason !== "already_terminal") {
+              // Refused now (e.g. money arrived in the meantime): staff decide — not the sweep.
+              await advanceCancelIntent(supabase, it.id, "abandoned", String(d.reason ?? "refused"));
+              await paidyBellOnce(supabase, "cancel_interrupted", "An interrupted cancellation could not be finished",
+                `Cancel of order ${orderRow.web_reference ?? orderRow.invoice_number} was refused when the Hub tried to finish it (${String(d.reason ?? "refused")}). Its Paidy authorisation was already released; open the order and decide.`,
+                { cash_order_id: orderId, intent_id: it.id, paidy_payment_id: `cancel:${it.id}` });
+              continue;
+            }
+            c = d.success === true ? d : await cancellationSnapshot(supabase, orderId);
+            if (d.success === true && d.store_credit) {
+              await syncStoreCreditToShopify({
+                customer_id: d.store_credit.customer_id, direction: "credit", amount: Number(d.store_credit.amount),
+                currency: d.store_credit.currency, lot_id: d.store_credit.lot_id, expires_at: d.store_credit.expires_at,
+                reason: `Store credit issued on cancellation of ${d.web_reference ?? d.invoice_number ?? "cash order"}`,
+              });
+            }
+            await advanceCancelIntent(supabase, it.id, "terminated");
+          } else {
+            c = await cancellationSnapshot(supabase, orderId);
+          }
+          if (!c) { await advanceCancelIntent(supabase, it.id, "abandoned", "not_cancelled"); continue; }
+          await emitCancellationFollowups(supabase, {
+            cash_order_id: orderId, isWeb: true, c, orderRow, reason: String(it.reason ?? ""),
+            refundStatus: (it.refund_status ?? null) as RefundStatus | null, refundNote: it.refund_note ?? null,
+          });
+          await advanceCancelIntent(supabase, it.id, "done");
+          report.cancel_intents_finished++;
+        } catch (e) {
+          report.write_errors++;
+          console.error(`${LOG} cancel intent ${it.id} finish failed:`, e);
+          await advanceCancelIntent(supabase, it.id, it.stage, e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+
+    // 6c. PA07: open cases whose first bell never rang — rung once, deduped
+    //     on the case id, then stamped.
+    {
+      const { data: silent, error: sErr } = await supabase
+        .from("paidy_cases").select("id, kind, paidy_payment_id, cash_order_id, detail, cash_order:cash_orders(web_reference, invoice_number)")
+        .eq("status", "open").is("bell_rung_at", null).order("opened_at", { ascending: true }).limit(25);
+      if (sErr) throw sErr;
+      for (const c of (silent ?? []) as Record<string, any>[]) {
+        const { data: prior } = await supabase.from("staff_notifications").select("id").contains("metadata", { case_id: c.id }).limit(1);
+        if ((prior ?? []).length === 0) {
+          const b = paidyCaseBell({ kind: c.kind, paidy_payment_id: String(c.paidy_payment_id), detail: c.detail, reference: c.cash_order?.web_reference ?? c.cash_order?.invoice_number ?? null });
+          const { error } = await supabase.from("staff_notifications").insert({
+            type: b.type, title: b.title, body: b.body,
+            metadata: { case_id: c.id, cash_order_id: c.cash_order_id ?? null, paidy_payment_id: c.paidy_payment_id, kind: c.kind, late: true },
+          });
+          if (error) { report.write_errors++; continue; }
+          report.case_bells_rung++;
+        }
+        const { error: stampErr } = await supabase.from("paidy_cases").update({ bell_rung_at: nowIso() }).eq("id", c.id);
+        if (stampErr) report.write_errors++;
       }
     }
 

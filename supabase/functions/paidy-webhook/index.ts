@@ -33,8 +33,14 @@ import { isPaidyWebhookIp, paidyWebhookIpCheckOn, paidyWebhookSourceIp } from ".
  * treats every source as recognised.
  */
 const PROCESS_DEADLINE_MS = 8000;
+/** PA14: however slow the inbox insert was, processing still gets this much before the 200 goes out. */
+const MIN_PROCESS_BUDGET_MS = 1500;
 
 Deno.serve(async (req) => {
+  // PA14 (2026-10-08): Paidy's 10 s clock starts when the request arrives, so
+  // the processing budget is measured from RECEIPT — the inbox insert and the
+  // claim come out of it, never on top of it.
+  const receivedAt = Date.now();
   const pre = corsPreflight(req);
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
@@ -64,7 +70,8 @@ Deno.serve(async (req) => {
   // same gate every worker passes.
   if (!(await claimPaidyEvent(supabase, String(inbox.id), "webhook"))) return jsonResponse({ ok: true, queued: true, claimed_elsewhere: true });
   const work = processPaidyEvent(supabase, String(inbox.id), id, event, "webhook", 0, { recognisedSource });
-  const timeout = new Promise<"deadline">((resolve) => setTimeout(() => resolve("deadline"), PROCESS_DEADLINE_MS));
+  const budgetMs = Math.max(MIN_PROCESS_BUDGET_MS, PROCESS_DEADLINE_MS - (Date.now() - receivedAt));
+  const timeout = new Promise<"deadline">((resolve) => setTimeout(() => resolve("deadline"), budgetMs));
   const result = await Promise.race([work, timeout]);
   if (result === "deadline") {
     work.catch((e) => console.error("[paidy-webhook] late processing failed (the sweep retries):", e));

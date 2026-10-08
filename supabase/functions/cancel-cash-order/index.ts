@@ -2,54 +2,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { emitNotification } from "../_shared/emit-notification.ts";
 import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
-import { sendWebCancellationEmail } from "../_shared/web-cancellation-email.ts";
 import { terminateRefusalMessage } from "../_shared/terminate-refusals.ts";
 import { releasePaidyForCancel } from "../_shared/paidy-cancel-release.ts";
+// PA14 (2026-10-08): the stages after the terminate RPC — bells, portal
+// notifications, the cancellation email and the Shopify mirror — live in
+// _shared/cancel-followups.ts, shared with the sweep that finishes an
+// interrupted cancel. The intent row is written BEFORE the Paidy release.
+import { advanceCancelIntent, emitCancellationFollowups, openCancelIntent, syncStoreCreditToShopify as syncToShopify } from "../_shared/cancel-followups.ts";
 
 const REFUND_STATUSES = new Set(["refund_issued", "refund_pending", "store_credit_issued", "no_refund"]);
-
-async function resolveCustomerName(
-  supabase: any,
-  customerId: string | null | undefined,
-): Promise<string | null> {
-  if (!customerId) return null;
-  try {
-    const { data } = await supabase
-      .from("customers")
-      .select("full_name")
-      .eq("id", customerId)
-      .maybeSingle();
-    return (data?.full_name as string) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// Mirror a Hub store-credit movement into Shopify (single source of truth = Hub).
-// Never throws; a sync failure must never block the committed Hub operation.
-async function syncToShopify(body: Record<string, unknown>): Promise<unknown> {
-  try {
-    const res = await fetch(
-      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-store-credit-to-shopify`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify(body),
-      },
-    );
-    const out = await res.json().catch(() => null);
-    console.log("[sync-to-shopify]", JSON.stringify(out));
-    return out;
-  } catch (e) {
-    console.warn("[sync-to-shopify] failed (non-blocking):", e);
-    return { success: false, error: String((e as Error)?.message ?? e) };
-  }
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -111,18 +73,32 @@ Deno.serve(async (req) => {
     // real alike, so the preview never promises what the cancel will refuse);
     // the order's own eligibility is checked BEFORE anything is closed at Paidy.
     let paidyClosed = 0;
+    let releaseDone = false;
+    // PA14: the intent — written before anything is released at Paidy, so an
+    // interrupted cancel is never invisible. A clean refusal abandons it.
+    let intentId: string | null = null;
+    if (isWeb && !preview) {
+      intentId = await openCancelIntent(supabase, {
+        cash_order_id, user_id: user.id, user_email: user.email ?? null, reason,
+        refund_status: refundStatus, refund_note: refundNote,
+      });
+    }
+    const refuse = async (payload: Record<string, unknown>, status: number, why: string) => {
+      await advanceCancelIntent(supabase, intentId, "abandoned", why);
+      return json(payload, status);
+    };
     if (isWeb) {
       const { data: lock, error: lockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cash_order_id });
       if (lockErr) {
         console.error("[cancel-cash-order] payment lock read failed:", lockErr);
-        return json({ ok: false, error: "Could not check this order's payment state, so it was not cancelled. Try again.", code: "payment_state_unknown" }, 503);
+        return await refuse({ ok: false, error: "Could not check this order's payment state, so it was not cancelled. Try again.", code: "payment_state_unknown" }, 503, "payment_state_unknown");
       }
       const lockReason = typeof lock === "string" ? lock : null;
       if (lockReason === "paidy_checkout_open") {
-        return json({ ok: false, error: "The customer has the Paidy payment window open right now. Wait until it finishes (or the hourly check settles it), then cancel.", code: lockReason }, 409);
+        return await refuse({ ok: false, error: "The customer has the Paidy payment window open right now. Wait until it finishes (or the hourly check settles it), then cancel.", code: lockReason }, 409, lockReason);
       }
       if (lockReason === "paidy_captured_unrecorded") {
-        return json({ ok: false, error: "Paidy has already taken money on this order that the Hub has not recorded yet. Record it first (Payment Submissions); a refund is then made in the Paidy dashboard.", code: lockReason }, 409);
+        return await refuse({ ok: false, error: "Paidy has already taken money on this order that the Hub has not recorded yet. Record it first (Payment Submissions); a refund is then made in the Paidy dashboard.", code: lockReason }, 409, lockReason);
       }
       if (lockReason === "paidy_submission_pending" || lockReason === "paidy_authorized") {
         if (preview) {
@@ -133,14 +109,22 @@ Deno.serve(async (req) => {
             p_user_id: user.id, p_user_email: user.email ?? null,
             p_refund_status: refundStatus, p_refund_note: refundNote, p_source: "staff", p_preview: true,
           });
-          if (preErr) return json({ error: preErr.message ?? "cancel failed", code: String(preErr.message ?? "").split(":")[0] }, 400);
+          if (preErr) return await refuse({ error: preErr.message ?? "cancel failed", code: String(preErr.message ?? "").split(":")[0] }, 400, String(preErr.message ?? "preview_failed"));
           if ((pre as any)?.ok === false) {
             const r = (pre as any).reason ?? "not_cancellable";
-            return json({ ...(pre as any), error: terminateRefusalMessage(r) ?? r, code: r }, 409);
+            return await refuse({ ...(pre as any), error: terminateRefusalMessage(r) ?? r, code: r }, 409, r);
           }
           const rel = await releasePaidyForCancel(supabase, cash_order_id, user.id);
-          if (!rel.ok) return json({ ok: false, error: rel.message, code: rel.code }, rel.code === "paidy_already_captured" ? 409 : 502);
+          if (!rel.ok) {
+            // Nothing released (or not confirmed released): the intent stays
+            // `started` only when Paidy may have acted; a clean refusal abandons it.
+            if (rel.code === "paidy_release_incomplete") await advanceCancelIntent(supabase, intentId, "started", rel.code);
+            else await advanceCancelIntent(supabase, intentId, "abandoned", rel.code);
+            return json({ ok: false, error: rel.message, code: rel.code }, rel.code === "paidy_already_captured" ? 409 : 502);
+          }
           paidyClosed = rel.closed;
+          releaseDone = true;
+          await advanceCancelIntent(supabase, intentId, "paidy_released");
         }
       }
     }
@@ -169,6 +153,9 @@ Deno.serve(async (req) => {
       console.error("[cancel-cash-order] rpc error:", error);
       const msg = error.message ?? "cancel failed";
       const status = msg.includes("refund_decision_required") ? 400 : 400;
+      // The terminate did not commit: a released Paidy authorisation (if any)
+      // is already noted on the intent; the sweep finishes it (PA14).
+      await advanceCancelIntent(supabase, intentId, releaseDone ? "paidy_released" : "abandoned", msg.split(":")[0]);
       return json({ error: msg, code: msg.split(":")[0] }, status);
     }
     if (isWeb && (data as any)?.ok === false) {
@@ -176,116 +163,23 @@ Deno.serve(async (req) => {
       // Paidy or card money (paidy_payment_unresolved / card_payment_unresolved)
       // gets a plain-English message for staff; the code stays on `code`.
       const reason = (data as any).reason ?? "not_cancellable";
+      await advanceCancelIntent(supabase, intentId, reason === "already_terminal" ? "done" : "abandoned", reason);
       return json({ ...(data as any), error: terminateRefusalMessage(reason) ?? reason, code: reason }, 409);
     }
+    if (!preview && (data as any)?.success === true) await advanceCancelIntent(supabase, intentId, "terminated");
 
-    // Emit staff bell notifications. The cancellation already succeeded — neither
-    // insert may fail, block, or affect the result, and the two are independent.
+    // Bells, portal notifications and the cancellation email (PA14: shared
+    // with the sweep, each emission idempotent). The cancellation already
+    // succeeded — nothing here may fail, block or change the result.
     {
       const c = (data ?? {}) as Record<string, any>;
       if (c.success === true && preview !== true) {
-        const curr = c.currency ?? c.store_credit?.currency;
-        const symbol = curr === "PHP" ? "₱" : "¥";
-        const ref = isWeb ? `Order ${c.web_reference ?? orderRow.web_reference ?? c.invoice_number}` : `Cash Order #${c.invoice_number}`;
-
-        const custId = c.store_credit?.customer_id ?? orderRow.customer_id ?? null;
-        const name = await resolveCustomerName(supabase, custId);
-
-        // (a) Store credit minted from money actually received (web: only when
-        //     staff chose "store credit issued"; Hub cash orders: always).
-        if (c.store_credit) {
-          try {
-            const money = Number(c.store_credit.amount ?? c.money_received ?? 0).toLocaleString("en-US");
-            const kept = Number(c.cancellation_split?.kept ?? 0);
-            const charge = kept > 0 ? ` — 30% cancellation charge ${symbol}${kept.toLocaleString("en-US")} kept` : "";
-            await supabase.from("staff_notifications").insert({
-              type: "store_credit_issued",
-              title: "Store credit issued on cancellation",
-              body: `${name ? name + " — " : ""}${ref} cancelled, ${symbol}${money} store credit issued (valid 1 year)${charge}`,
-              customer_id: custId,
-              invoice_number: c.invoice_number,
-              metadata: data,
-            });
-          } catch (notifyErr) {
-            console.warn("[cancel-cash-order] store_credit_issued notification failed (non-blocking):", notifyErr);
-          }
-        } else if (isWeb && Number(c.money_received ?? 0) > 0) {
-          try {
-            await supabase.from("staff_notifications").insert({
-              type: "web_order_refund",
-              title: c.refund_status === "refund_pending" ? "Refund pending on cancelled web order"
-                : c.refund_status === "no_refund" ? "Web order cancelled, no refund (forfeited)" : "Web order cancelled with refund",
-              body: `${name ? name + " — " : ""}${ref} cancelled, ${symbol}${Number(c.money_received ?? 0).toLocaleString("en-US")} received, decision: ${String(c.refund_status ?? "").replace("_", " ")}`,
-              customer_id: custId,
-              invoice_number: c.invoice_number,
-              metadata: data,
-            });
-          } catch (notifyErr) {
-            console.warn("[cancel-cash-order] web_order_refund notification failed (non-blocking):", notifyErr);
-          }
-        }
-
-        // (b) Loyalty points earned on the order were revoked.
-        if (c.earned_points_revoked_tx != null) {
-          try {
-            await supabase.from("staff_notifications").insert({
-              type: "loyalty_revoked",
-              title: "Loyalty points revoked",
-              body: `${name ? name + " — " : ""}Loyalty points earned on ${ref} were revoked (order cancelled)`,
-              customer_id: custId,
-              invoice_number: c.invoice_number,
-              metadata: { earned_points_revoked_tx: c.earned_points_revoked_tx, invoice_number: c.invoice_number },
-            });
-          } catch (notifyErr) {
-            console.warn("[cancel-cash-order] loyalty_revoked notification failed (non-blocking):", notifyErr);
-          }
-        }
-
-        // Customer-facing PORTAL notifications (loyalty_notifications channel,
-        // member-scoped) — distinct from the staff bell above.
         try {
-          let memberId: string | null = null;
-          if (custId) {
-            const { data: m } = await supabase
-              .from("loyalty_members")
-              .select("id")
-              .eq("customer_id", custId)
-              .maybeSingle();
-            memberId = (m?.id as string) ?? null;
-          }
-          if (memberId) {
-            if (c.earned_points_revoked_tx != null) {
-              await emitNotification(supabase, memberId, {
-                category: "points",
-                title: "Points revoked",
-                body: `The loyalty points earned on ${ref} have been revoked because the order was cancelled.`,
-                link_target: "tab:points",
-              });
-            }
-            if (c.store_credit) {
-              const amt = Number(c.store_credit.amount ?? c.money_received ?? 0).toLocaleString("en-US");
-              const expiry = c.store_credit?.expires_at
-                ? new Date(c.store_credit.expires_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-                : null;
-              await emitNotification(supabase, memberId, {
-                category: "order",
-                title: "Store credit issued",
-                body: `${ref} was cancelled. ${symbol}${amt} store credit has been added to your account${Number(c.cancellation_split?.kept ?? 0) > 0 ? ` (the amount paid, less the 30% cancellation charge of ${symbol}${Number(c.cancellation_split.kept).toLocaleString("en-US")})` : ""}${expiry ? ` and is valid until ${expiry}` : ""}. Our staff will apply it to your next order.`,
-                link_target: "tab:home",
-              });
-            }
-          }
-        } catch (portalErr) {
-          console.warn("[cancel-cash-order] customer portal notification failed (non-blocking):", portalErr);
-        }
-
-        // (c) Web order: the cancellation email (reason + refund decision).
-        if (isWeb) {
-          // Owner rule 2026-10-08: the email states the credit actually issued and the 30% charge kept.
-          const storeCredit = c.store_credit
-            ? { amount: Number(c.store_credit.amount ?? 0), charge: Number(c.cancellation_split?.kept ?? 0) }
-            : null;
-          await sendWebCancellationEmail(supabase, cash_order_id, { reason, refundStatus: c.refund_status ?? refundStatus, refundNote, storeCredit });
+          await emitCancellationFollowups(supabase, { cash_order_id, isWeb, c, orderRow, reason, refundStatus, refundNote });
+          await advanceCancelIntent(supabase, intentId, "notified");
+        } catch (e) {
+          console.warn("[cancel-cash-order] follow-ups failed (the sweep finishes them):", e);
+          await advanceCancelIntent(supabase, intentId, "terminated", e instanceof Error ? e.message : String(e));
         }
       }
     }
@@ -306,6 +200,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (!preview && (data as any)?.success === true) await advanceCancelIntent(supabase, intentId, "done");
     return json({ ...(data ?? {}), shopify_sync, ...(paidyClosed !== 0 ? { paidy_authorisation: paidyClosed < 0 ? "will_close" : "closed" } : {}) });
   } catch (e) {
     console.error("[cancel-cash-order] unhandled:", e);

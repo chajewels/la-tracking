@@ -1479,6 +1479,14 @@ Deno.serve(async (req) => {
     // authorisation is closed and read back BEFORE the rejection is written
     // (P03, 2026-10-06); a close Paidy refuses rejects nothing.
     let paidyCloseAfterReject: { id: string; paidy_payment_id: string; cash_order_id: string } | null = null;
+    // PA06 (owner go 2026-10-08 23:16 JST): the Paidy Reject's Hub-side record
+    // is written by reject_paidy_submission_atomic in ONE transaction under
+    // the order lock — row end status, the submission, the audit row and the
+    // customer-email intent. These two variables carry what Paidy established
+    // to that single write; nothing below writes paidy_payments directly.
+    let paidyRejectRow: string | null = null;
+    let paidyEnd: { status: "closed" | "rejected" | "expired" | null; reason: string; payload: PaidyPayment | null } = { status: null, reason: "", payload: null };
+    let paidyRejectFollowup: { id: string | null; key: string } | null = null;
     if (action === "rejected" && isPaidySubmission) {
       const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
         status, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1489,6 +1497,7 @@ Deno.serve(async (req) => {
       const { data: pp, error: ppErr } = await supabase
         .from("paidy_payments").select("id, paidy_payment_id, status, cash_order_id").eq("id", submission.paidy_payment_id).maybeSingle();
       if (ppErr) return json(500, { error: "Could not read the Paidy record. Nothing was changed; try again." });
+      if (pp) paidyRejectRow = String(pp.id);
       if (pp && (pp.status === "authorized" || pp.status === "captured")) {
         let live: PaidyPayment;
         try {
@@ -1498,17 +1507,13 @@ Deno.serve(async (req) => {
           return json(502, { error: "paidy_unverified", message: "Could not check this payment with Paidy, so it was not rejected (Paidy may already have taken the money). Try again in a few minutes." });
         }
         const outcome = paidyProviderOutcome(live);
-        const at = new Date().toISOString();
         if (outcome === "captured") {
           return json(409, { error: "paidy_already_captured", message: "Paidy has already taken this payment (captured in the Paidy dashboard). Do not reject it — press Confirm: the Hub records it and never charges twice." });
         }
         if (outcome === "authorized" || outcome === "expired") {
           paidyCloseAfterReject = { id: pp.id, paidy_payment_id: pp.paidy_payment_id, cash_order_id: pp.cash_order_id };
         } else if (outcome === "closed" || outcome === "rejected") {
-          const { error: recErr } = await supabase.from("paidy_payments").update({
-            status: outcome, closed_at: at, closed_reason: `Paidy status ${String(live.status)} at reject`, last_payload: live, updated_at: at,
-          }).eq("id", pp.id).eq("status", "authorized");
-          if (recErr) console.error("[review-payment-submission] paidy_payments status update failed:", recErr);
+          paidyEnd = { status: outcome, reason: `Paidy status ${String(live.status)} at reject`, payload: live };
         } else {
           // PA13 (owner brief 2026-10-08): an outcome that is none of the
           // above — a status the Hub does not know — is NOT a verified
@@ -1615,12 +1620,42 @@ Deno.serve(async (req) => {
       if (endOutcome === "authorized" || endOutcome === "unknown") {
         return json(502, { error: "paidy_close_failed", message: "Paidy has not released this authorisation yet, so nothing was rejected and no other payment method was opened. Try Reject again in a few minutes." });
       }
-      const at = new Date().toISOString();
-      const { error: recErr } = await supabase.from("paidy_payments").update({
+      paidyEnd = {
         status: endOutcome === "expired" ? "expired" : endOutcome === "rejected" ? "rejected" : "closed",
-        closed_at: at, closed_reason: "rejected by reviewer", last_payload: after, updated_at: at,
-      }).eq("id", pc.id).eq("status", "authorized");
-      if (recErr) console.error("[review-payment-submission] paidy_payments closed update failed (the sweep repairs it):", recErr);
+        reason: "rejected by reviewer", payload: after,
+      };
+    }
+
+    // PA06: the single Hub write for a Paidy Reject (order lock, compare-and-set
+    // on the submission, row end status, audit, email intent). A Confirm that
+    // claimed the submission in the meantime answers conflict → 409, exactly as
+    // the generic compare-and-set did; nothing else is written in that case.
+    let paidyRejectDone = false;
+    if (action === "rejected" && isPaidySubmission && paidyRejectRow) {
+      const json = (status: number, payload: Record<string, unknown>) => new Response(JSON.stringify(payload), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      const { data: rj, error: rjErr } = await supabase.rpc("reject_paidy_submission_atomic", {
+        p_submission_id: submission_id, p_user_id: user.id, p_notes: reviewer_notes || null,
+        p_paidy_row: paidyRejectRow, p_end_status: paidyEnd.status, p_end_reason: paidyEnd.reason || null,
+        p_payload: paidyEnd.payload,
+      });
+      if (rjErr) {
+        console.error("[review-payment-submission] reject_paidy_submission_atomic failed:", rjErr);
+        return json(500, { error: "paidy_reject_write_failed", message: "Paidy released the authorisation, but recording the rejection in the Hub failed. Refresh and press Reject again — nothing is charged." });
+      }
+      const r = (rj ?? {}) as Record<string, unknown>;
+      if (r.ok !== true) {
+        if (r.error === "conflict") {
+          return json(409, { error: "This submission was confirmed by another reviewer in the meantime. Refresh the page." });
+        }
+        if (r.error === "paidy_captured") {
+          return json(409, { error: "paidy_already_captured", message: "Paidy has already taken this payment (captured in the Paidy dashboard). Do not reject it — press Confirm: the Hub records it and never charges twice." });
+        }
+        return json(500, { error: "paidy_reject_write_failed", message: `Recording the rejection failed (${String(r.error ?? "unknown")}). Refresh and press Reject again.` });
+      }
+      paidyRejectDone = true;
+      paidyRejectFollowup = { id: (r.followup_id as string | null) ?? null, key: String(r.followup_key ?? `payment-rejected-${submission_id}`) };
     }
 
     // Update submission status
@@ -1649,7 +1684,10 @@ Deno.serve(async (req) => {
     if (action !== "confirmed") updateQuery = updateQuery.neq("status", "confirmed");
     // R04: a Paidy Reject claims only a still-queued submission.
     if (isPaidySubmission && action === "rejected") updateQuery = updateQuery.in("status", ["submitted", "under_review"]);
-    const { data: updatedRows, error: updateErr } = await updateQuery.select("id");
+    // PA06: a Paidy Reject already written atomically above skips the generic write.
+    const { data: updatedRows, error: updateErr } = paidyRejectDone
+      ? { data: [{ id: submission_id }], error: null }
+      : await updateQuery.select("id");
 
     if (!updateErr && action !== "confirmed" && (!updatedRows || updatedRows.length === 0)) {
       return new Response(JSON.stringify({ error: "This submission was confirmed by another reviewer in the meantime. Refresh the page." }), {
@@ -1798,8 +1836,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Audit log
-    await supabase.from("audit_logs").insert({
+    // Audit log (PA06: a Paidy Reject's audit row was written inside the RPC)
+    if (!paidyRejectDone) await supabase.from("audit_logs").insert({
       entity_type: "payment_submission",
       entity_id: submission_id,
       action: `submission_${action}`,
@@ -1837,6 +1875,14 @@ Deno.serve(async (req) => {
         const route = routeSubmissionEmail({ action: reviewAction, isCashOrder: true, isWeb: cashIsWeb });
         if (route === "cash_rejected") {
           await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "staff", reason: reviewer_notes ?? null });
+          // PA06: the intent is done once the send was REACHED (the sender logs
+          // its own outcome; a failed send is never replayed — owner rule).
+          if (paidyRejectFollowup) {
+            const { error: fuErr } = await supabase.from("payment_submission_followups")
+              .update({ status: "done", done_at: new Date().toISOString(), attempts: 1 })
+              .eq("idempotency_key", paidyRejectFollowup.key).eq("status", "pending");
+            if (fuErr) console.warn("[review-payment-submission] followup mark-done failed (the sweep re-checks it):", fuErr);
+          }
         } else if (route === "order_needs_info") {
           await sendOrderUpdateEmail(supabase, {
             entity: "cash_order",
