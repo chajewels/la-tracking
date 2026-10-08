@@ -10257,6 +10257,17 @@ export type Database = {
           old_total_paid: number
         }[]
       }
+      record_paidy_refund: {
+        Args: {
+          p_amount_jpy: number
+          p_capture_id: string
+          p_paidy_payment_row: string
+          p_payload?: Json
+          p_refund_id: string
+          p_refunded_at: string
+        }
+        Returns: Json
+      }
       record_portal_seen: {
         Args: { p_customer_id: string; p_token_id?: string }
         Returns: undefined
@@ -10333,6 +10344,15 @@ export type Database = {
           p_reference: string
           p_test: boolean
           p_verification: string
+        }
+        Returns: Json
+      }
+      resolve_orphan_paidy_case_verified: {
+        Args: {
+          p_captured_jpy: number
+          p_case_id: string
+          p_payload?: Json
+          p_refunded_jpy: number
         }
         Returns: Json
       }
