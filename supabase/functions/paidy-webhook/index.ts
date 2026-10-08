@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
-import { processPaidyEvent } from "../_shared/paidy-events.ts";
+import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { isPaidyPaymentId } from "../_shared/paidy.ts";
 import { isPaidyWebhookIp, paidyWebhookIpCheckOn, paidyWebhookSourceIp } from "../_shared/paidy-rules.ts";
 
@@ -58,6 +58,11 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "inbox_unavailable" }, 500);
   }
 
+  // PA09: the row is CLAIMED before any work (5-minute lease) so the sweep
+  // never processes the same notification at the same time as a late finish
+  // here. A lost claim is impossible for a row just inserted, but it is the
+  // same gate every worker passes.
+  if (!(await claimPaidyEvent(supabase, String(inbox.id), "webhook"))) return jsonResponse({ ok: true, queued: true, claimed_elsewhere: true });
   const work = processPaidyEvent(supabase, String(inbox.id), id, event, "webhook", 0, { recognisedSource });
   const timeout = new Promise<"deadline">((resolve) => setTimeout(() => resolve("deadline"), PROCESS_DEADLINE_MS));
   const result = await Promise.race([work, timeout]);
@@ -68,7 +73,10 @@ Deno.serve(async (req) => {
   if (result.retry_callback_window) return jsonResponse({ retry: "callback_window" }, 503);
   if (result.retry_provider) return jsonResponse({ error: "paidy_unavailable" }, 502);
   // A failed write: the event stays in the inbox for the sweep AND Paidy is
-  // asked to retry (5xx), whichever comes first finishes it.
+  // asked to retry (5xx), whichever comes first finishes it. PA09: a failed
+  // bookkeeping write on a finished event is answered 500 too — Paidy's
+  // retry re-runs the idempotent processing and re-attempts the write.
   if (!result.done) return jsonResponse({ error: result.error ?? "sync_failed" }, 500);
+  if ((result.writes_failed ?? 0) > 0) return jsonResponse({ error: "inbox_write_failed", ...result.summary }, 500);
   return jsonResponse({ ok: true, ...result.summary });
 });

@@ -1,36 +1,49 @@
 import { jsonResponse, corsPreflight } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
-import { PAIDY_ORDER_FIELDS, filePaidyAuthorization, paidyModeNow, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
-import { PAIDY_RECORD_FIELDS, paidyBellOnce, syncPaidyPayment } from "../_shared/paidy-sync.ts";
+import { PAIDY_ORDER_FIELDS, adoptOrphanAuthorization, filePaidyAuthorization, orderForPaidyRef, paidyModeNow, paidyReleased, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
+import { PAIDY_RECORD_FIELDS, openPaidyCase, paidyBellOnce, syncPaidyPayment } from "../_shared/paidy-sync.ts";
 import { paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
-import { processPaidyEvent } from "../_shared/paidy-events.ts";
+import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 
 /**
  * paidy-reconcile — the Paidy sweep (cron, service role, Vault key).
- * docs/PAIDY.md "Integrity" + "Follow-up"; docs/CRON-AND-EDGE-AUTH.md.
+ * docs/PAIDY.md "Integrity", "Follow-up" and "PR 3 — recovery";
+ * docs/CRON-AND-EDGE-AUTH.md.
  *
  *   1. Drains the webhook inbox (paidy_webhook_events) — anything the webhook
- *      stored but could not finish (R08).
+ *      stored but could not finish (R08). PA09/PA10: only this environment's
+ *      working batch, each event CLAIMED first (lease), duplicates completed
+ *      only after the first event for that payment is done; then a small
+ *      batch of PARKED events (other environment / unknown id) for this key.
  *   2. Reads every payment the Hub still watches from Paidy, OLDEST CHECK
  *      FIRST (last_checked_at), so a row that keeps failing never starves the
  *      rest (R18), and runs the same sync as the webhook: closes/expiries
  *      reject queued submissions, captures are RECORDED automatically
  *      (owner: staff capture in the Paidy dashboard), refunds open cases.
+ *      PA10: unrecorded captures are watched WHATEVER their age.
  *   3. Re-files an authorisation whose filing was interrupted; releases one
- *      its order can no longer take; retries closes Paidy refused before.
+ *      its order can no longer take; retries closes Paidy refused before —
+ *      PA05: including releases of payments the Hub never filed (a
+ *      close_failed case with no payment row).
  *   4. Expires Paidy checkout windows nobody came back from (30 min), only
- *      once Paidy can hold nothing for the order (P04; SQL decides).
+ *      once Paidy can hold nothing for the order (P04; SQL decides). PA04: a
+ *      window that knows its payment id is first VERIFIED with Paidy here.
+ *   4b. Orphan capture cases: closed only when Paidy reports a full refund.
  *   5. Bells cash-order Confirms left half-way past the lease.
  *
  * Only this environment's payments are read (P07); an inbox event from the
- * other environment is kept and retried daily for 30 days. Never captures. Report-style answer with ok = no errors.
+ * other environment is parked and retried daily — never dropped (owner
+ * 2026-10-08). Never captures. Report-style answer with ok = no errors.
  */
 const LOG = "[paidy-reconcile]";
 const MAX_PER_RUN = 150;
 const MAX_EVENTS_PER_RUN = 100;
+const MAX_PARKED_PER_RUN = 20;
+const MAX_WINDOWS_VERIFIED_PER_RUN = 50;
 const REFUND_WATCH_DAYS = 400; // Paidy accepts refunds for one year after capture.
+const CLAIM_LEASE_MS = 5 * 60 * 1000;
 
 Deno.serve(async (req) => {
   const pre = corsPreflight(req);
@@ -42,50 +55,73 @@ Deno.serve(async (req) => {
   const supabase = auth.supabase;
 
   const report = {
-    events: 0, events_failed: 0, checked: 0, refiled: 0, waiting: 0, synced: 0, auto_recorded: 0,
-    captured_unrecorded: 0, refunds: 0, closes_retried: 0, attempts_expired: 0, stuck_confirms: 0,
+    events: 0, events_failed: 0, events_parked: 0, inbox_write_errors: 0, checked: 0, refiled: 0, waiting: 0, synced: 0, auto_recorded: 0,
+    captured_unrecorded: 0, refunds: 0, closes_retried: 0, orphan_releases_retried: 0, orphan_releases_resolved: 0,
+    attempts_expired: 0, windows_verified: 0, windows_recovered: 0, stuck_confirms: 0,
     other_environment: 0, paidy_errors: 0, write_errors: 0, skipped_mode_off: false,
     orphan_cases_checked: 0, orphan_cases_resolved: 0,
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
+    parked_events: null as number | null, parked_oldest_minutes: null as number | null,
   };
 
   try {
     const mode = await paidyModeNow(supabase);
     let secretTest: boolean | null = null;
     try { secretTest = paidySecretIsTest(); } catch { report.skipped_mode_off = true; }
+    const nowIso = () => new Date().toISOString();
 
-    // 1. Inbox.
+    // 1. Inbox — this environment's working batch, then its parked batch.
     if (secretTest !== null) {
-      const { data: events, error: evErr } = await supabase
-        .from("paidy_webhook_events").select("id, paidy_payment_id, event, attempts, received_at")
-        .is("processed_at", null).lte("next_attempt_at", new Date().toISOString())
-        .order("received_at", { ascending: true }).limit(MAX_EVENTS_PER_RUN);
-      if (evErr) throw evErr;
-      const seen = new Set<string>();
-      for (const ev of (events ?? []) as Record<string, any>[]) {
-        if (seen.has(ev.paidy_payment_id)) {
-          // Same payment already processed this run (one read covers every duplicate notification).
-          await supabase.from("paidy_webhook_events").update({ processed_at: new Date().toISOString(), last_error: "duplicate" }).eq("id", ev.id);
-          continue;
+      const leaseCut = new Date(Date.now() - CLAIM_LEASE_MS).toISOString();
+      const runBatch = async (parked: boolean, limit: number) => {
+        let q = supabase
+          .from("paidy_webhook_events").select("id, paidy_payment_id, event, attempts, received_at, parked_reason, tried_test, tried_live")
+          .is("processed_at", null).lte("next_attempt_at", nowIso())
+          .or(`test.is.null,test.eq.${secretTest}`)
+          .or(`claimed_at.is.null,claimed_at.lt.${leaseCut}`)
+          .order("received_at", { ascending: true }).limit(limit);
+        q = parked ? q.not("parked_reason", "is", null) : q.is("parked_reason", null);
+        const { data: events, error: evErr } = await q;
+        if (evErr) throw evErr;
+        // PA09: duplicates for one payment are completed ONLY after the first
+        // event for it finished (one read covers every duplicate notification);
+        // a first event that failed leaves its duplicates for the next run.
+        const first = new Map<string, boolean>();
+        const dupes: Record<string, any>[] = [];
+        for (const ev of (events ?? []) as Record<string, any>[]) {
+          const pid = String(ev.paidy_payment_id);
+          if (first.has(pid)) { dupes.push(ev); continue; }
+          if (!(await claimPaidyEvent(supabase, String(ev.id), "reconcile"))) { first.set(pid, false); continue; }
+          if (parked) report.events_parked++; else report.events++;
+          const r = await processPaidyEvent(supabase, String(ev.id), pid, String(ev.event ?? ""), "reconcile", Number(ev.attempts ?? 0), {
+            receivedAt: ev.received_at, tried: { test: ev.tried_test === true, live: ev.tried_live === true },
+          });
+          report.inbox_write_errors += r.writes_failed ?? 0;
+          if (!r.done && !r.retry_callback_window) report.events_failed++;
+          if (r.summary?.skipped === "other_environment") report.other_environment++;
+          first.set(pid, r.done && (r.writes_failed ?? 0) === 0 && !r.summary?.parked);
         }
-        seen.add(ev.paidy_payment_id);
-        report.events++;
-        const r = await processPaidyEvent(supabase, ev.id, ev.paidy_payment_id, String(ev.event ?? ""), "reconcile", Number(ev.attempts ?? 0), { receivedAt: ev.received_at });
-        if (!r.done && !r.retry_callback_window) report.events_failed++;
-        if (r.summary?.skipped === "other_environment") report.other_environment++;
-      }
+        for (const ev of dupes) {
+          if (first.get(String(ev.paidy_payment_id)) !== true) continue;
+          const { error } = await supabase.from("paidy_webhook_events").update({ processed_at: nowIso(), last_error: "duplicate" }).eq("id", ev.id);
+          if (error) { report.inbox_write_errors++; console.error(`${LOG} duplicate mark failed:`, error); }
+        }
+      };
+      await runBatch(false, MAX_EVENTS_PER_RUN);
+      await runBatch(true, MAX_PARKED_PER_RUN);
     }
 
     // 2–3. Watched payments, oldest check first.
     const { data: closeCases, error: ccErr } = await supabase
-      .from("paidy_cases").select("paidy_payment_id").eq("kind", "close_failed").eq("status", "open");
+      .from("paidy_cases").select("id, paidy_payment_id, paidy_payment_row, cash_order_id, attempts, detail").eq("kind", "close_failed").eq("status", "open");
     if (ccErr) throw ccErr;
     const closePending = new Set(((closeCases ?? []) as Record<string, any>[]).map((c) => String(c.paidy_payment_id)));
 
     const since = new Date(Date.now() - REFUND_WATCH_DAYS * 24 * 60 * 60 * 1000).toISOString();
     // Authorised payments first (they can still be filed, released, expire or
-    // be captured any minute), then captures — watched for refunds and for a
-    // recording that has not happened — oldest check first.
+    // be captured any minute), then UNRECORDED captures of any age (PA10 —
+    // they are money the order has not seen), then recorded captures inside
+    // the refund window — oldest check first.
     // P07 (2026-10-08): only THIS environment's payments are read — the
     // batch is never filled with rows the current key cannot check, so a
     // pile of test payments never starves live ones (or the reverse).
@@ -93,14 +129,24 @@ Deno.serve(async (req) => {
       .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "authorized").eq("test", secretTest)
       .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(MAX_PER_RUN);
     if (authErr) throw authErr;
-    const room = Math.max(20, MAX_PER_RUN - (authRows ?? []).length);
+    const { data: unrecRows, error: unrecErr } = secretTest === null ? { data: [], error: null } : await supabase
+      .rpc("paidy_unrecorded_captures", { p_test: secretTest, p_limit: 50 });
+    if (unrecErr) throw unrecErr;
+    const room = Math.max(20, MAX_PER_RUN - (authRows ?? []).length - (unrecRows ?? []).length);
     const { data: capRows, error: capErr } = secretTest === null ? { data: [], error: null } : await supabase
-      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "captured").eq("test", secretTest).gte("captured_at", since)
+      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "captured").eq("test", secretTest)
+      .or(`captured_at.gte.${since},captured_at.is.null`)
       .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(room);
     if (capErr) throw capErr;
-    const rows = [...(authRows ?? []), ...(capRows ?? [])];
+    const seenRows = new Set<string>();
+    const rows: Record<string, any>[] = [];
+    for (const r of [...(authRows ?? []), ...(unrecRows ?? []), ...(capRows ?? [])] as Record<string, any>[]) {
+      if (seenRows.has(String(r.id))) continue;
+      seenRows.add(String(r.id));
+      rows.push(r);
+    }
 
-    for (const row of rows as Record<string, any>[]) {
+    for (const row of rows) {
       report.checked++;
       let payment: PaidyPayment;
       try {
@@ -108,9 +154,10 @@ Deno.serve(async (req) => {
       } catch (e) {
         report.paidy_errors++;
         console.error(`${LOG} paidy.get ${row.paidy_payment_id} failed:`, e);
-        await supabase.from("paidy_payments").update({
-          last_checked_at: new Date().toISOString(), check_failures: Number(row.check_failures ?? 0) + 1,
+        const { error: touchErr } = await supabase.from("paidy_payments").update({
+          last_checked_at: nowIso(), check_failures: Number(row.check_failures ?? 0) + 1,
         }).eq("id", row.id);
+        if (touchErr) report.write_errors++;
         if (e instanceof PaidyError && e.code === "paidy_not_configured") { report.skipped_mode_off = mode === "off"; break; }
         continue;
       }
@@ -118,10 +165,12 @@ Deno.serve(async (req) => {
         const pid = String(row.paidy_payment_id);
         let outcome = paidyProviderOutcome(payment);
 
-        // A close Paidy refused earlier (Reject, mismatch, stale filing): retry it.
+        // A close Paidy refused earlier (Reject, mismatch, stale filing): retry
+        // it through the classifying helper (PA05 — never "released" on a 2xx).
         if (closePending.has(pid) && (outcome === "authorized" || outcome === "expired")) {
           report.closes_retried++;
-          try { payment = await paidy.close(pid); } catch (e) { console.warn(`${LOG} close retry ${pid} failed:`, e); }
+          await releasePaidyAuthorization(supabase, payment, { cash_order_id: row.cash_order_id, paidy_payment_row: row.id, why: "close retried by the sweep" });
+          try { payment = await paidy.get(pid); } catch { /* sync with what we have */ }
           outcome = paidyProviderOutcome(payment);
         }
 
@@ -152,10 +201,13 @@ Deno.serve(async (req) => {
                 if (r.ok) report.refiled++;
                 else if (r.error === "submission_pending") report.waiting++;
                 else if (r.error === "order_cannot_take_payment" || r.error === "paidy_payment_rejected_by_reviewer") {
-                  const released = await releasePaidyAuthorization(supabase, payment, { cash_order_id: o.id, paidy_payment_row: row.id, why: r.error });
-                  await paidyBellOnce(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
-                    `${pid} · ${r.error}${released ? " — released, no charge" : " — the next check retries the release"}`,
-                    { cash_order_id: o.id, paidy_payment_id: pid, reason: r.error, released });
+                  const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: o.id, paidy_payment_row: row.id, why: r.error });
+                  const released = paidyReleased(release);
+                  if (release !== "captured") {
+                    await paidyBellOnce(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
+                      `${pid} · ${r.error}${released ? " — released, no charge" : ` — ${release}; the next check retries the release`}`,
+                      { cash_order_id: o.id, paidy_payment_id: pid, reason: r.error, released, release });
+                  }
                 }
                 // paidy_mismatch / stale_authorization release inside filePaidyAuthorization.
               }
@@ -175,10 +227,88 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 3b. PA05: a release that failed for a payment the Hub never filed — a
+    // close_failed case with NO payment row — is retried here from Paidy's
+    // read-back; the helper classifies the answer (released / captured /
+    // pending / unknown) and only a release Paidy confirms resolves the case.
+    if (secretTest !== null) {
+      for (const c of (closeCases ?? []) as Record<string, any>[]) {
+        if (c.paidy_payment_row) continue;
+        report.orphan_releases_retried++;
+        let live: PaidyPayment;
+        try {
+          live = await paidy.get(String(c.paidy_payment_id));
+        } catch (e) {
+          console.warn(`${LOG} orphan release ${c.id} ${c.paidy_payment_id}: Paidy read failed:`, e instanceof PaidyError ? `${e.status} ${e.code}` : e);
+          continue;
+        }
+        if (live.test !== secretTest) continue; // the other key's payment — its own run owns it
+        const { error: touchErr } = await supabase.from("paidy_cases")
+          .update({ last_seen_at: nowIso(), attempts: Number(c.attempts ?? 0) + 1 }).eq("id", c.id);
+        if (touchErr) report.write_errors++;
+        const release = await releasePaidyAuthorization(supabase, live, { cash_order_id: c.cash_order_id ?? null, paidy_payment_row: null, why: `release retried by the sweep (${String(c.detail?.why ?? "")})` });
+        if (release === "released" || release === "captured") {
+          const { error } = await supabase.rpc("close_paidy_case_system", {
+            p_case_id: c.id, p_resolution: release === "released" ? "released" : "captured",
+            p_note: release === "released" ? "Paidy confirmed the authorisation is closed — nothing is held (sweep)." : "Paidy reports a capture — a capture case now holds the order (sweep).",
+          });
+          if (error) { report.write_errors++; console.error(`${LOG} orphan release case ${c.id} close failed:`, error); continue; }
+          report.orphan_releases_resolved++;
+        }
+      }
+    }
+
     // 4. Paidy windows nobody came back from — P04 (owner 2026-10-08): a
     // window she closed stays (and keeps the order locked) until here, and
     // SQL ends it only when the window has timed out, Paidy may hold nothing
-    // for the order and no notification received since it opened is waiting.
+    // for the order and no notification about the order is waiting.
+    // PA04: a window that learned its Paidy payment id (the storefront's
+    // rejected / closed callback) is VERIFIED with Paidy first: an
+    // authorisation Paidy still holds is filed or released like any orphan;
+    // only a payment Paidy reports ended lets the window expire as
+    // verified_empty. A window with no id ends on time alone, named
+    // unverified_no_id — honest, and bounded by adoption of a late arrival.
+    if (secretTest !== null) {
+      const { data: windows, error: winErr } = await supabase
+        .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id")
+        .eq("status", "open").lte("expires_at", nowIso()).not("paidy_payment_id", "is", null).is("verified_empty_at", null)
+        .order("expires_at", { ascending: true }).limit(MAX_WINDOWS_VERIFIED_PER_RUN);
+      if (winErr) throw winErr;
+      for (const w of (windows ?? []) as Record<string, any>[]) {
+        const pid = String(w.paidy_payment_id);
+        const { data: row, error: rowErr } = await supabase.from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("paidy_payment_id", pid).maybeSingle();
+        if (rowErr) throw rowErr;
+        if (row) continue; // the record exists: its own sync (steps 2–3) decides; the lock reads the row
+        let live: PaidyPayment;
+        try {
+          live = await paidy.get(pid);
+        } catch (e) {
+          // Unreadable — including a 404 (the id came from Paidy's own
+          // callback, so a 404 means the OTHER key family is in now): the
+          // window stays until the key that can read it answers. Fail closed.
+          console.warn(`${LOG} window ${w.id} ${pid}: Paidy read failed:`, e instanceof PaidyError ? `${e.status} ${e.code}` : e);
+          continue;
+        }
+        if (live.test !== secretTest) continue;
+        const outcome = paidyProviderOutcome(live);
+        if (outcome === "authorized") {
+          report.windows_recovered++;
+          await adoptOrphanAuthorization(supabase, live, "paidy_reconcile");
+        } else if (outcome === "captured") {
+          report.windows_recovered++;
+          const order = await orderForPaidyRef(supabase, live.order?.order_ref);
+          await openPaidyCase(supabase, {
+            kind: "captured_no_submission", paidy_payment_id: pid, cash_order_id: order?.id ?? w.cash_order_id ?? null,
+            detail: { order_ref: live.order?.order_ref ?? null, captured_jpy: paidyCapturedAmount(live), no_hub_record: true, from_window: w.id },
+            bell: { title: "Paidy took a payment the Hub has no record of", body: `${pid} · ¥${Math.round(Number(live.amount) || 0).toLocaleString("en-US")} · found while verifying a closed Paidy window — check the Paidy dashboard (Payment Submissions → Paidy cases).` },
+          });
+        } else if (outcome === "closed" || outcome === "rejected" || outcome === "expired") {
+          const { error } = await supabase.from("paidy_checkout_attempts").update({ verified_empty_at: nowIso() }).eq("id", w.id).eq("status", "open");
+          if (error) report.write_errors++; else report.windows_verified++;
+        }
+        // unknown: the window stays for the next run.
+      }
+    }
     const { data: expired, error: expErr } = await supabase.rpc("expire_paidy_checkout_attempts", { p_cash_order_id: null });
     if (expErr) throw expErr;
     report.attempts_expired = Number(expired ?? 0);
@@ -211,7 +341,7 @@ Deno.serve(async (req) => {
         const captured = paidyCapturedAmount(live);
         const refunded = paidyRefundTotal(live);
         const { error: touchErr } = await supabase.from("paidy_cases")
-          .update({ last_seen_at: new Date().toISOString(), attempts: Number(c.attempts ?? 0) + 1 }).eq("id", c.id);
+          .update({ last_seen_at: nowIso(), attempts: Number(c.attempts ?? 0) + 1 }).eq("id", c.id);
         if (touchErr) report.write_errors++;
         if (Number.isFinite(captured) && captured > 0 && refunded >= captured) {
           const { data: res, error: resErr } = await supabase.rpc("resolve_orphan_paidy_case_verified", {
@@ -247,18 +377,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Lag (R18): how far behind the sweep is.
-    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }] = await Promise.all([
-      supabase.from("paidy_webhook_events").select("received_at").is("processed_at", null).order("received_at", { ascending: true }).limit(1),
+    // Lag (R18): how far behind the sweep is — and PA10: what is parked.
+    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }, { data: parkedOldest, count: parkedCount }] = await Promise.all([
+      supabase.from("paidy_webhook_events").select("received_at").is("processed_at", null).is("parked_reason", null).order("received_at", { ascending: true }).limit(1),
       supabase.from("paidy_payments").select("last_checked_at").eq("status", "authorized").order("last_checked_at", { ascending: true, nullsFirst: true }).limit(1),
       supabase.from("paidy_cases").select("id", { count: "exact", head: true }).eq("status", "open"),
+      supabase.from("paidy_webhook_events").select("received_at", { count: "exact" }).is("processed_at", null).not("parked_reason", "is", null).order("received_at", { ascending: true }).limit(1),
     ]);
     const minutesSince = (t: unknown) => typeof t === "string" ? Math.round((Date.now() - Date.parse(t)) / 60000) : null;
     report.oldest_event_minutes = minutesSince((oldestEv as Record<string, any>[] | null)?.[0]?.received_at);
     report.oldest_check_minutes = minutesSince((oldestChk as Record<string, any>[] | null)?.[0]?.last_checked_at);
     report.open_cases = openCases ?? null;
+    report.parked_events = parkedCount ?? null;
+    report.parked_oldest_minutes = minutesSince((parkedOldest as Record<string, any>[] | null)?.[0]?.received_at);
 
-    const ok = report.write_errors === 0 && report.events_failed === 0 && report.paidy_errors === 0;
+    const ok = report.write_errors === 0 && report.events_failed === 0 && report.paidy_errors === 0 && report.inbox_write_errors === 0;
     return jsonResponse({ ok, ...report });
   } catch (e) {
     console.error(`${LOG} run failed:`, e);

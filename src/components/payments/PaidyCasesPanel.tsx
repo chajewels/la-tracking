@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import StatusPill from '@/components/shared/StatusPill';
+import { formatPHTDisplay } from '@/lib/date-utils';
 
 /**
  * Paidy cases (follow-up review 2026-10-04, docs/PAIDY.md "Follow-up"): the
@@ -93,7 +94,28 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
     },
   });
 
-  if (cases.length === 0) return null;
+  // PR 3 / PA10 (owner 2026-10-08): notifications this key could not answer
+  // are PARKED, never dropped — the count and the oldest one are shown here
+  // so a stalled recovery is visible; they drain by themselves when the
+  // matching key is in. No new page.
+  const { data: parked = { count: 0, oldest: null as string | null } } = useQuery({
+    queryKey: ['paidy-parked-events'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<{ count: number; oldest: string | null }> => {
+      const { data, error, count } = await db
+        .from('paidy_webhook_events')
+        .select('received_at, parked_reason', { count: 'exact' })
+        .is('processed_at', null)
+        .not('parked_reason', 'is', null)
+        .order('received_at', { ascending: true })
+        .limit(1);
+      if (error) throw error;
+      const first = (data ?? [])[0] as { received_at?: string } | undefined;
+      return { count: count ?? 0, oldest: first?.received_at ?? null };
+    },
+  });
+
+  if (cases.length === 0 && parked.count === 0) return null;
 
   const submit = async () => {
     if (!target) return;
@@ -110,6 +132,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
         paidy_not_captured: 'Paidy has not captured this payment.',
         not_a_capture_case: 'Only a captured payment can be recorded.',
         no_paidy_record: 'This case has no Paidy record to end.',
+        orphan_capture_unsettled: 'Paidy took this money and the Hub has no record of it. A note cannot settle it: record the capture, or refund it in full in the Paidy dashboard and the hourly check closes the case.',
       };
       toast.error('Could not resolve the case', { description: msg[err] ?? err });
       return;
@@ -127,7 +150,18 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
         <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
         <h2 className="text-sm font-semibold text-foreground">Paidy cases</h2>
         <StatusPill label={`${cases.length} open`} tone="warning" />
+        {parked.count > 0 && (
+          <StatusPill
+            label={`${parked.count} parked notification${parked.count === 1 ? '' : 's'}${parked.oldest ? ` · oldest ${formatPHTDisplay(parked.oldest)} PHT` : ''}`}
+            tone="info"
+          />
+        )}
       </div>
+      {parked.count > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Parked notifications are Paidy events this environment's key cannot read (a test payment while live keys are in, or the reverse, or an id Paidy does not know). They are retried daily and never discarded; they drain by themselves once the matching key is in.
+        </p>
+      )}
       <ul className="space-y-2">
         {cases.map((c) => {
           const k = KIND_LABEL[c.kind] ?? { label: c.kind, help: '' };
