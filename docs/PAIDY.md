@@ -402,3 +402,29 @@ See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the
   environment>`; an inbox event for the other environment is kept and retried
   daily (`other_environment`, `next_attempt_at` +24h) and dropped only after 30 days
   (`other_environment_expired`).
+
+### P04 QA follow-up (2026-10-08, migration 20261121100000)
+
+Browser QA after the P04–P07 release found the storefront contradicting
+itself: while her own window was open (`paidy_checkout_open`) every button was
+hidden and the headline said "being checked", yet the text promised she could
+try Paidy again. Fixes, all within the owner default "she can reopen Paidy
+right away":
+
+- `website` GET /orders/:id answers `payment_state: "paidy_window_open"` when
+  the ONLY lock is her own checkout window (`cash_order_payment_lock` with
+  `p_ignore_attempts` = true is null) and offers Paidy again; transfer and
+  card stay hidden until the sweep. A real Paidy payment in progress is still
+  `paidy_processing` with nothing offered.
+- `start_paidy_checkout_attempt` replaces ANY open window of hers on that
+  order (end_reason `replaced`), not only one she reported closed — a lost
+  tab no longer blocks her for up to 90 minutes. The lock carries over; the
+  sweep still decides whether the old window took money.
+- "Pay another way" lists Paidy when the only refusal is her own missing
+  details (`no_buyer_name` / `no_jp_mobile` / `no_jp_billing_address`); the
+  order page then collects them. `paidy_requirements` carries her current
+  `mobile_number` so the form pre-fills it.
+- Hub CashOrderDetail shows an amber "Paidy window open since …" line
+  (staff SELECT on paidy_checkout_attempts) so refused Confirm / Submit /
+  store-credit actions are explained; Customer Detail's Contact card shows
+  the Paidy name.

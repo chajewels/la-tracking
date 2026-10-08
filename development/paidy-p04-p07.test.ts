@@ -71,3 +71,22 @@ Deno.test("P04: the migration keeps the lock on an open window regardless of the
   assert(sql.includes("CREATE OR REPLACE FUNCTION public.expire_paidy_checkout_attempts"), "one guarded expiry path");
   assert(sql.includes("coalesce(e.last_error, '') <> 'other_environment'"), "a waiting notification holds the window");
 });
+
+Deno.test("P04 QA (2026-10-08): her own open window offers Paidy again and is replaced on reopen; details-only refusals stay switchable", async () => {
+  const web = await Deno.readTextFile(new URL("../supabase/functions/website/index.ts", import.meta.url));
+  // GET /orders/:id — a window with nothing else holding the order is not a payment in progress.
+  assert(web.includes('lock === "paidy_checkout_open" && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null'));
+  assert(web.includes('windowOnly ? "paidy_window_open"'));
+  assert(web.includes("windowOnly ? null : lock)"));
+  // "Pay another way" lists Paidy when only her details are missing.
+  assert(web.includes('PAIDY_DETAIL_REASONS = new Set(["no_buyer_name", "no_jp_mobile", "no_jp_billing_address"])'));
+  assert(web.includes("return o.offered || PAIDY_DETAIL_REASONS.has(String(o.reason ?? \"\"))"));
+  // The form can pre-fill her mobile.
+  assert(web.includes("mobile_number: paidyBlock.mobile_number ?? null"));
+  // The SQL: opening Paidy again replaces ANY open window of hers (not only a reported close).
+  const sql = await Deno.readTextFile(new URL("../supabase/migrations/20261121100000_paidy_window_reopen.sql", import.meta.url));
+  assert(sql.includes("'21e779750fff39c4ae64391fd78db569'"));
+  assert(sql.includes("end_reason = coalesce(end_reason, 'replaced')"));
+  assert(sql.includes("AND status = 'open';\n$n$"));
+  assert(!sql.includes("$n$")  || !sql.split("$n$")[1]?.includes("customer_closed_at IS NOT NULL"));
+});
