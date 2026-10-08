@@ -20,7 +20,7 @@ import {
 import {
   isPaidyPublicKey, paidyAddressLines, paidyBillingAddress, paidyBuyerHistory, paidyCheckoutBreakdown,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
-  paidyFamilyFirstName, paidyModeFrom, paidyNotOfferedReason, paidyPointsBeforeOrder,
+  paidyBuyerName, paidyModeFrom, paidyNameField, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
@@ -503,6 +503,25 @@ async function orderPointsApplied(supabase: any, orderId: string): Promise<numbe
  *     record.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * P06 (2026-10-08): every row of a query, 500 at a time, no cap — Paidy's
+ * buyer history (order_count, ltv, last order) must cover ALL her orders, not
+ * the newest 200. Throws on a read error; the caller then withholds Paidy
+ * rather than send Paidy incomplete figures.
+ */
+// deno-lint-ignore no-explicit-any
+async function allRows(build: () => any): Promise<AnyRec[]> {
+  const PAGE = 500;
+  const out: AnyRec[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build().range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as AnyRec[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
 async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, address: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null) {
   const [{ data: modeRow }, { data: keyRow }] = await Promise.all([
     supabase.from("system_settings").select("value").eq("key", "paidy_mode").maybeSingle(),
@@ -513,55 +532,72 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const publicKey = typeof rawKey === "string" ? rawKey : (rawKey == null ? "" : String(rawKey));
 
   const orderRef = customerReference(order as never);
-  const [{ data: money }, { data: cust }, pointsApplied] = await Promise.all([
+  const [{ data: money, error: moneyErr }, { data: cust, error: custErr }, pointsApplied, { data: billing, error: billErr }] = await Promise.all([
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
-    supabase.from("customers").select("created_at, mobile_number, full_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
+    supabase.from("customers").select("created_at, mobile_number, full_name, family_name, given_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
     orderPointsApplied(supabase, String(order.id)),
+    supabase.from("customer_addresses").select("line1, line2, city, region, postal_code, country")
+      .eq("customer_id", customer.id).eq("is_default", true).limit(1).maybeSingle(),
   ]);
+  if (moneyErr) throw moneyErr;
+  if (custErr) throw custErr;
+  if (billErr) throw billErr;
   // Points used at checkout (2026-10-05) are a discount already applied: the
   // breakdown carries a negative "Points" line and they are not "paid".
   const breakdown = paidyCheckoutBreakdown({ ...(order as AnyRec), ...((money ?? {}) as AnyRec), points_applied: pointsApplied }, items, orderRef);
-  const buyerName = String((cust as AnyRec | null)?.full_name ?? customer.full_name ?? "").trim();
+  // P05 (owner 2026-10-08): the buyer's name is her two name fields, never a
+  // guess from full_name; her billing address and mobile must be Japanese.
+  const c = (cust ?? {}) as AnyRec;
+  const buyerName = paidyBuyerName(c.family_name, c.given_name);
+  const bill = paidyBillingAddress(billing as AnyRec | null, paidyCustomerRecordAddress(c));
+  const requirements = paidyRequirements({ family_name: c.family_name, given_name: c.given_name, mobile_number: c.mobile_number, billingAddressFound: !!bill.address });
 
   const reason = paidyNotOfferedReason({
     mode, publicKey, customerIsTest: customer.is_test === true, order, address, pendingSubmissions: pendingCount,
     totalPaid: Number(order.total_paid ?? 0) - pointsApplied, paymentLock: lock, buyerName, breakdownOk: breakdown != null,
     // C1: a website order takes Paidy only when the customer chose Paidy.
     paymentMethod: (order.payment_method ?? null) as string | null,
+    requirements,
   });
-  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch" };
+  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements };
 
-  // R12: her own completed yen orders (this one excluded), classified by how
-  // they were paid and whether anything was refunded.
-  const { data: past } = await supabase.from("cash_orders")
-    .select("id, status, currency, total_amount, completed_at, order_date")
-    .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
-    .filter("invoice_number", "match", "^[0-9]+$")
-    .order("completed_at", { ascending: false }).limit(200);
-  const pastIds = ((past ?? []) as AnyRec[]).map((o) => String(o.id));
-  const [{ data: paidyPaid }, { data: refunded }, { data: billing }, { data: plans }, { data: member }] = await Promise.all([
-    pastIds.length ? supabase.from("cash_payments").select("cash_order_id").in("cash_order_id", pastIds).eq("payment_method", "paidy").is("voided_at", null) : { data: [] },
-    pastIds.length ? supabase.from("paidy_refunds").select("cash_order_id").in("cash_order_id", pastIds) : { data: [] },
-    supabase.from("customer_addresses").select("line1, line2, city, region, postal_code, country")
-      .eq("customer_id", customer.id).eq("is_default", true).limit(1).maybeSingle(),
+  // R12 / P06: her own completed yen orders (this one excluded) — ALL of them
+  // — classified by how they were paid and whether anything was refunded. A
+  // read that fails withholds Paidy; incomplete figures are never sent.
+  let history: ReturnType<typeof paidyBuyerHistory>;
+  let plans: AnyRec[] = [];
+  try {
+    const past = await allRows(() => supabase.from("cash_orders")
+      .select("id, status, currency, total_amount, completed_at, order_date")
+      .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY").neq("id", order.id)
+      .filter("invoice_number", "match", "^[0-9]+$")
+      .order("completed_at", { ascending: false }));
+    const pastIds = past.map((o) => String(o.id));
+    const [paidyPaid, refunded] = await Promise.all([
+      pastIds.length ? allRows(() => supabase.from("cash_payments").select("cash_order_id").in("cash_order_id", pastIds).eq("payment_method", "paidy").is("voided_at", null).order("cash_order_id")) : Promise.resolve([] as AnyRec[]),
+      pastIds.length ? allRows(() => supabase.from("paidy_refunds").select("cash_order_id").in("cash_order_id", pastIds).order("cash_order_id")) : Promise.resolve([] as AnyRec[]),
+    ]);
     // H9: her completed yen layaway plans count as orders too (Paidy: ltv /
     // order_count cover every order at the store). Paidy never pays a plan.
-    supabase.from("layaway_accounts")
+    plans = await allRows(() => supabase.from("layaway_accounts")
       .select("status, currency, total_amount, completed_at, order_date")
       .eq("customer_id", customer.id).eq("status", "completed").eq("currency", "JPY")
       .filter("invoice_number", "match", "^[0-9]+$")
-      .order("completed_at", { ascending: false }).limit(200),
-    supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle(),
-  ]);
-  const byPaidy = new Set(((paidyPaid ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
-  const byRefund = new Set(((refunded ?? []) as AnyRec[]).map((r) => String(r.cash_order_id)));
-  const history = paidyBuyerHistory([
-    ...((past ?? []) as AnyRec[]).map((o) => ({ ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)) })),
-    ...paidyHistoryFromLayaway((plans ?? []) as AnyRec[]),
-  ]);
-  const registered = String((cust as AnyRec | null)?.created_at ?? "").slice(0, 10);
-  const phone = paidyJapaneseMobile((cust as AnyRec | null)?.mobile_number);
-  const bill = paidyBillingAddress(billing as AnyRec | null, paidyCustomerRecordAddress(cust as AnyRec | null));
+      .order("completed_at", { ascending: false }));
+    const byPaidy = new Set(paidyPaid.map((r) => String(r.cash_order_id)));
+    const byRefund = new Set(refunded.map((r) => String(r.cash_order_id)));
+    history = paidyBuyerHistory([
+      ...past.map((o) => ({ ...o, paid_by_paidy: byPaidy.has(String(o.id)), refunded: byRefund.has(String(o.id)) })),
+      ...paidyHistoryFromLayaway(plans),
+    ]);
+  } catch (e) {
+    console.error("[paidy] buyer history unavailable — Paidy withheld:", e);
+    return { offered: false as const, reason: "history_unavailable", requirements };
+  }
+  const { data: member, error: memberErr } = await supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle();
+  if (memberErr) throw memberErr;
+  const registered = String(c.created_at ?? "").slice(0, 10);
+  const phone = paidyJapaneseMobile(c.mobile_number);
   // No address text, no email — only why Paidy gets no billing address.
   if (!bill.address) console.log(`[paidy] billing_address omitted: ${bill.reason}`);
 
@@ -569,6 +605,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     offered: true as const,
     public_key: publicKey,
     test: mode === "test",
+    requirements,
     checkout: paidyCheckoutPayload({
       amount: breakdown.amount,
       orderRef,
@@ -576,9 +613,9 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
       customerId: String(customer.id),
       userId: String(customer.customer_code ?? customer.id),
       email: customer.email ? String(customer.email) : undefined,
-      name1: paidyFamilyFirstName(buyerName),
+      name1: buyerName,
       phone: phone ?? undefined,
-      dob: paidyDob((cust as AnyRec | null)?.birthday),
+      dob: paidyDob(c.birthday),
       history,
       registered: registered || undefined,
       billing: bill.address,
@@ -1975,6 +2012,28 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       return jsonResponse(scrub(result));
     }
 
+    // PUT /me/paidy-profile — P05 (owner 2026-10-08): the buyer's own family
+    // name, given name and Japanese mobile number, for Paidy. Validated here;
+    // nothing else on the customer record is touched. 400 names the field.
+    if (req.method === "PUT" && segments[0] === "me" && segments[1] === "paidy-profile" && !segments[2]) {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const body = await req.json().catch(() => ({})) as AnyRec;
+      const familyName = paidyNameField(body.family_name);
+      const givenName = paidyNameField(body.given_name);
+      const mobile = paidyJapaneseMobile(body.mobile_number);
+      if (!familyName) return jsonResponse({ error: "family_name_required" }, 400);
+      if (!givenName) return jsonResponse({ error: "given_name_required" }, 400);
+      if (!mobile) return jsonResponse({ error: "jp_mobile_required" }, 400);
+      const { error } = await supabase.from("customers")
+        .update({ family_name: familyName, given_name: givenName, mobile_number: mobile })
+        .eq("id", customer.id);
+      if (error) throw error;
+      return jsonResponse({ ok: true, family_name: familyName, given_name: givenName, mobile_number: mobile });
+    }
+
     // ============================================ cart reminders (stages A/B)
     // docs/CART-REMINDERS.md. The browser cookie stays authoritative; this is
     // the server copy a reminder and a cross-device restore read. Every write
@@ -2912,6 +2971,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Paidy ato-barai (2026-10-03): the block the order page renders, or
         // null with the reason it is not offered (logged, never shown).
         paidy: paidyBlock.offered ? paidyBlock : null,
+        // P05 (2026-10-08): what Paidy still needs from her, so the order page
+        // can ask for it (names, Japanese mobile, Japanese billing address).
+        paidy_requirements: paidyBlock.requirements ?? null,
         // Card payment (Square, S2 2026-10-04): the block the pay-card page
         // renders, or null (reason logged, never shown).
         card: cardBlock.offered ? cardBlock : null,

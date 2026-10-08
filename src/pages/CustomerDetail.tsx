@@ -132,6 +132,7 @@ export default function CustomerDetail() {
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [editFields, setEditFields] = useState({
     full_name: '', facebook_name: '', messenger_link: '', mobile_number: '', email: '',
+    family_name: '', given_name: '',
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -175,6 +176,9 @@ export default function CustomerDetail() {
       messenger_link: customer.messenger_link || '',
       mobile_number: customer.mobile_number || '',
       email: customer.email || '',
+      // P05 (2026-10-08): Paidy buyer name fields (types.ts regenerates on deploy).
+      family_name: (customer as { family_name?: string | null }).family_name || '',
+      given_name: (customer as { given_name?: string | null }).given_name || '',
     });
     setEditingCustomer(true);
   }, [customer]);
@@ -190,7 +194,9 @@ export default function CustomerDetail() {
         messenger_link: editFields.messenger_link.trim() || null,
         mobile_number: editFields.mobile_number.trim() || null,
         email: editFields.email.trim() || null,
-      }).eq('id', customer.id);
+        family_name: editFields.family_name.trim() || null,
+        given_name: editFields.given_name.trim() || null,
+      } as never).eq('id', customer.id);
       if (error) throw error;
       toast.success('Customer details updated — message will reflect changes');
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
@@ -626,6 +632,14 @@ export default function CustomerDetail() {
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Full Name *</label>
                 <Input value={editFields.full_name} onChange={e => setEditFields(f => ({ ...f, full_name: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Family Name (Paidy)</label>
+                <Input value={editFields.family_name} onChange={e => setEditFields(f => ({ ...f, family_name: e.target.value }))} className="h-8 text-sm" placeholder="姓 / Surname" maxLength={60} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Given Name (Paidy)</label>
+                <Input value={editFields.given_name} onChange={e => setEditFields(f => ({ ...f, given_name: e.target.value }))} className="h-8 text-sm" placeholder="名 / First name" maxLength={60} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Facebook Name</label>

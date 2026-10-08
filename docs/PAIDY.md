@@ -371,3 +371,34 @@ See docs/CHECKOUT-CHOICE.md: the method is chosen at checkout and locked for the
 - **A staff cancel closes an open Paidy authorisation first.** `cancel-cash-order` → `releasePaidyForCancel` (`_shared/paidy-cancel-release.ts`): reads each authorised payment back from Paidy; still authorised → `POST /payments/:id/close`, the row → `closed`, its pending submission rejected quietly (the customer gets the cancellation email only); already captured → the cancel is REFUSED (record it, refund in the Paidy dashboard); Paidy unreachable or the close refused → the cancel is refused and nothing changes. The staff cancel PREVIEW no longer refuses on a Paidy lock (`terminate_web_order_atomic`, migration 20261114100000); the real cancel still does while any Paidy money is unresolved.
 - **Expired:** an order with an open Paidy payment never expires (INVARIANT 12 freeze); when Paidy's own `expires_at` passes, the Hub rejects the submission (PD4) and Paidy can no longer capture it.
 - **Reopen:** Paidy documents a closed payment as final (only refund / retrieve / status / update are valid after CLOSED). A reopened (revived) invoice is paid with a NEW Paidy checkout — never by reopening the old authorisation.
+
+
+## Reassessment P04–P07 (owner answers 2026-10-08; migration 20261118100000)
+
+- **P04 — closing the window never unlocks the order by itself.** `/orders/:id/paidy/abandon`
+  only NOTES her close (`paidy_checkout_attempts.customer_closed_at`); the attempt stays
+  `open` and `cash_order_payment_lock` keeps answering `paidy_checkout_open` (no longer
+  keyed on `expires_at`). The ONE way an open window ends without a filing is
+  `expire_paidy_checkout_attempts(p_cash_order_id)` (service_role): timed out AND no
+  live authorisation / capture on the order AND no unprocessed Paidy notification
+  received since it opened (other-environment ones excepted). The hourly sweep
+  (:51) calls it for all orders; `start_paidy_checkout_attempt` calls it for the one
+  order and then replaces the window she closed herself (`abandoned`), so she can
+  open Paidy again at once while the other methods wait for the sweep. The
+  storefront says so ("within about 90 minutes").
+- **P05 — who Paidy is offered to.** `customers.family_name` + `given_name` (new);
+  `buyer.name1 = family + given` as entered (`paidyBuyerName`), never guessed.
+  `paidyNotOfferedReason` now also refuses `no_jp_billing_address` (her default
+  address-book entry or customer record, complete JP incl. prefecture),
+  `no_jp_mobile` (her own 070/080/090 number) and `no_buyer_name`. The order payload
+  carries `paidy_requirements` {family_name, given_name, jp_mobile,
+  jp_billing_address} so the storefront can ask for what is missing;
+  `PUT /me/paidy-profile` writes the two names and the Japanese mobile (400 names
+  the field). Hub: Edit Customer (dialog and detail page) has the two fields.
+- **P06 — complete buyer history.** `paidyOffer` pages through ALL her completed yen
+  cash orders and plans (`allRows`, 500/page, no cap); a read error withholds Paidy
+  (`history_unavailable`) instead of sending Paidy incomplete figures.
+- **P07 — environments.** The sweep reads only `paidy_payments.test = <this key's
+  environment>`; an inbox event for the other environment is kept and retried
+  daily (`other_environment`, `next_attempt_at` +24h) and dropped only after 30 days
+  (`other_environment_expired`).

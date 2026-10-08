@@ -20,11 +20,12 @@ import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
  *      (owner: staff capture in the Paidy dashboard), refunds open cases.
  *   3. Re-files an authorisation whose filing was interrupted; releases one
  *      its order can no longer take; retries closes Paidy refused before.
- *   4. Expires Paidy checkout windows nobody came back from (30 min).
+ *   4. Expires Paidy checkout windows nobody came back from (30 min), only
+ *      once Paidy can hold nothing for the order (P04; SQL decides).
  *   5. Bells cash-order Confirms left half-way past the lease.
  *
- * Payments from the other environment (test vs live key) are skipped, not
- * errors. Never captures. Report-style answer with ok = no errors.
+ * Only this environment's payments are read (P07); an inbox event from the
+ * other environment is kept and retried daily for 30 days. Never captures. Report-style answer with ok = no errors.
  */
 const LOG = "[paidy-reconcile]";
 const MAX_PER_RUN = 150;
@@ -55,7 +56,7 @@ Deno.serve(async (req) => {
     // 1. Inbox.
     if (secretTest !== null) {
       const { data: events, error: evErr } = await supabase
-        .from("paidy_webhook_events").select("id, paidy_payment_id, event, attempts")
+        .from("paidy_webhook_events").select("id, paidy_payment_id, event, attempts, received_at")
         .is("processed_at", null).lte("next_attempt_at", new Date().toISOString())
         .order("received_at", { ascending: true }).limit(MAX_EVENTS_PER_RUN);
       if (evErr) throw evErr;
@@ -68,8 +69,9 @@ Deno.serve(async (req) => {
         }
         seen.add(ev.paidy_payment_id);
         report.events++;
-        const r = await processPaidyEvent(supabase, ev.id, ev.paidy_payment_id, String(ev.event ?? ""), "reconcile", Number(ev.attempts ?? 0));
+        const r = await processPaidyEvent(supabase, ev.id, ev.paidy_payment_id, String(ev.event ?? ""), "reconcile", Number(ev.attempts ?? 0), { receivedAt: ev.received_at });
         if (!r.done && !r.retry_callback_window) report.events_failed++;
+        if (r.summary?.skipped === "other_environment") report.other_environment++;
       }
     }
 
@@ -83,22 +85,21 @@ Deno.serve(async (req) => {
     // Authorised payments first (they can still be filed, released, expire or
     // be captured any minute), then captures — watched for refunds and for a
     // recording that has not happened — oldest check first.
-    const { data: authRows, error: authErr } = await supabase
-      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "authorized")
+    // P07 (2026-10-08): only THIS environment's payments are read — the
+    // batch is never filled with rows the current key cannot check, so a
+    // pile of test payments never starves live ones (or the reverse).
+    const { data: authRows, error: authErr } = secretTest === null ? { data: [], error: null } : await supabase
+      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "authorized").eq("test", secretTest)
       .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(MAX_PER_RUN);
     if (authErr) throw authErr;
     const room = Math.max(20, MAX_PER_RUN - (authRows ?? []).length);
-    const { data: capRows, error: capErr } = await supabase
-      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "captured").gte("captured_at", since)
+    const { data: capRows, error: capErr } = secretTest === null ? { data: [], error: null } : await supabase
+      .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("status", "captured").eq("test", secretTest).gte("captured_at", since)
       .order("last_checked_at", { ascending: true, nullsFirst: true }).limit(room);
     if (capErr) throw capErr;
     const rows = [...(authRows ?? []), ...(capRows ?? [])];
 
-    for (const row of (secretTest === null ? [] : rows) as Record<string, any>[]) {
-      if ((row.test === true) !== secretTest) {
-        report.other_environment++;
-        continue;
-      }
+    for (const row of rows as Record<string, any>[]) {
       report.checked++;
       let payment: PaidyPayment;
       try {
@@ -173,12 +174,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Paidy windows nobody came back from.
-    const { data: expired, error: expErr } = await supabase.from("paidy_checkout_attempts")
-      .update({ status: "expired", ended_at: new Date().toISOString(), end_reason: "timeout" })
-      .eq("status", "open").lte("expires_at", new Date().toISOString()).select("id");
+    // 4. Paidy windows nobody came back from — P04 (owner 2026-10-08): a
+    // window she closed stays (and keeps the order locked) until here, and
+    // SQL ends it only when the window has timed out, Paidy may hold nothing
+    // for the order and no notification received since it opened is waiting.
+    const { data: expired, error: expErr } = await supabase.rpc("expire_paidy_checkout_attempts", { p_cash_order_id: null });
     if (expErr) throw expErr;
-    report.attempts_expired = (expired ?? []).length;
+    report.attempts_expired = Number(expired ?? 0);
 
     // 5. Cash-order Confirms left half-way past the lease.
     const { data: stuck, error: stuckErr } = await supabase

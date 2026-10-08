@@ -43,29 +43,43 @@ async function failInbox(supabase: Db, inboxId: string, attempts: number, why: s
   });
 }
 
+/** P07: an event from the other environment is kept and retried daily for this long, then dropped. */
+export const OTHER_ENVIRONMENT_KEEP_DAYS = 30;
+export const OTHER_ENVIRONMENT_RETRY_MS = 24 * 60 * 60 * 1000;
+
 export async function processPaidyEvent(
   supabase: Db, inboxId: string, pid: string, event: string, source: "webhook" | "reconcile", attempts = 0,
   /**
    * H9 soft gate (R14): false only for a webhook delivery from a source that is
    * not one of Paidy's published IPs. It is still processed in full; only an
    * id Paidy does not know opens NO case and rings NO bell.
+   * receivedAt: the inbox row's received_at (P07) — omitted = received now.
    */
-  opts: { recognisedSource?: boolean } = {},
+  opts: { recognisedSource?: boolean; receivedAt?: string | null } = {},
 ): Promise<EventResult> {
   try {
     const { data: row, error: rowErr } = await supabase
       .from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("paidy_payment_id", pid).maybeSingle();
     if (rowErr) throw rowErr;
 
-    // R18: a payment from the OTHER environment (a test payment while the Hub
-    // runs live keys, or the reverse) cannot be read with this key — skipped,
-    // not counted as an error.
+    // R18 / P07 (2026-10-08): a payment from the OTHER environment (a test
+    // payment while the Hub runs live keys, or the reverse) cannot be read
+    // with this key. It is KEPT and retried once a day — the keys may be
+    // switched back — and dropped only after OTHER_ENVIRONMENT_KEEP_DAYS.
     if (row) {
       let secretTest: boolean | null = null;
       try { secretTest = paidySecretIsTest(); } catch { /* not configured: handled by get() below */ }
       if (secretTest !== null && (row.test === true) !== secretTest) {
-        await markInbox(supabase, inboxId, { processed_at: new Date().toISOString(), last_error: "other_environment" });
-        return { done: true, summary: { skipped: "other_environment" } };
+        const received = Date.parse(String(opts.receivedAt ?? "")) || Date.now();
+        if (Date.now() - received > OTHER_ENVIRONMENT_KEEP_DAYS * 86_400_000) {
+          await markInbox(supabase, inboxId, { processed_at: new Date().toISOString(), last_error: "other_environment_expired" });
+          return { done: true, summary: { skipped: "other_environment_expired" } };
+        }
+        await markInbox(supabase, inboxId, {
+          attempts: attempts + 1, last_error: "other_environment",
+          next_attempt_at: new Date(Date.now() + OTHER_ENVIRONMENT_RETRY_MS).toISOString(),
+        });
+        return { done: true, summary: { skipped: "other_environment", retry_in_hours: 24 } };
       }
     }
 
