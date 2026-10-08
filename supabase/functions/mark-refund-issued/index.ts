@@ -26,6 +26,10 @@ const STATUS: Record<string, number> = {
   // only once Square shows a COMPLETED refund (the SQL decides; amount = what
   // Square completed).
   method_mismatch: 409, no_completed_card_refund: 409,
+  // PA03 (2026-10-08): a Paidy-paid order is refunded in the Paidy dashboard —
+  // method 'paidy', only once the Hub has read the refund back from Paidy
+  // (paidy_refunds); the amount is the verified total, never the gross.
+  no_verified_paidy_refund: 409,
 };
 
 /** True when the "refund issued" email for this order already went out (B01 retry). */

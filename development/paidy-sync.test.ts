@@ -88,6 +88,24 @@ function fakeDb(tables: Record<string, Row[]>, failOn?: { table: string; op: str
       failures--;
       return Promise.resolve({ data: null, error: { message: `injected ${fn} failure` } });
     }
+    if (fn === "record_paidy_refund") {
+      // PA02: the SQL writer, modelled — idempotent by refund id, monotonic
+      // refund_jpy, a bell when the order already holds a cancellation lot.
+      tables.paidy_refunds ??= [];
+      tables.store_credit_lots ??= [];
+      const rec = (tables.paidy_payments ?? []).find((r) => r.id === args.p_paidy_payment_row);
+      if (!rec) return Promise.resolve({ data: { ok: false, error: "unknown_payment" }, error: null });
+      if (rec.status !== "captured") return Promise.resolve({ data: { ok: false, error: "not_captured", status: rec.status }, error: null });
+      const inserted = !tables.paidy_refunds.some((r) => r.refund_id === args.p_refund_id);
+      if (inserted) tables.paidy_refunds.push({ id: `row-${++seq}`, paidy_payment_row: args.p_paidy_payment_row, cash_order_id: rec.cash_order_id, refund_id: args.p_refund_id, amount_jpy: args.p_amount_jpy, refunded_at: args.p_refunded_at, payload: args.p_payload });
+      const total = tables.paidy_refunds.filter((r) => r.paidy_payment_row === args.p_paidy_payment_row).reduce((a, r) => a + Number(r.amount_jpy), 0);
+      if (total > Number(rec.amount_jpy)) return Promise.resolve({ data: { ok: false, error: "refund_exceeds_capture", inserted }, error: null });
+      if (rec.refund_jpy === null || rec.refund_jpy === undefined || Number(rec.refund_jpy) < total) rec.refund_jpy = total;
+      const credit = tables.store_credit_lots.filter((l) => l.source_cash_order_id === rec.cash_order_id && l.source_type === "cancelled_cash" && l.status !== "voided").reduce((a, l) => a + Number(l.original_amount), 0);
+      let bell = false;
+      if (inserted && credit > 0) { tables.staff_notifications ??= []; tables.staff_notifications.push({ type: "paidy_refund_after_credit", metadata: { refund_id: args.p_refund_id } }); bell = true; }
+      return Promise.resolve({ data: { ok: true, inserted, refunded_total_jpy: total, captured_jpy: rec.amount_jpy, remaining_jpy: Number(rec.amount_jpy) - total, credit_already_issued_jpy: credit, bell }, error: null });
+    }
     if (fn === "open_paidy_case") {
       const open = tables.paidy_cases.find((c) => c.paidy_payment_id === args.p_paidy_payment_id && c.kind === args.p_kind && c.status === "open");
       if (open) { open.attempts = Number(open.attempts ?? 0) + 1; return Promise.resolve({ data: { ok: true, case_id: open.id, new: false }, error: null }); }
@@ -178,19 +196,54 @@ Deno.test("D4: a refund before recording → case, nothing recorded, order untou
   assertEquals(t.cash_orders[0].remaining_balance, 52000);
 });
 
-Deno.test("R06: refund row written, total update fails → the retry repairs the total", async () => {
+Deno.test("R06 (PA02 order): a write fails mid-pass → nothing half-recorded; the retry records the refund once, total repaired", async () => {
   const t = world();
   t.paidy_payments[0].status = "captured";
   t.payment_submissions[0].status = "confirmed";
   t.payment_submissions[0].confirmed_payment_id = "cp1";
   const p = captured({ refunds: [{ id: "ref_1", amount: 2000, created_at: "2026-10-05T01:00:00Z" }] });
+  // PA02: the refund is recorded AFTER the capture status write (a refund only
+  // exists on a capture) and ONLY through record_paidy_refund. The first
+  // paidy_payments write failing stops the pass before any refund row exists.
   await assertRejects(() => syncPaidyPayment(fakeDb(t, { table: "paidy_payments", op: "update", times: 1 }), t.paidy_payments[0], p, "webhook"));
-  assertEquals(t.paidy_refunds.length, 1);
-  assertEquals(t.paidy_payments[0].refund_jpy, 0); // the reproduced defect state
+  assertEquals(t.paidy_refunds.length, 0);
+  assertEquals(t.paidy_payments[0].refund_jpy, 0);
   await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "reconcile");
   assertEquals(t.paidy_payments[0].refund_jpy, 2000);
   assertEquals(t.paidy_refunds.length, 1);
   assertEquals(t.paidy_cases.filter((c) => c.kind === "refund_after_record").length, 1);
+  // A third pass with the same refund inserts nothing and keeps the total.
+  const r3 = await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "reconcile");
+  assertEquals(r3.new_refunds, 0);
+  assertEquals(t.paidy_refunds.length, 1);
+  assertEquals(t.paidy_payments[0].refund_jpy, 2000);
+});
+
+Deno.test("PA02: a refund landing on an order that already holds cancellation credit rings paidy_refund_after_credit once", async () => {
+  const t = world();
+  t.paidy_payments[0].status = "captured";
+  t.payment_submissions[0].status = "confirmed";
+  t.payment_submissions[0].confirmed_payment_id = "cp1";
+  (t as Record<string, Row[]>).store_credit_lots = [{ id: "lot1", source_cash_order_id: t.paidy_payments[0].cash_order_id, source_type: "cancelled_cash", status: "active", original_amount: 7000 }];
+  const p = captured({ refunds: [{ id: "ref_1", amount: 10000, created_at: "2026-10-05T01:00:00Z" }] });
+  const r = await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "reconcile");
+  assert(r.flagged.includes("refund_after_credit"));
+  assertEquals(((t as Record<string, Row[]>).staff_notifications ?? []).filter((n) => n.type === "paidy_refund_after_credit").length, 1);
+  await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "reconcile");
+  assertEquals(((t as Record<string, Row[]>).staff_notifications ?? []).filter((n) => n.type === "paidy_refund_after_credit").length, 1);
+});
+
+Deno.test("PA02: a read-back from the other environment never records a refund (flagged refund_unverified)", async () => {
+  const t = world();
+  t.paidy_payments[0].status = "captured";
+  t.paidy_payments[0].test = true;
+  t.payment_submissions[0].status = "confirmed";
+  t.payment_submissions[0].confirmed_payment_id = "cp1";
+  const p = captured({ test: false, refunds: [{ id: "ref_1", amount: 2000, created_at: "2026-10-05T01:00:00Z" }] });
+  const r = await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "reconcile");
+  assert(r.flagged.includes("refund_unverified"));
+  assertEquals(t.paidy_refunds.length, 0);
+  assertEquals(r.new_refunds, 0);
 });
 
 Deno.test("R06/R08: case write fails → nothing acknowledged; the retry still opens the case", async () => {
