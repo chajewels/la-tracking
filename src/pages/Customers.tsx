@@ -116,6 +116,7 @@ export default function Customers() {
     full_name: '', customer_code: '', facebook_name: '', messenger_link: '',
     mobile_number: '', email: '', notes: '',
     locationType: 'japan' as LocationType, country: '',
+    family_name: '', given_name: '',
   });
 
   const openEdit = useCallback((c: DbCustomer) => {
@@ -126,6 +127,8 @@ export default function Customers() {
       facebook_name: c.facebook_name || '', messenger_link: c.messenger_link || '',
       mobile_number: c.mobile_number || '', email: c.email || '', notes: c.notes || '',
       locationType: parsed.locationType, country: parsed.country,
+      family_name: (c as { family_name?: string | null }).family_name || '',
+      given_name: (c as { given_name?: string | null }).given_name || '',
     });
     setEditOpen(true);
   }, []);

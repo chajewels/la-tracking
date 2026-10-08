@@ -374,7 +374,7 @@ describe(`at ${width}px`, () => {
         { kind: "rpc", target: "find_customer_matches", payload: { p_full_name: first.full_name, p_facebook_name: null, p_mobile: null, p_email: null, p_exclude_customer_id: first.id } },
         {
           kind: "table.update", target: "customers", filters: [["eq", "id", first.id]],
-          payload: { full_name: first.full_name, facebook_name: null, messenger_link: first.messenger_link, mobile_number: null, email: null, notes: null, location: first.location },
+          payload: { full_name: first.full_name, facebook_name: null, messenger_link: first.messenger_link, mobile_number: null, email: null, notes: null, location: first.location, family_name: null, given_name: null },
         },
       ]);
     });
@@ -409,7 +409,7 @@ describe(`at ${width}px`, () => {
         { kind: "rpc", target: "find_customer_matches", payload: { p_full_name: "Maria S. Santos", p_facebook_name: "maria.fb", p_mobile: "+63 917 000 1234", p_email: "maria@example.com", p_exclude_customer_id: "c-1" } },
         {
           kind: "table.update", target: "customers", filters: [["eq", "id", "c-1"]],
-          payload: { full_name: "Maria S. Santos", facebook_name: "maria.fb", messenger_link: "https://m.me/maria", mobile_number: "+63 917 000 1234", email: "maria@example.com", notes: "Prefers GCash", location: "Japan" },
+          payload: { full_name: "Maria S. Santos", facebook_name: "maria.fb", messenger_link: "https://m.me/maria", mobile_number: "+63 917 000 1234", email: "maria@example.com", notes: "Prefers GCash", location: "Japan", family_name: null, given_name: null },
         },
       ]);
       expect(toast.success).toHaveBeenCalledWith("Customer updated");
@@ -636,7 +636,7 @@ describe(`at ${width}px`, () => {
       expect(writes()).toEqual<Call[]>([
         {
           kind: "table.update", target: "customers", filters: [["eq", "id", "c-1"]],
-          payload: { full_name: "Maria L. Santos", facebook_name: "maria.s", messenger_link: "https://m.me/maria", mobile_number: "+63 917 000 1234", email: null },
+          payload: { full_name: "Maria L. Santos", facebook_name: "maria.s", messenger_link: "https://m.me/maria", mobile_number: "+63 917 000 1234", email: null, family_name: null, given_name: null },
         },
       ]);
     });
