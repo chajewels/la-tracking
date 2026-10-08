@@ -98,7 +98,7 @@ export function PaidySettingsCard() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          『あと払い（ペイディ）』 on the website's confirmed order page, for yen orders with a Japanese delivery address.
+          『あと払い（ペイディ）』 on the website's confirmed order page, for yen orders with a Japanese delivery address, once the buyer's own details are complete (family and given name, a Japanese mobile, a Japanese billing address — the order page asks her for them).
           The customer authorises in Paidy's window; the money is taken only when a reviewer clicks Confirm on
           Payment Submissions (valid 30 days). Reject releases it.
         </p>
