@@ -136,7 +136,9 @@ Deno.test('cancel email: without figures the older wording stays (other senders 
 })
 
 Deno.test('cancel-cash-order passes the credit and the charge to the email, bell and portal note', async () => {
-  const src = await code('cancel-cash-order/index.ts')
+  // PR 4 (PA14, 2026-10-08): the bell, portal note and email moved to the
+  // shared _shared/cancel-followups.ts (used by cancel-cash-order and the sweep).
+  const src = await code('_shared/cancel-followups.ts')
   assert(src.includes('charge: Number(c.cancellation_split?.kept ?? 0)'), 'email gets the charge')
   assert(src.includes('30% cancellation charge ${symbol}${kept.toLocaleString("en-US")} kept'), 'staff bell names the charge')
   assert(src.includes('less the 30% cancellation charge of'), 'portal note names the charge')

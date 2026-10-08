@@ -206,7 +206,7 @@ Deno.test('wiring: every addendum sender is called from its function', async () 
     ['mark-refund-issued/index.ts', /rpc\("mark_web_order_refund_issued_atomic"/],
     ['mark-refund-issued/index.ts', /variant: "refund_issued"/],
     ['issue-store-credit/index.ts', /await sendStoreCreditIssuedEmail\(supabase, \{/],
-    ['cancel-cash-order/index.ts', /await sendWebCancellationEmail\(supabase, cash_order_id, \{ reason,/],
+    ['_shared/cancel-followups.ts', /await sendWebCancellationEmail\(supabase, a\.cash_order_id, \{/] /* PR 4: the cancel follow-ups moved to the shared module (PA14) */,
   ]
   const missing: string[] = []
   for (const [file, re] of checks) if (!re.test(await code(file))) missing.push(`${file}: ${re}`)
