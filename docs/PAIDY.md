@@ -625,3 +625,46 @@ reached the send (no email_send_log row for its key).
   guards; the bell catalogue) in the CI list;
   development/payment-lifecycle-addendum.test.ts and
   development/square-qa-reconcile.test.ts repointed at cancel-followups.ts.
+
+### PA08 + PA11 + PA15 — PR 5, truthfulness (migration 20261130100000; owner go 2026-10-09 "proceed to all recommended")
+
+Plan: project doc `claude/paidy-pr5-truthfulness-plan-2026-10-09.md`.
+
+- **PA08 — say only what the log proves.** `mark-refund-issued` (Paidy
+  branch) reads `paidy_refunds.refund_id` and proves each 「返金を受け付けました」
+  email by its key (`paidyRefundReceivedKey(refund_id)` =
+  `refund-received-paidy-<refund_id>`, the ONE helper the sender
+  `paidy-sync.ts` and both readers use). It answers
+  `provider_refund_already_emailed` only when every one is proven, else
+  `provider_refund_email_not_confirmed`, with `refund_emails {sent,total}` and
+  `provider: "paidy" | "card"`. The dialog names the provider; the card texts
+  are unchanged.
+- **PA08 — manual resend (owner, recommended option).** New edge function
+  `resend-order-email` (admin only, person only, `verify_jwt = true`):
+  `list` shows a web order's refund emails (「返金が完了しました」 once
+  `refund_marked_issued` exists, and one per Paidy refund) with the newest
+  send-log status and resends used; `resend` needs a reason of ≥ 10
+  characters, is refused while the address is suppressed and after 3 manual
+  resends, writes `audit_logs` `order_email_resent` FIRST (the claim), then
+  sends ONE attempt under `<key>-resend-<n>`. Nothing re-sends by itself —
+  the owner rule stands (the B02 card replay is Square's, not this).
+  Hub: `RefundEmailResend` card on the web cash order page, admin only.
+  Rules: `_shared/order-email-resend.ts`.
+- **PA11 — complete history.** `allRows` pages by primary key (`id > last`,
+  ordered by id; the query must select `id` and not order itself);
+  `allRowsIn` reads `.in()` lists in chunks of 100. "Refunded" = a Paidy
+  refund OR a Square refund not FAILED/REJECTED (owner decision).
+- **PA15 — her billing choice.** `paidyBillingChoice` lists her complete
+  Japanese address-book entries (default first) as `paidy.billing_choices`
+  with `billing_address_id` preselected; `POST /orders/:id/paidy/start` takes
+  `{ billing_address_id }`, refuses an id not among them (400
+  `billing_address_invalid`) and records it on
+  `paidy_checkout_attempts.billing_address_id` (new column, FK ON DELETE SET
+  NULL). The Japan guard still covers both the delivery and billing address.
+  `paidy_requirements` adds `family_name_on_file` / `given_name_on_file` for
+  the profile form's pre-fill. Storefront: billing picker on the Paidy card;
+  an unrecognised Paidy callback status is UNKNOWN (window kept, order
+  re-read), never a close (PA15A).
+- Tests: development/paidy-pr5-truthfulness.test.ts in the CI list;
+  paidy-alignment.test.ts and payment-lifecycle-addendum.test.ts guards moved
+  to `paidyBillingChoice(` and `paidyRefundReceivedKey(r.id)`.

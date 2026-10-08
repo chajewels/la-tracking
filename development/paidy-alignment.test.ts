@@ -154,7 +154,7 @@ Deno.test("wiring: website builds the payload with the helpers and never sends t
   assert(/paidyCheckoutPayload\(\{/.test(w));
   assertEquals(/tax:\s*0/.test(w), false);
   assert(/\.from\("layaway_accounts"\)[\s\S]{0,200}\.eq\("status", "completed"\)/.test(w));
-  assert(/paidyBillingAddress\(/.test(w));
+  assert(/paidyBillingChoice\(/.test(w)); // PA15B (PR 5): her chosen JP entry, default first
   assert(/paidyPointsBeforeOrder\(/.test(w));
   assert(/paidyDob\(/.test(w));
 });

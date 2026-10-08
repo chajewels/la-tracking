@@ -185,6 +185,11 @@
     `page365-fetch-order` — requires valid user JWT + `user_roles`
     IN (`admin`, `staff`, `finance`, `csr`), `verify_jwt = true`.
     Link in, parsed draft out; never writes an order.
+    `resend-order-email` (PA08, 2026-10-09) — requires valid user
+    JWT (`requireAuth`, person only — no service-role path) +
+    `user_roles` = `admin` (else 403 `admin_only`),
+    `verify_jwt = true`. Manual, audited resend of a web order's
+    refund email; writes its audit row before it sends.
     Never reintroduce an `isInternalKey` or anon-key bypass on
     any of these.
 

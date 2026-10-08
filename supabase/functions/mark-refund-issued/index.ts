@@ -18,6 +18,7 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerRefundMethod, isExceptionMethod, refundIssuedRefusal } from "../_shared/refund-issued-rules.ts";
 import { refundReceivedKey } from "../_shared/square-reconcile-rules.ts";
+import { paidyRefundReceivedKey } from "../_shared/paidy-rules.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -125,14 +126,29 @@ Deno.serve(async (req) => {
         return jsonResponse({
           ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false,
           email_skipped: proven === ids.length ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
-          refund_emails: { sent: proven, total: ids.length },
+          refund_emails: { sent: proven, total: ids.length }, provider: "card",
         });
       }
     } else if (method === "paidy") {
-      const { count, error: rErr } = await supabase.from("paidy_refunds").select("id", { count: "exact", head: true }).eq("cash_order_id", orderId);
+      // PA08 (2026-10-09): a verified paidy_refunds row is a financial fact,
+      // not a delivery receipt — the same rule as the card branch above. Each
+      // Paidy refund's own 「返金を受け付けました」 email (paidy-sync, key
+      // refund-received-paidy-<refund id>) must show a `sent` row; otherwise
+      // the truth is "not confirmed". Paidy refund emails are NOT replayed
+      // automatically (owner rule) — staff use the audited Resend.
+      const { data: prs, error: rErr } = await supabase.from("paidy_refunds").select("refund_id").eq("cash_order_id", orderId);
       if (rErr) throw rErr;
-      if ((count ?? 0) > 0) {
-        return jsonResponse({ ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false, email_skipped: "provider_refund_already_emailed" });
+      const ids = ((prs ?? []) as Array<{ refund_id: string }>).map((x) => String(x.refund_id));
+      if (ids.length > 0) {
+        let proven = 0;
+        for (const id of ids) {
+          if (await refundIssuedEmailSent(supabase, paidyRefundReceivedKey(id))) proven++;
+        }
+        return jsonResponse({
+          ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false,
+          email_skipped: proven === ids.length ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
+          refund_emails: { sent: proven, total: ids.length }, provider: "paidy",
+        });
       }
     }
 
