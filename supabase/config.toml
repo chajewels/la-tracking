@@ -47,6 +47,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.web-payment-reminder-sweep]
     verify_jwt = true
+  [functions.staff-bell-emails]
+    verify_jwt = true
   [functions.cart-reminder-sweep]
     verify_jwt = true
   [functions.media-cutout-worker]
