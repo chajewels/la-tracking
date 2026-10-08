@@ -555,3 +555,17 @@ on 2026-10-08 (project doc `claude/square-reassessment-response-2026-10-08.md`).
 - APPLY LESSON: Lovable's SQL runner strips `--` comments INSIDE function bodies, so a repo body with an
   in-body comment always shows as `a_differs` after apply (it did here for `staff_bell_email_fanout`).
   Keep comments outside `$fn$ … $fn$` in every new migration.
+
+### V10d — cancellation policy on the storefront (live 2026-10-08 22:5x JST)
+- `cha-jewels-web` PR #306 → #307 (main `6dea96c`): the Return, Cancellation and Refund Policy §5
+  "Paid-in-Full Order Cancellations" states the owner's approved rule once (JA + EN): order date in Japan
+  time → 100 % of the money paid as store credit (one year); a later day → 30 % cancellation charge,
+  70 % credit; credit is never cash; card payments are refunded to the card only, never combined with
+  credit (R05 / B01 said to the customer). The 2026-09-15 "up to 30 % of the total order price" /
+  "order and full payment on the same calendar day" wording is gone (owner choice: rewrite §5).
+- Checkout Review step: "By placing your order you agree to our Terms of Service and the Cancellation
+  policy." above Place order / Reserve; order page: "Cancellation policy →" under the totals. The anchor
+  is resolved by `lib/cancellation-policy.ts` from the rendered heading ids (§5 is `#s6`), guarded by
+  `tests/cancellation-policy.test.mjs`.
+- The Hub's cancellation_credit_split keeps the PHT day boundary (V10b): one hour behind the terms' JST
+  day, so the Hub is never stricter than what the customer read.
