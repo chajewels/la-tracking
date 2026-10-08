@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save, ChevronRight, Mail, Phone, Facebook, StickyNote } from 'lucide-react';
+import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save, ChevronRight, Mail, Phone, Facebook, StickyNote, UserRound } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import { useCustomerCashOrders } from '@/hooks/useCustomerCashOrders';
 import { orderCountsLabel, tallyCustomerOrders } from '@/lib/customer-account-stats';
@@ -679,6 +679,8 @@ export default function CustomerDetail() {
               { icon: Facebook, label: 'Facebook name', value: customer.facebook_name ? `@${customer.facebook_name}` : null },
               { icon: MessageCircle, label: 'Messenger', value: customer.messenger_link, href: customer.messenger_link },
               { icon: MapPin, label: 'Location', value: customer.location },
+              // P05 (2026-10-08): the buyer's two name fields Paidy receives.
+              { icon: UserRound, label: 'Paidy name', value: [(customer as { family_name?: string | null }).family_name, (customer as { given_name?: string | null }).given_name].filter(Boolean).join(' ') || null },
             ] as { icon: typeof Phone; label: string; value: string | null; href?: string | null }[]).map(({ icon: Icon, label, value, href }) => (
               <div key={label} className="min-w-0">
                 <dt className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-muted">

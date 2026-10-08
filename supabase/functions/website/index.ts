@@ -559,7 +559,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     paymentMethod: (order.payment_method ?? null) as string | null,
     requirements,
   });
-  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements };
+  if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements, mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null };
 
   // R12 / P06: her own completed yen orders (this one excluded) — ALL of them
   // — classified by how they were paid and whether anything was refunded. A
@@ -592,7 +592,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     ]);
   } catch (e) {
     console.error("[paidy] buyer history unavailable — Paidy withheld:", e);
-    return { offered: false as const, reason: "history_unavailable", requirements };
+    return { offered: false as const, reason: "history_unavailable", requirements, mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null };
   }
   const { data: member, error: memberErr } = await supabase.from("loyalty_members").select("remaining_points").eq("customer_id", customer.id).maybeSingle();
   if (memberErr) throw memberErr;
@@ -606,6 +606,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     public_key: publicKey,
     test: mode === "test",
     requirements,
+    mobile_number: typeof c.mobile_number === "string" ? c.mobile_number : null,
     checkout: paidyCheckoutPayload({
       amount: breakdown.amount,
       orderRef,
@@ -772,10 +773,19 @@ function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[], 
 async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, to: CustomerMethod): Promise<boolean> {
   if (to === "transfer") return true;
   const as = { ...order, payment_method: to };
-  if (to === "paidy") return (await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock)).offered;
+  if (to === "paidy") {
+    const o = await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock);
+    // QA 2026-10-08 (#4): a Paidy that only waits for HER details (names,
+    // Japanese mobile, Japanese billing address) is still switchable — the
+    // order page then collects them. Any other refusal keeps it off the list.
+    return o.offered || PAIDY_DETAIL_REASONS.has(String(o.reason ?? ""));
+  }
   if (cardUnresolved) return false;
   return (await cardOffer(supabase, customer, as, pendingCount, false)).offered;
 }
+
+/** Paidy refusals the customer can fix herself on the order page (P05). */
+const PAIDY_DETAIL_REASONS = new Set(["no_buyer_name", "no_jp_mobile", "no_jp_billing_address"]);
 
 /** D1: the methods (public names) she may switch to now — allowed by the rules AND offered. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2933,10 +2943,18 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // live or captured card money is not yet recorded (the lock answers
       // card_payment_unresolved; card_payment carries the card's own state).
       const lock = await paymentLock(supabase, String(order.id));
-      const paidyProcessing = !!lock && lock.startsWith("paidy");
+      // P04 QA (2026-10-08, owner default "she can reopen Paidy right away"):
+      // her OWN checkout window (paidy_checkout_open — every attempt on her
+      // order is hers) is not a payment. Paidy is offered again at once
+      // (start_paidy_checkout_attempt replaces the window); transfer and card
+      // stay hidden until the sweep confirms nothing was paid. Only when
+      // nothing else holds the order (ignoreAttempts) — otherwise it is a
+      // real Paidy payment in progress.
+      const windowOnly = lock === "paidy_checkout_open" && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null;
+      const paidyProcessing = !!lock && lock.startsWith("paidy") && !windowOnly;
       const cardPayment = await cardPaymentState(supabase, String(order.id));
       const blockedByCard = cardPayment !== null || lock === "card_payment_unresolved";
-      const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length, lock);
+      const paidyBlock = await paidyOffer(supabase, customer, order as AnyRec, shipTo, (items ?? []) as AnyRec[], (pendingSubs ?? []).length, windowOnly ? null : lock);
       // C1 (2026-10-05): the method she chose at checkout. After staff Confirm
       // the order page shows ONLY that one (staff change it in the Hub).
       const chosenMethod = publicMethod((order as AnyRec).payment_method);
@@ -2967,13 +2985,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         pending_submissions: ((pendingSubs ?? []) as AnyRec[]).map((p) => p.status === "confirmed" ? { ...p, status: "under_review" } : p),
         // "paidy_processing" while Paidy holds the order (see above); the
         // storefront then shows the processing state and no payment option.
-        payment_state: paidyProcessing ? "paidy_processing" : (lock ? "payment_pending" : null),
+        payment_state: paidyProcessing ? "paidy_processing" : windowOnly ? "paidy_window_open" : (lock ? "payment_pending" : null),
         // Paidy ato-barai (2026-10-03): the block the order page renders, or
         // null with the reason it is not offered (logged, never shown).
         paidy: paidyBlock.offered ? paidyBlock : null,
         // P05 (2026-10-08): what Paidy still needs from her, so the order page
         // can ask for it (names, Japanese mobile, Japanese billing address).
-        paidy_requirements: paidyBlock.requirements ?? null,
+        paidy_requirements: paidyBlock.requirements ? { ...paidyBlock.requirements, mobile_number: paidyBlock.mobile_number ?? null } : null,
         // Card payment (Square, S2 2026-10-04): the block the pay-card page
         // renders, or null (reason logged, never shown).
         card: cardBlock.offered ? cardBlock : null,

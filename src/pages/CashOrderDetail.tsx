@@ -333,6 +333,34 @@ function useCashOrderItems(orderId: string | undefined) {
   });
 }
 
+/**
+ * P04 QA (2026-10-08): the customer's OPEN Paidy checkout window. While one
+ * exists the order is locked (cash_order_payment_lock = paidy_checkout_open):
+ * Confirm / Submit Payment / store credit are refused by the database until
+ * the hourly sweep (expire_paidy_checkout_attempts) confirms with Paidy that
+ * nothing was paid. Staff could not see this before — the buttons simply
+ * failed. Staff may SELECT the table (paidy_checkout_attempts_staff_select).
+ */
+function useOpenPaidyWindow(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['paidy-open-window', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('paidy_checkout_attempts')
+        .select('id, started_at, expires_at, customer_closed_at')
+        .eq('cash_order_id', orderId!)
+        .eq('status', 'open')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as { id: string; started_at: string; expires_at: string; customer_closed_at: string | null } | null) ?? null;
+    },
+  });
+}
+
 function useProfileName(userId: string | null | undefined) {
   return useQuery({
     queryKey: ['profile-name', userId],
@@ -428,6 +456,7 @@ export default function CashOrderDetail() {
   // answers "Reject or record the Paidy payment first"). The page points staff to Payments instead of
   // offering buttons the server would refuse (2026-10-04).
   const providerHold = paidyPending ?? squarePending;
+  const { data: paidyWindow } = useOpenPaidyWindow(id);
   const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
@@ -1478,6 +1507,13 @@ export default function CashOrderDetail() {
                     </>
                   )}
                 </p>
+                {paidyWindow && !providerHold && (
+                  <p className="rounded-md border border-amber-300/70 bg-amber-50/70 px-2 py-1 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200" data-testid="cash-order-paidy-window">
+                    Paidy window open since {formatPHTDisplay(paidyWindow.started_at)}
+                    {paidyWindow.customer_closed_at ? ` · customer closed it ${formatPHTDisplay(paidyWindow.customer_closed_at)}` : ''}
+                    {' — '}the order is locked (no Confirm, Submit Payment or store credit) until the hourly Paidy check confirms nothing was paid; the customer can open Paidy again at any time.
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Invoice <span className="font-mono">{order.invoice_number}</span>
                   {order.transfer_due_at && (
