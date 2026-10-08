@@ -634,7 +634,8 @@ acceptance.sql` (18). Deno: `development/square-sqf02-validation.test.ts`, `squa
 
 ### SQF06 — "Card refund outside Square" exception (owner D-SQF06, approved as recommended)
 1. TRIGGER: a `square_refunds` row FAILED or REJECTED on the order, or a captured `square_payments` row
-   older than 365 days — facts read back from Square; nothing else (`exception_not_triggered`).
+   whose `authorized_at` is more than ONE CALENDAR YEAR ago (SQV04; was "captured over 365 days") — facts
+   read back from Square; nothing else (`exception_not_triggered`).
 2. APPROVER: admin only — `has_role(p_user_id,'admin')` in the SQL and `user_roles` in the edge
    (`admin_only`). Brenda raises, the owner approves.
 3. EVIDENCE: the Square refund id (or the over-age capture) AND a Square Support ticket number
@@ -646,6 +647,9 @@ acceptance.sql` (18). Deno: `development/square-sqf02-validation.test.ts`, `squa
    amount, not tied to an order (`exception_lot_mismatch`). Never cash, never another card.
 5. CAP: captured card money − COMPLETED Square refunds − store credit already issued on the order,
    computed by the SQL (`exception_over_cap` with the cap; `exception_nothing_owed` when ≤ 0).
+   SUPERSEDED by SQV02/SQV03 (below): the exception is APPROVED first (amount + payout, after a Square
+   re-read), then recorded against the approval; the lot rules are stricter (issued after the approval,
+   unspent, not used for another refund).
 6. RECORD: `mark_web_order_refund_issued_atomic(…, p_exception jsonb)` (the 5-argument overload is dropped)
    → `refund_status = refund_issued`; the audit row's `new_value_json.exception` keeps trigger, refund id,
    ticket, transfer date/reference or lot id/request, and the cap figures. The order page shows "Refund
@@ -667,3 +671,78 @@ UNSPENT lot the same day; if part is already spent, record the spent part as a r
 under the SQF06 cap (captured − completed refunds − credit issued); reconcile totals in Settings → Store
 Credit. Response-time target: same business day. The Hub cannot stop a dashboard refund; it rings the
 bell within the hour (square-reconcile) or on the webhook.
+
+## Fix revalidation SQV01–SQV06 + D-G04 / D-SQV05 (2026-10-09, fifth release)
+
+An independent revalidation of the fourth release (HOLD) found six items and ten checklist points; all
+were verified valid. Response, owner decisions and build plan: project doc
+`claude/square-fix-revalidation-response-2026-10-09.md`. Owner decisions (all as recommended):
+D-SQV03 = approve first, then pay; D-SQV04 = Square facts only, age from `authorized_at`, one calendar year;
+D-SQV05 = read-only production preflight; D-G04 = a card allow-list. Migration 20261130110000. Acceptance
+SQL `development/sql/sqv-square-exception-allowlist-acceptance.sql` (54 checks) and
+`development/sql/sqv-concurrency.sh` (two real sessions: lot race, double approver, void vs allocation).
+Deno `development/square-sqv.test.ts`; vitest `src/test/square-sqv-hub.test.ts`.
+
+### SQV01 — the refund writer is service_role only again
+`mark_web_order_refund_issued_atomic` had been granted to `authenticated` by 20261129110000 (a regression:
+a signed-in user could call it with any `p_user_id`). Revoked; only the `mark-refund-issued` edge function
+(service role, person-checked) calls it.
+
+### SQV02 / SQV03 — approve first, then pay (table `card_refund_exceptions`)
+- Step 1 — `mark-refund-issued` `{ action: "approve", payout: bank_transfer|store_credit,
+  square_refund_id?, square_support_ticket, amount_jpy, note? }` (admin). The edge first re-reads every
+  refund of the order's captured payments from Square (`_shared/square-refund-resync.ts`
+  `resyncOrderRefunds`: GetPayment → `refund_ids` + the Hub's known ids → GetRefund → `syncSquareRefund`),
+  FAIL CLOSED (`square_unreachable` / `refund_not_recorded` / `hub_read_failed`, 503). Then
+  `approve_card_refund_exception_atomic` (service role) locks the order and refuses
+  `exception_refund_in_progress` while ANY Square refund is not COMPLETED / FAILED / REJECTED,
+  `exception_exists` (one live approval per order, unique index), `exception_over_cap` / `exception_nothing_owed`.
+  Writes an `approved` row (amount, cap and its parts, trigger, ticket), audit `card_refund_exception_approved`,
+  bell `card_refund_exception_approved`.
+- Step 2 — the usual record call with method `bank_transfer_exception` | `store_credit_exception` records
+  AGAINST the approval: `exception_not_approved`, `exception_payout_mismatch`, `exception_refund_in_progress`,
+  and the cap is recomputed (`exception_superseded` if Square or credit moved it below the approved amount).
+  The amount is always the APPROVED amount. Bank transfer: date not in the future and not before the
+  approval's PHT day, plus a reference. Store credit: the customer's written request and a lot locked
+  FOR UPDATE that is hers, JPY, active, unexpired, unspent (remaining = original), exactly the approved
+  amount, not tied to an order, issued AFTER the approval, and not already used by another exception
+  (`exception_lot_mismatch`, `detail` = lot_not_found / lot_not_this_customer / lot_not_jpy /
+  lot_not_active / lot_expired / lot_already_spent / lot_tied_to_an_order / lot_issued_before_approval /
+  lot_amount_differs / lot_already_allocated; unique index on `store_credit_lot_id`).
+- `{ action: "cancel_approval", reason }` (admin, reason required) → `cancelled`, audited; refused once
+  recorded (`already_recorded`) or when none is open (`no_approval`).
+- `record_square_refund`: a Square refund that is not FAILED/REJECTED landing on an order with an
+  APPROVED or RECORDED exception rings `card_refund_after_exception` once per refund id; the text says to
+  cancel the approval if nothing was paid yet.
+- Hub dialog (`MarkRefundIssuedDialog`): step 1 "Approve exception" (disabled while a Square refund is
+  processing), step 2 shows the approval and the record fields plus "Cancel this approval"; if the card
+  facts cannot be read nothing can be submitted; the footer stays visible while the body scrolls.
+
+### SQV04 — the age trigger is the original authorisation, one calendar year
+SQL `sp.authorized_at < now() - interval '1 year'`; Hub `authorizedOverOneYear` (`setUTCFullYear − 1`). The
+capture date and "365 days" are retired.
+
+### SQV06 — the refund-email sentence never promises a retry that is not scheduled
+`_shared/refund-email-state.ts`: per COMPLETED refund `sent | retrying | given_up | not_replayed`
+(`retrying` only when `refund_email_replay` is on and `email_given_up_at` is null). `mark-refund-issued`
+returns `refund_emails` (coverage) and `refund_email_sentence`; the dialog shows that sentence verbatim.
+
+### D-SQV05 — read-only production preflight (edge `square-preflight`, admin)
+Website → Settings → Card payments → "Check production connection": GET /v2/locations with the
+production token, the configured Location ID must be one of the token's, the Application ID must be
+`sq0idp-`, then one Events API search (last 28 days). A 401/403 is `auth_failed`, never "not enabled";
+only a successful search passes. Writes ONLY `square_sync_state` `preflight:production` (report + who +
+when, secret NAME only); `get_square_settings` returns it as `preflight`. Never charges, never changes the
+mode. Run it before switching to On; the On confirmation warns when the last check did not pass.
+
+### D-G04 — card allow-list while On
+`system_settings.square_audience` (`listed` | `everyone`, seeded `listed`, fail-closed to `listed`) and
+`square_card_customer_ids` (jsonb array of customer ids), changed ONLY via `set_square_settings`
+(`p_audience`, `p_card_customer_codes` — customer codes, unknown codes refused `unknown_customer_code`),
+admin, audited, guard trigger. `square_card_allowed(customer)`: off → no; test → `is_test` only; on →
+everyone, or only listed customers. Enforced in `create_web_draft_atomic`, `change_web_payment_method_atomic`,
+`switch_web_payment_method_by_customer_atomic` (`method_unavailable`) and `reserve_square_attempt`
+(`card_not_offered`); TS twin `squareCardAllowed` (`_shared/card-rules.ts`) drives the website's offers
+(`not_on_card_list` on the order page; checkout card reason `off`, so the storefront needs no change).
+Settings card: audience radio + customer codes, listed names shown.
+

@@ -6,6 +6,14 @@
 //                               |bank_transfer_exception|store_credit_exception (SQF06, admin),
 //        refunded_on: YYYY-MM-DD, note?, exception?: { square_refund_id?, square_support_ticket,
 //        amount_jpy, transfer_date?, transfer_reference?, customer_request?, store_credit_lot_id? } }
+// SQV03 / D-SQV03 (owner 2026-10-09): the exception is APPROVED FIRST, then paid:
+//   POST { cash_order_id, action: "approve", payout: bank_transfer|store_credit,
+//          square_refund_id?, square_support_ticket, amount_jpy, note? }  (admin)
+//        → re-reads every Square refund of the order from Square, then
+//          approve_card_refund_exception_atomic (refuses while a refund is open).
+//   POST { cash_order_id, action: "cancel_approval", reason }            (admin)
+//   then, after the transfer / lot: the usual record call with method
+//   bank_transfer_exception | store_credit_exception records against the approval.
 // Person only (no service-role path): the audit row names who did it.
 // Permission cancel_cash_order — the same people who record the refund
 // decision at cancel. The ONE writer is mark_web_order_refund_issued_atomic
@@ -18,6 +26,8 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerRefundMethod, isExceptionMethod, refundIssuedRefusal } from "../_shared/refund-issued-rules.ts";
 import { refundReceivedKey } from "../_shared/square-reconcile-rules.ts";
+import { type RefundEmailState, refundEmailCoverage, refundEmailSentence, refundEmailState } from "../_shared/refund-email-state.ts";
+import { resyncOrderRefunds } from "../_shared/square-refund-resync.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,6 +48,10 @@ const STATUS: Record<string, number> = {
   // capped by the SQL at captured − completed refunds − credit issued.
   admin_only: 403, exception_not_triggered: 409, exception_evidence_required: 400, exception_over_cap: 409,
   exception_nothing_owed: 409, exception_lot_mismatch: 409,
+  // SQV02/SQV03 (2026-10-09): approve first, then pay.
+  exception_exists: 409, exception_refund_in_progress: 409, exception_not_approved: 409,
+  exception_payout_mismatch: 409, exception_superseded: 409, bad_payout: 400, reason_required: 400,
+  no_approval: 404, already_recorded: 409, square_unreachable: 503, refund_not_recorded: 503, hub_read_failed: 503,
 };
 
 /** SQF06: the signed-in user holds the admin role (user_roles), checked here before the SQL checks it again. */
@@ -70,6 +84,40 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const orderId = String(body?.cash_order_id ?? "");
     if (!UUID_RE.test(orderId)) return jsonResponse({ error: "cash_order_id must be a uuid" }, 400);
+
+    const action = typeof body?.action === "string" ? body.action : "record";
+    if (action === "approve" || action === "cancel_approval") {
+      if (!(await isAdmin(supabase, ctx.user.id))) return jsonResponse({ error: "admin_only" }, 403);
+      if (action === "cancel_approval") {
+        const { data, error: rpcErr } = await supabase.rpc("cancel_card_refund_exception_atomic", {
+          p_order_id: orderId, p_user_id: ctx.user.id, p_reason: typeof body?.reason === "string" ? body.reason : null,
+        });
+        if (rpcErr) throw rpcErr;
+        const r = (data ?? {}) as Record<string, unknown>;
+        if (r.ok !== true) { const code = String(r.error ?? "refused"); return jsonResponse({ error: code }, STATUS[code] ?? 409); }
+        return jsonResponse({ ok: true, exception: r.exception });
+      }
+      // Square's facts first (fail closed): a refund the Hub has not seen yet,
+      // or one that moved since, decides the approval — not a stale row.
+      const resync = await resyncOrderRefunds(supabase, orderId);
+      if (!resync.ok) return jsonResponse({ error: resync.error, detail: resync.detail }, STATUS[resync.error] ?? 503);
+      const amount = Number(body?.amount_jpy);
+      const { data, error: rpcErr } = await supabase.rpc("approve_card_refund_exception_atomic", {
+        p_order_id: orderId, p_user_id: ctx.user.id,
+        p_payout: typeof body?.payout === "string" ? body.payout : null,
+        p_square_refund_id: typeof body?.square_refund_id === "string" && body.square_refund_id.trim() !== "" ? body.square_refund_id.trim() : null,
+        p_ticket: typeof body?.square_support_ticket === "string" ? body.square_support_ticket : null,
+        p_amount_jpy: Number.isSafeInteger(amount) ? amount : null,
+        p_note: typeof body?.note === "string" ? body.note.trim().slice(0, 500) : null,
+      });
+      if (rpcErr) throw rpcErr;
+      const r = (data ?? {}) as Record<string, unknown>;
+      if (r.ok !== true) {
+        const code = String(r.error ?? "refused");
+        return jsonResponse({ error: code, cap_jpy: r.cap_jpy ?? null, refunds: r.refunds ?? null, missing: r.missing ?? null, detail: r.detail ?? null }, STATUS[code] ?? 409);
+      }
+      return jsonResponse({ ok: true, exception: r.exception, cap_jpy: r.cap_jpy, resynced_refunds: resync.refunds });
+    }
     const method = typeof body?.method === "string" ? body.method.trim().toLowerCase() : "";
     const refundedOn = typeof body?.refunded_on === "string" ? body.refunded_on.trim() : "";
     const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
@@ -93,7 +141,7 @@ Deno.serve(async (req) => {
     const r = (data ?? {}) as Record<string, unknown>;
     if (r.ok !== true) {
       const code = String(r.error ?? "refused");
-      return jsonResponse({ error: code }, STATUS[code] ?? 409);
+      return jsonResponse({ error: code, missing: r.missing ?? null, detail: r.detail ?? null, cap_jpy: r.cap_jpy ?? null }, STATUS[code] ?? 409);
     }
 
     const emailKey = `refund-issued-${orderId}`;
@@ -109,23 +157,27 @@ Deno.serve(async (req) => {
       // holds a sent row for that refund's own key; otherwise the truth is
       // "not confirmed" (the hourly check re-sends it, B02). Either way no
       // second message is sent from here (one-message policy).
-      const { data: rfs, error: rErr } = await supabase.from("square_refunds").select("square_refund_id")
+      const { data: rfs, error: rErr } = await supabase.from("square_refunds")
+        .select("square_refund_id, refund_email_replay, email_given_up_at")
         .eq("cash_order_id", orderId).eq("status", "COMPLETED");
       if (rErr) throw rErr;
-      const ids = ((rfs ?? []) as Array<{ square_refund_id: string }>).map((x) => String(x.square_refund_id));
-      if (ids.length > 0) {
+      const rows = (rfs ?? []) as Array<{ square_refund_id: string; refund_email_replay: boolean | null; email_given_up_at: string | null }>;
+      if (rows.length > 0) {
         // SQF05 (2026-10-09): EVERY completed refund must be proven — one sent
-        // email never vouches for a second refund on the same order. The
-        // response says how many of how many, so the dialog can say
-        // "1 of 2 — the hourly check will retry".
-        let proven = 0;
-        for (const id of ids) {
-          if (await refundIssuedEmailSent(supabase, refundReceivedKey(id))) proven++;
+        // email never vouches for a second refund on the same order.
+        // SQV06 (2026-10-09): and the answer says, per refund, whether a retry is
+        // really scheduled (retrying), stopped (given_up) or never was
+        // (not_replayed) — "the hourly check will retry" only when it will.
+        const states: RefundEmailState[] = [];
+        for (const row of rows) {
+          const sent = await refundIssuedEmailSent(supabase, refundReceivedKey(String(row.square_refund_id)));
+          states.push(refundEmailState({ sent, replay: row.refund_email_replay, givenUpAt: row.email_given_up_at }));
         }
+        const coverage = refundEmailCoverage(states);
         return jsonResponse({
           ok: true, amount: r.amount, currency: r.currency, already_recorded: alreadyRecorded, email_sent: false,
-          email_skipped: proven === ids.length ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
-          refund_emails: { sent: proven, total: ids.length },
+          email_skipped: coverage.sent === coverage.total ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed",
+          refund_emails: coverage, refund_email_sentence: refundEmailSentence(coverage),
         });
       }
     } else if (method === "paidy") {

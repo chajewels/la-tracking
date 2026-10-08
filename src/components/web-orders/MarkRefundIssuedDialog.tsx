@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,15 @@ import { useAuth } from '@/contexts/AuthContext';
  * the amount is capped by the Hub at captured − completed refunds − credit
  * already issued on the order. The SQL (mark_web_order_refund_issued_atomic)
  * decides; this form only collects. docs/SQUARE.md "Card refund exception".
+ *
+ * SQV02–SQV04 (owner D-SQV03 / D-SQV04, 2026-10-09): APPROVE FIRST, THEN PAY.
+ * Step 1 (admin): the Hub re-reads every Square refund of the order from Square,
+ * then approves an amount (≤ the cap) and a payout — refused while any Square
+ * refund is still processing. Step 2: after the transfer / the lot, the refund
+ * is recorded against that approval (amount = the approved amount). The age
+ * trigger is the original payment's authorisation more than one calendar year
+ * ago (Square facts only). An approval can be cancelled (with a reason) until it
+ * is recorded. If the card facts cannot be read, nothing can be submitted.
  */
 
 const METHODS = [
@@ -67,71 +76,137 @@ const REFUSAL: Record<string, string> = {
   // PA03 (2026-10-08): only a Paidy refund the Hub has read back counts.
   no_verified_paidy_refund: 'The Hub has not recorded a Paidy refund for this order yet. Refund it in the Paidy merchant dashboard first; the hourly check records it, then mark it here. The amount recorded is what Paidy refunded, never the full receipt.',
   // SQF06
-  admin_only: 'Only an admin can record a refund made outside Square.',
-  exception_not_triggered: 'The exception is not open: it needs a Square refund that FAILED or was REJECTED, or a card payment captured more than 365 days ago.',
-  exception_evidence_required: 'The exception needs its evidence: the Square refund, the Square Support ticket number, the amount, and the transfer date + reference (or the customer\'s written request + the store-credit lot).',
+  admin_only: 'Only an admin can approve or record a refund made outside Square.',
+  exception_not_triggered: 'The exception is not open: it needs a Square refund that FAILED or was REJECTED, or a card payment authorised more than one year ago.',
+  exception_evidence_required: 'The exception needs its evidence: the Square Support ticket number and the amount (to approve); the transfer date + reference, or the customer\'s written request + the store-credit lot (to record).',
   exception_over_cap: 'The amount is above what the Hub still owes on this card payment (captured − refunds Square completed − store credit already issued).',
   exception_nothing_owed: 'Nothing is owed on this card payment any more: Square refunds and store credit already cover what was captured.',
-  exception_lot_mismatch: 'That store-credit lot does not fit: it must be this customer\'s, in yen, exactly the amount, and not already tied to an order.',
+  exception_lot_mismatch: 'That store-credit lot does not fit the approval.',
+  // SQV02/SQV03
+  exception_exists: 'This order already has an approval. Record against it, or cancel it first.',
+  exception_refund_in_progress: 'A Square refund on this order is still processing. Wait until Square shows it COMPLETED, FAILED or REJECTED.',
+  exception_not_approved: 'Approve the exception first (step 1), then pay and record it.',
+  exception_payout_mismatch: 'The approval was for the other payout. Record it the way it was approved, or cancel the approval and approve again.',
+  exception_superseded: 'Square or store credit has changed what is owed since the approval. Cancel the approval and approve again.',
+  bad_payout: 'Choose bank transfer or store credit.',
+  reason_required: 'Write why the approval is cancelled.',
+  no_approval: 'There is no open approval on this order.',
+  already_recorded: 'This approval is already recorded and cannot be cancelled.',
+  square_unreachable: 'Square could not be read just now, so nothing was approved. Try again in a minute.',
+  refund_not_recorded: 'A Square refund on this order could not be recorded in the Hub, so nothing was approved. Check the bell, then try again.',
+  hub_read_failed: 'The Hub could not read this order\'s card payments, so nothing was approved. Try again.',
 };
+const LOT_DETAIL: Record<string, string> = {
+  lot_not_found: 'no lot with that id', lot_not_this_customer: 'the lot belongs to another customer', lot_not_jpy: 'the lot is not in yen',
+  lot_not_active: 'the lot is not active', lot_expired: 'the lot has expired', lot_already_spent: 'part of the lot is already spent',
+  lot_tied_to_an_order: 'the lot is already tied to an order', lot_issued_before_approval: 'the lot was issued before the approval — issue a new one',
+  lot_amount_differs: 'the lot amount differs from the approved amount', lot_already_allocated: 'the lot is already used for another refund',
+};
+
+/** SQV02/SQV03: an approved, not yet recorded exception on the order. */
+export interface ExceptionApproval {
+  id: string; payout: 'bank_transfer' | 'store_credit'; amount: number; cap: number;
+  trigger: string; squareRefundId: string | null; ticket: string; approvedAt: string; note: string | null;
+}
 
 /** What the dialog needs to know about card money on the order (B01; SQF06 adds the exception facts). */
 interface CardRefundFacts {
   paidByCard: boolean; cardPaid: number; refundedCompleted: number; refundedPending: number;
   /** SQF06: FAILED / REJECTED Square refunds on the order (each opens the exception). */
   failedRefunds: { id: string; status: string; amount: number }[];
-  /** SQF06: a capture older than 365 days opens the exception too. */
-  captureOver365: boolean;
+  /** SQV04: the ORIGINAL payment was authorised more than one calendar year ago (Square facts only). */
+  authorizedOverOneYear: boolean;
   /** SQF06: store credit already issued on the order (part of the cap). */
   creditIssued: number;
+  /** SQV03: the open approval, if any. */
+  approval: ExceptionApproval | null;
 }
 
-const EXCEPTION_AGE_DAYS = 365;
+/** SQV04: one calendar year before `now` — the same rule as the SQL's `now() - interval '1 year'`. */
+export function oneYearBefore(now: Date): Date {
+  const d = new Date(now.getTime());
+  d.setUTCFullYear(d.getUTCFullYear() - 1);
+  return d;
+}
+export function authorizedOverOneYear(authorizedAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!authorizedAt) return false;
+  const t = Date.parse(authorizedAt);
+  return Number.isFinite(t) && t < oneYearBefore(now).getTime();
+}
 
 async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
-  const [pays, refunds, captures, lots] = await Promise.all([
+  const [pays, refunds, captures, lots, approvals] = await Promise.all([
     supabase.from('cash_payments').select('amount_paid, payment_method').eq('cash_order_id', orderId).is('voided_at', null),
     supabase.from('square_refunds').select('square_refund_id, amount_jpy, status').eq('cash_order_id', orderId),
-    supabase.from('square_payments').select('captured_at, status').eq('cash_order_id', orderId).eq('status', 'captured'),
+    supabase.from('square_payments').select('authorized_at, status').eq('cash_order_id', orderId).eq('status', 'captured'),
     supabase.from('store_credit_lots').select('original_amount, status').eq('source_cash_order_id', orderId),
+    // card_refund_exceptions is not in the generated types until Lovable's next push.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.from as any)('card_refund_exceptions')
+      .select('id, payout, amount_jpy, cap_jpy, trigger_kind, square_refund_id, square_support_ticket, approved_at, approval_note')
+      .eq('cash_order_id', orderId).eq('status', 'approved').maybeSingle(),
   ]);
   if (pays.error) throw pays.error;
   if (refunds.error) throw refunds.error;
   if (captures.error) throw captures.error;
   if (lots.error) throw lots.error;
+  if (approvals.error) throw approvals.error;
   const card = (pays.data ?? []).filter((p) => p.payment_method === 'square');
   const rows = (refunds.data ?? []) as { square_refund_id: string; amount_jpy: number | string | null; status: string | null }[];
   const sum = (xs: { amount_jpy: number | string | null }[]) => xs.reduce((t, r) => t + Number(r.amount_jpy ?? 0), 0);
-  const cutoff = Date.now() - EXCEPTION_AGE_DAYS * 24 * 60 * 60 * 1000;
+  const a = approvals.data as null | { id: string; payout: string; amount_jpy: number | string; cap_jpy: number | string; trigger_kind: string; square_refund_id: string | null; square_support_ticket: string; approved_at: string; approval_note: string | null };
   return {
     paidByCard: card.length > 0,
     cardPaid: card.reduce((t, p) => t + Number(p.amount_paid ?? 0), 0),
     refundedCompleted: sum(rows.filter((r) => r.status === 'COMPLETED')),
     refundedPending: sum(rows.filter((r) => r.status !== 'COMPLETED' && r.status !== 'FAILED' && r.status !== 'REJECTED')),
     failedRefunds: rows.filter((r) => r.status === 'FAILED' || r.status === 'REJECTED').map((r) => ({ id: r.square_refund_id, status: String(r.status), amount: Number(r.amount_jpy ?? 0) })),
-    captureOver365: ((captures.data ?? []) as { captured_at: string | null }[]).some((c) => c.captured_at && Date.parse(c.captured_at) < cutoff),
+    authorizedOverOneYear: ((captures.data ?? []) as { authorized_at: string | null }[]).some((c) => authorizedOverOneYear(c.authorized_at)),
     creditIssued: ((lots.data ?? []) as { original_amount: number | string | null; status: string | null }[])
       .filter((l) => l.status !== 'voided').reduce((t, l) => t + Number(l.original_amount ?? 0), 0),
+    approval: a ? {
+      id: a.id, payout: a.payout === 'store_credit' ? 'store_credit' : 'bank_transfer', amount: Number(a.amount_jpy), cap: Number(a.cap_jpy),
+      trigger: a.trigger_kind, squareRefundId: a.square_refund_id, ticket: a.square_support_ticket, approvedAt: a.approved_at, note: a.approval_note,
+    } : null,
   };
 }
 
-/** SQF06: the exception is open when Square itself cannot refund. Pure — the SQL is the authority. */
-export function cardException(f: Pick<CardRefundFacts, 'paidByCard' | 'failedRefunds' | 'captureOver365'> | null | undefined): boolean {
-  return !!f && f.paidByCard && (f.failedRefunds.length > 0 || f.captureOver365);
+/** SQF06/SQV04: the exception is open when Square itself cannot refund. Pure — the SQL is the authority. */
+export function cardException(f: Pick<CardRefundFacts, 'paidByCard' | 'failedRefunds' | 'authorizedOverOneYear'> | null | undefined): boolean {
+  return !!f && f.paidByCard && (f.failedRefunds.length > 0 || f.authorizedOverOneYear);
 }
 /** SQF06: what the Hub still owes on the card money (the SQL recomputes it; this is the figure shown). */
 export function exceptionCap(f: Pick<CardRefundFacts, 'cardPaid' | 'refundedCompleted' | 'creditIssued'>): number {
   return Math.max(0, f.cardPaid - f.refundedCompleted - f.creditIssued);
 }
 
+/** A timestamp's Philippine day (YYYY-MM-DD), the day boundary the SQL uses. */
+export function phtDay(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(iso));
+}
+
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('en-US')}`;
 
-async function errorCode(error: unknown): Promise<string> {
-  const ctx = (error as { context?: unknown })?.context;
-  try {
-    if (ctx instanceof Response) return String((await ctx.clone().json())?.error ?? '');
-  } catch { /* fall through */ }
-  return (error as Error)?.message ?? 'error';
+/** The edge's refusal body (error code + optional detail / cap), whether it came back as an error or as data. */
+async function refusalOf(error: unknown, data: unknown): Promise<{ code: string; detail?: string | null; cap?: number | null } | null> {
+  if (error) {
+    const ctx = (error as { context?: unknown })?.context;
+    try {
+      if (ctx instanceof Response) {
+        const j = await ctx.clone().json();
+        return { code: String(j?.error ?? 'error'), detail: j?.detail ?? null, cap: j?.cap_jpy ?? null };
+      }
+    } catch { /* fall through */ }
+    return { code: (error as Error)?.message ?? 'error' };
+  }
+  const d = data as { error?: string; detail?: string; cap_jpy?: number } | null;
+  return d?.error ? { code: String(d.error), detail: d.detail ?? null, cap: d.cap_jpy ?? null } : null;
+}
+function refusalText(r: { code: string; detail?: string | null; cap?: number | null }): string {
+  const base = REFUSAL[r.code] ?? `Refused: ${r.code}`;
+  const lot = r.detail && LOT_DETAIL[r.detail] ? ` (${LOT_DETAIL[r.detail]})` : '';
+  const cap = r.code === 'exception_over_cap' && r.cap != null ? ` The Hub says at most ${yen(Number(r.cap))}.` : '';
+  return base + lot + cap;
 }
 
 /**
@@ -182,81 +257,131 @@ export function MarkRefundIssuedDialog({
   const [cardError, setCardError] = useState<string | null>(null);
   const { roles } = useAuth();
   const isAdmin = roles.includes('admin');
-  // SQF06 evidence
+  // Step 1 (approve)
   const [excRefundId, setExcRefundId] = useState<string>('');
   const [excTicket, setExcTicket] = useState('');
   const [excAmount, setExcAmount] = useState('');
+  const [excNote, setExcNote] = useState('');
+  // Step 2 (record)
   const [excTransferDate, setExcTransferDate] = useState<string>(getPHTToday());
   const [excTransferRef, setExcTransferRef] = useState('');
   const [excRequest, setExcRequest] = useState('');
   const [excLotId, setExcLotId] = useState('');
+  // Cancel approval
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
-  useEffect(() => {
-    if (!open) return;
+  const reload = useCallback(() => {
     let live = true;
     setCard(null); setCardError(null);
     loadCardRefundFacts(orderId)
       .then((f) => {
         if (!live) return;
         setCard(f);
-        if (f.paidByCard) setMethod('card');
+        if (f.approval) setMethod(`${f.approval.payout}_exception`);
+        else if (f.paidByCard) setMethod('card');
         setExcRefundId(f.failedRefunds[0]?.id ?? '');
         setExcAmount(String(exceptionCap(f)));
       })
       .catch((e) => { if (live) setCardError((e as Error)?.message ?? 'Could not read the card payment.'); });
     return () => { live = false; };
-  }, [open, orderId]);
+  }, [orderId]);
 
+  useEffect(() => {
+    if (!open) return;
+    setCancelling(false); setCancelReason('');
+    return reload();
+  }, [open, reload]);
+
+  const approval = card?.approval ?? null;
   const cardOnly = card?.paidByCard === true;
-  const exceptionOpen = isAdmin && cardException(card);
+  const exceptionOpen = isAdmin && (cardException(card) || !!approval);
   const isException = method === 'bank_transfer_exception' || method === 'store_credit_exception';
+  const payout = method === 'store_credit_exception' ? 'store_credit' : 'bank_transfer';
   const cardBlocked = cardOnly && method === 'card' && (card?.refundedCompleted ?? 0) <= 0;
   const methods = cardOnly
-    ? [...METHODS.filter((m) => m.value === 'card'), ...(exceptionOpen ? EXCEPTION_METHODS : [])]
+    ? approval
+      ? EXCEPTION_METHODS.filter((m) => m.value === `${approval.payout}_exception`)
+      : [...METHODS.filter((m) => m.value === 'card'), ...(exceptionOpen ? EXCEPTION_METHODS : [])]
     : METHODS;
   const cap = card ? exceptionCap(card) : 0;
-  const exceptionIncomplete = isException && (
-    !excTicket.trim() || !/^\d+$/.test(excAmount.trim()) || Number(excAmount) <= 0 || Number(excAmount) > cap
-    || (method === 'bank_transfer_exception' && (!excTransferDate || !excTransferRef.trim()))
-    || (method === 'store_credit_exception' && (!excRequest.trim() || !excLotId.trim()))
+  /** Step 1 is shown for an exception method with no approval yet; step 2 once approved. */
+  const step: 'approve' | 'record' | null = isException ? (approval ? 'record' : 'approve') : null;
+  const refundProcessing = (card?.refundedPending ?? 0) > 0;
+  const approveIncomplete = step === 'approve' && (
+    !excTicket.trim() || !/^\d+$/.test(excAmount.trim()) || Number(excAmount) <= 0 || Number(excAmount) > cap || refundProcessing
   );
+  // The SQL compares the transfer date with the approval's PHT day.
+  const approvalDay = approval ? phtDay(approval.approvedAt) : '';
+  const recordIncomplete = step === 'record' && (
+    (payout === 'bank_transfer' && (!excTransferDate || !excTransferRef.trim() || excTransferDate < approvalDay))
+    || (payout === 'store_credit' && (!excRequest.trim() || !excLotId.trim()))
+  );
+  // Fail closed: if the card facts could not be read (or are still loading), nothing is submitted.
+  const factsMissing = cardError !== null || card === null;
+
+  const approve = async () => {
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('mark-refund-issued', {
+        body: {
+          cash_order_id: orderId, action: 'approve', payout,
+          square_refund_id: excRefundId || undefined, square_support_ticket: excTicket.trim(),
+          amount_jpy: Number(excAmount.trim()), note: excNote.trim() || undefined,
+        },
+      });
+      const refused = await refusalOf(error, data);
+      if (refused) { toast.error(refusalText(refused)); reload(); return; }
+      toast.success(`Approved: ${yen(Number(excAmount))} by ${payout === 'bank_transfer' ? 'bank transfer' : 'store credit'}. Now make the ${payout === 'bank_transfer' ? 'transfer' : 'store-credit lot'}, then record it here.`);
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelApproval = async () => {
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('mark-refund-issued', {
+        body: { cash_order_id: orderId, action: 'cancel_approval', reason: cancelReason.trim() },
+      });
+      const refused = await refusalOf(error, data);
+      if (refused) { toast.error(refusalText(refused)); return; }
+      toast.success('Approval cancelled. Nothing was paid or recorded.');
+      setCancelling(false); setCancelReason('');
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke('mark-refund-issued', {
         body: {
-          cash_order_id: orderId, method, refunded_on: day, note: note.trim() || undefined,
-          ...(isException ? {
-            exception: {
-              square_refund_id: excRefundId || undefined, square_support_ticket: excTicket.trim(), amount_jpy: excAmount.trim(),
-              ...(method === 'bank_transfer_exception' ? { transfer_date: excTransferDate, transfer_reference: excTransferRef.trim() } : { customer_request: excRequest.trim(), store_credit_lot_id: excLotId.trim() }),
-            },
+          cash_order_id: orderId, method, refunded_on: payout === 'bank_transfer' && step === 'record' ? excTransferDate : day,
+          note: note.trim() || undefined,
+          ...(step === 'record' ? {
+            exception: payout === 'bank_transfer'
+              ? { transfer_date: excTransferDate, transfer_reference: excTransferRef.trim() }
+              : { customer_request: excRequest.trim(), store_credit_lot_id: excLotId.trim() },
           } : {}),
         },
       });
-      if (error) {
-        const code = await errorCode(error);
-        toast.error(REFUSAL[code] ?? `Could not record the refund: ${code}`);
-        return;
-      }
-      if ((data as { error?: string } | null)?.error) {
-        const code = String((data as { error: string }).error);
-        toast.error(REFUSAL[code] ?? `Could not record the refund: ${code}`);
-        return;
-      }
-      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number } };
-      // SQF05: per-refund coverage — "2 of 2 refund emails sent" / "1 of 2 — the hourly check will retry".
-      const cov = d.refund_emails && d.refund_emails.total > 1 ? ` (${d.refund_emails.sent} of ${d.refund_emails.total} refund emails sent)` : '';
+      const refused = await refusalOf(error, data);
+      if (refused) { toast.error(refusalText(refused)); return; }
+      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_email_sentence?: string };
+      // SQV06: the card answer carries the one truthful sentence about the refund emails.
       toast.success(d.already_recorded
         ? 'This refund was already recorded — nothing changed.'
-        : d.email_skipped === 'provider_refund_already_emailed'
-          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. Square's refund email already told the customer${cov}.`
-          : d.email_skipped === 'provider_refund_email_not_confirmed'
-            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${d.refund_emails && d.refund_emails.total > 1 ? `${d.refund_emails.sent} of ${d.refund_emails.total} Square refund emails are confirmed sent` : 'The Square refund email is not confirmed sent yet'} — the hourly check will retry; see the order's email history.`
-          : d.email_sent
-            ? 'Refund recorded — the customer has been emailed.'
-            : 'Refund recorded. The email was not sent (see the order\'s email history).');
+        : d.refund_email_sentence
+          ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. ${d.refund_email_sentence}`
+          : d.email_skipped === 'provider_refund_already_emailed'
+            ? `Refund of ${yen(Number(d.amount ?? 0))} recorded. The provider's refund email already told the customer.`
+            : d.email_sent
+              ? 'Refund recorded — the customer has been emailed.'
+              : 'Refund recorded. The email was not sent (see the order\'s email history).');
       onOpenChange(false);
       setNote('');
       onDone();
@@ -267,49 +392,64 @@ export function MarkRefundIssuedDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Mark refund issued — {reference}</DialogTitle>
+      <DialogContent className="flex max-h-[90vh] max-w-md flex-col gap-0 p-0">
+        <DialogHeader className="border-b border-border px-6 pb-3 pt-6">
+          <DialogTitle className="pr-6">Mark refund issued — {reference}</DialogTitle>
           <DialogDescription>
             Send the refund first. This records it on the order and emails the customer that her refund is complete.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>How was it refunded?</Label>
-            <RadioGroup value={method} onValueChange={setMethod} className="gap-2">
-              {methods.map((m) => (
-                <div key={m.value} className="flex items-center gap-2">
-                  <RadioGroupItem id={`refund-${m.value}`} value={m.value} />
-                  <Label htmlFor={`refund-${m.value}`} className="font-normal">{m.label}</Label>
-                </div>
-              ))}
-            </RadioGroup>
-          </div>
-          {cardError && <p className="text-xs text-destructive">{cardError}</p>}
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {card === null && !cardError && <p className="text-xs text-muted-foreground">Reading the payment…</p>}
+          {cardError && (
+            <div className="rounded-md border border-destructive/60 bg-destructive/5 p-2.5 text-xs text-destructive" data-testid="refund-facts-error">
+              <p>Could not read this order's card payments: {cardError}</p>
+              <p>Nothing can be recorded until it reads. <button type="button" className="underline" onClick={() => reload()}>Try again</button></p>
+            </div>
+          )}
+          {!factsMissing && (
+            <div className="space-y-2">
+              <Label>How was it refunded?</Label>
+              <RadioGroup value={method} onValueChange={setMethod} className="gap-2">
+                {methods.map((m) => (
+                  <div key={m.value} className="flex items-center gap-2">
+                    <RadioGroupItem id={`refund-${m.value}`} value={m.value} />
+                    <Label htmlFor={`refund-${m.value}`} className="font-normal">{m.label}</Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+          )}
           {cardOnly && card && (
             <div className={`rounded-md border p-2.5 text-xs ${cardBlocked ? 'border-warning/60 bg-warning/5 text-warning' : 'border-border bg-background text-muted-foreground'}`}>
               <p>Paid by card: {yen(card.cardPaid)}. Square shows <strong className="text-card-foreground">{yen(card.refundedCompleted)}</strong> refunded (completed).</p>
-              {card.refundedPending > 0 && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
+              {refundProcessing && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
               {cardBlocked
                 ? <p>Refund it in the Square Dashboard first. This button works once Square shows the refund completed.</p>
                 : method === 'card' ? <p>The Hub records {yen(card.refundedCompleted)}, exactly what Square completed.</p> : null}
-              {cardException(card) && !isAdmin && (
-                <p className="mt-1">Square could not refund this payment ({card.failedRefunds.length > 0 ? `refund ${card.failedRefunds[0].status.toLowerCase()}` : 'captured over a year ago'}). An admin can record a refund made outside Square.</p>
+              {(cardException(card) || approval) && !isAdmin && (
+                <p className="mt-1">{approval
+                  ? `An admin approved a refund outside Square: ${yen(approval.amount)} by ${approval.payout === 'bank_transfer' ? 'bank transfer' : 'store credit'}. An admin records it once paid.`
+                  : `Square could not refund this payment (${card.failedRefunds.length > 0 ? `refund ${card.failedRefunds[0].status.toLowerCase()}` : 'authorised over a year ago'}). An admin can approve a refund made outside Square.`}</p>
               )}
             </div>
           )}
-          {isException && card && (
-            <div className="space-y-3 rounded-md border border-warning/60 bg-warning/5 p-3 text-xs">
+          {step === 'approve' && card && (
+            <div className="space-y-3 rounded-md border border-warning/60 bg-warning/5 p-3 text-xs" data-testid="exception-approve">
+              <p className="font-medium text-warning">Step 1 of 2 — approve (admin). Nothing is paid yet.</p>
               <p className="text-warning">
-                Square exception (admin). Still owed on this card payment: <strong>{yen(cap)}</strong>
-                {' '}= {yen(card.cardPaid)} captured − {yen(card.refundedCompleted)} Square refunded − {yen(card.creditIssued)} store credit issued. The Hub recomputes this; nothing above it is accepted.
+                Still owed on this card payment: <strong>{yen(cap)}</strong>
+                {' '}= {yen(card.cardPaid)} captured − {yen(card.refundedCompleted)} Square refunded − {yen(card.creditIssued)} store credit issued.
+                The Hub first re-reads every refund of this order from Square, then recomputes this; nothing above it is accepted.
               </p>
+              {refundProcessing && (
+                <p className="font-medium text-destructive">A Square refund of {yen(card.refundedPending)} is still processing. It cannot be approved until Square shows it completed, failed or rejected.</p>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="exc-refund">Why Square could not refund</Label>
                 <select id="exc-refund" value={excRefundId} onChange={(e) => setExcRefundId(e.target.value)} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm">
                   {card.failedRefunds.map((r) => <option key={r.id} value={r.id}>Square refund {r.id} — {r.status} ({yen(r.amount)})</option>)}
-                  {card.captureOver365 && <option value="">Card payment captured more than {EXCEPTION_AGE_DAYS} days ago</option>}
+                  {card.authorizedOverOneYear && <option value="">Card payment authorised more than one year ago</option>}
                 </select>
               </div>
               <div className="space-y-1.5">
@@ -317,46 +457,82 @@ export function MarkRefundIssuedDialog({
                 <Input id="exc-ticket" value={excTicket} onChange={(e) => setExcTicket(e.target.value)} maxLength={80} className="bg-background border-border" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exc-amount">Amount refunded (¥, whole yen, at most {yen(cap)})</Label>
+                <Label htmlFor="exc-amount">Amount to refund (¥, whole yen, at most {yen(cap)})</Label>
                 <Input id="exc-amount" inputMode="numeric" value={excAmount} onChange={(e) => setExcAmount(e.target.value)} className="bg-background border-border" />
               </div>
-              {method === 'bank_transfer_exception' ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exc-tdate">Bank transfer date (to the customer's own account, in yen)</Label>
-                    <Input id="exc-tdate" type="date" value={excTransferDate} max={getPHTToday()} onChange={(e) => setExcTransferDate(e.target.value)} className="bg-background border-border" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exc-tref">Transfer reference (bank, slip or transaction number)</Label>
-                    <Input id="exc-tref" value={excTransferRef} onChange={(e) => setExcTransferRef(e.target.value)} maxLength={120} className="bg-background border-border" />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exc-req">The customer's written request (where and when she asked for store credit)</Label>
-                    <Input id="exc-req" value={excRequest} onChange={(e) => setExcRequest(e.target.value)} maxLength={200} className="bg-background border-border" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exc-lot">Store-credit lot id (issue the manual lot first in Settings → Store Credit; it must be hers, in yen, exactly this amount)</Label>
-                    <Input id="exc-lot" value={excLotId} onChange={(e) => setExcLotId(e.target.value)} placeholder="uuid" className="bg-background border-border font-mono text-xs" />
-                  </div>
-                </>
-              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="exc-note">Approval note (optional, staff only)</Label>
+                <Input id="exc-note" value={excNote} onChange={(e) => setExcNote(e.target.value)} maxLength={500} className="bg-background border-border" />
+              </div>
             </div>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="refund-day">Day the refund was sent</Label>
-            <Input id="refund-day" type="date" value={day} max={getPHTToday()} onChange={(e) => setDay(e.target.value)} className="bg-background border-border" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="refund-note">Note (optional, the customer sees it on her order)</Label>
-            <Textarea id="refund-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className="bg-background border-border" />
-          </div>
+          {step === 'record' && approval && (
+            <div className="space-y-3 rounded-md border border-warning/60 bg-warning/5 p-3 text-xs" data-testid="exception-record">
+              <p className="font-medium text-warning">Step 2 of 2 — record the payment.</p>
+              <p>
+                Approved {approvalDay}: <strong>{yen(approval.amount)}</strong> by {approval.payout === 'bank_transfer' ? 'bank transfer' : 'store credit'}
+                {' '}· Square Support ticket {approval.ticket}{approval.squareRefundId ? ` · refund ${approval.squareRefundId}` : ' · authorised over a year ago'}.
+                The Hub records exactly this amount.
+              </p>
+              {isAdmin ? (
+                approval.payout === 'bank_transfer' ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="exc-tdate">Bank transfer date (to the customer's own account, in yen; not before the approval)</Label>
+                      <Input id="exc-tdate" type="date" value={excTransferDate} min={approvalDay} max={getPHTToday()} onChange={(e) => setExcTransferDate(e.target.value)} className="bg-background border-border" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="exc-tref">Transfer reference (bank, slip or transaction number)</Label>
+                      <Input id="exc-tref" value={excTransferRef} onChange={(e) => setExcTransferRef(e.target.value)} maxLength={120} className="bg-background border-border" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="exc-req">The customer's written request (where and when she asked for store credit)</Label>
+                      <Input id="exc-req" value={excRequest} onChange={(e) => setExcRequest(e.target.value)} maxLength={200} className="bg-background border-border" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="exc-lot">Store-credit lot id — issue a NEW manual lot of exactly {yen(approval.amount)} in Settings → Store Credit after the approval; hers, in yen, unspent</Label>
+                      <Input id="exc-lot" value={excLotId} onChange={(e) => setExcLotId(e.target.value)} placeholder="uuid" className="bg-background border-border font-mono text-xs" />
+                    </div>
+                  </>
+                )
+              ) : <p>Only an admin records it.</p>}
+              {isAdmin && (cancelling ? (
+                <div className="space-y-1.5 border-t border-warning/40 pt-2">
+                  <Label htmlFor="exc-cancel">Why cancel the approval? (required)</Label>
+                  <Input id="exc-cancel" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} maxLength={300} className="bg-background border-border" />
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="destructive" disabled={busy || !cancelReason.trim()} onClick={cancelApproval}>Cancel approval</Button>
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setCancelling(false); setCancelReason(''); }}>Keep it</Button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="text-xs underline" onClick={() => setCancelling(true)}>Cancel this approval (only if nothing was paid)</button>
+              ))}
+            </div>
+          )}
+          {step !== 'approve' && !(step === 'record' && approval?.payout === 'bank_transfer') && (
+            <div className="space-y-2">
+              <Label htmlFor="refund-day">Day the refund was sent</Label>
+              <Input id="refund-day" type="date" value={day} max={getPHTToday()} onChange={(e) => setDay(e.target.value)} className="bg-background border-border" />
+            </div>
+          )}
+          {step !== 'approve' && (
+            <div className="space-y-2">
+              <Label htmlFor="refund-note">Note (optional, the customer sees it on her order)</Label>
+              <Textarea id="refund-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className="bg-background border-border" />
+            </div>
+          )}
         </div>
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 border-t border-border bg-background px-6 py-3" data-testid="refund-footer">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Back</Button>
-          <Button onClick={submit} disabled={busy || !day || card === null && !cardError || cardBlocked || exceptionIncomplete}>{busy ? 'Saving…' : 'Mark refund issued'}</Button>
+          {step === 'approve' ? (
+            <Button onClick={approve} disabled={busy || factsMissing || approveIncomplete}>{busy ? 'Checking Square…' : 'Approve exception'}</Button>
+          ) : (
+            <Button onClick={submit} disabled={busy || !day || factsMissing || cardBlocked || recordIncomplete || (step === 'record' && !isAdmin)}>{busy ? 'Saving…' : 'Mark refund issued'}</Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

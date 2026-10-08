@@ -30,6 +30,41 @@ export function squareModeFrom(raw: unknown): SquareMode {
   return v === "test" || v === "on" ? v : "off";
 }
 
+/**
+ * D-G04 (owner 2026-10-09): who may pay by card while the mode is ON.
+ * square_audience 'everyone' | 'listed'; anything else is 'listed' (fail-closed,
+ * mirrors public.square_audience()).
+ */
+export type SquareAudience = "everyone" | "listed";
+export function squareAudienceFrom(raw: unknown): SquareAudience {
+  let v = raw;
+  if (typeof v === "string") {
+    try { v = JSON.parse(v); } catch { /* a bare string */ }
+  }
+  return v === "everyone" ? "everyone" : "listed";
+}
+
+/** square_card_customer_ids as a set of customer id strings; anything not an array is empty. */
+export function squareCardCustomerIds(raw: unknown): Set<string> {
+  let v = raw;
+  if (typeof v === "string") {
+    try { v = JSON.parse(v); } catch { return new Set(); }
+  }
+  return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+}
+
+/**
+ * TS twin of public.square_card_allowed(customer): off → no; test → only test
+ * customers; on → everyone when the audience is 'everyone', else only the
+ * listed customers. The SQL is the authority (reserve_square_attempt refuses
+ * card_not_offered); this decides what the storefront is offered.
+ */
+export function squareCardAllowed(i: { mode: SquareMode; audience: SquareAudience; listed: Set<string>; customerId: string | null | undefined; customerIsTest: boolean }): boolean {
+  if (i.mode === "off") return false;
+  if (i.mode === "test") return i.customerIsTest;
+  return i.audience === "everyone" || (!!i.customerId && i.listed.has(String(i.customerId)));
+}
+
 /** test → sandbox, on → production; off has no environment. */
 export function squareEnvironmentOf(mode: SquareMode): SquareEnvironment | null {
   return mode === "test" ? "sandbox" : mode === "on" ? "production" : null;
@@ -85,12 +120,18 @@ export interface CardOfferInput {
    * not checked (older callers).
    */
   paymentMethod?: string | null;
+  /**
+   * D-G04 (2026-10-09): squareCardAllowed for this customer while the mode is
+   * on. Omitted = everyone (older callers, mode test/off unaffected).
+   */
+  cardAllowed?: boolean;
 }
 
 /** Why card payment is not offered, or null when it is. One reason, the first that fails. No address rule (D4: any country). */
 export function cardNotOfferedReason(i: CardOfferInput): string | null {
   if (i.mode === "off") return "mode_off";
   if (i.mode === "test" && !i.customerIsTest) return "test_mode_real_customer";
+  if (i.mode === "on" && i.cardAllowed === false) return "not_on_card_list";
   const family = squareAppIdFamily(i.appId);
   if (!family) return "no_app_id";
   if (i.mode === "test" && family !== "sandbox") return "app_id_mode_mismatch";

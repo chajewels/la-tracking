@@ -17,14 +17,15 @@ const eq = (a: unknown, b: unknown, msg: string) => assert(JSON.stringify(a) ===
 const read = (rel: string) => Deno.readTextFile(new URL(`../${rel}`, import.meta.url))
 const code = async (rel: string) => (await read(rel)).replace(/^\s*(\*|\/\/).*$/gm, '')
 
-Deno.test('SQF05: every completed refund is proven; the answer counts them', async () => {
+Deno.test('SQF05: every completed refund is proven; the answer counts them (SQV06 shape)', async () => {
   const src = await code('supabase/functions/mark-refund-issued/index.ts')
-  assert(src.includes('if (await refundIssuedEmailSent(supabase, refundReceivedKey(id))) proven++;'), 'counts each proven refund')
+  // SQV06 superseded the SQF05 counter: one state per COMPLETED refund, then the coverage.
+  assert(src.includes('const sent = await refundIssuedEmailSent(supabase, refundReceivedKey(String(row.square_refund_id)));'), 'each completed refund is checked on its own key')
   assert(!src.includes('proven = true; break;'), 'the first proven id no longer vouches for the rest')
-  assert(src.includes('email_skipped: proven === ids.length ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed"'), '"already emailed" only when ALL are proven')
-  assert(src.includes('refund_emails: { sent: proven, total: ids.length }'), 'per-refund coverage in the response')
+  assert(src.includes('email_skipped: coverage.sent === coverage.total ? "provider_refund_already_emailed" : "provider_refund_email_not_confirmed"'), '"already emailed" only when ALL are proven')
+  assert(src.includes('refund_emails: coverage, refund_email_sentence: refundEmailSentence(coverage)'), 'per-refund coverage + the sentence in the response')
   const ui = await read('src/components/web-orders/MarkRefundIssuedDialog.tsx')
-  assert(ui.includes('refund_emails?: { sent: number; total: number }') && ui.includes('of ${d.refund_emails.total} Square refund emails are confirmed sent'), 'the dialog says "1 of 2 — the hourly check will retry"')
+  assert(ui.includes('d.refund_email_sentence'), 'the dialog shows the edge sentence')
 })
 
 Deno.test('SQF06 rules: the two exception methods exist; the customer is told the payout, never "exception"', () => {
@@ -64,11 +65,11 @@ Deno.test('SQF06 §8: "or reverse the Square refund" is gone from the bell previ
   assert(!docs.includes('reverse the Square refund'), 'docs/SQUARE.md')
 })
 
-Deno.test('SQF06 Hub dialog: exception methods offered to admins only while the exception is open; the cap is shown and enforced client-side too', async () => {
+Deno.test('SQF06 Hub dialog (SQV03 two-step): exception offered to admins only while open; the cap is shown and enforced client-side too', async () => {
   const ui = await read('src/components/web-orders/MarkRefundIssuedDialog.tsx')
-  assert(ui.includes("const exceptionOpen = isAdmin && cardException(card);"), 'admin + trigger')
-  assert(ui.includes('export function cardException(') && ui.includes('f.failedRefunds.length > 0 || f.captureOver365'), 'trigger = FAILED/REJECTED refund or capture over 365 days')
+  assert(ui.includes("const exceptionOpen = isAdmin && (cardException(card) || !!approval);"), 'admin + trigger (or an open approval)')
+  assert(ui.includes('export function cardException(') && ui.includes('f.failedRefunds.length > 0 || f.authorizedOverOneYear'), 'trigger = FAILED/REJECTED refund or authorised over one year (SQV04)')
   assert(ui.includes('export function exceptionCap(') && ui.includes('f.cardPaid - f.refundedCompleted - f.creditIssued'), 'cap = captured − completed refunds − credit issued')
-  assert(ui.includes("square_support_ticket: excTicket.trim()"), 'ticket sent')
+  assert(ui.includes("square_support_ticket: excTicket.trim()") && ui.includes("action: 'approve'"), 'ticket sent with the approval')
   assert(ui.includes("bank_transfer_exception: 'bank transfer (Square exception)'"), 'shown as "bank transfer (Square exception)"')
 })

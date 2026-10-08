@@ -205,6 +205,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.square-reconcile]
     verify_jwt = true
+  [functions.square-preflight]
+    verify_jwt = true
   [functions.website]
     verify_jwt = false
   [functions.notify_website]
