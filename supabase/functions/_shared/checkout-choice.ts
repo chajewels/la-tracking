@@ -52,6 +52,12 @@ export interface MethodOptionsInput {
   paidyMode: ProviderMode;
   squareMode: ProviderMode;
   customerIsTest: boolean;
+  /**
+   * D-G04 (2026-10-09): squareCardAllowed for this customer. Omitted = allowed
+   * (the mode rule alone). A customer not on the card list sees card as "off" —
+   * the same customer-facing reason as card being switched off.
+   */
+  squareAllowed?: boolean;
   /** A transfer account exists for the currency (transferAvailable). */
   transferAvailable: boolean;
 }
@@ -77,7 +83,7 @@ export function checkoutMethodOptions(i: MethodOptionsInput): Record<CheckoutMet
   const cardReason =
     i.mode === "layaway" ? "layaway"
     : i.currency !== "JPY" ? "currency_not_yen"
-    : providerOff(i.squareMode) ? "off"
+    : providerOff(i.squareMode) || i.squareAllowed === false ? "off"
     : null;
   return {
     transfer: { available: i.transferAvailable, reason: i.transferAvailable ? null : "no_account" },

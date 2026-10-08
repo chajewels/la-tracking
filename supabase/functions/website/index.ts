@@ -23,7 +23,7 @@ import {
   paidyBuyerName, paidyModeFrom, paidyNameField, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
-import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
+import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareAudienceFrom, squareCardAllowed, squareCardCustomerIds, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
 import { SquareError, buyerEmailOf, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { fileForAttempt, fraudCancel, handleFilingException, recoverAttempt, resolveAttempt, rpc } from "../_shared/square-sync.ts";
 import { customerReference } from "../_shared/order-reference.ts";
@@ -681,7 +681,8 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pendingCount: number, cardUnresolved: boolean) {
   const rows = await supabase.from("system_settings").select("key, value")
-    .in("key", ["square_mode", "square_app_id", "square_location_id", "card_agreement_min_jpy"]);
+    .in("key", ["square_mode", "square_app_id", "square_location_id", "card_agreement_min_jpy", "square_audience", "square_card_customer_ids"]);
+  if (rows.error) throw rows.error;
   const setting = (k: string) => ((rows.data ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
   const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
   const mode = squareModeFrom(setting("square_mode"));
@@ -689,8 +690,13 @@ async function cardOffer(supabase: any, customer: AnyRec, order: AnyRec, pending
   const locationId = str(setting("square_location_id"));
   const minRaw = setting("card_agreement_min_jpy");
   const agreementMin = Number(typeof minRaw === "string" ? minRaw.replace(/"/g, "") : minRaw ?? 0);
+  // D-G04 (owner 2026-10-09): while on, only the listed customers unless the audience is everyone.
+  const cardAllowed = squareCardAllowed({
+    mode, audience: squareAudienceFrom(setting("square_audience")), listed: squareCardCustomerIds(setting("square_card_customer_ids")),
+    customerId: customer.id == null ? null : String(customer.id), customerIsTest: customer.is_test === true,
+  });
   const reason = cardNotOfferedReason({
-    mode, appId, locationId, customerIsTest: customer.is_test === true, order, pendingSubmissions: pendingCount, cardUnresolved,
+    mode, appId, locationId, customerIsTest: customer.is_test === true, order, pendingSubmissions: pendingCount, cardUnresolved, cardAllowed,
     // C1: a website order takes a card only when the customer chose card.
     paymentMethod: (order.payment_method ?? null) as string | null,
   });
@@ -921,7 +927,7 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   paymentMethod: unknown; points: unknown;
 }) {
   const { data: settings, error: setErr } = await supabase.from("system_settings").select("key, value")
-    .in("key", ["paidy_mode", "square_mode", "loyalty_enabled"]);
+    .in("key", ["paidy_mode", "square_mode", "loyalty_enabled", "square_audience", "square_card_customer_ids"]);
   if (setErr) throw setErr;
   const setting = (k: string) => ((settings ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
   const loyaltyRaw = setting("loyalty_enabled");
@@ -930,6 +936,11 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
     mode: q.mode, currency: q.currency, country: q.country,
     paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
     customerIsTest: customer.is_test === true,
+    squareAllowed: squareCardAllowed({
+      mode: squareModeFrom(setting("square_mode")), audience: squareAudienceFrom(setting("square_audience")),
+      listed: squareCardCustomerIds(setting("square_card_customer_ids")),
+      customerId: customer.id == null ? null : String(customer.id), customerIsTest: customer.is_test === true,
+    }),
     transferAvailable: await transferAvailable(supabase, q.currency),
   });
 

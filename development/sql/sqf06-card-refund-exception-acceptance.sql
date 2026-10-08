@@ -1,3 +1,8 @@
+-- SUPERSEDED by development/sql/sqv-square-exception-allowlist-acceptance.sql (migration
+-- 20261130110000, owner D-SQV03 2026-10-09: approve first, then pay). This file tested the
+-- 2026-10-09 single-step exception (record decided everything) and is kept as history only;
+-- after 20261130110000 most of its exception checks FAIL BY DESIGN (record now needs an
+-- approval). Do not run it as a gate.
 -- SQF06 acceptance (migration 20261129110000 + the §7 bell in 20261129100000). NOT a migration —
 -- never applied to live. Runs on the local Postgres copy of live (mark_web_order_refund_issued_atomic
 -- byte-identical to live before the migration), one transaction, rolled back.
