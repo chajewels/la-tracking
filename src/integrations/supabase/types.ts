@@ -4406,6 +4406,7 @@ export type Database = {
       paidy_checkout_attempts: {
         Row: {
           amount_jpy: number
+          billing_address_id: string | null
           cash_order_id: string
           customer_closed_at: string | null
           customer_id: string
@@ -4421,6 +4422,7 @@ export type Database = {
         }
         Insert: {
           amount_jpy: number
+          billing_address_id?: string | null
           cash_order_id: string
           customer_closed_at?: string | null
           customer_id: string
@@ -4436,6 +4438,7 @@ export type Database = {
         }
         Update: {
           amount_jpy?: number
+          billing_address_id?: string | null
           cash_order_id?: string
           customer_closed_at?: string | null
           customer_id?: string
@@ -4450,6 +4453,13 @@ export type Database = {
           verified_empty_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "paidy_checkout_attempts_billing_address_id_fkey"
+            columns: ["billing_address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "paidy_checkout_attempts_cash_order_id_fkey"
             columns: ["cash_order_id"]
