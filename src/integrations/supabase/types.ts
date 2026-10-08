@@ -225,6 +225,51 @@ export type Database = {
           },
         ]
       }
+      cash_order_cancel_intents: {
+        Row: {
+          bell_rung_at: string | null
+          cash_order_id: string
+          created_at: string
+          id: string
+          last_error: string | null
+          reason: string | null
+          refund_note: string | null
+          refund_status: string | null
+          stage: string
+          updated_at: string
+          user_email: string | null
+          user_id: string | null
+        }
+        Insert: {
+          bell_rung_at?: string | null
+          cash_order_id: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          reason?: string | null
+          refund_note?: string | null
+          refund_status?: string | null
+          stage?: string
+          updated_at?: string
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          bell_rung_at?: string | null
+          cash_order_id?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          reason?: string | null
+          refund_note?: string | null
+          refund_status?: string | null
+          stage?: string
+          updated_at?: string
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       cash_order_items: {
         Row: {
           cash_order_id: string
@@ -4289,6 +4334,7 @@ export type Database = {
       paidy_cases: {
         Row: {
           attempts: number
+          bell_rung_at: string | null
           cash_order_id: string | null
           detail: Json
           id: string
@@ -4306,6 +4352,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          bell_rung_at?: string | null
           cash_order_id?: string | null
           detail?: Json
           id?: string
@@ -4323,6 +4370,7 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          bell_rung_at?: string | null
           cash_order_id?: string | null
           detail?: Json
           id?: string
@@ -4953,6 +5001,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_submission_followups: {
+        Row: {
+          attempts: number
+          cash_order_id: string | null
+          created_at: string
+          done_at: string | null
+          id: string
+          idempotency_key: string
+          kind: string
+          last_error: string | null
+          payload: Json
+          status: string
+          submission_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          cash_order_id?: string | null
+          created_at?: string
+          done_at?: string | null
+          id?: string
+          idempotency_key: string
+          kind: string
+          last_error?: string | null
+          payload?: Json
+          status?: string
+          submission_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          cash_order_id?: string | null
+          created_at?: string
+          done_at?: string | null
+          id?: string
+          idempotency_key?: string
+          kind?: string
+          last_error?: string | null
+          payload?: Json
+          status?: string
+          submission_id?: string | null
+        }
+        Relationships: []
       }
       payment_submissions: {
         Row: {
@@ -10445,6 +10535,18 @@ export type Database = {
           p_preview?: boolean
           p_user_email?: string
           p_user_id?: string
+        }
+        Returns: Json
+      }
+      reject_paidy_submission_atomic: {
+        Args: {
+          p_end_reason: string
+          p_end_status: string
+          p_notes: string
+          p_paidy_row: string
+          p_payload?: Json
+          p_submission_id: string
+          p_user_id: string
         }
         Returns: Json
       }
