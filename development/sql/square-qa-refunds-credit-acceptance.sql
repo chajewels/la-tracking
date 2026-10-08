@@ -126,12 +126,13 @@ VALUES ('00000000-0000-0000-0000-0000000001b3', 6000, 'JPY', 'square', 'sq_cap_b
 SELECT pg_temp.ok((pg_temp.mark('00000000-0000-0000-0000-0000000001b3', 'bank_transfer') ->> 'amount')::numeric = 4000, 'B01 mixed payment: bank transfer records only the ¥4,000 non-card money, never the gross');
 
 -- ================================================================ cancellation credit rule
-SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-08', 10000, TIMESTAMPTZ '2026-10-08 23:59:59+08')$q$) ->> 'credit')::numeric = 10000,
-                  'RULE 23:59 PHT on the order day → 100%');
-SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-08', 10000, TIMESTAMPTZ '2026-10-09 00:00:01+08')$q$) ->> 'credit')::numeric = 7000,
-                  'RULE 00:00:01 PHT next day → 70%');
-SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-08', 10000, TIMESTAMPTZ '2026-10-09 00:50:00+09')$q$) ->> 'rule') = 'same_day',
-                  'RULE order placed 00:30 JST (order_date = PHT 8 Oct), cancelled 00:50 JST → same day, not charged');
+-- SQF01 (migration 20261128100000, owner D-SQF01 = A): the order day and the cancel day are JAPAN days.
+SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-08', 10000, TIMESTAMPTZ '2026-10-08 23:59:59+09')$q$) ->> 'credit')::numeric = 10000,
+                  'RULE 23:59 JST on the order day → 100%');
+SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-08', 10000, TIMESTAMPTZ '2026-10-09 00:00:01+09')$q$) ->> 'credit')::numeric = 7000,
+                  'RULE 00:00:01 JST next day → 70%');
+SELECT pg_temp.ok((pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-07', 10000, TIMESTAMPTZ '2026-10-08 12:00:00+09', TIMESTAMPTZ '2026-10-08 00:30:00+09')$q$) ->> 'rule') = 'same_day',
+                  'RULE order placed 00:30 JST (order_date written as PHT 7 Oct), cancelled noon the same Japan day → same day, not charged (SQF01)');
 SELECT pg_temp.ok((SELECT (s ->> 'kept')::numeric = 12000 AND (s ->> 'credit')::numeric = 28000
                      FROM (SELECT pg_temp.try($q$SELECT public.cancellation_credit_split('JPY', DATE '2026-10-01', 40000, now())$q$) s) x),
                   'RULE part-paid ¥40,000 → ¥12,000 kept, ¥28,000 credit (owner example)');

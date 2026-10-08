@@ -146,18 +146,36 @@ Reference docs (read the relevant one when a task touches that area):
     store_credit_issued, never automatically; the one terminal RPC is
     terminate_web_order_atomic; web orders are NEVER hard-deleted — docs
     "Rules moved from CLAUDE.md".
-  - CANCELLATION CHARGE (owner 2026-10-06/08): a website or Hub cash order
-    cancelled on its ORDER DATE (order_date, compared as the PHT day it is
-    written in) → 100 % of the money paid as
-    credit; later → 30 % of the money PAID is kept, 70 % is credit. No
-    override (a special case is a separate manual credit). Shopify stays
-    100 %. ONE formula: cancellation_credit_split (SQL) + the TS mirror
-    _shared/cancellation-credit.ts; used by terminate_web_order_atomic
-    (store_credit_issued) and cancel_cash_order_atomic. docs/STORE-CREDIT.md.
+  - CANCELLATION CHARGE (owner 2026-10-06/08; D-SQF01 = A, 2026-10-08): a
+    website or Hub cash order cancelled on its ORDER DAY IN JAPAN TIME → 100 %
+    of the money paid as credit; a later Japan day → 30 % of the money PAID is
+    kept, 70 % is credit. The order day is the Japan day of created_at while
+    order_date still equals that instant's PHT day; an edited / typed
+    order_date is read as a Japan day as it stands; the cancel day is the
+    Japan day of now(). order_date itself and the PHT day boundary are
+    untouched. No override (a special case is a separate manual credit).
+    Shopify stays 100 %. ONE formula: cancellation_credit_split(currency,
+    order_date, money, at, order_at) (SQL; the 4-arg overload is gone) + the
+    TS mirror _shared/cancellation-credit.ts; used by
+    terminate_web_order_atomic (store_credit_issued) and
+    cancel_cash_order_atomic, both passing created_at. docs/SQUARE.md "SQF01".
   - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
-    refund total (never the gross), refusing until one exists.
+    refund total (never the gross), refusing until one exists. ONE exception
+    (SQF06, owner D-SQF06 2026-10-08): when a Square refund FAILED / was
+    REJECTED or the capture is over 365 days old, an ADMIN records the money
+    going back outside Square — method bank_transfer_exception (or
+    store_credit_exception on the customer's written request, lot issued
+    first) — with the Square Support ticket, capped by the SQL at captured −
+    COMPLETED refunds − credit issued; a Square refund completing afterwards
+    rings card_refund_after_exception. docs/SQUARE.md "SQF06".
+  - SQUARE ANSWERS ARE VALIDATED (SQF02, 2026-10-09): paymentOf / refundOf /
+    moneyOf in _shared/square.ts — the object asked for (id), whole-unit money
+    in a named currency, our own payments in JPY, a refund with POSITIVE money
+    (never ¥0); record_square_refund refuses bad_amount / bad_currency /
+    over_ceiling / parent_mismatch with ONE card_refund_unrecorded bell each.
+    Never write a provider figure the Hub could not read.
   - STAFF BELL EMAILS (V11b, owner 2026-10-08): bells stay in the Hub for every
     member; the types in system_settings.staff_bell_email_types are ALSO emailed
     to Brenda + every active admin (staff_bell_email_recipients, frozen at bell

@@ -234,12 +234,29 @@ export async function recoverParentPayment(db: Db, env: SquareEnvironment, payme
   return r.outcome === "synced" || r.outcome === "filed" || r.outcome === "exception" ? "ours" : "pending";
 }
 
+/**
+ * SQF02 (2026-10-09): the yen a Square refund may be recorded as — a positive
+ * whole amount in JPY — or null. Null is never 0: a refund the Hub cannot read
+ * as yen is quarantined (the inbox retries, then bells), never written.
+ */
+export function refundMoneyJpy(refund: SquareRefund): number | null {
+  const m = refund.amount_money;
+  if (!m || typeof m !== "object") return null;
+  const amount = Number(m.amount);
+  if (typeof m.amount !== "number" && typeof m.amount !== "string") return null;
+  if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+  if (String(m.currency ?? "").trim().toUpperCase() !== "JPY") return null;
+  return amount;
+}
+
 /** A refund (refund.created / refund.updated, or reconcile): the refund record, then the payment's refunded total. */
-export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: SquareRefund): Promise<{ outcome: string }> {
-  if (!refund.payment_id) return { outcome: "quarantined" };
+export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: SquareRefund): Promise<{ outcome: string; detail?: string }> {
+  if (!refund.payment_id) return { outcome: "quarantined", detail: "no_payment_id" };
+  const amountJpy = refundMoneyJpy(refund);
+  if (amountJpy === null) return { outcome: "quarantined", detail: "bad_money" };
   const record = async () => await rpc(db, "record_square_refund", {
     p_refund_id: refund.id, p_square_payment_id: refund.payment_id, p_status: refund.status,
-    p_amount_jpy: Number.isSafeInteger(Number(refund.amount_money?.amount)) ? Number(refund.amount_money?.amount) : 0,
+    p_amount_jpy: amountJpy,
     p_reason: refund.reason ?? null, p_provider_created_at: refund.created_at ?? null,
     p_provider_updated_at: refund.updated_at ?? null, p_payload: refund,
   });
@@ -251,7 +268,11 @@ export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: S
     res = await record();
     if (!res.ok && res.error === "unknown_payment") return { outcome: "quarantined" };
   }
-  if (!res.ok) return { outcome: "failed" };
+  // SQF02: the ledger's own refusals (bad_amount / bad_currency / over_ceiling /
+  // parent_mismatch) ring their bell inside record_square_refund; here the
+  // event is 'failed' (the inbox retries and gives up with a bell) and the
+  // reason travels in the error.
+  if (!res.ok) return { outcome: "failed", detail: String(res.error ?? "record_square_refund") };
   const got = await readPaymentAnyEnv(env, refund.payment_id);
   if (got) await applyPaymentState(db, got.payment, "reconcile");
   // Addendum §9 #9: a refund made in the Square Dashboard reaches her once it
@@ -336,10 +357,10 @@ export async function processSquareEvent(db: Db, event: AnyRec): Promise<{ statu
 }
 
 /** Inbox status for a refund / dispute sync outcome. */
-export function childStatus(r: { outcome: string }): { status: "done" | "ignored" | "quarantined" | "failed"; outcome: string } {
+export function childStatus(r: { outcome: string; detail?: string }): { status: "done" | "ignored" | "quarantined" | "failed"; outcome: string; error?: string } {
   if (r.outcome === "ignored_unrelated") return { status: "ignored", outcome: r.outcome };
-  if (r.outcome === "quarantined") return { status: "quarantined", outcome: r.outcome };
-  if (r.outcome === "failed") return { status: "failed", outcome: r.outcome };
+  if (r.outcome === "quarantined") return { status: "quarantined", outcome: r.outcome, ...(r.detail ? { error: r.detail } : {}) };
+  if (r.outcome === "failed") return { status: "failed", outcome: r.outcome, ...(r.detail ? { error: r.detail } : {}) };
   return { status: "done", outcome: r.outcome };
 }
 

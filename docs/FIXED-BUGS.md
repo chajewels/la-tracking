@@ -6130,3 +6130,36 @@ same customer's accounts, so nothing to repair. OWNER DECISION: retire it. The f
 and the draft fields are gone from New Account. Guard: src/test/split-lump-sum-retired.test.ts.
 Do not reintroduce: a payment written by an account-creation path; a target account id taken from
 the caller without an ownership check. Money for other accounts goes through Record Payment (review).
+
+### Square go-live counter-check SQF01–SQF07 (2026-10-09)
+Independent reviewer's HOLD report (`Square-Go-Live-Countercheck-2026-10-08.md`); response and owner
+decisions in project doc `claude/square-go-live-countercheck-response-2026-10-08.md`; mechanics in
+docs/SQUARE.md "Go-live counter-check SQF01–SQF07".
+- **SQF01 — cancellation rule charged 30 % on a same-Japan-day cancel.** `order_date` is the PHT day,
+  the split compared PHT days; an order placed 00:00–00:59 JST carried the previous day, so a cancel at
+  noon the same Japan day was `after_order_day`. The 2026-10-08 closeout note "PHT is never stricter"
+  covered only the other midnight. Fixed per D-SQF01 = A: the rule is Japan time end to end
+  (`cancellation_credit_split` + `p_order_at`, TS twins, both cancel RPCs pass `created_at`). Do not
+  reintroduce: a day comparison in any zone but Asia/Tokyo; a 4-argument overload of the split.
+- **SQF02 — Square's financial object was trusted unread.** `square.get` returned whatever payment came
+  back (no id match); a refund with no amount was recorded as ¥0; no currency check anywhere; no
+  ceiling against captured money; `record_square_refund`'s ON CONFLICT re-bound a refund id to another
+  payment. Fixed: `paymentOf` / `refundOf` / `moneyOf`, `refundMoneyJpy` (quarantine, never 0), and the
+  four ledger refusals with a `card_refund_unrecorded` bell. Do not reintroduce: `p_amount_jpy: … : 0`;
+  an unchecked `json.payment` / `json.refund` cast; `listField` treating `null` as an empty page.
+- **SQF03 — a transient DB error ended the refund-email replay silently.** `sendOrderUpdateEmail`
+  answered `not_found` for `error || !row` and the replay treated it as done. Fixed: `lookup_error`
+  (retried) vs `not_found` (bell `refund_email_order_missing`).
+- **SQF04 — the 3-resend cap failed when the give-up bell failed.** The bell insert threw before
+  `email_resends` was stamped, so the email went out again every hour. Fixed: the send is CLAIMED on the
+  row (compare-and-set) before it happens; a row that used its sends gets only its bell; one bell per
+  refund (`_shared/refund-email-replay.ts`). Do not reintroduce: a send before the counter is written.
+- **SQF05 — one sent email proved "already emailed" for every refund.** `mark-refund-issued` broke on
+  the first proven id. Fixed: every completed refund is checked; `refund_emails: { sent, total }`.
+- **SQF06 — no path when Square cannot refund; "reverse the Square refund" is not an operation.**
+  Owner-approved "card refund outside Square" exception (admin, evidence, cap) —
+  `bank_transfer_exception` / `store_credit_exception`; the bell wording replaced; a later COMPLETED
+  Square refund rings `card_refund_after_exception`.
+- **SQF07 — refund-after-credit is detected, not prevented.** The 2026-10-08 closeout's "refused in
+  both directions" was wrong; the SQF07 operating procedure (check for a lot before any dashboard
+  refund; void the unspent lot the same day) is in docs/SQUARE.md.

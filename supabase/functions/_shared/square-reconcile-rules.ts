@@ -59,14 +59,18 @@ export function refundReceivedKey(squareRefundId: string): string {
  * outcome. 'done' = stop for good (sent, or a deliberate no-send: not a
  * website order, test customer, no address, suppressed address); 'retry' =
  * a transient failure, try next hour; 'give_up' = the last allowed try failed.
+ * SQF03 (2026-10-09): 'lookup_error' (the order row could not be READ — a
+ * database error) is transient and retries; 'not_found' (the row is really
+ * absent, which a web order can never be) is 'alert' — stop, but ring a bell.
  */
 export function refundEmailNext(
   outcome: { sent: boolean; reason?: string },
   resendsBefore: number,
-): "done" | "retry" | "give_up" {
+): "done" | "retry" | "give_up" | "alert" {
   if (outcome.sent) return "done";
   const r = String(outcome.reason ?? "error");
-  const transient = r === "error" || r === "not_sent_error" || r === "not_sent_not_configured";
+  if (r === "not_found") return "alert";
+  const transient = r === "error" || r === "lookup_error" || r === "not_sent_error" || r === "not_sent_not_configured";
   if (!transient) return "done";
   return resendsBefore + 1 >= MAX_REFUND_EMAIL_RESENDS ? "give_up" : "retry";
 }

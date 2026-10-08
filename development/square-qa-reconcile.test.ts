@@ -76,7 +76,7 @@ Deno.test('B02 wiring: square-reconcile checks for a sent row, re-sends refund_r
   assert(src.includes('.eq("refund_email_replay", true)'), 'only refunds marked for replay')
   assert(src.includes('.eq("metadata->>idempotency_key", key)'), 'checks email_send_log for a sent row first')
   assert(src.includes('variant: "refund_received"'), 'sends the refund_received email')
-  assert(src.includes('type: "refund_email_failed"'), 'rings refund_email_failed when it gives up')
+  assert(src.includes('"refund_email_failed"') && src.includes('Refund email could not be sent'), 'rings refund_email_failed when it gives up (SQF04: through refund-email-replay.ts)')
 })
 
 // ───────────────────────────────────────────── S01 / S02 / S03 wiring

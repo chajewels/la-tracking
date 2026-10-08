@@ -210,7 +210,10 @@ export async function sendOrderUpdateEmail(db: Db, args: SendOrderUpdateArgs): P
       .select(args.entity === "cash_order" ? ORDER_COLUMNS : LAYAWAY_COLUMNS)
       .eq("id", args.id)
       .maybeSingle();
-    if (error || !row) return log("not_found");
+    // SQF03 (2026-10-09): a database error is a LOOKUP failure (transient, the
+    // caller may retry); 'not_found' is said only when the row is really absent.
+    if (error) return log("lookup_error");
+    if (!row) return log("not_found");
     if (!isWebEntity(row)) return log("skipped_not_web");
 
     const r = row as AnyRec;

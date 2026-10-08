@@ -256,10 +256,14 @@ export function parseSquareBody(text: string, status: number): Record<string, un
   }
 }
 
-/** R08: a list field may be omitted (empty page) but, when present, must be an array. */
+/**
+ * R08: a list field may be omitted (empty page) but, when present, must be an
+ * array. SQF02 (2026-10-09): an explicit null is "present and wrong" — Square
+ * omits an empty list, it never sends null — so it is a bad answer too.
+ */
 export function listField<T>(json: Record<string, unknown>, key: string): T[] {
   const v = json[key];
-  if (v === undefined || v === null) return [];
+  if (v === undefined) return [];
   if (!Array.isArray(v)) throw new SquareError(502, "square_bad_response", `Square answered with a non-list ${key}`);
   return v as T[];
 }
@@ -278,9 +282,79 @@ export function normalizeSquarePayment(json: unknown): SquarePayment {
   return { ...(p as unknown as SquarePayment), status: normalizeSquareStatus(p.status) };
 }
 
-function paymentOf(json: Record<string, unknown>): SquarePayment {
-  if (!json.payment || typeof json.payment !== "object") throw new SquareError(502, "square_bad_response", "Square answered without a payment");
-  return normalizeSquarePayment(json.payment);
+const badAnswer = (msg: string) => new SquareError(502, "square_bad_response", msg);
+
+/**
+ * SQF02 (2026-10-09): a Square Money object as a whole, non-negative amount in
+ * a named (upper-cased) currency — or null. Square serialises int64 amounts
+ * as JSON numbers; a digit string is accepted, nothing else is: null, "",
+ * true and a missing field are NOT zero.
+ */
+export function moneyOf(v: unknown): SquareMoney | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const m = v as Record<string, unknown>;
+  const a = m.amount;
+  const amount = typeof a === "number" ? a : typeof a === "string" && /^\d+$/.test(a.trim()) ? Number(a.trim()) : NaN;
+  if (!Number.isSafeInteger(amount) || amount < 0) return null;
+  if (typeof m.currency !== "string" || m.currency.trim() === "") return null;
+  return { amount, currency: m.currency.trim().toUpperCase() };
+}
+
+/**
+ * SQF02 (2026-10-09, go-live counter-check): the FINANCIAL object inside a
+ * Square answer, checked before anything trusts it. R08 validated the
+ * transport (a 2xx is JSON); this validates what the JSON says.
+ *   id          — the payment the caller ASKED FOR (GetPayment / Complete /
+ *                 Cancel): a different payment is a bad answer, never used.
+ *   jpy         — a Cha Jewels payment (create / complete / cancel) must be
+ *                 in yen. A GetPayment of an arbitrary id (parent recovery of
+ *                 a refund that may belong to an unrelated in-person sale)
+ *                 checks the shape only; file_square_authorization_atomic /
+ *                 apply_square_payment_state refuse not_jpy before any money
+ *                 is written.
+ *   referenceId / amountJpy — CreatePayment echoes what was sent; a
+ *                 different reference or amount is somebody else's payment.
+ * Every payment needs a non-empty id, a status and whole-unit money. An
+ * unrecognised status is still normalised to UNKNOWN (the callers quarantine
+ * it) — Square may add states; a missing status may not happen.
+ * A bad answer is square_bad_response (ambiguous): retried / read again,
+ * never acted on.
+ */
+export interface PaymentExpectation { id?: string | null; jpy?: boolean; referenceId?: string | null; amountJpy?: number | null }
+export function paymentOf(json: Record<string, unknown>, expect: PaymentExpectation = {}): SquarePayment {
+  const raw = json.payment;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badAnswer("Square answered without a payment");
+  const p = raw as Record<string, unknown>;
+  if (typeof p.id !== "string" || p.id.trim() === "") throw badAnswer("Square answered a payment without an id");
+  if (expect.id && p.id !== expect.id) throw badAnswer(`Square answered payment ${p.id} when ${expect.id} was asked for`);
+  if (typeof p.status !== "string" || p.status.trim() === "") throw badAnswer(`Square answered payment ${p.id} without a status`);
+  const money = moneyOf(p.amount_money);
+  if (!money) throw badAnswer(`Square answered payment ${p.id} without a whole-unit amount`);
+  if (expect.jpy && money.currency !== "JPY") throw badAnswer(`Square answered payment ${p.id} in ${money.currency}, not JPY`);
+  if (expect.referenceId && p.reference_id !== expect.referenceId) throw badAnswer(`Square answered payment ${p.id} with reference ${String(p.reference_id ?? "")} for ${expect.referenceId}`);
+  if (expect.amountJpy != null && money.amount !== expect.amountJpy) throw badAnswer(`Square answered payment ${p.id} for ${money.amount}, not the ${expect.amountJpy} requested`);
+  return normalizeSquarePayment({ ...p, amount_money: money });
+}
+
+/**
+ * SQF02: a refund as Square holds it — the refund asked for (when an id was),
+ * bound to a payment, with POSITIVE whole-unit money in a named currency. A
+ * refund without money is a bad answer, never ¥0. The currency is not forced
+ * to JPY here: refundMoneyJpy (square-sync.ts) quarantines a foreign-currency
+ * refund and record_square_refund refuses it (bad_currency) — both visible,
+ * neither recorded.
+ */
+export function refundOf(json: Record<string, unknown>, expectedId?: string | null): SquareRefund {
+  const raw = json.refund;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badAnswer("Square answered without a refund");
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.trim() === "") throw badAnswer("Square answered a refund without an id");
+  if (expectedId && r.id !== expectedId) throw badAnswer(`Square answered refund ${r.id} when ${expectedId} was asked for`);
+  if (typeof r.status !== "string" || r.status.trim() === "") throw badAnswer(`Square answered refund ${r.id} without a status`);
+  if (typeof r.payment_id !== "string" || r.payment_id.trim() === "") throw badAnswer(`Square answered refund ${r.id} without its payment`);
+  const money = moneyOf(r.amount_money);
+  if (!money || money.amount <= 0) throw badAnswer(`Square answered refund ${r.id} without a positive whole-unit amount`);
+  return { ...(r as unknown as SquareRefund), amount_money: money };
 }
 
 export interface CreateCardPaymentInput {
@@ -353,14 +427,18 @@ export const square = {
    * nobody captured it. Retried with the SAME key on an ambiguous failure
    * (Square answers the original payment again — no second hold).
    */
-  create: (i: CreateCardPaymentInput) => call(i.env, "POST", "/payments", createPaymentBody(i), { write: true }).then(paymentOf),
-  /** The payment as Square holds it — the only thing the Hub trusts about a card payment. */
-  get: (e: Env, id: string) => call(e, "GET", `/payments/${encodeURIComponent(id)}`).then(paymentOf),
+  create: (i: CreateCardPaymentInput) => {
+    const body = createPaymentBody(i);
+    // SQF02: the answer must be OUR payment — the reference and the yen we sent.
+    return call(i.env, "POST", "/payments", body, { write: true }).then((j) => paymentOf(j, { jpy: true, referenceId: body.reference_id as string, amountJpy: i.amountJpy }));
+  },
+  /** The payment as Square holds it — the only thing the Hub trusts about a card payment. SQF02: the one asked for. */
+  get: (e: Env, id: string) => call(e, "GET", `/payments/${encodeURIComponent(id)}`).then((j) => paymentOf(j, { id })),
   /** Takes the money (reviewer Confirm). version_token: Square refuses if the payment changed since our read. */
   complete: (e: Env, id: string, versionToken?: string | null) =>
-    call(e, "POST", `/payments/${encodeURIComponent(id)}/complete`, versionToken ? { version_token: versionToken } : {}, { write: true }).then(paymentOf),
+    call(e, "POST", `/payments/${encodeURIComponent(id)}/complete`, versionToken ? { version_token: versionToken } : {}, { write: true }).then((j) => paymentOf(j, { id, jpy: true })),
   /** Voids the hold (Reject, mismatch, fraud). No charge, no fee. */
-  cancel: (e: Env, id: string) => call(e, "POST", `/payments/${encodeURIComponent(id)}/cancel`, {}, { write: true }).then(paymentOf),
+  cancel: (e: Env, id: string) => call(e, "POST", `/payments/${encodeURIComponent(id)}/cancel`, {}, { write: true }).then((j) => paymentOf(j, { id, jpy: true })),
   /**
    * Voids whatever payment the key created, when the create outcome is unknown
    * (SQ04). Square answers success also when no payment exists for the key —
@@ -384,7 +462,9 @@ export const square = {
     if (q.endTime) p.set("end_time", q.endTime);
     if (q.cursor) p.set("cursor", q.cursor);
     const json = await call(e, "GET", `/refunds?${p.toString()}`);
-    return { refunds: listField<SquareRefund>(json, "refunds"), cursor: cursorField(json) };
+    // SQF02: every item is checked like a GetRefund answer — one malformed
+    // refund makes the page a bad answer (read again), never a ¥0 record.
+    return { refunds: listField<unknown>(json, "refunds").map((r) => refundOf({ refund: r })), cursor: cursorField(json) };
   },
   /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
   listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {
@@ -397,8 +477,7 @@ export const square = {
   },
   getRefund: async (e: Env, id: string): Promise<SquareRefund> => {
     const json = await call(e, "GET", `/refunds/${encodeURIComponent(id)}`);
-    if (!json.refund || typeof json.refund !== "object") throw new SquareError(502, "square_bad_response", "Square answered without a refund");
-    return json.refund as SquareRefund;
+    return refundOf(json, id);
   },
   getDispute: async (e: Env, id: string): Promise<SquareDispute> => {
     const json = await call(e, "GET", `/disputes/${encodeURIComponent(id)}`);
