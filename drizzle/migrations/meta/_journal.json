@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791427521792,
+      "tag": "0000_square_qa_refunds_credit",
+      "breakpoints": true
+    }
+  ]
+}
