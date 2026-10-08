@@ -164,6 +164,16 @@ Reference docs (read the relevant one when a task touches that area):
     record_square_refund locks the ORDER first and rings
     card_refund_after_credit when a refund lands on an order already cancelled
     with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
+  - PAIDY — SAME RULE (PA02/PA03, owner 2026-10-08, refuse): any VERIFIED
+    paidy_refunds row on the order refuses "store credit issued" at cancel
+    (paidy_already_refunded) in BOTH cancel RPCs; record_paidy_refund (service
+    role) is the ONLY writer of paidy_refunds — order lock first, idempotent by
+    refund id, monotonic refund_jpy, bell paidy_refund_after_credit when the
+    order already holds a cancellation lot; "refund issued" on a Paidy-paid web
+    order needs verified refunds (paidy_refund_needs_dashboard /
+    no_verified_paidy_refund) and records the verified total, never the gross.
+    An orphan Paidy capture case is never closed by a note (PA01,
+    orphan_capture_unsettled). docs/PAIDY.md "Reassessment PA01–PA15".
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 

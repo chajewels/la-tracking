@@ -110,40 +110,11 @@ export async function syncPaidyPayment(
   const recorded = subs.some((s) => s.confirmed_payment_id);
 
   let newRefunds = 0;
-  for (const r of fresh) {
-    await openPaidyCase(supabase, {
-      kind: recorded ? "refund_after_record" : "refund_before_record",
-      paidy_payment_id: pid, cash_order_id: row.cash_order_id, paidy_payment_row: row.id,
-      detail: { refund_id: r.id, refund_jpy: r.amount, capture_id: r.capture_id ?? null, captured_jpy: paidyCapturedAmount(payment), reopen: true },
-      bell: recorded
-        ? { title: "Paidy refund on a recorded payment", body: `${pid} · refund ${yen(r.amount)} (${r.id}) reported by Paidy. The order was NOT changed — decide in Payment Submissions → Paidy cases.` }
-        : { title: "Paidy refund before the payment was recorded", body: `${pid} · refund ${yen(r.amount)} (${r.id}). The Hub did NOT record this payment (owner rule: a refund is a staff decision) — open Payment Submissions → Paidy cases.` },
-    });
-    const { data: ins, error: insErr } = await supabase.from("paidy_refunds").upsert({
-      paidy_payment_row: row.id, cash_order_id: row.cash_order_id, refund_id: r.id,
-      amount_jpy: r.amount, refunded_at: r.created_at ?? null, payload: r.raw,
-    }, { onConflict: "refund_id", ignoreDuplicates: true }).select("id");
-    must(insErr, "paidy_refunds insert");
-    if ((ins ?? []).length > 0) {
-      newRefunds++;
-      // Addendum §9 #9: a refund made in the Paidy dashboard reaches her —
-      // once per Paidy refund id, only when this pass recorded it (web orders
-      // only; never throws, never blocks the sync).
-      if (row.cash_order_id) {
-        await sendOrderUpdateEmail(supabase, {
-          entity: "cash_order", id: String(row.cash_order_id), variant: "refund_received",
-          amount: r.amount, refundMethod: "paidy", idempotencyKey: `refund-received-paidy-${r.id}`,
-        });
-      }
-    }
-  }
   if (fresh.length > 0) flagged.push("refund");
 
-  // 2. The record: status re-derived from Paidy every pass (R05/R07), refund
-  //    total recomputed from the ledger every pass (R06).
-  const { data: ledger, error: ledgerErr } = await supabase.from("paidy_refunds").select("amount_jpy").eq("paidy_payment_row", row.id);
-  must(ledgerErr, "paidy_refunds total read");
-  const refundTotal = ((ledger ?? []) as AnyRec[]).reduce((s, r) => s + (Number(r.amount_jpy) || 0), 0);
+  // 2. The record: status re-derived from Paidy every pass (R05/R07); the
+  //    refund total is the LEDGER's after this pass's refunds are recorded
+  //    (R06, below) — never Paidy's unverified figure, never a cached one.
 
   // P02 (reassessment 2026-10-06): two passes for the same payment can overlap
   // (webhook + sweep, or two deliveries). Each write below is a compare-and-set
@@ -177,8 +148,64 @@ export async function syncPaidyPayment(
       must(endErr, "paidy_payments status update");
     }
   }
-  const { error: refErr } = await supabase.from("paidy_payments").update({ refund_jpy: refundTotal })
-    .eq("id", row.id).or(`refund_jpy.is.null,refund_jpy.lt.${refundTotal}`);
+  // PA02 (owner brief 2026-10-08): every refund Paidy reports is RECORDED
+  // through record_paidy_refund — the only writer of paidy_refunds. It locks
+  // the ORDER first (the cancel RPCs hold the same lock, so a refund and a
+  // cancel serialise), inserts idempotently by refund id, raises refund_jpy
+  // monotonically, and rings paidy_refund_after_credit when the order already
+  // holds a cancellation credit lot. Runs AFTER the capture status is written
+  // (a refund only exists on a capture). Verified before the call (owner
+  // correction 1): the payment object passed the PA12 validator for THIS id
+  // (whole-yen amounts, refund→capture linkage), and the environment of the
+  // read-back matches the row's — a mismatch records nothing and is flagged.
+  const envOk = typeof row.test !== "boolean" || payment.test === row.test;
+  const captureIdOf = (r: { capture_id?: string }) => r.capture_id ?? paidyLatestCapture(payment)?.id ?? null;
+  for (const r of fresh) {
+    await openPaidyCase(supabase, {
+      kind: recorded ? "refund_after_record" : "refund_before_record",
+      paidy_payment_id: pid, cash_order_id: row.cash_order_id, paidy_payment_row: row.id,
+      detail: { refund_id: r.id, refund_jpy: r.amount, capture_id: r.capture_id ?? null, captured_jpy: paidyCapturedAmount(payment), reopen: true },
+      bell: recorded
+        ? { title: "Paidy refund on a recorded payment", body: `${pid} · refund ${yen(r.amount)} (${r.id}) reported by Paidy. The order was NOT changed — decide in Payment Submissions → Paidy cases.` }
+        : { title: "Paidy refund before the payment was recorded", body: `${pid} · refund ${yen(r.amount)} (${r.id}). The Hub did NOT record this payment (owner rule: a refund is a staff decision) — open Payment Submissions → Paidy cases.` },
+    });
+    if (!envOk || payment.id !== pid) {
+      console.error(`[paidy-sync] refund ${r.id} on ${pid} NOT recorded: read-back env/id mismatch (row.test=${String(row.test)}, payment.test=${String(payment.test)}, payment.id=${payment.id})`);
+      flagged.push("refund_unverified");
+      continue;
+    }
+    const { data: rec, error: recErr } = await supabase.rpc("record_paidy_refund", {
+      p_refund_id: r.id, p_paidy_payment_row: row.id, p_amount_jpy: r.amount, p_capture_id: captureIdOf(r),
+      p_refunded_at: r.created_at ?? null, p_payload: r.raw,
+    });
+    must(recErr, "record_paidy_refund");
+    const res = (rec ?? {}) as AnyRec;
+    if (!res.ok) {
+      console.error(`[paidy-sync] record_paidy_refund refused ${r.id} on ${pid}:`, res.error);
+      flagged.push(`refund_${String(res.error ?? "refused")}`);
+      continue;
+    }
+    if (res.bell) flagged.push("refund_after_credit");
+    if (res.inserted) {
+      newRefunds++;
+      // Addendum §9 #9: a refund made in the Paidy dashboard reaches her —
+      // once per Paidy refund id, only when this pass recorded it (web orders
+      // only; never throws, never blocks the sync).
+      if (row.cash_order_id) {
+        await sendOrderUpdateEmail(supabase, {
+          entity: "cash_order", id: String(row.cash_order_id), variant: "refund_received",
+          amount: r.amount, refundMethod: "paidy", idempotencyKey: `refund-received-paidy-${r.id}`,
+        });
+      }
+    }
+  }
+  // The ledger total AFTER this pass's refunds (R06): the RPC already raised
+  // refund_jpy; this re-read keeps the row monotonic against an older pass.
+  const { data: ledger2, error: ledger2Err } = await supabase.from("paidy_refunds").select("amount_jpy").eq("paidy_payment_row", row.id);
+  must(ledger2Err, "paidy_refunds total read");
+  const refundTotalAfter = ((ledger2 ?? []) as AnyRec[]).reduce((s, r) => s + (Number(r.amount_jpy) || 0), 0);
+  const { error: refErr } = await supabase.from("paidy_payments").update({ refund_jpy: refundTotalAfter })
+    .eq("id", row.id).or(`refund_jpy.is.null,refund_jpy.lt.${refundTotalAfter}`);
   must(refErr, "paidy_payments refund total");
   // What the row says NOW (after any concurrent pass) decides what follows.
   const { data: nowRow, error: nowErr } = await supabase.from("paidy_payments").select("status").eq("id", row.id).maybeSingle();
@@ -242,10 +269,10 @@ export async function syncPaidyPayment(
     const running = subs.find((s) => s.status === "confirmed" && !s.confirmed_payment_id && !paidyConfirmLeaseExpired(s.processing_started_at));
     const live = subs.find((s) => s.status === "submitted" || s.status === "under_review"
       || (s.status === "confirmed" && !s.confirmed_payment_id && paidyConfirmLeaseExpired(s.processing_started_at)));
-    const problem = live ? paidyRecordProblem({ capturedAmount: captured, recordAmount: row.amount_jpy, submittedAmount: live.submitted_amount, refundedAmount: refundTotal }) : null;
+    const problem = live ? paidyRecordProblem({ capturedAmount: captured, recordAmount: row.amount_jpy, submittedAmount: live.submitted_amount, refundedAmount: refundTotalAfter }) : null;
     if (running) {
       flagged.push("recording_in_progress");
-    } else if (refundTotal > 0) {
+    } else if (refundTotalAfter > 0) {
       flagged.push("refund_before_record"); // case opened in step 1; nothing recorded (owner D4)
     } else if (!live) {
       await openPaidyCase(supabase, {

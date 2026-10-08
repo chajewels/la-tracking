@@ -464,3 +464,60 @@ Each finding is closed here, under its PA id, with its acceptance evidence.
   JSON, missing / mismatched id, wrong currency, bad types, invalid capture /
   refund linkage and incomplete CLOSED all produce an unknown outcome — no
   false rejection, no false release, no invented completion.
+
+### PA01 + PA02 + PA03 — PR 2 (migration 20261123100000 + paidy-sync + paidy-reconcile)
+
+Owner decision 2026-10-08 16:16 JST — **Paidy at cancel = REFUSE**, like
+Square's R05. Company policy is no cash refund: a cancelled Paidy-paid order
+gets store credit under the 100 % / 70 % rule and the customer's Paidy bill is
+untouched (Paidy never refunds on its own). A refund pressed in the Paidy
+dashboard is therefore an exception made deliberately.
+
+- **PA02 — no double compensation.** Both cancel RPCs read `paidy_refunds`:
+  any verified row → "store credit issued" is refused
+  (`paidy_already_refunded`; cancel_cash_order_atomic raises it, the web RPC
+  returns it as a reason) and staff finish by hand (refund pending → Mark
+  refund issued). The Square R05 checks are untouched beside it.
+  `record_paidy_refund(refund_id, payment_row, amount, capture_id, at,
+  payload)` (service role) is now the ONLY writer of `paidy_refunds`: it locks
+  the ORDER first (the cancel RPCs hold the same lock, so a refund and a
+  cancel serialise and a cancel that lands first sees the refund), then the
+  payment; inserts idempotently by refund id; refuses `not_captured`,
+  `capture_mismatch`, `refund_exceeds_capture`; raises `refund_jpy`
+  monotonically; and rings **`paidy_refund_after_credit`** once per refund
+  when the order already holds a `cancelled_cash` lot — the reconciliation
+  path for a dashboard refund made AFTER credit (a human voids the lot;
+  Settings → Store Credit). `paidy-sync` calls it after the capture status is
+  written and only when the read-back passed the PA12 validator for that id
+  AND its `test` flag matches the row's (otherwise nothing is recorded and
+  the pass is flagged `refund_unverified`).
+- **PA03 — truthful "refund issued" for Paidy.**
+  `mark_web_order_refund_issued_atomic` method `paidy` needs Paidy money on
+  the order (`method_mismatch` / `not_paid_by_paidy`) and at least one
+  verified refund (`no_verified_paidy_refund`); the amount recorded is
+  `LEAST(paidy money, verified total)` and the audit row carries
+  `paidy_refunded_total_jpy` + `paidy_remaining_jpy` — never the gross. A
+  non-Paidy method on a mixed order records only the non-Paidy money.
+  `terminate_web_order_atomic` refuses `refund_issued` on a Paidy-paid order
+  while verified refunds do not cover the Paidy money
+  (`paidy_refund_needs_dashboard`) — the twin of `card_refund_needs_square`.
+  Preview carries `paid_by_paidy`, `paidy_paid_jpy`, `paidy_refunded_jpy`.
+  Staff copy: `_shared/terminate-refusals.ts`, `MarkRefundIssuedDialog`.
+- **PA01 — an orphan capture is never released by a note.** A capture case
+  with no payment row (`paidy_payment_row IS NULL`, kind captured_unrecorded /
+  captured_no_submission / record_failed) is the order's only lock
+  (`cash_order_payment_lock` → paidy_captured_unrecorded).
+  `resolve_paidy_case` now refuses `no_action`, `handled_in_paidy`,
+  `released`, `refunded_in_paidy` and `end_submission` on it
+  (`orphan_capture_unsettled`); it closes through `record_capture` once a
+  payment row exists, or by the sweep: `paidy-reconcile` step 4b re-reads
+  every open orphan case's payment from Paidy each run (this environment's
+  key only; the other environment's run owns the rest) and calls
+  `resolve_orphan_paidy_case_verified` (service role) ONLY when Paidy reports
+  the capture fully refunded; anything else keeps the case — and the lock —
+  and refreshes `last_seen_at` / `attempts`. Report fields
+  `orphan_cases_checked` / `orphan_cases_resolved`.
+- Tests: development/paidy-sync.test.ts (R06 reordered + PA02 bell + PA02
+  env mismatch), development/paidy-pa01-pa03.test.ts (wiring + migration
+  guards), both in the CI list. The SQL bodies run only on Postgres: the
+  migration self-checks every patched function and STOPS on any mismatch.

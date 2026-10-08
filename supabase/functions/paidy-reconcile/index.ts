@@ -3,7 +3,7 @@ import { requireAuth } from "../_shared/handler.ts";
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { PAIDY_ORDER_FIELDS, filePaidyAuthorization, paidyModeNow, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { PAIDY_RECORD_FIELDS, paidyBellOnce, syncPaidyPayment } from "../_shared/paidy-sync.ts";
-import { paidyConfirmLeaseExpired, paidyProviderOutcome } from "../_shared/paidy-rules.ts";
+import { paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
 import { processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 
@@ -45,6 +45,7 @@ Deno.serve(async (req) => {
     events: 0, events_failed: 0, checked: 0, refiled: 0, waiting: 0, synced: 0, auto_recorded: 0,
     captured_unrecorded: 0, refunds: 0, closes_retried: 0, attempts_expired: 0, stuck_confirms: 0,
     other_environment: 0, paidy_errors: 0, write_errors: 0, skipped_mode_off: false,
+    orphan_cases_checked: 0, orphan_cases_resolved: 0,
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
   };
 
@@ -181,6 +182,47 @@ Deno.serve(async (req) => {
     const { data: expired, error: expErr } = await supabase.rpc("expire_paidy_checkout_attempts", { p_cash_order_id: null });
     if (expErr) throw expErr;
     report.attempts_expired = Number(expired ?? 0);
+
+    // 4b. PA01 (owner brief 2026-10-08): open ORPHAN capture cases — Paidy
+    // took money the Hub has no payment row for; the open case is the order's
+    // only lock. Each run re-reads the payment from Paidy: a capture Paidy
+    // reports FULLY refunded closes the case as refunded_in_paidy (verified by
+    // the sweep, never by a note); anything else keeps the case — and the
+    // lock — and refreshes it. Only this environment's key can answer, so a
+    // read Paidy refuses is left for the other environment's run (PA10).
+    if (secretTest !== null) {
+      const { data: orphans, error: orErr } = await supabase
+        .from("paidy_cases").select("id, paidy_payment_id, kind, cash_order_id, attempts")
+        .eq("status", "open").is("paidy_payment_row", null)
+        .in("kind", ["captured_unrecorded", "captured_no_submission", "record_failed"])
+        .order("opened_at", { ascending: true }).limit(50);
+      if (orErr) throw orErr;
+      for (const c of (orphans ?? []) as Record<string, any>[]) {
+        report.orphan_cases_checked++;
+        let live: PaidyPayment;
+        try {
+          live = await paidy.get(String(c.paidy_payment_id));
+        } catch (e) {
+          // 404 / other environment / unreadable: the case stays open and locked.
+          console.warn(`${LOG} orphan case ${c.id} ${c.paidy_payment_id}: Paidy read failed:`, e instanceof PaidyError ? `${e.status} ${e.code}` : e);
+          continue;
+        }
+        if (live.test !== secretTest) continue; // not this key's payment — the other run owns it
+        const captured = paidyCapturedAmount(live);
+        const refunded = paidyRefundTotal(live);
+        const { error: touchErr } = await supabase.from("paidy_cases")
+          .update({ last_seen_at: new Date().toISOString(), attempts: Number(c.attempts ?? 0) + 1 }).eq("id", c.id);
+        if (touchErr) report.write_errors++;
+        if (Number.isFinite(captured) && captured > 0 && refunded >= captured) {
+          const { data: res, error: resErr } = await supabase.rpc("resolve_orphan_paidy_case_verified", {
+            p_case_id: c.id, p_refunded_jpy: refunded, p_captured_jpy: captured,
+            p_payload: { payment_id: live.id, captures: live.captures ?? [], refunds: live.refunds ?? [] },
+          });
+          if (resErr) { report.write_errors++; console.error(`${LOG} orphan case ${c.id} resolve failed:`, resErr); continue; }
+          if ((res as Record<string, any> | null)?.ok) report.orphan_cases_resolved++;
+        }
+      }
+    }
 
     // 5. Cash-order Confirms left half-way past the lease.
     const { data: stuck, error: stuckErr } = await supabase
