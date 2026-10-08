@@ -1,12 +1,13 @@
 /**
  * Paidy reassessment P04 / P07 (owner answers 2026-10-08).
  *   P07: an inbox event from the OTHER environment is kept and retried daily,
- *        never marked processed, until 30 days old.
+ *        never marked processed. PR 3 (PA10, owner 2026-10-08): it is PARKED
+ *        (parked_reason) and NEVER dropped — the 30-day limit is gone.
  *   P04: the sweep ends a closed Paidy window ONLY through the SQL guard
  *        (expire_paidy_checkout_attempts) — never a plain timed update.
  */
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { OTHER_ENVIRONMENT_KEEP_DAYS, processPaidyEvent } from "../supabase/functions/_shared/paidy-events.ts";
+import { PARKED_RETRY_MS, processPaidyEvent } from "../supabase/functions/_shared/paidy-events.ts";
 
 type Row = Record<string, unknown>;
 function fakeDb(payments: Row[], inbox: Row[]) {
@@ -33,7 +34,7 @@ function fakeDb(payments: Row[], inbox: Row[]) {
   };
 }
 
-Deno.test("P07: other-environment event is kept, retried in 24h, counted as skipped", async () => {
+Deno.test("P07 / PA10: other-environment event is parked, retried in 24h, counted as skipped", async () => {
   Deno.env.set("PAIDY_SECRET_KEY", "sk_test_unit");
   const inbox: Row[] = [{ id: "ev1", paidy_payment_id: "pay_live1", received_at: new Date().toISOString(), attempts: 0 }];
   const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_live1", status: "authorized", test: false }], inbox);
@@ -42,19 +43,26 @@ Deno.test("P07: other-environment event is kept, retried in 24h, counted as skip
   assertEquals(r.summary.skipped, "other_environment");
   assertEquals(inbox[0].processed_at, undefined);
   assertEquals(inbox[0].last_error, "other_environment");
+  assertEquals(inbox[0].parked_reason, "other_environment");
+  assertEquals(inbox[0].cash_order_id, undefined); // the row carried no order id in this fixture
+  assertEquals(inbox[0].test, false); // classified from the Hub row
   assertEquals(inbox[0].attempts, 1);
   const next = Date.parse(String(inbox[0].next_attempt_at));
-  assert(next - Date.now() > 23 * 3600_000 && next - Date.now() <= 24 * 3600_000);
+  assert(next - Date.now() > PARKED_RETRY_MS - 3600_000 && next - Date.now() <= PARKED_RETRY_MS);
 });
 
-Deno.test("P07: other-environment event older than 30 days is dropped as expired", async () => {
+Deno.test("PA10 (owner 2026-10-08): an other-environment event is NEVER dropped, however old", async () => {
   Deno.env.set("PAIDY_SECRET_KEY", "sk_test_unit");
-  const old = new Date(Date.now() - (OTHER_ENVIRONMENT_KEEP_DAYS + 1) * 86_400_000).toISOString();
+  const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
   const inbox: Row[] = [{ id: "ev1", paidy_payment_id: "pay_live1", received_at: old, attempts: 5 }];
   const db = fakeDb([{ id: "r1", paidy_payment_id: "pay_live1", status: "authorized", test: false }], inbox);
   const r = await processPaidyEvent(db, "ev1", "pay_live1", "authorize_success", "reconcile", 5, { receivedAt: old });
-  assertEquals(r.summary.skipped, "other_environment_expired");
-  assert(typeof inbox[0].processed_at === "string");
+  assertEquals(r.summary.skipped, "other_environment");
+  assertEquals(inbox[0].processed_at, undefined);
+  assertEquals(inbox[0].parked_reason, "other_environment");
+  assertEquals(inbox[0].attempts, 6);
+  const src = await Deno.readTextFile(new URL("../supabase/functions/_shared/paidy-events.ts", import.meta.url));
+  assert(!src.includes("other_environment_expired"), "no expiry of parked recovery");
 });
 
 Deno.test("P04 + P07: the sweep source ends windows only through the SQL guard and reads one environment", async () => {

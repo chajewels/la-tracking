@@ -521,3 +521,51 @@ dashboard is therefore an exception made deliberately.
   env mismatch), development/paidy-pa01-pa03.test.ts (wiring + migration
   guards), both in the CI list. The SQL bodies run only on Postgres: the
   migration self-checks every patched function and STOPS on any mismatch.
+
+### PA05 + PA09 + PA04 + PA10 — PR 3, recovery (migration 20261125100000 + record-only 20261126100000; owner go 2026-10-08 17:39 JST)
+
+Plan and investigation: claude/paidy-pr3-recovery-plan-2026-10-08.md (project).
+Owner decisions applied: an unverified window still ends after 30 min (honestly
+named); parked notifications shown as a count on the Paidy cases panel; the
+window notice wording (storefront) says what the Hub does — "our next hourly
+check finds no Paidy payment on this order" — never "confirmed with Paidy".
+
+- **PA05 — a release is what Paidy says it is.** `releasePaidyAuthorization`
+  returns `released | captured | pending | unknown` classified from Paidy's
+  answer to the close (re-read on a refused call): only closed / rejected /
+  expired ends the row; a capture found at release is written captured and
+  opens the locking capture case (never closed); AUTHORIZED-after-close or an
+  unreadable answer opens `close_failed`. Callers say `release_<outcome>_…`
+  instead of `released_…` when the close was not confirmed. The sweep (step 3b)
+  retries every `close_failed` case WITHOUT a payment row — an unfiled payment
+  the Hub tried to release — from Paidy's read-back and resolves it only when
+  Paidy confirms (`orphan_releases_retried` / `_resolved`).
+- **PA09 — inbox bookkeeping is honest.** `claim_paidy_webhook_event` (5-minute
+  lease, compare-and-set) is passed by the webhook and the sweep before any
+  work; every inbox write is retried once and counted (`writes_failed` →
+  `inbox_write_errors`, the webhook answers 500 so Paidy retries); duplicates
+  in a run are completed only after the first event for that payment is done.
+- **PA04 — window expiry.** The guard in `expire_paidy_checkout_attempts` is
+  ORDER-CORRELATED (an unprocessed, unparked event naming this order, or one
+  not yet classified); a window that knows its Paidy payment id (the
+  storefront's rejected/closed callback now hands it over —
+  `note_paidy_checkout_attempt_payment`) is verified with Paidy by the sweep
+  first (`verified_empty_at`; an authorisation found is adopted, a capture
+  opens its case); the result is named on the attempt (`verification` =
+  verified_empty | unverified_no_id). The launch metadata carries
+  `attempt_id`. A window with no id ends on time alone, bounded by adoption.
+- **PA10 — environment and age.** Inbox events are classified
+  (`cash_order_id`, `test`) and the sweep reads only this environment's working
+  batch; events this key cannot answer are PARKED (`parked_reason`
+  other_environment | unknown_to_this_key), retried daily and NEVER dropped
+  (owner); an unknown id is closed only after BOTH keys answered 404
+  (`tried_test` / `tried_live`). `paidy_unrecorded_captures` feeds the sweep
+  every unrecorded, not-fully-refunded capture whatever its age (captured_at
+  NULL included); recorded captures keep the 400-day refund window.
+- Report fields added: events_parked, inbox_write_errors,
+  orphan_releases_retried/_resolved, windows_verified, windows_recovered,
+  parked_events, parked_oldest_minutes.
+- Tests: development/paidy-pr3-recovery.test.ts (release classification with
+  a stubbed Paidy, parking + both-keys closure, counted write failures, source
+  and migration guards) + the updated development/paidy-p04-p07.test.ts; in
+  the CI list.

@@ -17,7 +17,7 @@
  */
 
 import { customerReference } from "./order-reference.ts";
-import { paidyCaptureDeadlineText, paidyFilingMismatch, paidyModeFrom, paidyYen, type PaidyMode } from "./paidy-rules.ts";
+import { paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
 import { sendPaymentSubmittedEmail } from "./order-update-email.ts";
@@ -33,33 +33,84 @@ export const PAIDY_ORDER_FIELDS =
   "id, customer_id, invoice_number, web_reference, source_channel, status, payment_status, currency, remaining_balance, total_paid, ready_confirmed_at";
 
 /**
- * Releases (closes) an authorisation the Hub will not take. A close Paidy does
- * not accept becomes a durable close_failed case the sweep retries (R08) —
- * never only a bell. Returns whether Paidy accepted the close.
+ * What a release attempt established — from PAIDY'S OWN ANSWER, never from
+ * the HTTP status of the close call (PA05, owner brief 2026-10-08):
+ *   released  Paidy reports the authorisation closed / rejected / expired:
+ *             nothing is held for the customer; the row is ended.
+ *   captured  Paidy reports a capture: money was taken — the row is written
+ *             captured (never closed) and the locking capture case is opened.
+ *   pending   Paidy still reports AUTHORIZED (the close was not accepted) or
+ *             refused the call: a durable close_failed case; the sweep retries.
+ *   unknown   Paidy's answer could not be classified (timeout, bad object):
+ *             same durable case; nothing is written as released.
+ */
+export type PaidyReleaseOutcome = "released" | "captured" | "pending" | "unknown";
+export const paidyReleased = (o: PaidyReleaseOutcome): boolean => o === "released";
+
+/**
+ * Releases (closes) an authorisation the Hub will not take, and says what
+ * Paidy then reports. A close Paidy does not accept — or answers with
+ * anything other than an ended authorisation — becomes a durable
+ * close_failed (or capture) case the sweep retries (R08) — never only a bell,
+ * and never recorded as released on the strength of a 2xx.
  */
 export async function releasePaidyAuthorization(supabase: Db, payment: PaidyPayment, ctx: {
   cash_order_id?: string | null; paidy_payment_row?: string | null; why: string;
-}): Promise<boolean> {
-  if (payment.status !== "AUTHORIZED") return true;
+}): Promise<PaidyReleaseOutcome> {
+  const before = paidyProviderOutcome(payment);
+  if (before === "closed" || before === "rejected" || before === "expired") return "released";
+  if (before === "captured") return await releaseSawCapture(supabase, payment, ctx);
+  let answer: PaidyPayment | null = null;
+  let failure: string | null = null;
   try {
-    const closed = await paidy.close(payment.id);
+    answer = await paidy.close(payment.id);
+  } catch (e) {
+    failure = e instanceof Error ? e.message : String(e);
+    // A lost or refused answer is not a state: ask Paidy what it holds now.
+    try { answer = await paidy.get(payment.id); } catch { answer = null; }
+  }
+  const outcome = answer ? paidyProviderOutcome(answer) : "unknown";
+  if (outcome === "closed" || outcome === "rejected" || outcome === "expired") {
     // Release the order at once (the lock reads this row), not at the next sweep.
     const at = new Date().toISOString();
     const { error } = await supabase.from("paidy_payments").update({
-      status: "closed", closed_at: at, closed_reason: `released: ${ctx.why}`.slice(0, 200), last_payload: closed, updated_at: at,
+      status: outcome, closed_at: at, closed_reason: `released: ${ctx.why}`.slice(0, 200), last_payload: answer, updated_at: at,
     }).eq("paidy_payment_id", payment.id).eq("status", "authorized");
     if (error) console.error(`[paidy] closed status write for ${payment.id} failed (the sweep repairs it):`, error);
-    return true;
-  } catch (e) {
-    console.warn(`[paidy] close of ${payment.id} (${ctx.why}) failed — case opened:`, e);
-    await openPaidyCase(supabase, {
-      kind: "close_failed", paidy_payment_id: payment.id, cash_order_id: ctx.cash_order_id ?? null,
-      paidy_payment_row: ctx.paidy_payment_row ?? null,
-      detail: { why: ctx.why, error: e instanceof Error ? e.message : String(e) },
-      bell: { title: "Paidy authorisation not released yet", body: `${payment.id} · ${ctx.why} · Paidy did not accept the close. The hourly check retries; do not capture it in the Paidy dashboard.` },
-    });
-    return false;
+    return "released";
   }
+  if (outcome === "captured" && answer) return await releaseSawCapture(supabase, answer, ctx);
+  const detail = failure ? `close refused: ${failure}` : `Paidy still reports ${String(answer?.status ?? "unknown")}`;
+  console.warn(`[paidy] close of ${payment.id} (${ctx.why}) not confirmed — case opened: ${detail}`);
+  await openPaidyCase(supabase, {
+    kind: "close_failed", paidy_payment_id: payment.id, cash_order_id: ctx.cash_order_id ?? null,
+    paidy_payment_row: ctx.paidy_payment_row ?? null,
+    detail: { why: ctx.why, error: detail, outcome },
+    bell: { title: "Paidy authorisation not released yet", body: `${payment.id} · ${ctx.why} · ${detail}. The hourly check retries; do not capture it in the Paidy dashboard.` },
+  });
+  return outcome === "unknown" ? "unknown" : "pending";
+}
+
+/** A release that found money already taken: never written as closed; the capture case locks the order. */
+async function releaseSawCapture(supabase: Db, payment: PaidyPayment, ctx: {
+  cash_order_id?: string | null; paidy_payment_row?: string | null; why: string;
+}): Promise<PaidyReleaseOutcome> {
+  const captured = paidyCapturedAmount(payment);
+  const latest = paidyLatestCapture(payment);
+  if (ctx.paidy_payment_row) {
+    const at = new Date().toISOString();
+    const upd: AnyRec = { status: "captured", last_payload: payment, updated_at: at, captured_at: latest?.created_at ?? at };
+    if (latest?.id) upd.capture_id = latest.id;
+    const { error } = await supabase.from("paidy_payments").update(upd).eq("id", ctx.paidy_payment_row).neq("status", "captured");
+    if (error) console.error(`[paidy] capture write for ${payment.id} failed (the sweep repairs it):`, error);
+  }
+  await openPaidyCase(supabase, {
+    kind: ctx.paidy_payment_row ? "captured_unrecorded" : "captured_no_submission",
+    paidy_payment_id: payment.id, cash_order_id: ctx.cash_order_id ?? null, paidy_payment_row: ctx.paidy_payment_row ?? null,
+    detail: { why: ctx.why, captured_jpy: captured, found_at_release: true },
+    bell: { title: "Paidy took a payment the Hub was releasing", body: `${payment.id} · ¥${Math.round(captured).toLocaleString("en-US")} · ${ctx.why} — Paidy reports a capture, so nothing was released. Payment Submissions → Paidy cases.` },
+  });
+  return "captured";
 }
 
 /** Inserts a staff bell; returns false (and logs) when the insert fails — never throws. */
@@ -99,7 +150,7 @@ export async function orderForPaidyRef(supabase: Db, orderRef: unknown): Promise
 
 export type FilingResult =
   | { ok: true; outcome: "created" | "existing" | "recovered"; submission: AnyRec; paidy_record_id: string }
-  | { ok: false; error: string; detail?: string; released?: boolean };
+  | { ok: false; error: string; detail?: string; released?: boolean; release?: PaidyReleaseOutcome };
 
 /**
  * Validate Paidy's read-back against the order and file it. On a mismatch
@@ -118,13 +169,13 @@ export async function filePaidyAuthorization(supabase: Db, args: {
   const ref = customerReference(order as never);
   const mismatch = paidyFilingMismatch(payment, order, { test: args.expectTest, orderRef: ref });
   if (mismatch) {
-    const released = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `mismatch: ${mismatch}` });
-    return { ok: false, error: "paidy_mismatch", detail: mismatch, released };
+    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `mismatch: ${mismatch}` });
+    return { ok: false, error: "paidy_mismatch", detail: mismatch, released: paidyReleased(release), release };
   }
   const amount = paidyYen(payment.amount);
   if (amount == null) {
-    const released = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: "amount not whole yen" });
-    return { ok: false, error: "paidy_mismatch", detail: "amount", released };
+    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: "amount not whole yen" });
+    return { ok: false, error: "paidy_mismatch", detail: "amount", released: paidyReleased(release), release };
   }
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
@@ -154,8 +205,8 @@ export async function filePaidyAuthorization(supabase: Db, args: {
     // moved, part-paid, not yen, expired) — release it so nothing stays
     // reserved on the customer's Paidy limit.
     if (err === "stale_authorization") {
-      const released = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `stale: ${String(r.detail ?? "")}` });
-      return { ok: false, error: err, detail: String(r.detail ?? ""), released };
+      const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `stale: ${String(r.detail ?? "")}` });
+      return { ok: false, error: err, detail: String(r.detail ?? ""), released: paidyReleased(release), release };
     }
     return { ok: false, error: err, detail: r.lock ? String(r.lock) : r.status ? String(r.status) : undefined };
   }
@@ -197,11 +248,15 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
     && !(order.source_channel === "web" && order.ready_confirmed_at == null);
   const ref = customerReference(order as never);
   if (!canTake) {
-    const released = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `order is ${order.status}/${order.payment_status}` });
-    await paidyBell(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
-      `${ref} · ¥${amount} · the order is ${order.status}/${order.payment_status} and can no longer take it${released ? " — released, no charge" : " — the hourly check retries the release"}`,
-      { cash_order_id: order.id, paidy_payment_id: payment.id, path, released });
-    return released ? "released" : "release_failed";
+    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `order is ${order.status}/${order.payment_status}` });
+    const released = paidyReleased(release);
+    // A capture found here already rang its own case bell (releaseSawCapture).
+    if (release !== "captured") {
+      await paidyBell(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
+        `${ref} · ¥${amount} · the order is ${order.status}/${order.payment_status} and can no longer take it${released ? " — released, no charge" : " — the hourly check retries the release"}`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, released, release });
+    }
+    return released ? "released" : `release_${release}`;
   }
   const result = await filePaidyAuthorization(supabase, {
     order, customer: { id: customer.id, full_name: customer.full_name ?? null }, payment,
@@ -217,7 +272,8 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
     return "waiting";
   }
   if (result.error === "paidy_mismatch" || result.error === "stale_authorization") {
-    return `released_${result.error}`;
+    // PA05: say what Paidy established, never "released" on a failed close.
+    return result.released ? `released_${result.error}` : `release_${result.release ?? "unknown"}_${result.error}`;
   }
   await openPaidyCase(supabase, {
     kind: "unmatched_authorization", paidy_payment_id: payment.id, cash_order_id: order.id,
