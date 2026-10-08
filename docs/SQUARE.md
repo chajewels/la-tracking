@@ -388,3 +388,48 @@ Review of the integration against developer.squareup.com (Project doc
 - **HUB-9** this file (steps 5, 6, 8, webhook list); the live `square-reconcile` cron recorded in the
   migration (created only when missing).
 
+
+## QA/QC review fixes S01–S05 + B01/B02 (2026-10-08)
+
+Review of 6 Oct verified in project doc `claude/square-qa-assessment-2026-10-06.md`; owner plan v2
+`claude/square-s01-s05-plan-2026-10-08.md`. Migration `20261117100000_square_qa_refunds_credit.sql`
+(md5-guarded patches of the LIVE bodies); acceptance `development/sql/square-qa-refunds-credit-acceptance.sql`
+(47 checks; 8 pass before the migration, 47 after); deno `development/square-qa-reconcile.test.ts`;
+vitest `src/test/square-ops.test.ts`, `src/test/cancellation-credit.test.ts`. Edge functions to deploy (Lovable, separate message):
+`square-reconcile`, `mark-refund-issued`, `cancel-cash-order`.
+
+- **S05 stuck refunds.** `ring_square_deadline_bells` rings `card_refund_pending` for a Square refund
+  still not COMPLETED / FAILED / REJECTED **7 days** after Square created it (every day counts, owner E1)
+  and again at **14 days** ("contact Square support"); stamps `square_refunds.warned_7d_at /
+  warned_14d_at`. Age is from `provider_created_at` (never `updated_at`, which the hourly read rewrites).
+  `square_ops_health` adds `refund_oldest_pending_at` and `attempts_stuck`; the panel strip shows
+  "Oldest refund waiting N days" (warning from 7, red from 14).
+- **S04 Reassign Owner.** `reassign_order_owner_atomic` refuses `card_order` on any card history
+  (attempt, payment row or square submission) — docs/REASSIGN-OWNER.md.
+- **S01 stuck attempt.** square-reconcile calls `note_square_attempt_stuck` for an attempt still open past
+  its give-up time that the run could not settle; the 3rd such run rings `card_attempt_stuck` once
+  (`square_card_attempts.stuck_runs / stuck_warned_at`). The attempt itself is never closed by this.
+- **S02 discovery for every environment.** Refund (B) and dispute (C) discovery run for the current mode's
+  environment PLUS every environment that still has a live hold, a capture within 120 days, an open
+  refund or an open dispute (`_shared/square-reconcile-rules.ts discoveryEnvironments`) — so they keep
+  running with the mode off and after test → live. An old environment without credentials reports
+  `no_credentials`, not an alarm. Events (A) stays current-environment only.
+- **S03 checked writes.** Every progress write (`reconciled_at` / `updated_at` touches) goes through
+  `checked()` → a failure is reported and the run ends degraded; a failed health write sets
+  `health_write_failed: true` and the response status is degraded.
+- **B01 card refund proof.** `mark_web_order_refund_issued_atomic`: a card-paid order must be marked with
+  method `card` (`method_mismatch` otherwise, and `card` on a non-card order is refused too); it needs at
+  least one COMPLETED Square refund (`no_completed_card_refund`) and records **the COMPLETED total, capped
+  at money received** (owner E7: partial allowed), never the gross. The same request after success
+  answers `already_recorded: true` and writes nothing; the edge re-sends the 「返金が完了しました」 email only
+  if it never went out. `terminate_web_order_atomic` refuses `refund_issued` at cancel on a card-paid
+  order (`card_refund_needs_square`); the cancel dialog greys that option out and the preview carries
+  `paid_by_card`. The Mark-refund dialog offers Card only on a card order and shows Square's completed /
+  pending figures.
+- **B02 refund email replay.** Step 7 of square-reconcile: a COMPLETED Square refund on a web order with
+  `refund_email_replay = true` (rows created after this release; existing rows were set false once,
+  `square_sync_state.b02_replay_cutoff`) and no `sent` row for `refund-received-square-<id>` is sent again
+  with the same key after a 30-minute grace; a deliberate no-send (not web, test customer, suppressed)
+  ends it; a transient failure retries hourly, max 3, then bell `refund_email_failed` and
+  `email_given_up_at`. The only exception to EMAIL DELIVERY MONITORING's "nothing re-sends".
+- **Cancellation credit rule** (website + Hub cash orders, not Shopify) — docs/STORE-CREDIT.md.

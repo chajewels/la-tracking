@@ -16,6 +16,25 @@ manually by an admin (goodwill / defect resolution).
   (`reference_number LIKE 'LOYALTY-%'`) are **excluded**. Example: a ¥100,000
   order with ¥20,000 paid by redeemed points and ¥80,000 cash → **¥80,000**
   store credit.
+- **Cancellation charge (owner 2026-10-06 13:04, confirmed 2026-10-08).**
+  Cancellations are settled in STORE CREDIT, never a money refund. A website
+  or Hub cash order cancelled **on its order date** (`cash_orders.order_date`,
+  which the Hub writes as the PHT calendar day — so the cancel day is compared
+  as the PHT day too, never a different zone) →
+  100 % of the money paid is credit. Cancelled **after the order day** → a
+  **30 % cancellation charge on the money PAID** is kept and the other 70 % is
+  credit (¥40,000 paid → ¥12,000 kept, ¥28,000 credit; yen half-up to whole
+  yen, pesos to 2 decimals). **No override**: a goodwill case is a separate
+  manual credit (`issue-store-credit`). **Shopify orders keep 100 %.** A missing
+  order date is treated as the same day (never charged by mistake). ONE
+  formula — `public.cancellation_credit_split(currency, order_date, money, at)`
+  (migration 20261117100000) and its TS mirror
+  `supabase/functions/_shared/cancellation-credit.ts` (+ `src/lib/cancellation-credit.ts`) —
+  used by `terminate_web_order_atomic` (only when staff choose
+  `store_credit_issued`) and `cancel_cash_order_atomic` (Hub, `p_source <>
+  'shopify_webhook'` and no `shopify_order_id`). The cancel dialog previews the
+  split; the account note, audit (`cancellation_split`) and the website
+  cancellation email state the credit and the charge kept.
 - **Redeemed loyalty points are NEVER returned** on cancellation. Permanent.
   Never re-raise.
 - **Earned loyalty points ARE revoked** when the order is cancelled (via

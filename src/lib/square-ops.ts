@@ -258,6 +258,21 @@ export interface SquareOpsHealth {
   exceptions_open?: number;
   refunds_open?: number;
   disputes_open?: number;
+  /** S05 (2026-10-08): when the oldest refund still not finished started (Square's time). */
+  refund_oldest_pending_at?: string | null;
+  /** S01 (2026-10-08): open card attempts that already rang 'card_attempt_stuck'. */
+  attempts_stuck?: number;
+}
+
+/** S05: the first bell rings at 7 days, the second (contact Square support) at 14. Every day counts (owner E1). */
+export const REFUND_PENDING_WARN_DAYS = 7;
+export const REFUND_PENDING_SUPPORT_DAYS = 14;
+
+/** S05: whole days the oldest unfinished Square refund has been waiting, or null when none. */
+export function refundPendingDays(h: SquareOpsHealth | null | undefined, now: Date): number | null {
+  const at = h?.refund_oldest_pending_at ? Date.parse(h.refund_oldest_pending_at) : NaN;
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.floor((now.getTime() - at) / 86_400_000));
 }
 
 /** True when the last run found Square's event history (Events API) not enabled for the account. */

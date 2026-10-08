@@ -93,3 +93,13 @@ This is NOT a replay job; nothing is re-sent later (2026-09-13 decision stands).
 Reason: three `registry_lookup_failed` refusals (25 Sep, 27 Sep, 2 Oct, all in
 the 00:00 UTC reminder burst) while sends 1 s either side with the same key
 were accepted.
+
+
+## Exception — B02 card refund email replay (2026-10-08)
+
+Owner decision 2026-10-08 (Square QA plan v2): the ONE automatic re-send in the Hub. square-reconcile
+(hourly) re-sends a card 「返金を受け付けました」 (`refund_received`) email for a COMPLETED Square refund on a
+website order when `email_send_log` holds no `sent` row for its key `refund-received-square-<refund id>` —
+the same key square-sync used, so the customer can never receive it twice. Only refunds that arrive after
+the release (`square_refunds.refund_email_replay`), after a 30-minute grace, at most 3 re-sends, then bell
+`refund_email_failed`. Everything else stays REPORT-ONLY. docs/SQUARE.md "QA/QC review fixes".
