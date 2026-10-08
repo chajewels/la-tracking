@@ -87,6 +87,12 @@ interface CancelPreview {
   is_web?: boolean;
   stock_lines?: number;
   refund_decision_required?: boolean;
+  // Cancellation credit rule (owner 2026-10-08): on the order date 100%, later 70%.
+  store_credit_if_chosen?: number;
+  cancellation_rule?: 'same_day' | 'after_order_day' | 'shopify_full' | null;
+  cancellation_charge?: number;
+  // B01: a card-paid web order cannot be closed as "refund issued" at cancel.
+  paid_by_card?: boolean;
 }
 
 // Refund decision for a web order that has money received. Only
@@ -96,7 +102,7 @@ type RefundStatus = 'refund_issued' | 'refund_pending' | 'store_credit_issued' |
 const REFUND_OPTIONS: { value: RefundStatus; label: string; helper: string }[] = [
   { value: 'refund_issued', label: 'Refund issued', helper: 'The money has been returned to the customer. No store credit.' },
   { value: 'refund_pending', label: 'Refund pending', helper: 'A refund will be sent. No store credit.' },
-  { value: 'store_credit_issued', label: 'Store credit issued', helper: 'The amount received becomes store credit, valid one year.' },
+  { value: 'store_credit_issued', label: 'Store credit issued', helper: 'Store credit, valid one year: 100% if cancelled on the order date, otherwise 70% (30% cancellation charge kept).' },
   { value: 'no_refund', label: 'No refund (forfeited)', helper: 'Nothing is returned and no store credit is issued.' },
 ];
 const REFUND_NOTE_MAX = 300;
@@ -1126,13 +1132,21 @@ export default function CashOrderDetail() {
   const refundDecisionMissing = refundDecisionRequired && !refundStatus;
   // Store credit shown in the preview: Hub orders follow the server figure; web
   // orders mint credit ONLY when "store credit issued" is chosen.
+  // Web: the server's figure after the cancellation rule (store_credit_if_chosen);
+  // an older deploy without it falls back to the previous behaviour.
   const cancelStoreCreditShown = cancelIsWeb
     ? (refundStatus === 'store_credit_issued'
-        ? (Number(cancelPreview?.store_credit_to_issue ?? 0) > 0
-            ? Number(cancelPreview?.store_credit_to_issue)
-            : cancelMoneyReceived)
+        ? (cancelPreview?.store_credit_if_chosen != null
+            ? Number(cancelPreview.store_credit_if_chosen)
+            : Number(cancelPreview?.store_credit_to_issue ?? 0) > 0
+              ? Number(cancelPreview?.store_credit_to_issue)
+              : cancelMoneyReceived)
         : 0)
     : Number(cancelPreview?.store_credit_to_issue ?? 0);
+  // The 30% cancellation charge kept (0 on the order day, and for Shopify).
+  const cancelChargeShown = Number(cancelPreview?.cancellation_charge ?? 0);
+  const cancelChargeApplies = cancelChargeShown > 0 && (!cancelIsWeb || refundStatus === 'store_credit_issued');
+  const cancelPaidByCard = cancelIsWeb && cancelPreview?.paid_by_card === true;
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
   const canAwardLoyalty = can('loyalty_adjust_points');
@@ -2260,6 +2274,15 @@ export default function CashOrderDetail() {
                   No payments received — no store credit will be issued.
                 </p>
               )}
+              {cancelChargeApplies && (
+                <p className="text-warning">
+                  Cancelled after the order day ({order.order_date ?? '—'}): 30% cancellation charge of{' '}
+                  {formatCurrency(cancelChargeShown, currency)} is kept. Store credit is the other 70%.
+                </p>
+              )}
+              {cancelMoneyReceived > 0 && cancelPreview.cancellation_rule === 'same_day' && (!cancelIsWeb || refundStatus === 'store_credit_issued') && (
+                <p className="text-muted-foreground">Cancelled on the order date: no cancellation charge.</p>
+              )}
               {cancelIsWeb && cancelStockLines > 0 && (
                 <p className="text-muted-foreground">
                   Stock: {cancelStockLines} {cancelStockLines === 1 ? 'line' : 'lines'} will go back on sale
@@ -2281,21 +2304,30 @@ export default function CashOrderDetail() {
                 aria-required
                 className="gap-1.5"
               >
-                {REFUND_OPTIONS.map(opt => (
+                {REFUND_OPTIONS.map(opt => {
+                  // B01: card money goes back only through Square, then "Mark refund issued".
+                  const blocked = opt.value === 'refund_issued' && cancelPaidByCard;
+                  return (
                   <label
                     key={opt.value}
                     htmlFor={`refund-${opt.value}`}
-                    className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 transition-colors ${
-                      refundStatus === opt.value ? 'border-primary/60 bg-primary/5' : 'border-border bg-background hover:border-primary/30'
+                    className={`flex items-start gap-2.5 rounded-md border p-2.5 transition-colors ${
+                      blocked ? 'cursor-not-allowed opacity-60 border-border bg-background'
+                      : refundStatus === opt.value ? 'cursor-pointer border-primary/60 bg-primary/5' : 'cursor-pointer border-border bg-background hover:border-primary/30'
                     }`}
                   >
-                    <RadioGroupItem id={`refund-${opt.value}`} value={opt.value} className="mt-0.5" />
+                    <RadioGroupItem id={`refund-${opt.value}`} value={opt.value} disabled={blocked} className="mt-0.5" />
                     <span className="space-y-0.5">
                       <span className="block text-sm text-card-foreground">{opt.label}</span>
-                      <span className="block text-xs text-muted-foreground">{opt.helper}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {blocked
+                          ? 'Paid by card: choose "Refund pending", refund it in the Square Dashboard, then "Mark refund issued" once Square shows it completed.'
+                          : opt.helper}
+                      </span>
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </RadioGroup>
               <div className="space-y-1">
                 <Label htmlFor="refund-note">Note to the customer (optional, shown in their account)</Label>

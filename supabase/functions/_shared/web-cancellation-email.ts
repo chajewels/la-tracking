@@ -23,6 +23,8 @@ export interface WebCancellationEmailArgs {
   reasonByLang?: { ja: string; en: string } | null;
   refundStatus: RefundStatus | null;
   refundNote: string | null;
+  /** Store credit issued and the 30% charge kept (owner rule 2026-10-08); shown in the store-credit line. */
+  storeCredit?: { amount: number; charge: number } | null;
   /** Overrides `order-cancelled-<order>` (the automatic fraud cancel uses its own key, so a later real cancel after a revive is never swallowed). */
   idempotencyKey?: string;
 }
@@ -72,6 +74,7 @@ export async function sendWebCancellationEmail(supabase: Db, orderId: string, ar
         refundStatus: args.refundStatus,
         refundNote: args.refundNote,
         orderUrl: storefrontOrderUrl(orderId),
+        storeCredit: args.storeCredit ?? null,
       }),
     });
   } catch (mailErr) {

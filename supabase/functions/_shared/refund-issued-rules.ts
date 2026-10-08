@@ -4,6 +4,10 @@
 // change one, change the other. The SQL is the authority; this lets the edge
 // function refuse a bad request before the database and lets the Hub decide
 // when to show the button.
+// B01 (2026-10-08): the card checks — method must match how she paid, a card
+// refund needs a COMPLETED Square refund and records Square's amount
+// (method_mismatch / no_completed_card_refund) — need the payment and refund
+// rows, so they live in the SQL only; this mirror stops at bad_date.
 
 export const REFUND_METHODS = ["bank_transfer", "paidy", "card", "cash", "other"] as const;
 export type RefundMethodCode = typeof REFUND_METHODS[number];
@@ -29,7 +33,11 @@ export function refundIssuedRefusal(
   if (!o) return "not_found";
   if (o.source_channel !== "web") return "not_web_order";
   if (o.status !== "cancelled") return "not_cancelled";
-  if (o.refund_status !== "refund_pending") return "not_refund_pending";
+  // B01 (2026-10-08): an order already marked refund_issued goes through to the
+  // SQL, which answers the same result again for the same method
+  // (already_recorded) and refuses otherwise — a retry after a lost answer
+  // must not be bounced here.
+  if (o.refund_status !== "refund_pending" && o.refund_status !== "refund_issued") return "not_refund_pending";
   if (!isRefundMethod(input.method)) return "bad_method";
   const d = typeof input.refundedOn === "string" ? input.refundedOn.trim() : "";
   // Round-trip: Date.parse rolls 2026-02-30 over to 2 March, so only a day that survives is real.

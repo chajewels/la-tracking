@@ -146,6 +146,18 @@ Reference docs (read the relevant one when a task touches that area):
     store_credit_issued, never automatically; the one terminal RPC is
     terminate_web_order_atomic; web orders are NEVER hard-deleted — docs
     "Rules moved from CLAUDE.md".
+  - CANCELLATION CHARGE (owner 2026-10-06/08): a website or Hub cash order
+    cancelled on its ORDER DATE (order_date, compared as the PHT day it is
+    written in) → 100 % of the money paid as
+    credit; later → 30 % of the money PAID is kept, 70 % is credit. No
+    override (a special case is a separate manual credit). Shopify stays
+    100 %. ONE formula: cancellation_credit_split (SQL) + the TS mirror
+    _shared/cancellation-credit.ts; used by terminate_web_order_atomic
+    (store_credit_issued) and cancel_cash_order_atomic. docs/STORE-CREDIT.md.
+  - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
+    Square; "refund issued" is refused at cancel (card_refund_needs_square),
+    and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
+    refund total (never the gross), refusing until one exists.
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 
@@ -1122,7 +1134,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   R2 Cash orders behave exactly like layaway.
   R3 Permission: requirePermission('reassign_owner') server-side (live role_permissions/overrides). Setting or changing the loyalty amount inside the reassign additionally requires 'edit_loyalty_amount'.
   R4 The loyalty product amount (excluding shipping and service fees) must be set (> 0) before a reassign completes — always, for every reassign. The dialog collects it if empty.
-  R5 Also refuse, with a plain-words reason: an order already earned by ANY member (any marker, incl. in-flight claims and lots on the invoice); Shopify orders; split submissions covering more than one order; any non-cancelled redemption or store credit on the order; closed status; crossing is_test; same owner; not found; Paidy history (paidy_order). Full list: docs/REASSIGN-OWNER.md "Rules moved from CLAUDE.md".
+  R5 Also refuse, with a plain-words reason: an order already earned by ANY member (any marker, incl. in-flight claims and lots on the invoice); Shopify orders; split submissions covering more than one order; any non-cancelled redemption or store credit on the order; closed status; crossing is_test; same owner; not found; Paidy history (paidy_order); card history — any square_card_attempts / square_payments row or a square submission (card_order, S04 2026-10-08). Full list: docs/REASSIGN-OWNER.md "Rules moved from CLAUDE.md".
   R6 Catch-up award for the NEW owner only when enrolled AND the award point >= enrolled_at − loyalty_enrollment_grace_days (default 3); award point = the DP payment's created_at (layaway) / completed_at (cash), NEVER date_paid; not yet at the award point → no catch-up — docs "Rules moved".
   R7 Catch-up: current tier multiplier, NO promo; the member's OTHER live lots are only ever EXTENDED, never shortened; order_date + 180 days already past still awards, born expired (the preview must say so) — docs "Rules moved".
   R8 A written reason is required for every reassign. Web orders are allowed (not Paidy ones, R5).
@@ -1595,7 +1607,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
   Full text: docs/EMAIL-DELIVERY.md (moved verbatim 2026-09-24).
 
-  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job.
+  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job. ONE exception (B02, owner 2026-10-08): square-reconcile re-sends a card 「返金を受け付けました」 email that has no `sent` row (same key, max 3, then bell refund_email_failed; only refunds after the release — square_refunds.refund_email_replay).
   - EVERY email attempt is logged via _shared/email-log.ts recordEmailAttempt()
     (sent | failed | suppressed | skipped) by both senders. A new sender that
     bypasses the helpers MUST call recordEmailAttempt() itself. A row absent from
@@ -1605,7 +1617,8 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - email_delivery_report(p_hours) gives the verdict (refused / silent /
     degraded / ok); cron email-health-check 00:50 UTC raises
     'email_delivery_outage'. Shown in the sidebar pill, Dashboard banner and
-    Settings. REPORT-ONLY — nothing re-sends automatically (owner decision).
+    Settings. REPORT-ONLY — nothing re-sends automatically (owner decision),
+    except the B02 card refund email above.
   - Render email ONLY with renderEmail (_shared/render-email.ts); never
     renderAsync — it splits UTF-8 across stream chunks (U+FFFD). CI-guarded.
 

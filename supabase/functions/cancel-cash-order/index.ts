@@ -196,10 +196,12 @@ Deno.serve(async (req) => {
         if (c.store_credit) {
           try {
             const money = Number(c.store_credit.amount ?? c.money_received ?? 0).toLocaleString("en-US");
+            const kept = Number(c.cancellation_split?.kept ?? 0);
+            const charge = kept > 0 ? ` — 30% cancellation charge ${symbol}${kept.toLocaleString("en-US")} kept` : "";
             await supabase.from("staff_notifications").insert({
               type: "store_credit_issued",
               title: "Store credit issued on cancellation",
-              body: `${name ? name + " — " : ""}${ref} cancelled, ${symbol}${money} store credit issued (valid 1 year)`,
+              body: `${name ? name + " — " : ""}${ref} cancelled, ${symbol}${money} store credit issued (valid 1 year)${charge}`,
               customer_id: custId,
               invoice_number: c.invoice_number,
               metadata: data,
@@ -268,7 +270,7 @@ Deno.serve(async (req) => {
               await emitNotification(supabase, memberId, {
                 category: "order",
                 title: "Store credit issued",
-                body: `${ref} was cancelled. ${symbol}${amt} store credit has been added to your account${expiry ? ` and is valid until ${expiry}` : ""}. Our staff will apply it to your next order.`,
+                body: `${ref} was cancelled. ${symbol}${amt} store credit has been added to your account${Number(c.cancellation_split?.kept ?? 0) > 0 ? ` (the amount paid, less the 30% cancellation charge of ${symbol}${Number(c.cancellation_split.kept).toLocaleString("en-US")})` : ""}${expiry ? ` and is valid until ${expiry}` : ""}. Our staff will apply it to your next order.`,
                 link_target: "tab:home",
               });
             }
@@ -279,7 +281,11 @@ Deno.serve(async (req) => {
 
         // (c) Web order: the cancellation email (reason + refund decision).
         if (isWeb) {
-          await sendWebCancellationEmail(supabase, cash_order_id, { reason, refundStatus: c.refund_status ?? refundStatus, refundNote });
+          // Owner rule 2026-10-08: the email states the credit actually issued and the 30% charge kept.
+          const storeCredit = c.store_credit
+            ? { amount: Number(c.store_credit.amount ?? 0), charge: Number(c.cancellation_split?.kept ?? 0) }
+            : null;
+          await sendWebCancellationEmail(supabase, cash_order_id, { reason, refundStatus: c.refund_status ?? refundStatus, refundNote, storeCredit });
         }
       }
     }

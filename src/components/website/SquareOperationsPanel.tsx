@@ -27,7 +27,7 @@ import {
   DISPUTE_CLOSED_STATES, DISPUTE_WARNING_DAYS, HOLD_WARNING_DAYS, SQUARE_DECISIONS,
   ageLabel, defaultSettlementRange, isDeadlineSoon, isOpenSquareException, orderRef,
   refundNotPaidBack, settlementCsv, settlementFileName, settlementTotals,
-  eventsApiNotEnabled, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
+  eventsApiNotEnabled, refundPendingDays, REFUND_PENDING_SUPPORT_DAYS, REFUND_PENDING_WARN_DAYS, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
   type SettlementRow, type SquareCaseKind, type SquareOpsHealth,
 } from "@/lib/square-ops";
 
@@ -200,6 +200,7 @@ export function SquareOperationsPanel() {
     queryFn: async () => (await callUntypedRpc<SquareOpsHealth | null>("square_ops_health", {})) ?? null,
   });
   const healthStatus = squareHealthStatus(health.data, now);
+  const oldestRefundDays = refundPendingDays(health.data, now);
 
   // Card activity report (estimated net — not bank money) — Japan days.
   const initialRange = useMemo(() => defaultSettlementRange(new Date()), []);
@@ -316,6 +317,15 @@ export function SquareOperationsPanel() {
             <span title={PHT_TIP}>Last run {when(health.data?.last_run?.at ?? null)} · last good run {when(health.data?.last_ok_at ?? null)}</span>
             <span>Inbox backlog {health.data?.events_backlog ?? "—"}{(health.data?.events_dead ?? 0) > 0 ? ` · ${health.data?.events_dead} failed for good` : ""}</span>
             <span>Refunds open {health.data?.refunds_open ?? "—"} · disputes open {health.data?.disputes_open ?? "—"}</span>
+            {oldestRefundDays != null && (
+              <span className={cn(oldestRefundDays >= REFUND_PENDING_WARN_DAYS && "font-medium text-warning", oldestRefundDays >= REFUND_PENDING_SUPPORT_DAYS && "text-destructive")}>
+                Oldest refund waiting {oldestRefundDays} {oldestRefundDays === 1 ? "day" : "days"}
+                {oldestRefundDays >= REFUND_PENDING_SUPPORT_DAYS ? " — contact Square support" : oldestRefundDays >= REFUND_PENDING_WARN_DAYS ? " — check it in the Square Dashboard" : ""}
+              </span>
+            )}
+            {(health.data?.attempts_stuck ?? 0) > 0 && (
+              <span className="font-medium text-warning">Card attempts not settled: {health.data?.attempts_stuck}</span>
+            )}
           </div>
           {eventsApiNotEnabled(health.data) ? (
             <p className="mt-1 text-muted-foreground">
