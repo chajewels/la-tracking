@@ -392,7 +392,7 @@ Review of the integration against developer.squareup.com (Project doc
 ## QA/QC review fixes S01–S05 + B01/B02 (2026-10-08)
 
 Review of 6 Oct verified in project doc `claude/square-qa-assessment-2026-10-06.md`; owner plan v2
-`claude/square-s01-s05-plan-2026-10-08.md`. Migration `20261117100000_square_qa_refunds_credit.sql`
+`claude/square-s01-s05-plan-2026-10-08.md`. Migration `20261118100000_square_qa_refunds_credit.sql`
 (md5-guarded patches of the LIVE bodies); acceptance `development/sql/square-qa-refunds-credit-acceptance.sql`
 (47 checks; 8 pass before the migration, 47 after); deno `development/square-qa-reconcile.test.ts`;
 vitest `src/test/square-ops.test.ts`, `src/test/cancellation-credit.test.ts`. Edge functions to deploy (Lovable, separate message):

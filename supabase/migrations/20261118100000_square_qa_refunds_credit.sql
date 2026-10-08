@@ -1,4 +1,4 @@
--- 20261117100000_square_qa_refunds_credit.sql
+-- 20261118100000_square_qa_refunds_credit.sql (renumbered from 20261117100000 — a record-only Paidy migration already held that version; same content)
 -- Square QA/QC review 2026-10-06 (S01, S04, S05) + B01 + B02 data + the
 -- cancellation store-credit rule. Owner plan v2 approved 2026-10-08 10:31 JST
 -- (project doc claude/square-s01-s05-plan-2026-10-08.md).

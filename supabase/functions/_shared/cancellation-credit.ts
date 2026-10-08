@@ -1,6 +1,6 @@
 /**
  * Cancellation store-credit rule — TS mirror of public.cancellation_credit_split
- * (migration 20261117100000). Owner 2026-10-06 13:04 / 2026-10-08 (E3–E6):
+ * (migration 20261118100000). Owner 2026-10-06 13:04 / 2026-10-08 (E3–E6):
  * a website or Hub cash order cancelled ON its order_date → 100 % of the money
  * paid as store credit; cancelled later → 30 % of the money PAID is kept as the
  * cancellation charge, 70 % is credit. No override. order_date is written as
