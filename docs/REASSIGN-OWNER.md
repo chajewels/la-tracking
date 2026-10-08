@@ -65,7 +65,7 @@ wrong. Layaway plans are never affected (Paidy is cash-order only). Before this
 refusal the move failed late with the raw `paidy_submission_locked` exception.
 Harness: `harness/paidy-owner-answers/` (R1–R6).
 
-**Card orders (S04, Square QA 2026-10-08, migration 20261117100000).** The same
+**Card orders (S04, Square QA 2026-10-08, migration 20261118100000).** The same
 rule for Square: ANY card history — a `square_card_attempts` row (even one only
 reserved, not yet filed), a `square_payments` row, or a `payment_submissions`
 row with `payment_method = 'square'` or a `square_payment_id` — is refused with

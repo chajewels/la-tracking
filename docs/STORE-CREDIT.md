@@ -28,7 +28,7 @@ manually by an admin (goodwill / defect resolution).
   manual credit (`issue-store-credit`). **Shopify orders keep 100 %.** A missing
   order date is treated as the same day (never charged by mistake). ONE
   formula — `public.cancellation_credit_split(currency, order_date, money, at)`
-  (migration 20261117100000) and its TS mirror
+  (migration 20261118100000) and its TS mirror
   `supabase/functions/_shared/cancellation-credit.ts` (+ `src/lib/cancellation-credit.ts`) —
   used by `terminate_web_order_atomic` (only when staff choose
   `store_credit_issued`) and `cancel_cash_order_atomic` (Hub, `p_source <>
