@@ -6383,6 +6383,8 @@ export type Database = {
           risk_level: string | null
           square_payment_id: string | null
           status: string
+          stuck_runs: number
+          stuck_warned_at: string | null
           test: boolean
           updated_at: string
           verification: string | null
@@ -6406,6 +6408,8 @@ export type Database = {
           risk_level?: string | null
           square_payment_id?: string | null
           status?: string
+          stuck_runs?: number
+          stuck_warned_at?: string | null
           test?: boolean
           updated_at?: string
           verification?: string | null
@@ -6429,6 +6433,8 @@ export type Database = {
           risk_level?: string | null
           square_payment_id?: string | null
           status?: string
+          stuck_runs?: number
+          stuck_warned_at?: string | null
           test?: boolean
           updated_at?: string
           verification?: string | null
@@ -6761,16 +6767,21 @@ export type Database = {
           decided_by: string | null
           decision: string | null
           decision_note: string | null
+          email_given_up_at: string | null
+          email_resends: number
           id: string
           last_payload: Json | null
           provider_created_at: string | null
           provider_updated_at: string | null
           reason: string | null
+          refund_email_replay: boolean
           square_payment_id: string
           square_payment_row: string
           square_refund_id: string
           status: string
           updated_at: string
+          warned_14d_at: string | null
+          warned_7d_at: string | null
         }
         Insert: {
           amount_jpy: number
@@ -6780,16 +6791,21 @@ export type Database = {
           decided_by?: string | null
           decision?: string | null
           decision_note?: string | null
+          email_given_up_at?: string | null
+          email_resends?: number
           id?: string
           last_payload?: Json | null
           provider_created_at?: string | null
           provider_updated_at?: string | null
           reason?: string | null
+          refund_email_replay?: boolean
           square_payment_id: string
           square_payment_row: string
           square_refund_id: string
           status: string
           updated_at?: string
+          warned_14d_at?: string | null
+          warned_7d_at?: string | null
         }
         Update: {
           amount_jpy?: number
@@ -6799,16 +6815,21 @@ export type Database = {
           decided_by?: string | null
           decision?: string | null
           decision_note?: string | null
+          email_given_up_at?: string | null
+          email_resends?: number
           id?: string
           last_payload?: Json | null
           provider_created_at?: string | null
           provider_updated_at?: string | null
           reason?: string | null
+          refund_email_replay?: boolean
           square_payment_id?: string
           square_payment_row?: string
           square_refund_id?: string
           status?: string
           updated_at?: string
+          warned_14d_at?: string | null
+          warned_7d_at?: string | null
         }
         Relationships: [
           {
@@ -9072,6 +9093,15 @@ export type Database = {
         }
         Returns: Json
       }
+      cancellation_credit_split: {
+        Args: {
+          p_at: string
+          p_currency: Database["public"]["Enums"]["account_currency"]
+          p_money: number
+          p_order_date: string
+        }
+        Returns: Json
+      }
       cart_reminder_candidates: {
         Args: { p_limit?: number }
         Returns: {
@@ -10006,6 +10036,10 @@ export type Database = {
         }[]
       }
       next_web_invoice_seq: { Args: never; Returns: number }
+      note_square_attempt_stuck: {
+        Args: { p_attempt_id: string }
+        Returns: Json
+      }
       notify_deadline_label: { Args: { p_at: string }; Returns: string }
       notify_money_label: {
         Args: { p_amount: number; p_currency: string }
