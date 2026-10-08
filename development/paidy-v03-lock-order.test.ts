@@ -10,7 +10,7 @@
 import { assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const read = (p: string) => Deno.readTextFile(new URL(p, import.meta.url));
-const MIG = "../supabase/migrations/20261130120000_paidy_v03_f1_reject_lock_order.sql";
+const MIG = "../supabase/migrations/20261130130000_paidy_v03_f1_reject_lock_order.sql";
 
 Deno.test("F1: the patch is md5-guarded from live and targets reject_paidy_submission_atomic only", async () => {
   const sql = await read(MIG);

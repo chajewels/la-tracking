@@ -1,4 +1,4 @@
--- 20261130120000_paidy_v03_f1_reject_lock_order.sql
+-- 20261130130000_paidy_v03_f1_reject_lock_order.sql
 -- Paidy sign-off V03, finding F1 (owner go 2026-10-09 02:42 JST).
 -- Evidence: project doc claude/paidy-v02-v03-evidence-2026-10-09.md.
 --

@@ -669,7 +669,7 @@ Plan: project doc `claude/paidy-pr5-truthfulness-plan-2026-10-09.md`.
   paidy-alignment.test.ts and payment-lifecycle-addendum.test.ts guards moved
   to `paidyBillingChoice(` and `paidyRefundReceivedKey(r.id)`.
 
-### V03-F1 — one lock order for the Paidy Reject (migration 20261130120000; owner go 2026-10-09 02:42 JST)
+### V03-F1 — one lock order for the Paidy Reject (migration 20261130130000; owner go 2026-10-09 02:42 JST)
 
 Found by the V03 race tests on a live-identical scratch database (project doc
 `claude/paidy-v02-v03-evidence-2026-10-09.md`). The Hub's payment writers lock
