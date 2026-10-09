@@ -684,3 +684,51 @@ opening locks is unchanged. Re-run: the race answers `conflict` instead of a
 deadlock; V02 17/17 still pass. Rule for any new payment writer: lock the
 submission, then the order, then the provider row. Guard:
 development/paidy-v03-lock-order.test.ts (CI).
+
+### Paidy QC PR-A — Hub fixes (migration 20261201100000; owner go 2026-10-09 19:44 JST, all recommended options)
+
+Assessment: project doc `claude/paidy-qc-assessment-2026-10-09.md`. Proof: a scratch replay whose Paidy
+bodies are byte-identical to live (md5 per function); every scenario below PASSES there and the earlier
+adverse checks for M2, M3, M6, L7 and L10 no longer reproduce. V02 money suite: 17/17 still pass.
+
+- **H1 — a made-up Paidy id can no longer freeze an order.**
+  - The website's "Paidy closed" callback asks Paidy before it notes a payment id on the window
+    (`paidyNoteDecision`): a 404 or another order's payment is not noted; Paidy unreachable → noted
+    (fail closed).
+  - The sweep stamps a 404 per key family (`not_found_test_at` / `not_found_live_at`); once BOTH keys
+    have answered 404, the window is `verified_empty` and expires.
+  - Staff exit: CashOrderDetail → "End Paidy window" (timed-out windows only, written reason ≥ 10,
+    `confirm_payment`) → edge `paidy-staff-action` `end_window` asks Paidy first (an authorisation is
+    filed or released, a capture opens its case; Paidy unreachable → nothing changes), then
+    `staff_end_paidy_checkout_window` (service_role) ends it: status `abandoned`, end_reason
+    `staff_ended`, verification `staff_ended`, `ended_by`, audit `paidy_window_ended_by_staff`.
+- **M1** — `filePaidyAuthorization` never closes on an `order_ref` or `test_flag` mismatch
+  (`paidyMismatchReleases`); the website hands another order's payment to `adoptOrphanAuthorization`.
+- **M2** — `resolve_paidy_case end_submission` refuses `authorization_open` while Paidy still holds a
+  capturable authorisation. The Paidy cases panel first calls `paidy-staff-action close_authorization`
+  (classified by Paidy's own answer), then the RPC.
+- **M3** — `resolve_paidy_case` locks submission → order → Paidy row (the V03-F1 order).
+- **M4** — `end_paidy_submission_provider_ended_atomic` (service_role): Paidy row + rejection + audit +
+  email intent (`payload.kind = provider_ended`) in one transaction; used by Confirm's `endSubmission`
+  (only while its claim stands) and by `syncPaidyPayment`. The sweep replays the intent as
+  `provider_ended`, never as a staff Reject.
+- **M5** — the webhook stores `source_ip` ("cf|last-xff") and `source_recognised`; recognised only when
+  every address present is one of Paidy's. Unrecognised deliveries above 20 a minute get 429 with nothing
+  stored and no Paidy call. **Go-live check:** after the next real Paidy webhook, read its inbox row —
+  `source_recognised` must be true; if false, the platform's header is not what we assumed: tell the
+  owner before changing anything.
+- **M6** — `file_paidy_submission_atomic` refuses `card_payment_unresolved` before writing anything (the
+  caller releases the authorisation); the Square Confirm capture refuses `paidy_lock` while
+  `cash_order_payment_lock` says `paidy*`. Closes the OPEN-BUGS entry; required before `square_mode = on`.
+- **M7** — settings card text follows the owner rule (capture in the Paidy dashboard, the Hub records
+  it); `get_paidy_settings` counts only this environment's payments.
+- **L1** — webhook/sweep adoption and the sweep refile release (never file) when Paidy is off, a test
+  payment is for a non-test customer, or the web order's method is no longer Paidy (`paidyAdoptBlock`).
+- **L2** — an AUTHORIZED read-back with no dates is `authorized`, never `expired`.
+- **L4** — an inbox event not tied to an order holds a window for 2 hours at most.
+- **L7** — a refund that would take the ledger past the capture is not written.
+- **L8** — an unsendable follow-up intent is marked failed with a bell.
+- **L9** — the webhook's late finish runs under `EdgeRuntime.waitUntil`.
+- **L10** — `paidy_mode()` is service_role only.
+Guards: `development/paidy-qc-pr-a.test.ts` (CI), `development/paidy-sync.test.ts` (M4 model),
+`src/test/paidy-rules.test.ts` (L2).

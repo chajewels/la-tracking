@@ -3,7 +3,7 @@ import { requireAuth } from "../_shared/handler.ts";
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { PAIDY_ORDER_FIELDS, adoptOrphanAuthorization, filePaidyAuthorization, orderForPaidyRef, paidyModeNow, paidyReleased, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { PAIDY_RECORD_FIELDS, openPaidyCase, paidyBellOnce, syncPaidyPayment } from "../_shared/paidy-sync.ts";
-import { paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
+import { paidyAdoptBlock, paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 import { paidyCaseBell } from "../_shared/paidy-case-bell.ts";
@@ -195,14 +195,23 @@ Deno.serve(async (req) => {
           const ended = list.some((s) => s.status === "rejected" || s.status === "cancelled");
           if (!live) {
             const { data: order, error: orderErr } = await supabase
-              .from("cash_orders").select(`${PAIDY_ORDER_FIELDS}, customer:customers(id, full_name)`)
+              .from("cash_orders").select(`${PAIDY_ORDER_FIELDS}, customer:customers(id, full_name, is_test)`)
               .eq("id", row.cash_order_id).maybeSingle();
             if (orderErr) throw orderErr;
             if (order) {
               const o = order as Record<string, any>;
+              // L1 (Paidy QC 2026-10-09): the switches the website applies.
+              const blocked = paidyAdoptBlock(mode, o, o.customer);
               if (ended) {
                 // A reviewer rejected it (or it was cancelled): never re-filed (R03) — release.
                 await releasePaidyAuthorization(supabase, payment, { cash_order_id: o.id, paidy_payment_row: row.id, why: "its submission was rejected or cancelled" });
+              } else if (blocked) {
+                const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: o.id, paidy_payment_row: row.id, why: blocked });
+                if (release !== "captured") {
+                  await paidyBellOnce(supabase, "paidy_unmatched_authorization", paidyReleased(release) ? "Paidy authorisation released" : "Paidy authorisation could not be released",
+                    `${pid} · not filed (${blocked})${paidyReleased(release) ? " — released, no charge" : ` — ${release}; the next check retries the release`}`,
+                    { cash_order_id: o.id, paidy_payment_id: pid, reason: blocked, released: paidyReleased(release), release });
+                }
               } else {
                 const r = await filePaidyAuthorization(supabase, {
                   order: o, customer: { id: String(o.customer?.id ?? o.customer_id), full_name: o.customer?.full_name ?? null },
@@ -211,6 +220,7 @@ Deno.serve(async (req) => {
                 if (r.ok) report.refiled++;
                 else if (r.error === "submission_pending") report.waiting++;
                 else if (r.error === "order_cannot_take_payment" || r.error === "paidy_payment_rejected_by_reviewer") {
+                  // (card_payment_unresolved is released inside filePaidyAuthorization — M6.)
                   const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: o.id, paidy_payment_row: row.id, why: r.error });
                   const released = paidyReleased(release);
                   if (release !== "captured") {
@@ -293,9 +303,24 @@ Deno.serve(async (req) => {
         try {
           live = await paidy.get(pid);
         } catch (e) {
-          // Unreadable — including a 404 (the id came from Paidy's own
-          // callback, so a 404 means the OTHER key family is in now): the
-          // window stays until the key that can read it answers. Fail closed.
+          // Unreadable: the window stays until Paidy answers. Fail closed.
+          // H1 (Paidy QC 2026-10-09): a 404 is recorded per key family; once
+          // BOTH the test and the live key have answered 404 for this id,
+          // Paidy holds nothing for it under any key — verified_empty. (One
+          // 404 alone may just mean the other key family is in now.)
+          if (e instanceof PaidyError && e.status === 404) {
+            const at = nowIso();
+            const mine = secretTest ? "not_found_test_at" : "not_found_live_at";
+            const other = secretTest ? "not_found_live_at" : "not_found_test_at";
+            const { data: stamped, error: stampErr } = await supabase.from("paidy_checkout_attempts")
+              .update({ [mine]: at }).eq("id", w.id).eq("status", "open").select("not_found_test_at, not_found_live_at").maybeSingle();
+            if (stampErr) { report.write_errors++; continue; }
+            if (stamped && (stamped as Record<string, any>)[other]) {
+              const { error } = await supabase.from("paidy_checkout_attempts").update({ verified_empty_at: at }).eq("id", w.id).eq("status", "open");
+              if (error) report.write_errors++; else report.windows_verified++;
+            }
+            continue;
+          }
           console.warn(`${LOG} window ${w.id} ${pid}: Paidy read failed:`, e instanceof PaidyError ? `${e.status} ${e.code}` : e);
           continue;
         }
@@ -413,7 +438,10 @@ Deno.serve(async (req) => {
         if (!attempted) {
           try {
             if (fu.kind === "paidy_rejected_email" && fu.submission_id) {
-              await sendCashPaymentRejectedEmail(supabase, { submissionId: String(fu.submission_id), kind: "staff", reason: fu.payload?.reason ?? null });
+              // M4 (Paidy QC 2026-10-09): a provider-ended intent is replayed
+              // as provider_ended (no staff message), never as a staff Reject.
+              const kind = fu.payload?.kind === "provider_ended" ? "provider_ended" : "staff";
+              await sendCashPaymentRejectedEmail(supabase, { submissionId: String(fu.submission_id), kind, reason: kind === "staff" ? (fu.payload?.reason ?? null) : null });
             } else if (fu.kind === "web_cancellation_email" && fu.cash_order_id) {
               const snap = await cancellationSnapshot(supabase, String(fu.cash_order_id));
               if (snap) {
@@ -423,6 +451,16 @@ Deno.serve(async (req) => {
                   reason: String(fu.payload?.reason ?? ""), refundStatus: (fu.payload?.refund_status ?? null) as RefundStatus | null, refundNote: fu.payload?.refund_note ?? null,
                 });
               }
+            } else {
+              // L8 (Paidy QC 2026-10-09): an intent this sweep cannot send (an
+              // unknown kind, or no submission / order on it) is never closed
+              // as done — it is marked failed and staff are told.
+              await supabase.from("payment_submission_followups").update({ status: "failed", last_error: "unsendable_followup" }).eq("id", fu.id);
+              await paidyBellOnce(supabase, "paidy_followup_failed", "A customer email could not be sent",
+                `${fu.kind} for ${fu.cash_order_id ?? fu.submission_id ?? "—"} cannot be sent by the hourly check — send it by hand if needed.`,
+                { cash_order_id: fu.cash_order_id, submission_id: fu.submission_id, paidy_payment_id: `followup:${fu.id}` });
+              report.followups_failed++;
+              continue;
             }
           } catch (e) {
             await supabase.from("payment_submission_followups").update({ attempts: Number(fu.attempts ?? 0) + 1, last_error: e instanceof Error ? e.message : String(e) }).eq("id", fu.id);

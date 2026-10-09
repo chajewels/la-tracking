@@ -154,10 +154,16 @@ export function paidyExpiryTime(authorizedAt: unknown, expiresAt?: unknown): num
   return Number.isFinite(a) ? a + PAIDY_AUTH_DAYS * 24 * 60 * 60 * 1000 : null;
 }
 
-/** P07: lapsed by Paidy's expires_at (fallback 30 days). Unknown dates count as lapsed. */
+/**
+ * P07: lapsed by Paidy's expires_at (fallback 30 days).
+ * L2 (Paidy QC 2026-10-09): UNKNOWN dates are NOT lapsed. An AUTHORIZED
+ * read-back with neither date is still capturable as far as anyone knows;
+ * calling it expired told the customer to pay again while Paidy could still
+ * take the money. Unknown = keep it pending (the sweep re-reads it).
+ */
 export function paidyAuthorizationLapsed(rec: { authorized_at?: unknown; expires_at?: unknown }, now: Date = new Date()): boolean {
   const t = paidyExpiryTime(rec.authorized_at, rec.expires_at);
-  return t == null || now.getTime() >= t;
+  return t != null && now.getTime() >= t;
 }
 
 export type PaidyProviderOutcome = "captured" | "authorized" | "expired" | "closed" | "rejected" | "unknown";
@@ -527,6 +533,55 @@ export function paidyFilingMismatch(
   return null;
 }
 
+/**
+ * M1 (Paidy QC 2026-10-09): whether a filing mismatch may CLOSE the
+ * authorisation at Paidy. Never for `order_ref` (the payment belongs to
+ * ANOTHER order — closing it would release that order's money; it is routed
+ * to the order it names instead) or `test_flag` (the other environment's
+ * payment — not this key's to close). Every other mismatch is about THIS
+ * order and is released so nothing stays reserved on her Paidy limit.
+ */
+export function paidyMismatchReleases(mismatch: string | null): boolean {
+  return mismatch !== null && mismatch !== "order_ref" && mismatch !== "test_flag";
+}
+
+/**
+ * L1 (Paidy QC 2026-10-09): why an authorisation the Hub did not see being
+ * made (webhook / sweep adoption) must NOT be filed on its order, or null.
+ * The website applies the full offer rules (paidyNotOfferedReason); adoption
+ * applies the three that do not depend on the customer's own screen: Paidy
+ * switched off, a test-mode payment for a customer not flagged is_test, and a
+ * web order whose chosen method (C1) is no longer Paidy.
+ */
+export function paidyAdoptBlock(mode: PaidyMode, order: { source_channel?: unknown; payment_method?: unknown }, customer: { is_test?: unknown } | null | undefined): string | null {
+  if (mode === "off") return "paidy_off";
+  if (mode === "test" && customer?.is_test !== true) return "not_test_customer";
+  if (order.source_channel === "web" && order.payment_method !== "paidy") return "method_not_paidy";
+  return null;
+}
+
+/**
+ * H1 (Paidy QC 2026-10-09): may the storefront's "Paidy closed" callback note
+ * this payment id on the window? Only when Paidy itself answers for it and the
+ * payment names THIS order. A 404 (no such payment for this key) or another
+ * order's payment is not noted — a noted id holds the window until Paidy says
+ * it holds nothing, so a made-up id would freeze the order. When Paidy cannot
+ * be reached the id IS noted (fail closed: the sweep verifies it later, and
+ * staff have the "End Paidy window" exit).
+ */
+export type PaidyNoteDecision = "note" | "unknown_to_paidy" | "other_order" | "note_unverified";
+export function paidyNoteDecision(
+  read: { payment: { order?: { order_ref?: unknown } | null; metadata?: { cash_order_id?: unknown } | null } } | { notFound: true } | { error: true },
+  order: { id: string; ref: string },
+): PaidyNoteDecision {
+  if ("notFound" in read) return "unknown_to_paidy";
+  if ("error" in read) return "note_unverified";
+  const p = read.payment;
+  const byRef = String(p.order?.order_ref ?? "") === order.ref && order.ref !== "";
+  const byMeta = String(p.metadata?.cash_order_id ?? "") === order.id;
+  return byRef || byMeta ? "note" : "other_order";
+}
+
 /** R14: exact whole yen on both sides, equal — never a rounded comparison. */
 export function paidyAmountMatches(paidyAmount: unknown, remainingBalance: unknown): boolean {
   const a = paidyYen(paidyAmount), b = paidyYen(remainingBalance);
@@ -622,6 +677,27 @@ export function paidyWebhookSourceIp(headers: { get(name: string): string | null
   const entries = String(headers.get("x-forwarded-for") ?? "").split(",").map((e) => e.trim()).filter(Boolean);
   return entries.length ? entries[entries.length - 1] : null;
 }
+
+/**
+ * M5 (Paidy QC 2026-10-09): EVERY address the request carries must be one of
+ * Paidy's. Which of the two headers the platform sets (and which a caller can
+ * forge) is not yet proven on live, so neither is trusted alone: a caller who
+ * forges one still shows its real address in the other. At least one must be
+ * present. `ips` is stored on the inbox row as evidence ("cf|xff").
+ */
+export function paidyWebhookSource(headers: { get(name: string): string | null }): { ips: string; recognised: boolean } {
+  const cf = String(headers.get("cf-connecting-ip") ?? "").trim();
+  const entries = String(headers.get("x-forwarded-for") ?? "").split(",").map((e) => e.trim()).filter(Boolean);
+  const xff = entries.length ? entries[entries.length - 1] : "";
+  const seen = [cf, xff].filter(Boolean);
+  return {
+    ips: `${cf || "-"}|${xff || "-"}`.slice(0, 120),
+    recognised: seen.length > 0 && seen.every((ip) => isPaidyWebhookIp(ip)),
+  };
+}
+
+/** M5: how many unrecognised deliveries a minute are stored and read from Paidy; above it, 429 (Paidy retries a real one). */
+export const PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE = 20;
 
 /** True only for one of Paidy's published IPs. Missing / empty → false. */
 export function isPaidyWebhookIp(ip: string | null | undefined): boolean {

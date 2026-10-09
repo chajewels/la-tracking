@@ -131,9 +131,10 @@ describe("P07 expiry follows Paidy's own expires_at", () => {
     expect(paidyExpiryTime(auth, null)).toBe(Date.parse("2026-10-31T00:00:00Z"));
     expect(paidyExpiryTime(auth, "garbage")).toBe(Date.parse("2026-10-31T00:00:00Z"));
   });
-  it("unknown dates count as lapsed", () => {
+  it("L2 (Paidy QC 2026-10-09): unknown dates are NOT lapsed — the authorisation stays pending, never 'pay again'", () => {
     expect(paidyExpiryTime(null, null)).toBeNull();
-    expect(paidyAuthorizationLapsed({})).toBe(true);
+    expect(paidyAuthorizationLapsed({})).toBe(false);
+    expect(paidyProviderOutcome({ status: "AUTHORIZED", captures: [] })).toBe("authorized");
   });
   it("lapses exactly at expires_at, not before", () => {
     const rec = { authorized_at: auth, expires_at: "2026-10-20T00:00:00Z" };

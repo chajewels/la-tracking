@@ -115,6 +115,27 @@ function fakeDb(tables: Record<string, Row[]>, failOn?: { table: string; op: str
       tables.paidy_cases.push(c);
       return Promise.resolve({ data: { ok: true, case_id: c.id, new: true }, error: null });
     }
+    if (fn === "end_paidy_submission_provider_ended_atomic") {
+      // M4 (Paidy QC 2026-10-09): the SQL writer, modelled — ONE transaction:
+      // row status (from authorized), submission rejected, one audit row, one
+      // email intent; a repeat is already_rejected and adds nothing.
+      tables.payment_submissions ??= []; tables.audit_logs ??= []; tables.payment_submission_followups ??= [];
+      const sub = tables.payment_submissions.find((x) => x.id === args.p_submission_id);
+      if (!sub) return Promise.resolve({ data: { ok: false, error: "not_found" }, error: null });
+      if (sub.status === "rejected") return Promise.resolve({ data: { ok: true, rejected: false, already_rejected: true }, error: null });
+      if (!["submitted", "under_review"].includes(String(sub.status))) return Promise.resolve({ data: { ok: false, error: "conflict", status: sub.status }, error: null });
+      const rec = (tables.paidy_payments ?? []).find((r) => r.id === args.p_paidy_row);
+      if (!rec) return Promise.resolve({ data: { ok: false, error: "paidy_row_missing" }, error: null });
+      if (rec.status === "captured") return Promise.resolve({ data: { ok: false, error: "paidy_captured" }, error: null });
+      if (rec.status === "authorized") rec.status = args.p_end_status;
+      sub.status = "rejected"; sub.reviewer_notes = args.p_reviewer_notes; sub.processing_started_at = null;
+      tables.audit_logs.push({ entity_type: "cash_payment_submission", entity_id: sub.id, action: "submission_rejected", new_value_json: { reason: `paidy_${args.p_end_status}`, ...(args.p_audit as Row ?? {}) } });
+      const key = `payment-rejected-${sub.id}`;
+      if (!tables.payment_submission_followups.some((f) => f.idempotency_key === key)) {
+        tables.payment_submission_followups.push({ id: `fu-${++seq}`, kind: "paidy_rejected_email", idempotency_key: key, status: "pending", payload: { kind: "provider_ended" } });
+      }
+      return Promise.resolve({ data: { ok: true, rejected: true, followup_key: key }, error: null });
+    }
     if (fn === "close_paidy_case_system") {
       const c = tables.paidy_cases.find((x) => x.id === args.p_case_id && x.status === "open");
       if (c) { c.status = "resolved"; c.resolution = args.p_resolution; }
@@ -259,15 +280,17 @@ Deno.test("R06/R08: case write fails → nothing acknowledged; the retry still o
   assertEquals(t.paidy_refunds.length, 1);
 });
 
-Deno.test("R05: closed on Paidy, submission reject fails → the retry still rejects it", async () => {
+Deno.test("R05 / M4: closed on Paidy, the atomic end write fails → nothing half-done; the retry rejects it once", async () => {
   const t = world();
   const p = base({ status: "CLOSED" });
-  await assertRejects(() => syncPaidyPayment(fakeDb(t, { table: "payment_submissions", op: "update", times: 1 }), t.paidy_payments[0], p, "webhook", "close_success"));
+  await assertRejects(() => syncPaidyPayment(fakeDb(t, { table: "rpc", op: "end_paidy_submission_provider_ended_atomic", times: 1 }), t.paidy_payments[0], p, "webhook", "close_success"));
   assertEquals(t.paidy_payments[0].status, "closed");
   assertEquals(t.payment_submissions[0].status, "submitted"); // the reproduced defect state
+  assertEquals((t.audit_logs ?? []).length, 0); // M4: no audit row without the rejection
   await syncPaidyPayment(fakeDb(t), t.paidy_payments[0], p, "webhook", "close_success");
   assertEquals(t.payment_submissions[0].status, "rejected");
   assertEquals(t.audit_logs.length, 1);
+  assertEquals(t.payment_submission_followups.filter((f) => (f.payload as Row | undefined)?.kind === "provider_ended").length, 1);
 });
 
 Deno.test("R07: an expired authorisation is marked expired and its queued submission rejected", async () => {

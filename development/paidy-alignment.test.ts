@@ -160,7 +160,11 @@ Deno.test("wiring: website builds the payload with the helpers and never sends t
 });
 Deno.test("wiring: webhook source check is SOFT — never drops a delivery (R14)", () => {
   const w = code("supabase/functions/paidy-webhook/index.ts");
-  assert(/paidyWebhookSourceIp\(req\.headers\)/.test(w));
+  // M5 (Paidy QC 2026-10-09): every address the request carries must be Paidy's.
+  assert(/paidyWebhookSource\(req\.headers\)/.test(w));
+  // The per-minute cap applies to UNRECOGNISED sources only and answers 429
+  // (Paidy retries a real delivery) — never a 200 that drops it.
+  assert(/if \(!recognisedSource\) \{[\s\S]{0,400}PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE[\s\S]{0,200}429\)/.test(w));
   assert(/Deno\.env\.get\("PAIDY_WEBHOOK_IP_CHECK"\)/.test(w));
   assertEquals(/ignored:\s*true/.test(w), false);
   assert(/"webhook", 0, \{ recognisedSource \}\)/.test(w));

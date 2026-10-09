@@ -592,33 +592,39 @@ Deno.serve(async (req) => {
           return json(502, { error: "paidy_unverified", message: `Could not check this payment with Paidy (${why}). Nothing was recorded. Try again in a few minutes.` });
         };
         const endSubmission = async (outcome: "expired" | "closed" | "rejected", detail: string) => {
-          const at = new Date().toISOString();
-          const { error: recErr } = await supabase.from("paidy_payments")
-            .update({ status: outcome, closed_at: at, closed_reason: detail, updated_at: at }).eq("id", pp.id).eq("status", "authorized");
           const why = outcome === "expired" ? "Paidy authorisation passed Paidy's expiry (its expires_at; 30 days after authorisation only when Paidy sent none) before it was captured"
             : outcome === "closed" ? "Paidy shows this authorisation as closed with nothing captured"
             : "Paidy declined this payment";
-          const { data: rejRows, error: subErr } = await supabase.from("payment_submissions").update({
-            status: "rejected", reviewer_user_id: user.id, processing_started_at: null, updated_at: at,
+          // M4 (Paidy QC 2026-10-09): the Paidy row, the rejection (only while
+          // THIS Confirm still holds its claim), the audit row and the
+          // customer-email intent in ONE transaction — never three separate
+          // writes that can stop half-way and lose her email.
+          const { data: ended, error: endErr } = await supabase.rpc("end_paidy_submission_provider_ended_atomic", {
+            p_submission_id: submission_id, p_paidy_row: pp.id, p_end_status: outcome, p_end_reason: detail,
             // Provider-ended, not a staff decision: the customer sees no staff
             // message (H5) — the reviewer_notes here are internal.
-            customer_message: null,
-            reviewer_notes: `${why} — nothing was charged; the customer may pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
-          }).eq("id", submission_id).eq("processing_started_at", claimAt).select("id");
-          if (!subErr && (!rejRows || rejRows.length === 0)) {
-            return json(409, { error: "confirm_in_progress", message: "Another Confirm took over this Paidy payment. Refresh the page." });
-          }
-          const { error: audErr } = await supabase.from("audit_logs").insert({
-            entity_type: "cash_payment_submission", entity_id: submission_id, action: "submission_rejected",
-            new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pp.paidy_payment_id, detail, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff" },
-            performed_by_user_id: user.id,
+            p_reviewer_notes: `${why} — nothing was charged; the customer may pay again (Paidy or bank transfer). ${reviewer_notes ?? ""}`.trim(),
+            p_user_id: user.id, p_claim_at: claimAt, p_payload: null,
+            p_audit: { detail, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff" },
           });
-          if (recErr || subErr || audErr) {
-            console.error("[review-payment-submission] Paidy end-of-authorisation writes failed:", recErr, subErr, audErr);
-            return json(500, { error: "paidy_reject_write_failed", message: `Paidy says: ${why}. Recording that in the Hub failed — refresh and Reject this submission.` });
+          const res = (ended ?? {}) as Record<string, unknown>;
+          if (endErr || !res.ok) {
+            if (!endErr && res.error === "conflict") {
+              return json(409, { error: "confirm_in_progress", message: "Another Confirm took over this Paidy payment. Refresh the page." });
+            }
+            console.error("[review-payment-submission] Paidy end-of-authorisation write failed:", endErr ?? res.error);
+            return json(500, { error: "paidy_reject_write_failed", message: `Paidy says: ${why}. Recording that in the Hub failed — nothing was changed; press Confirm again in a few minutes.` });
           }
           // The customer hears it from us — Paidy never emails a cancellation.
-          await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "provider_ended" });
+          if (res.rejected === true) {
+            await sendCashPaymentRejectedEmail(supabase, { submissionId: submission_id, kind: "provider_ended" });
+            if (typeof res.followup_key === "string") {
+              const { error: fuErr } = await supabase.from("payment_submission_followups")
+                .update({ status: "done", done_at: new Date().toISOString(), attempts: 1 })
+                .eq("idempotency_key", res.followup_key).eq("status", "pending");
+              if (fuErr) console.warn("[review-payment-submission] followup mark-done failed (the sweep re-checks it):", fuErr);
+            }
+          }
           return json(409, { error: outcome === "expired" ? "paidy_authorization_expired" : `paidy_${outcome}`, message: `${why}. The submission was rejected; the customer may pay again.` });
         };
 
@@ -816,6 +822,20 @@ Deno.serve(async (req) => {
               message: resuming
                 ? "Square now rates this card payment HIGH risk. Nothing was captured. Void the hold in the Square Dashboard, then press \"Finish recording\": the Hub reads Square, sees the hold closed and rejects the submission."
                 : "Square now rates this card payment HIGH risk. Nothing was captured. Reject it (the hold is voided, nothing is charged).",
+            });
+          }
+          // M6 (Paidy QC 2026-10-09): never capture a card while Paidy holds
+          // this order (a late Paidy authorisation): the Hub would refuse to
+          // record the card money it just took. Nothing is captured.
+          const { data: payLock, error: payLockErr } = await supabase.rpc("cash_order_payment_lock", { p_cash_order_id: cashOrder.id });
+          if (payLockErr || String(payLock ?? "").startsWith("paidy")) {
+            await releaseSquareAction();
+            if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+            return json(409, {
+              error: "paidy_lock",
+              message: payLockErr
+                ? "Could not check the order's payment lock. Nothing was captured; try again."
+                : "A Paidy payment is holding this order. Nothing was captured on the card — resolve the Paidy payment first (Payment Submissions → Paidy).",
             });
           }
           try {
