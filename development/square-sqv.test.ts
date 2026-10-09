@@ -134,7 +134,7 @@ Deno.test('Hub dialog: two steps, fail-closed facts, sticky footer, calendar-yea
   assert(ui.includes("const step: 'approve' | 'record' | null = isException ? (approval ? 'record' : 'approve') : null;"), 'approve → record')
   assert(ui.includes("const factsMissing = cardError !== null || card === null;") && ui.includes('disabled={busy || !day || factsMissing'), 'fail closed when the card facts cannot be read')
   assert(ui.includes('max-h-[90vh]') && ui.includes('overflow-y-auto') && ui.includes('data-testid="refund-footer"'), 'scrolling body, fixed footer')
-  assert(ui.includes("d.setUTCFullYear(d.getUTCFullYear() - 1);") && ui.includes("select('authorized_at, status')"), 'SQV04: authorized_at + one calendar year')
+  assert(ui.includes("d.setUTCFullYear(d.getUTCFullYear() - 1);") && ui.includes("select('authorized_at, status, amount_jpy')"), 'SQV04: authorized_at + one calendar year')
   assert(!ui.includes('captureOver365') && !ui.includes('EXCEPTION_AGE_DAYS'), 'the 365-day capture rule is gone')
   assert(ui.includes("timeZone: 'Asia/Manila'"), 'approval day is the PHT day the SQL compares with')
   assert(ui.includes('refundProcessing') && ui.includes('approveIncomplete'), 'approve disabled while a Square refund is processing')
