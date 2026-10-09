@@ -198,3 +198,66 @@ function body. The live `prosrc` then differs from the repo file by exactly thos
 `staff_bell_email_fanout`, migration 20261127100000). Rule: in a new migration keep every comment
 OUTSIDE the `$fn$ … $fn$` body (above the CREATE, or after it). If one slips through, move the comment
 out in the repo file (the only change) and re-run the audit — never rewrite live to match the repo.
+
+## Structure catch-up — the repo rebuilds live (2026-10-09, Paidy V03 finding F2)
+
+**What was wrong.** `scripts/function-drift-audit` compares function bodies only. On
+2026-10-09 a rebuild of `supabase/migrations/` into an empty database stopped at the
+39th migration, because live held structure no migration creates: 20 tables, 2 enum
+types (`store_credit_lot_status`, `store_credit_txn_type`), 16 columns (and 4 column
+shapes), 59 constraints, 47 indexes, 10 triggers, 1 view (`product_inquiries_with_accumulated`),
+1 enum value (`waiver_status.auto_unwaived`), 40 RLS policies, 108 function grants and
+2 table grants. Most were made in the SQL Editor or by a Lovable session and never
+committed. The repo also carried 50 Lovable copies (`<version>_<uuid>.sql`) of our own
+migrations, so a plain replay ran them twice.
+
+**The fix — four RECORD-ONLY migrations, read from live's catalog:**
+
+| File | What | Why there |
+|---|---|---|
+| `20260705230001_record_live_only_structure.sql` | the 2 enums, 20 tables (columns, defaults, PK; 4 of them `website_*` tables first used by a Lovable migration before their own record migration), 14 live-only columns on baseline tables | right after the baseline: later migrations use them |
+| `20260917070101_record_live_only_triggers_and_grants.sql` | `trg_note_loyalty_transaction`, two `layaway_account_items` columns, `revoke_loyalty_points` grants | after the functions they need; before 20261014100000 / 20261017100000, whose self-checks read them |
+| `20261023235900_record_live_only_policies.sql` | the 35 policies on the head's tables, in the bare-call form | `has_permission()` exists by then; 20261024100000 wraps them into live's exact text |
+| `20261130140000_record_live_structure_tail.sql` | everything else (constraints, indexes, triggers, view, enum value, column shapes, policies, function + table grants) | the end: everything they refer to exists |
+
+Every statement is guarded (`IF NOT EXISTS`, `duplicate_object`, or a catalog check
+before acting). They are **committed, not applied** — live already has all of it.
+Proof: re-applied to a live-identical rebuild, the catalog did not change.
+
+**How it is checked — `scripts/structure-drift-audit`:**
+
+1. `scripts/structure-drift-audit query` prints ONE read-only SELECT
+   (`scripts/structure-drift-audit.sql`). Run it on live (SQL Editor → export CSV or
+   JSON).
+2. `scripts/structure-drift-audit replay --host <local socket dir> --port <port> --out repo.tsv`
+   builds the repo into an EMPTY local Postgres and runs the same SELECT. It refuses a
+   non-local host. The build uses `scripts/replay/prelude.sql` (Supabase stand-ins and
+   default privileges), `scripts/replay/seed.sql` (one test customer + layaway, plan and
+   tier rows, a placeholder Vault NAME — never a key), `scripts/replay/hooks/<migration>`
+   (a live operational setting a migration's precondition needs), and
+   `scripts/migration-replay-plan` order (Lovable copies skipped), each migration in one
+   transaction like Supabase.
+3. `scripts/structure-drift-audit compare live.csv repo.tsv` — per kind (column,
+   constraint, index, trigger, view, enum, function, policy, relation, function_grant):
+   live-only and repo-only lines. **Zero is the goal**; 2026-10-09 result: zero on all
+   ten (4,627 items).
+
+Normalisation (same on both sides): whitespace collapsed; function definitions compared
+without blank lines (Lovable strips them on apply — three bodies differed only so);
+Lovable's `sandbox_exec*` roles and PostgreSQL 17's MAINTAIN privilege ignored.
+
+**When drift appears:** write a record-only migration from live (`pg_get_*def`), guarded
+so it is a no-op on live, placed where the replay first needs it (else at the end), and
+re-run the audit to zero. Never "fix" live to match the repo in the same step — that is a
+separate, owner-approved change.
+
+**Findings left for the owner (recorded as live has them, not changed):**
+- 75 functions are executable by `authenticated` (and most by `anon`) on live although
+  the repo revoked that — mostly trigger functions (harmless); the readable ones
+  (`fc_*`, `get_top_outstanding_customers`, `get_monthly_tracking_export`,
+  `get_tracking_for_invoices`, `get_collection_analytics`,
+  `get_recent_qualifying_order`, `validate_bulk_import`,
+  `revalidate_account_from_vault`) are all SECURITY INVOKER, so RLS still applies to
+  the caller. Tightening them is a separate change.
+- `layaway_account_items` has no `quantity > 0` check on live (a migration declared one
+  on a table live already had).

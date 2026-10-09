@@ -1817,6 +1817,9 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - RLS policies call auth.uid() / is_staff() / has_role() inside a scalar
     sub-select — (SELECT is_staff((SELECT auth.uid()))) — never bare (a bare
     call runs once per row; 8 s timeouts, 2026-09-29, PR #265).
+  - STRUCTURE (2026-10-09, F2): scripts/structure-drift-audit (query on live, replay
+    locally, compare) must report 0 on all ten kinds; drift is fixed by a guarded
+    RECORD-ONLY migration read from live. docs/MIGRATIONS.md "Structure catch-up".
   - Every view in public is created WITH (security_invoker = true); a view
     owned by postgres without it bypasses RLS (schedule_with_actuals leak,
     2026-09-29, PR #266).
