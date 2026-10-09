@@ -55,7 +55,7 @@ import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
 import { EndPaidyWindowDialog } from '@/components/web-orders/EndPaidyWindowDialog';
-import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
+import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkFurtherRefund, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
@@ -519,6 +519,9 @@ export default function CashOrderDetail() {
   const [refundStatus, setRefundStatus] = useState<RefundStatus | ''>('');
   const [refundNote, setRefundNote] = useState('');
   const [refundIssuedOpen, setRefundIssuedOpen] = useState(false);
+  // L6 (2026-10-09): "Record the other part" on an order already marked refunded.
+  const openRefundIssued = useCallback(() => setRefundIssuedOpen(true), []);
+  const [refundMarksVersion, setRefundMarksVersion] = useState(0);
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -744,6 +747,14 @@ export default function CashOrderDetail() {
         order_date: nextOrderDate,
       };
       if (loyaltyChanged) updatePayload.loyalty_jpy_amount = nextLoyalty;
+      // L5 (2026-10-09): the balance is written only when the total really
+      // changes. It is recomputed from this page's total_paid, which can be
+      // stale (a card capture recorded meanwhile); the database also refuses a
+      // balance edit while a card or Paidy payment holds the order.
+      if (!totalChanged) {
+        delete updatePayload.total_amount;
+        delete updatePayload.remaining_balance;
+      }
       if (!isAdmin) {
         delete updatePayload.total_amount;
         delete updatePayload.remaining_balance;
@@ -775,7 +786,7 @@ export default function CashOrderDetail() {
           },
           new_value_json: {
             total_amount: newTotal,
-            remaining_balance,
+            remaining_balance: totalChanged ? remaining_balance : Number(order.remaining_balance),
             order_date: nextOrderDate,
             ...(loyaltyChanged ? { loyalty_jpy_amount: nextLoyalty } : {}),
           },
@@ -1315,7 +1326,7 @@ export default function CashOrderDetail() {
                   </p>
                 )}
                 {order.status === 'cancelled' && order.source_channel === 'web' && order.refund_status === 'refund_issued' && (
-                  <RefundIssuedLine orderId={order.id} />
+                  <RefundIssuedLine key={refundMarksVersion} orderId={order.id} onRecordAnother={can('cancel_cash_order') ? openRefundIssued : undefined} />
                 )}
                 {canMarkRefundIssued(order) && can('cancel_cash_order') && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2750,13 +2761,13 @@ export default function CashOrderDetail() {
         </DialogContent>
       </Dialog>
 
-      {order && canMarkRefundIssued(order) && (
+      {order && (canMarkRefundIssued(order) || canMarkFurtherRefund(order)) && (
         <MarkRefundIssuedDialog
           open={refundIssuedOpen}
           onOpenChange={setRefundIssuedOpen}
           orderId={order.id}
           reference={cashOrderRef(order)}
-          onDone={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+          onDone={() => { setRefundMarksVersion((v) => v + 1); qc.invalidateQueries({ queryKey: ['cash-order', id] }); }}
         />
       )}
 

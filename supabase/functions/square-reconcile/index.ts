@@ -3,7 +3,7 @@ import { requireAuth } from "../_shared/handler.ts";
 import { square, SquareError } from "../_shared/square.ts";
 import type { SquareEnvironment } from "../_shared/card-rules.ts";
 import {
-  applyPaymentState, currentEnvironment, processSquareEvent, readPaymentAnyEnv, recoverAttempt, rpc,
+  applyPaymentState, currentEnvironment, isLateHoldReason, processSquareEvent, readPaymentAnyEnv, recoverAttempt, rpc,
   syncSquareDispute, syncSquareRefund,
 } from "../_shared/square-sync.ts";
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
@@ -355,7 +355,10 @@ Deno.serve(async (req) => {
           // is voided at filing; if that void failed it is retried here too.
           const paidyConflict = row.exception === "unfiled_hold" && String(row.exception_note ?? "").startsWith("paidy_in_progress")
             && row.exception_resolved_at == null;
-          if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high" || paidyConflict)) {
+          // L7 (2026-10-09): a late hold on an attempt already closed is voided
+          // at filing; if that void failed it is retried here, every hour.
+          const lateHold = row.exception === "unfiled_hold" && isLateHoldReason(row.exception_note) && row.exception_resolved_at == null;
+          if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high" || paidyConflict || lateHold)) {
             p = await square.cancel(got.env, p.id);
             report.voids_retried++;
           }

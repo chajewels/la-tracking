@@ -148,7 +148,8 @@ export async function fraudCancel(db: Db, env: SquareEnvironment, orderId: strin
  * After filing returned an exception: a mismatched hold is ours and wrong →
  * void it; risk HIGH → void + fraud cancel; a hold that arrived while Paidy
  * took the order (unfiled_hold / paidy_in_progress) → void it (the order is
- * Paidy's; nothing is charged). Any other unfiled hold (order could not take
+ * Paidy's; nothing is charged); a hold on an attempt already closed (L7,
+ * attempt_*) → void it. Any other unfiled hold (order could not take
  * it) is NOT voided automatically — staff decide (bell rung in SQL).
  */
 export async function handleFilingException(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec): Promise<string> {
@@ -165,6 +166,12 @@ export async function handleFilingException(db: Db, env: SquareEnvironment, atte
     try { await applyPaymentState(db, await square.cancel(env, p.id), "void"); await released(true); return "paidy_voided"; }
     catch (e) { console.warn("[square-sync] paidy-conflict void failed:", e instanceof Error ? e.message : e); return "paidy_void_pending"; }
   }
+  if (filed.exception === "unfiled_hold" && isLateHoldReason(filed.reason)) {
+    // L7 (2026-10-09): Square approved a hold for an attempt the Hub had already
+    // closed (cancelled / declined / closed by an admin): she was told it did not
+    // go through, so the hold is voided now — never left on her card up to 7 days.
+    return await voidLateHold(db, env, attempt, p, filed, released);
+  }
   if (filed.exception === "risk_high") {
     const res = await fraudCancel(db, env, attempt.cash_order_id, "risk_high", { square_payment_id: p.id, attempt: attempt.reference }, p.id);
     if (res.ok) return "risk_high_cancelled";
@@ -177,6 +184,70 @@ export async function handleFilingException(db: Db, env: SquareEnvironment, atte
     return "risk_high_flagged";
   }
   return String(filed.exception ?? "exception");
+}
+
+/**
+ * L7: an unfiled hold whose attempt was already closed when Square's APPROVED
+ * arrived (file_square_authorization_atomic reason attempt_<status>). Pure —
+ * square-reconcile keys its void retry on the same rule (exception_note).
+ */
+export function isLateHoldReason(reason: unknown): boolean {
+  return typeof reason === "string" && /^attempt_[a-z_]+$/.test(reason);
+}
+
+/**
+ * L7: void a late hold, audited, idempotent (Square's own read-back decides):
+ *   voided            — Square cancelled it now (or already shows it CANCELED);
+ *   void_pending      — Square did not confirm: ONE card_void_failed bell per
+ *                       payment, and square-reconcile retries the void hourly.
+ */
+export async function voidLateHold(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec,
+  released: () => Promise<unknown>): Promise<"late_hold_voided" | "late_hold_void_pending"> {
+  let after: SquarePayment | null = null;
+  let failure: string | null = null;
+  try {
+    after = await square.cancel(env, p.id);
+  } catch (e) {
+    failure = e instanceof SquareError ? `${e.status} ${e.code}` : e instanceof Error ? e.message : String(e);
+    try { after = await square.get(env, p.id); } catch { after = null; }
+  }
+  if (after && (after.status === "CANCELED" || after.status === "FAILED")) {
+    await applyPaymentState(db, after, "void");
+    await auditBestEffort(db, {
+      entity_type: "square_payment", entity_id: filed.square_row_id ?? null, action: "square_late_hold_auto_voided",
+      new_value_json: { square_payment_id: p.id, attempt: attempt.reference, reason: filed.reason, square_status: after.status, cash_order_id: attempt.cash_order_id },
+    });
+    await released();
+    return "late_hold_voided";
+  }
+  if (after) { try { await applyPaymentState(db, after, "reconcile"); } catch { /* reconcile re-reads it */ } }
+  await lateHoldVoidFailedBell(db, attempt, p, String(filed.reason ?? ""), failure ?? `Square status ${after?.status ?? "unknown"}`);
+  return "late_hold_void_pending";
+}
+
+async function auditBestEffort(db: Db, row: AnyRec): Promise<void> {
+  try {
+    const r = await db.from("audit_logs").insert(row);
+    if (r?.error) console.warn("[square-sync] audit insert failed:", r.error.message);
+  } catch (e) { console.warn("[square-sync] audit insert failed:", e instanceof Error ? e.message : e); }
+}
+
+/** L7: one bell per Square payment — the hold is still on her card and needs a person. */
+export async function lateHoldVoidFailedBell(db: Db, attempt: AnyRec, p: SquarePayment, reason: string, why: string): Promise<void> {
+  try {
+    const { data: seen } = await db.from("staff_notifications").select("id")
+      .eq("type", "card_void_failed").eq("metadata->>square_payment_id", p.id).eq("metadata->>source", "late_hold").limit(1);
+    if (Array.isArray(seen) && seen.length > 0) return;
+    const { data: o } = await db.from("cash_orders").select("customer_id, invoice_number, web_reference").eq("id", attempt.cash_order_id).maybeSingle();
+    const amount = paymentFacts(p).amountJpy;
+    const r = await db.from("staff_notifications").insert({
+      type: "card_void_failed", title: "Card hold could not be voided",
+      body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${amount != null ? amount.toLocaleString("en-US") : "?"} — a card hold arrived after its attempt was closed (${reason}). The Hub tried to void it but Square did not confirm (${why}). It retries every hour; if this stays, void it in the Square Dashboard.`,
+      customer_id: o?.customer_id ?? attempt.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
+      metadata: { cash_order_id: attempt.cash_order_id, square_payment_id: p.id, attempt: attempt.reference, reason, source: "late_hold", test: attempt.test ?? null },
+    });
+    if (r?.error) console.warn("[square-sync] late-hold bell failed:", r.error.message);
+  } catch (e) { console.warn("[square-sync] late-hold bell failed:", e instanceof Error ? e.message : e); }
 }
 
 /**
@@ -291,10 +362,13 @@ export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: S
 export async function syncSquareDispute(db: Db, dispute: SquareDispute, env?: SquareEnvironment): Promise<{ outcome: string }> {
   const paymentId = dispute.disputed_payment?.payment_id;
   if (!paymentId) return { outcome: "quarantined" };
-  const amount = Number(dispute.amount_money?.amount);
+  // L2 (2026-10-09): the figure passed is the one disputeOf read (positive whole
+  // units); anything else goes as null and record_square_dispute refuses it
+  // (bad_amount, one bell) — the Hub never stores a dispute figure it could not read.
+  const amount = disputeMoneyJpy(dispute);
   const record = async () => await rpc(db, "record_square_dispute", {
     p_dispute_id: dispute.id ?? dispute.dispute_id, p_square_payment_id: paymentId, p_state: dispute.state,
-    p_reason: dispute.reason ?? null, p_amount_jpy: Number.isSafeInteger(amount) ? amount : null,
+    p_reason: dispute.reason ?? null, p_amount_jpy: amount,
     p_due_at: dispute.due_at ?? null, p_provider_created_at: dispute.created_at ?? null,
     p_provider_updated_at: dispute.updated_at ?? null, p_payload: dispute,
   });
@@ -306,8 +380,19 @@ export async function syncSquareDispute(db: Db, dispute: SquareDispute, env?: Sq
     res = await record();
     if (!res.ok && res.error === "unknown_payment") return { outcome: "quarantined" };
   }
-  if (!res.ok) return { outcome: "failed" };
+  // L2: the ledger's own refusals (bad_amount / bad_currency / parent_mismatch)
+  // ring their bell inside record_square_dispute; the reason travels in the error.
+  if (!res.ok) return { outcome: "failed", detail: String(res.error ?? "record_square_dispute") };
   return { outcome: "synced" };
+}
+
+/** L2: the positive whole amount of a dispute's money, or null (never 0). The currency is the SQL's check. */
+export function disputeMoneyJpy(dispute: SquareDispute): number | null {
+  const m = dispute.amount_money;
+  if (!m || typeof m !== "object") return null;
+  if (typeof m.amount !== "number" && typeof m.amount !== "string") return null;
+  const amount = Number(m.amount);
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 }
 
 /** Webhook payload → the object id the event is about. */

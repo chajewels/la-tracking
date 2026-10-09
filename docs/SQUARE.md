@@ -841,4 +841,69 @@ refunded 8563), which is what the net-after-refund path assumes.
 Left for later (Low, owner to order): L2 dispute read-back validation, L3 `refund_jpy` never
 lowered, L4 lock order in `close_square_attempt_atomic`, L5 balance re-check on "Finish
 recording", L6 mixed-payment "Mark refund issued", L7 auto-void of a late hold on a closed
-attempt, L8 three customer wordings.
+attempt, L8 three customer wordings. → built in the eighth release below (L8 not changed).
+
+
+## L2–L8 (2026-10-09, eighth release)
+
+The Low items of the go-live counter-check, owner-approved for build in the order L3, L2, L5,
+L7, L6, L8, L4. Migration `20261201120000_square_l2_l8.sql` (md5-guarded in-place patches read
+from live, plus two new objects); acceptance `development/sql/square-l2-l8-2026-10-09.sql`
+(32/32 on the patched copy; 16 fail on the live bodies before it); deno
+`development/square-l2-l8.test.ts`; vitest `src/test/square-l2-l8-hub.test.ts`.
+
+- **L3 — `refund_jpy` never goes down.** `apply_square_payment_state` writes
+  `greatest(new, current, 0)`: a later `payment.updated` without `refunded_money` no longer
+  writes 0 over a known refund (the "never pay twice" checks read it). A refund Square later
+  reports FAILED therefore keeps the higher figure — conservative: finalize then refuses to
+  record the capture in full and it becomes a staff case.
+- **L2 — disputes are read like payments and refunds.** `disputeOf` (`_shared/square.ts`):
+  the dispute asked for, a state, its payment, POSITIVE whole-unit money, in yen on the
+  read-back (`getDispute`). `ListDisputes` only enqueues; every dispute is recorded from a
+  `getDispute`. `record_square_dispute` refuses `bad_amount` (none, zero, or a payload amount
+  that differs from the figure passed) / `bad_currency` / `parent_mismatch`, stores nothing and
+  rings ONE `card_dispute_unrecorded` bell per (dispute, reason): "this order is NOT marked as
+  disputed — do not refund it or issue store credit until checked in the Square Dashboard".
+  The bell can be emailed (Website → Settings → Staff bell emails).
+- **L5 — capture re-checks the order; the browser cannot move a held order's balance.**
+  `review-payment-submission` re-reads the order right before `square.complete` on EVERY
+  path (a resumed "Finish recording" used to skip it) — `cardCaptureOrderRefusal`
+  (`_shared/card-rules.ts`): `order_closed` / `exceeds_remaining`. Nothing is captured; a
+  resumed claim goes back to the queue (Square showed it still APPROVED) so a reviewer can
+  Reject it (the hold is voided). New trigger `trg_guard_cash_order_balance_during_hold`
+  (`guard_cash_order_balance_during_hold`): a SIGNED-IN caller changing `remaining_balance`
+  without `total_paid` while `cash_order_payment_lock` is `paidy_*` or `card_payment_unresolved`
+  is refused (total / discount / shipping were already guarded). Service-role recordings
+  (balance and `total_paid` together) are untouched. Manage Invoice now writes the balance only
+  when the total changes (it recomputed it from a possibly stale `total_paid`).
+- **L7 — a late hold on a closed attempt is voided automatically.** When Square approves a
+  hold for an attempt the Hub had already closed (cancelled / declined / closed by an admin —
+  `file_square_authorization_atomic` reason `attempt_*`), `handleFilingException` →
+  `voidLateHold` (`_shared/square-sync.ts`) voids it at once (website, webhook and reconcile
+  filings alike), applies Square's answer as `void`, audits `square_late_hold_auto_voided` and
+  sends the "hold released, nothing was charged" email. If Square does not confirm, ONE
+  `card_void_failed` bell (metadata `source: late_hold`) and `square-reconcile` retries the void
+  every hour (same rule as F-07). The SQL bell for such a hold no longer says "record it".
+- **L6 — "Mark refund issued — card" is capped by the RECORDED card money; one mark per
+  part.** New `square_order_card_refund_recordable_jpy(order)` (service_role only): per card
+  payment recorded on the order, the COMPLETED refunds less what Square refunded before the
+  Hub recorded it (captured − recorded), capped at the recorded money. On an order already
+  `refund_issued`, `mark_web_order_refund_issued_atomic` accepts ONE further mark per part —
+  the non-card part (bank transfer / Paidy / cash / other) once on a mixed order, or the card
+  part again for a later COMPLETED Square refund (records only the remainder). The same
+  request again answers `already_recorded`; a refund outside Square (exception methods) closes
+  the card part. The card amount no longer has Paidy money subtracted from it. The audit row
+  carries `further_mark` and `card_marked_before_jpy`. Hub: the dialog offers the non-card
+  methods on a mixed order, shows what is still recordable, and a cancelled web order already
+  marked shows every mark plus "Record the other part" only while a part is open.
+- **L4 — one lock order: the attempt first.** `close_square_attempt_atomic` locks the attempt
+  before the order (as `file_square_authorization_atomic`: attempt → order → payment);
+  `apply_square_payment_state` locks the attempt before the payment row it later updates the
+  attempt from. Proven locally with two sessions: before, close + a file-ordered transaction
+  deadlocked; after, they serialise.
+- **L8 — not changed.** The counter-check names "three customer messages with imprecise
+  wording" without quoting them; no evidence identifies which three. Candidates are listed in
+  the release report for the owner; no copy was changed.
+- **Record-only follow-up.** After the Lovable apply, the five patched functions show
+  `a_differs` in `scripts/function-drift-audit` until a record-only migration copies their live
+  bodies into the repo.

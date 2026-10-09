@@ -364,6 +364,34 @@ export function refundOf(json: Record<string, unknown>, expectedId?: string | nu
   return { ...(r as unknown as SquareRefund), amount_money: money };
 }
 
+/**
+ * L2 (2026-10-09, eighth release): a dispute as Square holds it, checked like a
+ * payment / refund before anything trusts it — the dispute asked for (when an
+ * id was), a state, the disputed payment, and POSITIVE whole-unit money; with
+ * `jpy`, in yen. A dispute without money is a bad answer (read again), never
+ * ¥0 and never "the whole payment". record_square_dispute refuses what still
+ * cannot be read as yen (bad_amount / bad_currency) with one
+ * card_dispute_unrecorded bell.
+ */
+export interface DisputeExpectation { id?: string | null; jpy?: boolean }
+export function disputeOf(json: Record<string, unknown>, expect: DisputeExpectation = {}): SquareDispute {
+  const raw = json.dispute;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badAnswer("Square answered without a dispute");
+  const d = raw as Record<string, unknown>;
+  const id = typeof d.id === "string" && d.id.trim() !== "" ? d.id : typeof d.dispute_id === "string" && d.dispute_id.trim() !== "" ? d.dispute_id : null;
+  if (!id) throw badAnswer("Square answered a dispute without an id");
+  if (expect.id && id !== expect.id) throw badAnswer(`Square answered dispute ${id} when ${expect.id} was asked for`);
+  if (typeof d.state !== "string" || d.state.trim() === "") throw badAnswer(`Square answered dispute ${id} without a state`);
+  const dp = d.disputed_payment as Record<string, unknown> | null | undefined;
+  if (!dp || typeof dp !== "object" || typeof dp.payment_id !== "string" || dp.payment_id.trim() === "") {
+    throw badAnswer(`Square answered dispute ${id} without its payment`);
+  }
+  const money = moneyOf(d.amount_money);
+  if (!money || money.amount <= 0) throw badAnswer(`Square answered dispute ${id} without a positive whole-unit amount`);
+  if (expect.jpy && money.currency !== "JPY") throw badAnswer(`Square answered dispute ${id} in ${money.currency}, not JPY`);
+  return { ...(d as unknown as SquareDispute), id, amount_money: money };
+}
+
 export interface CreateCardPaymentInput {
   env: Env;
   /** The one-time token from the Web Payments SDK (card.tokenize). */
@@ -488,6 +516,9 @@ export const square = {
     if (q.cursor) p.set("cursor", q.cursor);
     const qs = p.toString();
     const json = await call(e, "GET", `/disputes${qs ? `?${qs}` : ""}`);
+    // L2: discovery only ENQUEUES; every dispute is then read with getDispute
+    // (disputeOf) before anything is recorded. A malformed item is not dropped
+    // here: its event fails visibly (inbox retries, then square_event_failed).
     return { disputes: listField<SquareDispute>(json, "disputes"), cursor: cursorField(json) };
   },
   getRefund: async (e: Env, id: string): Promise<SquareRefund> => {
@@ -496,8 +527,8 @@ export const square = {
   },
   getDispute: async (e: Env, id: string): Promise<SquareDispute> => {
     const json = await call(e, "GET", `/disputes/${encodeURIComponent(id)}`);
-    if (!json.dispute || typeof json.dispute !== "object") throw new SquareError(502, "square_bad_response", "Square answered without a dispute");
-    return json.dispute as SquareDispute;
+    // L2: the dispute asked for, in positive whole yen — never an unread figure.
+    return disputeOf(json, { id, jpy: true });
   },
   /**
    * Events API (Beta): only events from while it is ENABLED are searchable
