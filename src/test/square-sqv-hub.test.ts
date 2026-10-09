@@ -3,7 +3,7 @@ import {
   customerCodesProblem, parseCustomerCodes, preflightLines, squareEffect, squareRefusal,
 } from "../components/settings/square-settings";
 import {
-  authorizedOverOneYear, cardException, exceptionCap, oneYearBefore, phtDay,
+  authorizedOverOneYear, cardException, cardRecordable, exceptionCap, oneYearBefore, phtDay,
 } from "../components/web-orders/MarkRefundIssuedDialog";
 
 // SQV / D-G04 / D-SQV05 (owner 2026-10-09): the pure parts of the Hub UI.
@@ -81,5 +81,20 @@ describe("SQV04: the exception's age is the original authorisation, one CALENDAR
   it("the approval day is the Philippine day (the SQL's day boundary)", () => {
     expect(phtDay("2026-10-08T16:30:00Z")).toBe("2026-10-09");
     expect(phtDay("2026-10-08T15:59:59Z")).toBe("2026-10-08");
+  });
+});
+
+describe('F-03: the dialog card figure matches mark_web_order_refund_issued_atomic', () => {
+  it('counts only refunds of recorded captures, capped per payment', () => {
+    const pays = new Map([
+      ['p1', { amount_jpy: 10000, captured_amount_jpy: 8000, cash_payment_id: 'c1' }],
+      ['p2', { amount_jpy: 5000, captured_amount_jpy: 5000, cash_payment_id: null }],
+    ]);
+    expect(cardRecordable([
+      { amount_jpy: 6000, status: 'COMPLETED', square_payment_row: 'p1' },
+      { amount_jpy: 4000, status: 'COMPLETED', square_payment_row: 'p1' },
+      { amount_jpy: 3000, status: 'COMPLETED', square_payment_row: 'p2' },
+      { amount_jpy: 1000, status: 'PENDING', square_payment_row: 'p1' },
+    ], pays)).toBe(8000);
   });
 });

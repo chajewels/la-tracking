@@ -124,6 +124,8 @@ interface CardRefundFacts {
   cardCaptured: number;
   /** F-02: money a chargeback holds or took back (EVIDENCE_REQUIRED / PROCESSING / LOST / ACCEPTED). */
   disputed: number;
+  /** F-03: what mark_web_order_refund_issued_atomic records for "card" — COMPLETED refunds of captures recorded on the order, capped per payment. */
+  cardRecordable: number;
   /** SQV03: the open approval, if any. */
   approval: ExceptionApproval | null;
 }
@@ -141,9 +143,9 @@ export function authorizedOverOneYear(authorizedAt: string | null | undefined, n
 }
 
 async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
-  const [pays, refunds, captures, lots, approvals, disputes] = await Promise.all([
+  const [pays, refunds, captures, lots, approvals, disputes, cardRows] = await Promise.all([
     supabase.from('cash_payments').select('amount_paid, payment_method').eq('cash_order_id', orderId).is('voided_at', null),
-    supabase.from('square_refunds').select('square_refund_id, amount_jpy, status').eq('cash_order_id', orderId),
+    supabase.from('square_refunds').select('square_refund_id, amount_jpy, status, square_payment_row').eq('cash_order_id', orderId),
     supabase.from('square_payments').select('authorized_at, status, amount_jpy').eq('cash_order_id', orderId).eq('status', 'captured'),
     supabase.from('store_credit_lots').select('original_amount, status').eq('source_cash_order_id', orderId),
     // card_refund_exceptions is not in the generated types until Lovable's next push.
@@ -151,7 +153,8 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
     (supabase.from as any)('card_refund_exceptions')
       .select('id, payout, amount_jpy, cap_jpy, trigger_kind, square_refund_id, square_support_ticket, approved_at, approval_note')
       .eq('cash_order_id', orderId).eq('status', 'approved').maybeSingle(),
-    supabase.from('square_disputes').select('amount_jpy, state').eq('cash_order_id', orderId),
+    supabase.from('square_disputes').select('amount_jpy, state, square_payment_row').eq('cash_order_id', orderId),
+    supabase.from('square_payments').select('id, amount_jpy, captured_amount_jpy, cash_payment_id').eq('cash_order_id', orderId),
   ]);
   if (pays.error) throw pays.error;
   if (refunds.error) throw refunds.error;
@@ -159,8 +162,11 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
   if (lots.error) throw lots.error;
   if (approvals.error) throw approvals.error;
   if (disputes.error) throw disputes.error;
+  if (cardRows.error) throw cardRows.error;
+  const sqRows = (cardRows.data ?? []) as { id: string; amount_jpy: number | string | null; captured_amount_jpy: number | string | null; cash_payment_id: string | null }[];
+  const sqById = new Map(sqRows.map((r) => [r.id, r]));
   const card = (pays.data ?? []).filter((p) => p.payment_method === 'square');
-  const rows = (refunds.data ?? []) as { square_refund_id: string; amount_jpy: number | string | null; status: string | null }[];
+  const rows = (refunds.data ?? []) as { square_refund_id: string; amount_jpy: number | string | null; status: string | null; square_payment_row: string | null }[];
   const sum = (xs: { amount_jpy: number | string | null }[]) => xs.reduce((t, r) => t + Number(r.amount_jpy ?? 0), 0);
   const a = approvals.data as null | { id: string; payout: string; amount_jpy: number | string; cap_jpy: number | string; trigger_kind: string; square_refund_id: string | null; square_support_ticket: string; approved_at: string; approval_note: string | null };
   return {
@@ -171,8 +177,12 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
     failedRefunds: rows.filter((r) => r.status === 'FAILED' || r.status === 'REJECTED').map((r) => ({ id: r.square_refund_id, status: String(r.status), amount: Number(r.amount_jpy ?? 0) })),
     authorizedOverOneYear: ((captures.data ?? []) as { authorized_at: string | null }[]).some((c) => authorizedOverOneYear(c.authorized_at)),
     cardCaptured: ((captures.data ?? []) as { amount_jpy: number | string | null }[]).reduce((t, c) => t + Math.round(Number(c.amount_jpy ?? 0)), 0),
-    disputed: ((disputes.data ?? []) as { amount_jpy: number | string | null; state: string | null }[])
-      .filter((d) => DISPUTE_MONEY_STATES.has(String(d.state ?? '').toUpperCase())).reduce((t, d) => t + Number(d.amount_jpy ?? 0), 0),
+    // As square_order_disputed_jpy: a dispute without its own amount counts the whole payment.
+    disputed: ((disputes.data ?? []) as { amount_jpy: number | string | null; state: string | null; square_payment_row: string | null }[])
+      .filter((d) => DISPUTE_MONEY_STATES.has(String(d.state ?? '').toUpperCase()))
+      .reduce((t, d) => t + (d.amount_jpy != null ? Number(d.amount_jpy)
+        : Math.round(Number(sqById.get(d.square_payment_row ?? '')?.amount_jpy ?? 0))), 0),
+    cardRecordable: cardRecordable(rows, sqById),
     creditIssued: ((lots.data ?? []) as { original_amount: number | string | null; status: string | null }[])
       .filter((l) => l.status !== 'voided').reduce((t, l) => t + Number(l.original_amount ?? 0), 0),
     approval: a ? {
@@ -186,6 +196,26 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
 export function cardException(f: Pick<CardRefundFacts, 'paidByCard' | 'failedRefunds' | 'authorizedOverOneYear'> | null | undefined): boolean {
   return !!f && f.paidByCard && (f.failedRefunds.length > 0 || f.authorizedOverOneYear);
 }
+/** F-03 mirror of mark_web_order_refund_issued_atomic's card figure. */
+export function cardRecordable(
+  refunds: { amount_jpy: number | string | null; status: string | null; square_payment_row: string | null }[],
+  payments: Map<string, { amount_jpy: number | string | null; captured_amount_jpy: number | string | null; cash_payment_id: string | null }>,
+): number {
+  const done = new Map<string, number>();
+  for (const r of refunds) {
+    const p = r.square_payment_row ? payments.get(r.square_payment_row) : undefined;
+    if (r.status !== 'COMPLETED' || !p || !p.cash_payment_id) continue;
+    done.set(r.square_payment_row as string, (done.get(r.square_payment_row as string) ?? 0) + Number(r.amount_jpy ?? 0));
+  }
+  let total = 0;
+  for (const [id, d] of done) {
+    const p = payments.get(id)!;
+    const cap = p.captured_amount_jpy != null ? Number(p.captured_amount_jpy) : Math.round(Number(p.amount_jpy ?? 0));
+    total += Math.min(d, cap);
+  }
+  return total;
+}
+
 /** F-02: dispute states in which the card network holds or took back the money (as square_order_disputed_jpy). */
 export const DISPUTE_MONEY_STATES = new Set(['EVIDENCE_REQUIRED', 'PROCESSING', 'LOST', 'ACCEPTED']);
 
@@ -316,7 +346,7 @@ export function MarkRefundIssuedDialog({
   const exceptionOpen = isAdmin && (cardException(card) || !!approval);
   const isException = method === 'bank_transfer_exception' || method === 'store_credit_exception';
   const payout = method === 'store_credit_exception' ? 'store_credit' : 'bank_transfer';
-  const cardBlocked = cardOnly && method === 'card' && (card?.refundedCompleted ?? 0) <= 0;
+  const cardBlocked = cardOnly && method === 'card' && (card?.cardRecordable ?? 0) <= 0;
   const methods = cardOnly
     ? approval
       ? EXCEPTION_METHODS.filter((m) => m.value === `${approval.payout}_exception`)
@@ -452,7 +482,7 @@ export function MarkRefundIssuedDialog({
               {refundProcessing && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
               {cardBlocked
                 ? <p>Refund it in the Square Dashboard first. This button works once Square shows the refund completed.</p>
-                : method === 'card' ? <p>The Hub records {yen(card.refundedCompleted)}, exactly what Square completed.</p> : null}
+                : method === 'card' ? <p>The Hub records {yen(card.cardRecordable)} — what Square completed on the card payments recorded on this order.</p> : null}
               {(cardException(card) || approval) && !isAdmin && (
                 <p className="mt-1">{approval
                   ? `An admin approved a refund outside Square: ${yen(approval.amount)} by ${approval.payout === 'bank_transfer' ? 'bank transfer' : 'store credit'}. An admin records it once paid.`

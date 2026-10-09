@@ -159,7 +159,15 @@ Deno.serve(async (req) => {
       // QC close-out (2026-10-09): a Hub cash order refused for card money
       // (card_payment_unresolved / card_already_refunded / card_disputed) gets
       // the same plain-English message as a web order.
-      return json({ error: terminateRefusalMessage(msg.split(":")[0]) ?? msg, code: msg.split(":")[0] }, status);
+      // A Hub cash cancel has no refund-decision step, so the web wording
+      // ("Choose Refund pending …") is replaced for the two credit refusals.
+      const code = msg.split(":")[0];
+      const hubMsg = !isWeb && code === "card_already_refunded"
+        ? "Money on this order was already refunded through Square — it cannot be issued again as store credit. Cancel without store credit."
+        : !isWeb && code === "card_disputed"
+        ? "A card chargeback on this order holds or took back the money — it cannot be issued again as store credit. Cancel without store credit; the dispute is settled in the Square Dashboard."
+        : null;
+      return json({ error: hubMsg ?? terminateRefusalMessage(code) ?? msg, code }, status);
     }
     if (isWeb && (data as any)?.ok === false) {
       // already_terminal / not_web_order — nothing was written. Unresolved
