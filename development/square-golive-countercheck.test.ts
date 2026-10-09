@@ -42,6 +42,8 @@ Deno.test('DOC-7 edge: the preflight reads the location capabilities from ListLo
 Deno.test('CODE-M1 edge: card_disputed after a capture is a tracked case, not "Finish recording"', () => {
   const src = codeOnly('../supabase/functions/review-payment-submission/index.ts')
   assert(src.includes('const cannotTake = refunded || ["card_disputed", "order_closed"'), 'card_disputed is a cannot-take refusal')
+  assert(src.includes('const disputed = code === "card_disputed";'), 'card_disputed has its own branch')
+  assert(src.includes('Do NOT refund it in the Square Dashboard'), 'the chargeback bell never tells staff to refund (double-return risk)')
 })
 
 Deno.test('CODE-M1 / L1 migration: md5-guarded patches from live, self-checked', () => {

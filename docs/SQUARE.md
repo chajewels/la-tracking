@@ -814,7 +814,15 @@ on the live bodies before the fix); deno `development/square-golive-countercheck
   and `decide_square_case` (`record_on_order` / `record_net_after_refund`) refuse with
   `card_disputed` while `square_order_disputed_jpy(order) > 0`. The edge treats it as a
   cannot-take refusal (a tracked `captured_unallocated` case + `card_recording_failed` bell),
-  never "Finish recording". An inquiry (no money held) does not block.
+  never "Finish recording". An inquiry (no money held) does not block. The bell has its own
+  wording: answer the dispute in Square, record only once it is WON, and NEVER refund it in the
+  Dashboard (the bank may already be returning the money). The check is per ORDER, not per
+  payment: a dispute on one card payment also holds a second, clean capture on the same order
+  until it is settled — deliberately conservative. A capture that is both disputed and refunded
+  reports `card_disputed` (checked first).
+- **Record-only follow-up.** These are in-place patches, so after the Lovable apply the three
+  functions show `a_differs` in `scripts/function-drift-audit` until a record-only migration
+  copies their live bodies into the repo (same as 20261130170000).
 - **CODE-M2 — no "pay by <past date>".** When the order's deadline has passed, the "payment not
   accepted" email (card hold ended by Square on day 7, or a late Reject) replaces the deadline
   and "pay again" with "the deadline has passed — reply and we will tell you whether we can hold
