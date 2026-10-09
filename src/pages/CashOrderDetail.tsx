@@ -54,6 +54,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
+import { EndPaidyWindowDialog } from '@/components/web-orders/EndPaidyWindowDialog';
 import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -453,6 +454,7 @@ export default function CashOrderDetail() {
   const [statementOpen, setStatementOpen] = useState(false);
   // C1 (2026-10-05): staff change how a website order is paid.
   const [methodOpen, setMethodOpen] = useState(false);
+  const [endPaidyOpen, setEndPaidyOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
   const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // SQUARE (S1, 2026-10-04): a card hold awaiting Confirm (capture) / Reject (void).
@@ -1525,6 +1527,15 @@ export default function CashOrderDetail() {
                     Paidy window open since {formatPHTDisplay(paidyWindow.started_at)}
                     {paidyWindow.customer_closed_at ? ` · customer closed it ${formatPHTDisplay(paidyWindow.customer_closed_at)}` : ''}
                     {' — '}the order is locked (no Confirm, Submit Payment or store credit) until the hourly Paidy check confirms nothing was paid; the customer can open Paidy again at any time.
+                    {/* H1 (Paidy QC 2026-10-09): the staff exit for a stuck window (timed out only). */}
+                    {can('confirm_payment') && Date.parse(paidyWindow.expires_at) <= Date.now() && (
+                      <>
+                        {' '}
+                        <button type="button" className="underline font-medium hover:text-primary" onClick={() => setEndPaidyOpen(true)} data-testid="cash-order-end-paidy-window">
+                          End Paidy window
+                        </button>
+                      </>
+                    )}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
@@ -1534,12 +1545,13 @@ export default function CashOrderDetail() {
                   )}
                 </p>
                 {/* PAIDY (2026-10-03): the customer finished Paidy's window; the
-                    money is only reserved. Confirm on Payment Submissions
-                    captures it (valid 30 days), Reject releases it. */}
+                    money is only reserved. M7 (Paidy QC 2026-10-09): staff
+                    capture it in the Paidy dashboard and the Hub records it;
+                    Reject releases it. */}
                 {paidyPending && (
                   <p className="text-xs text-sky-800 dark:text-sky-200">
                     あと払い（ペイディ） ref <span className="font-mono">{paidyPending.reference_number ?? '—'}</span> · ¥{Number(paidyPending.submitted_amount).toLocaleString('en-US')} ·
-                    filed {formatPHTDisplay(paidyPending.created_at)} · capture on Confirm in Payments Hub, valid 30 days from authorisation
+                    filed {formatPHTDisplay(paidyPending.created_at)} · capture it in the Paidy dashboard (the Hub records it); Reject in Payments Hub releases it
                   </p>
                 )}
                 {squarePending && (
@@ -1596,6 +1608,19 @@ export default function CashOrderDetail() {
             peso={String(order.currency) === 'PHP'}
             reference={cashOrderRef(order)}
             onChanged={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+          />
+        )}
+
+        {paidyWindow && (
+          <EndPaidyWindowDialog
+            open={endPaidyOpen}
+            onOpenChange={setEndPaidyOpen}
+            cashOrderId={order.id}
+            reference={cashOrderRef(order)}
+            onEnded={() => {
+              qc.invalidateQueries({ queryKey: ['cash-order', id] });
+              qc.invalidateQueries({ queryKey: ['paidy-open-window', id] });
+            }}
           />
         )}
 

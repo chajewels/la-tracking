@@ -20,14 +20,14 @@ import {
 import {
   isPaidyPublicKey, paidyAddressLines, paidyBillingChoice, paidyBuyerHistory, paidyCheckoutBreakdown,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
-  paidyBuyerName, paidyModeFrom, paidyNameField, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
+  paidyBuyerName, paidyModeFrom, paidyNameField, paidyNoteDecision, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareAudienceFrom, squareCardAllowed, squareCardCustomerIds, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
 import { SquareError, buyerEmailOf, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { fileForAttempt, fraudCancel, handleFilingException, recoverAttempt, resolveAttempt, rpc } from "../_shared/square-sync.ts";
 import { customerReference } from "../_shared/order-reference.ts";
-import { filePaidyAuthorization } from "../_shared/paidy-filing.ts";
+import { adoptOrphanAuthorization, filePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import {
@@ -3227,21 +3227,42 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // PA04 (2026-10-08): Paidy's rejected / closed callback names the
       // payment it created; the window keeps that id so the hourly sweep can
       // VERIFY with Paidy that it holds nothing before the window ends
-      // (verified_empty) — instead of ending on the clock alone. No Paidy
-      // call here (the customer is waiting); the sweep reads it back.
+      // (verified_empty) — instead of ending on the clock alone.
+      // H1 (Paidy QC 2026-10-09): the id comes from the browser, so it is
+      // checked with Paidy BEFORE it is kept. A noted id holds the window
+      // until Paidy says it holds nothing, so a made-up id (Paidy: 404) or
+      // another order's payment would freeze this order for good — neither is
+      // noted. Paidy unreachable → noted anyway (fail closed; the sweep
+      // verifies it, and staff have "End Paidy window").
       let noted = false;
+      let noteCheck: string | null = null;
       if (isPaidyPaymentId(body.paidy_payment_id)) {
-        const { data: n, error: nErr } = await supabase.rpc("note_paidy_checkout_attempt_payment", {
-          p_attempt_id: attemptId, p_customer_id: customer.id, p_paidy_payment_id: body.paidy_payment_id,
-        });
-        if (nErr) throw nErr;
-        noted = (n as AnyRec | null)?.noted === true;
+        const { data: ord, error: ordErr } = await supabase
+          .from("cash_orders").select("id, invoice_number, web_reference, source_channel")
+          .eq("id", segments[1]).eq("customer_id", customer.id).maybeSingle();
+        if (ordErr) throw ordErr;
+        if (!ord) return notFound();
+        let read: Parameters<typeof paidyNoteDecision>[0];
+        try {
+          read = { payment: await paidy.get(body.paidy_payment_id) };
+        } catch (e) {
+          read = e instanceof PaidyError && e.status === 404 ? { notFound: true } : { error: true };
+          if (!("notFound" in read)) console.warn("[website] paidy.get for the abandon note failed:", e instanceof PaidyError ? `${e.status} ${e.code}` : e);
+        }
+        noteCheck = paidyNoteDecision(read, { id: String(ord.id), ref: customerReference(ord as AnyRec) });
+        if (noteCheck === "note" || noteCheck === "note_unverified") {
+          const { data: n, error: nErr } = await supabase.rpc("note_paidy_checkout_attempt_payment", {
+            p_attempt_id: attemptId, p_customer_id: customer.id, p_paidy_payment_id: body.paidy_payment_id,
+          });
+          if (nErr) throw nErr;
+          noted = (n as AnyRec | null)?.noted === true;
+        }
       }
       const { data: ended, error: endErr } = await supabase.rpc("end_paidy_checkout_attempt", {
         p_attempt_id: attemptId, p_customer_id: customer.id, p_reason: reason,
       });
       if (endErr) throw endErr;
-      return jsonResponse({ ok: true, ended: (ended as AnyRec | null)?.ended === true, payment_noted: noted });
+      return jsonResponse({ ok: true, ended: (ended as AnyRec | null)?.ended === true, payment_noted: noted, note_check: noteCheck });
     }
 
     // POST /orders/:id/paidy — the customer finished Paidy's window; file the
@@ -3325,9 +3346,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         payment, expectTest: offer.test, path: "website_paidy",
       });
       if (!filed.ok) {
+        // M1 (Paidy QC 2026-10-09): the payment names ANOTHER order. It was not
+        // closed; it is handed to the order it names, exactly as Paidy's
+        // webhook would (filed there if that order can take it, else released).
+        if (filed.error === "paidy_mismatch" && filed.detail === "order_ref") {
+          const routed = await adoptOrphanAuthorization(supabase, payment, "website_paidy");
+          console.warn(`[website] Paidy ${payment.id} names another order; routed: ${routed}`);
+          return jsonResponse({ error: "paidy_mismatch", detail: "other_order" }, 409);
+        }
         if (filed.error === "paidy_mismatch") return jsonResponse({ error: "paidy_mismatch", detail: filed.detail }, 409);
         if (filed.error === "stale_authorization") return jsonResponse({ error: "paidy_mismatch", detail: `stale:${filed.detail ?? ""}`, released: filed.released === true }, 409);
-        if (filed.error === "submission_pending") return jsonResponse({ error: "submission_pending" }, 409);
+        if (filed.error === "submission_pending" || filed.error === "card_payment_unresolved") return jsonResponse({ error: "submission_pending" }, 409);
         if (filed.error === "paidy_payment_other_order") return jsonResponse({ error: "paidy_mismatch", detail: "other_order" }, 409);
         if (filed.error === "order_not_found") return notFound();
         return jsonResponse({ error: "paidy_mismatch", detail: filed.error }, 409);

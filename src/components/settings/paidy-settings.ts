@@ -28,7 +28,9 @@ export const PAIDY_MODE_LABEL: Record<PaidyMode, string> = {
 
 export function paidyEffect(mode: PaidyMode): string {
   switch (mode) {
-    case "on": return "Every customer with a Japanese delivery address sees 『あと払い（ペイディ）』 on a confirmed yen order (live keys).";
+    // M7 (Paidy QC 2026-10-09): who actually sees it — the order ships to
+    // Japan AND her own details are complete (paidyNotOfferedReason).
+    case "on": return "Customers with a yen order shipped to Japan, whose own Paidy details are complete, see 『あと払い（ペイディ）』 on a confirmed order (live keys).";
     case "test": return "Only customers flagged is_test see 『あと払い（ペイディ）』, with Paidy's test keys — nothing real is charged.";
     default: return "Paidy is not offered anywhere on the website.";
   }

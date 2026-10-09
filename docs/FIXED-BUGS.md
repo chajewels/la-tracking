@@ -6221,3 +6221,22 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
   the allocation anomalies found (6 over-allocated payments, 119 schedule rows) date from Mar–Aug 2026 and
   match the old allocation bugs, not a manual override. Do not reintroduce: a SECURITY DEFINER function
   callable by `authenticated` without its own caller check.
+
+## 2026-10-09 — Paidy QC PR-A (H1, M1–M7, L1, L2, L4, L7–L10)
+
+- **H1 — a made-up Paidy id froze an order for good.** The storefront's "Paidy closed" callback stored any
+  `pay_…` id; the window then waited for Paidy to confirm it empty, which never happened for an id Paidy
+  does not know, so staff could not cancel, change the method or record another payment. Fixed: the id is
+  checked with Paidy before it is noted, a 404 under both key families verifies the window empty, and staff
+  have an audited "End Paidy window" (edge `paidy-staff-action`). Do not reintroduce: storing a
+  browser-supplied provider id that holds a lock without verifying it.
+- **M2** — ending a Paidy case's submission unlocked the order while Paidy still held a capturable
+  authorisation (double payment possible). Now refused until it is closed at Paidy.
+- **M3** — `resolve_paidy_case` locked the Paidy row before the order (deadlock with Confirm). Now the
+  shared order.
+- **M4** — "Paidy ended this authorisation" was three separate writes; a failed audit write lost the
+  customer email. Now one SQL transaction with a replayable email intent.
+- **M6** — a late Paidy authorisation behind a card hold could let the card be captured and never
+  recorded. Now refused at filing, and the card capture checks the Paidy lock first.
+- **M1, M5, M7, L1, L2, L4, L8, L9, L10** — see docs/PAIDY.md "Paidy QC PR-A". L7 was reviewed and kept
+  as designed (the over-capture refund row is what PA02's double-compensation refusal reads).

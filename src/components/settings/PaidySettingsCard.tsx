@@ -24,8 +24,10 @@ import {
  * Website → Settings → Paidy (2026-10-03, docs/PAIDY.md): the
  * 『あと払い（ペイディ）』 switch (system_settings.paidy_mode) and the PUBLIC key
  * the website hands to Paidy Checkout (paidy_public_key). Off → Test (only
- * customers flagged is_test see it, with the pk_test_ key) → On (every
- * customer with a Japanese delivery address, pk_live_ key).
+ * customers flagged is_test see it, with the pk_test_ key) → On (customers
+ * with a yen order shipped to Japan whose own Paidy details are complete,
+ * pk_live_ key). M7 (Paidy QC 2026-10-09): staff capture in the Paidy
+ * dashboard and the Hub records it — Confirm never takes the money.
  *
  * The SECRET key is never here: it is the PAIDY_SECRET_KEY edge-function
  * secret. The setter refuses a key that is not a public key, and a key family
@@ -98,9 +100,10 @@ export function PaidySettingsCard() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          『あと払い（ペイディ）』 on the website's confirmed order page, for yen orders with a Japanese delivery address, once the buyer's own details are complete (family and given name, a Japanese mobile, a Japanese billing address — the order page asks her for them).
-          The customer authorises in Paidy's window; the money is taken only when a reviewer clicks Confirm on
-          Payment Submissions (valid 30 days). Reject releases it.
+          『あと払い（ペイディ）』 on the website's confirmed order page, for yen orders shipped to Japan, once the buyer's own details are complete (family and given name, her own Japanese mobile, a Japanese billing address — the order page asks her for them).
+          The customer authorises in Paidy's window; nothing is taken then. Staff capture it in the Paidy merchant
+          dashboard before Paidy's expiry (normally 30 days) and the Hub records it automatically. Reject on
+          Payment Submissions releases it.
         </p>
         {state.isLoading && (
           <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
@@ -117,7 +120,7 @@ export function PaidySettingsCard() {
               {data.updated_by_user_id
                 ? <>Last changed {data.updated_at ? formatPHTDisplay(data.updated_at) : ""} by {data.updated_by_name ?? "an unknown user"}.</>
                 : <>Not changed from the Hub yet.</>}
-              {" "}{data.authorized_now} awaiting Confirm · {data.captured_30d} captured in the last 30 days.
+              {" "}{data.authorized_now} waiting to be captured in Paidy · {data.captured_30d} captured in the last 30 days ({data.mode === "test" ? "test" : "live"} payments only).
             </p>
 
             {canChange ? (
@@ -179,8 +182,9 @@ export function PaidySettingsCard() {
                 <p>{pending ? paidyEffect(pending) : ""}</p>
                 {pending === "on" && (
                   <p className="font-medium text-foreground">
-                    Every customer with a Japanese delivery address will see 『あと払い（ペイディ）』 on a confirmed yen
-                    order. The saved key must be the live pk_live_ key and the Lovable secret the live sk_live_ key.
+                    Customers with a yen order shipped to Japan, whose own Paidy details are complete, will see
+                    『あと払い（ペイディ）』 on a confirmed order. The saved key must be the live pk_live_ key and the
+                    Lovable secret the live sk_live_ key.
                   </p>
                 )}
                 <p className="text-xs">Takes effect on the next order page load. No deploy is needed.</p>
