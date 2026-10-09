@@ -8,6 +8,13 @@
       "when": 1791557400235,
       "tag": "0000_square_golive_countercheck",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791559947335,
+      "tag": "0001_paidy_qc_pr_a",
+      "breakpoints": true
     }
   ]
 }
