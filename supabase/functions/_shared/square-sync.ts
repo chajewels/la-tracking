@@ -390,7 +390,7 @@ export async function syncSquareRefund(db: Db, env: SquareEnvironment, refund: S
   return { outcome: "synced" };
 }
 
-export async function syncSquareDispute(db: Db, dispute: SquareDispute, env?: SquareEnvironment): Promise<{ outcome: string }> {
+export async function syncSquareDispute(db: Db, dispute: SquareDispute, env?: SquareEnvironment): Promise<{ outcome: string; detail?: string }> {
   const paymentId = dispute.disputed_payment?.payment_id;
   if (!paymentId) return { outcome: "quarantined" };
   // L2 (2026-10-09): the figure passed is the one disputeOf read (positive whole
