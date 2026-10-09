@@ -48,7 +48,7 @@ Deno.test('CreatePayment body: exact integer yen, hold only, attempt reference, 
 })
 
 Deno.test('per-environment secrets with fallback (SQ21; owner: sandbox keys unchanged)', () => {
-  assertEquals(accessTokenNames('production'), ['SQUARE_PRODUCTION_ACCESS_TOKEN', 'SQUARE_ACCESS_TOKEN'])
+  assertEquals(accessTokenNames('production'), ['SQUARE_PRODUCTION_ACCESS_TOKEN'])
   assertEquals(accessTokenNames('sandbox'), ['SQUARE_SANDBOX_ACCESS_TOKEN', 'SQUARE_ACCESS_TOKEN'])
 })
 

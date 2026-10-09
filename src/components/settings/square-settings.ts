@@ -19,6 +19,10 @@ export interface SquarePreflight {
   location_match?: boolean | null;
   app_id_family?: string | null;
   events?: { state?: string; status?: number | null; code?: string | null; first_page?: number | null; window_days?: number };
+  /** M2 (QC 2026-10-09): the configured location as Square reports it. */
+  location?: { status?: string | null; currency?: string | null; country?: string | null } | null;
+  /** F-14: whether the environment's webhook signature key is set. */
+  webhook_key?: boolean;
   at?: string;
   by?: string;
   updated_at?: string;
@@ -129,6 +133,13 @@ export function preflightLines(p: SquarePreflight | null): Array<{ ok: boolean; 
   return [
     { ok: p.token?.state === "ok", text: `Production token${p.token?.secret ? ` (${p.token.secret})` : ""}: ${st(p.token?.state)}` },
     { ok: p.location_match === true, text: p.location_match === true ? `Location ${p.location_configured} belongs to this token` : `Location ${p.location_configured ?? "(none saved)"} is NOT one of the token's locations${p.locations?.length ? ` (${p.locations.join(", ")})` : ""}` },
+    {
+      ok: p.location?.status === "ACTIVE" && p.location?.currency === "JPY" && p.location?.country === "JP",
+      text: p.location
+        ? `Location is ${p.location.status ?? "?"}, ${p.location.currency ?? "?"}, ${p.location.country ?? "?"} (must be ACTIVE, JPY, JP)`
+        : "Location status, currency and country not read — run the check again",
+    },
+    { ok: p.webhook_key === true, text: p.webhook_key === true ? "Production webhook signature key is set" : "Production webhook signature key (SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY) is NOT set" },
     { ok: p.app_id_family === "production", text: p.app_id_family === "production" ? "Application ID is a production id (sq0idp-)" : `Application ID is ${p.app_id_family ?? "missing"}, not production` },
     { ok: p.events?.state === "ok", text: p.events?.state === "ok" ? `Events API search works (${p.events.first_page ?? 0} event(s) on the first page, last ${p.events.window_days ?? 28} days)` : `Events API search: ${st(p.events?.state)}` },
   ];

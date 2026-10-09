@@ -28,7 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
  * returns the same answer and sends no second email.
  *
  * SQF06 (owner D-SQF06, 2026-10-08): when Square CANNOT refund — a refund row
- * FAILED / REJECTED, or the capture is older than 365 days — an ADMIN may record
+ * FAILED / REJECTED, or the payment was authorised over one calendar year ago — an ADMIN may record
  * the money going back outside Square: a bank transfer in yen to the customer's
  * own account (method bank_transfer_exception), or, only on the customer's
  * written request, a manual store-credit lot issued first through Settings →
@@ -95,6 +95,8 @@ const REFUSAL: Record<string, string> = {
   square_unreachable: 'Square could not be read just now, so nothing was approved. Try again in a minute.',
   refund_not_recorded: 'A Square refund on this order could not be recorded in the Hub, so nothing was approved. Check the bell, then try again.',
   hub_read_failed: 'The Hub could not read this order\'s card payments, so nothing was approved. Try again.',
+  // QC close-out (2026-10-09)
+  exception_approved_pending: 'A refund outside Square is approved on this order. Record it (bank transfer / store credit), or cancel the approval first.',
 };
 const LOT_DETAIL: Record<string, string> = {
   lot_not_found: 'no lot with that id', lot_not_this_customer: 'the lot belongs to another customer', lot_not_jpy: 'the lot is not in yen',
@@ -118,6 +120,10 @@ interface CardRefundFacts {
   authorizedOverOneYear: boolean;
   /** SQF06: store credit already issued on the order (part of the cap). */
   creditIssued: number;
+  /** F-17 (QC 2026-10-09): card money Square captured — the cap's base, as in the SQL. */
+  cardCaptured: number;
+  /** F-02: money a chargeback holds or took back (EVIDENCE_REQUIRED / PROCESSING / LOST / ACCEPTED). */
+  disputed: number;
   /** SQV03: the open approval, if any. */
   approval: ExceptionApproval | null;
 }
@@ -135,22 +141,24 @@ export function authorizedOverOneYear(authorizedAt: string | null | undefined, n
 }
 
 async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
-  const [pays, refunds, captures, lots, approvals] = await Promise.all([
+  const [pays, refunds, captures, lots, approvals, disputes] = await Promise.all([
     supabase.from('cash_payments').select('amount_paid, payment_method').eq('cash_order_id', orderId).is('voided_at', null),
     supabase.from('square_refunds').select('square_refund_id, amount_jpy, status').eq('cash_order_id', orderId),
-    supabase.from('square_payments').select('authorized_at, status').eq('cash_order_id', orderId).eq('status', 'captured'),
+    supabase.from('square_payments').select('authorized_at, status, amount_jpy').eq('cash_order_id', orderId).eq('status', 'captured'),
     supabase.from('store_credit_lots').select('original_amount, status').eq('source_cash_order_id', orderId),
     // card_refund_exceptions is not in the generated types until Lovable's next push.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase.from as any)('card_refund_exceptions')
       .select('id, payout, amount_jpy, cap_jpy, trigger_kind, square_refund_id, square_support_ticket, approved_at, approval_note')
       .eq('cash_order_id', orderId).eq('status', 'approved').maybeSingle(),
+    supabase.from('square_disputes').select('amount_jpy, state').eq('cash_order_id', orderId),
   ]);
   if (pays.error) throw pays.error;
   if (refunds.error) throw refunds.error;
   if (captures.error) throw captures.error;
   if (lots.error) throw lots.error;
   if (approvals.error) throw approvals.error;
+  if (disputes.error) throw disputes.error;
   const card = (pays.data ?? []).filter((p) => p.payment_method === 'square');
   const rows = (refunds.data ?? []) as { square_refund_id: string; amount_jpy: number | string | null; status: string | null }[];
   const sum = (xs: { amount_jpy: number | string | null }[]) => xs.reduce((t, r) => t + Number(r.amount_jpy ?? 0), 0);
@@ -162,6 +170,9 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
     refundedPending: sum(rows.filter((r) => r.status !== 'COMPLETED' && r.status !== 'FAILED' && r.status !== 'REJECTED')),
     failedRefunds: rows.filter((r) => r.status === 'FAILED' || r.status === 'REJECTED').map((r) => ({ id: r.square_refund_id, status: String(r.status), amount: Number(r.amount_jpy ?? 0) })),
     authorizedOverOneYear: ((captures.data ?? []) as { authorized_at: string | null }[]).some((c) => authorizedOverOneYear(c.authorized_at)),
+    cardCaptured: ((captures.data ?? []) as { amount_jpy: number | string | null }[]).reduce((t, c) => t + Math.round(Number(c.amount_jpy ?? 0)), 0),
+    disputed: ((disputes.data ?? []) as { amount_jpy: number | string | null; state: string | null }[])
+      .filter((d) => DISPUTE_MONEY_STATES.has(String(d.state ?? '').toUpperCase())).reduce((t, d) => t + Number(d.amount_jpy ?? 0), 0),
     creditIssued: ((lots.data ?? []) as { original_amount: number | string | null; status: string | null }[])
       .filter((l) => l.status !== 'voided').reduce((t, l) => t + Number(l.original_amount ?? 0), 0),
     approval: a ? {
@@ -175,9 +186,16 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
 export function cardException(f: Pick<CardRefundFacts, 'paidByCard' | 'failedRefunds' | 'authorizedOverOneYear'> | null | undefined): boolean {
   return !!f && f.paidByCard && (f.failedRefunds.length > 0 || f.authorizedOverOneYear);
 }
-/** SQF06: what the Hub still owes on the card money (the SQL recomputes it; this is the figure shown). */
-export function exceptionCap(f: Pick<CardRefundFacts, 'cardPaid' | 'refundedCompleted' | 'creditIssued'>): number {
-  return Math.max(0, f.cardPaid - f.refundedCompleted - f.creditIssued);
+/** F-02: dispute states in which the card network holds or took back the money (as square_order_disputed_jpy). */
+export const DISPUTE_MONEY_STATES = new Set(['EVIDENCE_REQUIRED', 'PROCESSING', 'LOST', 'ACCEPTED']);
+
+/**
+ * SQF06 / F-17 / F-02: what the Hub still owes on the card money — the SAME base
+ * as the SQL: card money Square captured − COMPLETED Square refunds − store
+ * credit issued − chargeback money. The SQL recomputes it; this is the figure shown.
+ */
+export function exceptionCap(f: Pick<CardRefundFacts, 'cardCaptured' | 'refundedCompleted' | 'creditIssued'> & { disputed?: number }): number {
+  return Math.max(0, f.cardCaptured - f.refundedCompleted - f.creditIssued - (f.disputed ?? 0));
 }
 
 /** A timestamp's Philippine day (YYYY-MM-DD), the day boundary the SQL uses. */
@@ -447,7 +465,7 @@ export function MarkRefundIssuedDialog({
               <p className="font-medium text-warning">Step 1 of 2 — approve (admin). Nothing is paid yet.</p>
               <p className="text-warning">
                 Still owed on this card payment: <strong>{yen(cap)}</strong>
-                {' '}= {yen(card.cardPaid)} captured − {yen(card.refundedCompleted)} Square refunded − {yen(card.creditIssued)} store credit issued.
+                {' '}= {yen(card.cardCaptured)} captured − {yen(card.refundedCompleted)} Square refunded − {yen(card.creditIssued)} store credit issued{card.disputed > 0 ? <> − {yen(card.disputed)} card chargeback</> : null}.
                 The Hub first re-reads every refund of this order from Square, then recomputes this; nothing above it is accepted.
               </p>
               {refundProcessing && (

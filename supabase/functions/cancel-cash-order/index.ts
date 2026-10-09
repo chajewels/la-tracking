@@ -156,7 +156,10 @@ Deno.serve(async (req) => {
       // The terminate did not commit: a released Paidy authorisation (if any)
       // is already noted on the intent; the sweep finishes it (PA14).
       await advanceCancelIntent(supabase, intentId, releaseDone ? "paidy_released" : "abandoned", msg.split(":")[0]);
-      return json({ error: msg, code: msg.split(":")[0] }, status);
+      // QC close-out (2026-10-09): a Hub cash order refused for card money
+      // (card_payment_unresolved / card_already_refunded / card_disputed) gets
+      // the same plain-English message as a web order.
+      return json({ error: terminateRefusalMessage(msg.split(":")[0]) ?? msg, code: msg.split(":")[0] }, status);
     }
     if (isWeb && (data as any)?.ok === false) {
       // already_terminal / not_web_order — nothing was written. Unresolved
