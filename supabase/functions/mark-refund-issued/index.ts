@@ -44,15 +44,18 @@ const STATUS: Record<string, number> = {
   // (paidy_refunds); the amount is the verified total, never the gross.
   no_verified_paidy_refund: 409,
   // SQF06 (owner D-SQF06, 2026-10-09): the card-refund-outside-Square exception —
-  // admin only, opened only by a FAILED/REJECTED Square refund or a capture over
-  // 365 days old, evidence (refund id / ticket / transfer) required, amount
-  // capped by the SQL at captured − completed refunds − credit issued.
+  // admin only, opened only by a FAILED/REJECTED Square refund or a payment
+  // authorised over one calendar year ago, evidence (refund id / ticket /
+  // transfer) required, amount capped by the SQL at captured − completed
+  // refunds − credit issued − chargeback money (F-02, 2026-10-09).
   admin_only: 403, exception_not_triggered: 409, exception_evidence_required: 400, exception_over_cap: 409,
   exception_nothing_owed: 409, exception_lot_mismatch: 409,
   // SQV02/SQV03 (2026-10-09): approve first, then pay.
   exception_exists: 409, exception_refund_in_progress: 409, exception_not_approved: 409,
   exception_payout_mismatch: 409, exception_superseded: 409, bad_payout: 400, reason_required: 400,
   no_approval: 404, already_recorded: 409, square_unreachable: 503, refund_not_recorded: 503, hub_read_failed: 503,
+  // QC close-out (2026-10-09): F-04 an open approval blocks every other method.
+  exception_approved_pending: 409,
 };
 
 /** SQF06: the signed-in user holds the admin role (user_roles), checked here before the SQL checks it again. */
@@ -133,6 +136,13 @@ Deno.serve(async (req) => {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
     const refusal = refundIssuedRefusal(order, { method, refundedOn }, today);
     if (refusal) return jsonResponse({ error: refusal }, STATUS[refusal] ?? 409);
+    // F-10 (QC 2026-10-09): recording a refund outside Square re-reads Square
+    // first, exactly as the approval does (fail closed) — a refund started or
+    // completed since the approval supersedes it instead of being paid twice.
+    if (isExceptionMethod(method)) {
+      const resync = await resyncOrderRefunds(supabase, orderId);
+      if (!resync.ok) return jsonResponse({ error: resync.error, detail: resync.detail }, STATUS[resync.error] ?? 503);
+    }
 
     const { data, error: rpcErr } = await supabase.rpc("mark_web_order_refund_issued_atomic", {
       p_order_id: orderId, p_user_id: ctx.user.id, p_method: method, p_refunded_on: refundedOn, p_note: note || null,

@@ -314,6 +314,15 @@ Deno.serve(async (req) => {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // F-01 (QC 2026-10-09): a card or Paidy submission ends by Confirm or Reject
+    // only. "Needs clarification" would hide both buttons while the hold stays
+    // on her card; the DB guard refuses it too (provider_submission_no_clarify).
+    if (action === "needs_clarification" && (submission.square_payment_id || submission.paidy_payment_id)) {
+      return new Response(JSON.stringify({
+        error: "A card or Paidy payment cannot be sent for clarification — Confirm it or Reject it.",
+        code: "provider_submission_no_clarify",
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (action === "confirmed" && !isPaidySubmission && !isSquareSubmission && (typeof submission.proof_url !== "string" || submission.proof_url.trim().length === 0)) {
       return new Response(JSON.stringify({ error: "Proof of payment is required to confirm this submission." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1575,8 +1584,16 @@ Deno.serve(async (req) => {
           try { live = await square.get(env, sp.square_payment_id); } catch { /* handled below */ }
         }
       }
-      try { await applyPaymentState(supabase, live, "void", user.id); }
-      catch (e) { console.error("[review-payment-submission] apply after void failed:", e); }
+      // F-06 (QC 2026-10-09): the void is recorded on the card row BEFORE the
+      // submission is rejected. If that write fails the submission is left
+      // waiting (502) — the row would otherwise still read "authorized" and keep
+      // the order locked; a second Reject or the hourly reconcile closes it.
+      let voidApplied = true;
+      try {
+        const applied = await applyPaymentState(supabase, live, "void", user.id);
+        if ((applied as Record<string, unknown> | null)?.ok === false) voidApplied = false;
+      }
+      catch (e) { voidApplied = false; console.error("[review-payment-submission] apply after void failed:", e); }
       await release();
       if (live.status === "PENDING") {
         // HUB-6 (2026-10-05): Square has not finished processing the payment,
@@ -1590,6 +1607,9 @@ Deno.serve(async (req) => {
           metadata: { submission_id, square_payment_id: sp.square_payment_id, square_status: live.status },
         });
         return json(502, { error: "card_void_failed", message: `Square did not void the hold (status ${live.status}). The submission was not rejected; try again.` });
+      }
+      if (!voidApplied) {
+        return json(502, { error: "card_void_unrecorded", message: "Square voided the hold, but the Hub could not record it yet. The submission was not rejected; press Reject again in a minute (the hourly check also closes it)." });
       }
     }
 

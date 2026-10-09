@@ -1402,7 +1402,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                 <XCircle className="h-3.5 w-3.5" /> Reject
               </Button>
             )}
-            {canReview && (row ? (
+            {/* F-01 (QC 2026-10-09): a card or Paidy payment is Confirmed or Rejected, never sent for clarification. */}
+            {canReview && !isProviderLinked(sub) && (row ? (
               <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-gold-300"
                 aria-label="Clarify" title="Request clarification"
                 onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
@@ -1436,7 +1437,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
             <Check className="h-3.5 w-3.5" /> Finish recording
           </Button>
         )}
-        {sub.status === 'rejected' && canReject && (
+        {/* F-18: a rejected card / Paidy submission is never re-queued (the hold was released). */}
+        {sub.status === 'rejected' && canReject && !isProviderLinked(sub) && (
           <Button size="sm" variant="outline" className={btn} onClick={() => setActionDialog({ sub, action: 'restore' })}>
             <RotateCcw className="h-3.5 w-3.5" /> Restore
           </Button>

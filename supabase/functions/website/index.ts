@@ -671,6 +671,11 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   };
 }
 
+/** F-11 / D-QC4: card is not offered for a reason of SET-UP (not of the order) → show transfer instead. */
+const CARD_SETUP_REASONS = new Set([
+  "mode_off", "test_mode_real_customer", "not_on_card_list", "no_app_id", "app_id_mode_mismatch", "no_location_id",
+]);
+
 /**
  * Card payment (Square) on a confirmed order — S2, 2026-10-04, docs/SQUARE.md.
  * Twin of paidyOffer: the switch + PUBLIC ids come from system_settings, the
@@ -3016,6 +3021,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const cardBlock = lock || blockedByCard
         ? { offered: false as const, reason: blockedByCard ? "card_payment_unresolved" : "payment_in_progress" }
         : await cardOffer(supabase, customer, order as AnyRec, (pendingSubs ?? []).length, false);
+      // F-11 / D-QC4 (owner 2026-10-09): she chose card, but card is no longer
+      // offered to her (switched off, test mode, not on the card list, set-up
+      // incomplete). The stored choice is unchanged — no second writer of
+      // payment_method — the page simply shows bank transfer so she always has
+      // a way to pay. Never while a payment is in progress (lock / card state).
+      const cardFallsBackToTransfer = isWebOrder && chosenMethod === "card" && !lock && !blockedByCard
+        && !cardBlock.offered && CARD_SETUP_REASONS.has(String(cardBlock.reason ?? ""));
       // Payment lifecycle H6 / D1: her latest decided payment (separate read —
       // pending_submissions keeps its shape) and, after a rejection with
       // nothing in progress, the other methods she may switch to herself.
@@ -3075,7 +3087,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // reads payment_status awaiting_confirmation, so this is belt and braces).
         // C1: on a website order only when transfer is the chosen method.
         transfer_methods: (order as AnyRec).payment_status === "pending_transfer" && !isUnconfirmedReservation(order as AnyRec) && !paidyProcessing && !blockedByCard
-            && (!isWebOrder || chosenMethod === "transfer")
+            && (!isWebOrder || chosenMethod === "transfer" || cardFallsBackToTransfer)
           ? await transferMethods(supabase, String((order as AnyRec).currency ?? "JPY"))
           : [],
       }));
@@ -3463,17 +3475,42 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const attemptEnv = attempt.environment as SquareEnvironment;
       if (reserved.outcome === "existing") {
         // Same card token again (double click, refresh): report what it became.
-        const st = String(attempt.status);
-        if (st === "authorized") {
+        // F-05 / F-12 (QC 2026-10-09): the answer comes from the hold's REAL
+        // state (square_payments) and the hold's latest submission — never
+        // "authorized" for a hold with no live submission, never "nothing was
+        // charged" while a void is still pending.
+        const holdOf = async (squarePaymentId: unknown) => {
+          if (!squarePaymentId) return null;
+          const { data, error } = await supabase.from("square_payments")
+            .select("id, status").eq("square_payment_id", String(squarePaymentId)).maybeSingle();
+          if (error) throw error;
+          return data as { id: string; status: string } | null;
+        };
+        const answerAuthorized = async (squarePaymentId: unknown) => {
+          const hold = await holdOf(squarePaymentId);
+          if (!hold) return jsonResponse({ error: "card_hold_unfiled", detail: "replay_no_hold_row" }, 409);
+          if (["voided", "expired", "failed", "rejected"].includes(hold.status)) {
+            return jsonResponse({ error: "card_mismatch", detail: "hold_closed", hold: "voided" }, 409);
+          }
           const { data: sub, error: subErr } = await supabase.from("payment_submissions")
-            .select("id, status, submitted_amount, payment_date, square_payments!inner(square_payment_id)")
-            .eq("square_payments.square_payment_id", attempt.square_payment_id).maybeSingle();
+            .select("id, status, submitted_amount, payment_date")
+            .eq("square_payment_id", hold.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
           if (subErr) throw subErr;
-          return jsonResponse(scrub({ ok: true, submission: sub ? { id: sub.id, status: sub.status, submitted_amount: sub.submitted_amount, payment_date: sub.payment_date } : null, card: { status: "authorized" }, attempt: { reference: attempt.reference } }));
-        }
+          if (!sub || ["rejected", "cancelled"].includes(String(sub.status))) {
+            return jsonResponse({ error: "card_hold_unfiled", detail: sub ? `submission_${sub.status}` : "replay_no_submission" }, 409);
+          }
+          return jsonResponse(scrub({ ok: true, submission: { id: sub.id, status: sub.status, submitted_amount: sub.submitted_amount, payment_date: sub.payment_date }, card: { status: hold.status === "captured" ? "captured" : "authorized" }, attempt: { reference: attempt.reference } }));
+        };
+        const closedHold = async (squarePaymentId: unknown) => {
+          if (!squarePaymentId) return "voided";
+          const hold = await holdOf(squarePaymentId);
+          return !hold || hold.status === "authorized" ? "void_pending" : "voided";
+        };
+        const st = String(attempt.status);
+        if (st === "authorized") return await answerAuthorized(attempt.square_payment_id);
         if (st === "declined") return jsonResponse({ error: "card_declined", code: attempt.error_code ?? null }, 402);
         if (st === "cancelling") return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st } }, 409);
-        if (st !== "reserved" && st !== "unknown") return jsonResponse({ error: "card_mismatch", detail: st }, 409);
+        if (st !== "reserved" && st !== "unknown") return jsonResponse({ error: "card_mismatch", detail: st, hold: await closedHold(attempt.square_payment_id) }, 409);
         // reserved / unknown (review 2026-10-04 #2): NEVER call CreatePayment
         // again — a changed body or a request still in flight answers 4xx and
         // would wrongly close an attempt that may hold money. A fresh one is
@@ -3493,9 +3530,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           .select("status, error_code, square_payment_id").eq("id", attempt.id).maybeSingle();
         if (afterErr) throw afterErr;
         const st2 = String(after?.status ?? "");
-        if (st2 === "authorized") return jsonResponse({ ok: true, submission: null, card: { status: "authorized" }, attempt: { reference: attempt.reference } });
+        if (st2 === "authorized") return await answerAuthorized(after?.square_payment_id);
         if (st2 === "declined") return jsonResponse({ error: "card_declined", code: after?.error_code ?? null, hold: "none" }, 402);
-        if (st2 === "cancelled" || st2 === "failed") return jsonResponse({ error: "card_mismatch", detail: st2, hold: "voided" }, 409);
+        if (st2 === "cancelled" || st2 === "failed") return jsonResponse({ error: "card_mismatch", detail: st2, hold: await closedHold(after?.square_payment_id) }, 409);
         return jsonResponse({ error: "card_attempt_pending", attempt: { reference: attempt.reference, status: st2 } }, 409);
       }
 

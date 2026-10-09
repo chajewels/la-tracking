@@ -69,7 +69,7 @@ Deno.test('SQF06 Hub dialog (SQV03 two-step): exception offered to admins only w
   const ui = await read('src/components/web-orders/MarkRefundIssuedDialog.tsx')
   assert(ui.includes("const exceptionOpen = isAdmin && (cardException(card) || !!approval);"), 'admin + trigger (or an open approval)')
   assert(ui.includes('export function cardException(') && ui.includes('f.failedRefunds.length > 0 || f.authorizedOverOneYear'), 'trigger = FAILED/REJECTED refund or authorised over one year (SQV04)')
-  assert(ui.includes('export function exceptionCap(') && ui.includes('f.cardPaid - f.refundedCompleted - f.creditIssued'), 'cap = captured − completed refunds − credit issued')
+  assert(ui.includes('export function exceptionCap(') && ui.includes('f.cardCaptured - f.refundedCompleted - f.creditIssued - (f.disputed ?? 0)'), 'cap = captured − completed refunds − credit issued − chargeback (QC F-02/F-17)')
   assert(ui.includes("square_support_ticket: excTicket.trim()") && ui.includes("action: 'approve'"), 'ticket sent with the approval')
   assert(ui.includes("bank_transfer_exception: 'bank transfer (Square exception)'"), 'shown as "bank transfer (Square exception)"')
 })

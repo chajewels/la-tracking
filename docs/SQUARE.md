@@ -72,8 +72,9 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
    `delay_action: CANCEL`** (`_shared/square.ts`; idempotency key =
    `cardIdempotencyKey(order id, card token)` — one per card NONCE, so a
    retried click dedupes to the same hold and a corrected card gets a fresh
-   key; `reference_id` = invoice, `note` = customer reference,
-   `statement_description_identifier` "CHA JEWELS"; host sandbox/production
+   key; `reference_id` = the attempt reference `cja_…`, `note` = customer
+   reference + invoice; no `statement_description_identifier` (M1, 2026-10-09:
+   the descriptor comes from the Square Dashboard); host sandbox/production
    from the mode). The answer must be APPROVED, JPY, amount = remaining
    balance, else CancelPayment + 409 `card_mismatch`; a card refusal
    (`SquareError.isCardRefusal`) is 402 `card_declined` with Square's code.
@@ -266,7 +267,7 @@ Migration 20261104100000_square_integrity.sql; `_shared/square-sync.ts`; new `sq
   back); refused (bell) when card money is unresolved or other money was received. Revive with
   `revive_web_cash_order_atomic`.
 - **Secrets per environment**: sandbox `SQUARE_SANDBOX_ACCESS_TOKEN` → `SQUARE_ACCESS_TOKEN`; production
-  `SQUARE_PRODUCTION_ACCESS_TOKEN` → `SQUARE_ACCESS_TOKEN`; webhook keys
+  `SQUARE_PRODUCTION_ACCESS_TOKEN` ONLY (F-09, 2026-10-09: no fallback to the shared token); webhook keys
   `SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY` and `SQUARE_WEBHOOK_SIGNATURE_KEY` both tried. Every row
   carries its environment, so old sandbox holds stay readable after go-live.
 - **3DS evidence** is `sdk_tokenize_with_verification` / `verification_token_supplied` / `unknown` —
@@ -745,4 +746,53 @@ everyone, or only listed customers. Enforced in `create_web_draft_atomic`, `chan
 (`card_not_offered`); TS twin `squareCardAllowed` (`_shared/card-rules.ts`) drives the website's offers
 (`not_on_card_list` on the order page; checkout card reason `off`, so the storefront needs no change).
 Settings card: audience radio + customer codes, listed names shown.
+
+## QC close-out (2026-10-09, sixth release)
+
+Consolidated QC assessment (project doc `claude/square-qc-assessment-2026-10-09.md`). Owner decisions
+taken as recommended: D-QC1 (a chargeback is money returned), D-QC3 (no descriptor field), D-QC4
+(show transfer when card is no longer offered), D-QC5 (admin closes a stuck attempt), D-QC6 (no change);
+D-QC2 (特定商取引法 wording) ships with the storefront PR, which the owner approves by merging.
+Migration `20261130150000_square_qc_closeout.sql`; proof `development/sql/square-qc-adverse-2026-10-09.sql`
+(27/27 on the local copy) and `development/square-qc-closeout.test.ts` (CI).
+
+- **Q-DB2** `get_staff_bell_emails()` answers staff only; `staff_bell_email_recipients()` is service_role
+  only (storefront customers sign in to the same project).
+- **F-01 / F-18** a card or Paidy submission is never sent for clarification (`provider_submission_no_clarify`,
+  DB guard + reviewer edge + UI) and a rejected one is never offered Restore. A hold closed by Square
+  also rejects a legacy `needs_clarification` submission; the bell words the real submission status (F-16).
+- **Q-DB1** a signed-in caller writing `payment_submissions` directly can no longer file or move a card /
+  Paidy submission (`provider_submission_status_locked`). Allowed: service_role (every edge function),
+  SQL with no JWT, and `decide_square_case` / `resolve_paidy_case`, which set
+  `app.provider_submission_writer` inside their own SECURITY DEFINER call (one transaction — not the
+  two-call pattern of Bug #39).
+- **F-02 (D-QC1)** `square_order_disputed_jpy(order)` = disputes in EVIDENCE_REQUIRED / PROCESSING / LOST /
+  ACCEPTED. Both cancel RPCs refuse store credit (`card_disputed`); the refund-outside-Square cap (approve
+  AND record) subtracts it; `record_square_dispute` rings `card_dispute_after_credit` /
+  `card_dispute_after_exception` when such a state reaches an order already compensated.
+- **F-03** "Mark refund issued — card" counts only COMPLETED refunds of captures recorded on the order
+  (`square_payments.cash_payment_id`), capped per payment. **F-04** while an approval is open every other
+  method is refused (`exception_approved_pending`). **F-10** the record step re-reads Square first.
+- **F-13** `cancel_cash_order_atomic` refuses while a card payment is unresolved. **Q-UX1** both cancel
+  previews carry the refusal (`store_credit_refusal` web / `refusal` Hub cash); the dialog shows it.
+- **Q-UI1** "disputes open" counts disputes not yet decided. **Q-UI2** the newer card bells can be emailed.
+- **Q-DB3** `authenticated` / `anon` hold no INSERT/UPDATE/DELETE/TRUNCATE on the Square ledger tables.
+- **F-08 (D-QC5)** `close_square_attempt_atomic(attempt, note)` — admin (auth.uid()), note ≥ 10 chars,
+  attempt ≥ 30 minutes old, refused when Square gave it a payment id; audited. Website → Card payments →
+  "Close after Dashboard check".
+- **F-05 / F-12** the same-token replay answers from the hold row and its latest submission
+  (`card_hold_unfiled`, `hold: voided | void_pending`). **F-06** a void the Hub could not record is a 502,
+  never a rejection. **F-07** reconcile retries the void of a hold filed while Paidy held the order.
+  **F-09** production reads only its own token; a retired environment's rows are listed under
+  `no_credentials`, not counted as an auth failure. **L2** only an authentication 403 is "auth".
+- **F-11 (D-QC4)** a web order whose chosen method is card, while card is not offered for a SET-UP reason
+  (mode off/test, not listed, ids missing), shows bank transfer on the order page. `payment_method` is not
+  rewritten (one writer: `change_web_payment_method_atomic`).
+- **M2 / F-14** the preflight also requires the location ACTIVE + JPY + JP and the environment's webhook
+  signature key set. **M3** Metricool is never loaded on `/account` pages (pay-card included).
+- **H1** 支払時期 (JA/EN) — payment after we confirm the order; card authorised when she pays, charged on our
+  confirmation. **L1** no phone in `billingContact` — kept by design (WEB-4: Square's Japan phone format is
+  undocumented and a bad one can fail tokenisation). **L3** `frame-src https:` stays until a live 3DS
+  challenge is observed. **F-15** agreement binding stays asserted by the storefront (documented).
+  **Q-S1** the agreement threshold is the owner's setting (¥1 and 0 have the same effect today).
 

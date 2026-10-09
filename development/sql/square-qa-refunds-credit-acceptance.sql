@@ -93,20 +93,25 @@ SELECT pg_temp.ok((SELECT r2::text NOT LIKE '%"card_order"%' AND r2 ->> 'raised'
 INSERT INTO public.cash_orders (id, invoice_number, customer_id, status, web_reference, source_channel, refund_status, currency)
 VALUES ('00000000-0000-0000-0000-0000000001b1', 'T101', '00000000-0000-0000-0000-0000000000c1', 'cancelled', 'CJ-W-T101', 'web', 'refund_pending', 'JPY'),
        ('00000000-0000-0000-0000-0000000001b2', 'T102', '00000000-0000-0000-0000-0000000000c1', 'cancelled', 'CJ-W-T102', 'web', 'refund_pending', 'JPY');
-INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, payment_method, provider_capture_id)
-VALUES ('00000000-0000-0000-0000-0000000001b1', 10000, 'JPY', 'square', 'sq_cap_b1'),
-       ('00000000-0000-0000-0000-0000000001b2', 12000, 'JPY', 'bank_transfer', NULL);
+INSERT INTO public.cash_payments (id, cash_order_id, amount_paid, currency, payment_method, provider_capture_id)
+VALUES ('00000000-0000-0000-0000-0000000c01b1', '00000000-0000-0000-0000-0000000001b1', 10000, 'JPY', 'square', 'sq_cap_b1'),
+       ('00000000-0000-0000-0000-0000000c01b2', '00000000-0000-0000-0000-0000000001b2', 12000, 'JPY', 'bank_transfer', NULL);
+-- QC F-03 (2026-10-09): the card refund counted is a refund of a capture RECORDED on the order, as live has it
+-- (record_square_refund links square_payment_row; finalize links cash_payment_id).
+INSERT INTO public.square_payments (cash_order_id, square_payment_id, status, test, amount_jpy, authorized_at, captured_at, environment, cash_payment_id)
+VALUES ('00000000-0000-0000-0000-0000000001b1', 'sq_cap_b1', 'captured', true, 10000, now() - interval '3 days', now() - interval '2 days',
+        'sandbox', '00000000-0000-0000-0000-0000000c01b1');
 CREATE FUNCTION pg_temp.mark(p_order text, p_method text) RETURNS jsonb LANGUAGE sql AS $$
   SELECT pg_temp.try(format('SELECT public.mark_web_order_refund_issued_atomic(%L, %L, %L, current_date - 1, NULL)',
                             p_order, '00000000-0000-0000-0000-00000000aaaa', p_method)) $$;
 SELECT pg_temp.ok(pg_temp.mark('00000000-0000-0000-0000-0000000001b1', 'card') ->> 'error' = 'no_completed_card_refund', 'B01 card: refused with no completed Square refund');
-INSERT INTO public.square_refunds (square_refund_id, square_payment_id, cash_order_id, amount_jpy, status) VALUES
-  ('rf_b1_pend', 'sq_cap_b1', '00000000-0000-0000-0000-0000000001b1', 6000, 'PENDING');
+INSERT INTO public.square_refunds (square_refund_id, square_payment_row, square_payment_id, cash_order_id, amount_jpy, status)
+  SELECT 'rf_b1_pend', sp.id, 'sq_cap_b1', '00000000-0000-0000-0000-0000000001b1', 6000, 'PENDING' FROM public.square_payments sp WHERE sp.square_payment_id = 'sq_cap_b1';
 SELECT pg_temp.ok(pg_temp.mark('00000000-0000-0000-0000-0000000001b1', 'card') ->> 'error' = 'no_completed_card_refund', 'B01 card: a PENDING refund is not enough');
 SELECT pg_temp.ok(pg_temp.mark('00000000-0000-0000-0000-0000000001b1', 'bank_transfer') ->> 'error' = 'method_mismatch', 'B01 card-paid order cannot be marked by bank transfer');
 SELECT pg_temp.ok((SELECT refund_status = 'refund_pending' FROM public.cash_orders WHERE invoice_number = 'T101'), 'B01 refusals write nothing');
-INSERT INTO public.square_refunds (square_refund_id, square_payment_id, cash_order_id, amount_jpy, status) VALUES
-  ('rf_b1_done', 'sq_cap_b1', '00000000-0000-0000-0000-0000000001b1', 4000, 'COMPLETED');
+INSERT INTO public.square_refunds (square_refund_id, square_payment_row, square_payment_id, cash_order_id, amount_jpy, status)
+  SELECT 'rf_b1_done', sp.id, 'sq_cap_b1', '00000000-0000-0000-0000-0000000001b1', 4000, 'COMPLETED' FROM public.square_payments sp WHERE sp.square_payment_id = 'sq_cap_b1';
 CREATE TEMP TABLE t_b1 AS SELECT pg_temp.mark('00000000-0000-0000-0000-0000000001b1', 'card') AS r;
 SELECT pg_temp.ok((SELECT (r ->> 'ok')::boolean AND (r ->> 'amount')::numeric = 4000 FROM t_b1), 'B01 card: records Square''s completed ¥4,000, not the gross ¥10,000', (SELECT r::text FROM t_b1));
 SELECT pg_temp.ok((SELECT refund_status = 'refund_issued' FROM public.cash_orders WHERE invoice_number = 'T101'), 'B01 order now refund issued');
