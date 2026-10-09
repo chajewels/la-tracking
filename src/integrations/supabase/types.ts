@@ -4514,8 +4514,11 @@ export type Database = {
           customer_id: string
           end_reason: string | null
           ended_at: string | null
+          ended_by: string | null
           expires_at: string
           id: string
+          not_found_live_at: string | null
+          not_found_test_at: string | null
           paidy_payment_id: string | null
           started_at: string
           status: string
@@ -4530,8 +4533,11 @@ export type Database = {
           customer_id: string
           end_reason?: string | null
           ended_at?: string | null
+          ended_by?: string | null
           expires_at: string
           id?: string
+          not_found_live_at?: string | null
+          not_found_test_at?: string | null
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
@@ -4546,8 +4552,11 @@ export type Database = {
           customer_id?: string
           end_reason?: string | null
           ended_at?: string | null
+          ended_by?: string | null
           expires_at?: string
           id?: string
+          not_found_live_at?: string | null
+          not_found_test_at?: string | null
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
@@ -4720,6 +4729,8 @@ export type Database = {
           parked_reason: string | null
           processed_at: string | null
           received_at: string
+          source_ip: string | null
+          source_recognised: boolean | null
           test: boolean | null
           tried_live: boolean
           tried_test: boolean
@@ -4737,6 +4748,8 @@ export type Database = {
           parked_reason?: string | null
           processed_at?: string | null
           received_at?: string
+          source_ip?: string | null
+          source_recognised?: boolean | null
           test?: boolean | null
           tried_live?: boolean
           tried_test?: boolean
@@ -4754,6 +4767,8 @@ export type Database = {
           parked_reason?: string | null
           processed_at?: string | null
           received_at?: string
+          source_ip?: string | null
+          source_recognised?: boolean | null
           test?: boolean | null
           tried_live?: boolean
           tried_test?: boolean
@@ -9635,6 +9650,20 @@ export type Database = {
         Args: { p_attempt_id: string; p_customer_id: string; p_reason: string }
         Returns: Json
       }
+      end_paidy_submission_provider_ended_atomic: {
+        Args: {
+          p_audit?: Json
+          p_claim_at?: string
+          p_end_reason: string
+          p_end_status: string
+          p_paidy_row: string
+          p_payload?: Json
+          p_reviewer_notes: string
+          p_submission_id: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -10957,6 +10986,15 @@ export type Database = {
       staff_bell_email_types: { Args: never; Returns: string[] }
       staff_bell_emails_wake: { Args: never; Returns: undefined }
       staff_display_name: { Args: { p_user_id: string }; Returns: string }
+      staff_end_paidy_checkout_window: {
+        Args: {
+          p_cash_order_id: string
+          p_check?: Json
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       staff_notify: {
         Args: {
           p_account_id: string
