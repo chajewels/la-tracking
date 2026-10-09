@@ -17,7 +17,7 @@
  */
 
 import { customerReference } from "./order-reference.ts";
-import { paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
+import { paidyAdoptBlock, paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyMismatchReleases, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
 import { sendPaymentSubmittedEmail } from "./order-update-email.ts";
@@ -30,7 +30,7 @@ type AnyRec = Record<string, any>;
 export type FilingPath = "website_paidy" | "paidy_webhook" | "paidy_reconcile";
 
 export const PAIDY_ORDER_FIELDS =
-  "id, customer_id, invoice_number, web_reference, source_channel, status, payment_status, currency, remaining_balance, total_paid, ready_confirmed_at";
+  "id, customer_id, invoice_number, web_reference, source_channel, status, payment_status, payment_method, currency, remaining_balance, total_paid, ready_confirmed_at";
 
 /**
  * What a release attempt established — from PAIDY'S OWN ANSWER, never from
@@ -58,7 +58,17 @@ export async function releasePaidyAuthorization(supabase: Db, payment: PaidyPaym
   cash_order_id?: string | null; paidy_payment_row?: string | null; why: string;
 }): Promise<PaidyReleaseOutcome> {
   const before = paidyProviderOutcome(payment);
-  if (before === "closed" || before === "rejected" || before === "expired") return "released";
+  if (before === "closed" || before === "rejected" || before === "expired") {
+    // M2 (Paidy QC 2026-10-09): Paidy already ended it — the row says so now,
+    // not at the next sweep (an "authorized" row keeps the order locked and
+    // makes "End its submission" refuse authorization_open).
+    const at = new Date().toISOString();
+    const { error } = await supabase.from("paidy_payments").update({
+      status: before, closed_at: at, closed_reason: `ended at Paidy: ${ctx.why}`.slice(0, 200), last_payload: payment, updated_at: at,
+    }).eq("paidy_payment_id", payment.id).eq("status", "authorized");
+    if (error) console.error(`[paidy] ended status write for ${payment.id} failed (the sweep repairs it):`, error);
+    return "released";
+  }
   if (before === "captured") return await releaseSawCapture(supabase, payment, ctx);
   let answer: PaidyPayment | null = null;
   let failure: string | null = null;
@@ -168,6 +178,18 @@ export async function filePaidyAuthorization(supabase: Db, args: {
   const { order, customer, payment, path } = args;
   const ref = customerReference(order as never);
   const mismatch = paidyFilingMismatch(payment, order, { test: args.expectTest, orderRef: ref });
+  if (mismatch && !paidyMismatchReleases(mismatch)) {
+    // M1 (Paidy QC 2026-10-09): another order's payment (order_ref) or the
+    // other environment's (test_flag) is never closed from here — that
+    // would release money another order is waiting for. Nothing is written.
+    // A recovery path (webhook / sweep) tells staff, so a held order is never silent.
+    if (path !== "website_paidy") {
+      await paidyBell(supabase, "paidy_unmatched_authorization", "Paidy authorisation not filed",
+        `${payment.id} · ${mismatch === "test_flag" ? "its environment (test/live) differs from the Hub's Paidy mode" : "it names another order"} — not closed; check the Paidy dashboard and Payment Submissions → Paidy cases.`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, mismatch });
+    }
+    return { ok: false, error: "paidy_mismatch", detail: mismatch, released: false };
+  }
   if (mismatch) {
     const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `mismatch: ${mismatch}` });
     return { ok: false, error: "paidy_mismatch", detail: mismatch, released: paidyReleased(release), release };
@@ -204,7 +226,9 @@ export async function filePaidyAuthorization(supabase: Db, args: {
     // R15: the locked order no longer matches this authorisation (balance
     // moved, part-paid, not yen, expired) — release it so nothing stays
     // reserved on the customer's Paidy limit.
-    if (err === "stale_authorization") {
+    // M6 (Paidy QC 2026-10-09): a card payment in flight on the order wins;
+    // the late authorisation is released so nothing sits on her Paidy limit.
+    if (err === "stale_authorization" || err === "card_payment_unresolved") {
       const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `stale: ${String(r.detail ?? "")}` });
       return { ok: false, error: err, detail: String(r.detail ?? ""), released: paidyReleased(release), release };
     }
@@ -230,7 +254,7 @@ export async function filePaidyAuthorization(supabase: Db, args: {
  * sweep). Files it when its order can take it, releases it when the order
  * cannot, and tells staff either way. Returns a short outcome for logs.
  */
-export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayment, path: Exclude<FilingPath, "website_paidy">): Promise<string> {
+export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayment, path: FilingPath): Promise<string> {
   const order = await orderForPaidyRef(supabase, payment.order?.order_ref);
   const amount = Math.round(Number(payment.amount)).toLocaleString("en-US");
   if (!order) {
@@ -246,15 +270,20 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
   const customer = (order.customer ?? { id: order.customer_id }) as AnyRec;
   const canTake = order.status === "pending" && order.payment_status === "pending_transfer"
     && !(order.source_channel === "web" && order.ready_confirmed_at == null);
+  // L1 (Paidy QC 2026-10-09): the same switches the website applies — Paidy
+  // off, a test payment for a customer not flagged is_test, or a web order
+  // whose chosen method is no longer Paidy — release instead of filing.
+  const blocked = paidyAdoptBlock(mode, order, customer);
   const ref = customerReference(order as never);
-  if (!canTake) {
-    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `order is ${order.status}/${order.payment_status}` });
+  if (!canTake || blocked) {
+    const why = blocked ?? `order is ${order.status}/${order.payment_status}`;
+    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why });
     const released = paidyReleased(release);
     // A capture found here already rang its own case bell (releaseSawCapture).
     if (release !== "captured") {
       await paidyBell(supabase, "paidy_unmatched_authorization", released ? "Paidy authorisation released" : "Paidy authorisation could not be released",
-        `${ref} · ¥${amount} · the order is ${order.status}/${order.payment_status} and can no longer take it${released ? " — released, no charge" : " — the hourly check retries the release"}`,
-        { cash_order_id: order.id, paidy_payment_id: payment.id, path, released, release });
+        `${ref} · ¥${amount} · ${blocked ? `not taken (${blocked})` : `the order is ${order.status}/${order.payment_status} and can no longer take it`}${released ? " — released, no charge" : " — the hourly check retries the release"}`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, released, release, blocked });
     }
     return released ? "released" : `release_${release}`;
   }
@@ -271,7 +300,7 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
       { cash_order_id: order.id, paidy_payment_id: payment.id, path });
     return "waiting";
   }
-  if (result.error === "paidy_mismatch" || result.error === "stale_authorization") {
+  if (result.error === "paidy_mismatch" || result.error === "stale_authorization" || result.error === "card_payment_unresolved") {
     // PA05: say what Paidy established, never "released" on a failed close.
     return result.released ? `released_${result.error}` : `release_${result.release ?? "unknown"}_${result.error}`;
   }

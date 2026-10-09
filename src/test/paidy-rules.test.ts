@@ -131,9 +131,10 @@ describe("P07 expiry follows Paidy's own expires_at", () => {
     expect(paidyExpiryTime(auth, null)).toBe(Date.parse("2026-10-31T00:00:00Z"));
     expect(paidyExpiryTime(auth, "garbage")).toBe(Date.parse("2026-10-31T00:00:00Z"));
   });
-  it("unknown dates count as lapsed", () => {
+  it("L2 (Paidy QC 2026-10-09): unknown dates are NOT lapsed — the authorisation stays pending, never 'pay again'", () => {
     expect(paidyExpiryTime(null, null)).toBeNull();
-    expect(paidyAuthorizationLapsed({})).toBe(true);
+    expect(paidyAuthorizationLapsed({})).toBe(false);
+    expect(paidyProviderOutcome({ status: "AUTHORIZED", captures: [] })).toBe("authorized");
   });
   it("lapses exactly at expires_at, not before", () => {
     const rec = { authorized_at: auth, expires_at: "2026-10-20T00:00:00Z" };
@@ -305,4 +306,9 @@ describe("P01/P12 paidyFilingMismatch — one rule for callback, webhook and swe
   it("test flag must match the mode", () => expect(paidyFilingMismatch({ ...ok, test: false }, order, expect_)).toBe("test_flag"));
   it("amount must equal the balance", () => expect(paidyFilingMismatch({ ...ok, amount: 51999 }, order, expect_)).toBe("amount"));
   it("order_ref must name this order", () => expect(paidyFilingMismatch({ ...ok, order: { order_ref: "CJ-W-900012" } }, order, expect_)).toBe("order_ref"));
+  it("M1: another order's payment is order_ref even when its amount and status differ (never closed as 'amount')", () => {
+    expect(paidyFilingMismatch({ ...ok, amount: 80000, order: { order_ref: "CJ-W-900012" } }, order, expect_)).toBe("order_ref");
+    expect(paidyFilingMismatch({ ...ok, status: "CLOSED", order: { order_ref: "CJ-W-900012" } }, order, expect_)).toBe("order_ref");
+    expect(paidyFilingMismatch({ ...ok, test: false, amount: 1 }, order, expect_)).toBe("test_flag");
+  });
 });
