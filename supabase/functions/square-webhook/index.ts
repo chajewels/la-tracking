@@ -44,7 +44,9 @@ Deno.serve(async (req) => {
 
   const raw = await req.text();
   const ok = await verifySquareSignature(NOTIFICATION_URL, raw, req.headers.get("x-square-hmacsha256-signature"));
-  if (!ok) return jsonResponse({ error: "bad_signature" }, 401);
+  // Square: a request whose signature does not verify is discarded with 403
+  // (developer.squareup.com/docs/webhooks/step3validate).
+  if (!ok) return jsonResponse({ error: "bad_signature" }, 403);
 
   let body: Rec = {};
   try { body = JSON.parse(raw); } catch { return jsonResponse({ error: "bad_json" }, 400); }

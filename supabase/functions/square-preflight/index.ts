@@ -71,6 +71,11 @@ Deno.serve(async (req) => {
           status: typeof mine.status === "string" ? mine.status : null,
           currency: typeof mine.currency === "string" ? mine.currency : null,
           country: typeof mine.country === "string" ? mine.country : null,
+          // DOC-7 (go-live counter-check 2026-10-09): Square must have activated the
+          // location for card payments (LocationCapability CREDIT_CARD_PROCESSING).
+          card_processing: Array.isArray(mine.capabilities)
+            ? (mine.capabilities as unknown[]).includes("CREDIT_CARD_PROCESSING")
+            : false,
         } : null;
       } catch (e) {
         const f = errFacts(e);

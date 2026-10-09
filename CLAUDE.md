@@ -192,7 +192,7 @@ Reference docs (read the relevant one when a task touches that area):
     with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
     A chargeback holding/taking the money (EVIDENCE_REQUIRED, PROCESSING, LOST,
     ACCEPTED) is money returned too: card_disputed refusal, subtracted from the
-    outside-Square cap (F-02, D-QC1, 2026-10-09; square_order_disputed_jpy).
+    outside-Square cap, never recorded as paid (F-02, D-QC1, CODE-M1; square_order_disputed_jpy).
   - PAIDY — SAME RULE (PA02/PA03, owner 2026-10-08, refuse): any VERIFIED
     paidy_refunds row on the order refuses "store credit issued" at cancel
     (paidy_already_refunded) in BOTH cancel RPCs; record_paidy_refund (service

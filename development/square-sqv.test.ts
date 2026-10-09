@@ -153,13 +153,14 @@ Deno.test('D-SQV05: a first 401/403 is auth_failed, never "not enabled"; only su
     environment: 'production' as const, token: { state: 'ok' as const, status: 200, code: null, secret: 'SQUARE_PRODUCTION_ACCESS_TOKEN' },
     locations: ['L1'], location_configured: 'L1', location_match: true, app_id_family: 'production' as const,
     events: { state: 'ok' as const, status: 200, code: null, first_page: 0, window_days: 28 },
-    location: { status: 'ACTIVE', currency: 'JPY', country: 'JP' }, webhook_key: true,
+    location: { status: 'ACTIVE', currency: 'JPY', country: 'JP', card_processing: true }, webhook_key: true,
   }
   assert(preflightPassed(base), 'all ok passes')
   // M2 / F-14 (QC 2026-10-09)
   assert(!preflightPassed({ ...base, location: { status: 'INACTIVE', currency: 'JPY', country: 'JP' } }), 'inactive location fails')
   assert(!preflightPassed({ ...base, location: { status: 'ACTIVE', currency: 'USD', country: 'US' } }), 'non-yen location fails')
   assert(!preflightPassed({ ...base, location: null }), 'unread location fails')
+  assert(!preflightPassed({ ...base, location: { ...base.location, card_processing: false } }), 'DOC-7: location not activated for cards fails')
   assert(!preflightPassed({ ...base, webhook_key: false }), 'missing webhook key fails')
   assert(!preflightPassed({ ...base, location_match: false }), 'location mismatch fails')
   assert(!preflightPassed({ ...base, app_id_family: 'sandbox' }), 'sandbox app id fails')

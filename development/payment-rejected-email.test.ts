@@ -18,7 +18,7 @@ import { renderEmail } from '../supabase/functions/_shared/render-email.ts'
 import {
   OrderPaymentNotAcceptedEmail, orderPaymentNotAcceptedSubject, type OrderPaymentNotAcceptedProps,
 } from '../supabase/functions/_shared/email-templates/order-payment-not-accepted.tsx'
-import { notAcceptedMethod } from '../supabase/functions/_shared/payment-rejected-email.ts'
+import { deadlineHasPassed, notAcceptedMethod } from '../supabase/functions/_shared/payment-rejected-email.ts'
 
 const assert = (ok: unknown, msg: string) => { if (!ok) throw new Error(msg) }
 const base: OrderPaymentNotAcceptedProps = {
@@ -75,4 +75,22 @@ Deno.test('method mapping', () => {
   assert(notAcceptedMethod('paidy') === 'paidy', 'paidy')
   assert(notAcceptedMethod('square') === 'card' && notAcceptedMethod('Card') === 'card', 'card')
   assert(notAcceptedMethod('bank_transfer') === 'transfer' && notAcceptedMethod(null) === 'transfer', 'transfer')
+})
+
+Deno.test('CODE-M2: a hold that ends after the deadline never says "pay by <past date>" or "pay again"', async () => {
+  const t = await render({ method: 'card', kind: 'provider_ended', reason: null, deadlinePassed: true })
+  assert(t.includes('お支払い期限は過ぎています'), 'JA: deadline passed, reply instead')
+  assert(t.includes('The payment deadline for this order has passed'), 'EN: deadline passed, reply instead')
+  assert(!t.includes('Pay by:') && !t.includes('お支払い期限：'), 'no past deadline shown')
+  assert(!t.includes('You can pay again') && !t.includes('もう一度お支払いいただけます'), 'no pay-again line')
+  assert(t.includes('nothing was charged'), 'still says nothing was charged')
+  const live = await render({ method: 'card', kind: 'provider_ended', reason: null, deadlinePassed: false })
+  assert(live.includes('Pay by:') && live.includes('You can pay again'), 'before the deadline the pay-again line stays')
+})
+
+Deno.test('CODE-M2: deadlineHasPassed', () => {
+  const now = Date.parse('2026-10-09T12:00:00Z')
+  assert(deadlineHasPassed('2026-10-09T11:59:59Z', now), 'past')
+  assert(!deadlineHasPassed('2026-10-09T12:00:01Z', now), 'future')
+  assert(!deadlineHasPassed(null, now) && !deadlineHasPassed('', now) && !deadlineHasPassed('not a date', now), 'unknown is never "passed"')
 })
