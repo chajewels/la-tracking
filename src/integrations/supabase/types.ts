@@ -9514,6 +9514,10 @@ export type Database = {
         Args: { p_case_id: string; p_note: string; p_resolution: string }
         Returns: Json
       }
+      close_square_attempt_atomic: {
+        Args: { p_attempt_id: string; p_note: string }
+        Returns: Json
+      }
       confirm_loyalty_award_claim: {
         Args: {
           p_source_id: string
@@ -10919,6 +10923,10 @@ export type Database = {
       }
       square_mode: { Args: never; Returns: string }
       square_ops_health: { Args: never; Returns: Json }
+      square_order_disputed_jpy: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       square_order_unresolved: {
         Args: { p_order_id: string }
         Returns: boolean
