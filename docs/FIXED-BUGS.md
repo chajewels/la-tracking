@@ -6201,3 +6201,23 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
   approval.** Recorded captures only, capped; `exception_approved_pending`.
 - **F-05/F-06/F-07/F-08/F-09/F-10/F-11/F-12/F-13/F-16/F-17/F-18, M1/M2/M3, H1, L2, Q-UX1, Q-UI1/Q-UI2,
   Q-DB3, Q-T1** — see docs/SQUARE.md "QC close-out (2026-10-09)".
+
+
+### 2026-10-09 — Staff-only report and allocation functions
+
+- **Any signed-in login could call 14 SECURITY DEFINER functions that check nothing.** Found by the
+  structure-drift audit (F2). Live granted EXECUTE to `authenticated`, which is every login in the shared
+  auth system: staff AND every customer who signed up on the portal or the website (188 non-staff logins
+  on 2026-10-09). The functions run as their owner, so table security did not apply. One writes
+  (`admin_keep_allocation_override` rewrites a payment allocation, skipping the ceiling); 13 read account
+  or business money (`audit_account`, `audit_all_accounts`, `audit_delete_cleanup_invariants`,
+  `get_aging_buckets`, `get_cash_orders_monthly`, `get_forecast_6m`, `get_forecast_drilldown`,
+  `get_monthly_analytics`, `get_monthly_sales`, `get_staff_performance`, `get_trade_kpis`,
+  `get_trade_monthly_trends`, `monthly_inflow_by_plan_6m`). No screen exposed them; a direct API call did.
+  Fixed (migration `20261130160000_staff_guard_exposed_functions.sql`): new `assert_staff_caller(permission)`
+  as the first statement of each, md5-guarded in place from live — staff (is_staff) or `service_role` or a
+  direct DB session; the allocation override needs `edit_schedule` (the Hub pencil's permission).
+  Evidence: `pg_stat_statements` since 2026-10-02 shows 0 calls of the override and of `audit_account`;
+  the allocation anomalies found (6 over-allocated payments, 119 schedule rows) date from Mar–Aug 2026 and
+  match the old allocation bugs, not a manual override. Do not reintroduce: a SECURITY DEFINER function
+  callable by `authenticated` without its own caller check.

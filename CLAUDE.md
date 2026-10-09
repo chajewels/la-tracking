@@ -1820,6 +1820,9 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - STRUCTURE (2026-10-09, F2): scripts/structure-drift-audit (query on live, replay
     locally, compare) must report 0 on all ten kinds; drift is fixed by a guarded
     RECORD-ONLY migration read from live. docs/MIGRATIONS.md "Structure catch-up".
+  - A SECURITY DEFINER function callable by `authenticated` MUST check its caller first
+    (`PERFORM public.assert_staff_caller([permission])` or its own guard): customers are
+    `authenticated` too (2026-10-09, docs/FIXED-BUGS.md "Staff-only report and allocation functions").
   - Every view in public is created WITH (security_invoker = true); a view
     owned by postgres without it bypasses RLS (schedule_with_actuals leak,
     2026-09-29, PR #266).
