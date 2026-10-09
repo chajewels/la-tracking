@@ -18,8 +18,8 @@
  * Run: deno test --config development/deno.ci.json --allow-read --allow-env development/square-l2-l8.test.ts
  */
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@1'
-import { disputeOf, SquareError } from '../supabase/functions/_shared/square.ts'
-import { disputeMoneyJpy, handleFilingException, isLateHoldReason, syncSquareDispute } from '../supabase/functions/_shared/square-sync.ts'
+import { disputeOf, paymentFacts, SquareError } from '../supabase/functions/_shared/square.ts'
+import { disputeMoneyJpy, handleFilingException, isLateHoldReason, lateHoldBellAdvice, syncSquareDispute, voidLateHold } from '../supabase/functions/_shared/square-sync.ts'
 import { cardCaptureOrderRefusal } from '../supabase/functions/_shared/card-rules.ts'
 
 type Rec = Record<string, unknown>
@@ -34,30 +34,33 @@ const dispute = (over: Rec = {}) => ({
 
 // ---------------------------------------------------------------- L2
 
-Deno.test('L2: disputeOf accepts the dispute asked for, in positive whole yen', () => {
-  const d = disputeOf({ dispute: dispute({ amount_money: { amount: '8640', currency: 'jpy' } }) }, { id: 'dp_1', jpy: true })
+Deno.test('L2: disputeOf accepts the dispute asked for and normalises readable money', () => {
+  const d = disputeOf({ dispute: dispute({ amount_money: { amount: '8640', currency: 'jpy' } }) }, { id: 'dp_1' })
   assertEquals(d.id, 'dp_1')
   assertEquals(d.amount_money, { amount: 8640, currency: 'JPY' })
   // Square's older shape carries dispute_id only.
   assertEquals(disputeOf({ dispute: dispute({ id: undefined, dispute_id: 'dp_2' }) }).id, 'dp_2')
 })
 
-Deno.test('L2: disputeOf refuses what the Hub cannot read (bad answer, never ¥0 or "the whole payment")', () => {
-  const bad = (j: Rec, e: Rec = { id: 'dp_1', jpy: true }) => assertThrows(() => disputeOf(j, e), SquareError)
+Deno.test('L2: disputeOf refuses only what is not the dispute (id, state, payment) — read again', () => {
+  const bad = (j: Rec) => assertThrows(() => disputeOf(j, { id: 'dp_1' }), SquareError)
   bad({})
   bad({ dispute: null })
   bad({ dispute: dispute({ id: 'dp_other' }) })
   bad({ dispute: dispute({ id: '', dispute_id: '' }) })
   bad({ dispute: dispute({ state: '' }) })
   bad({ dispute: dispute({ disputed_payment: {} }) })
-  bad({ dispute: dispute({ amount_money: undefined }) })
-  bad({ dispute: dispute({ amount_money: { amount: 0, currency: 'JPY' } }) })
-  bad({ dispute: dispute({ amount_money: { amount: 86.4, currency: 'JPY' } }) })
-  bad({ dispute: dispute({ amount_money: { amount: null, currency: 'JPY' } }) })
-  bad({ dispute: dispute({ amount_money: { amount: 100, currency: 'USD' } }) })
-  // Without the yen expectation the currency is left to the SQL (bad_currency + bell).
-  assertEquals(disputeOf({ dispute: dispute({ amount_money: { amount: 100, currency: 'USD' } }) }).amount_money?.currency, 'USD')
   try { disputeOf({}) } catch (e) { assertEquals((e as SquareError).code, 'square_bad_response'); assert((e as SquareError).ambiguous, 'read again, never acted on') }
+})
+
+Deno.test('H1: the MONEY never drops a dispute — an unreadable amount still reaches the SQL (whole payment counted)', () => {
+  for (const money of [undefined, null, { amount: 0, currency: 'JPY' }, { amount: 86.4, currency: 'JPY' }, { amount: null, currency: 'JPY' }]) {
+    const d = disputeOf({ dispute: dispute({ amount_money: money }) }, { id: 'dp_1' })
+    assertEquals(d.id, 'dp_1')
+    assertEquals(disputeMoneyJpy(d), null)
+  }
+  // A non-yen amount is passed through unchanged: record_square_dispute refuses it (bad_currency + bell).
+  assertEquals(disputeOf({ dispute: dispute({ amount_money: { amount: 100, currency: 'USD' } }) }).amount_money, { amount: 100, currency: 'USD' })
 })
 
 Deno.test('L2: the figure passed to record_square_dispute is the read one, else null (never 0)', async () => {
@@ -70,13 +73,29 @@ Deno.test('L2: the figure passed to record_square_dispute is the read one, else 
   const r = await syncSquareDispute(db, dispute({ amount_money: { amount: 100, currency: 'USD' } }) as never, 'sandbox')
   assertEquals(r, { outcome: 'failed', detail: 'bad_currency' })
   assertEquals(calls[0].p_amount_jpy, 100)
+  const ok: Rec[] = []
+  const db2 = { rpc: (_n: string, a: Rec) => { ok.push(a); return Promise.resolve({ data: { ok: true }, error: null }) } }
+  assertEquals(await syncSquareDispute(db2, dispute({ amount_money: undefined }) as never, 'sandbox'), { outcome: 'synced' })
+  assertEquals(ok[0].p_amount_jpy, null)
 })
 
-Deno.test('L2 edge: GetDispute goes through disputeOf (the one asked for, yen)', () => {
+Deno.test('L2 edge: GetDispute goes through disputeOf (the one asked for)', () => {
   const src = codeOnly('../supabase/functions/_shared/square.ts')
-  assert(src.includes('return disputeOf(json, { id, jpy: true });'), 'getDispute validated')
+  assert(src.includes('return disputeOf(json, { id });'), 'getDispute validated')
   assert(!src.includes('return json.dispute as SquareDispute;'), 'no unchecked cast left')
 })
+
+// ---------------------------------------------------------------- L3
+
+Deno.test('L3: refunded_money omitted is null ("Square said nothing"), never 0; a sent figure is passed as is', () => {
+  const p = (over: Rec = {}) => ({ id: 'sqpay_1', status: 'COMPLETED', amount_money: { amount: 15000, currency: 'JPY' }, created_at: '2026-10-09T00:00:00Z', ...over }) as never
+  assertEquals(paymentFacts(p()).refundedJpy, null)
+  assertEquals(paymentFacts(p({ refunded_money: null })).refundedJpy, null)
+  assertEquals(paymentFacts(p({ refunded_money: { amount: 0, currency: 'JPY' } })).refundedJpy, 0)
+  assertEquals(paymentFacts(p({ refunded_money: { amount: 8563, currency: 'JPY' } })).refundedJpy, 8563)
+  assertEquals(paymentFacts(p({ refunded_money: { amount: 'x', currency: 'JPY' } })).refundedJpy, null)
+})
+
 
 // ---------------------------------------------------------------- L5
 
@@ -191,10 +210,40 @@ Deno.test('L7: other unfiled holds are still left to staff (no automatic void)',
   },
 ))
 
-Deno.test('L7 edge: square-reconcile retries the void of a late hold; the website answers the hold state', () => {
+Deno.test('L7: the reconcile retry (built from the square_payments row) writes the same audit row as the filing path', withFetch(
+  (url, init) => url.endsWith('/payments/sqpay_9/cancel') && init?.method === 'POST' ? json({ payment: { ...held, status: 'CANCELED' } }) : json({}, 404),
+  async () => {
+    const db = fakeDb()
+    const v = await voidLateHold(db, 'sandbox', { cashOrderId: 'o1', customerId: 'c1', attemptRef: null, test: true, reason: 'attempt_cancelled', squareRowId: 'row9' }, held as never)
+    assertEquals(v, 'late_hold_voided')
+    const audit = db.calls.find((c) => c.kind === 'insert' && c.table === 'audit_logs')?.args as Rec
+    assertEquals(audit.action, 'square_late_hold_auto_voided')
+    assertEquals(audit.entity_id, 'row9')
+    assertEquals((audit.new_value_json as Rec).square_payment_id, 'sqpay_9')
+  },
+))
+
+Deno.test('L7: Square shows the late hold CAPTURED → the bell says it cannot be voided and what to do (no "retries every hour")', withFetch(
+  (url, init) => url.endsWith('/payments/sqpay_9/cancel') && init?.method === 'POST' ? json({ errors: [{ code: 'BAD_REQUEST', category: 'INVALID_REQUEST_ERROR' }] }, 400)
+    : url.includes('/payments/sqpay_9') ? json({ payment: { ...held, status: 'COMPLETED' } }) : json({}, 404),
+  async () => {
+    const db = fakeDb()
+    assertEquals(await handleFilingException(db, 'sandbox', attempt, held as never, filed), 'late_hold_void_pending')
+    const body = String((db.calls.find((c) => c.kind === 'insert' && c.table === 'staff_notifications')?.args as Rec).body)
+    assert(body.includes('CAPTURED (COMPLETED)') && body.includes('refund it in the Square Dashboard'), body)
+    assert(!body.includes('retries'), 'never promises a retry the Hub will not make')
+    assert(lateHoldBellAdvice('APPROVED', '400 BAD_REQUEST').includes('the hourly check retries the void'), 'a held payment is retried')
+  },
+))
+
+Deno.test('L7 edge: square-reconcile retries the void of a late hold with the SAME routine; the website answers the hold state', () => {
   const rec = codeOnly('../supabase/functions/square-reconcile/index.ts')
   assert(rec.includes('const lateHold = row.exception === "unfiled_hold" && isLateHoldReason(row.exception_note) && row.exception_resolved_at == null;'), 'late hold detected on the row')
-  assert(rec.includes('|| paidyConflict || lateHold)) {'), 'retried with the other voids')
+  assert(rec.includes('if (p.status === "APPROVED" && lateHold) {') && rec.includes('const v = await voidLateHold(db, got.env, {'), 'retried through voidLateHold (audit + email)')
+  assert(rec.includes('cash_payment_id, cash_order_id, customer_id")'), 'the row carries its order and customer')
+  const sync = codeOnly('../supabase/functions/_shared/square-sync.ts')
+  assert(sync.includes('await sendCardHoldReleasedEmail(db, { orderId: h.cashOrderId, amount: paymentFacts(p).amountJpy, squarePaymentId: p.id, otherPaymentInProgress: false });'),
+    'one "released" email per Square payment (key card-hold-released-<id>) on every path')
   const web = codeOnly('../supabase/functions/website/index.ts')
   assert(web.includes('hold: action === "late_hold_voided" ? "voided" : "void_pending"'), 'the website reports voided / void_pending')
 })
@@ -211,11 +260,16 @@ Deno.test('L2–L8 migration: md5-guarded patches from live, new objects re-gran
     ['public.mark_web_order_refund_issued_atomic(', 'd31a247c532e2c741d4fae702fd05cf5'],
   ]
   for (const [sig, md5] of guards) assert(new RegExp(`cj_patch\\('${sig.replace(/[().]/g, '\\$&')}[^']*', '${md5}'`).test(m), `${sig} guarded by its live md5`)
-  assert(m.includes('refund_jpy = greatest(coalesce(p_refunded_jpy, 0), coalesce(refund_jpy, 0), 0),'), 'L3')
+  assert(m.includes('refund_jpy = CASE WHEN p_refunded_jpy IS NULL THEN refund_jpy ELSE greatest(p_refunded_jpy, 0) END,'), 'L3 (M2): kept only when Square said nothing')
   assert(m.includes("'card_dispute_unrecorded', 'Square dispute NOT recorded — needs a look'"), 'L2 bell')
   assert(m.includes('REVOKE ALL ON FUNCTION public.square_order_card_refund_recordable_jpy(uuid) FROM PUBLIC, anon, authenticated;'), 'L6 helper revoked')
   assert(m.includes('REVOKE ALL ON FUNCTION public.guard_cash_order_balance_during_hold() FROM PUBLIC, anon, authenticated;'), 'L5 trigger fn revoked')
-  assert(m.includes('BEFORE UPDATE OF remaining_balance ON public.cash_orders'), 'L5 trigger')
+  assert(m.includes('BEFORE UPDATE OF remaining_balance, total_paid ON public.cash_orders'), 'L5 trigger (M1): both columns')
+  assert(m.includes("'card_dispute_amount_unreadable', 'Card dispute recorded WITHOUT its amount'"), 'H1: unreadable amount recorded + bell')
+  assert(m.includes('v_sq.cash_order_id, v_amount, v_st'), 'H1: the stored figure is the read one (NULL otherwise)')
+  assert(m.includes("jsonb_build_object('refund_status', v_order.refund_status),"), 'L6: the further mark audits the real status')
+  assert(m.includes('GRANT EXECUTE ON FUNCTION public.web_order_refund_parts(uuid) TO authenticated, service_role;'), 'L6b RPC for staff')
+  assert(m.includes("PERFORM public.assert_staff_caller('cancel_cash_order');"), 'L6b RPC checks its caller')
   assert(m.includes('DO $self$'), 'self-check')
   for (const block of m.split("jsonb_build_object('old', ").slice(1)) {
     const text = block.split('));')[0]

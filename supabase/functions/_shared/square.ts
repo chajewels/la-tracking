@@ -365,15 +365,18 @@ export function refundOf(json: Record<string, unknown>, expectedId?: string | nu
 }
 
 /**
- * L2 (2026-10-09, eighth release): a dispute as Square holds it, checked like a
- * payment / refund before anything trusts it — the dispute asked for (when an
- * id was), a state, the disputed payment, and POSITIVE whole-unit money; with
- * `jpy`, in yen. A dispute without money is a bad answer (read again), never
- * ¥0 and never "the whole payment". record_square_dispute refuses what still
- * cannot be read as yen (bad_amount / bad_currency) with one
- * card_dispute_unrecorded bell.
+ * L2 (2026-10-09, eighth release): a dispute as Square holds it — the dispute
+ * asked for (when an id was), a state and the disputed payment; anything else
+ * is a bad answer (read again). The MONEY is never a reason to drop a dispute:
+ * a chargeback must be recorded even when its amount cannot be read, because
+ * square_order_disputed_jpy then counts the WHOLE payment and both cancel RPCs
+ * refuse store credit (card_disputed). Readable money is normalised (whole
+ * units, upper-case currency); anything else is passed through unchanged and
+ * record_square_dispute decides: amount stored NULL + one
+ * card_dispute_amount_unreadable bell, or bad_currency / parent_mismatch
+ * refused with one card_dispute_unrecorded bell.
  */
-export interface DisputeExpectation { id?: string | null; jpy?: boolean }
+export interface DisputeExpectation { id?: string | null }
 export function disputeOf(json: Record<string, unknown>, expect: DisputeExpectation = {}): SquareDispute {
   const raw = json.dispute;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badAnswer("Square answered without a dispute");
@@ -387,9 +390,9 @@ export function disputeOf(json: Record<string, unknown>, expect: DisputeExpectat
     throw badAnswer(`Square answered dispute ${id} without its payment`);
   }
   const money = moneyOf(d.amount_money);
-  if (!money || money.amount <= 0) throw badAnswer(`Square answered dispute ${id} without a positive whole-unit amount`);
-  if (expect.jpy && money.currency !== "JPY") throw badAnswer(`Square answered dispute ${id} in ${money.currency}, not JPY`);
-  return { ...(d as unknown as SquareDispute), id, amount_money: money };
+  return money && money.amount > 0
+    ? { ...(d as unknown as SquareDispute), id, amount_money: money }
+    : { ...(d as unknown as SquareDispute), id };
 }
 
 export interface CreateCardPaymentInput {
@@ -527,8 +530,8 @@ export const square = {
   },
   getDispute: async (e: Env, id: string): Promise<SquareDispute> => {
     const json = await call(e, "GET", `/disputes/${encodeURIComponent(id)}`);
-    // L2: the dispute asked for, in positive whole yen — never an unread figure.
-    return disputeOf(json, { id, jpy: true });
+    // L2: the dispute asked for; its money is the SQL's to judge (never a reason to drop it).
+    return disputeOf(json, { id });
   },
   /**
    * Events API (Beta): only events from while it is ENABLED are searchable
@@ -549,12 +552,15 @@ export const square = {
 /** The fields apply_square_payment_state / file_square_authorization_atomic take, from a Square payment. */
 export function paymentFacts(p: SquarePayment) {
   const amount = Number(p.amount_money?.amount);
-  const refunded = Number(p.refunded_money?.amount ?? 0);
+  // L3 (2026-10-09): Square omits refunded_money when it says nothing about
+  // refunds — that is null ("keep what the Hub knows"), never 0. A figure Square
+  // did send is passed as it stands, even when lower than before.
+  const refunded = p.refunded_money == null ? null : moneyOf(p.refunded_money)?.amount ?? null;
   const cd = p.card_details ?? {};
   return {
     amountJpy: Number.isSafeInteger(amount) ? amount : null,
     currency: p.amount_money?.currency ?? null,
-    refundedJpy: Number.isSafeInteger(refunded) ? refunded : 0,
+    refundedJpy: refunded,
     cardBrand: cd.card?.card_brand ?? null,
     cardLast4: cd.card?.last_4 && /^\d{4}$/.test(cd.card.last_4) ? cd.card.last_4 : null,
     receiptUrl: p.receipt_url ?? null,

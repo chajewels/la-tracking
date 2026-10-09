@@ -46,6 +46,7 @@ export const STAFF_BELL_EMAIL_CHOICES: { type: string; label: string }[] = [
   { type: "card_hold_unfiled", label: "Card hold with no submission (needs a decision)" },
   // L2 (2026-10-09): a dispute Square sent that the Hub could not read as yen.
   { type: "card_dispute_unrecorded", label: "A Square dispute the Hub could not record" },
+  { type: "card_dispute_amount_unreadable", label: "A card dispute recorded without its amount (whole payment counted)" },
 ];
 
 /** One per line or comma; lower-cased; blanks dropped. */

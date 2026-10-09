@@ -3,7 +3,7 @@ import { requireAuth } from "../_shared/handler.ts";
 import { square, SquareError } from "../_shared/square.ts";
 import type { SquareEnvironment } from "../_shared/card-rules.ts";
 import {
-  applyPaymentState, currentEnvironment, isLateHoldReason, processSquareEvent, readPaymentAnyEnv, recoverAttempt, rpc,
+  applyPaymentState, currentEnvironment, isLateHoldReason, processSquareEvent, readPaymentAnyEnv, recoverAttempt, rpc, voidLateHold,
   syncSquareDispute, syncSquareRefund,
 } from "../_shared/square-sync.ts";
 import { getState, putState, walkStream } from "../_shared/square-stream.ts";
@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
   // 3. Live holds, captured-unrecorded, open exceptions — fair round-robin.
   try {
     const { data: rows, error } = await db.from("square_payments")
-      .select("id, square_payment_id, status, environment, test, exception, exception_note, exception_resolved_at, cash_payment_id")
+      .select("id, square_payment_id, status, environment, test, exception, exception_note, exception_resolved_at, cash_payment_id, cash_order_id, customer_id")
       .or("status.eq.authorized,and(status.eq.captured,cash_payment_id.is.null,exception_resolved_at.is.null)")
       .order("reconciled_at", { ascending: true, nullsFirst: true }).limit(MAX_HOLDS);
     if (error) throw error;
@@ -356,14 +356,24 @@ Deno.serve(async (req) => {
           const paidyConflict = row.exception === "unfiled_hold" && String(row.exception_note ?? "").startsWith("paidy_in_progress")
             && row.exception_resolved_at == null;
           // L7 (2026-10-09): a late hold on an attempt already closed is voided
-          // at filing; if that void failed it is retried here, every hour.
+          // at filing; if that void failed it is retried here, every hour, by
+          // the SAME routine (same audit row, same "hold released" email key).
           const lateHold = row.exception === "unfiled_hold" && isLateHoldReason(row.exception_note) && row.exception_resolved_at == null;
-          if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high" || paidyConflict || lateHold)) {
-            p = await square.cancel(got.env, p.id);
+          if (p.status === "APPROVED" && lateHold) {
+            const v = await voidLateHold(db, got.env, {
+              cashOrderId: String(row.cash_order_id), customerId: (row.customer_id as string | null) ?? null, attemptRef: null,
+              test: (row.test as boolean | null) ?? null, reason: String(row.exception_note), squareRowId: String(row.id),
+            }, p);
             report.voids_retried++;
+            if (v === "late_hold_voided") report.holds_changed++;
+          } else {
+            if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high" || paidyConflict)) {
+              p = await square.cancel(got.env, p.id);
+              report.voids_retried++;
+            }
+            const r = await applyPaymentState(db, p, "reconcile");
+            if (r.changed) report.holds_changed++;
           }
-          const r = await applyPaymentState(db, p, "reconcile");
-          if (r.changed) report.holds_changed++;
           for (const rid of p.refund_ids ?? []) {
             const rf = await square.getRefund(got.env, rid);
             if ((await syncSquareRefund(db, got.env, rf)).outcome === "synced") report.refunds_synced++;

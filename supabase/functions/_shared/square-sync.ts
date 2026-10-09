@@ -170,7 +170,10 @@ export async function handleFilingException(db: Db, env: SquareEnvironment, atte
     // L7 (2026-10-09): Square approved a hold for an attempt the Hub had already
     // closed (cancelled / declined / closed by an admin): she was told it did not
     // go through, so the hold is voided now — never left on her card up to 7 days.
-    return await voidLateHold(db, env, attempt, p, filed, released);
+    return await voidLateHold(db, env, {
+      cashOrderId: String(attempt.cash_order_id), customerId: attempt.customer_id ?? null, attemptRef: attempt.reference ?? null,
+      test: attempt.test ?? null, reason: String(filed.reason), squareRowId: filed.square_row_id ?? null,
+    }, p);
   }
   if (filed.exception === "risk_high") {
     const res = await fraudCancel(db, env, attempt.cash_order_id, "risk_high", { square_payment_id: p.id, attempt: attempt.reference }, p.id);
@@ -195,14 +198,29 @@ export function isLateHoldReason(reason: unknown): boolean {
   return typeof reason === "string" && /^attempt_[a-z_]+$/.test(reason);
 }
 
+/** L7: what voidLateHold needs to know about the hold — from the filing (attempt) or from the square_payments row (reconcile). */
+export interface LateHold {
+  cashOrderId: string;
+  customerId?: string | null;
+  attemptRef?: string | null;
+  test?: boolean | null;
+  reason: string;
+  squareRowId?: string | null;
+}
+
 /**
- * L7: void a late hold, audited, idempotent (Square's own read-back decides):
- *   voided            — Square cancelled it now (or already shows it CANCELED);
- *   void_pending      — Square did not confirm: ONE card_void_failed bell per
- *                       payment, and square-reconcile retries the void hourly.
+ * L7: void a late hold — ONE routine for the filing paths (website, webhook,
+ * reconcile recovery) and the hourly reconcile retry, so both write the same
+ * audit row and send the same "hold released" email under the same keys
+ * (card-hold-released-<square payment id>, audit once per payment). Square's
+ * own read-back decides:
+ *   voided       — Square cancelled it now (or already shows it CANCELED / FAILED);
+ *   void_pending — not confirmed: ONE card_void_failed bell per payment. While
+ *                  Square still shows it APPROVED the hourly check retries; if
+ *                  Square shows it COMPLETED (captured) it can no longer be voided
+ *                  and the bell says what a person must do instead.
  */
-export async function voidLateHold(db: Db, env: SquareEnvironment, attempt: AnyRec, p: SquarePayment, filed: AnyRec,
-  released: () => Promise<unknown>): Promise<"late_hold_voided" | "late_hold_void_pending"> {
+export async function voidLateHold(db: Db, env: SquareEnvironment, h: LateHold, p: SquarePayment): Promise<"late_hold_voided" | "late_hold_void_pending"> {
   let after: SquarePayment | null = null;
   let failure: string | null = null;
   try {
@@ -213,42 +231,55 @@ export async function voidLateHold(db: Db, env: SquareEnvironment, attempt: AnyR
   }
   if (after && (after.status === "CANCELED" || after.status === "FAILED")) {
     await applyPaymentState(db, after, "void");
-    await auditBestEffort(db, {
-      entity_type: "square_payment", entity_id: filed.square_row_id ?? null, action: "square_late_hold_auto_voided",
-      new_value_json: { square_payment_id: p.id, attempt: attempt.reference, reason: filed.reason, square_status: after.status, cash_order_id: attempt.cash_order_id },
+    await auditOnce(db, "square_late_hold_auto_voided", p.id, {
+      entity_type: "square_payment", entity_id: h.squareRowId ?? null, action: "square_late_hold_auto_voided",
+      new_value_json: { square_payment_id: p.id, attempt: h.attemptRef ?? null, reason: h.reason, square_status: after.status, cash_order_id: h.cashOrderId },
     });
-    await released();
+    await sendCardHoldReleasedEmail(db, { orderId: h.cashOrderId, amount: paymentFacts(p).amountJpy, squarePaymentId: p.id, otherPaymentInProgress: false });
     return "late_hold_voided";
   }
   if (after) { try { await applyPaymentState(db, after, "reconcile"); } catch { /* reconcile re-reads it */ } }
-  await lateHoldVoidFailedBell(db, attempt, p, String(filed.reason ?? ""), failure ?? `Square status ${after?.status ?? "unknown"}`);
+  await lateHoldVoidFailedBell(db, h, p, lateHoldBellAdvice(after?.status ?? null, failure));
   return "late_hold_void_pending";
 }
 
-async function auditBestEffort(db: Db, row: AnyRec): Promise<void> {
+/** L7: the bell's instruction, by what Square shows now (pure — the deno test pins it). */
+export function lateHoldBellAdvice(squareStatus: string | null, failure: string | null): string {
+  if (squareStatus === "COMPLETED") {
+    return "Square shows it CAPTURED (COMPLETED), so it can no longer be voided and the Hub will not retry. Decide it in Website → Card payments: refund it in the Square Dashboard (its attempt was closed, so the customer was told it did not go through).";
+  }
+  const why = failure ?? `Square status ${squareStatus ?? "unknown"}`;
+  return `The Hub tried to void it but Square did not confirm (${why}). While Square shows it held, the hourly check retries the void; if this bell stays, void it in the Square Dashboard.`;
+}
+
+async function auditOnce(db: Db, action: string, squarePaymentId: string, row: AnyRec): Promise<void> {
   try {
+    const { data: seen } = await db.from("audit_logs").select("id")
+      .eq("action", action).eq("new_value_json->>square_payment_id", squarePaymentId).limit(1);
+    if (Array.isArray(seen) && seen.length > 0) return;
     const r = await db.from("audit_logs").insert(row);
     if (r?.error) console.warn("[square-sync] audit insert failed:", r.error.message);
   } catch (e) { console.warn("[square-sync] audit insert failed:", e instanceof Error ? e.message : e); }
 }
 
-/** L7: one bell per Square payment — the hold is still on her card and needs a person. */
-export async function lateHoldVoidFailedBell(db: Db, attempt: AnyRec, p: SquarePayment, reason: string, why: string): Promise<void> {
+/** L7: one bell per Square payment — the hold is still on her card (or was captured) and needs a person. */
+export async function lateHoldVoidFailedBell(db: Db, h: LateHold, p: SquarePayment, advice: string): Promise<void> {
   try {
     const { data: seen } = await db.from("staff_notifications").select("id")
       .eq("type", "card_void_failed").eq("metadata->>square_payment_id", p.id).eq("metadata->>source", "late_hold").limit(1);
     if (Array.isArray(seen) && seen.length > 0) return;
-    const { data: o } = await db.from("cash_orders").select("customer_id, invoice_number, web_reference").eq("id", attempt.cash_order_id).maybeSingle();
+    const { data: o } = await db.from("cash_orders").select("customer_id, invoice_number, web_reference").eq("id", h.cashOrderId).maybeSingle();
     const amount = paymentFacts(p).amountJpy;
     const r = await db.from("staff_notifications").insert({
       type: "card_void_failed", title: "Card hold could not be voided",
-      body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${amount != null ? amount.toLocaleString("en-US") : "?"} — a card hold arrived after its attempt was closed (${reason}). The Hub tried to void it but Square did not confirm (${why}). It retries every hour; if this stays, void it in the Square Dashboard.`,
-      customer_id: o?.customer_id ?? attempt.customer_id ?? null, invoice_number: o?.invoice_number ?? null,
-      metadata: { cash_order_id: attempt.cash_order_id, square_payment_id: p.id, attempt: attempt.reference, reason, source: "late_hold", test: attempt.test ?? null },
+      body: `${o?.web_reference ?? o?.invoice_number ?? ""} · ¥${amount != null ? amount.toLocaleString("en-US") : "?"} — a card hold arrived after its attempt was closed (${h.reason}). ${advice}`,
+      customer_id: o?.customer_id ?? h.customerId ?? null, invoice_number: o?.invoice_number ?? null,
+      metadata: { cash_order_id: h.cashOrderId, square_payment_id: p.id, attempt: h.attemptRef ?? null, reason: h.reason, source: "late_hold", test: h.test ?? null },
     });
     if (r?.error) console.warn("[square-sync] late-hold bell failed:", r.error.message);
   } catch (e) { console.warn("[square-sync] late-hold bell failed:", e instanceof Error ? e.message : e); }
 }
+
 
 /**
  * The one sync of a Square payment read-back (authoritative GetPayment or a

@@ -1,18 +1,27 @@
 -- Square L2–L8 hardening (2026-10-09, eighth release). docs/SQUARE.md "L2–L8".
 -- Project doc: claude/square-golive-countercheck-2026-10-09-evening.md (the Low items).
 --
---   L3  apply_square_payment_state: square_payments.refund_jpy never goes down (a later
---       payment.updated without refunded_money used to write 0 over a known refund).
+--   L3  apply_square_payment_state: square_payments.refund_jpy is kept when Square said
+--       nothing about refunds (refunded_money omitted → p_refunded_jpy NULL); a figure Square
+--       DID send is taken as it stands, even when lower (a refund that later FAILED). Older
+--       observations are already dropped by the provider_updated_at check.
 --   L4  one lock order for a card attempt: the ATTEMPT first. close_square_attempt_atomic
 --       locked the order before the attempt (file_square_authorization_atomic: attempt →
 --       order → payment); apply_square_payment_state now locks the attempt before the
 --       payment row it later updates the attempt from.
---   L2  record_square_dispute refuses a dispute it cannot read as positive whole yen
---       (bad_amount / bad_currency / parent_mismatch) and rings ONE card_dispute_unrecorded
---       bell per (dispute, reason) — never stores a figure the Hub could not read.
---   L5  a signed-in caller cannot move remaining_balance / total_paid of a cash order while
---       a card or Paidy payment holds it (new trigger guard_cash_order_balance_during_hold;
---       total / discount / shipping were already guarded).
+--   L2  record_square_dispute never stores a dispute FIGURE it could not read: an amount
+--       that is missing, not positive whole yen, or differs from the payload is stored as
+--       NULL (square_order_disputed_jpy then counts the WHOLE payment, so both cancel RPCs
+--       still refuse card_disputed) and rings ONE card_dispute_amount_unreadable bell. Only
+--       a non-yen dispute (bad_currency) or one already on another payment
+--       (parent_mismatch) is refused, with ONE card_dispute_unrecorded bell per reason.
+--   L5  a signed-in caller cannot change remaining_balance or total_paid of a cash order
+--       while a card or Paidy payment holds it (new trigger
+--       guard_cash_order_balance_during_hold; total / discount / shipping were already
+--       guarded). Every legitimate writer of those two columns runs as service_role
+--       (finalize, void / restore, store credit, redemptions), where auth.uid() is NULL.
+--   L6b web_order_refund_parts(order): the refund marks and which part is still open, for
+--       the Hub dialog (staff with cancel_cash_order; audit_logs is admin / finance only).
 --   L6  "Mark refund issued — card": the card figure is capped per payment at the money
 --       RECORDED on the order (square_order_card_refund_recordable_jpy), and an order paid
 --       partly by card and partly another way can be marked a second time for the other
@@ -78,7 +87,7 @@ $o$,
 $n$),
   jsonb_build_object('old', $o$         refund_jpy = greatest(coalesce(p_refunded_jpy, 0), 0),
 $o$,
-                     'new', $n$         refund_jpy = greatest(coalesce(p_refunded_jpy, 0), coalesce(refund_jpy, 0), 0),
+                     'new', $n$         refund_jpy = CASE WHEN p_refunded_jpy IS NULL THEN refund_jpy ELSE greatest(p_refunded_jpy, 0) END,
 $n$)
 ));
 
@@ -101,14 +110,16 @@ SELECT pg_temp.cj_patch('public.record_square_dispute(text,text,text,text,bigint
 $o$,
                      'new', $n$  v_st    text := upper(coalesce(p_state, 'UNKNOWN'));
   v_refuse text := NULL;
+  v_amount bigint := NULL;
+  v_cur    text := upper(nullif(btrim(coalesce(p_payload -> 'amount_money' ->> 'currency', '')), ''));
 $n$),
   jsonb_build_object('old', $o$  SELECT * INTO v_old FROM public.square_disputes WHERE square_dispute_id = p_dispute_id FOR UPDATE;
 $o$,
                      'new', $n$  SELECT * INTO v_old FROM public.square_disputes WHERE square_dispute_id = p_dispute_id FOR UPDATE;
-  IF coalesce(p_amount_jpy, 0) <= 0 THEN v_refuse := 'bad_amount';
-  ELSIF upper(coalesce(p_payload -> 'amount_money' ->> 'currency', '')) <> 'JPY' THEN v_refuse := 'bad_currency';
-  ELSIF (p_payload -> 'amount_money' ->> 'amount') IS DISTINCT FROM p_amount_jpy::text THEN v_refuse := 'bad_amount';
+  IF v_cur IS NOT NULL AND v_cur <> 'JPY' THEN v_refuse := 'bad_currency';
   ELSIF v_old.id IS NOT NULL AND v_old.square_payment_id <> p_square_payment_id THEN v_refuse := 'parent_mismatch';
+  ELSIF coalesce(p_amount_jpy, 0) > 0 AND v_cur = 'JPY'
+        AND (p_payload -> 'amount_money' ->> 'amount') IS NOT DISTINCT FROM p_amount_jpy::text THEN v_amount := p_amount_jpy;
   END IF;
   IF v_refuse IS NOT NULL THEN
     IF NOT EXISTS (SELECT 1 FROM public.staff_notifications n
@@ -120,8 +131,7 @@ $o$,
                 || ') was refused: ' || v_refuse
                 || CASE v_refuse
                      WHEN 'parent_mismatch' THEN ' — this dispute id is already recorded on payment ' || v_old.square_payment_id || '.'
-                     WHEN 'bad_currency' THEN ' — not a yen dispute.'
-                     ELSE ' — no positive whole-yen amount the Hub could read.' END
+                     ELSE ' — not a yen dispute.' END
                 || ' The Hub ledger was not changed, so this order is NOT marked as disputed: do not refund it or issue store credit on it until the dispute is checked in the Square Dashboard.',
               v_order.customer_id, v_order.invoice_number,
               jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id, 'dispute_id', p_dispute_id,
@@ -129,6 +139,26 @@ $o$,
     END IF;
     RETURN jsonb_build_object('ok', false, 'error', v_refuse);
   END IF;
+$n$),
+  jsonb_build_object('old', $o$  VALUES (p_dispute_id, v_sq.id, p_square_payment_id, v_sq.cash_order_id, p_amount_jpy, v_st, left(p_reason, 200),
+$o$,
+                     'new', $n$  VALUES (p_dispute_id, v_sq.id, p_square_payment_id, v_sq.cash_order_id, v_amount, v_st, left(p_reason, 200),
+$n$),
+  jsonb_build_object('old', $o$  UPDATE public.square_payments SET disputed_at = coalesce(disputed_at, now()), dispute_id = coalesce(dispute_id, p_dispute_id),
+$o$,
+                     'new', $n$  IF v_amount IS NULL AND v_new.amount_jpy IS NULL
+     AND NOT EXISTS (SELECT 1 FROM public.staff_notifications n
+                      WHERE n.type = 'card_dispute_amount_unreadable' AND n.metadata ->> 'dispute_id' = p_dispute_id) THEN
+    INSERT INTO public.staff_notifications (type, title, body, customer_id, invoice_number, metadata)
+    VALUES ('card_dispute_amount_unreadable', 'Card dispute recorded WITHOUT its amount',
+            coalesce(v_order.web_reference, v_order.invoice_number, '') || ' · Square dispute ' || p_dispute_id || ' (' || lower(v_st) || ', amount sent: '
+              || coalesce(p_payload -> 'amount_money' ->> 'amount', 'none') || ' ' || coalesce(p_payload -> 'amount_money' ->> 'currency', '?')
+              || ') — the Hub could not read the disputed amount as whole yen, so it recorded the dispute with NO amount and counts the WHOLE card payment as disputed (no store credit or refund on this order while it is open). Check the amount in the Square Dashboard.',
+            v_order.customer_id, v_order.invoice_number,
+            jsonb_build_object('cash_order_id', v_sq.cash_order_id, 'square_payment_id', p_square_payment_id, 'dispute_id', p_dispute_id,
+                               'state', v_st, 'amount_sent', p_payload -> 'amount_money', 'amount_jpy', p_amount_jpy, 'test', v_sq.test));
+  END IF;
+  UPDATE public.square_payments SET disputed_at = coalesce(disputed_at, now()), dispute_id = coalesce(dispute_id, p_dispute_id),
 $n$)
 ));
 
@@ -234,6 +264,12 @@ $n$),
 $o$,
                      'new', $n$  ELSIF v_paidy_paid > 0 AND v_method NOT IN ('card', 'bank_transfer_exception', 'store_credit_exception') THEN
 $n$),
+  jsonb_build_object('old', $o$          jsonb_build_object('refund_status', 'refund_pending'),
+          jsonb_build_object('refund_status', 'refund_issued', 'method', v_method, 'refunded_on', p_refunded_on,
+$o$,
+                     'new', $n$          jsonb_build_object('refund_status', v_order.refund_status),
+          jsonb_build_object('refund_status', 'refund_issued', 'method', v_method, 'refunded_on', p_refunded_on,
+$n$),
   jsonb_build_object('old', $o$                             'paidy_remaining_jpy', v_paidy_remaining, 'exception', v_exc,
                              'invoice_number', v_order.invoice_number, 'web_reference', v_order.web_reference),
 $o$,
@@ -263,16 +299,16 @@ BEGIN
     RETURN NEW;
   END IF;
   IF NEW.remaining_balance IS NOT DISTINCT FROM OLD.remaining_balance
-     OR NEW.total_paid IS DISTINCT FROM OLD.total_paid THEN
+     AND NEW.total_paid IS NOT DISTINCT FROM OLD.total_paid THEN
     RETURN NEW;
   END IF;
   v_lock := public.cash_order_payment_lock(NEW.id);
   IF v_lock LIKE 'paidy%' THEN
-    RAISE EXCEPTION 'paidy_in_progress: % — this order is being paid with Paidy, so its balance cannot be edited. Reject the Paidy payment first.', v_lock
+    RAISE EXCEPTION 'paidy_in_progress: % — this order is being paid with Paidy, so its balance and amount paid cannot be edited. Reject the Paidy payment first.', v_lock
       USING ERRCODE = 'P0001';
   END IF;
   IF v_lock = 'card_payment_unresolved' THEN
-    RAISE EXCEPTION 'card_payment_unresolved — this order has a card payment waiting for Confirm, Reject or recording, so its balance cannot be edited. Resolve the card payment first.'
+    RAISE EXCEPTION 'card_payment_unresolved — this order has a card payment waiting for Confirm, Reject or recording, so its balance and amount paid cannot be edited. Resolve the card payment first.'
       USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
@@ -282,8 +318,56 @@ REVOKE ALL ON FUNCTION public.guard_cash_order_balance_during_hold() FROM PUBLIC
 
 DROP TRIGGER IF EXISTS trg_guard_cash_order_balance_during_hold ON public.cash_orders;
 CREATE TRIGGER trg_guard_cash_order_balance_during_hold
-  BEFORE UPDATE OF remaining_balance ON public.cash_orders
+  BEFORE UPDATE OF remaining_balance, total_paid ON public.cash_orders
   FOR EACH ROW EXECUTE FUNCTION public.guard_cash_order_balance_during_hold();
+
+-- L6b -----------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.web_order_refund_parts(p_order_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $f$
+DECLARE
+  v_marks          jsonb;
+  v_card_marked    numeric := 0;
+  v_noncard_marked boolean := false;
+  v_exc_marked     boolean := false;
+  v_card_paid      boolean := false;
+  v_noncard        numeric := 0;
+  v_paidy          numeric := 0;
+  v_recordable     numeric := 0;
+BEGIN
+  PERFORM public.assert_staff_caller('cancel_cash_order');
+  SELECT coalesce(jsonb_agg(jsonb_build_object('method', a.new_value_json ->> 'method',
+                                               'amount', (a.new_value_json ->> 'amount')::numeric,
+                                               'refunded_on', a.new_value_json ->> 'refunded_on') ORDER BY a.created_at), '[]'::jsonb),
+         coalesce(sum((a.new_value_json ->> 'amount')::numeric) FILTER (WHERE a.new_value_json ->> 'method' = 'card'), 0),
+         coalesce(bool_or(a.new_value_json ->> 'method' IN ('bank_transfer', 'paidy', 'cash', 'other')), false),
+         coalesce(bool_or(a.new_value_json ->> 'method' IN ('bank_transfer_exception', 'store_credit_exception')), false)
+    INTO v_marks, v_card_marked, v_noncard_marked, v_exc_marked
+    FROM public.audit_logs a
+   WHERE a.entity_type = 'cash_order' AND a.entity_id = p_order_id AND a.action = 'refund_marked_issued';
+  v_card_paid := EXISTS (SELECT 1 FROM public.cash_payments
+                          WHERE cash_order_id = p_order_id AND voided_at IS NULL AND payment_method = 'square');
+  SELECT coalesce(sum(amount_paid) FILTER (WHERE coalesce(payment_method, '') <> 'square'), 0),
+         coalesce(sum(amount_paid) FILTER (WHERE payment_method = 'paidy'), 0)
+    INTO v_noncard, v_paidy
+    FROM public.cash_payments
+   WHERE cash_order_id = p_order_id AND voided_at IS NULL
+     AND coalesce(reference_number, '') NOT LIKE 'LOYALTY-%';
+  v_recordable := public.square_order_card_refund_recordable_jpy(p_order_id);
+  RETURN jsonb_build_object(
+    'marks', v_marks, 'card_paid', v_card_paid, 'card_recordable_jpy', v_recordable,
+    'card_marked_jpy', v_card_marked, 'non_card_jpy', v_noncard, 'paidy_jpy', v_paidy,
+    'exception_marked', v_exc_marked,
+    'card_open', v_card_paid AND NOT v_exc_marked AND v_recordable > v_card_marked + 0.005,
+    'non_card_open', v_card_paid AND v_noncard > 0 AND NOT v_noncard_marked);
+END
+$f$;
+REVOKE ALL ON FUNCTION public.web_order_refund_parts(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.web_order_refund_parts(uuid) TO authenticated, service_role;
 
 -- Self-check --------------------------------------------------------------------------
 DO $self$
@@ -291,7 +375,7 @@ DECLARE
   d text;
 BEGIN
   d := pg_get_functiondef('public.apply_square_payment_state(text,text,bigint,bigint,text,text,timestamptz,timestamptz,timestamptz,text,text,text,text,jsonb,jsonb,text,uuid)'::regprocedure);
-  IF position('coalesce(refund_jpy, 0), 0)' IN d) = 0 OR position('FROM public.square_card_attempts a' IN d) = 0 THEN
+  IF position('WHEN p_refunded_jpy IS NULL THEN refund_jpy' IN d) = 0 OR position('FROM public.square_card_attempts a' IN d) = 0 THEN
     RAISE EXCEPTION 'STOP — L3/L4 apply not complete';
   END IF;
   IF position('square_card_attempts' IN d) > position('FROM public.square_payments WHERE square_payment_id = p_square_payment_id FOR UPDATE' IN d) THEN
@@ -303,7 +387,8 @@ BEGIN
     RAISE EXCEPTION 'STOP — L4 close not complete';
   END IF;
   d := pg_get_functiondef('public.record_square_dispute(text,text,text,text,bigint,timestamptz,timestamptz,timestamptz,jsonb)'::regprocedure);
-  IF position('card_dispute_unrecorded' IN d) = 0 OR position('bad_currency' IN d) = 0 THEN
+  IF position('card_dispute_unrecorded' IN d) = 0 OR position('bad_currency' IN d) = 0
+     OR position('card_dispute_amount_unreadable' IN d) = 0 OR position('v_sq.cash_order_id, v_amount, v_st' IN d) = 0 THEN
     RAISE EXCEPTION 'STOP — L2 not complete';
   END IF;
   d := pg_get_functiondef('public.mark_web_order_refund_issued_atomic(uuid,uuid,text,date,text,jsonb)'::regprocedure);
@@ -329,7 +414,9 @@ BEGIN
      OR has_function_privilege('anon', 'public.mark_web_order_refund_issued_atomic(uuid,uuid,text,date,text,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.mark_web_order_refund_issued_atomic(uuid,uuid,text,date,text,jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.file_square_authorization_atomic(uuid,text,bigint,text,text,text,text,text,timestamptz,timestamptz,text,jsonb,text,timestamptz,jsonb,date,text,text,text,text)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.close_square_attempt_atomic(uuid,text)', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.close_square_attempt_atomic(uuid,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.web_order_refund_parts(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.web_order_refund_parts(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOP — grants changed';
   END IF;
 END

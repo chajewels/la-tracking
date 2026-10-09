@@ -126,10 +126,8 @@ interface CardRefundFacts {
   disputed: number;
   /** F-03 / L6: what mark_web_order_refund_issued_atomic can record for "card" — COMPLETED refunds of captures recorded on the order, capped per payment at the money RECORDED. */
   cardRecordable: number;
-  /** L6 (2026-10-09): money on the order that did not come by card (bank transfer, Paidy, …), loyalty discounts excluded. */
-  nonCardPaid: number;
-  /** L6: the refund marks already on the order (audit refund_marked_issued), oldest first. */
-  marks: RefundMark[];
+  /** L6: the refund parts as the SQL sees them (web_order_refund_parts). */
+  parts: RefundParts;
   /** SQV03: the open approval, if any. */
   approval: ExceptionApproval | null;
 }
@@ -149,37 +147,77 @@ export function authorizedOverOneYear(authorizedAt: string | null | undefined, n
 /** L6: one "Mark refund issued" already recorded on the order. */
 export interface RefundMark { method: string; amount: number | null; refundedOn: string | null }
 
-const NON_CARD_METHODS = new Set(['bank_transfer', 'paidy', 'cash', 'other']);
-const EXCEPTION_METHOD_SET = new Set(['bank_transfer_exception', 'store_credit_exception']);
-
 /**
- * L6 (2026-10-09): which part of a cancelled web order may still be marked
- * refunded — the SAME rule as mark_web_order_refund_issued_atomic (the SQL is
- * the authority; this only decides whether to offer the button):
- *   card     — no exception mark, and Square has completed more on the recorded
- *              card money than the card marks so far;
- *   nonCard  — paid partly by card AND partly another way, no non-card mark yet.
+ * L6 (2026-10-09): the refund parts of a cancelled web order, from the SQL
+ * (web_order_refund_parts — staff with cancel_cash_order; the audit table
+ * itself is admin / finance only). The SQL is the authority on which part is
+ * still open; this page only offers what it says.
  */
-export function refundPartsOpen(
-  marks: RefundMark[],
-  f: Pick<CardRefundFacts, 'paidByCard' | 'cardRecordable' | 'nonCardPaid'>,
-): { card: boolean; nonCard: boolean } {
-  const cardMarked = marks.filter((m) => m.method === 'card').reduce((t, m) => t + Number(m.amount ?? 0), 0);
-  const exc = marks.some((m) => EXCEPTION_METHOD_SET.has(m.method));
-  const nonCardMarked = marks.some((m) => NON_CARD_METHODS.has(m.method));
+export interface RefundParts {
+  marks: RefundMark[];
+  cardOpen: boolean;
+  nonCardOpen: boolean;
+  cardMarked: number;
+  nonCard: number;
+  paidy: number;
+}
+export function refundPartsFrom(raw: unknown): RefundParts {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const marks = Array.isArray(r.marks) ? (r.marks as Record<string, unknown>[]) : [];
   return {
-    card: f.paidByCard && !exc && f.cardRecordable > cardMarked + 0.005,
-    nonCard: f.paidByCard && f.nonCardPaid > 0 && !nonCardMarked,
+    marks: marks.map((m) => ({ method: String(m.method ?? ''), amount: m.amount != null ? Number(m.amount) : null, refundedOn: m.refunded_on ? String(m.refunded_on) : null }))
+      .filter((m) => m.method),
+    cardOpen: r.card_open === true,
+    nonCardOpen: r.non_card_open === true,
+    cardMarked: Number(r.card_marked_jpy ?? 0),
+    nonCard: Number(r.non_card_jpy ?? 0),
+    paidy: Number(r.paidy_jpy ?? 0),
   };
 }
+async function loadRefundParts(orderId: string): Promise<RefundParts> {
+  // web_order_refund_parts is not in the generated types until Lovable's next push.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.rpc as any)('web_order_refund_parts', { p_order_id: orderId });
+  if (error) throw error;
+  return refundPartsFrom(data);
+}
 
-/** L6: the card money already marked refunded (sum of the card marks). */
-export function cardMarkedTotal(marks: RefundMark[]): number {
-  return marks.filter((m) => m.method === 'card').reduce((t, m) => t + Number(m.amount ?? 0), 0);
+const NON_CARD_ORDER = ['bank_transfer', 'paidy', 'cash', 'other'] as const;
+
+/**
+ * L6: which methods the dialog offers, and which one it starts on. Pure.
+ *   - an approval open → only its exception method;
+ *   - no card money → every ordinary method (bank transfer first);
+ *   - card money, nothing marked yet → card, the non-card methods on a mixed
+ *     order, and the exception methods when the exception is open (admin);
+ *   - card money, already marked once → only the part the SQL says is open:
+ *     card (a later completed Square refund) and/or the non-card part —
+ *     never an exception method on a further mark.
+ * The non-card part of an order whose non-card money is all Paidy is recorded
+ * as Paidy only (refunded in the Paidy dashboard) — never a bank-transfer default.
+ */
+export function refundMethodChoice(i: {
+  paidByCard: boolean;
+  approvalPayout: 'bank_transfer' | 'store_credit' | null;
+  exceptionOpen: boolean;
+  parts: RefundParts;
+}): { methods: string[]; initial: string } {
+  if (i.approvalPayout) return { methods: [`${i.approvalPayout}_exception`], initial: `${i.approvalPayout}_exception` };
+  if (!i.paidByCard) return { methods: ['bank_transfer', 'paidy', 'card', 'cash', 'other'], initial: 'bank_transfer' };
+  const p = i.parts;
+  const nonCard: string[] = p.nonCard <= 0 ? []
+    : p.paidy >= p.nonCard - 0.005 ? ['paidy']
+      : NON_CARD_ORDER.filter((m) => m !== 'paidy' || p.paidy > 0);
+  if (p.marks.length === 0) {
+    const methods = ['card', ...nonCard, ...(i.exceptionOpen ? ['bank_transfer_exception', 'store_credit_exception'] : [])];
+    return { methods, initial: 'card' };
+  }
+  const methods = [...(p.cardOpen ? ['card'] : []), ...(p.nonCardOpen ? nonCard : [])];
+  return { methods, initial: methods[0] ?? 'card' };
 }
 
 async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
-  const [pays, refunds, captures, lots, approvals, disputes, cardRows, markRows] = await Promise.all([
+  const [pays, refunds, captures, lots, approvals, disputes, cardRows, parts] = await Promise.all([
     supabase.from('cash_payments').select('id, amount_paid, payment_method, reference_number').eq('cash_order_id', orderId).is('voided_at', null),
     supabase.from('square_refunds').select('square_refund_id, amount_jpy, status, square_payment_row').eq('cash_order_id', orderId),
     supabase.from('square_payments').select('authorized_at, status, amount_jpy').eq('cash_order_id', orderId).eq('status', 'captured'),
@@ -191,10 +229,8 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
       .eq('cash_order_id', orderId).eq('status', 'approved').maybeSingle(),
     supabase.from('square_disputes').select('amount_jpy, state, square_payment_row').eq('cash_order_id', orderId),
     supabase.from('square_payments').select('id, amount_jpy, captured_amount_jpy, cash_payment_id').eq('cash_order_id', orderId),
-    supabase.from('audit_logs').select('new_value_json').eq('entity_type', 'cash_order').eq('entity_id', orderId)
-      .eq('action', 'refund_marked_issued').order('created_at', { ascending: true }),
+    loadRefundParts(orderId),
   ]);
-  if (markRows.error) throw markRows.error;
   if (pays.error) throw pays.error;
   if (refunds.error) throw refunds.error;
   if (captures.error) throw captures.error;
@@ -207,10 +243,6 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
   const payRows = (pays.data ?? []) as { id: string; amount_paid: number | string | null; payment_method: string | null; reference_number: string | null }[];
   const card = payRows.filter((p) => p.payment_method === 'square');
   const recordedById = new Map(card.map((p) => [p.id, Number(p.amount_paid ?? 0)]));
-  const marks: RefundMark[] = ((markRows.data ?? []) as { new_value_json: unknown }[]).map((r) => {
-    const v = (r.new_value_json ?? {}) as { method?: string; amount?: number | string | null; refunded_on?: string | null };
-    return { method: String(v.method ?? ''), amount: v.amount != null ? Number(v.amount) : null, refundedOn: v.refunded_on ? String(v.refunded_on) : null };
-  });
   const rows = (refunds.data ?? []) as { square_refund_id: string; amount_jpy: number | string | null; status: string | null; square_payment_row: string | null }[];
   const sum = (xs: { amount_jpy: number | string | null }[]) => xs.reduce((t, r) => t + Number(r.amount_jpy ?? 0), 0);
   const a = approvals.data as null | { id: string; payout: string; amount_jpy: number | string; cap_jpy: number | string; trigger_kind: string; square_refund_id: string | null; square_support_ticket: string; approved_at: string; approval_note: string | null };
@@ -228,9 +260,7 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
       .reduce((t, d) => t + (d.amount_jpy != null ? Number(d.amount_jpy)
         : Math.round(Number(sqById.get(d.square_payment_row ?? '')?.amount_jpy ?? 0))), 0),
     cardRecordable: cardRecordable(rows, sqById, recordedById),
-    nonCardPaid: payRows.filter((p) => p.payment_method !== 'square' && !String(p.reference_number ?? '').startsWith('LOYALTY-'))
-      .reduce((t, p) => t + Number(p.amount_paid ?? 0), 0),
-    marks,
+    parts,
     creditIssued: ((lots.data ?? []) as { original_amount: number | string | null; status: string | null }[])
       .filter((l) => l.status !== 'voided').reduce((t, l) => t + Number(l.original_amount ?? 0), 0),
     approval: a ? {
@@ -239,6 +269,7 @@ async function loadCardRefundFacts(orderId: string): Promise<CardRefundFacts> {
     } : null,
   };
 }
+
 
 /** SQF06/SQV04: the exception is open when Square itself cannot refund. Pure — the SQL is the authority. */
 export function cardException(f: Pick<CardRefundFacts, 'paidByCard' | 'failedRefunds' | 'authorizedOverOneYear'> | null | undefined): boolean {
@@ -326,21 +357,12 @@ export function RefundIssuedLine({ orderId, onRecordAnother }: { orderId: string
   const [another, setAnother] = useState(false);
   useEffect(() => {
     let live = true;
-    supabase.from('audit_logs').select('new_value_json').eq('entity_type', 'cash_order').eq('entity_id', orderId)
-      .eq('action', 'refund_marked_issued').order('created_at', { ascending: true })
-      .then(({ data }) => {
-        if (!live || !data) return;
-        setMarks((data as { new_value_json: unknown }[]).map((r) => {
-          const v = (r.new_value_json ?? {}) as { method?: string; refunded_on?: string; amount?: number | string };
-          return { method: String(v.method ?? ''), refundedOn: v.refunded_on ? String(v.refunded_on) : null, amount: v.amount != null ? Number(v.amount) : null };
-        }).filter((m) => m.method));
-      });
-    // L6: offer "Record another part" only when the SQL would accept one.
-    if (onRecordAnother) {
-      loadCardRefundFacts(orderId)
-        .then((f) => { if (live) { const open = refundPartsOpen(f.marks, f); setAnother(open.card || open.nonCard); } })
-        .catch(() => { if (live) setAnother(false); });
-    }
+    // L6: the marks and the open parts come from the SQL (web_order_refund_parts,
+    // staff with cancel_cash_order). "Record the other part" only when it says a
+    // part is open; anyone else sees "Refund issued." without the detail.
+    loadRefundParts(orderId)
+      .then((p) => { if (live) { setMarks(p.marks); setAnother(p.cardOpen || p.nonCardOpen); } })
+      .catch(() => { if (live) { setMarks([]); setAnother(false); } });
     return () => { live = false; };
   }, [orderId, onRecordAnother]);
   const part = (m: RefundMark) => `${REFUND_METHOD_LABEL[m.method] ?? m.method}${m.amount != null ? ` — ${yen(m.amount)}` : ''}${m.refundedOn ? ` on ${m.refundedOn}` : ''}`;
@@ -366,7 +388,7 @@ export function canMarkRefundIssued(o: { source_channel?: string | null; status?
 /**
  * L6 (2026-10-09): a cancelled web order already marked refunded may take ONE
  * more mark per part (the card part, or the part paid another way) — the
- * button itself appears only when refundPartsOpen says a part is open.
+ * button itself appears only when web_order_refund_parts says a part is open.
  */
 export function canMarkFurtherRefund(o: { source_channel?: string | null; status?: string | null; refund_status?: string | null } | null | undefined): boolean {
   return !!o && o.source_channel === 'web' && o.status === 'cancelled' && o.refund_status === 'refund_issued';
@@ -410,11 +432,8 @@ export function MarkRefundIssuedDialog({
       .then((f) => {
         if (!live) return;
         setCard(f);
-        const parts = refundPartsOpen(f.marks, f);
-        if (f.approval) setMethod(`${f.approval.payout}_exception`);
-        // L6: on an order already marked once, start on the part still open.
-        else if (f.paidByCard && (parts.card || f.marks.length === 0)) setMethod('card');
-        else if (f.paidByCard && parts.nonCard) setMethod('bank_transfer');
+        // L6: start on the part the SQL says is open (Paidy-only non-card money starts on Paidy).
+        setMethod(refundMethodChoice({ paidByCard: f.paidByCard, approvalPayout: f.approval?.payout ?? null, exceptionOpen: false, parts: f.parts }).initial);
         setExcRefundId(f.failedRefunds[0]?.id ?? '');
         setExcAmount(String(exceptionCap(f)));
       })
@@ -432,17 +451,17 @@ export function MarkRefundIssuedDialog({
   const cardOnly = card?.paidByCard === true;
   // L6 (2026-10-09): paid partly by card and partly another way — each part is
   // recorded with its own method, once (the card part as Square completed it).
-  const mixed = cardOnly && (card?.nonCardPaid ?? 0) > 0;
-  const cardMarked = card ? cardMarkedTotal(card.marks) : 0;
+  const mixed = cardOnly && (card?.parts.nonCard ?? 0) > 0;
+  const cardMarked = card?.parts.cardMarked ?? 0;
   const cardStillRecordable = Math.max(0, (card?.cardRecordable ?? 0) - cardMarked);
   const exceptionOpen = isAdmin && (cardException(card) || !!approval);
   const isException = method === 'bank_transfer_exception' || method === 'store_credit_exception';
   const payout = method === 'store_credit_exception' ? 'store_credit' : 'bank_transfer';
   const cardBlocked = cardOnly && method === 'card' && cardStillRecordable <= 0;
-  const methods = cardOnly
-    ? approval
-      ? EXCEPTION_METHODS.filter((m) => m.value === `${approval.payout}_exception`)
-      : [...METHODS.filter((m) => m.value === 'card'), ...(mixed ? METHODS.filter((m) => m.value !== 'card') : []), ...(exceptionOpen ? EXCEPTION_METHODS : [])]
+  const ALL_METHODS: readonly { value: string; label: string }[] = [...METHODS, ...EXCEPTION_METHODS];
+  const methods = card
+    ? refundMethodChoice({ paidByCard: card.paidByCard, approvalPayout: approval?.payout ?? null, exceptionOpen, parts: card.parts }).methods
+        .map((v) => ALL_METHODS.find((m) => m.value === v)).filter((m): m is { value: string; label: string } => !!m)
     : METHODS;
   const cap = card ? exceptionCap(card) : 0;
   /** Step 1 is shown for an exception method with no approval yet; step 2 once approved. */
@@ -572,7 +591,7 @@ export function MarkRefundIssuedDialog({
             <div className={`rounded-md border p-2.5 text-xs ${cardBlocked ? 'border-warning/60 bg-warning/5 text-warning' : 'border-border bg-background text-muted-foreground'}`}>
               <p>Paid by card: {yen(card.cardPaid)}. Square shows <strong className="text-card-foreground">{yen(card.refundedCompleted)}</strong> refunded (completed).</p>
               {mixed && (
-                <p data-testid="refund-mixed-note">Also paid another way: {yen(card.nonCardPaid)}. Record each part with its own method — the card part as Square completed it, the other part as it was sent. Each part is recorded once.</p>
+                <p data-testid="refund-mixed-note">Also paid another way: {yen(card.parts.nonCard)}{card.parts.paidy > 0 ? ` (Paidy ${yen(card.parts.paidy)} — refunded in the Paidy dashboard)` : ''}. Record each part with its own method — the card part as Square completed it, the other part as it was sent. Each part is recorded once.</p>
               )}
               {refundProcessing && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
               {cardBlocked

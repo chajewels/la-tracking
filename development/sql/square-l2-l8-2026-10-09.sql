@@ -32,20 +32,29 @@ SELECT pg_temp.o(i), 'L28' || i, '00000000-0000-0000-0000-0000000000c8', 'pendin
        (now() AT TIME ZONE 'Asia/Manila')::date - 3, 15000, 0, 15000
 FROM generate_series(1, 9) i;
 
--- ===== L3: refund_jpy never goes down =====================================================
+-- ===== L3: refund_jpy kept when Square said nothing; Square's own figure otherwise ========
 INSERT INTO public.square_payments (id, cash_order_id, customer_id, square_payment_id, status, test, amount_jpy, captured_amount_jpy,
-                                    authorized_at, captured_at, environment, currency, refund_jpy)
+                                    authorized_at, captured_at, environment, currency, refund_jpy, provider_updated_at)
 VALUES (pg_temp.sp(1), pg_temp.o(1), '00000000-0000-0000-0000-0000000000c8', 'sq_l28_1', 'captured', true, 15000, 15000,
-        now() - interval '2 days', now() - interval '1 day', 'sandbox', 'JPY', 5000);
-SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, 0, 'JPY', NULL, NULL, NULL, NULL,
+        now() - interval '2 days', now() - interval '1 day', 'sandbox', 'JPY', 5000, '2026-10-09T10:00:00Z');
+SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, NULL, 'JPY', NULL, '2026-10-09T11:00:00Z', NULL, NULL,
        NULL, NULL, NULL, NULL, NULL, NULL, 'webhook', NULL)$q$);
 SELECT pg_temp.ok((SELECT refund_jpy FROM public.square_payments WHERE id = pg_temp.sp(1)) = 5000,
-  'L3 a later payment.updated without refunded_money keeps refund_jpy',
+  'L3 a later payment.updated that omits refunded_money (NULL) keeps refund_jpy',
   (SELECT 'refund_jpy=' || refund_jpy FROM public.square_payments WHERE id = pg_temp.sp(1)));
-SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, 7000, 'JPY', NULL, NULL, NULL, NULL,
+SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, 7000, 'JPY', NULL, '2026-10-09T12:00:00Z', NULL, NULL,
        NULL, NULL, NULL, NULL, NULL, NULL, 'webhook', NULL)$q$);
 SELECT pg_temp.ok((SELECT refund_jpy FROM public.square_payments WHERE id = pg_temp.sp(1)) = 7000,
-  'CONTROL L3 a larger refunded total still raises refund_jpy');
+  'CONTROL L3 a newer, larger refunded total raises refund_jpy');
+SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, 2000, 'JPY', NULL, '2026-10-09T13:00:00Z', NULL, NULL,
+       NULL, NULL, NULL, NULL, NULL, NULL, 'webhook', NULL)$q$);
+SELECT pg_temp.ok((SELECT refund_jpy FROM public.square_payments WHERE id = pg_temp.sp(1)) = 2000,
+  'L3 a NEWER figure Square did send is taken even when lower (a refund that FAILED)');
+SELECT pg_temp.try($q$SELECT public.apply_square_payment_state('sq_l28_1', 'COMPLETED', 15000, 9000, 'JPY', NULL, '2026-10-09T09:00:00Z', NULL, NULL,
+       NULL, NULL, NULL, NULL, NULL, NULL, 'webhook', NULL)$q$);
+SELECT pg_temp.ok((SELECT refund_jpy FROM public.square_payments WHERE id = pg_temp.sp(1)) = 2000,
+  'CONTROL L3 an OLDER observation (provider_updated_at) changes nothing');
+
 
 -- ===== L4: one lock order (attempt first) =================================================
 SELECT pg_temp.ok(
@@ -67,31 +76,70 @@ SELECT pg_temp.ok(r ->> 'ok' = 'true', 'CONTROL L4 an admin still closes a stuck
   FROM (SELECT pg_temp.try(format('SELECT public.close_square_attempt_atomic(%L, %L)', pg_temp.att(4), 'checked the Square Dashboard, nothing there')) r) x;
 SELECT set_config('request.jwt.claims', '', true);
 
--- ===== L2: a dispute the Hub cannot read is refused, one bell =============================
+-- ===== L2: an unreadable dispute AMOUNT is stored as NULL (whole payment) + one bell; =====
+-- =====     only a non-yen or wrong-parent dispute is refused                          =====
 INSERT INTO public.square_payments (id, cash_order_id, customer_id, square_payment_id, status, test, amount_jpy, captured_amount_jpy,
                                     authorized_at, captured_at, environment, currency)
 VALUES (pg_temp.sp(2), pg_temp.o(2), '00000000-0000-0000-0000-0000000000c8', 'sq_l28_2', 'captured', true, 15000, 15000,
+        now() - interval '2 days', now() - interval '1 day', 'sandbox', 'JPY'),
+       (pg_temp.sp(12), pg_temp.o(2), '00000000-0000-0000-0000-0000000000c8', 'sq_l28_12', 'captured', true, 15000, 15000,
         now() - interval '2 days', now() - interval '1 day', 'sandbox', 'JPY');
-SELECT pg_temp.ok(r ->> 'error' = 'bad_amount', 'L2 a dispute with no amount is refused (bad_amount)', r::text)
+SELECT pg_temp.ok(r ->> 'ok' = 'true', 'L2 a dispute with no amount is still recorded', r::text)
   FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_a', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', NULL, NULL, NULL, NULL,
         '{"id":"dp_l28_a","state":"EVIDENCE_REQUIRED"}'::jsonb)$q$) r) x;
 SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_a', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', NULL, NULL, NULL, NULL,
         '{"id":"dp_l28_a","state":"EVIDENCE_REQUIRED"}'::jsonb)$q$);
-SELECT pg_temp.ok(NOT EXISTS (SELECT 1 FROM public.square_disputes WHERE square_dispute_id = 'dp_l28_a'),
-  'L2 nothing stored for the unreadable dispute');
-SELECT pg_temp.ok((SELECT count(*) FROM public.staff_notifications WHERE type = 'card_dispute_unrecorded' AND metadata ->> 'dispute_id' = 'dp_l28_a') = 1,
-  'L2 exactly one card_dispute_unrecorded bell across two deliveries',
-  (SELECT count(*)::text FROM public.staff_notifications WHERE type = 'card_dispute_unrecorded' AND metadata ->> 'dispute_id' = 'dp_l28_a'));
+SELECT pg_temp.ok((SELECT amount_jpy IS NULL FROM public.square_disputes WHERE square_dispute_id = 'dp_l28_a'),
+  'L2 the unreadable dispute is stored with amount NULL (never 0)');
+SELECT pg_temp.ok(public.square_order_disputed_jpy(pg_temp.o(2)) = 15000,
+  'L2 square_order_disputed_jpy counts the WHOLE payment for it', public.square_order_disputed_jpy(pg_temp.o(2))::text);
+SELECT pg_temp.ok((SELECT count(*) FROM public.staff_notifications WHERE type = 'card_dispute_amount_unreadable' AND metadata ->> 'dispute_id' = 'dp_l28_a') = 1,
+  'L2 exactly one card_dispute_amount_unreadable bell across two deliveries',
+  (SELECT count(*)::text FROM public.staff_notifications WHERE type = 'card_dispute_amount_unreadable' AND metadata ->> 'dispute_id' = 'dp_l28_a'));
+SELECT pg_temp.ok(r ->> 'ok' = 'true', 'L2 a payload amount that differs from the figure passed is recorded too', r::text)
+  FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_c', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', 15000, NULL, NULL, NULL,
+        '{"id":"dp_l28_c","amount_money":{"amount":1500,"currency":"JPY"}}'::jsonb)$q$) r) x;
+SELECT pg_temp.ok((SELECT amount_jpy IS NULL FROM public.square_disputes WHERE square_dispute_id = 'dp_l28_c')
+                  AND EXISTS (SELECT 1 FROM public.staff_notifications WHERE type = 'card_dispute_amount_unreadable' AND metadata ->> 'dispute_id' = 'dp_l28_c'),
+  'L2 ... with amount NULL and its bell (the figure the Hub could not read is never stored)');
 SELECT pg_temp.ok(r ->> 'error' = 'bad_currency', 'L2 a non-yen dispute is refused (bad_currency)', r::text)
   FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_b', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', 100, NULL, NULL, NULL,
         '{"id":"dp_l28_b","amount_money":{"amount":100,"currency":"USD"}}'::jsonb)$q$) r) x;
-SELECT pg_temp.ok(r ->> 'error' = 'bad_amount', 'L2 a payload amount that differs from the recorded figure is refused', r::text)
-  FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_c', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', 15000, NULL, NULL, NULL,
-        '{"id":"dp_l28_c","amount_money":{"amount":1500,"currency":"JPY"}}'::jsonb)$q$) r) x;
+SELECT pg_temp.ok(NOT EXISTS (SELECT 1 FROM public.square_disputes WHERE square_dispute_id = 'dp_l28_b')
+                  AND (SELECT count(*) FROM public.staff_notifications WHERE type = 'card_dispute_unrecorded' AND metadata ->> 'dispute_id' = 'dp_l28_b') = 1,
+  'L2 ... nothing stored, one card_dispute_unrecorded bell');
 SELECT pg_temp.ok(r ->> 'ok' = 'true' AND (r -> 'dispute' ->> 'amount_jpy')::bigint = 15000,
-  'CONTROL L2 a readable yen dispute is recorded', r::text)
+  'CONTROL L2 a readable yen dispute is recorded with its amount', r::text)
+  FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_d', 'sq_l28_12', 'EVIDENCE_REQUIRED', 'FRAUD', 15000, NULL, NULL, NULL,
+        '{"id":"dp_l28_d","amount_money":{"amount":15000,"currency":"JPY"}}'::jsonb)$q$) r) x;
+SELECT pg_temp.ok(r ->> 'error' = 'parent_mismatch', 'L2 the same dispute id on another payment is refused (parent_mismatch)', r::text)
   FROM (SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_d', 'sq_l28_2', 'EVIDENCE_REQUIRED', 'FRAUD', 15000, NULL, NULL, NULL,
         '{"id":"dp_l28_d","amount_money":{"amount":15000,"currency":"JPY"}}'::jsonb)$q$) r) x;
+
+-- H1: an EVIDENCE_REQUIRED dispute with no amount still blocks store credit on cancel.
+-- Order 10: a Hub cash order paid ¥15,000 by card (recorded); the chargeback arrives with no amount.
+INSERT INTO public.cash_orders (id, invoice_number, customer_id, status, currency, order_date, total_amount, total_paid, remaining_balance)
+VALUES (pg_temp.o(10), 'L2810', '00000000-0000-0000-0000-0000000000c8', 'pending', 'JPY', (now() AT TIME ZONE 'Asia/Manila')::date - 3, 15000, 15000, 0);
+INSERT INTO public.square_payments (id, cash_order_id, customer_id, square_payment_id, status, test, amount_jpy, captured_amount_jpy,
+                                    authorized_at, captured_at, environment, currency)
+VALUES (pg_temp.sp(10), pg_temp.o(10), '00000000-0000-0000-0000-0000000000c8', 'sq_l28_10', 'captured', true, 15000, 15000,
+        now() - interval '3 days', now() - interval '2 days', 'sandbox', 'JPY');
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.cash_payments (id, cash_order_id, amount_paid, currency, date_paid, payment_method, reference_number, provider_capture_id)
+VALUES (pg_temp.cp(10), pg_temp.o(10), 15000, 'JPY', current_date - 2, 'square', 'sq_l28_10', 'sq_l28_10');
+UPDATE public.square_payments SET cash_payment_id = pg_temp.cp(10) WHERE id = pg_temp.sp(10);
+SET LOCAL session_replication_role = origin;
+SELECT pg_temp.try($q$SELECT public.record_square_dispute('dp_l28_h1', 'sq_l28_10', 'EVIDENCE_REQUIRED', 'FRAUD', NULL, NULL, NULL, NULL,
+        '{"id":"dp_l28_h1","state":"EVIDENCE_REQUIRED"}'::jsonb)$q$);
+SELECT pg_temp.ok(public.square_order_disputed_jpy(pg_temp.o(10)) = 15000,
+  'H1 the amount-less chargeback counts the whole ¥15,000 payment', public.square_order_disputed_jpy(pg_temp.o(10))::text);
+SELECT pg_temp.ok(r ->> 'raised' LIKE 'card_disputed%', 'H1 cancel with store credit is refused (card_disputed)', r::text)
+  FROM (SELECT pg_temp.try(format('SELECT public.cancel_cash_order_atomic(%L, %L, %L, NULL, false, %L)',
+                                  pg_temp.o(10), 'test: customer asked to cancel', :'admin', 'staff')) r) x;
+SELECT pg_temp.ok((SELECT status::text FROM public.cash_orders WHERE id = pg_temp.o(10)) = 'pending'
+                  AND NOT EXISTS (SELECT 1 FROM public.store_credit_lots WHERE source_cash_order_id = pg_temp.o(10)),
+  'H1 nothing cancelled, no store credit issued');
+
 
 -- ===== L5: the browser cannot move the balance while a card payment holds the order =======
 INSERT INTO public.square_payments (id, cash_order_id, customer_id, square_payment_id, status, test, amount_jpy,
@@ -104,6 +152,10 @@ SELECT pg_temp.ok(r LIKE 'card_payment_unresolved%', 'L5 a signed-in edit of rem
   FROM (SELECT pg_temp.run(format('UPDATE public.cash_orders SET remaining_balance = 1 WHERE id = %L', pg_temp.o(3))) r) x;
 SELECT pg_temp.ok(r LIKE 'card_payment_unresolved%', 'L5 the Manage Invoice payload (same total, recomputed balance) is refused too', r)
   FROM (SELECT pg_temp.run(format('UPDATE public.cash_orders SET total_amount = 15000, remaining_balance = 14000, order_date = order_date WHERE id = %L', pg_temp.o(3))) r) x;
+SELECT pg_temp.ok(r LIKE 'card_payment_unresolved%', 'L5 a signed-in change of total_paid (with the balance) is refused too', r)
+  FROM (SELECT pg_temp.run(format('UPDATE public.cash_orders SET total_paid = 15000, remaining_balance = 0 WHERE id = %L', pg_temp.o(3))) r) x;
+SELECT pg_temp.ok(r LIKE 'card_payment_unresolved%', 'L5 a signed-in change of total_paid alone is refused', r)
+  FROM (SELECT pg_temp.run(format('UPDATE public.cash_orders SET total_paid = 1 WHERE id = %L', pg_temp.o(3))) r) x;
 SELECT pg_temp.ok(r = 'ok', 'CONTROL L5 a signed-in edit of another field still works', r)
   FROM (SELECT pg_temp.run(format('UPDATE public.cash_orders SET order_date = order_date - 1 WHERE id = %L', pg_temp.o(3))) r) x;
 SELECT pg_temp.ok(r = 'ok', 'CONTROL L5 the balance of an order with no lock can still be edited', r)
@@ -162,6 +214,26 @@ SELECT pg_temp.ok((SELECT count(*) FROM public.audit_logs WHERE entity_id = pg_t
 SELECT pg_temp.ok(r ->> 'ok' = 'true' AND (r ->> 'amount')::numeric = 7000,
   'L6 order 6: the card figure is the RECORDED card money returned (¥7,000), not the ¥10,000 Square refunded', r::text)
   FROM (SELECT pg_temp.mark(pg_temp.o(6), 'card') r) x;
+SELECT pg_temp.ok((SELECT jsonb_object_agg(a.new_value_json ->> 'method', a.old_value_json ->> 'refund_status')
+                     FROM public.audit_logs a WHERE a.entity_id = pg_temp.o(5) AND a.action = 'refund_marked_issued')
+                  = '{"card": "refund_pending", "bank_transfer": "refund_issued"}'::jsonb,
+  'L6 the further mark audits the status it really had (refund_issued, not refund_pending)',
+  (SELECT string_agg(a.new_value_json ->> 'method' || ':' || (a.old_value_json ->> 'refund_status'), ', ')
+     FROM public.audit_logs a WHERE a.entity_id = pg_temp.o(5) AND a.action = 'refund_marked_issued'));
+SELECT pg_temp.ok((r ->> 'card_open')::boolean = false AND (r ->> 'non_card_open')::boolean = true
+                  AND (r ->> 'card_marked_jpy')::numeric = 7000 AND jsonb_array_length(r -> 'marks') = 1,
+  'L6b web_order_refund_parts: order 6 — card part recorded, the bank-transfer part still open', r::text)
+  FROM (SELECT pg_temp.try(format('SELECT public.web_order_refund_parts(%L)', pg_temp.o(6))) r) x;
+SELECT pg_temp.ok((r ->> 'card_open')::boolean = false AND (r ->> 'non_card_open')::boolean = false,
+  'L6b web_order_refund_parts: order 5 — both parts recorded, nothing open', r::text)
+  FROM (SELECT pg_temp.try(format('SELECT public.web_order_refund_parts(%L)', pg_temp.o(5))) r) x;
+SELECT set_config('request.jwt.claims', json_build_object('sub', :'admin', 'role', 'authenticated')::text, true);
+SELECT pg_temp.ok(r ? 'marks', 'L6b staff with cancel_cash_order can read the parts (no audit_logs access needed)', r::text)
+  FROM (SELECT pg_temp.try(format('SELECT public.web_order_refund_parts(%L)', pg_temp.o(6))) r) x;
+SELECT set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000000000c8', 'role', 'authenticated')::text, true);
+SELECT pg_temp.ok(r ->> 'raised' = 'not allowed', 'L6b a signed-in customer cannot read them', r::text)
+  FROM (SELECT pg_temp.try(format('SELECT public.web_order_refund_parts(%L)', pg_temp.o(6))) r) x;
+SELECT set_config('request.jwt.claims', '', true);
 -- Order 7
 SELECT pg_temp.ok(r ->> 'ok' = 'true' AND (r ->> 'amount')::numeric = 4000, 'L6 order 7: first card refund marked (¥4,000)', r::text)
   FROM (SELECT pg_temp.mark(pg_temp.o(7), 'card') r) x;
