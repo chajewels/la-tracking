@@ -479,7 +479,7 @@ export const square = {
    */
   listLocations: async (e: Env) => {
     const json = await call(e, "GET", "/locations");
-    return listField<{ id?: string; status?: string; name?: string; currency?: string; country?: string }>(json, "locations");
+    return listField<{ id?: string; status?: string; name?: string; currency?: string; country?: string; capabilities?: unknown }>(json, "locations");
   },
   /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
   listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {

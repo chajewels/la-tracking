@@ -914,7 +914,7 @@ Deno.serve(async (req) => {
           await releaseSquareAction();
           const ref = customerReference(cashOrder as never) || String(cashOrder.invoice_number ?? "");
           const refunded = code === "square_refunded";
-          const cannotTake = refunded || ["order_closed", "exceeds_remaining", "square_order_mismatch", "square_currency_mismatch", "square_amount_mismatch", "square_already_allocated", "square_link_mismatch", "capture_already_recorded"].includes(code);
+          const cannotTake = refunded || ["card_disputed", "order_closed", "exceeds_remaining", "square_order_mismatch", "square_currency_mismatch", "square_amount_mismatch", "square_already_allocated", "square_link_mismatch", "capture_already_recorded"].includes(code);
           // square_refunded: the finalizer already flagged refunded_before_record — keep that code.
           if (cannotTake && !refunded && squareRowId) {
             const { error: exErr } = await supabase.from("square_payments").update({

@@ -49,6 +49,7 @@ describe("decisions mirror decide_square_case", () => {
     expect(squareDecisionRefusal("refund_not_verified")).toMatch(/stays open/);
     expect(squareDecisionRefusal("void_not_verified")).toMatch(/stays open/);
     expect(squareDecisionRefusal("state_mismatch")).toMatch(/Square reports/);
+    expect(squareDecisionRefusal("card_disputed")).toMatch(/chargeback/i); // CODE-M1
     expect(squareDecisionRefusal("weird")).toBe("weird");
   });
 });

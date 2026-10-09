@@ -30,16 +30,21 @@ export interface PreflightReport {
   app_id_family: "production" | "sandbox" | null;
   events: { state: PreflightState; status: number | null; code: string | null; first_page: number | null; window_days: number };
   /** M2 (QC 2026-10-09): the configured location as Square reports it (null when not found / not read). */
-  location?: { status: string | null; currency: string | null; country: string | null } | null;
+  location?: { status: string | null; currency: string | null; country: string | null; card_processing?: boolean | null } | null;
   /** F-14: whether the environment's webhook signature key is set (the NAME is checked, never the value). */
   webhook_key?: boolean;
-  /** The whole preflight passes only when the token works, the configured location is the token's AND is an active Japanese yen location, the webhook key is set, and an Events search succeeded. */
+  /** The whole preflight passes only when the token works, the configured location is the token's AND is an active Japanese yen location activated for card payments, the webhook key is set, and an Events search succeeded. */
   passed: boolean;
 }
 
-/** M2: the location card payments are taken at must be ACTIVE, in yen, in Japan. */
+/**
+ * M2: the location card payments are taken at must be ACTIVE, in yen, in Japan.
+ * DOC-7 (go-live counter-check 2026-10-09): and Square must have activated it for card
+ * payments (capabilities include CREDIT_CARD_PROCESSING) — an ACTIVE yen location that is
+ * not activated would pass and the first live payment would fail.
+ */
 export function locationUsable(l: PreflightReport["location"]): boolean {
-  return !!l && l.status === "ACTIVE" && l.currency === "JPY" && l.country === "JP";
+  return !!l && l.status === "ACTIVE" && l.currency === "JPY" && l.country === "JP" && l.card_processing === true;
 }
 
 export function preflightPassed(r: Omit<PreflightReport, "passed">): boolean {

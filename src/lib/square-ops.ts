@@ -91,6 +91,7 @@ export function squareDecisionRefusal(code: string): string {
     case 'already_recorded': return 'This capture is already recorded on the order.';
     case 'not_captured': return 'Square does not show this payment as captured.';
     case 'order_closed': return 'The order is cancelled or expired, so it cannot take this money — refund it in the Square Dashboard.';
+    case 'card_disputed': return 'A chargeback holds or took back money on this order, so the capture cannot be booked as paid. Contest the dispute in the Square Dashboard; record it only once Square shows the dispute won.';
     case 'exceeds_remaining': return 'The order no longer owes this much. Refund the excess in the Square Dashboard, then choose "Record the net after a completed partial refund".';
     case 'state_mismatch': return 'That decision does not match what Square reports for this case yet.';
     case 'not_found': return 'The case was not found, or it is already resolved. Refresh the panel.';

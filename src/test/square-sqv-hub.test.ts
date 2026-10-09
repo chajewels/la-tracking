@@ -35,18 +35,22 @@ describe("D-SQV05 preflight lines", () => {
       location_configured: "L1", location_match: null, locations: [], app_id_family: "production",
       events: { state: "not_configured" },
     });
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(7);
     expect(lines[0]).toEqual({ ok: false, text: expect.stringMatching(/SQUARE_PRODUCTION_ACCESS_TOKEN.*401\/403/) });
     expect(lines[1].ok).toBe(false);
     expect(lines[2].ok).toBe(false); // M2: location not read
-    expect(lines[3].ok).toBe(false); // F-14: webhook key not reported
-    expect(lines[4].ok).toBe(true);
-    expect(lines[5].ok).toBe(false);
+    expect(lines[3].ok).toBe(false); // DOC-7: card activation not read
+    expect(lines[4].ok).toBe(false); // F-14: webhook key not reported
+    expect(lines[5].ok).toBe(true);
+    expect(lines[6].ok).toBe(false);
   });
   it("M2 / F-14: an ACTIVE yen location in Japan and a set webhook key pass", () => {
-    const lines = preflightLines({ location: { status: "ACTIVE", currency: "JPY", country: "JP" }, webhook_key: true });
+    const lines = preflightLines({ location: { status: "ACTIVE", currency: "JPY", country: "JP", card_processing: true }, webhook_key: true });
     expect(lines[2].ok).toBe(true);
     expect(lines[3].ok).toBe(true);
+    expect(lines[4].ok).toBe(true);
+    const off = preflightLines({ location: { status: "ACTIVE", currency: "JPY", country: "JP", card_processing: false } });
+    expect(off[3]).toEqual({ ok: false, text: expect.stringMatching(/NOT activated.*CREDIT_CARD_PROCESSING/) });
     expect(preflightLines({ location: { status: "INACTIVE", currency: "JPY", country: "JP" } })[2].ok).toBe(false);
   });
 });
