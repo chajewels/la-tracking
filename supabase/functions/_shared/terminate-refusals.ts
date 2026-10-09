@@ -15,6 +15,8 @@ const MESSAGES: Record<string, string> = {
   paidy_refund_needs_dashboard: 'This order was paid with Paidy. Choose "Refund pending", refund it in the Paidy merchant dashboard, then use "Mark refund issued" once the Hub has recorded the Paidy refund (the hourly check picks it up)',
   // PA02 (owner 2026-10-08, refuse): money Paidy already gave back never comes back again as credit.
   paidy_already_refunded: 'Money on this order was already refunded in the Paidy dashboard — it cannot be issued again as store credit. Choose "Refund pending", then "Mark refund issued"',
+  // F-02 (owner D-QC1, 2026-10-09): a chargeback that holds or took back the money counts as money returned.
+  card_disputed: 'A card chargeback on this order holds or took back the money — it cannot be issued again as store credit. Choose "Refund pending" and settle it after the dispute is decided in the Square Dashboard',
 }
 
 export function terminateRefusalMessage(reason: string | null | undefined): string | null {

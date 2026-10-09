@@ -3,7 +3,7 @@ import {
   customerCodesProblem, parseCustomerCodes, preflightLines, squareEffect, squareRefusal,
 } from "../components/settings/square-settings";
 import {
-  authorizedOverOneYear, cardException, exceptionCap, oneYearBefore, phtDay,
+  authorizedOverOneYear, cardException, cardRecordable, exceptionCap, oneYearBefore, phtDay,
 } from "../components/web-orders/MarkRefundIssuedDialog";
 
 // SQV / D-G04 / D-SQV05 (owner 2026-10-09): the pure parts of the Hub UI.
@@ -35,11 +35,19 @@ describe("D-SQV05 preflight lines", () => {
       location_configured: "L1", location_match: null, locations: [], app_id_family: "production",
       events: { state: "not_configured" },
     });
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(6);
     expect(lines[0]).toEqual({ ok: false, text: expect.stringMatching(/SQUARE_PRODUCTION_ACCESS_TOKEN.*401\/403/) });
     expect(lines[1].ok).toBe(false);
+    expect(lines[2].ok).toBe(false); // M2: location not read
+    expect(lines[3].ok).toBe(false); // F-14: webhook key not reported
+    expect(lines[4].ok).toBe(true);
+    expect(lines[5].ok).toBe(false);
+  });
+  it("M2 / F-14: an ACTIVE yen location in Japan and a set webhook key pass", () => {
+    const lines = preflightLines({ location: { status: "ACTIVE", currency: "JPY", country: "JP" }, webhook_key: true });
     expect(lines[2].ok).toBe(true);
-    expect(lines[3].ok).toBe(false);
+    expect(lines[3].ok).toBe(true);
+    expect(preflightLines({ location: { status: "INACTIVE", currency: "JPY", country: "JP" } })[2].ok).toBe(false);
   });
 });
 
@@ -65,11 +73,28 @@ describe("SQV04: the exception's age is the original authorisation, one CALENDAR
     expect(cardException(null)).toBe(false);
   });
   it("cap = captured − completed − credit, never negative", () => {
-    expect(exceptionCap({ cardPaid: 10000, refundedCompleted: 3000, creditIssued: 2000 })).toBe(5000);
-    expect(exceptionCap({ cardPaid: 1000, refundedCompleted: 1000, creditIssued: 500 })).toBe(0);
+    expect(exceptionCap({ cardCaptured: 10000, refundedCompleted: 3000, creditIssued: 2000 })).toBe(5000);
+    // F-02 / F-17 (QC 2026-10-09): chargeback money is subtracted too
+    expect(exceptionCap({ cardCaptured: 10000, refundedCompleted: 0, creditIssued: 0, disputed: 10000 })).toBe(0);
+    expect(exceptionCap({ cardCaptured: 1000, refundedCompleted: 1000, creditIssued: 500 })).toBe(0);
   });
   it("the approval day is the Philippine day (the SQL's day boundary)", () => {
     expect(phtDay("2026-10-08T16:30:00Z")).toBe("2026-10-09");
     expect(phtDay("2026-10-08T15:59:59Z")).toBe("2026-10-08");
+  });
+});
+
+describe('F-03: the dialog card figure matches mark_web_order_refund_issued_atomic', () => {
+  it('counts only refunds of recorded captures, capped per payment', () => {
+    const pays = new Map([
+      ['p1', { amount_jpy: 10000, captured_amount_jpy: 8000, cash_payment_id: 'c1' }],
+      ['p2', { amount_jpy: 5000, captured_amount_jpy: 5000, cash_payment_id: null }],
+    ]);
+    expect(cardRecordable([
+      { amount_jpy: 6000, status: 'COMPLETED', square_payment_row: 'p1' },
+      { amount_jpy: 4000, status: 'COMPLETED', square_payment_row: 'p1' },
+      { amount_jpy: 3000, status: 'COMPLETED', square_payment_row: 'p2' },
+      { amount_jpy: 1000, status: 'PENDING', square_payment_row: 'p1' },
+    ], pays)).toBe(8000);
   });
 });

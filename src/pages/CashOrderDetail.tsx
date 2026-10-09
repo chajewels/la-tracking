@@ -96,6 +96,11 @@ interface CancelPreview {
   paid_by_card?: boolean;
   // R05 (owner 2026-10-08): a Square refund (not FAILED/REJECTED) exists → store credit refused.
   card_refunded?: boolean;
+  // Q-UX1 / F-02 (QC 2026-10-09): why the real cancel would refuse store credit
+  // (card_already_refunded / paidy_already_refunded / card_disputed), web orders;
+  // `refusal` is what a Hub cash cancel would refuse with.
+  store_credit_refusal?: string | null;
+  refusal?: string | null;
 }
 
 // Refund decision for a web order that has money received. Only
@@ -1180,6 +1185,7 @@ export default function CashOrderDetail() {
   const cancelChargeApplies = cancelChargeShown > 0 && (!cancelIsWeb || refundStatus === 'store_credit_issued');
   const cancelPaidByCard = cancelIsWeb && cancelPreview?.paid_by_card === true;
   const cancelCardRefunded = cancelPreview?.card_refunded === true;
+  const cancelCreditRefusal = cancelIsWeb ? (cancelPreview?.store_credit_refusal ?? (cancelCardRefunded ? 'card_already_refunded' : null)) : null;
   const canVoid = isAdmin || isFinance;
   const canRestore = can('restore_payment');
   const canAwardLoyalty = can('loyalty_adjust_points');
@@ -2352,7 +2358,7 @@ export default function CashOrderDetail() {
                   // B01: card money goes back only through Square, then "Mark refund issued".
                   // R05: money Square already refunded never comes back again as store credit.
                   const blockedByCard = opt.value === 'refund_issued' && cancelPaidByCard;
-                  const blockedByRefund = opt.value === 'store_credit_issued' && cancelCardRefunded;
+                  const blockedByRefund = opt.value === 'store_credit_issued' && !!cancelCreditRefusal;
                   const blocked = blockedByCard || blockedByRefund;
                   return (
                   <label
@@ -2368,7 +2374,11 @@ export default function CashOrderDetail() {
                       <span className="block text-sm text-card-foreground">{opt.label}</span>
                       <span className="block text-xs text-muted-foreground">
                         {blockedByRefund
-                          ? 'Already refunded through Square: this money cannot come back a second time as store credit. Choose "Refund pending", then "Mark refund issued".'
+                          ? (cancelCreditRefusal === 'card_disputed'
+                              ? 'A card chargeback holds or took back this money: it cannot come back as store credit. Choose "Refund pending" and settle it after the dispute is decided in the Square Dashboard.'
+                              : cancelCreditRefusal === 'paidy_already_refunded'
+                              ? 'Already refunded in the Paidy dashboard: this money cannot come back a second time as store credit. Choose "Refund pending", then "Mark refund issued".'
+                              : 'Already refunded through Square: this money cannot come back a second time as store credit. Choose "Refund pending", then "Mark refund issued".')
                           : blocked
                           ? 'Paid by card: choose "Refund pending", refund it in the Square Dashboard, then "Mark refund issued" once Square shows it completed.'
                           : opt.helper}
@@ -2413,6 +2423,17 @@ export default function CashOrderDetail() {
               className="bg-background border-border"
             />
           </div>
+          {!cancelIsWeb && cancelPreview?.refusal && (
+            <p className="rounded-md border border-destructive/50 bg-destructive/5 p-2.5 text-xs text-destructive" data-testid="cancel-refusal">
+              {cancelPreview.refusal === 'card_payment_unresolved'
+                ? 'A card payment on this order is still being processed. Reject or record it on Payment Submissions first.'
+                : cancelPreview.refusal === 'card_disputed'
+                ? 'A card chargeback holds or took back this money, so it cannot be cancelled into store credit. Settle the dispute in the Square Dashboard first.'
+                : cancelPreview.refusal === 'paidy_already_refunded'
+                ? 'Money on this order was already refunded in the Paidy dashboard, so it cannot be cancelled into store credit.'
+                : 'Money on this order was already refunded through Square, so it cannot be cancelled into store credit.'}
+            </p>
+          )}
           <TypedConfirmField word="CANCEL" onArmedChange={setCancelArmed} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setCancelOpen(false)} disabled={cancelling}>
@@ -2424,7 +2445,7 @@ export default function CashOrderDetail() {
               disabled={
                 cancelling || !cancelReason.trim() || !cancelArmed ||
                 cancelPreviewLoading || !!cancelPreviewError || !cancelPreview ||
-                refundDecisionMissing
+                refundDecisionMissing || (!cancelIsWeb && !!cancelPreview?.refusal)
               }
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}

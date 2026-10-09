@@ -6,6 +6,8 @@ import { callUntypedRpc } from "@/lib/untyped-rpc";
 import { formatCurrency } from "@/lib/calculations";
 import { formatPHTDisplay } from "@/lib/date-utils";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { closeAttemptRefusal, attemptClosable } from "@/lib/square-ops";
 import { cn } from "@/lib/utils";
 import StatusPill from "@/components/shared/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -284,6 +286,26 @@ export function SquareOperationsPanel() {
       if (e.saved) { setCaseDialog(null); qc.invalidateQueries({ queryKey: KEY }); }
     },
   });
+  // F-08 (owner D-QC5, 2026-10-09): an admin closes a card attempt stuck with
+  // no answer from Square, after checking the Square Dashboard (note required,
+  // audited). The SQL refuses a fresh attempt or one Square gave a payment id.
+  const { roles } = useAuth();
+  const isAdmin = roles.includes("admin");
+  const [closeTarget, setCloseTarget] = useState<AttemptRow | null>(null);
+  const [closeNote, setCloseNote] = useState("");
+  const closeAttempt = useMutation({
+    mutationFn: async (v: { id: string; note: string }) => {
+      const out = await callUntypedRpc<{ ok?: boolean; error?: string } | null>("close_square_attempt_atomic", { p_attempt_id: v.id, p_note: v.note });
+      if (!out?.ok) throw Object.assign(new Error(out?.error ?? "unknown"), { code: out?.error ?? "unknown" });
+      return out;
+    },
+    onSuccess: () => {
+      toast({ title: "Attempt closed", description: "Saved with your name in the audit log. The order can take another payment now." });
+      setCloseTarget(null);
+      qc.invalidateQueries({ queryKey: KEY });
+    },
+    onError: (e: Error & { code?: string }) => toast({ title: "Not closed", description: closeAttemptRefusal(e.code ?? e.message), variant: "destructive" }),
+  });
   const noteNeeded = caseDialog ? squareNoteRequired(caseDialog.kind) : false;
   const canSubmit = !!caseDialog && !!decision && (!noteNeeded || note.trim().length > 0) && !decide.isPending;
 
@@ -385,7 +407,7 @@ export function SquareOperationsPanel() {
           <Table>
             <TableHeader><TableRow>
               <TableHead>Reference</TableHead><TableHead>Order</TableHead><TableHead className="text-right">Amount</TableHead>
-              <TableHead>Status</TableHead><TableHead>Age</TableHead>
+              <TableHead>Status</TableHead><TableHead>Age</TableHead>{isAdmin && <TableHead />}
             </TableRow></TableHeader>
             <TableBody>
               {(attempts.data ?? []).map((a) => (
@@ -395,6 +417,16 @@ export function SquareOperationsPanel() {
                   <TableCell className="text-right tabular-nums">{yen(a.amount_jpy)}</TableCell>
                   <TableCell><StatusPill label={a.status} tone={a.status === "unknown" ? "warning" : "info"} /></TableCell>
                   <TableCell className="text-xs" title={when(a.created_at)}>{ageLabel(a.created_at, now)}</TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      {attemptClosable(a.created_at, now) && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs"
+                          onClick={() => { setCloseNote(""); setCloseTarget(a); }}>
+                          Close after Dashboard check
+                        </Button>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -657,6 +689,30 @@ export function SquareOperationsPanel() {
               onClick={() => caseDialog && decide.mutate({ kind: caseDialog.kind, id: caseDialog.id, decision, note: note.trim() })}>
               {decide.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save decision
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={closeTarget !== null} onOpenChange={(o) => { if (!o && !closeAttempt.isPending) setCloseTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Close stuck card attempt</DialogTitle>
+            <DialogDescription>
+              {closeTarget ? `${closeTarget.reference} · ${yen(closeTarget.amount_jpy)}. ` : ""}
+              First open the Square Dashboard → Transactions and search this reference. Close it here ONLY when Square shows no payment for it.
+              If Square shows a payment, do not close it — the hourly check files it. Admin only; your note is kept in the audit log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="sq-close-note" className="text-xs">What you checked in the Square Dashboard (required)</Label>
+            <Textarea id="sq-close-note" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} maxLength={500} rows={3} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloseTarget(null)} disabled={closeAttempt.isPending}>Cancel</Button>
+            <Button disabled={!closeTarget || closeNote.trim().length < 10 || closeAttempt.isPending}
+              onClick={() => closeTarget && closeAttempt.mutate({ id: closeTarget.id, note: closeNote.trim() })}>
+              {closeAttempt.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Close attempt
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -5,7 +5,7 @@
  * SECRETS, per environment (owner 2026-10-04: production keys come later, the
  * sandbox keys stay as they are):
  *   sandbox    — SQUARE_SANDBOX_ACCESS_TOKEN, else SQUARE_ACCESS_TOKEN
- *   production — SQUARE_PRODUCTION_ACCESS_TOKEN, else SQUARE_ACCESS_TOKEN
+ *   production — SQUARE_PRODUCTION_ACCESS_TOKEN only (F-09, 2026-10-09)
  *   webhook    — SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY and
  *                SQUARE_WEBHOOK_SIGNATURE_KEY are both tried (one endpoint,
  *                one subscription per environment).
@@ -129,7 +129,11 @@ export function squareErrorKind(status: number, category: string, code: string):
   if (code === "square_not_configured") return "not_configured";
   if (status === 0 || status >= 500 || code === "square_bad_response") return "ambiguous";
   if (status === 429 || code === "RATE_LIMITED") return "rate_limited";
-  if (status === 401 || status === 403) return "auth";
+  if (status === 401) return "auth";
+  // L2 (QC 2026-10-09): Square also answers 403 for some refused requests that
+  // are not about credentials; only an authentication 403 is "auth".
+  if (status === 403 && (category === "AUTHENTICATION_ERROR"
+      || /^(FORBIDDEN|UNAUTHORIZED|INSUFFICIENT_SCOPES|ACCESS_TOKEN_EXPIRED|ACCESS_TOKEN_REVOKED|CLIENT_DISABLED|MERCHANT_SUBSCRIPTION_NOT_FOUND)$/.test(code))) return "auth";
   if (isCardRefusalCode(category, code)) return "card_refusal";
   return "client";
 }
@@ -137,7 +141,10 @@ export function squareErrorKind(status: number, category: string, code: string):
 /** Exposed for the deno test: which secret names an environment reads, in order. */
 export function accessTokenNames(env: SquareEnvironment): string[] {
   return env === "production"
-    ? ["SQUARE_PRODUCTION_ACCESS_TOKEN", "SQUARE_ACCESS_TOKEN"]
+    // F-09 (QC 2026-10-09): production reads ONLY its own token. The shared
+    // SQUARE_ACCESS_TOKEN holds the sandbox token today; falling back to it
+    // would send a sandbox token to production.
+    ? ["SQUARE_PRODUCTION_ACCESS_TOKEN"]
     : ["SQUARE_SANDBOX_ACCESS_TOKEN", "SQUARE_ACCESS_TOKEN"];
 }
 
@@ -406,7 +413,6 @@ export function createPaymentBody(i: CreateCardPaymentInput): Record<string, unk
     delay_action: "CANCEL",
     reference_id: i.referenceId.slice(0, 40),
     note: i.note.slice(0, 500),
-    statement_description_identifier: "CHA JEWELS",
     customer_details: { customer_initiated: true, seller_keyed_in: false },
     billing_address: billing && Object.keys(billing).length > 0 ? billing : undefined,
     ...(buyerEmailOf(i.buyerEmail) ? { buyer_email_address: buyerEmailOf(i.buyerEmail) } : {}),
@@ -473,7 +479,7 @@ export const square = {
    */
   listLocations: async (e: Env) => {
     const json = await call(e, "GET", "/locations");
-    return listField<{ id?: string; status?: string; name?: string }>(json, "locations");
+    return listField<{ id?: string; status?: string; name?: string; currency?: string; country?: string }>(json, "locations");
   },
   /** Disputes in the given states (QC07: a dispute the webhook missed is still found). */
   listDisputes: async (e: Env, q: { states?: string[]; cursor?: string | null }) => {

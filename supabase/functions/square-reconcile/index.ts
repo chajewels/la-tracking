@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
     attempts_checked: 0, attempts_filed: 0, attempts_resolved: 0, attempts_cancelled: 0, attempts_waiting: 0,
     holds_checked: 0, holds_changed: 0, voids_retried: 0, refunds_synced: 0, open_refunds_checked: 0, disputes_synced: 0,
     bells: {} as Rec, square_errors: 0, write_errors: 0, auth_errors: 0, truncated: [] as string[], history_gaps: [] as string[],
-    stage_errors: {} as Record<string, number>, errors: [] as string[],
+    stage_errors: {} as Record<string, number>, errors: [] as string[], no_credentials: [] as string[],
   };
   const note = (where: string, e: unknown) => {
     const msg = e instanceof SquareError ? `square ${e.status} ${e.code} (${e.kind})` : e instanceof Error ? e.message : String(e);
@@ -113,6 +113,19 @@ Deno.serve(async (req) => {
     report.stage_errors[stage] = (report.stage_errors[stage] ?? 0) + 1;
     if (report.errors.length < 20) report.errors.push(`${where}: ${msg}`.slice(0, 200));
     console.error(LOG, where, msg);
+  };
+  /**
+   * F-09 (QC 2026-10-09): a row from an environment that is NOT the current
+   * one, whose credentials were removed (e.g. the sandbox token after go-live),
+   * cannot be read any more. That is expected history, not a failing check:
+   * listed under no_credentials, never counted as an auth failure.
+   */
+  const noteEnv = (where: string, e: unknown, rowEnv: SquareEnvironment | null) => {
+    if (e instanceof SquareError && e.kind === "not_configured" && rowEnv && env && rowEnv !== env) {
+      if (report.no_credentials.length < 20) report.no_credentials.push(`${where} (${rowEnv})`.slice(0, 200));
+      return;
+    }
+    note(where, e);
   };
   /** S03: a progress write that fails is reported (the run ends degraded), never ignored. */
   const checked = async (where: string, q: PromiseLike<{ error: unknown }>) => {
@@ -317,7 +330,7 @@ Deno.serve(async (req) => {
             db.from("square_card_attempts").update({ updated_at: new Date().toISOString() }).eq("id", a.id).eq("status", a.status));
         }
       } catch (e) {
-        note(`attempts ${a.reference}`, e);
+        noteEnv(`attempts ${a.reference}`, e, (a.environment as SquareEnvironment | null) ?? null);
         await checked(`attempts_touch ${a.reference}`,
           db.from("square_card_attempts").update({ updated_at: new Date().toISOString() }).eq("id", a.id).eq("status", a.status));
       }
@@ -327,7 +340,7 @@ Deno.serve(async (req) => {
   // 3. Live holds, captured-unrecorded, open exceptions — fair round-robin.
   try {
     const { data: rows, error } = await db.from("square_payments")
-      .select("id, square_payment_id, status, environment, test, exception, exception_resolved_at, cash_payment_id")
+      .select("id, square_payment_id, status, environment, test, exception, exception_note, exception_resolved_at, cash_payment_id")
       .or("status.eq.authorized,and(status.eq.captured,cash_payment_id.is.null,exception_resolved_at.is.null)")
       .order("reconciled_at", { ascending: true, nullsFirst: true }).limit(MAX_HOLDS);
     if (error) throw error;
@@ -338,7 +351,11 @@ Deno.serve(async (req) => {
         const got = await readPaymentAnyEnv(rowEnv, String(row.square_payment_id));
         if (got) {
           let p = got.payment;
-          if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high")) {
+          // F-07 (QC 2026-10-09): a hold that arrived while Paidy held the order
+          // is voided at filing; if that void failed it is retried here too.
+          const paidyConflict = row.exception === "unfiled_hold" && String(row.exception_note ?? "").startsWith("paidy_in_progress")
+            && row.exception_resolved_at == null;
+          if (p.status === "APPROVED" && (row.exception === "amount_mismatch" || row.exception === "risk_high" || paidyConflict)) {
             p = await square.cancel(got.env, p.id);
             report.voids_retried++;
           }
@@ -349,7 +366,7 @@ Deno.serve(async (req) => {
             if ((await syncSquareRefund(db, got.env, rf)).outcome === "synced") report.refunds_synced++;
           }
         }
-      } catch (e) { note(`holds ${row.square_payment_id}`, e); }
+      } catch (e) { noteEnv(`holds ${row.square_payment_id}`, e, rowEnv); }
       await checked(`holds_touch ${row.square_payment_id}`,
         db.from("square_payments").update({ reconciled_at: new Date().toISOString() }).eq("id", row.id));
     }
@@ -374,7 +391,7 @@ Deno.serve(async (req) => {
           if ((await syncSquareRefund(db, got.env, refund)).outcome === "synced") report.refunds_synced++;
         }
       } catch (e) {
-        note(`refunds ${c.square_payment_id}`, e);
+        noteEnv(`refunds ${c.square_payment_id}`, e, cEnv);
       } finally {
         // every capture looked at goes to the back of the queue, checked or not,
         // so more than MAX_CAPTURED recent captures are all reached (review #8)
@@ -392,10 +409,11 @@ Deno.serve(async (req) => {
     if (error) throw error;
     for (const r of (open ?? []) as Rec[]) {
       report.open_refunds_checked++;
+      let rEnv: SquareEnvironment | null = null;
       try {
-        const rEnv = await parentEnvironment(db, String(r.square_payment_id));
+        rEnv = await parentEnvironment(db, String(r.square_payment_id));
         if ((await syncSquareRefund(db, rEnv, await square.getRefund(rEnv, String(r.square_refund_id)))).outcome === "synced") report.refunds_synced++;
-      } catch (e) { note(`open_refunds ${r.square_refund_id}`, e); }
+      } catch (e) { noteEnv(`open_refunds ${r.square_refund_id}`, e, rEnv); }
       await checked(`open_refunds_touch ${r.square_refund_id}`,
         db.from("square_refunds").update({ updated_at: new Date().toISOString() }).eq("square_refund_id", r.square_refund_id));
     }
@@ -408,11 +426,12 @@ Deno.serve(async (req) => {
       .order("updated_at", { ascending: true }).limit(50);
     if (error) throw error;
     for (const d of (ds ?? []) as Rec[]) {
+      let dEnv: SquareEnvironment | null = null;
       try {
-        const dEnv = await parentEnvironment(db, String(d.square_payment_id));
+        dEnv = await parentEnvironment(db, String(d.square_payment_id));
         const r = await syncSquareDispute(db, await square.getDispute(dEnv, String(d.square_dispute_id)), dEnv);
         if (r.outcome === "synced") report.disputes_synced++;
-      } catch (e) { note(`disputes ${d.square_dispute_id}`, e); }
+      } catch (e) { noteEnv(`disputes ${d.square_dispute_id}`, e, dEnv); }
       await checked(`disputes_touch ${d.square_dispute_id}`,
         db.from("square_disputes").update({ updated_at: new Date().toISOString() }).eq("square_dispute_id", d.square_dispute_id));
     }

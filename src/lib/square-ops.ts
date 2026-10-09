@@ -300,3 +300,24 @@ export function orderRef(o: { web_reference?: string | null; invoice_number?: st
   if (!o) return '—';
   return o.web_reference || (o.invoice_number != null ? String(o.invoice_number) : '—');
 }
+
+/** F-08 (owner D-QC5, 2026-10-09): an attempt may be closed by an admin only once it is 30 minutes old (the SQL refuses earlier). */
+export const ATTEMPT_CLOSE_MIN_AGE_MS = 30 * 60 * 1000;
+export function attemptClosable(createdAt: string, now: Date = new Date()): boolean {
+  const t = Date.parse(createdAt);
+  return Number.isFinite(t) && now.getTime() - t >= ATTEMPT_CLOSE_MIN_AGE_MS;
+}
+
+/** close_square_attempt_atomic refusal codes → plain words. */
+export function closeAttemptRefusal(code: string): string {
+  switch (code) {
+    case "admin_only": return "Only an admin can close a card attempt.";
+    case "note_required": return "Write what you checked in the Square Dashboard (at least 10 characters).";
+    case "too_recent": return "This attempt is less than 30 minutes old. Wait for the hourly check first.";
+    case "payment_exists": return "Square gave this attempt a payment. Do not close it — the hourly check files it, or decide it under Exceptions.";
+    case "not_open": return "This attempt is already settled. Refresh.";
+    case "not_found": return "Attempt not found. Refresh.";
+    case "user_identity_required": return "Your session has expired. Sign in again.";
+    default: return code;
+  }
+}

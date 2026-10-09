@@ -134,7 +134,7 @@ Deno.test('Hub dialog: two steps, fail-closed facts, sticky footer, calendar-yea
   assert(ui.includes("const step: 'approve' | 'record' | null = isException ? (approval ? 'record' : 'approve') : null;"), 'approve → record')
   assert(ui.includes("const factsMissing = cardError !== null || card === null;") && ui.includes('disabled={busy || !day || factsMissing'), 'fail closed when the card facts cannot be read')
   assert(ui.includes('max-h-[90vh]') && ui.includes('overflow-y-auto') && ui.includes('data-testid="refund-footer"'), 'scrolling body, fixed footer')
-  assert(ui.includes("d.setUTCFullYear(d.getUTCFullYear() - 1);") && ui.includes("select('authorized_at, status')"), 'SQV04: authorized_at + one calendar year')
+  assert(ui.includes("d.setUTCFullYear(d.getUTCFullYear() - 1);") && ui.includes("select('authorized_at, status, amount_jpy')"), 'SQV04: authorized_at + one calendar year')
   assert(!ui.includes('captureOver365') && !ui.includes('EXCEPTION_AGE_DAYS'), 'the 365-day capture rule is gone')
   assert(ui.includes("timeZone: 'Asia/Manila'"), 'approval day is the PHT day the SQL compares with')
   assert(ui.includes('refundProcessing') && ui.includes('approveIncomplete'), 'approve disabled while a Square refund is processing')
@@ -153,12 +153,19 @@ Deno.test('D-SQV05: a first 401/403 is auth_failed, never "not enabled"; only su
     environment: 'production' as const, token: { state: 'ok' as const, status: 200, code: null, secret: 'SQUARE_PRODUCTION_ACCESS_TOKEN' },
     locations: ['L1'], location_configured: 'L1', location_match: true, app_id_family: 'production' as const,
     events: { state: 'ok' as const, status: 200, code: null, first_page: 0, window_days: 28 },
+    location: { status: 'ACTIVE', currency: 'JPY', country: 'JP' }, webhook_key: true,
   }
   assert(preflightPassed(base), 'all ok passes')
+  // M2 / F-14 (QC 2026-10-09)
+  assert(!preflightPassed({ ...base, location: { status: 'INACTIVE', currency: 'JPY', country: 'JP' } }), 'inactive location fails')
+  assert(!preflightPassed({ ...base, location: { status: 'ACTIVE', currency: 'USD', country: 'US' } }), 'non-yen location fails')
+  assert(!preflightPassed({ ...base, location: null }), 'unread location fails')
+  assert(!preflightPassed({ ...base, webhook_key: false }), 'missing webhook key fails')
   assert(!preflightPassed({ ...base, location_match: false }), 'location mismatch fails')
   assert(!preflightPassed({ ...base, app_id_family: 'sandbox' }), 'sandbox app id fails')
   assert(!preflightPassed({ ...base, events: { ...base.events, state: 'auth_failed' } }), 'events auth failure fails')
-  eq(tokenSecretInUse('production', (n) => n === 'SQUARE_ACCESS_TOKEN'), 'SQUARE_ACCESS_TOKEN', 'fallback name')
+  eq(tokenSecretInUse('production', (n) => n === 'SQUARE_ACCESS_TOKEN'), null, 'F-09: production never falls back to the shared (sandbox) token')
+  eq(tokenSecretInUse('sandbox', (n) => n === 'SQUARE_ACCESS_TOKEN'), 'SQUARE_ACCESS_TOKEN', 'sandbox fallback name')
   eq(tokenSecretInUse('production', (n) => n !== 'x'), 'SQUARE_PRODUCTION_ACCESS_TOKEN', 'production name first')
   eq(tokenSecretInUse('sandbox', () => false), null, 'none')
 })

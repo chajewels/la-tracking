@@ -29,16 +29,32 @@ export interface PreflightReport {
   location_match: boolean | null;
   app_id_family: "production" | "sandbox" | null;
   events: { state: PreflightState; status: number | null; code: string | null; first_page: number | null; window_days: number };
-  /** The whole preflight passes only when the token works, the configured location is the token's, and an Events search succeeded. */
+  /** M2 (QC 2026-10-09): the configured location as Square reports it (null when not found / not read). */
+  location?: { status: string | null; currency: string | null; country: string | null } | null;
+  /** F-14: whether the environment's webhook signature key is set (the NAME is checked, never the value). */
+  webhook_key?: boolean;
+  /** The whole preflight passes only when the token works, the configured location is the token's AND is an active Japanese yen location, the webhook key is set, and an Events search succeeded. */
   passed: boolean;
 }
 
+/** M2: the location card payments are taken at must be ACTIVE, in yen, in Japan. */
+export function locationUsable(l: PreflightReport["location"]): boolean {
+  return !!l && l.status === "ACTIVE" && l.currency === "JPY" && l.country === "JP";
+}
+
 export function preflightPassed(r: Omit<PreflightReport, "passed">): boolean {
-  return r.token.state === "ok" && r.location_match === true && r.app_id_family === r.environment && r.events.state === "ok";
+  return r.token.state === "ok" && r.location_match === true && locationUsable(r.location ?? null)
+    && r.webhook_key === true && r.app_id_family === r.environment && r.events.state === "ok";
+}
+
+/** F-14: the webhook signature key the environment's subscription is verified with (names only). */
+export function webhookKeyNames(env: "production" | "sandbox"): string[] {
+  return env === "production" ? ["SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY"] : ["SQUARE_WEBHOOK_SIGNATURE_KEY"];
 }
 
 /** Which secret name the client will read for an environment — the NAME only, never the value. */
 export function tokenSecretInUse(env: "production" | "sandbox", has: (name: string) => boolean): string | null {
-  const names = env === "production" ? ["SQUARE_PRODUCTION_ACCESS_TOKEN", "SQUARE_ACCESS_TOKEN"] : ["SQUARE_SANDBOX_ACCESS_TOKEN", "SQUARE_ACCESS_TOKEN"];
+  // F-09 (2026-10-09): production reads ONLY its own token (mirrors accessTokenNames in square.ts).
+  const names = env === "production" ? ["SQUARE_PRODUCTION_ACCESS_TOKEN"] : ["SQUARE_SANDBOX_ACCESS_TOKEN", "SQUARE_ACCESS_TOKEN"];
   return names.find(has) ?? null;
 }

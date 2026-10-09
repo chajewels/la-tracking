@@ -32,6 +32,18 @@ export const STAFF_BELL_EMAIL_CHOICES: { type: string; label: string }[] = [
   { type: "card_hold_expiring", label: "Card hold expiring (Confirm or Reject needed)" },
   { type: "card_attempt_stuck", label: "Card attempt stuck (Square never answered)" },
   { type: "square_reconcile_degraded", label: "Square hourly check degraded / failed" },
+  // Q-UI2 (QC 2026-10-09): the newer card bells, so they can be ticked too.
+  { type: "card_refund_unrecorded", label: "A Square refund the Hub could not record" },
+  { type: "card_refund_after_exception", label: "Square refund completed after a refund outside Square" },
+  { type: "card_refund_exception_approved", label: "Refund outside Square approved — pay it now" },
+  { type: "card_dispute_after_credit", label: "Chargeback on an order already given store credit" },
+  { type: "card_dispute_after_exception", label: "Chargeback on an order refunded outside Square" },
+  { type: "refund_email_order_missing", label: "Refund email could not find its order" },
+  { type: "square_event_failed", label: "A Square event failed after all retries" },
+  { type: "card_capture_unverified", label: "Card capture could not be verified with Square" },
+  { type: "card_recording_failed", label: "Card capture taken but not recorded" },
+  { type: "card_void_failed", label: "Card hold could not be voided" },
+  { type: "card_hold_unfiled", label: "Card hold with no submission (needs a decision)" },
 ];
 
 /** One per line or comma; lower-cased; blanks dropped. */

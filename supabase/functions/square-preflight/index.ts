@@ -4,8 +4,9 @@
 //
 // POST { environment?: "production" | "sandbox" }   (default production)
 //   1. token  — GET /v2/locations with that environment's token;
-//   2. the configured location id is one of the token's locations, and the
-//      configured Application ID is of that environment's family;
+//   2. the configured location id is one of the token's locations, ACTIVE, JPY
+//      and JP (M2), the configured Application ID is of that environment's
+//      family, and the environment's webhook signature key is set (F-14);
 //   3. events — one Events API search, last 28 days.
 // Writes ONE row: square_sync_state 'preflight:<env>' (the report + who + when).
 // Never charges, never changes the mode, never shows anything to customers.
@@ -15,7 +16,7 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { square, SquareError, squareErrorKind } from "../_shared/square.ts";
 import { squareAppIdFamily } from "../_shared/card-rules.ts";
-import { type PreflightReport, preflightPassed, preflightStateOf, tokenSecretInUse } from "../_shared/square-preflight-rules.ts";
+import { type PreflightReport, preflightPassed, preflightStateOf, tokenSecretInUse, webhookKeyNames } from "../_shared/square-preflight-rules.ts";
 
 const EVENTS_WINDOW_DAYS = 28;
 
@@ -55,6 +56,8 @@ Deno.serve(async (req) => {
       token: { state: "not_configured", status: null, code: null, secret },
       locations: [], location_configured: locationConfigured, location_match: null, app_id_family: appIdFamily,
       events: { state: "not_configured", status: null, code: null, first_page: null, window_days: EVENTS_WINDOW_DAYS },
+      location: null,
+      webhook_key: webhookKeyNames(env).some((n) => (Deno.env.get(n)?.trim().length ?? 0) >= 10),
     };
     if (secret) {
       try {
@@ -62,6 +65,13 @@ Deno.serve(async (req) => {
         report.token = { state: "ok", status: 200, code: null, secret };
         report.locations = locs.map((l) => String(l.id ?? "")).filter((x) => x !== "");
         report.location_match = locationConfigured ? report.locations.includes(locationConfigured) : false;
+        // M2 (QC 2026-10-09): that location must be ACTIVE, in yen, in Japan.
+        const mine = locs.find((l) => String(l.id ?? "") === locationConfigured);
+        report.location = mine ? {
+          status: typeof mine.status === "string" ? mine.status : null,
+          currency: typeof mine.currency === "string" ? mine.currency : null,
+          country: typeof mine.country === "string" ? mine.country : null,
+        } : null;
       } catch (e) {
         const f = errFacts(e);
         report.token = { state: preflightStateOf(f), status: f.status, code: f.code, secret };
