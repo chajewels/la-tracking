@@ -27,6 +27,7 @@ interface PaidyCase {
   kind: string;
   paidy_payment_id: string;
   cash_order_id: string | null;
+  paidy_payment_row: string | null;
   detail: Record<string, unknown> | null;
   opened_at: string;
   last_seen_at: string;
@@ -85,7 +86,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
     queryFn: async (): Promise<PaidyCase[]> => {
       const { data, error } = await db
         .from('paidy_cases')
-        .select('id, kind, paidy_payment_id, cash_order_id, detail, opened_at, last_seen_at, attempts, cash_order:cash_orders(invoice_number, web_reference)')
+        .select('id, kind, paidy_payment_id, cash_order_id, paidy_payment_row, detail, opened_at, last_seen_at, attempts, cash_order:cash_orders(invoice_number, web_reference)')
         .eq('status', 'open')
         .order('opened_at', { ascending: true })
         .limit(50);
@@ -120,6 +121,25 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
   const submit = async () => {
     if (!target) return;
     setSaving(true);
+    // M2 (Paidy QC 2026-10-09): ending the submission of a payment Paidy
+    // still holds AUTHORISED first closes it at Paidy (paidy-staff-action);
+    // the database refuses end_submission until it is no longer authorised.
+    if (resolution === 'end_submission' && target.paidy_payment_row) {
+      const { data: closed, error: closeErr } = await supabase.functions.invoke('paidy-staff-action', {
+        body: { action: 'close_authorization', case_id: target.id },
+      });
+      if (closeErr || !closed?.ok) {
+        let code = String(closed?.error ?? '');
+        let message = String(closed?.message ?? '');
+        const ctx = (closeErr as { context?: unknown } | null)?.context;
+        if (ctx instanceof Response) {
+          try { const j = await ctx.clone().json(); code = String(j?.error ?? code); message = String(j?.message ?? message); } catch { /* keep */ }
+        }
+        setSaving(false);
+        toast.error('The Paidy authorisation was not closed', { description: message || code || 'Try again in a few minutes.' });
+        return;
+      }
+    }
     const { data, error } = await db.rpc('resolve_paidy_case', { p_case_id: target.id, p_resolution: resolution, p_note: note });
     setSaving(false);
     const err = error?.message ?? (data && !data.ok ? String(data.error) : null);
@@ -132,6 +152,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
         paidy_not_captured: 'Paidy has not captured this payment.',
         not_a_capture_case: 'Only a captured payment can be recorded.',
         no_paidy_record: 'This case has no Paidy record to end.',
+        authorization_open: 'Paidy still holds this authorisation. The Hub closes it at Paidy first — try again; if it keeps failing, wait for the hourly check.',
         orphan_capture_unsettled: 'Paidy took this money and the Hub has no record of it. A note cannot settle it: record the capture, or refund it in full in the Paidy dashboard and the hourly check closes the case.',
       };
       toast.error('Could not resolve the case', { description: msg[err] ?? err });
@@ -196,7 +217,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
           <DialogHeader>
             <DialogTitle>Resolve Paidy case</DialogTitle>
             <DialogDescription>
-              {target ? (KIND_LABEL[target.kind]?.help ?? target.kind) : ''} "Record this capture" re-queues the payment so the Hub records it from Paidy. "End its submission" rejects the waiting Paidy submission (after a refund, or when the order is closed) so the customer can pay another way. Nothing else changes on the order.
+              {target ? (KIND_LABEL[target.kind]?.help ?? target.kind) : ''} "Record this capture" re-queues the payment so the Hub records it from Paidy. "End its submission" first closes the authorisation at Paidy if Paidy still holds it, then rejects the waiting Paidy submission so the customer can pay another way. Nothing else changes on the order.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

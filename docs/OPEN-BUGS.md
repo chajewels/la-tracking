@@ -808,7 +808,8 @@
 - **A capture with no Hub record** — RECLASSIFIED as a process rule (owner 2026-10-04), not a
   code bug: the Hub files every authorisation before capture, so staff capture only payments
   listed in the Hub. If it ever happens anyway, the `captured_no_submission` case still opens.
-- **Square Confirm must check the Paidy lock before capturing** (independent review 2026-10-04,
+- ~~**Square Confirm must check the Paidy lock before capturing**~~ — FIXED by Paidy QC PR-A (M6, migration
+  20261201100000 + review-payment-submission, 2026-10-09). Original entry: (independent review 2026-10-04,
   must land before `square_mode = 'on'`; live is `test`). Since 20261104110000,
   `trg_guard_cash_payment_paidy` refuses a non-Paidy `cash_payments` insert while
   `cash_order_payment_lock` says `paidy_*`. review-payment-submission captures a Square hold

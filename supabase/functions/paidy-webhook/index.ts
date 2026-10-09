@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { isPaidyPaymentId } from "../_shared/paidy.ts";
-import { isPaidyWebhookIp, paidyWebhookIpCheckOn, paidyWebhookSourceIp } from "../_shared/paidy-rules.ts";
+import { PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE, paidyWebhookIpCheckOn, paidyWebhookSource } from "../_shared/paidy-rules.ts";
 
 /**
  * Paidy webhook receiver (docs/PAIDY.md). PUBLIC endpoint (verify_jwt =
@@ -31,10 +31,29 @@ import { isPaidyWebhookIp, paidyWebhookIpCheckOn, paidyWebhookSourceIp } from ".
  * may open a provider_unreadable case + staff bell. Unrecognised → no case, no
  * bell, a warning with the IP only. Edge secret PAIDY_WEBHOOK_IP_CHECK=off
  * treats every source as recognised.
+ *
+ * M5 (Paidy QC 2026-10-09): a source is recognised only when EVERY address
+ * the request carries (cf-connecting-ip and the last x-forwarded-for hop) is
+ * one of Paidy's, so forging one header is not enough; both are stored on the
+ * inbox row (source_ip) as evidence. Unrecognised deliveries are capped at
+ * PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE a minute: above it the answer is 429
+ * with nothing stored and no Paidy call (Paidy retries a real one 15 times
+ * over ~5 hours). L9: a late finish runs under EdgeRuntime.waitUntil.
  */
 const PROCESS_DEADLINE_MS = 8000;
 /** PA14: however slow the inbox insert was, processing still gets this much before the 200 goes out. */
 const MIN_PROCESS_BUDGET_MS = 1500;
+
+// deno-lint-ignore no-explicit-any
+let knownDb: any = null;
+/** M5: true when the Hub already holds this Paidy id (record or noted window). A read error counts as known (never cap on doubt). */
+async function paidyIdKnown(id: string): Promise<boolean> {
+  knownDb ??= createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const a = await knownDb.from("paidy_payments").select("id").eq("paidy_payment_id", id).limit(1);
+  if (a.error || (a.data ?? []).length > 0) return true;
+  const b = await knownDb.from("paidy_checkout_attempts").select("id").eq("paidy_payment_id", id).limit(1);
+  return !!b.error || (b.data ?? []).length > 0;
+}
 
 Deno.serve(async (req) => {
   // PA14 (2026-10-08): Paidy's 10 s clock starts when the request arrives, so
@@ -44,9 +63,9 @@ Deno.serve(async (req) => {
   const pre = corsPreflight(req);
   if (pre) return pre;
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
-  const sourceIp = paidyWebhookSourceIp(req.headers);
-  const recognisedSource = !paidyWebhookIpCheckOn(Deno.env.get("PAIDY_WEBHOOK_IP_CHECK")) || isPaidyWebhookIp(sourceIp);
-  if (!recognisedSource) console.warn("[paidy-webhook] unrecognised source", sourceIp);
+  const source = paidyWebhookSource(req.headers);
+  const recognisedSource = !paidyWebhookIpCheckOn(Deno.env.get("PAIDY_WEBHOOK_IP_CHECK")) || source.recognised;
+  if (!recognisedSource) console.warn("[paidy-webhook] unrecognised source", source.ips);
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad_json" }, 400); }
@@ -57,8 +76,22 @@ Deno.serve(async (req) => {
   const event = String(body.status ?? body.event ?? "").slice(0, 40);
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  // The cap is OFF until live evidence shows real Paidy deliveries are
+  // recognised (inbox source_ip / source_recognised): edge secret
+  // PAIDY_WEBHOOK_RATE_CAP=on turns it on. A payment the Hub already knows
+  // (a record, or an id noted on a window) is never capped.
+  if (!recognisedSource && Deno.env.get("PAIDY_WEBHOOK_RATE_CAP") === "on" && !(await paidyIdKnown(id))) {
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const { count, error: capErr } = await supabase.from("paidy_webhook_events")
+      .select("id", { count: "exact", head: true }).eq("source_recognised", false).gte("received_at", since);
+    if (!capErr && (count ?? 0) >= PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE) {
+      console.warn("[paidy-webhook] unrecognised deliveries over the per-minute cap — 429", source.ips);
+      return jsonResponse({ error: "rate_limited" }, 429);
+    }
+  }
   const { data: inbox, error: inboxErr } = await supabase
-    .from("paidy_webhook_events").insert({ paidy_payment_id: id, event }).select("id").single();
+    .from("paidy_webhook_events").insert({ paidy_payment_id: id, event, source_ip: source.ips, source_recognised: recognisedSource })
+    .select("id").single();
   if (inboxErr || !inbox) {
     console.error("[paidy-webhook] inbox insert failed:", inboxErr);
     return jsonResponse({ error: "inbox_unavailable" }, 500);
@@ -74,7 +107,11 @@ Deno.serve(async (req) => {
   const timeout = new Promise<"deadline">((resolve) => setTimeout(() => resolve("deadline"), budgetMs));
   const result = await Promise.race([work, timeout]);
   if (result === "deadline") {
-    work.catch((e) => console.error("[paidy-webhook] late processing failed (the sweep retries):", e));
+    const late = work.catch((e) => console.error("[paidy-webhook] late processing failed (the sweep retries):", e));
+    // L9: keep the isolate alive for the late finish where the runtime allows.
+    // deno-lint-ignore no-explicit-any
+    const rt = (globalThis as any).EdgeRuntime;
+    if (rt && typeof rt.waitUntil === "function") rt.waitUntil(late);
     return jsonResponse({ ok: true, queued: true });
   }
   if (result.retry_callback_window) return jsonResponse({ retry: "callback_window" }, 503);

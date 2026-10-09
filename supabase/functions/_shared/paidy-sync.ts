@@ -226,22 +226,30 @@ export async function syncPaidyPayment(
   if ((outcome === "closed" || outcome === "rejected" || outcome === "expired") && statusAfter !== "captured") {
     let rejected = 0;
     for (const sub of subs.filter((s) => s.status === "submitted" || s.status === "under_review")) {
-      const { data: flipped, error: rejErr } = await supabase.from("payment_submissions").update({
-        status: "rejected", updated_at: now, processing_started_at: null,
-        reviewer_notes: outcome === "expired"
+      // M4 (Paidy QC 2026-10-09): the Paidy row, the rejection, the audit row
+      // and the customer-email intent in ONE transaction. A retry after a
+      // lost answer sees already_rejected and changes nothing; an email the
+      // sender never reached is replayed by the sweep from the intent.
+      const { data: ended, error: endErr } = await supabase.rpc("end_paidy_submission_provider_ended_atomic", {
+        p_submission_id: sub.id, p_paidy_row: row.id, p_end_status: outcome,
+        p_end_reason: `${outcome} at Paidy (${event || source})`,
+        p_reviewer_notes: outcome === "expired"
           ? "The Paidy authorisation expired before it was captured — the customer may pay again (Paidy or bank transfer)."
           : `Paidy reports this payment ${String(payment.status)} (${event || source}) — nothing was charged; the customer may pay again.`,
-      }).eq("id", sub.id).in("status", ["submitted", "under_review"]).select("id");
-      must(rejErr, "payment_submissions reject");
-      if ((flipped ?? []).length === 0) continue; // a reviewer got there first
-      rejected++;
-      const { error: audErr } = await supabase.from("audit_logs").insert({
-        entity_type: "cash_payment_submission", entity_id: sub.id, action: "submission_rejected",
-        new_value_json: { reason: `paidy_${outcome}`, paidy_payment_id: pid, event: event || null, source },
+        p_payload: payment, p_audit: { event: event || null, source },
       });
-      must(audErr, "audit_logs insert");
+      must(endErr, "end_paidy_submission_provider_ended_atomic");
+      const res = (ended ?? {}) as AnyRec;
+      if (!res.ok || res.rejected !== true) continue; // a reviewer got there first, or it was captured
+      rejected++;
       // The customer hears it from us — Paidy never emails a cancellation.
       await sendCashPaymentRejectedEmail(supabase, { submissionId: sub.id, kind: "provider_ended" });
+      if (res.followup_key) {
+        const { error: fuErr } = await supabase.from("payment_submission_followups")
+          .update({ status: "done", done_at: new Date().toISOString(), attempts: 1 })
+          .eq("idempotency_key", res.followup_key).eq("status", "pending");
+        if (fuErr) console.warn("[paidy-sync] followup mark-done failed (the sweep re-checks it):", fuErr);
+      }
     }
     if (rejected > 0) {
       await paidyBellOnce(supabase, "paidy_closed_externally", outcome === "expired" ? "Paidy authorisation expired before capture" : "Paidy payment ended before capture",
