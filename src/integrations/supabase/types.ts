@@ -9355,6 +9355,10 @@ export type Database = {
         }
         Returns: Json
       }
+      assert_staff_caller: {
+        Args: { p_permission?: string }
+        Returns: undefined
+      }
       audit_account: { Args: { p_invoice_number: string }; Returns: Json }
       audit_all_accounts: {
         Args: never

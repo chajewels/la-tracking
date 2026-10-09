@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791537501427,
+      "tag": "0000_staff_guard_exposed_functions",
+      "breakpoints": true
+    }
+  ]
+}
