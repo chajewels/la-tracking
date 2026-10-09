@@ -689,7 +689,8 @@ development/paidy-v03-lock-order.test.ts (CI).
 
 Assessment: project doc `claude/paidy-qc-assessment-2026-10-09.md`. Proof: a scratch replay whose Paidy
 bodies are byte-identical to live (md5 per function); every scenario below PASSES there and the earlier
-adverse checks for M2, M3, M6, L7 and L10 no longer reproduce. V02 money suite: 17/17 still pass.
+adverse checks for M2, M3, M6 and L10 no longer reproduce. An independent review (same day) found no
+blockers; its four should-fix items are in this release (M1 order, L7 reverted, M5 cap opt-in, M2 row write). V02 money suite: 17/17 still pass.
 
 - **H1 — a made-up Paidy id can no longer freeze an order.**
   - The website's "Paidy closed" callback asks Paidy before it notes a payment id on the window
@@ -702,21 +703,27 @@ adverse checks for M2, M3, M6, L7 and L10 no longer reproduce. V02 money suite: 
     filed or released, a capture opens its case; Paidy unreachable → nothing changes), then
     `staff_end_paidy_checkout_window` (service_role) ends it: status `abandoned`, end_reason
     `staff_ended`, verification `staff_ended`, `ended_by`, audit `paidy_window_ended_by_staff`.
-- **M1** — `filePaidyAuthorization` never closes on an `order_ref` or `test_flag` mismatch
-  (`paidyMismatchReleases`); the website hands another order's payment to `adoptOrphanAuthorization`.
+- **M1** — `paidyFilingMismatch` decides WHOSE payment it is first (`test_flag`, then `order_ref`, then
+  this order's status / currency / amount); `filePaidyAuthorization` never closes on those two
+  (`paidyMismatchReleases`; a recovery path rings a bell instead); the website hands another order's
+  payment to `adoptOrphanAuthorization`.
 - **M2** — `resolve_paidy_case end_submission` refuses `authorization_open` while Paidy still holds a
   capturable authorisation. The Paidy cases panel first calls `paidy-staff-action close_authorization`
-  (classified by Paidy's own answer), then the RPC.
+  (classified by Paidy's own answer — when Paidy already reports it ended, the row is written at once),
+  then the RPC.
 - **M3** — `resolve_paidy_case` locks submission → order → Paidy row (the V03-F1 order).
+- `staff_end_paidy_checkout_window` refuses `window_changed` when the window's noted id is not the one
+  the edge function just checked with Paidy.
 - **M4** — `end_paidy_submission_provider_ended_atomic` (service_role): Paidy row + rejection + audit +
   email intent (`payload.kind = provider_ended`) in one transaction; used by Confirm's `endSubmission`
   (only while its claim stands) and by `syncPaidyPayment`. The sweep replays the intent as
   `provider_ended`, never as a staff Reject.
 - **M5** — the webhook stores `source_ip` ("cf|last-xff") and `source_recognised`; recognised only when
-  every address present is one of Paidy's. Unrecognised deliveries above 20 a minute get 429 with nothing
-  stored and no Paidy call. **Go-live check:** after the next real Paidy webhook, read its inbox row —
-  `source_recognised` must be true; if false, the platform's header is not what we assumed: tell the
-  owner before changing anything.
+  every address present is one of Paidy's. The per-minute cap (20 unrecognised deliveries → 429, nothing
+  stored, no Paidy call; never for an id the Hub already knows) is **OFF** until edge secret
+  `PAIDY_WEBHOOK_RATE_CAP=on`. **Go-live check:** after the next real Paidy webhook, read its inbox row —
+  `source_recognised` must be true; only then may the owner turn the cap on. If false, the platform's
+  header is not what we assumed: tell the owner before changing anything.
 - **M6** — `file_paidy_submission_atomic` refuses `card_payment_unresolved` before writing anything (the
   caller releases the authorisation); the Square Confirm capture refuses `paidy_lock` while
   `cash_order_payment_lock` says `paidy*`. Closes the OPEN-BUGS entry; required before `square_mode = on`.
@@ -726,7 +733,8 @@ adverse checks for M2, M3, M6, L7 and L10 no longer reproduce. V02 money suite: 
   payment is for a non-test customer, or the web order's method is no longer Paidy (`paidyAdoptBlock`).
 - **L2** — an AUTHORIZED read-back with no dates is `authorized`, never `expired`.
 - **L4** — an inbox event not tied to an order holds a window for 2 hours at most.
-- **L7** — a refund that would take the ledger past the capture is not written.
+- **L7** — NOT changed (review): a refund larger than the capture is still written to the ledger, because
+  the cancel RPCs' `paidy_already_refunded` refusal (PA02) reads it.
 - **L8** — an unsendable follow-up intent is marked failed with a bell.
 - **L9** — the webhook's late finish runs under `EdgeRuntime.waitUntil`.
 - **L10** — `paidy_mode()` is service_role only.

@@ -6238,4 +6238,5 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
   customer email. Now one SQL transaction with a replayable email intent.
 - **M6** — a late Paidy authorisation behind a card hold could let the card be captured and never
   recorded. Now refused at filing, and the card capture checks the Paidy lock first.
-- **M1, M5, M7, L1, L2, L4, L7, L8, L9, L10** — see docs/PAIDY.md "Paidy QC PR-A".
+- **M1, M5, M7, L1, L2, L4, L8, L9, L10** — see docs/PAIDY.md "Paidy QC PR-A". L7 was reviewed and kept
+  as designed (the over-capture refund row is what PA02's double-compensation refusal reads).
