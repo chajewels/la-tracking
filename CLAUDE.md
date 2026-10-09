@@ -190,6 +190,9 @@ Reference docs (read the relevant one when a task touches that area):
     record_square_refund locks the ORDER first and rings
     card_refund_after_credit when a refund lands on an order already cancelled
     with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
+    A chargeback holding/taking the money (EVIDENCE_REQUIRED, PROCESSING, LOST,
+    ACCEPTED) is money returned too: card_disputed refusal, subtracted from the
+    outside-Square cap (F-02, D-QC1, 2026-10-09; square_order_disputed_jpy).
   - PAIDY — SAME RULE (PA02/PA03, owner 2026-10-08, refuse): any VERIFIED
     paidy_refunds row on the order refuses "store credit issued" at cancel
     (paidy_already_refunded) in BOTH cancel RPCs; record_paidy_refund (service
@@ -1500,6 +1503,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
     file_square_authorization_atomic / apply_square_payment_state; lock
     card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).
+    A card/Paidy submission is never "needs clarification", and its status
+    moves only via service_role or the two staff case RPCs that set
+    app.provider_submission_writer in-call (F-01/Q-DB1, 2026-10-09).
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

@@ -6186,3 +6186,18 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
 - **D-G04 — card would reach every customer the moment the mode went On.** Added the allow-list
   (`square_audience`, `square_card_customer_ids`, `square_card_allowed`), fail-closed to listed.
 
+
+### 2026-10-09 — Square QC close-out (consolidated QC assessment)
+
+- **Q-DB2 — any signed-in customer could read the staff bell email addresses.** `get_staff_bell_emails`
+  checked only sign-in; `staff_bell_email_recipients` had no check. Fixed: staff only / service_role only.
+- **F-01 — "Clarify" on a card or Paidy submission stranded the live hold.** Refused in the DB guard,
+  the reviewer edge and the UI; Square closing the hold now also ends a legacy clarification.
+- **Q-DB1 — staff could set a card submission confirmed/rejected by a direct API write.** The guard
+  refuses status changes by signed-in callers outside the two marked staff case functions.
+- **F-02 — a lost chargeback was not money returned: cancel minted credit, the exception cap ignored it.**
+  `square_order_disputed_jpy`; `card_disputed`; cap subtracts it; two new bells.
+- **F-03 / F-04 — "card" refund counted a stray capture's refund, and could be recorded over an open
+  approval.** Recorded captures only, capped; `exception_approved_pending`.
+- **F-05/F-06/F-07/F-08/F-09/F-10/F-11/F-12/F-13/F-16/F-17/F-18, M1/M2/M3, H1, L2, Q-UX1, Q-UI1/Q-UI2,
+  Q-DB3, Q-T1** — see docs/SQUARE.md "QC close-out (2026-10-09)".
