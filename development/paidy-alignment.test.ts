@@ -164,7 +164,8 @@ Deno.test("wiring: webhook source check is SOFT — never drops a delivery (R14)
   assert(/paidyWebhookSource\(req\.headers\)/.test(w));
   // The per-minute cap applies to UNRECOGNISED sources only and answers 429
   // (Paidy retries a real delivery) — never a 200 that drops it.
-  assert(/if \(!recognisedSource\) \{[\s\S]{0,400}PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE[\s\S]{0,200}429\)/.test(w));
+  // The cap is opt-in (PAIDY_WEBHOOK_RATE_CAP=on) and never applies to an id the Hub knows.
+  assert(/if \(!recognisedSource && Deno\.env\.get\("PAIDY_WEBHOOK_RATE_CAP"\) === "on" && !\(await paidyIdKnown\(id\)\)\) \{[\s\S]{0,400}PAIDY_WEBHOOK_UNRECOGNISED_PER_MINUTE[\s\S]{0,200}429\)/.test(w));
   assert(/Deno\.env\.get\("PAIDY_WEBHOOK_IP_CHECK"\)/.test(w));
   assertEquals(/ignored:\s*true/.test(w), false);
   assert(/"webhook", 0, \{ recognisedSource \}\)/.test(w));

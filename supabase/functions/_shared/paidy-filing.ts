@@ -58,7 +58,17 @@ export async function releasePaidyAuthorization(supabase: Db, payment: PaidyPaym
   cash_order_id?: string | null; paidy_payment_row?: string | null; why: string;
 }): Promise<PaidyReleaseOutcome> {
   const before = paidyProviderOutcome(payment);
-  if (before === "closed" || before === "rejected" || before === "expired") return "released";
+  if (before === "closed" || before === "rejected" || before === "expired") {
+    // M2 (Paidy QC 2026-10-09): Paidy already ended it — the row says so now,
+    // not at the next sweep (an "authorized" row keeps the order locked and
+    // makes "End its submission" refuse authorization_open).
+    const at = new Date().toISOString();
+    const { error } = await supabase.from("paidy_payments").update({
+      status: before, closed_at: at, closed_reason: `ended at Paidy: ${ctx.why}`.slice(0, 200), last_payload: payment, updated_at: at,
+    }).eq("paidy_payment_id", payment.id).eq("status", "authorized");
+    if (error) console.error(`[paidy] ended status write for ${payment.id} failed (the sweep repairs it):`, error);
+    return "released";
+  }
   if (before === "captured") return await releaseSawCapture(supabase, payment, ctx);
   let answer: PaidyPayment | null = null;
   let failure: string | null = null;
@@ -172,6 +182,12 @@ export async function filePaidyAuthorization(supabase: Db, args: {
     // M1 (Paidy QC 2026-10-09): another order's payment (order_ref) or the
     // other environment's (test_flag) is never closed from here — that
     // would release money another order is waiting for. Nothing is written.
+    // A recovery path (webhook / sweep) tells staff, so a held order is never silent.
+    if (path !== "website_paidy") {
+      await paidyBell(supabase, "paidy_unmatched_authorization", "Paidy authorisation not filed",
+        `${payment.id} · ${mismatch === "test_flag" ? "its environment (test/live) differs from the Hub's Paidy mode" : "it names another order"} — not closed; check the Paidy dashboard and Payment Submissions → Paidy cases.`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, mismatch });
+    }
     return { ok: false, error: "paidy_mismatch", detail: mismatch, released: false };
   }
   if (mismatch) {

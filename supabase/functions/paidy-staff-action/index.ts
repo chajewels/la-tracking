@@ -31,7 +31,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STATUS: Record<string, number> = {
   forbidden: 403, reason_required: 400, not_found: 404, window_still_open: 409,
   user_identity_required: 401, paidy_unavailable: 502, paidy_holds_authorization: 409,
-  not_authorized: 409, release_not_confirmed: 502, captured: 409,
+  not_authorized: 409, release_not_confirmed: 502, captured: 409, window_changed: 409,
 };
 
 Deno.serve(async (req) => {
@@ -64,6 +64,8 @@ Deno.serve(async (req) => {
 
       // Ask Paidy what the window's payment holds (if it named one the Hub
       // has no record of). The answer goes into the audit row.
+      // staff_end_paidy_checkout_window refuses if the window's id changed
+      // after this check (window_changed) — the answer below is about THIS id.
       let check: Record<string, unknown> = { paidy_payment_id: win.paidy_payment_id ?? null };
       const pid = win.paidy_payment_id ? String(win.paidy_payment_id) : null;
       if (pid) {

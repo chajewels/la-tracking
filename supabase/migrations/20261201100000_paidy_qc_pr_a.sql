@@ -33,8 +33,10 @@
 --       environment's payments only.
 --   L4  An inbox event not yet tied to an order held every customer's window
 --       indefinitely. Now 2 hours at most.
---   L7  A refund that would take the ledger past the capture was inserted.
---       Now refused before it is written.
+--   L7  NOT changed (independent review): a refund larger than the capture is
+--       still written to the ledger as before — the cancel RPCs' "no double
+--       compensation" refusal (PA02) reads that ledger, so dropping the row
+--       would let store credit be issued for money Paidy already returned.
 --   L10 paidy_mode() was callable by any signed-in login. Now service_role only
 --       (its four callers are SECURITY DEFINER and run as the owner).
 --
@@ -199,29 +201,6 @@ REVOKE ALL ON FUNCTION public.expire_paidy_checkout_attempts(uuid) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION public.expire_paidy_checkout_attempts(uuid) TO service_role;
 
 -- ---------------------------------------------------------------------------
--- L7: record_paidy_refund — never past the capture
--- ---------------------------------------------------------------------------
-SELECT pg_temp.cj_patch('public.record_paidy_refund(text,uuid,numeric,text,timestamp with time zone,jsonb)', 'b74650c77ac470c8fcf9043dba26a6f8', jsonb_build_array(
-  jsonb_build_object('old', $o$  INSERT INTO public.paidy_refunds (paidy_payment_row, cash_order_id, refund_id, amount_jpy, refunded_at, payload)
-$o$, 'new', $n$  -- L7 (Paidy QC 2026-10-09): a NEW refund that would take the ledger past
-  -- the capture is not written, so the ledger and refund_jpy never disagree.
-  -- The refund's own Paidy case (opened by the sync before this call) asks
-  -- staff to look.
-  IF NOT EXISTS (SELECT 1 FROM public.paidy_refunds WHERE refund_id = p_refund_id)
-     AND (SELECT COALESCE(SUM(amount_jpy), 0) FROM public.paidy_refunds WHERE paidy_payment_row = p_paidy_payment_row)
-         + p_amount_jpy > v_rec.amount_jpy THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'refund_exceeds_capture', 'inserted', false,
-      'refunded_jpy', (SELECT COALESCE(SUM(amount_jpy), 0) FROM public.paidy_refunds WHERE paidy_payment_row = p_paidy_payment_row) + p_amount_jpy,
-      'captured_jpy', v_rec.amount_jpy);
-  END IF;
-
-  INSERT INTO public.paidy_refunds (paidy_payment_row, cash_order_id, refund_id, amount_jpy, refunded_at, payload)
-$n$)
-));
-REVOKE ALL ON FUNCTION public.record_paidy_refund(text,uuid,numeric,text,timestamp with time zone,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_paidy_refund(text,uuid,numeric,text,timestamp with time zone,jsonb) TO service_role;
-
--- ---------------------------------------------------------------------------
 -- M7: get_paidy_settings — this environment's payments only
 -- ---------------------------------------------------------------------------
 SELECT pg_temp.cj_patch('public.get_paidy_settings()', 'c5cf9d1780d07709195e27af2fa9c79c', jsonb_build_array(
@@ -282,6 +261,11 @@ BEGIN
   -- timed out (30 minutes) can be ended by staff.
   IF v_att.expires_at > now() THEN
     RETURN jsonb_build_object('ok', false, 'error', 'window_still_open', 'expires_at', v_att.expires_at);
+  END IF;
+  -- The edge function's Paidy check was about the id the window held then;
+  -- a callback that noted an id since is not ended unchecked.
+  IF v_att.paidy_payment_id IS DISTINCT FROM NULLIF(p_check ->> 'paidy_payment_id', '') THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'window_changed');
   END IF;
 
   UPDATE public.paidy_checkout_attempts

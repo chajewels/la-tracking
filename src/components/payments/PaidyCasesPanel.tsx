@@ -27,6 +27,7 @@ interface PaidyCase {
   kind: string;
   paidy_payment_id: string;
   cash_order_id: string | null;
+  paidy_payment_row: string | null;
   detail: Record<string, unknown> | null;
   opened_at: string;
   last_seen_at: string;
@@ -85,7 +86,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
     queryFn: async (): Promise<PaidyCase[]> => {
       const { data, error } = await db
         .from('paidy_cases')
-        .select('id, kind, paidy_payment_id, cash_order_id, detail, opened_at, last_seen_at, attempts, cash_order:cash_orders(invoice_number, web_reference)')
+        .select('id, kind, paidy_payment_id, cash_order_id, paidy_payment_row, detail, opened_at, last_seen_at, attempts, cash_order:cash_orders(invoice_number, web_reference)')
         .eq('status', 'open')
         .order('opened_at', { ascending: true })
         .limit(50);
@@ -123,7 +124,7 @@ export default function PaidyCasesPanel({ canResolve }: { canResolve: boolean })
     // M2 (Paidy QC 2026-10-09): ending the submission of a payment Paidy
     // still holds AUTHORISED first closes it at Paidy (paidy-staff-action);
     // the database refuses end_submission until it is no longer authorised.
-    if (resolution === 'end_submission') {
+    if (resolution === 'end_submission' && target.paidy_payment_row) {
       const { data: closed, error: closeErr } = await supabase.functions.invoke('paidy-staff-action', {
         body: { action: 'close_authorization', case_id: target.id },
       });

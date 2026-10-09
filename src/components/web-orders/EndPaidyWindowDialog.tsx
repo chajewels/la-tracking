@@ -23,6 +23,7 @@ const REFUSAL: Record<string, string> = {
   window_still_open: 'The customer opened Paidy less than 30 minutes ago and may be paying right now. Try again after the window times out.',
   paidy_unavailable: 'Could not check the payment with Paidy. Nothing was changed — try again in a few minutes.',
   paidy_holds_authorization: 'Paidy still holds an authorisation for this window. Nothing was ended — see Payment Submissions → Paidy cases.',
+  window_changed: 'The customer just came back from Paidy on this window. Nothing was ended — refresh and check again.',
   forbidden: 'You need the Confirm payment permission to end a Paidy window.',
   not_found: 'This order was not found.',
 };

@@ -613,6 +613,7 @@ Deno.serve(async (req) => {
               return json(409, { error: "confirm_in_progress", message: "Another Confirm took over this Paidy payment. Refresh the page." });
             }
             console.error("[review-payment-submission] Paidy end-of-authorisation write failed:", endErr ?? res.error);
+            await revertCashClaim();
             return json(500, { error: "paidy_reject_write_failed", message: `Paidy says: ${why}. Recording that in the Hub failed — nothing was changed; press Confirm again in a few minutes.` });
           }
           // The customer hears it from us — Paidy never emails a cancellation.
@@ -835,7 +836,9 @@ Deno.serve(async (req) => {
               error: "paidy_lock",
               message: payLockErr
                 ? "Could not check the order's payment lock. Nothing was captured; try again."
-                : "A Paidy payment is holding this order. Nothing was captured on the card — resolve the Paidy payment first (Payment Submissions → Paidy).",
+                : String(payLock) === "paidy_checkout_open"
+                  ? "The customer's Paidy window is open on this order. Nothing was captured on the card — wait for it to close, or use \"End Paidy window\" on the order once it has timed out."
+                  : "A Paidy payment is holding this order. Nothing was captured on the card — resolve the Paidy payment first (Payment Submissions → Paidy).",
             });
           }
           try {

@@ -44,6 +44,17 @@ const PROCESS_DEADLINE_MS = 8000;
 /** PA14: however slow the inbox insert was, processing still gets this much before the 200 goes out. */
 const MIN_PROCESS_BUDGET_MS = 1500;
 
+// deno-lint-ignore no-explicit-any
+let knownDb: any = null;
+/** M5: true when the Hub already holds this Paidy id (record or noted window). A read error counts as known (never cap on doubt). */
+async function paidyIdKnown(id: string): Promise<boolean> {
+  knownDb ??= createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const a = await knownDb.from("paidy_payments").select("id").eq("paidy_payment_id", id).limit(1);
+  if (a.error || (a.data ?? []).length > 0) return true;
+  const b = await knownDb.from("paidy_checkout_attempts").select("id").eq("paidy_payment_id", id).limit(1);
+  return !!b.error || (b.data ?? []).length > 0;
+}
+
 Deno.serve(async (req) => {
   // PA14 (2026-10-08): Paidy's 10 s clock starts when the request arrives, so
   // the processing budget is measured from RECEIPT — the inbox insert and the
@@ -65,7 +76,11 @@ Deno.serve(async (req) => {
   const event = String(body.status ?? body.event ?? "").slice(0, 40);
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  if (!recognisedSource) {
+  // The cap is OFF until live evidence shows real Paidy deliveries are
+  // recognised (inbox source_ip / source_recognised): edge secret
+  // PAIDY_WEBHOOK_RATE_CAP=on turns it on. A payment the Hub already knows
+  // (a record, or an id noted on a window) is never capped.
+  if (!recognisedSource && Deno.env.get("PAIDY_WEBHOOK_RATE_CAP") === "on" && !(await paidyIdKnown(id))) {
     const since = new Date(Date.now() - 60_000).toISOString();
     const { count, error: capErr } = await supabase.from("paidy_webhook_events")
       .select("id", { count: "exact", head: true }).eq("source_recognised", false).gte("received_at", since);

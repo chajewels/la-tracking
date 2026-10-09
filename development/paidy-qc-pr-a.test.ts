@@ -9,7 +9,7 @@
  */
 import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  paidyAdoptBlock, paidyAuthorizationLapsed, paidyMismatchReleases, paidyNoteDecision, paidyProviderOutcome,
+  paidyAdoptBlock, paidyAuthorizationLapsed, paidyFilingMismatch, paidyMismatchReleases, paidyNoteDecision, paidyProviderOutcome,
   paidyWebhookSource,
 } from "../supabase/functions/_shared/paidy-rules.ts";
 
@@ -98,6 +98,14 @@ Deno.test("H1/M2 wiring: paidy-staff-action is a person-only, confirm_payment fu
   assertStringIncludes(toml, "[functions.paidy-staff-action]\n    verify_jwt = true");
 });
 
+Deno.test("M1: whose payment it is is decided before this order's balance or status", () => {
+  const exp = { test: true, orderRef: "CJ-W-1" };
+  const ok = { status: "AUTHORIZED", currency: "JPY", test: true, amount: 5000, order: { order_ref: "CJ-W-1" } };
+  assertEquals(paidyFilingMismatch({ ...ok, amount: 8000, order: { order_ref: "CJ-W-2" } }, { remaining_balance: 5000 }, exp), "order_ref");
+  assertEquals(paidyFilingMismatch({ ...ok, status: "CLOSED", order: { order_ref: "CJ-W-2" } }, { remaining_balance: 5000 }, exp), "order_ref");
+  assertEquals(paidyFilingMismatch({ ...ok, amount: 8000 }, { remaining_balance: 5000 }, exp), "amount");
+});
+
 Deno.test("M1 wiring: the filing never closes on order_ref / test_flag; the website routes it to its own order", () => {
   const f = code("supabase/functions/_shared/paidy-filing.ts");
   const guard = f.indexOf("if (mismatch && !paidyMismatchReleases(mismatch)) {");
@@ -134,8 +142,9 @@ Deno.test("M6 wiring: the Square capture checks the Paidy lock first", () => {
   assertStringIncludes(code("supabase/functions/_shared/paidy-filing.ts"), 'if (err === "stale_authorization" || err === "card_payment_unresolved") {');
 });
 
-Deno.test("M5/L9 wiring: unrecognised deliveries are capped (429), the source is stored, a late finish uses waitUntil", () => {
+Deno.test("M5/L9 wiring: the cap is opt-in and never hits a known id; the source is stored; a late finish uses waitUntil", () => {
   const w = code("supabase/functions/paidy-webhook/index.ts");
+  assertStringIncludes(w, 'if (!recognisedSource && Deno.env.get("PAIDY_WEBHOOK_RATE_CAP") === "on" && !(await paidyIdKnown(id))) {');
   assertStringIncludes(w, "source_ip: source.ips, source_recognised: recognisedSource");
   assert(/\.eq\("source_recognised", false\)\.gte\("received_at", since\)/.test(w));
   assertStringIncludes(w, 'return jsonResponse({ error: "rate_limited" }, 429);');
@@ -152,20 +161,21 @@ Deno.test("L8 wiring: an unsendable follow-up is marked failed with a bell, neve
 Deno.test("migration: every existing function is patched from its live md5, nothing else", () => {
   const sql = code(MIG);
   const calls = [...sql.matchAll(/SELECT pg_temp\.cj_patch\('public\.([a-z_]+)\(/g)].map((m) => m[1]);
-  assertEquals(calls.sort(), ["expire_paidy_checkout_attempts", "file_paidy_submission_atomic", "get_paidy_settings", "record_paidy_refund", "resolve_paidy_case"]);
-  for (const md5 of ["29887dd66f546ab4038e20a49e6b28ee", "195964b6fa65d2936fa41a0eb08699d6", "b6d33a3a3c60760c0ce040f18ae727f8", "b74650c77ac470c8fcf9043dba26a6f8", "c5cf9d1780d07709195e27af2fa9c79c"]) {
+  // L7 deliberately NOT patched: record_paidy_refund keeps writing every verified refund (PA02 reads it).
+  assertEquals(calls.sort(), ["expire_paidy_checkout_attempts", "file_paidy_submission_atomic", "get_paidy_settings", "resolve_paidy_case"]);
+  for (const md5 of ["29887dd66f546ab4038e20a49e6b28ee", "195964b6fa65d2936fa41a0eb08699d6", "b6d33a3a3c60760c0ce040f18ae727f8", "c5cf9d1780d07709195e27af2fa9c79c"]) {
     assertStringIncludes(sql, `', '${md5}', jsonb_build_array(`);
   }
   assert(/IF md5\(v_def\) <> p_before THEN\s+RAISE EXCEPTION/.test(sql));
 });
 
-Deno.test("migration: M2 refusal, M3 order, M6 before the insert, L7 before the insert", () => {
+Deno.test("migration: M2 refusal, M6 before the insert, staff end re-checks the window's id", () => {
   const sql = raw(MIG);
   assertStringIncludes(sql, "RETURN jsonb_build_object('error', 'authorization_open', 'paidy_payment_id', v_rec.paidy_payment_id);");
   const m6 = sql.indexOf("IF public.cash_order_payment_lock(v_order.id, v_rec.id, true) = 'card_payment_unresolved' THEN");
   assert(m6 > 0 && sql.indexOf("-- The record is written BEFORE the one-payment check", m6) > m6);
-  const l7 = sql.indexOf("RETURN jsonb_build_object('ok', false, 'error', 'refund_exceeds_capture', 'inserted', false,");
-  assert(l7 > 0 && sql.indexOf("INSERT INTO public.paidy_refunds (paidy_payment_row", l7) > l7);
+  assert(!/cj_patch\('public\.record_paidy_refund/.test(sql), "record_paidy_refund untouched");
+  assertStringIncludes(sql, "IF v_att.paidy_payment_id IS DISTINCT FROM NULLIF(p_check ->> 'paidy_payment_id', '') THEN");
 });
 
 Deno.test("migration: new functions and paidy_mode() are service_role only", () => {

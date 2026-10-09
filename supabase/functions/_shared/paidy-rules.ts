@@ -525,11 +525,14 @@ export function paidyFilingMismatch(
   expect: { test: boolean; orderRef: string },
 ): string | null {
   if (!p) return "unknown_payment";
+  // M1 (Paidy QC 2026-10-09): WHOSE payment it is is decided first — another
+  // order's (order_ref) or the other environment's (test_flag) payment is
+  // never judged by THIS order's balance or status (and never closed here).
+  if ((p.test === true) !== expect.test) return "test_flag";
+  if (String(p.order?.order_ref ?? "") !== expect.orderRef) return "order_ref";
   if (normalizePaidyStatus(p.status) !== "AUTHORIZED") return "not_authorized";
   if (p.currency !== "JPY") return "not_jpy";
-  if ((p.test === true) !== expect.test) return "test_flag";
   if (!paidyAmountMatches(p.amount, order.remaining_balance)) return "amount";
-  if (String(p.order?.order_ref ?? "") !== expect.orderRef) return "order_ref";
   return null;
 }
 
