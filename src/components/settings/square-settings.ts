@@ -20,7 +20,7 @@ export interface SquarePreflight {
   app_id_family?: string | null;
   events?: { state?: string; status?: number | null; code?: string | null; first_page?: number | null; window_days?: number };
   /** M2 (QC 2026-10-09): the configured location as Square reports it. */
-  location?: { status?: string | null; currency?: string | null; country?: string | null } | null;
+  location?: { status?: string | null; currency?: string | null; country?: string | null; card_processing?: boolean | null } | null;
   /** F-14: whether the environment's webhook signature key is set. */
   webhook_key?: boolean;
   at?: string;
@@ -138,6 +138,15 @@ export function preflightLines(p: SquarePreflight | null): Array<{ ok: boolean; 
       text: p.location
         ? `Location is ${p.location.status ?? "?"}, ${p.location.currency ?? "?"}, ${p.location.country ?? "?"} (must be ACTIVE, JPY, JP)`
         : "Location status, currency and country not read — run the check again",
+    },
+    {
+      /* DOC-7 (go-live counter-check 2026-10-09): Square must have activated the location for card payments. */
+      ok: p.location?.card_processing === true,
+      text: p.location?.card_processing === true
+        ? "Square has activated this location for card payments"
+        : p.location
+          ? "Square has NOT activated this location for card payments (CREDIT_CARD_PROCESSING) — ask Square to activate it"
+          : "Card-payment activation not read — run the check again",
     },
     { ok: p.webhook_key === true, text: p.webhook_key === true ? "Production webhook signature key is set" : "Production webhook signature key (SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY) is NOT set" },
     { ok: p.app_id_family === "production", text: p.app_id_family === "production" ? "Application ID is a production id (sq0idp-)" : `Application ID is ${p.app_id_family ?? "missing"}, not production` },

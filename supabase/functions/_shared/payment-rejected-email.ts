@@ -31,6 +31,16 @@ import {
 // deno-lint-ignore no-explicit-any
 type Db = any;
 
+/**
+ * CODE-M2 (go-live counter-check 2026-10-09): true when the order's payment deadline is
+ * already behind us — the email then never says "pay by <past date>" / "pay again".
+ */
+export function deadlineHasPassed(transferDueAt: unknown, now: number = Date.now()): boolean {
+  if (typeof transferDueAt !== "string" || transferDueAt.trim() === "") return false;
+  const t = Date.parse(transferDueAt);
+  return Number.isFinite(t) && t <= now;
+}
+
 /** transfer | paidy | card, from the submission's own method. */
 export function notAcceptedMethod(paymentMethod: unknown): NotAcceptedMethod {
   const m = String(paymentMethod ?? "").toLowerCase();
@@ -84,6 +94,7 @@ export async function sendCashPaymentRejectedEmail(
           transferDueAt: order.transfer_due_at ?? null,
           region: regionForCurrency(currency),
           orderUrl: storefrontOrderUrl(String(order.id)),
+          deadlinePassed: deadlineHasPassed(order.transfer_due_at),
         }),
       });
       return;
@@ -152,6 +163,7 @@ export async function sendCardHoldReleasedEmail(
         region: regionForCurrency(currency),
         orderUrl: storefrontOrderUrl(String(order.id)),
         otherPaymentInProgress: args.otherPaymentInProgress === true,
+        deadlinePassed: deadlineHasPassed(order.transfer_due_at),
       }),
     });
   } catch (e) {

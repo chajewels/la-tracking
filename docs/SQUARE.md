@@ -796,3 +796,49 @@ Migration `20261130150000_square_qc_closeout.sql`; proof `development/sql/square
   challenge is observed. **F-15** agreement binding stays asserted by the storefront (documented).
   **Q-S1** the agreement threshold is the owner's setting (¥1 and 0 have the same effect today).
 
+
+## Go-live counter-check fixes (2026-10-09, seventh release)
+
+Found by the read-only counter-check of the live build against Square's documentation and every
+card flow (project doc `claude/square-golive-countercheck-2026-10-09-evening.md`). Migration
+`20261130180000_square_golive_countercheck.sql` (md5-guarded patches from live); acceptance
+`development/sql/square-golive-countercheck-2026-10-09.sql` (9/9 on the patched copy, 6 fail
+on the live bodies before the fix); deno `development/square-golive-countercheck.test.ts`.
+
+- **DOC-7 — card activation in the preflight.** `square-preflight` reads each location's
+  `capabilities`; `locationUsable` now also requires `CREDIT_CARD_PROCESSING`
+  (developer.squareup.com/reference/square/enums/LocationCapability). An ACTIVE yen location in
+  Japan that Square has not activated for cards no longer passes — the first live payment would
+  have failed. Website → Settings shows a seventh line.
+- **CODE-M1 — a chargeback blocks recording.** `finalize_cash_submission_atomic` (Square block)
+  and `decide_square_case` (`record_on_order` / `record_net_after_refund`) refuse with
+  `card_disputed` while `square_order_disputed_jpy(order) > 0`. The edge treats it as a
+  cannot-take refusal (a tracked `captured_unallocated` case + `card_recording_failed` bell),
+  never "Finish recording". An inquiry (no money held) does not block. The bell has its own
+  wording: answer the dispute in Square, record only once it is WON, and NEVER refund it in the
+  Dashboard (the bank may already be returning the money). The check is per ORDER, not per
+  payment: a dispute on one card payment also holds a second, clean capture on the same order
+  until it is settled — deliberately conservative. A capture that is both disputed and refunded
+  reports `card_disputed` (checked first).
+- **Record-only follow-up.** These are in-place patches, so after the Lovable apply the three
+  functions show `a_differs` in `scripts/function-drift-audit` until a record-only migration
+  copies their live bodies into the repo (same as 20261130170000).
+- **CODE-M2 — no "pay by <past date>".** When the order's deadline has passed, the "payment not
+  accepted" email (card hold ended by Square on day 7, or a late Reject) replaces the deadline
+  and "pay again" with "the deadline has passed — reply and we will tell you whether we can hold
+  it again" (`deadlineHasPassed`, `deadlinePassed` prop). The order still expires at the next
+  hourly run; staff can revive a web cash order (`revive_web_cash_order_atomic`).
+- **DOC-5 — 403 on a bad webhook signature**, as Square documents (was 401).
+- **L1 — `record_square_dispute` locks the order first**, like `record_square_refund` (R05): a
+  dispute and a store-credit cancel on the same order are serialised, so
+  `card_dispute_after_credit` is never missed. Proven locally: the dispute waits on a held order
+  lock.
+
+Settled during the check (no change): after a partial refund Square keeps `amount_money` at the
+original total and reports the refund in `refunded_money` (live payment of Test D: 8640 /
+refunded 8563), which is what the net-after-refund path assumes.
+
+Left for later (Low, owner to order): L2 dispute read-back validation, L3 `refund_jpy` never
+lowered, L4 lock order in `close_square_attempt_atomic`, L5 balance re-check on "Finish
+recording", L6 mixed-payment "Mark refund issued", L7 auto-void of a late hold on a closed
+attempt, L8 three customer wordings.

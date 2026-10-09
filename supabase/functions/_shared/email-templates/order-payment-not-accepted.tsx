@@ -43,6 +43,13 @@ export interface OrderPaymentNotAcceptedProps {
   orderUrl: string | null
   /** Another payment of hers is being checked (addendum §9 #10): say so instead of "pay again" / "closed". */
   otherPaymentInProgress?: boolean
+  /**
+   * CODE-M2 (go-live counter-check 2026-10-09): the order's payment deadline has already
+   * passed (a card hold that Square ended on day 7, or a Reject after the deadline). The
+   * order expires at the next hourly run, so she is never told "pay by <past date>" or
+   * "pay again" — she is asked to reply instead.
+   */
+  deadlinePassed?: boolean
 }
 
 export const orderPaymentNotAcceptedSubject = (reference: string, lang: Lang) =>
@@ -68,6 +75,7 @@ const COPY = {
     again: 'ご注文ページから、もう一度お支払いいただけます。',
     closed: 'このご注文は現在お支払いを受け付けておりません。ご不明な点はこのメールにご返信ください。',
     otherInProgress: 'このご注文の別のお支払いを確認中です。新たにお支払いいただく必要はありません。確認後に改めてご連絡します。',
+    deadlinePassed: 'このご注文のお支払い期限は過ぎています。引き続きご希望の場合は、このメールにご返信ください。お取り置きを続けられるかご案内いたします。',
   },
   en: {
     heading: 'We could not accept your payment',
@@ -83,6 +91,7 @@ const COPY = {
     again: 'You can pay again from your order page.',
     closed: 'This order is no longer open for payment. If you have any questions, reply to this email.',
     otherInProgress: 'Another payment on this order is being checked. You do not need to pay again — we will contact you once it is confirmed.',
+    deadlinePassed: 'The payment deadline for this order has passed. If you would still like the piece, reply to this email and we will let you know whether we can hold it again.',
   },
 } as const
 
@@ -94,7 +103,8 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
     : c.transfer
   const reason = p.kind === 'staff' ? String(p.reason ?? '').trim() : ''
   const open = p.remaining !== null && p.remaining > 0
-  const when = open ? formatDeadline(p.transferDueAt, p.region, lang) : ''
+  const lapsed = open && p.deadlinePassed === true
+  const when = open && !lapsed ? formatDeadline(p.transferDueAt, p.region, lang) : ''
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
@@ -114,7 +124,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
             <Row k={c.remaining} v={orderMoney(p.remaining as number, p.currency)} emphasis />
           </Panel>
           {when && <Text style={{ ...text, fontWeight: 'bold' as const }}>{c.deadline(when)}</Text>}
-          <Text style={text}>{c.again}</Text>
+          <Text style={text}>{lapsed ? c.deadlinePassed : c.again}</Text>
         </>
       ) : (
         <Text style={muted}>{p.otherPaymentInProgress ? c.otherInProgress : c.closed}</Text>

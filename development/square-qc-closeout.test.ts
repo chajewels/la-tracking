@@ -28,7 +28,10 @@ Deno.test('F-02: card_disputed has a plain-English staff message', () => {
 })
 
 Deno.test('M2 / F-14: preflight location must be ACTIVE + JPY + JP; webhook key names per environment', () => {
-  assert(locationUsable({ status: 'ACTIVE', currency: 'JPY', country: 'JP' }))
+  assert(locationUsable({ status: 'ACTIVE', currency: 'JPY', country: 'JP', card_processing: true }))
+  // DOC-7: an ACTIVE yen location Square has not activated for cards fails.
+  assert(!locationUsable({ status: 'ACTIVE', currency: 'JPY', country: 'JP', card_processing: false }))
+  assert(!locationUsable({ status: 'ACTIVE', currency: 'JPY', country: 'JP' }))
   assert(!locationUsable({ status: 'ACTIVE', currency: 'JPY', country: 'US' }))
   assert(!locationUsable(null))
   assertEquals(webhookKeyNames('production'), ['SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY'])
