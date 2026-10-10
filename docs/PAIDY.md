@@ -844,3 +844,23 @@ emailable to Brenda + admins.
 - **Bell `paidy_payment_recorded`.** Rung once per Paidy recording ("order
   completed, ready to ship" when it completed the order). Emailed only when an
   admin ticks it in Website → Settings → Staff bell emails.
+
+## Reassessment F1–F2 (owner 2026-10-10)
+
+- **F1 — tokusho wording (website #334).** The Paidy row now says the bill
+  arrives in the month after we confirm the purchase, and a direct debit is
+  taken on the 27th of the following month, or the next banking day if the
+  bank is closed. Website only; no Hub change.
+- **F2 — a missed "Paidy payment recorded" bell is rung late (option A).**
+  The bell text is built in ONE place, `_shared/paidy-recorded-bell.ts`, used
+  by review-payment-submission (the normal ring) and paidy-reconcile (the
+  late ring). Step 6d of the hourly paidy-reconcile looks at confirmed Paidy
+  submissions whose cash payment was recorded at least 10 minutes ago and at
+  most 7 days ago (never before 2026-10-10 10:10 UTC), skips a voided
+  payment, and rings `paidy_payment_recorded` only when no bell with that
+  `metadata.cash_payment_id` exists. The late bell says "this bell was sent
+  late by the hourly Paidy check" and carries `metadata.late = true`;
+  `reviewer_user_id IS NULL` reads as the automatic recording. The report
+  field is `recorded_bells_late`. Edge only: no migration, no money RPC, no
+  write to any payment or order. Option B (ringing inside the recording
+  transaction) was not chosen.
