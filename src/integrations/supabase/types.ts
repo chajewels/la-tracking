@@ -9332,6 +9332,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      adopt_paidy_orphan_capture_atomic: {
+        Args: {
+          p_amount_jpy: number
+          p_authorized_at: string
+          p_capture_id: string
+          p_captured_at: string
+          p_case_id: string
+          p_payload: Json
+          p_reason: string
+          p_test: boolean
+          p_user_id: string
+        }
+        Returns: Json
+      }
       allocate_payment_atomic: {
         Args: {
           p_account_id: string
@@ -9464,6 +9478,10 @@ export type Database = {
           p_ignore_attempts?: boolean
           p_ignore_paidy_row?: string
         }
+        Returns: string
+      }
+      cash_order_payment_lock_for_staff: {
+        Args: { p_cash_order_id: string }
         Returns: string
       }
       cash_order_payment_locks: {
