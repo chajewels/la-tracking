@@ -763,6 +763,16 @@ Guards: `development/paidy-qc-pr-a.test.ts` (CI), `development/paidy-sync.test.t
   record, so a released one could hold the order indefinitely).
 - A window she closed herself, or that Paidy declined, is still replaced at
   once, as before. Staff keep "End Paidy window" as the exit.
+- Independent review (2026-10-10) fixes: the note takes the ORDER lock (queues
+  with a new window); records the key family (`authorization_test`) so a 404
+  from that same family verifies it empty (one deployment holds one key); a
+  declined id noted by the closed callback gives way to a later approval in the
+  same window; a late approval after the window expired opens a holding window
+  (`end_reason` 'approval_held'); a noted window still open 3 hours past expiry
+  rings ONE staff bell `paidy_window_stuck` (`stuck_bell_at`); a failed note is
+  logged, never turns a refusal into a 500; one Paidy read is reused for the
+  filing. Known edge left: a payment matching this order by metadata only (not
+  order_ref) is noted but adopted as unmatched — staff case + bell.
 - Storefront: `PAIDY_HOLD_MAX_MS` 90 minutes (the hourly sweep plus its margin).
 - Proof: scratch replay (Paidy bodies byte-identical to live) — window kept and
   second start refused; closed window replaced at once; timed-out-unverified

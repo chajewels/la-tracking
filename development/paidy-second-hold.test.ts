@@ -42,12 +42,16 @@ Deno.test("website: the approval is noted BEFORE any refusal and before filing",
   const file = body.indexOf("await filePaidyAuthorization(");
   assert(note > 0 && lock > note && offer > note && file > note, `order: note=${note} lock=${lock} offer=${offer} file=${file}`);
   assert(/if \(paidyAuthorizationNote\(authRead,/.test(body), "noted only through the pure rule");
+  assert(body.includes("p_test: paidySecretIsTest()"), "the key family is recorded");
+  assert(body.includes('authRead && "payment" in authRead ? authRead.payment'), "one Paidy read reused");
 });
 
 Deno.test("sweep: a window whose Paidy record ended is verified empty", () => {
   const c = code(SWEEP);
   assert(/\["closed", "rejected", "expired"\]\.includes\(String\(\(row as Record<string, any>\)\.status\)\)/.test(c));
   assert(!/if \(row\) continue;/.test(c), "the old unconditional skip is gone");
+  assert(c.includes("if (w.authorization_noted_at && w.authorization_test === secretTest)"), "same-family 404 verifies a noted approval");
+  assert(c.includes('type: "paidy_window_stuck"'), "one staff bell for a stuck noted window");
 });
 
 Deno.test("migration: md5-guarded patch, new writer service_role only, no replace of a noted approval", () => {
@@ -55,7 +59,10 @@ Deno.test("migration: md5-guarded patch, new writer service_role only, no replac
   assert(m.includes("pg_temp.cj_patch('public.start_paidy_checkout_attempt(uuid,uuid,integer)', '0ab389929a0e53cf8a2980a9dc2b4935'"));
   assert(m.includes("AND NOT (authorization_noted_at IS NOT NULL AND verified_empty_at IS NULL);"));
   assert(m.includes("ADD COLUMN IF NOT EXISTS authorization_noted_at timestamptz"));
-  assert(m.includes("REVOKE ALL ON FUNCTION public.note_paidy_window_authorization(uuid, uuid, text) FROM PUBLIC, anon, authenticated;"));
-  assert(m.includes("GRANT EXECUTE ON FUNCTION public.note_paidy_window_authorization(uuid, uuid, text) TO service_role;"));
+  assert(m.includes("ADD COLUMN IF NOT EXISTS authorization_test boolean"));
+  assert(/WHERE id = p_cash_order_id AND customer_id = p_customer_id FOR UPDATE;/.test(m), "the note takes the order lock");
+  assert(m.includes("'approval_held'"), "a late approval opens a holding window");
+  assert(m.includes("REVOKE ALL ON FUNCTION public.note_paidy_window_authorization(uuid, uuid, text, boolean) FROM PUBLIC, anon, authenticated;"));
+  assert(m.includes("GRANT EXECUTE ON FUNCTION public.note_paidy_window_authorization(uuid, uuid, text, boolean) TO service_role;"));
   assert(m.includes("REVOKE ALL ON FUNCTION public.start_paidy_checkout_attempt(uuid, uuid, integer) FROM PUBLIC, anon, authenticated;"));
 });

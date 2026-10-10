@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
     // unverified_no_id — honest, and bounded by adoption of a late arrival.
     if (secretTest !== null) {
       const { data: windows, error: winErr } = await supabase
-        .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id")
+        .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id, authorization_noted_at, authorization_test")
         .eq("status", "open").lte("expires_at", nowIso()).not("paidy_payment_id", "is", null).is("verified_empty_at", null)
         .order("expires_at", { ascending: true }).limit(MAX_WINDOWS_VERIFIED_PER_RUN);
       if (winErr) throw winErr;
@@ -320,6 +320,14 @@ Deno.serve(async (req) => {
           // 404 alone may just mean the other key family is in now.)
           if (e instanceof PaidyError && e.status === 404) {
             const at = nowIso();
+            // Second-hold fix (2026-10-10): an approval the website noted with
+            // THIS key family is verified by this family's 404 alone — the
+            // other family never answers in this deployment.
+            if (w.authorization_noted_at && w.authorization_test === secretTest) {
+              const { error } = await supabase.from("paidy_checkout_attempts").update({ verified_empty_at: at }).eq("id", w.id).eq("status", "open");
+              if (error) report.write_errors++; else report.windows_verified++;
+              continue;
+            }
             const mine = secretTest ? "not_found_test_at" : "not_found_live_at";
             const other = secretTest ? "not_found_live_at" : "not_found_test_at";
             const { data: stamped, error: stampErr } = await supabase.from("paidy_checkout_attempts")
@@ -352,6 +360,27 @@ Deno.serve(async (req) => {
           if (error) report.write_errors++; else report.windows_verified++;
         }
         // unknown: the window stays for the next run.
+      }
+    }
+    // Second-hold fix (2026-10-10): a window holding an approval the Hub could
+    // not file, still open 3 hours past its expiry, rings ONE staff bell — the
+    // customer cannot pay meanwhile; staff have "End Paidy window".
+    {
+      const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const { data: stuck, error: stuckErr } = await supabase
+        .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id, cash_order:cash_orders(web_reference, invoice_number)")
+        .eq("status", "open").not("authorization_noted_at", "is", null).is("stuck_bell_at", null).lte("expires_at", cutoff).limit(25);
+      if (stuckErr) throw stuckErr;
+      for (const w of (stuck ?? []) as Record<string, any>[]) {
+        const ref = w.cash_order?.web_reference ?? w.cash_order?.invoice_number ?? w.cash_order_id;
+        const { error } = await supabase.from("staff_notifications").insert({
+          type: "paidy_window_stuck", title: "A Paidy approval is still waiting to be checked",
+          body: `${ref} · ${w.paidy_payment_id} · the customer cannot pay this order until Paidy is checked. Check the Paidy dashboard, then use "End Paidy window" on the order if Paidy holds nothing.`,
+          metadata: { attempt_id: w.id, cash_order_id: w.cash_order_id, paidy_payment_id: w.paidy_payment_id },
+        });
+        if (error) { report.write_errors++; continue; }
+        const { error: stampErr } = await supabase.from("paidy_checkout_attempts").update({ stuck_bell_at: nowIso() }).eq("id", w.id);
+        if (stampErr) report.write_errors++;
       }
     }
     const { data: expired, error: expErr } = await supabase.rpc("expire_paidy_checkout_attempts", { p_cash_order_id: null });

@@ -3370,18 +3370,25 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // finds Paidy holds nothing. Read back from Paidy first: only a payment
       // Paidy reports AUTHORIZED for THIS order is noted — or Paidy unreachable
       // (fail closed). A made-up id is never noted.
+      // The read is kept and reused for the filing below (one Paidy call).
+      let authRead: Parameters<typeof paidyAuthorizationNote>[0] | null = null;
       if (!known) {
-        let authRead: Parameters<typeof paidyAuthorizationNote>[0];
         try {
           authRead = { payment: await paidy.get(paidyPaymentId) };
         } catch (e) {
           authRead = e instanceof PaidyError && e.status === 404 ? { notFound: true } : { error: true };
         }
         if (paidyAuthorizationNote(authRead, { id: String(order.id), ref: customerReference(order as AnyRec) })) {
-          const { error: noteErr } = await supabase.rpc("note_paidy_window_authorization", {
-            p_cash_order_id: order.id, p_customer_id: customer.id, p_paidy_payment_id: paidyPaymentId,
-          });
-          if (noteErr) throw noteErr;
+          try {
+            const { data: noted, error: noteErr } = await supabase.rpc("note_paidy_window_authorization", {
+              p_cash_order_id: order.id, p_customer_id: customer.id, p_paidy_payment_id: paidyPaymentId, p_test: paidySecretIsTest(),
+            });
+            if (noteErr) throw noteErr;
+            if ((noted as AnyRec | null)?.noted !== true) console.warn(`[website] Paidy ${paidyPaymentId}: approval not noted on a window:`, (noted as AnyRec | null)?.reason ?? noted);
+          } catch (e) {
+            // Protective only: the filing below still runs and answers as before.
+            console.error(`[website] Paidy ${paidyPaymentId}: noting the approval failed:`, e);
+          }
         }
       }
 
@@ -3412,7 +3419,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       let payment: PaidyPayment;
       try {
         if (paidySecretIsTest() !== offer.test) return jsonResponse({ error: "paidy_not_offered", reason: "secret_mode_mismatch" }, 409);
-        payment = await paidy.get(paidyPaymentId);
+        payment = authRead && "payment" in authRead ? authRead.payment as unknown as PaidyPayment : await paidy.get(paidyPaymentId);
       } catch (e) {
         if (e instanceof PaidyError && e.status === 404) return jsonResponse({ error: "paidy_mismatch", detail: "unknown_payment" }, 409);
         console.error("[website] paidy.get failed:", e);
