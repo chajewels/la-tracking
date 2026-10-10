@@ -83,7 +83,8 @@ Deno.test("P04: the migration keeps the lock on an open window regardless of the
 Deno.test("P04 QA (2026-10-08): her own open window offers Paidy again and is replaced on reopen; details-only refusals stay switchable", async () => {
   const web = await Deno.readTextFile(new URL("../supabase/functions/website/index.ts", import.meta.url));
   // GET /orders/:id — a window with nothing else holding the order is not a payment in progress.
-  assert(web.includes('lock === "paidy_checkout_open" && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null'));
+  // QC PR-B (2026-10-10): a window that already holds a noted approval is processing, not "open Paidy again".
+  assert(web.includes('lock === "paidy_checkout_open" && !windowHoldsApproval\n        && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null'));
   assert(web.includes('windowOnly ? "paidy_window_open"'));
   assert(web.includes("windowOnly ? null : lock)"));
   // "Pay another way" lists Paidy when only her details are missing.
