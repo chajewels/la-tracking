@@ -10602,6 +10602,24 @@ export type Database = {
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       paidy_mode: { Args: never; Returns: string }
+      paidy_recorded_bell_missing: {
+        Args: {
+          p_after_at?: string
+          p_after_id?: string
+          p_limit?: number
+          p_since: string
+          p_until: string
+        }
+        Returns: {
+          amount_paid: number
+          cash_order_id: string
+          cash_payment_id: string
+          payment_created_at: string
+          reviewer_user_id: string
+          sender_name: string
+          submission_id: string
+        }[]
+      }
       paidy_unrecorded_captures: {
         Args: { p_limit?: number; p_test: boolean }
         Returns: {
@@ -10902,6 +10920,10 @@ export type Database = {
           p_source_reference: string
         }
         Returns: Json
+      }
+      ring_paidy_payment_recorded_bell: {
+        Args: { p_body: string; p_metadata: Json; p_title: string }
+        Returns: boolean
       }
       ring_square_deadline_bells: { Args: { p_now?: string }; Returns: Json }
       set_account_deadlines: {
