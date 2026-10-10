@@ -2,7 +2,7 @@
 -- NOT a migration — never applied to live. Runs on the local Postgres copy of the live schema
 -- (live function bodies as of 2026-10-10, md5-verified) as an admin (auth.uid() from
 -- request.jwt.claim.sub). One transaction, rolled back.
--- Expected after the migration: 39 passed, 0 failed. Before it (replay_l4_before): 1 passed, 38 failed/errored. Before it: the COD
+-- Expected after the migration: 46 passed, 0 failed. Before it (replay_l4_before): 1 passed, 45 failed/errored. Before it: the COD
 -- columns, functions and patches do not exist, so the checks fail or error.
 -- The customer-cannot-file-'cod' rule lives in the edge functions (the database records no
 -- submitter identity); it is proven in development/cod-checkout.test.ts.
@@ -147,6 +147,12 @@ SELECT pg_temp.ok((SELECT payment_method = 'transfer' AND cod_fee = 0 AND total_
                      FROM public.cash_orders WHERE id = (SELECT id FROM t_o))
                   AND (SELECT (r ->> 'fee_delta')::int = -1150 FROM t_s1),
                   'staff COD → transfer removes the ¥1,150 fee from total and remaining', (SELECT left(r::text, 300) FROM t_s1));
+SELECT pg_temp.ok((SELECT transfer_due_at > now() + interval '23 hours' AND expires_at = transfer_due_at
+                     FROM public.cash_orders WHERE id = (SELECT id FROM t_o))
+                  AND EXISTS (SELECT 1 FROM public.audit_logs WHERE entity_id = (SELECT id FROM t_o) AND action = 'deadlines_updated'
+                                AND new_value_json ->> 'reason' LIKE 'Payment method changed from cash on delivery%'),
+                  'M1: a confirmed order switched AWAY from COD gets a fresh deadline (customer rule) via set_account_deadlines, audited');
+SELECT public.set_account_deadlines('cash_order', (SELECT id FROM t_o), now() + interval '3 hours', 'test window', '00000000-0000-0000-0000-00000000c0a1');
 SELECT pg_temp.ok(EXISTS (SELECT 1 FROM public.web_payment_reminder_eligible('cash_order', (SELECT id FROM t_o))),
                   'control: the same order on transfer IS reminded');
 CREATE TEMP TABLE t_s2 AS SELECT pg_temp.try(format('SELECT public.change_web_payment_method_atomic(%L, %L, %L, %L, %L)',
@@ -182,6 +188,31 @@ SELECT pg_temp.ok((SELECT payment_method = 'cod' AND cod_fee = 1150 AND total_am
                      FROM public.cash_orders WHERE id = (SELECT id FROM t_o)),
                   'customer switch transfer → COD adds the fee', (SELECT left(r::text, 300) FROM t_cs2));
 
+SELECT pg_temp.ok((SELECT transfer_due_at IS NULL AND expires_at IS NULL FROM public.cash_orders WHERE id = (SELECT id FROM t_o)),
+                  'H1: switching TO COD clears the transfer deadline (no stale date can come back)');
+
+-- ================================================================ review fixes H1 / H2 / L2
+SELECT pg_temp.ok(public.set_account_deadlines('cash_order', (SELECT id FROM t_o), now() + interval '1 day', 'x', '00000000-0000-0000-0000-00000000c0a1') ->> 'error' = 'cod_no_deadline',
+                  'L2: set_account_deadlines refuses to give a COD order a deadline');
+SELECT pg_temp.ok((pg_temp.try(format($q$WITH u AS (UPDATE public.cash_orders SET total_amount = 20000, remaining_balance = 20000 WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM u$q$, (SELECT id FROM t_o))) ->> 'raised') LIKE 'cod_amount_locked%',
+                  'H2: a Manage Invoice total edit on an order that stays COD is refused (cod_amount_locked)');
+SELECT pg_temp.ok((pg_temp.try(format($q$WITH u AS (UPDATE public.cash_orders SET loyalty_jpy_amount = 19000 WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM u$q$, (SELECT id FROM t_o))) ->> 'raised') IS NULL,
+                  'H2: edits that do not touch the money (loyalty amount, date) still work on a COD order');
+-- H1 end to end: transfer order with deadline T -> COD -> shipped -> back to transfer
+CREATE TEMP TABLE t_h AS SELECT pg_temp.draft(pg_temp.quote('H', 20000, 'transfer')) AS r;
+CREATE TEMP TABLE t_hc AS SELECT pg_temp.confirm((SELECT (r ->> 'draft_id')::uuid FROM t_h),
+  jsonb_build_object('total_amount', 20000, 'shipping_fee', 0, 'transfer_due_at', now() + interval '1 hour')) AS r;
+CREATE TEMP TABLE t_ho AS SELECT (r ->> 'order_id')::uuid AS id FROM t_hc;
+SELECT pg_temp.try(format('SELECT public.change_web_payment_method_atomic(%L, %L, %L, %L, %L)', 'cash_order', (SELECT id FROM t_ho), 'cod', 'phone', '00000000-0000-0000-0000-00000000c0a1'));
+UPDATE public.cash_orders SET shipped_at = now() WHERE id = (SELECT id FROM t_ho);
+SELECT pg_temp.try(format('SELECT public.change_web_payment_method_atomic(%L, %L, %L, %L, %L)', 'cash_order', (SELECT id FROM t_ho), 'transfer', 'courier refused COD', '00000000-0000-0000-0000-00000000c0a1'));
+SELECT pg_temp.ok((SELECT payment_method = 'transfer' AND cod_fee = 0 AND total_amount = 20000 AND transfer_due_at > now() + interval '23 hours' FROM public.cash_orders WHERE id = (SELECT id FROM t_ho)),
+                  'H1: transfer(T) → COD → back to transfer: the old date T never returns; a fresh deadline is set');
+SELECT public.set_account_deadlines('cash_order', (SELECT id FROM t_ho), now() - interval '1 hour', 'force past for test', '00000000-0000-0000-0000-00000000c0a1');
+SELECT pg_temp.ok(pg_temp.try(format('SELECT public.expire_web_order_atomic(%L)', (SELECT id FROM t_ho))) ->> 'reason' = 'shipped'
+                  AND (SELECT status = 'pending' FROM public.cash_orders WHERE id = (SELECT id FROM t_ho)),
+                  'H1: a SHIPPED order is never auto-expired, whatever the method (stock stays sold)');
+
 -- staff cancel (refused parcel): allowed, stock back on sale
 CREATE TEMP TABLE t_x AS SELECT pg_temp.try(format('SELECT public.terminate_web_order_atomic(%L, %L, %L, %L, %L, NULL, NULL, %L, false)',
   (SELECT id FROM t_o), 'cancelled', 'Parcel refused', '00000000-0000-0000-0000-00000000c0a1', 'cod-admin@example.com', 'staff')) AS r;
@@ -200,5 +231,5 @@ SELECT pg_temp.ok(pg_temp.draft(pg_temp.quote('P0', 9000, 'cod', 9000)) ->> 'err
                   'points covering everything (free shipping) leave nothing for the courier: COD refused, never "points pay the fee"');
 
 SELECT n, CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result, name, CASE WHEN pass THEN NULL ELSE detail END AS detail FROM t_results ORDER BY n;
-SELECT count(*) FILTER (WHERE pass) AS passed, 39 - count(*) FILTER (WHERE pass) AS failed_or_errored, 39 AS expected_checks FROM t_results;
+SELECT count(*) FILTER (WHERE pass) AS passed, 46 - count(*) FILTER (WHERE pass) AS failed_or_errored, 46 AS expected_checks FROM t_results;
 ROLLBACK;

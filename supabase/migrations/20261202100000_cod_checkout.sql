@@ -15,6 +15,15 @@
 --     termination and web_payment_reminder_eligible skip COD. Staff cancel still returns stock.
 --   * Switching to / from COD (staff and customer) re-brackets and moves total and remaining by
 --     the fee delta in the same transaction; refused while any payment lock is set (unchanged).
+--     Switching TO cod clears transfer_due_at / expires_at (a stale deadline must never come back:
+--     review H1); switching a confirmed order AWAY from cod arms a fresh deadline through
+--     set_account_deadlines (the one deadline writer, CLAUDE.md WEB LAYAWAY rule) at the
+--     customer's web rule (web_deposit_deadline_hours), audited (review M1).
+--   * A shipped order is never expired or ended by automation, whatever the method (review H1).
+--   * A COD order's total / shipping / discount / fee change ONLY together with its method
+--     (trg_guard_cod_order_amount): a Manage Invoice edit that would leave the fee out of the total
+--     is refused — switch the method first, or cancel and recreate (review H2).
+--   * set_account_deadlines refuses a COD order (cod_no_deadline) (review L2).
 --
 --   Every function change is an md5-guarded IN-PLACE patch of the live body (Bug #280), read
 --   2026-10-10. No comment line inside any patch anchor or new text (Lovable's runner drops such
@@ -506,6 +515,7 @@ $o$,
   v_base   numeric(12,2);
   v_old_fee numeric(12,2) := 0;
   v_new_fee integer := 0;
+  v_dl     jsonb;
 BEGIN
 $n$),
   jsonb_build_object('old', $o$  IF p_method IS NULL OR p_method NOT IN ('transfer', 'paidy', 'square') THEN
@@ -548,8 +558,18 @@ $o$,
        SET payment_method = p_method, cod_fee = v_new_fee,
            total_amount = total_amount - v_old_fee + v_new_fee,
            remaining_balance = remaining_balance - v_old_fee + v_new_fee,
+           transfer_due_at = CASE WHEN p_method = 'cod' THEN NULL ELSE transfer_due_at END,
+           expires_at = CASE WHEN p_method = 'cod' THEN NULL ELSE expires_at END,
            updated_at = now()
      WHERE id = p_entity_id;
+    IF v_old = 'cod' AND p_method <> 'cod' AND v_ready IS NOT NULL THEN
+      v_dl := public.set_account_deadlines('cash_order', p_entity_id,
+                now() + make_interval(hours => public.web_deposit_deadline_hours(v_cust, p_entity_id)),
+                'Payment method changed from cash on delivery: ' || v_reason, p_user_id);
+      IF v_dl ? 'error' THEN
+        RAISE EXCEPTION 'deadline_not_set: %', v_dl ->> 'error';
+      END IF;
+    END IF;
   END IF;
 $n$),
   jsonb_build_object('old', $o$          jsonb_build_object('payment_method', p_method, 'reason', v_reason, 'reference', v_ref),
@@ -560,7 +580,8 @@ $n$),
   jsonb_build_object('old', $o$                            'old_method', v_old, 'payment_method', p_method, 'reference', v_ref);
 $o$,
                      'new', $n$                            'old_method', v_old, 'payment_method', p_method, 'reference', v_ref,
-                            'cod_fee', v_new_fee, 'old_cod_fee', v_old_fee::integer, 'fee_delta', v_new_fee - v_old_fee::integer);
+                            'cod_fee', v_new_fee, 'old_cod_fee', v_old_fee::integer, 'fee_delta', v_new_fee - v_old_fee::integer,
+                            'transfer_due_at', v_dl -> 'new' ->> 'transfer_due_at');
 $n$)
 ));
 
@@ -575,6 +596,7 @@ $o$,
   v_old_fee  numeric(12,2) := 0;
   v_new_fee  integer := 0;
   v_country  text;
+  v_dl       jsonb;
 BEGIN
 $n$),
   jsonb_build_object('old', $o$  IF p_method IS NULL OR p_method NOT IN ('transfer', 'paidy', 'square') THEN
@@ -600,8 +622,18 @@ $o$,
      SET payment_method = p_method, cod_fee = v_new_fee,
          total_amount = total_amount - v_old_fee + v_new_fee,
          remaining_balance = remaining_balance - v_old_fee + v_new_fee,
+         transfer_due_at = CASE WHEN p_method = 'cod' THEN NULL ELSE transfer_due_at END,
+         expires_at = CASE WHEN p_method = 'cod' THEN NULL ELSE expires_at END,
          updated_at = now()
    WHERE id = p_order_id;
+  IF v_old = 'cod' AND p_method <> 'cod' THEN
+    v_dl := public.set_account_deadlines('cash_order', p_order_id,
+              now() + make_interval(hours => public.web_deposit_deadline_hours(p_customer_id, p_order_id)),
+              'Customer switched from cash on delivery after a rejected payment', NULL);
+    IF v_dl ? 'error' THEN
+      RAISE EXCEPTION 'deadline_not_set: %', v_dl ->> 'error';
+    END IF;
+  END IF;
 $n$),
   jsonb_build_object('old', $o$          jsonb_build_object('payment_method', p_method, 'actor', 'customer',
                              'customer_id', p_customer_id, 'reference', v_ref),
@@ -630,6 +662,10 @@ $o$,
       'status', v_status, 'already_cancelled', (v_status = 'cancelled'));
   END IF;
   IF (p_outcome = 'expired' OR v_is_system)
+     AND EXISTS (SELECT 1 FROM public.cash_orders WHERE id = p_order_id AND shipped_at IS NOT NULL) THEN
+    RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'shipped', 'status', v_status);
+  END IF;
+  IF (p_outcome = 'expired' OR v_is_system)
      AND EXISTS (SELECT 1 FROM public.cash_orders WHERE id = p_order_id AND payment_method = 'cod') THEN
     RETURN jsonb_build_object('ok', false, 'success', false, 'reason', 'cod_no_deadline', 'status', v_status);
   END IF;
@@ -646,6 +682,48 @@ $o$,
        AND coalesce(o.payment_method, 'transfer') <> 'cod'
 $n$)
 ));
+
+-- 5g. set_account_deadlines: a COD order has no payment deadline to set or move (review L2).
+--     revive_web_cash_order_atomic is NOT patched: a COD order can never reach 'expired' (5e refuses
+--     every automated termination and staff can only cancel), so revive cannot see one.
+SELECT pg_temp.cj_patch('public.set_account_deadlines(text,uuid,timestamp with time zone,text,uuid)', '540e9b703377a02e3d4126143197ef79', jsonb_build_array(
+  jsonb_build_object('old', $o$    UPDATE public.cash_orders
+       SET transfer_due_at = p_transfer_due_at,
+$o$,
+                     'new', $n$    IF EXISTS (SELECT 1 FROM public.cash_orders WHERE id = p_entity_id AND payment_method = 'cod') THEN
+      RETURN jsonb_build_object('error', 'cod_no_deadline');
+    END IF;
+    UPDATE public.cash_orders
+       SET transfer_due_at = p_transfer_due_at,
+$n$)
+));
+
+-- 5h. A COD order's money moves only with its method (review H2). Manage Invoice writes cash_orders
+--     from the browser; an edit of total / shipping / discount / fee on an order that stays 'cod'
+--     would drop or double the fee, so it is refused here. The two method-switch functions change
+--     payment_method in the same UPDATE and pass.
+CREATE OR REPLACE FUNCTION public.guard_cod_order_amount()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF OLD.payment_method = 'cod' AND NEW.payment_method = 'cod'
+     AND (NEW.total_amount IS DISTINCT FROM OLD.total_amount
+          OR NEW.shipping_fee IS DISTINCT FROM OLD.shipping_fee
+          OR NEW.discount_amount IS DISTINCT FROM OLD.discount_amount
+          OR NEW.cod_fee IS DISTINCT FROM OLD.cod_fee) THEN
+    RAISE EXCEPTION 'cod_amount_locked: this order is paid cash on delivery and its fee is bracketed on the amount collected. Change the payment method first (the fee is removed), edit, then switch back — or cancel and recreate the order.'
+      USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.guard_cod_order_amount() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_guard_cod_order_amount ON public.cash_orders;
+CREATE TRIGGER trg_guard_cod_order_amount
+BEFORE UPDATE OF total_amount, shipping_fee, discount_amount, cod_fee ON public.cash_orders
+FOR EACH ROW EXECUTE FUNCTION public.guard_cod_order_amount();
 
 -- ---------------------------------------------------------------------------
 -- 6. Self-check (grants included). Anything unexpected rolls the whole migration back.
@@ -685,6 +763,13 @@ BEGIN
      OR position($q$coalesce(o.payment_method, 'transfer') <> 'cod'$q$ IN pg_get_functiondef('public.web_payment_reminder_eligible(text,uuid)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'STOP — expiry / reminder skip not patched';
   END IF;
+  IF position($q$'reason', 'shipped'$q$ IN pg_get_functiondef('public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)'::regprocedure)) = 0
+     OR position('cod_no_deadline' IN pg_get_functiondef('public.set_account_deadlines(text,uuid,timestamptz,text,uuid)'::regprocedure)) = 0
+     OR position('Payment method changed from cash on delivery' IN pg_get_functiondef('public.change_web_payment_method_atomic(text,uuid,text,text,uuid)'::regprocedure)) = 0
+     OR position('Customer switched from cash on delivery' IN pg_get_functiondef('public.switch_web_payment_method_by_customer_atomic(uuid,uuid,text)'::regprocedure)) = 0
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_guard_cod_order_amount') THEN
+    RAISE EXCEPTION 'STOP — review fixes (H1 / H2 / M1 / L2) not complete';
+  END IF;
   IF has_function_privilege('anon', 'public.set_cod_settings(text,jsonb,text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.get_cod_settings()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.cod_fee_jpy(numeric)', 'EXECUTE')
@@ -698,7 +783,9 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.materialize_web_draft_atomic(uuid,uuid,jsonb,jsonb,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.change_web_payment_method_atomic(text,uuid,text,text,uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.switch_web_payment_method_by_customer_atomic(uuid,uuid,text)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', 'EXECUTE') THEN
+     OR has_function_privilege('authenticated', 'public.terminate_web_order_atomic(uuid,text,text,uuid,text,text,text,text,boolean)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.set_account_deadlines(text,uuid,timestamptz,text,uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.guard_cod_order_amount()', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOP — grants not as expected';
   END IF;
 END

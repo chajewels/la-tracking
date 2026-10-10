@@ -182,7 +182,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
           {p.paidy && <Text style={text}>{PAIDY_LINE[lang]}</Text>}
         </>
       )}
-      {!cod && (
+      {!cod && p.transferDueAt && (
         <>
           <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].deadline(formatDeadline(p.transferDueAt, p.region, lang)) : c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
           <Text style={muted}>{c.deadlineNote}</Text>

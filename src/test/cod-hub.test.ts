@@ -93,6 +93,12 @@ describe("page wiring", () => {
   it("Website → Settings shows the COD card to admins only", () => {
     expect(read("src/pages/Website.tsx")).toMatch(/\{isAdmin && \(\s*<section id=\{WEBSITE_SETTINGS_SECTIONS\.cod\}[^>]*>\s*<CodSettingsCard \/>/);
   });
+  it("Manage Invoice: the COD fee is in the reconciled total and money edits are blocked (H2)", () => {
+    const s = read("src/pages/CashOrderDetail.tsx");
+    expect(s).toContain("manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee + manageCodFee");
+    expect(s).toMatch(/if \(manageIsCod && \(totalChanged \|\| discountChanged \|\| shippingChanged\)\) \{\s+toast\.error\(COD_AMOUNT_LOCKED_MESSAGE\);/);
+    expect(s).toContain('data-testid="manage-invoice-cod-fee"');
+  });
   it("cash order: fee row, no Expires tile and no deadline card for COD", () => {
     const s = read("src/pages/CashOrderDetail.tsx");
     expect(s).toContain('data-testid="cash-order-cod-fee"');

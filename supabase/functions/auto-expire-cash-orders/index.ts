@@ -157,6 +157,9 @@ Deno.serve(async (req) => {
       // candidate (terminate_web_order_atomic refuses it too, 'cod_no_deadline').
       // One PostgREST `or` holding both groups, ANDed.
       .or("and(or(source_channel.is.null,source_channel.neq.web,web_released_at.is.null),or(payment_method.is.null,payment_method.neq.cod))")
+      // A SHIPPED order is never expired by the clock, whatever the method
+      // (COD review H1, 2026-10-10; terminate_web_order_atomic refuses 'shipped').
+      .is("shipped_at", null)
       .order("expires_at", { ascending: true })
       .limit(MAX_ORDERS_PER_RUN + frozenIds.size);
 

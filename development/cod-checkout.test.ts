@@ -162,7 +162,7 @@ Deno.test('wiring: expiry sweep, Confirm, website API, reminders', () => {
 })
 
 // ---------------------------------------------------------------- the migration
-Deno.test('migration: md5-guarded patches of the six live bodies, no comment lines in anchors', () => {
+Deno.test('migration: md5-guarded patches of the seven live bodies, no comment lines in anchors', () => {
   for (const [fn, md5] of [
     ['create_web_draft_atomic', 'f0a9ffb0b7da4270b95a11f12598e202'],
     ['materialize_web_draft_atomic', '705947d28506eccffc57e78dcdade34b'],
@@ -170,6 +170,7 @@ Deno.test('migration: md5-guarded patches of the six live bodies, no comment lin
     ['switch_web_payment_method_by_customer_atomic', 'd1ade6ebaeef2a1737dcd7c7a8dbb511'],
     ['terminate_web_order_atomic', '2901b12e50afdc83dfc51ef07c91bc1b'],
     ['web_payment_reminder_eligible', '384a7617728fe87832646d9f98b47dfd'],
+    ['set_account_deadlines', '540e9b703377a02e3d4126143197ef79'],
   ]) assert(new RegExp(`cj_patch\\('public\\.${fn}\\([^']*\\)', '${md5}'`).test(MIG), `${fn} patched from live md5 ${md5}`)
   for (const block of MIG.matchAll(/\$(o|n)\$([\s\S]*?)\$\1\$/g)) {
     assert(!/^\s*--/m.test(block[2]), `comment line inside a patch anchor/new text: ${block[2].slice(0, 80)}`)
@@ -177,6 +178,18 @@ Deno.test('migration: md5-guarded patches of the six live bodies, no comment lin
   assert(/REVOKE ALL ON FUNCTION public\.cod_fee_jpy\(numeric\) FROM PUBLIC, anon, authenticated;/.test(MIG), 'fee rule not callable by customers')
   assert(/IF NOT public\.has_role\(v_uid, 'admin'::public\.app_role\) THEN\s+RETURN jsonb_build_object\('error', 'permission_denied'\);/.test(MIG), 'setter is admin-role only')
   assert(!/DROP FUNCTION/.test(MIG), 'no DROP FUNCTION')
+})
+
+Deno.test('review fixes: H1 deadline cleared / shipped never expires, M1 fresh deadline, H2 money lock, L2', () => {
+  assert(/transfer_due_at = CASE WHEN p_method = 'cod' THEN NULL ELSE transfer_due_at END,\s+expires_at = CASE WHEN p_method = 'cod' THEN NULL ELSE expires_at END,/.test(MIG), 'H1: switching to COD clears both deadline columns')
+  assert(/AND shipped_at IS NOT NULL\) THEN\s+RETURN jsonb_build_object\('ok', false, 'success', false, 'reason', 'shipped'/.test(MIG), 'H1: shipped orders never auto-expire')
+  assert(read('supabase/functions/auto-expire-cash-orders/index.ts').includes('.is("shipped_at", null)'), 'H1: sweep leaves shipped orders out')
+  assert((MIG.match(/v_dl := public\.set_account_deadlines\(/g) ?? []).length === 2, 'M1: both switches arm the deadline through set_account_deadlines')
+  assert((MIG.match(/public\.web_deposit_deadline_hours\(/g) ?? []).length === 2, 'M1: at the customer rule')
+  assert(/CREATE TRIGGER trg_guard_cod_order_amount\s+BEFORE UPDATE OF total_amount, shipping_fee, discount_amount, cod_fee ON public\.cash_orders/.test(MIG), 'H2: money lock trigger')
+  assert(/RETURN jsonb_build_object\('error', 'cod_no_deadline'\);/.test(MIG), 'L2: set_account_deadlines refuses COD')
+  const cpm = read('supabase/functions/change-payment-method/index.ts')
+  assert(cpm.includes('deadline_in_past: deadlineInPast') && cpm.includes('deadlineMissing = !due;'), 'warns on a missing or past deadline')
 })
 
 // ---------------------------------------------------------------- emails

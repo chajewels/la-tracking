@@ -44,10 +44,25 @@ docs/MIGRATIONS.md).
   (`POST /checkout/quote/:id/choice`), pay (`create_web_draft_atomic`), staff edits at Confirm
   (`confirm-web-draft` → `computeWebDraftFigures` calls `cod_fee_jpy`; `materialize_web_draft_atomic`
   refuses `cod_fee_mismatch`, `over_cod_limit`, `cod_nothing_to_collect`, and `cod_fee_not_cod` on
-  any other method), and every method change. NOT re-bracketed: a later Manage Invoice edit of a
-  confirmed COD order (staff then change the method away and back, or adjust by hand).
+  any other method), and every method change.
+- **Manage Invoice on a COD order (review H2, chosen: block).** The fee is shown as its own line
+  and included in the reconciled total. Total, shipping and discount of an order that STAYS `cod`
+  cannot be edited: the Hub refuses with the reason, and the database refuses too
+  (`trg_guard_cod_order_amount` → `cod_amount_locked`; only a change of `payment_method` in the same
+  UPDATE — the two switch functions — may move them). Staff switch the method away (fee removed),
+  edit, and switch back (fee re-bracketed), or cancel and recreate. Date and loyalty edits still
+  work. Chosen over a re-bracketing RPC because Manage Invoice writes a free-typed total from the
+  browser; a server writer for it is a separate change.
+- **Partly paid orders (owner M2).** The courier collects `remaining_balance`, so the bracket is on
+  `remaining_balance` without the fee. Staff record the full amount the courier collected.
 - **No payment deadline.** `materialize_web_draft_atomic` writes `transfer_due_at` / `expires_at`
-  NULL for `cod` (and still refuses `deadline_required` for every other method).
+  NULL for `cod` (and still refuses `deadline_required` for every other method). Switching an order
+  TO `cod` clears both columns in the same UPDATE (review H1: a stale date must never come back).
+  `set_account_deadlines` refuses a COD order (`cod_no_deadline`, review L2).
+  `revive_web_cash_order_atomic` is unchanged: a COD order can never reach `expired`.
+- **Shipped orders never lapse (review H1).** `terminate_web_order_atomic` refuses a lapse and any
+  automated termination of an order with `shipped_at` set (`shipped`), whatever the method, and
+  `auto-expire-cash-orders` leaves shipped orders out of its candidates.
   `terminate_web_order_atomic` refuses a lapse and any automated (system) termination of a COD order
   (`cod_no_deadline`) — `expire_web_order_atomic` reaches the same guard; `auto-expire-cash-orders`
   leaves COD out of its candidates; `web_payment_reminder_eligible` skips COD (and
@@ -69,9 +84,16 @@ docs/MIGRATIONS.md).
   `CUSTOMER_METHODS`) may switch to or from COD, with the checkout's eligibility (switch on, Japan,
   yen, within the limit). The SQL re-brackets and moves `total_amount` / `remaining_balance` (drafts:
   `total` / `total_jpy`) by the fee delta in the same transaction, and answers `cod_fee`,
-  `old_cod_fee`, `fee_delta`. Refused while any payment lock is set (unchanged). A switch never
-  writes a deadline (only `set_account_deadlines` does): switching a confirmed order AWAY from COD
-  answers `deadline_missing: true` when it has none, and the Hub tells staff to set one.
+  `old_cod_fee`, `fee_delta`. Refused while any payment lock is set (unchanged).
+- **Leaving COD arms a fresh deadline (review M1).** CLAUDE.md (WEB LAYAWAY): "the deadline is a
+  field, moved ONLY through set_account_deadlines … a reason is required". So the switch functions
+  do not write it themselves: when a CONFIRMED order goes from `cod` to transfer / paidy / card they
+  call `set_account_deadlines` in the same transaction, with now + `web_deposit_deadline_hours`
+  (the customer's 24h / 72h rule, the one Confirm uses; the order itself excluded) and a reason
+  ("Payment method changed from cash on delivery: …" / "Customer switched from cash on delivery …"),
+  audited as `deadlines_updated`. A refusal rolls the whole switch back (`deadline_not_set_<code>`).
+  `change-payment-method` still warns (`deadline_missing` / `deadline_in_past`) if a non-COD order
+  ends with no usable date, and the confirmation email omits the deadline lines when there is none.
 - **Mappers.** `publicMethod`, `storedMethod` (`_shared/checkout-choice.ts`), `webMethodOf`
   (`src/lib/web-payment-method.ts`) and `notAcceptedMethod` map `cod` to `cod`, never to transfer:
   no bank details, transfer emails or transfer reminders for COD.
@@ -119,7 +141,7 @@ docs/MIGRATIONS.md).
 
 ## Tests
 
-- SQL: `development/sql/cod-checkout-2026-10-10.sql` (39 checks; local copy of live, rolled back).
+- SQL: `development/sql/cod-checkout-2026-10-10.sql` (46 checks; local copy of live, rolled back).
 - Deno (CI): `development/cod-checkout.test.ts`.
 - Vitest: `src/test/cod-hub.test.ts`.
 
@@ -128,7 +150,7 @@ docs/MIGRATIONS.md).
 1. Hub PR → `develop` → release PR → `main` (owner merges); merge `main` back into `develop`.
 2. Lovable applies the migration and deploys the edge functions (one message, source assertions
    first). `cod_mode` stays off.
-3. Record-only migration of the six patched bodies.
+3. Record-only migration of the seven patched bodies.
 4. Storefront PR (checkout option, 代引手数料 row, order page, switch, i18n, fixtures, contract,
    特定商取引法 rows, a `check:money` rule against bracket lookups).
 5. Owner acceptance, then the admin switches COD on in the card.

@@ -82,13 +82,15 @@ export function ChangePaymentMethodDialog({
         const code = await errorCode(error);
         throw new Error(REFUSAL[code] ?? code);
       }
-      const r = (data ?? null) as { email?: { sent?: boolean } | null; fee_delta?: number; cod_fee?: number; deadline_missing?: boolean } | null;
+      const r = (data ?? null) as { email?: { sent?: boolean } | null; fee_delta?: number; cod_fee?: number; deadline_missing?: boolean; deadline_in_past?: boolean } | null;
       const email = r?.email;
       const delta = Number(r?.fee_delta ?? 0);
       const feeNote = delta > 0 ? ` The total went up by the ${formatYen(delta)} cash on delivery fee.`
         : delta < 0 ? ` The ${formatYen(-delta)} cash on delivery fee was removed from the total.` : '';
       toast.success(`${reference}: payment method is now ${WEB_METHOD_LABEL[method]}${email?.sent ? ' — the customer was emailed' : ''}.${feeNote}`);
-      if (r?.deadline_missing) toast.warning('This order has no payment deadline (cash on delivery had none). Set one with Move deadline so it is chased and can lapse.');
+      if (r?.deadline_missing || r?.deadline_in_past) toast.warning(r?.deadline_missing
+        ? 'This order has no payment deadline. Set one with Move deadline so it is chased and can lapse.'
+        : 'This order\'s payment deadline is already in the past, so it will lapse at the next hourly run. Move the deadline now.');
       if (email && !email.sent) toast.warning('The method changed, but the email to the customer was not sent. Tell her on Messenger.');
       setReason('');
       onOpenChange(false);
@@ -126,7 +128,7 @@ export function ChangePaymentMethodDialog({
           <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-card-foreground" data-testid="cod-fee-warning">
             {method === 'cod'
               ? 'The total changes: the cash on delivery fee (代引手数料) is added, bracketed on the amount the courier collects. The order then has no payment deadline.'
-              : `The total changes: the ${codFee > 0 ? formatYen(codFee) + ' ' : ''}cash on delivery fee is removed. Cash on delivery had no deadline — set one afterwards with Move deadline.`}
+              : `The total changes: the ${codFee > 0 ? formatYen(codFee) + ' ' : ''}cash on delivery fee is removed. A new payment deadline starts now (the customer's 24h / 72h rule).`}
           </p>
         )}
         <div className="space-y-1">

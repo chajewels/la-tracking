@@ -56,7 +56,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
 import { EndPaidyWindowDialog } from '@/components/web-orders/EndPaidyWindowDialog';
 import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
-import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
+import { COD_AMOUNT_LOCKED_MESSAGE, WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -663,7 +663,10 @@ export default function CashOrderDetail() {
     ? Math.round(manageItemsSubtotalAcct * (parseFloat(manageDiscountInput) || 0) / 100)
     : Math.round(parseFloat(manageDiscountInput) || 0);
   const manageShippingFee = Math.round(parseFloat(manageShippingInput) || 0);
-  const manageReconciledTotal = Math.max(0, manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee);
+  // Cash on delivery (review H2, 2026-10-10): the fee is its own line of the total.
+  const manageCodFee = Number(order?.cod_fee ?? 0);
+  const manageIsCod = webMethodOf(order?.payment_method) === 'cod';
+  const manageReconciledTotal = Math.max(0, manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee + manageCodFee);
   const manageShowReconciliation = (orderItems ?? []).length > 0 || manageDiscountInput !== '' || manageShippingInput !== '';
 
   const openManageInvoice = useCallback(() => {
@@ -724,6 +727,14 @@ export default function CashOrderDetail() {
       }
       if (!totalChanged && !discountChanged && !shippingChanged && !dateChanged && !loyaltyChanged) {
         setManageOpen(false);
+        setManageSaving(false);
+        return;
+      }
+      // Cash on delivery (review H2): the fee is bracketed on the amount the
+      // courier collects, so the money of a COD order changes only together
+      // with its method (the database refuses it too: cod_amount_locked).
+      if (manageIsCod && (totalChanged || discountChanged || shippingChanged)) {
+        toast.error(COD_AMOUNT_LOCKED_MESSAGE);
         setManageSaving(false);
         return;
       }
@@ -797,7 +808,7 @@ export default function CashOrderDetail() {
     } finally {
       setManageSaving(false);
     }
-  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, manageLoyaltyInput, canEditLoyalty, manageLoyaltyAward, loyaltyTier, isAdmin, qc, id]);
+  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, manageLoyaltyInput, canEditLoyalty, manageLoyaltyAward, loyaltyTier, isAdmin, qc, id, manageIsCod]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -2738,6 +2749,15 @@ export default function CashOrderDetail() {
                   <span className="text-muted-foreground">+ Shipping</span>
                   <span className="tabular-nums text-card-foreground">{formatCurrency(manageShippingFee, currency)}</span>
                 </div>
+                {manageCodFee > 0 && (
+                  <div className="flex justify-between" data-testid="manage-invoice-cod-fee">
+                    <span className="text-muted-foreground">+ Cash on delivery fee</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(manageCodFee, currency)}</span>
+                  </div>
+                )}
+                {manageIsCod && (
+                  <p className="text-muted-foreground" data-testid="manage-invoice-cod-locked">{COD_AMOUNT_LOCKED_MESSAGE}</p>
+                )}
                 <div className="flex justify-between border-t border-border pt-1 font-medium">
                   <span className="text-card-foreground">= Reconciled</span>
                   <span className="tabular-nums text-card-foreground">{formatCurrency(manageReconciledTotal, currency)}</span>

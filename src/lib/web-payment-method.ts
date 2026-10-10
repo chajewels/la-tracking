@@ -24,6 +24,13 @@ export const WEB_METHOD_LABEL: Record<WebPaymentMethod, string> = {
   cod: 'Cash on delivery (代引)',
 };
 
+/**
+ * Manage Invoice on a cash-on-delivery order (review H2): total, shipping and
+ * discount are locked while the method is COD (trg_guard_cod_order_amount).
+ */
+export const COD_AMOUNT_LOCKED_MESSAGE =
+  'This order is paid cash on delivery: its total, shipping and discount cannot be edited here, because the fee is bracketed on the amount the courier collects. Change the payment method first (the fee is removed), edit, then switch back — or cancel and recreate the order.';
+
 /** Whole yen, for the COD fee row and warnings. */
 export function formatYen(n: number): string {
   return `¥${Math.round(n).toLocaleString('en-US')}`;

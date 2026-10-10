@@ -3198,7 +3198,12 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const { data: switched, error: swErr } = await supabase.rpc("switch_web_payment_method_by_customer_atomic", {
         p_order_id: orderId, p_customer_id: customer.id, p_method: to,
       });
-      if (swErr) throw swErr;
+      if (swErr) {
+        // COD review M1: leaving COD arms a fresh deadline inside the switch; if
+        // set_account_deadlines refuses, the whole switch rolls back.
+        if (/deadline_not_set/.test(String(swErr.message ?? ""))) return jsonResponse({ error: "not_payable" }, 409);
+        throw swErr;
+      }
       const r = (switched ?? {}) as AnyRec;
       if (!r.ok) {
         const code = String(r.error ?? "not_payable");
