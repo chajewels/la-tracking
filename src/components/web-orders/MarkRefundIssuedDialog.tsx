@@ -73,6 +73,8 @@ const REFUSAL: Record<string, string> = {
   not_found: 'Order not found.',
   method_mismatch: 'The method does not match how she paid. A card payment is refunded in Square and recorded as Card; a Paidy payment is refunded in the Paidy dashboard and recorded as Paidy.',
   no_completed_card_refund: 'Square does not show a completed refund for this order yet. Refund it in the Square Dashboard first; a pending refund is not enough.',
+  // L2 (Paidy QC 2026-10-10): the server refuses while Paidy has refunded less than the Paidy money.
+  paidy_refund_incomplete: 'Paidy has not refunded all of the Paidy money yet. Refund the rest in the Paidy dashboard, then mark it.',
   // PA03 (2026-10-08): only a Paidy refund the Hub has read back counts.
   no_verified_paidy_refund: 'The Hub has not recorded a Paidy refund for this order yet. Refund it in the Paidy merchant dashboard first; the hourly check records it, then mark it here. The amount recorded is what Paidy refunded, never the full receipt.',
   // SQF06
@@ -203,8 +205,14 @@ export function refundMethodChoice(i: {
   parts: RefundParts;
 }): { methods: string[]; initial: string } {
   if (i.approvalPayout) return { methods: [`${i.approvalPayout}_exception`], initial: `${i.approvalPayout}_exception` };
-  if (!i.paidByCard) return { methods: ['bank_transfer', 'paidy', 'card', 'cash', 'other'], initial: 'bank_transfer' };
   const p = i.parts;
+  // L1 (Paidy QC 2026-10-10): an order paid only by Paidy is refunded in the
+  // Paidy dashboard and recorded as Paidy — the SQL refuses anything else
+  // (method_mismatch / paid_by_paidy), so nothing else is offered.
+  if (!i.paidByCard) {
+    if (p.nonCard > 0 && p.paidy >= p.nonCard - 0.005) return { methods: ['paidy'], initial: 'paidy' };
+    return { methods: ['bank_transfer', 'paidy', 'card', 'cash', 'other'], initial: 'bank_transfer' };
+  }
   const nonCard: string[] = p.nonCard <= 0 ? []
     : p.paidy >= p.nonCard - 0.005 ? ['paidy']
       : NON_CARD_ORDER.filter((m) => m !== 'paidy' || p.paidy > 0);
@@ -325,21 +333,36 @@ export function phtDay(iso: string): string {
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('en-US')}`;
 
 /** The edge's refusal body (error code + optional detail / cap), whether it came back as an error or as data. */
-async function refusalOf(error: unknown, data: unknown): Promise<{ code: string; detail?: string | null; cap?: number | null } | null> {
+export interface Refusal {
+  code: string; detail?: string | null; cap?: number | null;
+  /** L2: paidy_refund_incomplete carries Paidy's money and what Paidy has refunded (verified). */
+  paidyPaid?: number | null; paidyRefunded?: number | null;
+}
+function refusalFromBody(j: Record<string, unknown> | null | undefined, fallback: string): Refusal {
+  const num = (v: unknown) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  return {
+    code: String(j?.error ?? fallback), detail: (j?.detail as string | undefined) ?? null, cap: num(j?.cap_jpy),
+    paidyPaid: num(j?.paidy_paid_jpy), paidyRefunded: num(j?.paidy_refunded_jpy),
+  };
+}
+async function refusalOf(error: unknown, data: unknown): Promise<Refusal | null> {
   if (error) {
     const ctx = (error as { context?: unknown })?.context;
     try {
       if (ctx instanceof Response) {
         const j = await ctx.clone().json();
-        return { code: String(j?.error ?? 'error'), detail: j?.detail ?? null, cap: j?.cap_jpy ?? null };
+        return refusalFromBody(j, 'error');
       }
     } catch { /* fall through */ }
     return { code: (error as Error)?.message ?? 'error' };
   }
-  const d = data as { error?: string; detail?: string; cap_jpy?: number } | null;
-  return d?.error ? { code: String(d.error), detail: d.detail ?? null, cap: d.cap_jpy ?? null } : null;
+  const d = data as Record<string, unknown> | null;
+  return d?.error ? refusalFromBody(d, 'error') : null;
 }
-function refusalText(r: { code: string; detail?: string | null; cap?: number | null }): string {
+export function refusalText(r: Refusal): string {
+  if (r.code === 'paidy_refund_incomplete' && r.paidyPaid != null && r.paidyRefunded != null) {
+    return `Paidy has refunded ${yen(r.paidyRefunded)} of ${yen(r.paidyPaid)}. Refund the rest in the Paidy dashboard, then mark it.`;
+  }
   const base = REFUSAL[r.code] ?? `Refused: ${r.code}`;
   const lot = r.detail && LOT_DETAIL[r.detail] ? ` (${LOT_DETAIL[r.detail]})` : '';
   const cap = r.code === 'exception_over_cap' && r.cap != null ? ` The Hub says at most ${yen(Number(r.cap))}.` : '';
@@ -530,8 +553,13 @@ export function MarkRefundIssuedDialog({
       });
       const refused = await refusalOf(error, data);
       if (refused) { toast.error(refusalText(refused)); return; }
-      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number }; provider?: 'card' | 'paidy'; refund_email_sentence?: string };
+      const d = (data ?? {}) as { email_sent?: boolean; email_skipped?: string; already_recorded?: boolean; amount?: number | string; refund_emails?: { sent: number; total: number }; provider?: 'card' | 'paidy'; refund_email_sentence?: string; paidy_remaining_jpy?: number | string | null };
       const amount = yen(Number(d.amount ?? 0));
+      // L2: never let a partly refunded Paidy payment pass silently.
+      const paidyRemaining = Number(d.paidy_remaining_jpy ?? 0);
+      if (Number.isFinite(paidyRemaining) && paidyRemaining > 0) {
+        toast.warning(`${yen(paidyRemaining)} of the Paidy money has not been refunded by Paidy. Refund it in the Paidy dashboard.`);
+      }
       // SQV06: a card answer carries the one truthful sentence about the Square refund emails.
       // PA08 (2026-10-09): a Paidy refund email is never re-sent automatically (owner rule) —
       // staff use Resend in the order's email history.
@@ -585,6 +613,13 @@ export function MarkRefundIssuedDialog({
                   </div>
                 ))}
               </RadioGroup>
+            </div>
+          )}
+          {/* L2 (Paidy QC 2026-10-10): the Paidy money before submit. The Hub records only
+              what Paidy has refunded (verified) and refuses while that is less. */}
+          {card && method === 'paidy' && card.parts.paidy > 0 && (
+            <div className="rounded-md border border-border bg-background p-2.5 text-xs text-muted-foreground" data-testid="refund-paidy-figures">
+              <p>Paid with Paidy: <strong className="text-card-foreground">{yen(card.parts.paidy)}</strong>. The Hub records what Paidy has refunded (read back from Paidy), and refuses until Paidy has refunded all of it — refund it in full in the Paidy dashboard first.</p>
             </div>
           )}
           {cardOnly && card && (
