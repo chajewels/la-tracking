@@ -162,7 +162,8 @@ Reference docs (read the relevant one when a task touches that area):
   - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
-    refund total (never the gross), refusing until one exists. ONE exception
+    refund total of the RECORDED card money (never the gross), refusing until
+    one exists; a mixed order takes one mark per part (L6). ONE exception
     (SQF06 + SQV, owner 2026-10-09): a Square refund FAILED / REJECTED or the
     payment AUTHORISED over one calendar year ago → an ADMIN first APPROVES
     (after a fail-closed Square re-read; refused while any refund is

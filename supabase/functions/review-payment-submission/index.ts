@@ -19,7 +19,7 @@ import { paidyBell } from "../_shared/paidy-filing.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
 import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
-import { isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
+import { cardCaptureOrderRefusal, isCanonicalYen, jstDate } from "../_shared/card-rules.ts";
 import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
 import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { regionForCurrency } from "../_shared/transfer-methods.ts";
@@ -823,6 +823,37 @@ Deno.serve(async (req) => {
               message: resuming
                 ? "Square now rates this card payment HIGH risk. Nothing was captured. Void the hold in the Square Dashboard, then press \"Finish recording\": the Hub reads Square, sees the hold closed and rejects the submission."
                 : "Square now rates this card payment HIGH risk. Nothing was captured. Reject it (the hold is voided, nothing is charged).",
+            });
+          }
+          // L5 (2026-10-09, eighth release): the order is re-read and must still
+          // take this money BEFORE Square captures it — on a first Confirm and on
+          // a resumed "Finish recording" alike (the resume skipped step 2, so
+          // the card could be charged for money the order can no longer record).
+          const { data: freshOrder, error: freshErr } = await supabase
+            .from("cash_orders").select("status, remaining_balance").eq("id", cashOrder.id).maybeSingle();
+          const orderRefusal = freshErr ? null : cardCaptureOrderRefusal(freshOrder, submission.submitted_amount);
+          if (freshErr || orderRefusal) {
+            await releaseSquareAction();
+            if (freshErr) {
+              if (resuming) await releaseLeaseKeepClaim(); else await revertCashClaim();
+              return json(500, { error: "card_order_unreadable", message: "Could not re-read the order before capturing. Nothing was captured; try again." });
+            }
+            if (resuming) {
+              // Square shows the hold still APPROVED and this claim stops the
+              // capture: nothing was taken, so the claim goes back to the queue
+              // where a reviewer can Reject it (the hold is voided).
+              const { error: backErr } = await supabase.from("payment_submissions")
+                .update({ status: "submitted", processing_started_at: null, updated_at: new Date().toISOString() })
+                .eq("id", submission_id).eq("status", "confirmed").is("confirmed_payment_id", null).eq("processing_started_at", claimAt);
+              if (backErr) { console.error("[review-payment-submission] requeue after balance refusal failed:", backErr); await releaseLeaseKeepClaim(); }
+            } else {
+              await revertCashClaim();
+            }
+            return json(409, {
+              error: orderRefusal,
+              message: orderRefusal === "order_closed"
+                ? `This order is ${String(freshOrder?.status ?? "closed")}. Nothing was captured on the card. Reject the card payment — the hold is voided and nothing is charged.`
+                : `The order's balance is now ¥${Number(freshOrder?.remaining_balance ?? 0).toLocaleString("en-US")}, less than this card payment of ¥${Number(submission.submitted_amount).toLocaleString("en-US")}. Nothing was captured on the card. Reject the card payment — the hold is voided and nothing is charged.`,
             });
           }
           // M6 (Paidy QC 2026-10-09): never capture a card while Paidy holds
