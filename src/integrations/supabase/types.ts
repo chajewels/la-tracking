@@ -10956,6 +10956,10 @@ export type Database = {
       }
       square_mode: { Args: never; Returns: string }
       square_ops_health: { Args: never; Returns: Json }
+      square_order_card_refund_recordable_jpy: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       square_order_disputed_jpy: {
         Args: { p_order_id: string }
         Returns: number
@@ -11070,6 +11074,7 @@ export type Database = {
         Args: { p_limit: number; p_now: string }
         Returns: string[]
       }
+      web_order_refund_parts: { Args: { p_order_id: string }; Returns: Json }
       web_payment_reminder_address_allowed: {
         Args: { p_email: string }
         Returns: boolean
