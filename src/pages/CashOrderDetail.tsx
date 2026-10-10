@@ -1756,7 +1756,7 @@ export default function CashOrderDetail() {
           {providerHold && (canRecordPayment || canCancel) && (
             <p className="order-last basis-full text-xs text-muted-foreground">
               {paidyHold ? 'A Paidy payment' : 'A card hold'} is waiting to be settled in Payments.
-              Until then no other payment, store credit or loyalty discount can be added{squarePending ? ', and the order cannot be cancelled (Reject voids the hold first)' : ''}{paidyHold ? '. Cancelling the order closes the Paidy authorisation first (refused if Paidy has already taken the money)' : ''}.
+              Until then no other payment, store credit or loyalty discount can be added{squarePending ? ', and the order cannot be cancelled (Reject voids the hold first)' : ''}{paidyHold ? (isWebOrder(order) ? '. Cancelling the order closes the Paidy authorisation first (refused if Paidy has already taken the money)' : ', and the order cannot be cancelled until the Paidy payment is rejected or recorded') : ''}.
             </p>
           )}
           {isAdmin && !isWebOrder(order) && !isPaidOrCompleted && (

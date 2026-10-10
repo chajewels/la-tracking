@@ -33,7 +33,7 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { adoptOrphanAuthorization, orderForPaidyRef, paidyReleased, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
-import { paidyCapturedAmount, paidyLatestCapture, paidyOrphanCaptureProblem, paidyProviderOutcome, paidyYen } from "../_shared/paidy-rules.ts";
+import { paidyApprovalHasWindow, paidyCapturedAmount, paidyLatestCapture, paidyMetadataAttemptId, paidyOrphanCaptureProblem, paidyProviderOutcome, paidyYen } from "../_shared/paidy-rules.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 
@@ -47,7 +47,7 @@ const STATUS: Record<string, number> = {
   order_missing: 409, order_cannot_take_payment: 409, amount_differs_from_balance: 409,
   order_part_paid: 409, not_yen: 409, paidy_not_captured: 409, paidy_refunded: 409,
   paidy_capture_mismatch: 409, paidy_order_mismatch: 409, paidy_environment_mismatch: 409,
-  payment_in_progress: 409, already_recorded: 409, bad_amount: 409,
+  payment_in_progress: 409, already_recorded: 409, bad_amount: 409, paidy_not_tied_to_order: 409,
 };
 
 const ORPHAN_MESSAGES: Record<string, string> = {
@@ -69,6 +69,7 @@ const ORPHAN_MESSAGES: Record<string, string> = {
   payment_in_progress: "Another payment is waiting on this order. Decide that one first.",
   already_recorded: "The Hub already has a record of this Paidy payment.",
   bad_amount: "Paidy's amount could not be read as whole yen. Nothing was recorded.",
+  paidy_not_tied_to_order: "This order never opened Paidy for this payment, so the Hub will not record it here. Refund it in the Paidy dashboard and check with the customer.",
 };
 
 Deno.serve(async (req) => {
@@ -228,6 +229,13 @@ Deno.serve(async (req) => {
       try { expectTest = paidySecretIsTest(); } catch { return fail("paidy_unavailable", { message: "Paidy is not configured on the Hub. Nothing was changed." }); }
       const problem = paidyOrphanCaptureProblem(live, { id: String(order.id), ref: customerReference(order as never) }, expectTest);
       if (problem) return orphanFail(problem);
+      // Review LOW-3: the same binding adoption uses — this order opened Paidy for it.
+      const { data: wins, error: wErr } = await supabase.from("paidy_checkout_attempts")
+        .select("id, started_at").eq("cash_order_id", order.id).order("started_at", { ascending: false }).limit(50);
+      if (wErr) throw wErr;
+      if (!paidyApprovalHasWindow(live.created_at, (wins ?? []) as Array<{ id: unknown; started_at: unknown }>, paidyMetadataAttemptId(live))) {
+        return orphanFail("paidy_not_tied_to_order");
+      }
       const capture = paidyLatestCapture(live);
       const { data: adopted, error: aErr } = await supabase.rpc("adopt_paidy_orphan_capture_atomic", {
         p_case_id: caseId, p_user_id: userId, p_reason: reason,

@@ -9,22 +9,29 @@
  * honest in CI. Wiring greps run on comment-stripped code.
  */
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { paidyApprovalHasWindow, paidyNotOfferedReason, paidyOrphanCaptureProblem } from "../supabase/functions/_shared/paidy-rules.ts";
+import { paidyApprovalHasWindow, paidyMetadataAttemptId, paidyNotOfferedReason, paidyOrphanCaptureProblem } from "../supabase/functions/_shared/paidy-rules.ts";
 
 const root = new URL("../", import.meta.url);
 const raw = (p: string) => Deno.readTextFileSync(new URL(p, root));
 const code = (p: string) => raw(p).split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*|--)/.test(l)).join("\n");
 const MIG = "supabase/migrations/20261206100000_paidy_qc_pr_b.sql";
 
-Deno.test("M3: an approval is tied to an order only by a window that order opened around then", () => {
+Deno.test("M3: an approval is tied to an order only by a window that order opened", () => {
   const created = "2026-10-10T08:00:00Z";
-  assertEquals(paidyApprovalHasWindow(created, ["2026-10-10T07:50:00Z"]), true);
-  assertEquals(paidyApprovalHasWindow(created, ["2026-10-10T06:01:00Z"]), true); // within 2 h before
-  assertEquals(paidyApprovalHasWindow(created, ["2026-10-10T05:59:00Z"]), false); // more than 2 h before
-  assertEquals(paidyApprovalHasWindow(created, ["2026-10-10T08:09:00Z"]), true); // 9 min after (clock skew)
-  assertEquals(paidyApprovalHasWindow(created, ["2026-10-10T08:11:00Z"]), false);
+  const w = (started_at: string, id = "w-1") => ({ id, started_at });
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T07:50:00Z")]), true);
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T06:01:00Z")]), true); // within 2 h before
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T05:59:00Z")]), false); // more than 2 h before
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T08:09:00Z")]), true); // 9 min after (clock skew)
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T08:11:00Z")]), false);
   assertEquals(paidyApprovalHasWindow(created, []), false);
-  assertEquals(paidyApprovalHasWindow("not a date", ["2026-10-10T07:50:00Z"]), false);
+  assertEquals(paidyApprovalHasWindow("not a date", [w("2026-10-10T07:50:00Z")]), false);
+  // Review LOW-2: the launch's window id, when Paidy returns it, decides alone.
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T07:50:00Z", "w-1")], "w-1"), true);
+  assertEquals(paidyApprovalHasWindow(created, [w("2026-10-10T07:50:00Z", "w-1")], "w-other"), false);
+  assertEquals(paidyMetadataAttemptId({ metadata: { attempt_id: "w-9" } }), "w-9");
+  assertEquals(paidyMetadataAttemptId({ metadata: {} }), null);
+  assertEquals(paidyMetadataAttemptId(null), null);
 });
 
 Deno.test("L1: the secret key's family is checked before she can approve", () => {
@@ -62,7 +69,8 @@ Deno.test("DB M-3: an orphan capture is recorded only from a clean Paidy read-ba
 Deno.test("edge M1: a later approval behind another waiting payment is released (first payment wins)", () => {
   const c = code("supabase/functions/_shared/paidy-filing.ts");
   assert(/if \(err === "submission_pending"\) \{\n\s+const lock = /.test(c), "filing releases on submission_pending");
-  assert(c.includes('why: `another payment was already waiting (${lock})`'));
+  assert(c.includes('const ahead = lock === "paidy_approval_noted" ? "an earlier Paidy approval on this order is still being checked"'));
+  assert(c.includes("why: ahead,"));
   assert(!c.includes('"Paidy authorisation waiting behind another payment"'), "the old wait-and-see bell is gone");
   assert(c.includes('if (result.error === "submission_pending") {\n    return result.released ? "released_first_payment_wins"'));
 });
@@ -80,7 +88,7 @@ Deno.test("edge M3: an approval is never filed on another customer's order", () 
   assert(web.includes('if (named && String(named.customer_id) !== String(customer.id)) {'));
   assert(web.includes('why: "names another customer\'s order"'));
   const fil = code("supabase/functions/_shared/paidy-filing.ts");
-  const bind = fil.indexOf("if (!paidyApprovalHasWindow(payment.created_at,");
+  const bind = fil.indexOf("if (!paidyApprovalHasWindow(payment.created_at, (windows ?? []) as AnyRec[], paidyMetadataAttemptId(payment))) {");
   const file = fil.indexOf("const result = await filePaidyAuthorization(supabase, {");
   assert(bind > 0 && file > bind, "adoption checks the window binding before filing");
 });
@@ -97,6 +105,7 @@ Deno.test("L1 wiring + orphan action + recorded bell", () => {
   const act = code("supabase/functions/paidy-staff-action/index.ts");
   assert(act.includes('if (body.action === "record_orphan_capture") {'));
   assert(act.includes('.select("role").eq("user_id", userId).eq("role", "admin").maybeSingle();'), "admin only");
+  assert(act.includes('return orphanFail("paidy_not_tied_to_order");'), "orphan record checks the window binding");
   const get = act.indexOf('live = await paidy.get(String(c.paidy_payment_id));');
   const rule = act.indexOf("const problem = paidyOrphanCaptureProblem(live,");
   const adopt = act.indexOf('supabase.rpc("adopt_paidy_orphan_capture_atomic"');
@@ -117,6 +126,9 @@ Deno.test("migration: md5-guarded patches, new functions guarded and granted", (
   }
   assert(m.includes("''paidy_refund_incomplete''"), "M-1");
   assert(m.includes("AND paidy_payment_id IS DISTINCT FROM p_paidy_payment_id);"), "M-2");
+  assert(m.includes("''lock'', ''paidy_approval_noted''"), "M-2: a later approval is refused while another is noted");
+  assert(m.includes("   WHERE cash_order_id = v_order.id AND status = 'open';\n\n  UPDATE public.paidy_cases"), "MED-1: adoption ends her open window");
+  assert(m.includes("  IF coalesce(public.cash_order_payment_lock(p_cash_order_id), '''') LIKE ''paidy%'' THEN"), "LOW-4: the preview refuses too");
   assert(m.includes("''paidy_environment_mismatch''"), "L-3");
   assert(m.includes("PERFORM public.assert_staff_caller(NULL);"), "staff reader checks its caller");
   assert(m.includes("IF p_user_id IS NULL OR NOT public.has_role(p_user_id, 'admin') THEN"), "adopt is admin only");

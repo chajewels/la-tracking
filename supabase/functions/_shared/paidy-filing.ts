@@ -17,7 +17,7 @@
  */
 
 import { customerReference } from "./order-reference.ts";
-import { paidyAdoptBlock, paidyApprovalHasWindow, paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyMismatchReleases, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
+import { paidyAdoptBlock, paidyApprovalHasWindow, paidyMetadataAttemptId, paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyMismatchReleases, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
 import { sendPaymentSubmittedEmail } from "./order-update-email.ts";
@@ -239,15 +239,16 @@ export async function filePaidyAuthorization(supabase: Db, args: {
     // writer kept is ended by the release itself (status closed).
     if (err === "submission_pending") {
       const lock = r.lock ? String(r.lock) : "pending";
+      const ahead = lock === "paidy_approval_noted" ? "an earlier Paidy approval on this order is still being checked" : `another payment on this order was already waiting (${lock})`;
       const release = await releasePaidyAuthorization(supabase, payment, {
         cash_order_id: order.id, paidy_payment_row: r.paidy_record_id ? String(r.paidy_record_id) : null,
-        why: `another payment was already waiting (${lock})`,
+        why: ahead,
       });
       const released = paidyReleased(release);
       if (release !== "captured") {
         await paidyBell(supabase, "paidy_unmatched_authorization",
           released ? "Later Paidy approval released — the first payment wins" : "Later Paidy approval could not be released yet",
-          `${ref} · ¥${amount.toLocaleString("en-US")} · another payment on this order was already waiting (${lock})${released ? " — the Paidy approval was released, no charge; confirm the earlier payment as usual" : " — the hourly check retries the release; do not capture it in the Paidy dashboard"}`,
+          `${ref} · ¥${amount.toLocaleString("en-US")} · ${ahead}${released ? " — the Paidy approval was released, no charge; confirm the earlier payment as usual" : " — the hourly check retries the release; do not capture it in the Paidy dashboard"}`,
           { cash_order_id: order.id, paidy_payment_id: payment.id, path, lock, released, release });
       }
       return { ok: false, error: err, detail: lock, released, release };
@@ -320,9 +321,9 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
   // window only its own signed-in customer can start). Otherwise someone
   // launched Paidy with another customer's order reference: it is released.
   const { data: windows, error: winErr } = await supabase.from("paidy_checkout_attempts")
-    .select("started_at").eq("cash_order_id", order.id).order("started_at", { ascending: false }).limit(50);
+    .select("id, started_at").eq("cash_order_id", order.id).order("started_at", { ascending: false }).limit(50);
   if (winErr) throw winErr;
-  if (!paidyApprovalHasWindow(payment.created_at, ((windows ?? []) as AnyRec[]).map((w) => w.started_at))) {
+  if (!paidyApprovalHasWindow(payment.created_at, (windows ?? []) as AnyRec[], paidyMetadataAttemptId(payment))) {
     const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: "no Paidy checkout was opened on this order at that time" });
     const released = paidyReleased(release);
     if (release !== "captured") {

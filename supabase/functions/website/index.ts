@@ -3456,9 +3456,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // closed; it is handed to the order it names, exactly as Paidy's
         // webhook would (filed there if that order can take it, else released).
         if (filed.error === "paidy_mismatch" && filed.detail === "order_ref") {
-          // QC PR-B M3 (2026-10-10): only HER OWN other order may take it. An
-          // approval naming someone else's order is hers alone (she approved
-          // it with her Paidy account): it is released, never filed there.
+          // QC PR-B M3 (2026-10-10): an approval naming someone else's order is
+          // hers alone (she approved it with her Paidy account): it is released,
+          // never filed there. One naming HER other order goes to adoption,
+          // which files it only if that order opened Paidy for it (else releases).
           const named = await orderForPaidyRef(supabase, payment.order?.order_ref);
           if (named && String(named.customer_id) !== String(customer.id)) {
             const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: null, why: "names another customer's order" });

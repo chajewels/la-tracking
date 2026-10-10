@@ -601,23 +601,33 @@ export function paidyOrphanCaptureProblem(
 
 /**
  * QC PR-B M3 (2026-10-10): may a Paidy approval the Hub has no record of be
- * filed on the order its order_ref names? Only when that order really opened
- * Paidy around the time of the approval — a checkout window of THAT order
- * started at most 2 hours before Paidy created the payment (and not more than
- * 10 minutes after, clock skew). The window can only be started by the
- * order's own signed-in customer, so an approval someone else launched with
- * this order's reference is never filed here (it is released instead).
+ * filed on the order its order_ref names? Only when THAT order opened Paidy for
+ * it. Every Hub launch carries the window's id in Paidy's metadata (PA04): when
+ * the payment carries one, it must be a window of this order (an id nobody but
+ * the order's own signed-in customer could have obtained). Without one, a
+ * window of this order must have started from 2 hours before to 10 minutes
+ * after Paidy created the payment (clock skew).
  */
 export function paidyApprovalHasWindow(
   paymentCreatedAt: unknown,
-  windowsStartedAt: ReadonlyArray<unknown>,
+  windows: ReadonlyArray<{ id?: unknown; started_at?: unknown }>,
+  attemptId?: unknown,
 ): boolean {
+  if (typeof attemptId === "string" && attemptId.trim() !== "") {
+    return windows.some((w) => String(w.id ?? "") === attemptId);
+  }
   const created = Date.parse(String(paymentCreatedAt ?? ""));
   if (!Number.isFinite(created)) return false;
-  return windowsStartedAt.some((s) => {
-    const started = Date.parse(String(s ?? ""));
+  return windows.some((w) => {
+    const started = Date.parse(String(w.started_at ?? ""));
     return Number.isFinite(started) && started <= created + 10 * 60 * 1000 && started >= created - 2 * 60 * 60 * 1000;
   });
+}
+
+/** The window id the Hub put in Paidy's metadata at launch (PA04), if Paidy returned it. */
+export function paidyMetadataAttemptId(p: unknown): string | null {
+  const v = (p as { metadata?: { attempt_id?: unknown } | null } | null)?.metadata?.attempt_id;
+  return typeof v === "string" && v.trim() !== "" ? v : null;
 }
 
 /**

@@ -5,9 +5,10 @@
 --   DB M-1  mark_web_order_refund_issued_atomic: a Paidy refund is marked
 --           issued only once Paidy's verified refunds cover the Paidy money
 --           (paidy_refund_incomplete), the same rule terminate applies.
---   DB M-2  file_paidy_submission_atomic never overwrites a window that carries
---           a DIFFERENT approval Paidy reported (second-hold fix): that window
---           stays open, so the order stays held until the sweep decides it.
+--   DB M-2  file_paidy_submission_atomic: while her window notes a DIFFERENT
+--           approval Paidy reported (not verified empty), a new approval is
+--           refused (submission_pending / paidy_approval_noted) and the caller
+--           releases it — first payment wins; that window is never overwritten.
 --   DB M-3  adopt_paidy_orphan_capture_atomic (NEW, service_role): an admin
 --           records a Paidy capture the Hub never filed, from Paidy's own
 --           read-back, after the same checks as any Paidy payment.
@@ -80,6 +81,9 @@ SELECT pg_temp.cj_patch(
       'old', E'      UPDATE public.paidy_checkout_attempts\n         SET status = ''filed'', paidy_payment_id = p_paidy_payment_id, ended_at = now(), end_reason = ''filed''\n       WHERE cash_order_id = v_order.id AND status = ''open'';',
       'new', E'      UPDATE public.paidy_checkout_attempts\n         SET status = ''filed'', paidy_payment_id = p_paidy_payment_id, ended_at = now(), end_reason = ''filed''\n       WHERE cash_order_id = v_order.id AND status = ''open''\n         -- QC PR-B M-2: a window noting a DIFFERENT approval stays open.\n         AND NOT (authorization_noted_at IS NOT NULL AND verified_empty_at IS NULL\n                  AND paidy_payment_id IS DISTINCT FROM p_paidy_payment_id);'),
     jsonb_build_object(
+      'old', E'  v_lock := public.cash_order_payment_lock(v_order.id, v_rec.id, true);\n  IF v_lock IS NOT NULL THEN\n    RETURN jsonb_build_object(''error'', ''submission_pending'', ''lock'', v_lock, ''paidy_record_id'', v_rec.id);\n  END IF;\n',
+      'new', E'  v_lock := public.cash_order_payment_lock(v_order.id, v_rec.id, true);\n  IF v_lock IS NOT NULL THEN\n    RETURN jsonb_build_object(''error'', ''submission_pending'', ''lock'', v_lock, ''paidy_record_id'', v_rec.id);\n  END IF;\n  -- QC PR-B M-2 (owner 2026-10-10, first payment wins): her window already\n  -- notes ANOTHER approval Paidy reported and nobody has verified it empty.\n  -- That approval came first; this one waits for nothing — the caller\n  -- releases it. (The noted one is filed when it arrives, or its window ends\n  -- once the sweep verifies Paidy holds nothing.)\n  IF EXISTS (SELECT 1 FROM public.paidy_checkout_attempts a\n              WHERE a.cash_order_id = v_order.id AND a.status = ''open''\n                AND a.authorization_noted_at IS NOT NULL AND a.verified_empty_at IS NULL\n                AND a.paidy_payment_id IS DISTINCT FROM p_paidy_payment_id) THEN\n    RETURN jsonb_build_object(''error'', ''submission_pending'', ''lock'', ''paidy_approval_noted'', ''paidy_record_id'', v_rec.id);\n  END IF;\n'),
+    jsonb_build_object(
       'old', E'  -- The order must still be able to take THIS payment (R15: checked on the\n',
       'new', E'  -- QC PR-B L-3 (2026-10-10): the environment is bound in the database too —\n  -- a test payment only in test mode and only for an is_test customer; a live\n  -- payment never in test mode. Never released from here (the other\n  -- environment''s money is not this Hub''s to close).\n  IF coalesce(p_test, false) <> (public.paidy_mode() = ''test'')\n     OR (coalesce(p_test, false) AND NOT EXISTS (SELECT 1 FROM public.customers c\n                                                 WHERE c.id = p_customer_id AND c.is_test)) THEN\n    RETURN jsonb_build_object(''error'', ''paidy_environment_mismatch'', ''test'', coalesce(p_test, false));\n  END IF;\n\n  -- The order must still be able to take THIS payment (R15: checked on the\n'),
     jsonb_build_object(
@@ -128,7 +132,7 @@ SELECT pg_temp.cj_patch(
   '79832d1661493102dde99658eff479eb',
   jsonb_build_array(jsonb_build_object(
     'old', E'    RAISE EXCEPTION ''card_payment_unresolved: a card payment on this order is still being processed — close the hold or record the capture first'' USING ERRCODE=''P0001'';\n  END IF;\n',
-    'new', E'    RAISE EXCEPTION ''card_payment_unresolved: a card payment on this order is still being processed — close the hold or record the capture first'' USING ERRCODE=''P0001'';\n  END IF;\n  -- QC PR-B L-1 (2026-10-10): the same rule terminate_web_order_atomic applies —\n  -- never cancel while Paidy holds the order (an authorisation, a capture not\n  -- recorded, a submission, or her open window).\n  IF NOT p_preview AND coalesce(public.cash_order_payment_lock(p_cash_order_id), '''') LIKE ''paidy%'' THEN\n    RAISE EXCEPTION ''paidy_payment_unresolved: Paidy holds this order — Reject or record the Paidy payment first'' USING ERRCODE=''P0001'';\n  END IF;\n')
+    'new', E'    RAISE EXCEPTION ''card_payment_unresolved: a card payment on this order is still being processed — close the hold or record the capture first'' USING ERRCODE=''P0001'';\n  END IF;\n  -- QC PR-B L-1 (2026-10-10): the same rule terminate_web_order_atomic applies —\n  -- never cancel while Paidy holds the order (an authorisation, a capture not\n  -- recorded, a submission, or her open window) — the preview says the same.\n  IF coalesce(public.cash_order_payment_lock(p_cash_order_id), '''') LIKE ''paidy%'' THEN\n    RAISE EXCEPTION ''paidy_payment_unresolved: Paidy holds this order — Reject or record the Paidy payment first'' USING ERRCODE=''P0001'';\n  END IF;\n')
   ));
 
 -- ---------------------------------------------------------------------------
@@ -232,6 +236,10 @@ BEGIN
                         OR (pp.status = 'captured' AND coalesce(pp.refund_jpy, 0) < pp.amount_jpy
                             AND NOT EXISTS (SELECT 1 FROM public.payment_submissions s2
                                              WHERE s2.paidy_payment_id = pp.id AND s2.confirmed_payment_id IS NOT NULL))))
+     OR EXISTS (SELECT 1 FROM public.paidy_checkout_attempts a
+                 WHERE a.cash_order_id = v_order.id AND a.status = 'open'
+                   AND a.authorization_noted_at IS NOT NULL AND a.verified_empty_at IS NULL
+                   AND a.paidy_payment_id IS DISTINCT FROM v_case.paidy_payment_id)
      OR public.square_order_unresolved(v_order.id) THEN
     RETURN jsonb_build_object('ok', false, 'error', 'payment_in_progress');
   END IF;
@@ -251,6 +259,13 @@ BEGIN
           'Paidy capture the Hub never filed, recorded by an admin from Paidy''s read-back: ' || btrim(p_reason),
           'submitted', 'cash_payment', v_rec.id)
   RETURNING * INTO v_sub;
+
+  -- Her Paidy window (if one is still open) ends here: this capture IS the
+  -- payment it was opened for (review MED-1: a window left open would lock
+  -- the completed order).
+  UPDATE public.paidy_checkout_attempts
+     SET status = 'filed', paidy_payment_id = v_case.paidy_payment_id, ended_at = now(), end_reason = 'filed'
+   WHERE cash_order_id = v_order.id AND status = 'open';
 
   UPDATE public.paidy_cases
      SET paidy_payment_row = v_rec.id, submission_id = v_sub.id,

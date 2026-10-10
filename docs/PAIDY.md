@@ -797,9 +797,11 @@ emailable to Brenda + admins.
   Paidy refund issued only once Paidy's verified refunds cover the Paidy money;
   a partial refund answers `paidy_refund_incomplete` (paid / refunded figures)
   and the order stays `refund_pending` — the same rule terminate applies.
-- **A noted approval is never forgotten (DB M-2).** Filing one approval no
-  longer overwrites a window that notes a DIFFERENT approval Paidy reported;
-  that window stays open, so the order stays held until the sweep decides it.
+- **A noted approval is never forgotten (DB M-2).** While her window notes a
+  DIFFERENT approval Paidy reported (not verified empty), a new approval is
+  refused (`submission_pending`, lock `paidy_approval_noted`) and released —
+  the noted one came first; it is filed when it arrives, or its window ends
+  once the sweep verifies Paidy holds nothing. The window is never overwritten.
 - **Orphan captures (DB M-3, owner A).** Paidy took money the Hub never filed
   (a capture case with no payment row). An ADMIN presses "Record this Paidy
   payment" (Payment Submissions → Paidy cases, written reason ≥ 10 chars):
@@ -810,23 +812,28 @@ emailable to Brenda + admins.
   re-checked; order pending, yen, nothing paid, amount = balance, nothing else
   waiting) writes the Hub's receipt + a Paidy submission and resolves the case
   as `record_capture`, and the ONE recording path (paidy_auto Confirm →
-  `finalize_cash_submission_atomic`) records it. Proved end to end on the
-  replay (order completed, lock cleared).
+  `finalize_cash_submission_atomic`) records it. It also ends her open Paidy
+  window, and it requires the same order binding as adoption
+  (`paidy_not_tied_to_order`). Proved end to end on the replay (order
+  completed, lock cleared, no window left open).
 - **First payment wins (edge M1, owner).** An approval arriving while another
   payment waits on the order (a transfer, a card, an earlier Paidy approval) is
   RELEASED at once with a bell; nothing waits behind it, so the earlier payment
-  can be confirmed.
+  can be confirmed. Accepted trade-off (review LOW-1): when the payment ahead
+  is a Paidy hold that is itself about to end, the customer approves again.
 - **Early approvals are noted (edge M2).** The webhook notes an approval on her
   window during the 3-minute callback grace, so a new window cannot replace it.
 - **Approvals bound to their order (edge M3).** The website releases an
-  approval naming ANOTHER customer's order; adoption (webhook / sweep) files an
-  approval only on an order that opened a Paidy window from 2 h before to
-  10 min after Paidy created it (`paidyApprovalHasWindow`) — else released.
+  approval naming ANOTHER customer's order; adoption (webhook / sweep / her own
+  other order) files an approval only on an order that opened Paidy for it
+  (`paidyApprovalHasWindow`): the window id the launch put in Paidy's metadata
+  when Paidy returns it, else a window of that order started from 2 h before to
+  10 min after Paidy created the payment — otherwise it is released.
 - **Secret family before approval (edge L1)**, **reject guard (DB L-2:
   `authorization_open`)**, **environment bound in SQL (DB L-3:
   `paidy_environment_mismatch`, never closed)**, **refund over capture still
-  raises `refund_jpy` (DB L-5)**, **Hub-order cancel refuses while Paidy holds
-  it (DB L-1)**, **interrupted-Confirm bell tells staff what to press (edge L2)**.
+  raises `refund_jpy` (DB L-5)**, **Hub-order cancel (and its preview) refuses
+  while Paidy holds it (DB L-1)**, **interrupted-Confirm bell tells staff what to press (edge L2)**.
 - **Order page truth (web M1).** A window holding an approval reads
   `payment_state: "paidy_processing"` with `paidy: null` — never "open Paidy
   again".

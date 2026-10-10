@@ -59,6 +59,8 @@ export const ORPHAN_RECORD_ERRORS: Record<string, string> = {
   paidy_unavailable: 'The Hub could not reach Paidy to check the payment. Nothing was recorded — try again in a few minutes.',
   payment_in_progress: 'Another payment on this order is being processed. Wait for it to finish, then try again.',
   already_recorded: 'This Paidy payment is already recorded.',
+  paidy_not_tied_to_order: 'This order never opened Paidy for this payment, so the Hub will not record it here. Refund it in the Paidy dashboard and check with the customer.',
+  paidy_capture_mismatch: "Paidy's capture does not equal the whole payment in yen, so it was not recorded.",
 };
 
 export function orphanRecordErrorText(code: string, message?: string | null): string {
