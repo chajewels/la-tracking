@@ -16,7 +16,7 @@ import {
   paidyJapanDate, paidyLatestCapture, paidyProviderOutcome, paidyRecordProblem, paidyRefundTotal,
 } from "../_shared/paidy-rules.ts";
 import { paidyBell } from "../_shared/paidy-filing.ts";
-import { paidyRecordedBell } from "../_shared/paidy-recorded-bell.ts";
+import { paidyRecordedBell, ringPaidyRecordedBell } from "../_shared/paidy-recorded-bell.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
 import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
@@ -1035,13 +1035,19 @@ Deno.serve(async (req) => {
       // Emailed to Brenda + the admins when ticked in Website → Settings → Staff
       // bell emails (type paidy_payment_recorded). Never blocks the recording.
       if (isPaidySubmission) {
-        // If this ring fails, paidy-reconcile rings it late (reassessment F2).
+        // One bell per cash payment, written atomically by the same function the
+        // hourly sweep uses; if this ring fails, paidy-reconcile rings it late
+        // (reassessment F2 + QA reopen).
         const bell = paidyRecordedBell({
           reference: customerReference(cashOrder as never), amountJpy: Number(cashPayment?.amount_paid ?? 0),
           senderName: submission.sender_name, automatic: isAutoRecorder, fullyPaid: isFullyPaid, remainingJpy: newRemaining,
         });
-        await paidyBell(supabase, bell.type, bell.title, bell.body,
-          { cash_order_id: cashOrder.id, submission_id, cash_payment_id: cashPayment?.id ?? null, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff", fully_paid: isFullyPaid });
+        const bellMeta = { cash_order_id: cashOrder.id, submission_id, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff", fully_paid: isFullyPaid };
+        if (cashPayment?.id) {
+          await ringPaidyRecordedBell(supabase, bell, { ...bellMeta, cash_payment_id: String(cashPayment.id) });
+        } else {
+          await paidyBell(supabase, bell.type, bell.title, bell.body, { ...bellMeta, cash_payment_id: null });
+        }
       }
 
       // Fire-and-forget: archive the proof into payment_proofs (cash order).
