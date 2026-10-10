@@ -4514,6 +4514,8 @@ export type Database = {
       paidy_checkout_attempts: {
         Row: {
           amount_jpy: number
+          authorization_noted_at: string | null
+          authorization_test: boolean | null
           billing_address_id: string | null
           cash_order_id: string
           customer_closed_at: string | null
@@ -4528,11 +4530,14 @@ export type Database = {
           paidy_payment_id: string | null
           started_at: string
           status: string
+          stuck_bell_at: string | null
           verification: string | null
           verified_empty_at: string | null
         }
         Insert: {
           amount_jpy: number
+          authorization_noted_at?: string | null
+          authorization_test?: boolean | null
           billing_address_id?: string | null
           cash_order_id: string
           customer_closed_at?: string | null
@@ -4547,11 +4552,14 @@ export type Database = {
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
+          stuck_bell_at?: string | null
           verification?: string | null
           verified_empty_at?: string | null
         }
         Update: {
           amount_jpy?: number
+          authorization_noted_at?: string | null
+          authorization_test?: boolean | null
           billing_address_id?: string | null
           cash_order_id?: string
           customer_closed_at?: string | null
@@ -4566,6 +4574,7 @@ export type Database = {
           paidy_payment_id?: string | null
           started_at?: string
           status?: string
+          stuck_bell_at?: string | null
           verification?: string | null
           verified_empty_at?: string | null
         }
@@ -10431,6 +10440,15 @@ export type Database = {
           p_attempt_id: string
           p_customer_id: string
           p_paidy_payment_id: string
+        }
+        Returns: Json
+      }
+      note_paidy_window_authorization: {
+        Args: {
+          p_cash_order_id: string
+          p_customer_id: string
+          p_paidy_payment_id: string
+          p_test: boolean
         }
         Returns: Json
       }
