@@ -113,8 +113,8 @@ const base: Omit<SwitchInput, 'to'> = {
   latestDecision: 'rejected', switchedSinceDecision: false, currency: 'JPY', from: 'paidy',
 }
 
-Deno.test('switchTargets: rejected Paidy on yen -> transfer and card', () => {
-  assertEquals(switchTargets(base), ['transfer', 'square'])
+Deno.test('switchTargets: rejected Paidy on yen -> transfer, card and cash on delivery (by the rules; the offer is checked by the caller)', () => {
+  assertEquals(switchTargets(base), ['transfer', 'square', 'cod'])
 })
 
 Deno.test('switchTargets: peso order -> transfer only', () => {

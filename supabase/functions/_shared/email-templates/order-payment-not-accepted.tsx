@@ -23,7 +23,7 @@ import { Panel, Row, WORDS, block, blockGutter, button, buttonWrap, container, f
  *
  * Language: the customer's, Japanese first then English, like every order email.
  */
-export type NotAcceptedMethod = 'transfer' | 'paidy' | 'card'
+export type NotAcceptedMethod = 'transfer' | 'paidy' | 'card' | 'cod'
 export type NotAcceptedKind = 'staff' | 'provider_ended'
 
 export interface OrderPaymentNotAcceptedProps {
@@ -56,8 +56,8 @@ export const orderPaymentNotAcceptedSubject = (reference: string, lang: Lang) =>
   subjectFor(lang, `お支払いを確認できませんでした ${reference}`, `We could not accept your payment — Cha Jewels order ${reference}`)
 
 const METHOD = {
-  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
-  en: { transfer: 'bank transfer', paidy: 'Paidy (あと払い)', card: 'card' },
+  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード', cod: '代金引換' },
+  en: { transfer: 'bank transfer', paidy: 'Paidy (あと払い)', card: 'card', cod: 'cash on delivery' },
 } as const
 
 const COPY = {
@@ -67,6 +67,7 @@ const COPY = {
     paidy: 'ペイディのお申込みは取り消されました。このお申込みについて、ペイディからのご請求は発生しません。',
     card: 'カードの与信（仮売上）は取り消されました。このお支払いでのご請求は発生しません。',
     transfer: 'お振込の控えをこのメールにご返信ください。確認のうえご連絡いたします。',
+    cod: '代金引換のお支払いについて、配送業者からの入金を確認できませんでした。担当者より改めてご連絡いたします。',
     paidyEnded: 'ペイディでのお手続きが完了しなかったため、お申込みは取り消されました。ご請求は発生しません。',
     cardEnded: 'カードの与信（仮売上）が取り消されたため、ご請求は発生しません。',
     reason: '担当者からのメッセージ',
@@ -83,6 +84,7 @@ const COPY = {
     paidy: 'Your Paidy payment was cancelled — Paidy will not bill you for it.',
     card: 'The hold on your card was released — nothing was charged.',
     transfer: 'Please reply to this email with your transfer receipt and we will check it.',
+    cod: 'We could not match your cash on delivery payment with the courier\'s remittance. Our team will contact you.',
     paidyEnded: 'Your Paidy payment was not completed, so it was cancelled — Paidy will not bill you for it.',
     cardEnded: 'The hold on your card was released — nothing was charged.',
     reason: 'Message from our team',
@@ -100,6 +102,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentNotAcceptedPro
   const ended = p.kind === 'provider_ended'
   const note = p.method === 'paidy' ? (ended ? c.paidyEnded : c.paidy)
     : p.method === 'card' ? (ended ? c.cardEnded : c.card)
+    : p.method === 'cod' ? c.cod
     : c.transfer
   const reason = p.kind === 'staff' ? String(p.reason ?? '').trim() : ''
   const open = p.remaining !== null && p.remaining > 0

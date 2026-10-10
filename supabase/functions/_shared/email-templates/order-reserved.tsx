@@ -37,6 +37,8 @@ export interface OrderReservedProps {
    * Paidy / card never read "bank details will follow".
    */
   method?: PayMethod
+  /** Cash on delivery fee (already in totalJpy), its own line. Absent/0 = none. */
+  codFee?: number
 }
 
 export const orderReservedSubject = (reference: string, lang: Lang) =>
@@ -65,6 +67,7 @@ const OTHER_COPY = {
     next: {
       paidy: '確認が取れ次第、メールでお知らせします。その後、ご注文ページの「ペイディで支払う」からお支払いいただけます。',
       card: '確認が取れ次第、メールでお知らせします。その後、ご注文ページの「カードで支払う」からお支払いいただけます。',
+      cod: '確認が取れ次第、メールでお知らせし、発送いたします。お支払いはお届け時に配達員へ（代金引換）。',
     },
     nothingYet: '現時点でお支払いの必要はございません。',
   },
@@ -72,6 +75,7 @@ const OTHER_COPY = {
     next: {
       paidy: 'As soon as it is confirmed we will email you, and you can then pay with Paidy from your order page.',
       card: 'As soon as it is confirmed we will email you, and you can then pay by card from your order page.',
+      cod: 'As soon as it is confirmed we will email you and ship it. You pay the courier when it arrives (cash on delivery).',
     },
     nothingYet: 'There is nothing to pay yet.',
   },
@@ -79,13 +83,13 @@ const OTHER_COPY = {
 
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderReservedProps; primary: boolean }) => {
   const base = COPY[lang]
-  const other = p.method === 'paidy' || p.method === 'card' ? p.method : null
+  const other = p.method === 'paidy' || p.method === 'card' || p.method === 'cod' ? p.method : null
   const c = other ? { ...base, next: OTHER_COPY[lang].next[other], nothingYet: OTHER_COPY[lang].nothingYet } : base
   return (
     <>
       <Heading style={primary ? h1 : h2}>{c.heading}</Heading>
       <Text style={text}>{c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} codFee={p.codFee} />
       {p.provisional && <Text style={muted}>{c.provisional}</Text>}
       <Text style={text}>{c.next}</Text>
       <Text style={notice}>{c.nothingYet}</Text>

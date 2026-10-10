@@ -47,6 +47,10 @@ const ERROR_STATUS: Record<string, number> = {
   points_exceed_deposit: 409,
   points_exceed_total: 409,
   points_insufficient: 409,
+  // Cash on delivery (2026-10-10).
+  over_cod_limit: 409,
+  cod_nothing_to_collect: 409,
+  cod_fee_mismatch: 409,
 };
 
 /**
@@ -156,6 +160,9 @@ Deno.serve(async (req) => {
     const order: AnyRec = {
       total_amount: figures.total,
       shipping_fee: figures.shipping,
+      // Cash on delivery: the fee is already in total_amount; materialize
+      // re-checks it against public.cod_fee_jpy and refuses a mismatch.
+      cod_fee: figures.cod_fee,
       discount_amount: figures.discount,
       discount_type: figures.discount > 0 ? "amount" : null,
       discount_value: figures.discount > 0 ? figures.discount : null,

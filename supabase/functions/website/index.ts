@@ -38,6 +38,7 @@ import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shar
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 import { customerCancellationReason } from "../_shared/customer-reasons.ts";
+import { codFeeJpy, codFeeTable, codModeFrom, codNotOfferedReason } from "../_shared/cod-fee.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 
 /**
@@ -321,7 +322,7 @@ const MAX_CART_LINES = 20;
 
 const ORDER_FIELDS =
   "id, web_reference, invoice_number, status, payment_status, payment_method, order_type, " +
-  "currency, total_amount, total_paid, remaining_balance, shipping_fee, transfer_due_at, " +
+  "currency, total_amount, total_paid, remaining_balance, shipping_fee, cod_fee, transfer_due_at, " +
   "recipient_name, gift_note, order_date, created_at, completed_at, cancelled_at, " +
   "tracking_number, shipped_at, " +
   // Cancelled orders stay in the customer's history with the reason and the
@@ -368,6 +369,9 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   points_insufficient: 409,
   points_exceed_subtotal: 409,
   points_exceed_deposit: 409,
+  // Cash on delivery (owner plan 2026-10-10).
+  over_cod_limit: 409,
+  cod_nothing_to_collect: 409,
 };
 
 /**
@@ -377,7 +381,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
  * decline_reason is the reason the customer is told; staff notes never leave.
  */
 const DRAFT_FIELDS =
-  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id, payment_method, points, points_value";
+  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id, payment_method, points, points_value, cod_fee";
 
 function shapeDraft(d: AnyRec): AnyRec {
   return {
@@ -406,6 +410,9 @@ function shapeDraft(d: AnyRec): AnyRec {
     payment_method: publicMethod(d.payment_method),
     points: Number(d.points ?? 0),
     points_value: Number(d.points_value ?? 0),
+    // Cash on delivery (2026-10-10): the 代引手数料, its own line, already in
+    // `total`. 0 for every other method.
+    cod_fee: Number(d.cod_fee ?? 0),
     // Payment lifecycle H6 (2026-10-05): what is left to pay once the points
     // are taken off — the Hub's figure, the storefront computes nothing. On a
     // layaway draft the points pay the DEPOSIT (the deposit already shows
@@ -825,6 +832,7 @@ function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[], 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, to: CustomerMethod): Promise<boolean> {
   if (to === "transfer") return true;
+  if (to === "cod") return (await codOffer(supabase, order, shipTo)).offered;
   const as = { ...order, payment_method: to };
   if (to === "paidy") {
     const o = await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock);
@@ -835,6 +843,26 @@ async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRe
   }
   if (cardUnresolved) return false;
   return (await cardOffer(supabase, customer, as, pendingCount, false)).offered;
+}
+
+/**
+ * Cash on delivery on a confirmed web order (switch target): the same rule as
+ * checkout (codNotOfferedReason) on what the courier would collect now —
+ * remaining_balance without any COD fee already on it. The SQL writer
+ * re-brackets and refuses the same way.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function codOffer(supabase: any, order: AnyRec, shipTo: AnyRec | null): Promise<{ offered: boolean; reason: string | null; fee_jpy: number | null }> {
+  const { data, error } = await supabase.from("system_settings").select("key, value").in("key", ["cod_mode", "cod_fee_table"]);
+  if (error) throw error;
+  const setting = (k: string) => ((data ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
+  const table = codFeeTable(setting("cod_fee_table"));
+  const collected = Number(order.remaining_balance ?? 0) - Number(order.cod_fee ?? 0);
+  const reason = codNotOfferedReason({
+    mode: "full", currency: String(order.currency ?? ""), country: (shipTo as AnyRec | null)?.country as string | null,
+    codMode: codModeFrom(setting("cod_mode")), collectedJpy: collected, table,
+  });
+  return { offered: reason === null, reason, fee_jpy: reason === null ? codFeeJpy(collected, table) : null };
 }
 
 /** Paidy refusals the customer can fix herself on the order page (P05). */
@@ -863,6 +891,10 @@ const SWITCH_ERROR_STATUS: Record<string, number> = {
   method_not_offered: 409,
   bad_method: 400,
   method_requires_yen: 400,
+  // Cash on delivery (2026-10-10).
+  method_unavailable: 409,
+  over_cod_limit: 409,
+  cod_nothing_to_collect: 409,
 };
 
 const LAYAWAY_FIELDS =
@@ -932,22 +964,11 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   paymentMethod: unknown; points: unknown;
 }) {
   const { data: settings, error: setErr } = await supabase.from("system_settings").select("key, value")
-    .in("key", ["paidy_mode", "square_mode", "loyalty_enabled", "square_audience", "square_card_customer_ids"]);
+    .in("key", ["paidy_mode", "square_mode", "loyalty_enabled", "square_audience", "square_card_customer_ids", "cod_mode", "cod_fee_table"]);
   if (setErr) throw setErr;
   const setting = (k: string) => ((settings ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
   const loyaltyRaw = setting("loyalty_enabled");
   const loyaltyEnabled = loyaltyRaw === true || loyaltyRaw === "true";
-  const options = checkoutMethodOptions({
-    mode: q.mode, currency: q.currency, country: q.country,
-    paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
-    customerIsTest: customer.is_test === true,
-    squareAllowed: squareCardAllowed({
-      mode: squareModeFrom(setting("square_mode")), audience: squareAudienceFrom(setting("square_audience")),
-      listed: squareCardCustomerIds(setting("square_card_customer_ids")),
-      customerId: customer.id == null ? null : String(customer.id), customerIsTest: customer.is_test === true,
-    }),
-    transferAvailable: await transferAvailable(supabase, q.currency),
-  });
 
   const { data: member, error: memErr } = await supabase.from("loyalty_members")
     .select("id, remaining_points").eq("customer_id", customer.id).maybeSingle();
@@ -968,10 +989,31 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   const chosen = Number.isSafeInteger(chosenRaw) && chosenRaw > 0 && chosenRaw <= max ? chosenRaw : 0;
   const chosenValue = pointsValue(chosen, q.currency, q.fxRate);
   const method = q.paymentMethod == null || q.paymentMethod === "" ? null : publicMethod(q.paymentMethod);
+  // Cash on delivery (owner plan 2026-10-10): the courier collects the pieces
+  // after points + shipping (yen, full payment only); the fee is bracketed on
+  // that amount and is never paid by points.
+  const codTable = codFeeTable(setting("cod_fee_table"));
+  const codCollected = q.mode === "full" && q.currency === "JPY" ? q.totalSettle - chosenValue : 0;
+  const options = checkoutMethodOptions({
+    mode: q.mode, currency: q.currency, country: q.country,
+    paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
+    customerIsTest: customer.is_test === true,
+    squareAllowed: squareCardAllowed({
+      mode: squareModeFrom(setting("square_mode")), audience: squareAudienceFrom(setting("square_audience")),
+      listed: squareCardCustomerIds(setting("square_card_customer_ids")),
+      customerId: customer.id == null ? null : String(customer.id), customerIsTest: customer.is_test === true,
+    }),
+    transferAvailable: await transferAvailable(supabase, q.currency),
+    codMode: codModeFrom(setting("cod_mode")), codTable, codCollectedJpy: codCollected,
+  });
+  const codFee = method === "cod" && options.cod.available ? Number(options.cod.fee_jpy ?? 0) : 0;
   return {
     // Plan A.1: one entry per method, in display order; `offered: false`
     // carries why (the storefront greys it out with that reason).
-    payment_options: CHECKOUT_METHODS.map((m) => ({ method: m, offered: options[m].available, reason: options[m].reason })),
+    // COD also carries fee_jpy: what choosing it adds (null when not offered).
+    payment_options: CHECKOUT_METHODS.map((m) => (m === "cod"
+      ? { method: m, offered: options[m].available, reason: options[m].reason, fee_jpy: options.cod.fee_jpy ?? null }
+      : { method: m, offered: options[m].available, reason: options[m].reason })),
     payment_method: method,
     points: {
       usable: reason === null && max > 0,
@@ -988,8 +1030,11 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
       applies_to: q.mode === "layaway" ? "deposit" : "pieces",
     },
     totals: {
-      total_after_points: q.totalSettle - chosenValue,
-      due_now_after_points: q.mode === "layaway" ? Math.max(0, Number(q.deposit ?? 0) - chosenValue) : q.totalSettle - chosenValue,
+      // Cash on delivery: the 代引手数料 when COD is the chosen method, else 0.
+      // Already included in the two figures below.
+      cod_fee: codFee,
+      total_after_points: q.totalSettle - chosenValue + codFee,
+      due_now_after_points: q.mode === "layaway" ? Math.max(0, Number(q.deposit ?? 0) - chosenValue) : q.totalSettle - chosenValue + codFee,
     },
   };
 }
@@ -1059,8 +1104,10 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
   if (!stored) return fail(400, { error: "bad_method" });
   const pointsIn = body.points === undefined || body.points === null ? Number(row.points ?? 0) : Number(body.points);
 
-  const before = await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: null, points: 0 });
-  const option = (before.payment_options as { method: CheckoutMethod; offered: boolean; reason: string | null }[])
+  // With the points she asks for: the COD limit is on what the courier collects
+  // (pieces after points + shipping). Points themselves are checked below.
+  const before = await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: null, points: pointsIn });
+  const option = (before.payment_options as { method: CheckoutMethod; offered: boolean; reason: string | null; fee_jpy?: number | null }[])
     .find((o) => o.method === publicMethod(stored))!;
   if (!option.offered) {
     return fail(409, { error: "method_unavailable", method: publicMethod(stored), reason: option.reason });
@@ -1069,8 +1116,9 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
   if (problem) {
     return fail(409, { error: problem, max_points: before.points.max_points, points_available: before.points.available });
   }
+  const codFeeJpyNow = stored === "cod" ? Number(option.fee_jpy ?? 0) : 0;
   const { error: upErr } = await supabase.from("checkout_quotes")
-    .update({ payment_method: stored, points: pointsIn })
+    .update({ payment_method: stored, points: pointsIn, cod_fee_jpy: codFeeJpyNow })
     .eq("id", quoteId).eq("customer_id", customer.id).is("consumed_at", null);
   if (upErr) throw upErr;
   return { block: await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: stored, points: pointsIn }) };
@@ -2746,6 +2794,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           payment_method: publicMethod(draft.payment_method),
           points: Number(draft.points ?? 0),
           points_value: Number(draft.points_value ?? 0),
+          // Cash on delivery: the fee, already in `total` (0 otherwise).
+          cod_fee: Number(draft.cod_fee ?? 0),
           provisional: true,
           awaiting_confirmation: true,
           reservation_mode: true,
@@ -3068,8 +3118,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // processing (answer not known yet) | held (authorised, awaiting
         // staff) | capturing | recording — or null. Never "paid" before it is.
         card_payment: cardPayment,
-        // C1: transfer | paidy | card — what she chose at checkout (or staff since).
+        // C1: transfer | paidy | card | cod — what she chose at checkout (or staff since).
         chosen_method: chosenMethod,
+        // Cash on delivery (2026-10-10): no pay box, no deadline — the courier
+        // collects collect_on_delivery (remaining_balance, the 代引手数料
+        // included) when the parcel arrives. null on any other method.
+        cod: isWebOrder && chosenMethod === "cod"
+          ? { fee: Number((order as AnyRec).cod_fee ?? 0), collect_on_delivery: Number((order as AnyRec).remaining_balance ?? 0) }
+          : null,
         // H6: { status: rejected | needs_clarification, method, amount,
         // decided_at, message } for her newest decided payment, or null (none,
         // or a confirmed one is newer). message = the reviewer's words to her.

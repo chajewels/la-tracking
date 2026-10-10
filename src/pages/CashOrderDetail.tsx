@@ -161,6 +161,8 @@ interface CashOrderRow {
   discount_type: string | null;
   discount_value: number | null;
   shipping_fee: number | null;
+  /** Cash on delivery fee (代引手数料), in total_amount; 0 unless payment_method = 'cod'. */
+  cod_fee?: number | null;
   // Shipment tracking (select('*') already fetches these; declaring them so
   // ShipmentTrackingCard receives typed props instead of casts).
   shipping_method_id: string | null;
@@ -1351,7 +1353,8 @@ export default function CashOrderDetail() {
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">
           {(() => {
             const hasLoyalty = order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0;
-            const showExpiry = !!order.expires_at || order.status === 'expired';
+            // Cash on delivery has no payment deadline: no Expires tile (owner plan 2026-10-10).
+            const showExpiry = (!!order.expires_at && webMethodOf(order.payment_method) !== 'cod') || order.status === 'expired';
             const tileCount = 3 + (hasLoyalty ? 1 : 0) + (showExpiry ? 1 : 0);
             const gridClass =
               tileCount === 5 ? 'grid-cols-2 sm:grid-cols-5'
@@ -1522,6 +1525,11 @@ export default function CashOrderDetail() {
                     </>
                   )}
                 </p>
+                {webMethodOf(order.payment_method) === 'cod' && (
+                  <p className="text-xs text-muted-foreground" data-testid="cash-order-cod-steps">
+                    Ship now. When the courier remits, record the FULL amount collected ({formatCurrency(Number(order.remaining_balance), currency)}, the {formatCurrency(Number(order.cod_fee ?? 0), currency)} cash on delivery fee included) with method Cash on Delivery and the remittance statement as proof. The courier's own charges stay outside the Hub.
+                  </p>
+                )}
                 {paidyWindow && !providerHold && (
                   <p className="rounded-md border border-amber-300/70 bg-amber-50/70 px-2 py-1 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200" data-testid="cash-order-paidy-window">
                     Paidy window open since {formatPHTDisplay(paidyWindow.started_at)}
@@ -1607,6 +1615,7 @@ export default function CashOrderDetail() {
             layaway={false}
             peso={String(order.currency) === 'PHP'}
             reference={cashOrderRef(order)}
+            codFee={Number(order.cod_fee ?? 0)}
             onChanged={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
           />
         )}
@@ -1722,16 +1731,25 @@ export default function CashOrderDetail() {
         {/* The transfer deadline. A field staff set and move while the order is
             live, never a computed rule — and it moves expires_at with it, so
             the date the customer sees is the date the hourly job acts on. */}
-        <DeadlinesCard
-          entityType="cash_order"
-          entityId={order.id}
-          status={order.status}
-          transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
-          reference={orderWebFields.web_reference ?? null}
-          sourceChannel={orderWebFields.source_channel ?? null}
-          awaitingConfirmation={awaitingReservation}
-          canEdit={can('edit_account')}
-        />
+        {orderWebFields.source_channel === 'web' && webMethodOf(order.payment_method) === 'cod' ? (
+          <div className="rounded-xl border border-border bg-card p-4 text-sm" data-testid="cash-order-cod-no-deadline">
+            <p className="font-medium text-card-foreground">Payment deadline: none — cash on delivery</p>
+            <p className="text-xs text-muted-foreground">
+              The order never lapses and no reminder is sent. If the parcel is refused, cancel the order (the stock returns).
+            </p>
+          </div>
+        ) : (
+          <DeadlinesCard
+            entityType="cash_order"
+            entityId={order.id}
+            status={order.status}
+            transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
+            reference={orderWebFields.web_reference ?? null}
+            sourceChannel={orderWebFields.source_channel ?? null}
+            awaitingConfirmation={awaitingReservation}
+            canEdit={can('edit_account')}
+          />
+        )}
 
         {/* Every storefront email about this web order, incl. the payment reminder. */}
         {orderWebFields.source_channel === 'web' && <OrderEmailHistory entityType="cash_order" entityId={order.id} />}
@@ -1801,7 +1819,7 @@ export default function CashOrderDetail() {
         {/* Financial Breakdown — recorded discount / shipping (order currency).
             Lists the recorded values + the authoritative total; no reconciliation
             equation is asserted. */}
-        {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0) && (
+        {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0 || Number(order.cod_fee || 0) > 0) && (
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-3">Financial Breakdown</h3>
             <div className="space-y-2 text-sm">
@@ -1817,6 +1835,12 @@ export default function CashOrderDetail() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Shipping fee</span>
                   <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(order.shipping_fee), currency)}</span>
+                </div>
+              )}
+              {Number(order.cod_fee || 0) > 0 && (
+                <div className="flex items-center justify-between" data-testid="cash-order-cod-fee">
+                  <span className="text-muted-foreground">Cash on delivery fee</span>
+                  <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(order.cod_fee), currency)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-border pt-2 font-semibold">

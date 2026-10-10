@@ -30,6 +30,7 @@ import { PaymentRemindersCard } from "@/components/settings/PaymentRemindersCard
 import { StaffBellEmailsCard } from "@/components/settings/StaffBellEmailsCard";
 import { PaidySettingsCard } from "@/components/settings/PaidySettingsCard";
 import { SquareSettingsCard } from "@/components/settings/SquareSettingsCard";
+import { CodSettingsCard } from "@/components/settings/CodSettingsCard";
 import { SquareOperationsPanel } from "@/components/website/SquareOperationsPanel";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
 
@@ -82,6 +83,7 @@ export const WEBSITE_SETTINGS_SECTIONS = {
   paymentReminders: "payment-reminders",
   paidy: "paidy",
   square: "square",
+  cod: "cash-on-delivery",
   shippingFees: "shipping-fees",
   siteSettings: "site-settings",
 } as const;
@@ -263,6 +265,14 @@ export default function Website() {
                       problems and the settlement report. Admin only, like the
                       settings above; decide_square_case is staff-checked. */}
                   <SquareOperationsPanel />
+                </section>
+              )}
+              {/* Admin only (cash on delivery, 2026-10-10, docs/COD.md): the
+                  代金引換 switch and fee table. set_cod_settings re-checks the
+                  role and audits every change. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.cod} className="scroll-mt-20">
+                  <CodSettingsCard />
                 </section>
               )}
               {/* Admin only (website-orders PR 2): the storefront shipping

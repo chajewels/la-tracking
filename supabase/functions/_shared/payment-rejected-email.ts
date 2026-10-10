@@ -41,10 +41,11 @@ export function deadlineHasPassed(transferDueAt: unknown, now: number = Date.now
   return Number.isFinite(t) && t <= now;
 }
 
-/** transfer | paidy | card, from the submission's own method. */
+/** transfer | paidy | card | cod, from the submission's own method (never "transfer" for a COD one). */
 export function notAcceptedMethod(paymentMethod: unknown): NotAcceptedMethod {
-  const m = String(paymentMethod ?? "").toLowerCase();
-  return m === "paidy" ? "paidy" : m === "square" || m === "card" ? "card" : "transfer";
+  const m = String(paymentMethod ?? "").trim().toLowerCase();
+  return m === "paidy" ? "paidy" : m === "square" || m === "card" ? "card"
+    : m === "cod" || m === "cash on delivery" || m === "cash-on-delivery" ? "cod" : "transfer";
 }
 
 export async function sendCashPaymentRejectedEmail(

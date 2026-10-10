@@ -152,7 +152,11 @@ Deno.serve(async (req) => {
       // (web_released_at) is never expired by the clock — part-paid, it waits
       // for the rest. expire_web_order_atomic refuses it too
       // ('part_paid_released'); this keeps such orders out of the quota.
-      .or("source_channel.is.null,source_channel.neq.web,web_released_at.is.null")
+      // Cash on delivery (owner plan 2026-10-10): a COD order has NO payment
+      // deadline — the courier collects on delivery — so it is never a
+      // candidate (terminate_web_order_atomic refuses it too, 'cod_no_deadline').
+      // One PostgREST `or` holding both groups, ANDed.
+      .or("and(or(source_channel.is.null,source_channel.neq.web,web_released_at.is.null),or(payment_method.is.null,payment_method.neq.cod))")
       .order("expires_at", { ascending: true })
       .limit(MAX_ORDERS_PER_RUN + frozenIds.size);
 

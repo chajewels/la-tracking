@@ -20,6 +20,7 @@ describe("W2-7", () => {
   });
 
   it("the expiry sweep leaves released web orders out of its candidates", () => {
-    expect(SWEEP).toContain('.or("source_channel.is.null,source_channel.neq.web,web_released_at.is.null")');
+    // COD (2026-10-10) ANDs a second group into the same `or`; the W2-7 group is unchanged.
+    expect(SWEEP).toContain('or(source_channel.is.null,source_channel.neq.web,web_released_at.is.null)');
   });
 });
