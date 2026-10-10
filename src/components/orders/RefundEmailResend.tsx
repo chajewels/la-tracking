@@ -77,7 +77,24 @@ export default function RefundEmailResend({ orderId }: { orderId: string }) {
     staleTime: 30_000,
   });
 
-  if (!isAdmin || !q.data || q.data.length === 0) return null;
+  if (!isAdmin) return null;
+  // L4 (Paidy QC 2026-10-10): a failed list is shown, never hidden — an empty
+  // card used to look exactly like "no refund emails on this order".
+  if (q.isError) {
+    return (
+      <Card data-testid="refund-email-resend">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Refund emails</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <p className="text-destructive" role="alert">
+            Could not load the refund emails for this order ({(q.error as Error)?.message ?? 'error'}). Reload the page to try again.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (!q.data || q.data.length === 0) return null;
 
   const submit = async () => {
     if (!target) return;

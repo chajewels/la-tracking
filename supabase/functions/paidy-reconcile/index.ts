@@ -218,6 +218,8 @@ Deno.serve(async (req) => {
                   payment, expectTest: mode === "test", path: "paidy_reconcile",
                 });
                 if (r.ok) report.refiled++;
+                // QC PR-B edge M1: "first payment wins" — filePaidyAuthorization
+                // released this later approval and rang its bell.
                 else if (r.error === "submission_pending") report.waiting++;
                 else if (r.error === "order_cannot_take_payment" || r.error === "paidy_payment_rejected_by_reviewer") {
                   // (card_payment_unresolved is released inside filePaidyAuthorization — M6.)
@@ -442,7 +444,9 @@ Deno.serve(async (req) => {
         // only says one is waiting.
         const pid = String(s.paidy?.paidy_payment_id ?? s.paidy_payment_id);
         await paidyBellOnce(supabase, "paidy_confirm_interrupted", "Paidy recording did not finish",
-          `A recording of ${pid} stopped before the payment was written. The next check retries it; "Finish recording" on its submission does the same now.`,
+          // QC PR-B edge L2 (2026-10-10): the sweep resumes it only when Paidy
+          // reports the capture; a payment Paidy ended needs a person.
+          `A recording of ${pid} stopped before the payment was written. If Paidy reports the capture, the next check finishes it. Otherwise open its submission in Payment Submissions and press "Finish recording": the Hub re-reads Paidy and records it, or ends it if Paidy ended the payment.`,
           { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: pid });
       } else {
         await paidyBellOnce(supabase, "cash_confirm_interrupted", "Payment Confirm did not finish",

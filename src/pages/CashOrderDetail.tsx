@@ -58,6 +58,8 @@ import { EndPaidyWindowDialog } from '@/components/web-orders/EndPaidyWindowDial
 import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkFurtherRefund, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
 import { COD_AMOUNT_LOCKED_MESSAGE, WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { callUntypedRpc } from '@/lib/untyped-rpc';
+import { paidyLockView } from '@/lib/paidy-staff-ui';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import { loyaltyHintJpy } from '@/lib/loyalty-hint';
@@ -352,6 +354,50 @@ function useCashOrderItems(orderId: string | undefined) {
  * nothing was paid. Staff could not see this before — the buttons simply
  * failed. Staff may SELECT the table (paidy_checkout_attempts_staff_select).
  */
+/**
+ * M3 (Paidy QC PR-B, 2026-10-10): the order's SERVER payment lock — the same
+ * answer cash_order_payment_lock gives the triggers (null | paidy_* |
+ * card_payment_unresolved | submission_pending), through the staff-callable
+ * wrapper. Not in the generated types yet, so it is called untyped. On error
+ * the page falls back to the submissions it already reads.
+ */
+function useStaffPaymentLock(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-order-payment-lock', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    retry: false,
+    queryFn: () => callUntypedRpc<string | null>('cash_order_payment_lock_for_staff', { p_cash_order_id: orderId }),
+  });
+}
+
+/**
+ * M3: a Paidy Confirm that stopped half-way — the submission is claimed
+ * ('confirmed') but no payment is linked. The server treats it as pending
+ * (docs/PAIDY.md "CLAIMED, NOT RECORDED" IS PENDING); so does this page.
+ * Read separately so the pending-submissions list below is unchanged.
+ */
+function useInterruptedPaidyConfirm(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-submissions', orderId, 'interrupted-paidy'],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_submissions')
+        .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, reference_number, proof_url, notes, reviewer_notes, customer_edited_at, submission_type, status, created_at')
+        .eq('cash_order_id', orderId!)
+        .eq('status', 'confirmed')
+        .is('confirmed_payment_id', null)
+        .ilike('payment_method', 'paidy')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return (((data || []) as unknown as SubmissionRow[])[0]) ?? null;
+    },
+  });
+}
+
 function useOpenPaidyWindow(orderId: string | undefined) {
   return useQuery({
     queryKey: ['paidy-open-window', orderId],
@@ -458,7 +504,14 @@ export default function CashOrderDetail() {
   const [methodOpen, setMethodOpen] = useState(false);
   const [endPaidyOpen, setEndPaidyOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
-  const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
+  const { data: interruptedPaidy } = useInterruptedPaidyConfirm(id);
+  // M3: a claimed-but-unrecorded Paidy Confirm is pending too.
+  const paidyPending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'paidy' && (s.status === 'submitted' || s.status === 'under_review')) ?? interruptedPaidy ?? null;
+  const paidyConfirmInterrupted = paidyPending?.status === 'confirmed';
+  // M3: the server's lock decides; on error, today's submission-based view.
+  const { data: serverLock, isSuccess: serverLockRead } = useStaffPaymentLock(id);
+  const paidyLock = serverLockRead ? paidyLockView(serverLock) : { paidyHold: false as const };
+  const paidyHold = !!paidyPending || paidyLock.paidyHold;
   // SQUARE (S1, 2026-10-04): a card hold awaiting Confirm (capture) / Reject (void).
   const squarePending = (submissions ?? []).find((s) => (s.payment_method ?? '').toLowerCase() === 'square' && (s.status === 'submitted' || s.status === 'under_review')) ?? null;
   // While Paidy or a card hold waits for Confirm / Reject, nothing else can be
@@ -467,7 +520,7 @@ export default function CashOrderDetail() {
   // Paidy money too since H10, paidy_payment_unresolved — cancel-cash-order
   // answers "Reject or record the Paidy payment first"). The page points staff to Payments instead of
   // offering buttons the server would refuse (2026-10-04).
-  const providerHold = paidyPending ?? squarePending;
+  const providerHold = paidyHold || !!squarePending;
   const { data: paidyWindow } = useOpenPaidyWindow(id);
   const { data: orderItems } = useCashOrderItems(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
@@ -503,6 +556,7 @@ export default function CashOrderDetail() {
       ['cash-order', id],
       ['cash-payments', id],
       ['cash-submissions', id],
+      ['cash-order-payment-lock', id],
       ['cash-order-notes', id],
     ],
     30_000,
@@ -1532,7 +1586,9 @@ export default function CashOrderDetail() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm font-medium">
-                  {paidyPending ? 'Paidy authorised — awaiting your Confirm' : squarePending ? 'Card authorised (Square) — awaiting your Confirm' : `Awaiting payment — ${WEB_METHOD_LABEL[webMethodOf(order.payment_method)]}`}
+                  {paidyLock.paidyHold && paidyLock.kind === 'captured_unrecorded' ? 'Paidy took this payment — not recorded in the Hub yet'
+                    : paidyLock.paidyHold && paidyLock.kind === 'authorized' && !paidyPending ? 'Paidy approval held — no submission yet'
+                    : paidyHold ? 'Paidy authorised — awaiting your Confirm' : squarePending ? 'Card authorised (Square) — awaiting your Confirm' : `Awaiting payment — ${WEB_METHOD_LABEL[webMethodOf(order.payment_method)]}`}
                 </p>
                 {/* C1 (2026-10-05): the method the customer chose at checkout.
                     She sees only this one; staff change it with a reason. */}
@@ -1581,7 +1637,15 @@ export default function CashOrderDetail() {
                 {paidyPending && (
                   <p className="text-xs text-sky-800 dark:text-sky-200">
                     あと払い（ペイディ） ref <span className="font-mono">{paidyPending.reference_number ?? '—'}</span> · ¥{Number(paidyPending.submitted_amount).toLocaleString('en-US')} ·
-                    filed {formatPHTDisplay(paidyPending.created_at)} · capture it in the Paidy dashboard (the Hub records it); Reject in Payments Hub releases it
+                    filed {formatPHTDisplay(paidyPending.created_at)} · {paidyConfirmInterrupted
+                      ? 'a Confirm started but has not finished — open Payments Hub, Finish recording'
+                      : 'capture it in the Paidy dashboard (the Hub records it); Reject in Payments Hub releases it'}
+                  </p>
+                )}
+                {/* M3: what the SERVER lock says when the submissions above do not explain it. */}
+                {paidyLock.paidyHold && !(paidyPending && paidyLock.kind === 'submission_pending') && (
+                  <p className="text-xs text-sky-800 dark:text-sky-200" data-testid="cash-order-paidy-lock">
+                    {paidyLock.line}
                   </p>
                 )}
                 {squarePending && (
@@ -1594,7 +1658,7 @@ export default function CashOrderDetail() {
                   providerHold ? (
                     <p className="text-xs text-muted-foreground">
                       Past the deadline above — the hourly job leaves this order alone
-                      while the {paidyPending ? 'Paidy' : 'card'} payment waits for Confirm or Reject.
+                      until the {paidyHold ? 'Paidy' : 'card'} payment is settled.
                     </p>
                   ) : (
                     <p className="text-xs text-destructive">
@@ -1691,8 +1755,8 @@ export default function CashOrderDetail() {
           )}
           {providerHold && (canRecordPayment || canCancel) && (
             <p className="order-last basis-full text-xs text-muted-foreground">
-              {paidyPending ? 'A Paidy payment' : 'A card hold'} is waiting for Confirm or Reject in Payments.
-              Until then no other payment, store credit or loyalty discount can be added{squarePending ? ', and the order cannot be cancelled (Reject voids the hold first)' : ''}{paidyPending ? '. Cancelling the order closes the Paidy authorisation first (refused if Paidy has already taken the money)' : ''}.
+              {paidyHold ? 'A Paidy payment' : 'A card hold'} is waiting to be settled in Payments.
+              Until then no other payment, store credit or loyalty discount can be added{squarePending ? ', and the order cannot be cancelled (Reject voids the hold first)' : ''}{paidyHold ? (isWebOrder(order) ? '. Cancelling the order closes the Paidy authorisation first (refused if Paidy has already taken the money)' : ', and the order cannot be cancelled until the Paidy payment is rejected or recorded') : ''}.
             </p>
           )}
           {isAdmin && !isWebOrder(order) && !isPaidOrCompleted && (

@@ -47,6 +47,9 @@ export const STAFF_BELL_EMAIL_CHOICES: { type: string; label: string }[] = [
   // L2 (2026-10-09): a dispute Square sent that the Hub could not read as yen.
   { type: "card_dispute_unrecorded", label: "A Square dispute the Hub could not record" },
   { type: "card_dispute_amount_unreadable", label: "A card dispute recorded without its amount (whole payment counted)" },
+  // Paidy (2026-10-10)
+  { type: "paidy_payment_recorded", label: "Paidy payment recorded — order completed (ready to ship)" },
+  { type: "paidy_window_stuck", label: "Paidy approval waiting more than 3 hours (check the Paidy dashboard)" },
 ];
 
 /** One per line or comma; lower-cased; blanks dropped. */
