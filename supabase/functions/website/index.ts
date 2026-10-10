@@ -20,7 +20,7 @@ import {
 import {
   isPaidyPublicKey, paidyAddressLines, paidyBillingChoice, paidyBuyerHistory, paidyCheckoutBreakdown,
   paidyCheckoutPayload, paidyCustomerRecordAddress, paidyDob, paidyHistoryFromLayaway, paidyJapaneseMobile,
-  paidyBuyerName, paidyModeFrom, paidyNameField, paidyNoteDecision, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
+  paidyAuthorizationNote, paidyBuyerName, paidyModeFrom, paidyNameField, paidyNoteDecision, paidyNotOfferedReason, paidyPointsBeforeOrder, paidyRequirements,
 } from "../_shared/paidy-rules.ts";
 import { PaidyError, isPaidyPaymentId, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { type SquareEnvironment, agreementBindingProblem, agreementRequired, canonicalYen, cardIdempotencyKey, cardNotOfferedReason, cardVerificationEvidence, newAttemptReference, squareAudienceFrom, squareCardAllowed, squareCardCustomerIds, squareModeFrom, termsTimeProblem } from "../_shared/card-rules.ts";
@@ -3361,6 +3361,28 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         if (liveErr) throw liveErr;
         if (live) return jsonResponse(scrub({ ok: true, submission: live }));
         // A record with no live submission falls through: the writer recovers it.
+      }
+
+      // Second-hold fix (owner go 2026-10-10): Paidy approved this payment.
+      // Before anything below can refuse or fail, write its id onto her open
+      // Paidy window, so the window is never replaced by a new one (a second
+      // hold on her Paidy limit) until the hourly sweep files the payment or
+      // finds Paidy holds nothing. Read back from Paidy first: only a payment
+      // Paidy reports AUTHORIZED for THIS order is noted — or Paidy unreachable
+      // (fail closed). A made-up id is never noted.
+      if (!known) {
+        let authRead: Parameters<typeof paidyAuthorizationNote>[0];
+        try {
+          authRead = { payment: await paidy.get(paidyPaymentId) };
+        } catch (e) {
+          authRead = e instanceof PaidyError && e.status === 404 ? { notFound: true } : { error: true };
+        }
+        if (paidyAuthorizationNote(authRead, { id: String(order.id), ref: customerReference(order as AnyRec) })) {
+          const { error: noteErr } = await supabase.rpc("note_paidy_window_authorization", {
+            p_cash_order_id: order.id, p_customer_id: customer.id, p_paidy_payment_id: paidyPaymentId,
+          });
+          if (noteErr) throw noteErr;
+        }
       }
 
       // Anything else holding the order (another payment waiting, another

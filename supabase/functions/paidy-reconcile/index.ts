@@ -298,7 +298,17 @@ Deno.serve(async (req) => {
         const pid = String(w.paidy_payment_id);
         const { data: row, error: rowErr } = await supabase.from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("paidy_payment_id", pid).maybeSingle();
         if (rowErr) throw rowErr;
-        if (row) continue; // the record exists: its own sync (steps 2–3) decides; the lock reads the row
+        // The record exists: its own sync (steps 2–3) decides; the lock reads
+        // the row. Second-hold fix (2026-10-10): once that record shows Paidy
+        // ended the payment (closed / rejected / expired — nothing held), the
+        // window is verified empty too, so it can expire and she can pay again.
+        if (row) {
+          if (["closed", "rejected", "expired"].includes(String((row as Record<string, any>).status))) {
+            const { error } = await supabase.from("paidy_checkout_attempts").update({ verified_empty_at: nowIso() }).eq("id", w.id).eq("status", "open");
+            if (error) report.write_errors++; else report.windows_verified++;
+          }
+          continue;
+        }
         let live: PaidyPayment;
         try {
           live = await paidy.get(pid);

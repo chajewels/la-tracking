@@ -740,3 +740,31 @@ blockers; its four should-fix items are in this release (M1 order, L7 reverted, 
 - **L10** — `paidy_mode()` is service_role only.
 Guards: `development/paidy-qc-pr-a.test.ts` (CI), `development/paidy-sync.test.ts` (M4 model),
 `src/test/paidy-rules.test.ts` (L2).
+
+## Second-hold fix (owner go 2026-10-10; migration 20261204100000)
+
+- **Gap:** Paidy approved a payment (AUTHORIZED) but the Hub's filing did not
+  finish (dropped connection, timeout, or a refusal such as paidy_not_offered).
+  Nothing named that payment, so pressing Paidy again replaced her open window
+  (`start_paidy_checkout_attempt`) and Paidy could take a SECOND hold on her
+  limit. Only her browser waited, 30 minutes.
+- **Fix:** the website's filing step (`POST /orders/:id/paidy`) first reads the
+  payment back from Paidy and, when Paidy reports it AUTHORIZED for this order
+  (or Paidy is unreachable — fail closed), writes it onto her open window with
+  `note_paidy_window_authorization` (service_role only;
+  `paidy_checkout_attempts.authorization_noted_at`) BEFORE any refusal or the
+  filing itself. `start_paidy_checkout_attempt` never replaces a window with
+  `authorization_noted_at` set and `verified_empty_at` null: the lock
+  `paidy_checkout_open` refuses (payment_in_progress). The window ends when the
+  filing succeeds ('filed'), or when the hourly sweep reads Paidy back — an
+  approval still held is adopted (filed or released), a payment Paidy ended is
+  verified empty. The sweep now also verifies a window whose Paidy RECORD
+  already shows closed / rejected / expired (it used to skip any window with a
+  record, so a released one could hold the order indefinitely).
+- A window she closed herself, or that Paidy declined, is still replaced at
+  once, as before. Staff keep "End Paidy window" as the exit.
+- Storefront: `PAIDY_HOLD_MAX_MS` 90 minutes (the hourly sweep plus its margin).
+- Proof: scratch replay (Paidy bodies byte-identical to live) — window kept and
+  second start refused; closed window replaced at once; timed-out-unverified
+  window stays, verified window reopens; filing ends the noted window; note
+  guards; grants. CI: development/paidy-second-hold.test.ts.

@@ -585,6 +585,24 @@ export function paidyNoteDecision(
   return byRef || byMeta ? "note" : "other_order";
 }
 
+/**
+ * Second-hold fix (owner go 2026-10-10): may the website's FILING step note
+ * this payment on her open window before it files? Only a payment Paidy itself
+ * reports AUTHORIZED for THIS order — or Paidy unreachable (fail closed, the
+ * sweep verifies it). A noted approval keeps the window from being replaced
+ * (start_paidy_checkout_attempt), so a second Paidy hold cannot be placed
+ * until the sweep files the payment or finds Paidy holds nothing.
+ */
+export function paidyAuthorizationNote(
+  read: { payment: { status?: unknown; order?: { order_ref?: unknown } | null; metadata?: { cash_order_id?: unknown } | null } } | { notFound: true } | { error: true },
+  order: { id: string; ref: string },
+): boolean {
+  const d = paidyNoteDecision(read, order);
+  if (d === "note_unverified") return true;
+  if (d !== "note" || !("payment" in read)) return false;
+  return normalizePaidyStatus(read.payment.status) === "AUTHORIZED";
+}
+
 /** R14: exact whole yen on both sides, equal — never a rounded comparison. */
 export function paidyAmountMatches(paidyAmount: unknown, remainingBalance: unknown): boolean {
   const a = paidyYen(paidyAmount), b = paidyYen(remainingBalance);
