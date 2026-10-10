@@ -725,6 +725,22 @@ CREATE TRIGGER trg_guard_cod_order_amount
 BEFORE UPDATE OF total_amount, shipping_fee, discount_amount, cod_fee ON public.cash_orders
 FOR EACH ROW EXECUTE FUNCTION public.guard_cod_order_amount();
 
+-- 5i. Explicit ACLs for every body the patches recreate (re-review N1): service role only, as live.
+REVOKE ALL ON FUNCTION public.create_web_draft_atomic(uuid, uuid, text, text, timestamptz) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_web_draft_atomic(uuid, uuid, text, text, timestamptz) TO service_role;
+REVOKE ALL ON FUNCTION public.materialize_web_draft_atomic(uuid, uuid, jsonb, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.materialize_web_draft_atomic(uuid, uuid, jsonb, jsonb, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.change_web_payment_method_atomic(text, uuid, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.change_web_payment_method_atomic(text, uuid, text, text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.switch_web_payment_method_by_customer_atomic(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.switch_web_payment_method_by_customer_atomic(uuid, uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.terminate_web_order_atomic(uuid, text, text, uuid, text, text, text, text, boolean) TO service_role;
+REVOKE ALL ON FUNCTION public.web_payment_reminder_eligible(text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.web_payment_reminder_eligible(text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.set_account_deadlines(text, uuid, timestamptz, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_account_deadlines(text, uuid, timestamptz, text, uuid) TO service_role;
+
 -- ---------------------------------------------------------------------------
 -- 6. Self-check (grants included). Anything unexpected rolls the whole migration back.
 -- ---------------------------------------------------------------------------
