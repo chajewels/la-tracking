@@ -458,6 +458,7 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by_user_id: string | null
           cash_receipt_sheet_id: string | null
+          cod_fee: number
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -524,6 +525,7 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
           cash_receipt_sheet_id?: string | null
+          cod_fee?: number
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -590,6 +592,7 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
           cash_receipt_sheet_id?: string | null
+          cod_fee?: number
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -746,6 +749,7 @@ export type Database = {
       }
       checkout_quotes: {
         Row: {
+          cod_fee_jpy: number
           consumed_at: string | null
           created_at: string
           customer_id: string
@@ -772,6 +776,7 @@ export type Database = {
           total_jpy: number
         }
         Insert: {
+          cod_fee_jpy?: number
           consumed_at?: string | null
           created_at?: string
           customer_id: string
@@ -798,6 +803,7 @@ export type Database = {
           total_jpy: number
         }
         Update: {
+          cod_fee_jpy?: number
           consumed_at?: string | null
           created_at?: string
           customer_id?: string
@@ -7979,6 +7985,8 @@ export type Database = {
           agreement_signed_at: string | null
           agreement_version: string | null
           cash_order_id: string | null
+          cod_fee: number
+          cod_fee_jpy: number
           country: string | null
           created_at: string
           customer_id: string
@@ -8022,6 +8030,8 @@ export type Database = {
           agreement_signed_at?: string | null
           agreement_version?: string | null
           cash_order_id?: string | null
+          cod_fee?: number
+          cod_fee_jpy?: number
           country?: string | null
           created_at?: string
           customer_id: string
@@ -8065,6 +8075,8 @@ export type Database = {
           agreement_signed_at?: string | null
           agreement_version?: string | null
           cash_order_id?: string | null
+          cod_fee?: number
+          cod_fee_jpy?: number
           country?: string | null
           created_at?: string
           customer_id?: string
@@ -9537,6 +9549,10 @@ export type Database = {
         Args: { p_attempt_id: string; p_note: string }
         Returns: Json
       }
+      cod_fee_jpy: { Args: { p_collected: number }; Returns: number }
+      cod_fee_table_valid: { Args: { p_table: Json }; Returns: boolean }
+      cod_limit_jpy: { Args: never; Returns: number }
+      cod_mode: { Args: never; Returns: string }
       confirm_loyalty_award_claim: {
         Args: {
           p_source_id: string
@@ -9963,6 +9979,7 @@ export type Database = {
           order_count: number
         }[]
       }
+      get_cod_settings: { Args: never; Returns: Json }
       get_collection_analytics: {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
@@ -10871,6 +10888,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_cod_settings: {
+        Args: { p_expected_mode?: string; p_fee_table?: Json; p_mode: string }
+        Returns: Json
+      }
       set_hero_cutout_mode: {
         Args: { p_expected_mode?: string; p_mode: string }
         Returns: Json
@@ -10956,6 +10977,10 @@ export type Database = {
       }
       square_mode: { Args: never; Returns: string }
       square_ops_health: { Args: never; Returns: Json }
+      square_order_card_refund_recordable_jpy: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       square_order_disputed_jpy: {
         Args: { p_order_id: string }
         Returns: number
@@ -11070,6 +11095,7 @@ export type Database = {
         Args: { p_limit: number; p_now: string }
         Returns: string[]
       }
+      web_order_refund_parts: { Args: { p_order_id: string }; Returns: Json }
       web_payment_reminder_address_allowed: {
         Args: { p_email: string }
         Returns: boolean
