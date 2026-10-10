@@ -20,7 +20,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderEmail } from '../supabase/functions/_shared/render-email.ts'
 import {
   DEFAULT_COD_FEE_TABLE, codFeeJpy, codFeeTable, codFeeTableValid, codLimitJpy, codModeFrom,
-  codNotOfferedReason, customerFilingRefusal,
+  codAmountRefusal, codNotOfferedReason, customerFilingRefusal, isCodMethod,
 } from '../supabase/functions/_shared/cod-fee.ts'
 import { CHECKOUT_METHODS, checkoutMethodOptions, publicMethod, storedMethod } from '../supabase/functions/_shared/checkout-choice.ts'
 import { CUSTOMER_METHODS, canCustomerSwitch } from '../supabase/functions/_shared/method-switch-rules.ts'
@@ -224,4 +224,29 @@ for (const lang of ['ja', 'en'] as const) {
 Deno.test('regression: a transfer confirmation still has its deadline and no COD row', async () => {
   const t = await render(OrderConfirmationEmail, { lang: 'en', ...base, methods: [], transferDueAt: '2026-10-12T00:00:00Z', region: 'JP', variant: 'ready', chosenMethod: 'transfer' })
   assert(t.includes('Transfer by:') && !t.includes('Cash on delivery fee'), t)
+})
+
+// ------------------------------------------- F2: COD is recorded in full only
+Deno.test('F2 (owner 2026-10-10): a COD payment must equal the remaining balance; other methods keep partials', () => {
+  // ¥20,000 pieces + free JP shipping + ¥1,150 fee = ¥21,150 owed
+  eq(codAmountRefusal('cod', 21150, 21150), null, 'full amount accepted')
+  eq(codAmountRefusal('cod', 21149, 21150), 'cod_full_amount_only', 'one yen short refused')
+  eq(codAmountRefusal('Cash on Delivery', 10000, 21150), 'cod_full_amount_only', 'staff label spelling refused too')
+  eq(codAmountRefusal('cod', 11150, 11150), null, 'partly paid order: exactly what remains is accepted')
+  eq(codAmountRefusal('cod', 11000, 11150), 'cod_full_amount_only', 'partly paid order: less than what remains refused')
+  eq(codAmountRefusal('bank_transfer', 5000, 21150), null, 'regression: non-COD partial still allowed')
+  for (const m of ['cod', 'COD', 'Cash on Delivery', 'cash-on-delivery', '代金引換', '代引']) assert(isCodMethod(m), `isCodMethod(${m})`)
+  assert(!isCodMethod('bank_transfer') && !isCodMethod('') && !isCodMethod(null), 'non-COD methods')
+})
+
+Deno.test('F2 wiring: submit-cash-payment refuses before the insert; the Hub dialog fixes the amount for COD', () => {
+  const src = read('supabase/functions/submit-cash-payment/index.ts')
+  const call = src.indexOf('codAmountRefusal(payment_method, submittedNum, remaining)')
+  assert(call > 0, 'submit-cash-payment calls codAmountRefusal with the remaining balance')
+  assert(call < src.indexOf('.from("payment_submissions")\n      .insert(insertRow)'), 'refused before the insert')
+  assert(!/if \(pathACustomerId\)[^\n]*\n[^\n]*codAmountRefusal/.test(src), 'not limited to the customer path: staff are checked too')
+  const ui = read('src/components/customers/RecordCashPaymentDialog.tsx')
+  assert(/const isCod = normalizeMethod\(paymentMethod\) === 'cod';/.test(ui), 'dialog detects COD')
+  assert(/isCod \? \(/.test(ui), 'partial toggle replaced for COD')
+  assert(/codAmountMismatch/.test(ui) && /!codAmountMismatch/.test(ui), 'dialog blocks a COD amount other than the remaining balance')
 })

@@ -84,10 +84,23 @@ export default function RecordCashPaymentDialog({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, customerName, remaining]);
 
+  // Cash on delivery is recorded in FULL (owner 2026-10-10, QA F2): the courier
+  // remits the whole amount collected, so there is no partial option and the
+  // amount is fixed to the remaining balance. submit-cash-payment refuses any
+  // other amount (cod_full_amount_only). Other methods keep partial payments.
+  const isCod = normalizeMethod(paymentMethod) === 'cod';
+  useEffect(() => {
+    if (isCod) {
+      setIsPartial(false);
+      setAmountInput(String(Math.round(remaining * 100) / 100));
+    }
+  }, [isCod, remaining]);
+
   const amount = Number(amountInput) || 0;
   const isAmountPositive = amount > 0;
   const exceedsRemaining = amount > remaining + 0.005;
-  const isAmountValid = isAmountPositive && !exceedsRemaining;
+  const codAmountMismatch = isCod && Math.abs(amount - remaining) > 0.005;
+  const isAmountValid = isAmountPositive && !exceedsRemaining && !codAmountMismatch;
 
   const today = todayISODate();
   const dateIsFuture = paymentDate > today;
@@ -292,18 +305,24 @@ export default function RecordCashPaymentDialog({
                 <span className="text-destructive">Amount must be greater than zero</span>
               )}
             </div>
-            {/* Partial-payment toggle */}
-            <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isPartial}
-                onChange={(e) => handleTogglePartial(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-border accent-primary"
-              />
-              <span className="text-[11px] text-card-foreground">
-                Make partial payment
-              </span>
-            </label>
+            {/* Partial-payment toggle — not offered for cash on delivery */}
+            {isCod ? (
+              <p className="pt-1 text-[11px] text-muted-foreground">
+                Cash on delivery is recorded in full: the whole amount the courier collected.
+              </p>
+            ) : (
+              <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isPartial}
+                  onChange={(e) => handleTogglePartial(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-border accent-primary"
+                />
+                <span className="text-[11px] text-card-foreground">
+                  Make partial payment
+                </span>
+              </label>
+            )}
           </div>
 
           {/* Payment Method */}

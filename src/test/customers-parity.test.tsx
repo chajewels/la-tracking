@@ -302,7 +302,7 @@ describe(`at ${width}px`, () => {
         // The toolbar's split button (unchanged) mounts RecordPaymentModal, which reads accounts.
         { target: "layaway_accounts", payload: "*, customers(full_name, messenger_link)", filters: [] },
         { target: "layaway_accounts", payload: "id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, order_date, created_at, updated_at, created_by_user_id, is_test", filters: [] },
-        { target: "loyalty_members", payload: "customer_id, current_tier:current_tier_id(name)", filters: [] },
+        { target: "loyalty_members", payload: "customer_id, current_tier:loyalty_tiers!current_tier_id(name)", filters: [] },
       ]);
 
       fireEvent.change(screen.getByPlaceholderText("Search customers..."), { target: { value: "reyes" } });

@@ -108,8 +108,25 @@ export function codNotOfferedReason(i: CodOfferInput): string | null {
  * an order she is paying on delivery. null = she may; otherwise the refusal code.
  */
 export function customerFilingRefusal(submittedMethod: unknown, orderMethod: unknown): string | null {
-  const m = String(submittedMethod ?? "").trim().toLowerCase().replace(/[\s-]+/g, " ");
-  if (m === "cod" || m === "cash on delivery" || m === "代金引換" || m === "代引") return "cod_staff_only";
+  if (isCodMethod(submittedMethod)) return "cod_staff_only";
   if (String(orderMethod ?? "").trim().toLowerCase() === "cod") return "cod_paid_on_delivery";
   return null;
+}
+
+/** A payment method that means cash on delivery, in any of the spellings staff or the registry use. */
+export function isCodMethod(method: unknown): boolean {
+  const m = String(method ?? "").trim().toLowerCase().replace(/[\s-]+/g, " ");
+  return m === "cod" || m === "cash on delivery" || m === "代金引換" || m === "代引";
+}
+
+/**
+ * Owner decision 2026-10-10 (QA reassessment F2): the courier remits the FULL
+ * amount collected, so a cash-on-delivery payment is recorded only as the
+ * order's whole remaining balance — never part of it. A partly paid order
+ * accepts exactly what remains. Other methods keep partial payments.
+ * null = allowed; otherwise "cod_full_amount_only".
+ */
+export function codAmountRefusal(submittedMethod: unknown, submittedAmount: number, remainingBalance: number): string | null {
+  if (!isCodMethod(submittedMethod)) return null;
+  return Math.abs(Number(submittedAmount) - Number(remainingBalance)) > 0.005 ? "cod_full_amount_only" : null;
 }
