@@ -200,10 +200,10 @@ Reference docs (read the relevant one when a task touches that area):
     role) is the ONLY writer of paidy_refunds — order lock first, idempotent by
     refund id, monotonic refund_jpy, bell paidy_refund_after_credit when the
     order already holds a cancellation lot; "refund issued" on a Paidy-paid web
-    order needs verified refunds (paidy_refund_needs_dashboard /
-    no_verified_paidy_refund) and records the verified total, never the gross.
-    An orphan Paidy capture case is never closed by a note (PA01,
-    orphan_capture_unsettled). docs/PAIDY.md "Reassessment PA01–PA15".
+    order needs verified refunds COVERING the Paidy money (paidy_refund_incomplete)
+    and records the verified total, never the gross. An orphan capture case is
+    never closed by a note (PA01); an ADMIN records it from Paidy's read-back
+    (record_orphan_capture). docs/PAIDY.md "PA01–PA15", "QC PR-B".
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 
@@ -1491,7 +1491,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     ONCE (switch_web_payment_method_by_customer_atomic), never while locked.
   - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
     on that order, any route (trigger); fallback = staff Reject. Paidy rows
-    are immutable, never restored; exceptions go to paidy_cases.
+    are immutable, never restored; exceptions go to paidy_cases. First payment
+    wins: a later Paidy approval is released, never queued (QC PR-B).
   - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
     PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
     EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)

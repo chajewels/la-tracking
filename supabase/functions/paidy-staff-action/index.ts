@@ -16,6 +16,15 @@
 //   release helper: only Paidy's own answer counts). resolve_paidy_case then
 //   refuses end_submission until the row is no longer authorised.
 //
+// POST { action: "record_orphan_capture", case_id, reason }
+//   QC PR-B DB M-3 (owner 2026-10-10, recommended A): Paidy took money the Hub
+//   never filed (an orphan capture case). ADMIN ONLY. Paidy is read first
+//   (nothing is ever sent to Paidy here); paidyOrphanCaptureProblem checks the
+//   read-back; adopt_paidy_orphan_capture_atomic writes the Hub's receipt and
+//   queues it; the ONE recording path (paidy_auto Confirm →
+//   finalize_cash_submission_atomic) then records it. Paidy unreachable →
+//   nothing changes.
+//
 // Person only (no service-role path): the audit row names who did it.
 // Permission confirm_payment (the same people who resolve Paidy cases).
 
@@ -24,7 +33,9 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "../_shared/paidy.ts";
 import { adoptOrphanAuthorization, orderForPaidyRef, paidyReleased, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
-import { paidyCapturedAmount, paidyProviderOutcome } from "../_shared/paidy-rules.ts";
+import { paidyCapturedAmount, paidyLatestCapture, paidyOrphanCaptureProblem, paidyProviderOutcome, paidyYen } from "../_shared/paidy-rules.ts";
+import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
+import { customerReference } from "../_shared/order-reference.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,6 +43,32 @@ const STATUS: Record<string, number> = {
   forbidden: 403, reason_required: 400, not_found: 404, window_still_open: 409,
   user_identity_required: 401, paidy_unavailable: 502, paidy_holds_authorization: 409,
   not_authorized: 409, release_not_confirmed: 502, captured: 409, window_changed: 409,
+  forbidden_admin_only: 403, case_not_found: 404, case_not_open: 409, case_not_orphan: 409,
+  order_missing: 409, order_cannot_take_payment: 409, amount_differs_from_balance: 409,
+  order_part_paid: 409, not_yen: 409, paidy_not_captured: 409, paidy_refunded: 409,
+  paidy_capture_mismatch: 409, paidy_order_mismatch: 409, paidy_environment_mismatch: 409,
+  payment_in_progress: 409, already_recorded: 409, bad_amount: 409,
+};
+
+const ORPHAN_MESSAGES: Record<string, string> = {
+  forbidden_admin_only: "Only an admin can record a Paidy payment from a case.",
+  reason_required: "Write a reason of at least 10 characters.",
+  case_not_found: "This Paidy case was not found.",
+  case_not_open: "This Paidy case is already resolved.",
+  case_not_orphan: "This case already has a Hub record of the payment — use the case's own actions.",
+  order_missing: "Paidy's payment does not name a Hub order this case knows. Check the Paidy dashboard.",
+  order_cannot_take_payment: "The order can no longer take a payment (it is not pending). Refund it in the Paidy dashboard instead.",
+  amount_differs_from_balance: "Paidy's amount is not the order's balance. Nothing was recorded.",
+  order_part_paid: "Something is already paid on this order. Nothing was recorded.",
+  not_yen: "The order is not in yen. Nothing was recorded.",
+  paidy_not_captured: "Paidy does not report this payment as captured. Nothing was recorded.",
+  paidy_refunded: "Paidy reports a refund on this payment. Nothing was recorded.",
+  paidy_capture_mismatch: "Paidy's capture does not equal the whole payment in yen. Nothing was recorded.",
+  paidy_order_mismatch: "Paidy's payment names a different order. Nothing was recorded.",
+  paidy_environment_mismatch: "Test and live do not match (Paidy mode or a test customer). Nothing was recorded.",
+  payment_in_progress: "Another payment is waiting on this order. Decide that one first.",
+  already_recorded: "The Hub already has a record of this Paidy payment.",
+  bad_amount: "Paidy's amount could not be read as whole yen. Nothing was recorded.",
 };
 
 Deno.serve(async (req) => {
@@ -154,6 +191,61 @@ Deno.serve(async (req) => {
         return fail("release_not_confirmed", { release, message: "Paidy did not confirm the close. A 'Release pending' case was opened and the hourly check retries; the submission was not ended." });
       }
       return jsonResponse({ ok: true, closed: true });
+    }
+
+    if (body.action === "record_orphan_capture") {
+      const caseId = typeof body.case_id === "string" && UUID_RE.test(body.case_id) ? body.case_id : null;
+      const reason = String(body.reason ?? "").trim();
+      const orphanFail = (code: string, extra: Record<string, unknown> = {}) =>
+        fail(code, { message: ORPHAN_MESSAGES[code] ?? code, ...extra });
+      // Admin only (the database checks it again).
+      const { data: adminRow, error: adminErr } = await supabase.from("user_roles")
+        .select("role").eq("user_id", userId).eq("role", "admin").maybeSingle();
+      if (adminErr) throw adminErr;
+      if (!adminRow) return orphanFail("forbidden_admin_only");
+      if (!caseId) return orphanFail("case_not_found");
+      if (reason.length < 10) return orphanFail("reason_required");
+      const { data: c, error: cErr } = await supabase.from("paidy_cases")
+        .select("id, kind, status, cash_order_id, paidy_payment_row, paidy_payment_id").eq("id", caseId).maybeSingle();
+      if (cErr) throw cErr;
+      if (!c) return orphanFail("case_not_found");
+      if (c.status !== "open") return orphanFail("case_not_open");
+      if (c.paidy_payment_row || !["captured_unrecorded", "captured_no_submission", "record_failed"].includes(String(c.kind))) return orphanFail("case_not_orphan");
+      if (!c.cash_order_id) return orphanFail("order_missing");
+      const { data: order, error: oErr } = await supabase.from("cash_orders")
+        .select("id, invoice_number, web_reference, source_channel").eq("id", c.cash_order_id).maybeSingle();
+      if (oErr) throw oErr;
+      if (!order) return orphanFail("order_missing");
+
+      let live: PaidyPayment;
+      try {
+        live = await paidy.get(String(c.paidy_payment_id));
+      } catch (e) {
+        console.error("[paidy-staff-action] paidy.get for orphan capture failed:", e);
+        return fail("paidy_unavailable", { message: "Could not reach Paidy. Nothing was changed; try again in a few minutes." });
+      }
+      let expectTest: boolean;
+      try { expectTest = paidySecretIsTest(); } catch { return fail("paidy_unavailable", { message: "Paidy is not configured on the Hub. Nothing was changed." }); }
+      const problem = paidyOrphanCaptureProblem(live, { id: String(order.id), ref: customerReference(order as never) }, expectTest);
+      if (problem) return orphanFail(problem);
+      const capture = paidyLatestCapture(live);
+      const { data: adopted, error: aErr } = await supabase.rpc("adopt_paidy_orphan_capture_atomic", {
+        p_case_id: caseId, p_user_id: userId, p_reason: reason,
+        p_amount_jpy: paidyYen(live.amount), p_test: live.test === true,
+        p_authorized_at: live.created_at ?? null, p_captured_at: capture?.created_at ?? null,
+        p_capture_id: capture?.id ?? null, p_payload: live,
+      });
+      if (aErr) throw aErr;
+      const a = (adopted ?? {}) as Record<string, unknown>;
+      if (a.ok !== true) return orphanFail(String(a.error ?? "adopt_failed"), a);
+      // The ONE recording path: the same paidy_auto Confirm a dashboard capture gets.
+      const rec = await paidyAutoRecord(String(a.submission_id));
+      return jsonResponse({
+        ok: true, outcome: rec.ok ? "recorded" : "queued", submission_id: a.submission_id,
+        message: rec.ok
+          ? "Recorded. The order is updated and staff were notified."
+          : "Filed. The Hub records it within the hour, or press Confirm on it in Payment Submissions now.",
+      });
     }
 
     return jsonResponse({ error: "bad_action" }, 400);

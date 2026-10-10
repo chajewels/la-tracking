@@ -1029,6 +1029,19 @@ Deno.serve(async (req) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // QC PR-B (owner 2026-10-10): a Paidy payment just recorded rings ONE bell
+      // so whoever ships sees it ("ready to ship" when it completed the order).
+      // Emailed to Brenda + the admins when ticked in Website → Settings → Staff
+      // bell emails (type paidy_payment_recorded). Never blocks the recording.
+      if (isPaidySubmission) {
+        const ref = customerReference(cashOrder as never);
+        const yen = Math.round(Number(cashPayment?.amount_paid ?? 0)).toLocaleString("en-US");
+        await paidyBell(supabase, "paidy_payment_recorded",
+          isFullyPaid ? "Paidy payment recorded — order completed, ready to ship" : "Paidy payment recorded",
+          `${ref} · ¥${yen} · ${String(submission.sender_name ?? "")} · recorded ${isAutoRecorder ? "automatically after the capture in the Paidy dashboard" : "by a staff Confirm"}${isFullyPaid ? " · the order is completed and ready to ship" : ` · ¥${Math.round(newRemaining).toLocaleString("en-US")} still due`}`,
+          { cash_order_id: cashOrder.id, submission_id, cash_payment_id: cashPayment?.id ?? null, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff", fully_paid: isFullyPaid });
+      }
+
       // Fire-and-forget: archive the proof into payment_proofs (cash order).
       if (submission.proof_url) {
         await supabase.from("payment_proofs").insert({

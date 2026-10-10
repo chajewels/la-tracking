@@ -17,7 +17,7 @@
  */
 
 import { customerReference } from "./order-reference.ts";
-import { paidyAdoptBlock, paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyMismatchReleases, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
+import { paidyAdoptBlock, paidyApprovalHasWindow, paidyCaptureDeadlineText, paidyCapturedAmount, paidyFilingMismatch, paidyLatestCapture, paidyMismatchReleases, paidyModeFrom, paidyProviderOutcome, paidyYen, type PaidyMode } from "./paidy-rules.ts";
 import { paidy, type PaidyPayment } from "./paidy.ts";
 import { openPaidyCase } from "./paidy-sync.ts";
 import { sendPaymentSubmittedEmail } from "./order-update-email.ts";
@@ -232,6 +232,34 @@ export async function filePaidyAuthorization(supabase: Db, args: {
       const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: `stale: ${String(r.detail ?? "")}` });
       return { ok: false, error: err, detail: String(r.detail ?? ""), released: paidyReleased(release), release };
     }
+    // QC PR-B edge M1 (owner 2026-10-10, "first payment wins"): another payment
+    // is already waiting on this order (a transfer, a card, an earlier Paidy
+    // approval). This later approval is released at once — nothing stays on
+    // her Paidy limit and the earlier payment can be confirmed. The record the
+    // writer kept is ended by the release itself (status closed).
+    if (err === "submission_pending") {
+      const lock = r.lock ? String(r.lock) : "pending";
+      const release = await releasePaidyAuthorization(supabase, payment, {
+        cash_order_id: order.id, paidy_payment_row: r.paidy_record_id ? String(r.paidy_record_id) : null,
+        why: `another payment was already waiting (${lock})`,
+      });
+      const released = paidyReleased(release);
+      if (release !== "captured") {
+        await paidyBell(supabase, "paidy_unmatched_authorization",
+          released ? "Later Paidy approval released — the first payment wins" : "Later Paidy approval could not be released yet",
+          `${ref} · ¥${amount.toLocaleString("en-US")} · another payment on this order was already waiting (${lock})${released ? " — the Paidy approval was released, no charge; confirm the earlier payment as usual" : " — the hourly check retries the release; do not capture it in the Paidy dashboard"}`,
+          { cash_order_id: order.id, paidy_payment_id: payment.id, path, lock, released, release });
+      }
+      return { ok: false, error: err, detail: lock, released, release };
+    }
+    // QC PR-B L-3: the database refused the other environment's payment (test
+    // vs live). Never closed from here (M1 rule); staff are told.
+    if (err === "paidy_environment_mismatch") {
+      await paidyBell(supabase, "paidy_unmatched_authorization", "Paidy approval from the other environment — not filed",
+        `${ref} · ${payment.id} · ${payment.test === true ? "a TEST payment" : "a LIVE payment"} does not match the Hub's Paidy mode or the customer — not filed and not closed; check the Paidy dashboard.`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, test: payment.test === true });
+      return { ok: false, error: err };
+    }
     return { ok: false, error: err, detail: r.lock ? String(r.lock) : r.status ? String(r.status) : undefined };
   }
 
@@ -287,19 +315,34 @@ export async function adoptOrphanAuthorization(supabase: Db, payment: PaidyPayme
     }
     return released ? "released" : `release_${release}`;
   }
+  // QC PR-B M3 (2026-10-10): an approval is filed on the order its order_ref
+  // names ONLY when that order opened Paidy around that time (a checkout
+  // window only its own signed-in customer can start). Otherwise someone
+  // launched Paidy with another customer's order reference: it is released.
+  const { data: windows, error: winErr } = await supabase.from("paidy_checkout_attempts")
+    .select("started_at").eq("cash_order_id", order.id).order("started_at", { ascending: false }).limit(50);
+  if (winErr) throw winErr;
+  if (!paidyApprovalHasWindow(payment.created_at, ((windows ?? []) as AnyRec[]).map((w) => w.started_at))) {
+    const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: order.id, why: "no Paidy checkout was opened on this order at that time" });
+    const released = paidyReleased(release);
+    if (release !== "captured") {
+      await paidyBell(supabase, "paidy_unmatched_authorization", released ? "Paidy approval not tied to this order — released" : "Paidy approval not tied to this order — could not be released yet",
+        `${ref} · ¥${amount} · ${payment.id} names this order, but this order never opened Paidy at that time${released ? " — released, no charge" : " — the hourly check retries the release; do not capture it"}`,
+        { cash_order_id: order.id, paidy_payment_id: payment.id, path, released, release, reason: "no_window" });
+    }
+    return released ? "released_no_window" : `release_${release}_no_window`;
+  }
   const result = await filePaidyAuthorization(supabase, {
     order, customer: { id: customer.id, full_name: customer.full_name ?? null }, payment,
     expectTest: mode === "test", path,
   });
   if (result.ok) return `filed_${result.outcome}`;
   if (result.error === "submission_pending") {
-    // The record is kept (the writer stores it before the one-payment check),
-    // so the sweep files or releases it once the other payment is decided.
-    await paidyBell(supabase, "paidy_unmatched_authorization", "Paidy authorisation waiting behind another payment",
-      `${ref} · ¥${amount} · another payment on this order is waiting (${result.detail ?? "pending"}); the hourly check files or releases it once that is decided`,
-      { cash_order_id: order.id, paidy_payment_id: payment.id, path });
-    return "waiting";
+    // QC PR-B edge M1: first payment wins — filePaidyAuthorization released it
+    // and told staff.
+    return result.released ? "released_first_payment_wins" : `release_${result.release ?? "unknown"}_first_payment_wins`;
   }
+  if (result.error === "paidy_environment_mismatch") return "refused_environment";
   if (result.error === "paidy_mismatch" || result.error === "stale_authorization" || result.error === "card_payment_unresolved") {
     // PA05: say what Paidy established, never "released" on a failed close.
     return result.released ? `released_${result.error}` : `release_${result.release ?? "unknown"}_${result.error}`;

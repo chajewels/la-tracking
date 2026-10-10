@@ -25,7 +25,7 @@
 import { PaidyError, paidy, paidySecretIsTest, type PaidyPayment } from "./paidy.ts";
 import { adoptOrphanAuthorization, orderForPaidyRef } from "./paidy-filing.ts";
 import { PAIDY_RECORD_FIELDS, openPaidyCase, syncPaidyPayment } from "./paidy-sync.ts";
-import { paidyCapturedAmount, paidyProviderOutcome } from "./paidy-rules.ts";
+import { paidyApprovalHasWindow, paidyCapturedAmount, paidyProviderOutcome } from "./paidy-rules.ts";
 import { paidyAutoRecord } from "./paidy-autorecord.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -179,6 +179,26 @@ export async function processPaidyEvent(
       const order = await orderForPaidyRef(supabase, payment.order?.order_ref);
       const classified = paidyEventClassification(null, payment, order);
       if (outcome === "authorized" && ageMs < ORPHAN_GRACE_MS) {
+        // QC PR-B edge M2 (2026-10-10): note the approval on her open window NOW,
+        // so a new Paidy window cannot replace it (and take a second hold on her
+        // limit) while the browser callback is late or lost. Only on an order
+        // that opened Paidy around that time (the same binding adoption uses).
+        if (order && order.customer_id) {
+          try {
+            const { data: wins, error: wErr } = await supabase.from("paidy_checkout_attempts")
+              .select("started_at").eq("cash_order_id", order.id).order("started_at", { ascending: false }).limit(50);
+            if (wErr) throw wErr;
+            if (paidyApprovalHasWindow(payment.created_at, ((wins ?? []) as Array<{ started_at: unknown }>).map((w) => w.started_at))) {
+              const { error: nErr } = await supabase.rpc("note_paidy_window_authorization", {
+                p_cash_order_id: order.id, p_customer_id: order.customer_id, p_paidy_payment_id: pid, p_test: payment.test === true,
+              });
+              if (nErr) throw nErr;
+            }
+          } catch (e) {
+            // Logged only: adoption after the grace still files or releases it.
+            console.error(`[paidy-events] note of ${pid} on its window failed:`, e);
+          }
+        }
         // Paidy notifies before the customer's browser reports back: give the
         // website callback its window; the event waits in the inbox.
         const ok = await markInbox(supabase, inboxId, {

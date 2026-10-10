@@ -27,7 +27,7 @@ import { type SquareEnvironment, agreementBindingProblem, agreementRequired, can
 import { SquareError, buyerEmailOf, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
 import { fileForAttempt, fraudCancel, handleFilingException, recoverAttempt, resolveAttempt, rpc } from "../_shared/square-sync.ts";
 import { customerReference } from "../_shared/order-reference.ts";
-import { adoptOrphanAuthorization, filePaidyAuthorization } from "../_shared/paidy-filing.ts";
+import { adoptOrphanAuthorization, filePaidyAuthorization, orderForPaidyRef, paidyBell, paidyReleased, releasePaidyAuthorization } from "../_shared/paidy-filing.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import {
@@ -600,6 +600,9 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     // C1: a website order takes Paidy only when the customer chose Paidy.
     paymentMethod: (order.payment_method ?? null) as string | null,
     requirements,
+    // QC PR-B L1 (2026-10-10): the secret's family is checked BEFORE she can
+    // approve anything, not only when the approval comes back.
+    secretTest: (() => { try { return paidySecretIsTest(); } catch { return null; } })(),
   });
   if (reason || !breakdown) return { offered: false as const, reason: reason ?? "breakdown_mismatch", requirements, ...onFile };
 
@@ -3058,7 +3061,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // stay hidden until the sweep confirms nothing was paid. Only when
       // nothing else holds the order (ignoreAttempts) — otherwise it is a
       // real Paidy payment in progress.
-      const windowOnly = lock === "paidy_checkout_open" && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null;
+      // QC PR-B (web M1, 2026-10-10): a window that carries an approval Paidy
+      // reported, not yet verified empty, IS a payment in progress (Paidy holds
+      // money on her limit; start refuses a new window) — never "open Paidy again".
+      let windowHoldsApproval = false;
+      if (lock === "paidy_checkout_open") {
+        const { count: notedCount, error: notedErr } = await supabase.from("paidy_checkout_attempts")
+          .select("id", { count: "exact", head: true })
+          .eq("cash_order_id", order.id).eq("status", "open")
+          .not("authorization_noted_at", "is", null).is("verified_empty_at", null);
+        if (notedErr) throw notedErr;
+        windowHoldsApproval = (notedCount ?? 0) > 0;
+      }
+      const windowOnly = lock === "paidy_checkout_open" && !windowHoldsApproval
+        && (await paymentLock(supabase, String(order.id), { ignoreAttempts: true })) === null;
       const paidyProcessing = !!lock && lock.startsWith("paidy") && !windowOnly;
       const cardPayment = await cardPaymentState(supabase, String(order.id));
       const blockedByCard = cardPayment !== null || lock === "card_payment_unresolved";
@@ -3440,6 +3456,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // closed; it is handed to the order it names, exactly as Paidy's
         // webhook would (filed there if that order can take it, else released).
         if (filed.error === "paidy_mismatch" && filed.detail === "order_ref") {
+          // QC PR-B M3 (2026-10-10): only HER OWN other order may take it. An
+          // approval naming someone else's order is hers alone (she approved
+          // it with her Paidy account): it is released, never filed there.
+          const named = await orderForPaidyRef(supabase, payment.order?.order_ref);
+          if (named && String(named.customer_id) !== String(customer.id)) {
+            const release = await releasePaidyAuthorization(supabase, payment, { cash_order_id: null, why: "names another customer's order" });
+            await paidyBell(supabase, "paidy_unmatched_authorization", "Paidy approval naming another customer's order — released",
+              `${payment.id} · ¥${Math.round(Number(payment.amount) || 0).toLocaleString("en-US")} · posted from order ${customerReference(order as never)} but names ${customerReference(named as never)} (a different customer) · ${paidyReleased(release) ? "released, no charge" : `release ${release} — the hourly check retries`}`,
+              { cash_order_id: order.id, named_order_id: named.id, paidy_payment_id: payment.id, release });
+            return jsonResponse({ error: "paidy_mismatch", detail: "other_order", released: paidyReleased(release) }, 409);
+          }
           const routed = await adoptOrphanAuthorization(supabase, payment, "website_paidy");
           console.warn(`[website] Paidy ${payment.id} names another order; routed: ${routed}`);
           return jsonResponse({ error: "paidy_mismatch", detail: "other_order" }, 409);

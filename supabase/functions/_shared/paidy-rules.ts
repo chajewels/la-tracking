@@ -88,6 +88,13 @@ export interface PaidyOfferInput {
    * method (null = transfer). Omitted = not checked (older callers).
    */
   paymentMethod?: string | null;
+  /**
+   * QC PR-B L1 (2026-10-10): the secret key's family — true = sk_test_, false
+   * = sk_live_, null = no secret configured. Compared to the mode BEFORE she
+   * can approve anything (an approval the Hub cannot read back would stay on
+   * her Paidy limit). Omitted = not checked (older callers).
+   */
+  secretTest?: boolean | null;
 }
 
 /** Why Paidy is not offered, or null when it is. One reason, the first that fails. */
@@ -97,6 +104,8 @@ export function paidyNotOfferedReason(i: PaidyOfferInput): string | null {
   if (!isPaidyPublicKey(i.publicKey)) return "no_public_key";
   if (i.mode === "test" && !String(i.publicKey).startsWith("pk_test_")) return "key_mode_mismatch";
   if (i.mode === "on" && !String(i.publicKey).startsWith("pk_live_")) return "key_mode_mismatch";
+  if (i.secretTest === null) return "secret_not_configured";
+  if (i.secretTest !== undefined && i.secretTest !== (i.mode === "test")) return "secret_mode_mismatch";
   if (i.paymentMethod !== undefined && i.order.source_channel === "web" && (i.paymentMethod ?? "transfer") !== "paidy") return "method_not_chosen";
   if (String(i.order.currency ?? "") !== "JPY") return "not_jpy";
   if (i.order.status !== "pending") return "order_not_open";
@@ -561,6 +570,54 @@ export function paidyAdoptBlock(mode: PaidyMode, order: { source_channel?: unkno
   if (mode === "test" && customer?.is_test !== true) return "not_test_customer";
   if (order.source_channel === "web" && order.payment_method !== "paidy") return "method_not_paidy";
   return null;
+}
+
+/**
+ * QC PR-B DB M-3 (owner 2026-10-10, recommended A): may an admin record a
+ * Paidy capture the Hub never filed (an orphan capture case)? Only from
+ * Paidy's own read-back: captured, nothing refunded, ONE capture equal to the
+ * whole payment, the order it names, the environment the Hub runs. Returns
+ * the refusal code, or null. The database then re-checks the order (yen,
+ * nothing paid yet, amount = balance, nothing else waiting).
+ */
+export function paidyOrphanCaptureProblem(
+  p: { status?: unknown; amount?: unknown; currency?: unknown; test?: unknown; captures?: unknown; refunds?: unknown; order?: { order_ref?: unknown } | null; metadata?: { cash_order_id?: unknown } | null },
+  order: { id: string; ref: string },
+  expectTest: boolean,
+): string | null {
+  if (paidyProviderOutcome(p) !== "captured") return "paidy_not_captured";
+  if (paidyRefundTotal(p) > 0) return "paidy_refunded";
+  const amount = paidyYen(p.amount);
+  const captures = Array.isArray(p.captures) ? p.captures : [];
+  if (amount == null || String(p.currency ?? "") !== "JPY" || captures.length !== 1 || paidyCapturedAmount(p) !== amount) {
+    return "paidy_capture_mismatch";
+  }
+  const byRef = order.ref !== "" && String(p.order?.order_ref ?? "") === order.ref;
+  const byMeta = String(p.metadata?.cash_order_id ?? "") === order.id;
+  if (!byRef && !byMeta) return "paidy_order_mismatch";
+  if ((p.test === true) !== expectTest) return "paidy_environment_mismatch";
+  return null;
+}
+
+/**
+ * QC PR-B M3 (2026-10-10): may a Paidy approval the Hub has no record of be
+ * filed on the order its order_ref names? Only when that order really opened
+ * Paidy around the time of the approval — a checkout window of THAT order
+ * started at most 2 hours before Paidy created the payment (and not more than
+ * 10 minutes after, clock skew). The window can only be started by the
+ * order's own signed-in customer, so an approval someone else launched with
+ * this order's reference is never filed here (it is released instead).
+ */
+export function paidyApprovalHasWindow(
+  paymentCreatedAt: unknown,
+  windowsStartedAt: ReadonlyArray<unknown>,
+): boolean {
+  const created = Date.parse(String(paymentCreatedAt ?? ""));
+  if (!Number.isFinite(created)) return false;
+  return windowsStartedAt.some((s) => {
+    const started = Date.parse(String(s ?? ""));
+    return Number.isFinite(started) && started <= created + 10 * 60 * 1000 && started >= created - 2 * 60 * 60 * 1000;
+  });
 }
 
 /**
