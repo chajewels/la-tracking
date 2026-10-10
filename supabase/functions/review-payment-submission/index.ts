@@ -16,6 +16,7 @@ import {
   paidyJapanDate, paidyLatestCapture, paidyProviderOutcome, paidyRecordProblem, paidyRefundTotal,
 } from "../_shared/paidy-rules.ts";
 import { paidyBell } from "../_shared/paidy-filing.ts";
+import { paidyRecordedBell } from "../_shared/paidy-recorded-bell.ts";
 import { openPaidyCase } from "../_shared/paidy-sync.ts";
 import { PAIDY_AUTO_ACTOR, verifyPaidyAutoSignature } from "../_shared/paidy-autorecord.ts";
 import { SquareError, paymentFacts, square, type SquarePayment } from "../_shared/square.ts";
@@ -1034,11 +1035,12 @@ Deno.serve(async (req) => {
       // Emailed to Brenda + the admins when ticked in Website → Settings → Staff
       // bell emails (type paidy_payment_recorded). Never blocks the recording.
       if (isPaidySubmission) {
-        const ref = customerReference(cashOrder as never);
-        const yen = Math.round(Number(cashPayment?.amount_paid ?? 0)).toLocaleString("en-US");
-        await paidyBell(supabase, "paidy_payment_recorded",
-          isFullyPaid ? "Paidy payment recorded — order completed, ready to ship" : "Paidy payment recorded",
-          `${ref} · ¥${yen} · ${String(submission.sender_name ?? "")} · recorded ${isAutoRecorder ? "automatically after the capture in the Paidy dashboard" : "by a staff Confirm"}${isFullyPaid ? " · the order is completed and ready to ship" : ` · ¥${Math.round(newRemaining).toLocaleString("en-US")} still due`}`,
+        // If this ring fails, paidy-reconcile rings it late (reassessment F2).
+        const bell = paidyRecordedBell({
+          reference: customerReference(cashOrder as never), amountJpy: Number(cashPayment?.amount_paid ?? 0),
+          senderName: submission.sender_name, automatic: isAutoRecorder, fullyPaid: isFullyPaid, remainingJpy: newRemaining,
+        });
+        await paidyBell(supabase, bell.type, bell.title, bell.body,
           { cash_order_id: cashOrder.id, submission_id, cash_payment_id: cashPayment?.id ?? null, actor: isAutoRecorder ? PAIDY_AUTO_ACTOR : "staff", fully_paid: isFullyPaid });
       }
 

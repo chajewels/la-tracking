@@ -112,7 +112,7 @@ Deno.test("L1 wiring + orphan action + recorded bell", () => {
   const record = act.indexOf("const rec = await paidyAutoRecord(String(a.submission_id));");
   assert(get > 0 && rule > get && adopt > rule && record > adopt, `order get=${get} rule=${rule} adopt=${adopt} record=${record}`);
   const rps = code("supabase/functions/review-payment-submission/index.ts");
-  assert(rps.includes('await paidyBell(supabase, "paidy_payment_recorded",'));
+  assert(rps.includes("await paidyBell(supabase, bell.type, bell.title, bell.body,"));
   const mri = code("supabase/functions/mark-refund-issued/index.ts");
   assert(mri.includes("paidy_paid_jpy: r.paidy_paid_jpy ?? null, paidy_refunded_jpy: r.paidy_refunded_jpy ?? null,"), "partial-refund figures reach the dialog");
   const rec = code("supabase/functions/paidy-reconcile/index.ts");
