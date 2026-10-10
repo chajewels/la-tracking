@@ -39,6 +39,7 @@ import {
 } from '@/lib/business-rules';
 import StatusPill from '@/components/shared/StatusPill';
 import PaidyCasesPanel from '@/components/payments/PaidyCasesPanel';
+import { claimLeaseExpired, isPermissionRefusal } from '@/lib/paidy-staff-ui';
 import { SUBMISSION_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
@@ -67,6 +68,8 @@ interface SubmissionRow {
   /** Set when the submission is a Square card hold / a Paidy authorisation (provider-linked: method and amount are locked in the database). */
   square_payment_id?: string | null;
   paidy_payment_id?: string | null;
+  /** L5: the Confirm's claim stamp (the 5-minute lease) — "Finish recording" waits for it. */
+  processing_started_at?: string | null;
   portal_token: string | null;
   submission_type: string | null;
   created_at: string;
@@ -161,9 +164,11 @@ const statusTone = (status: string) => SUBMISSION_STATUS_TONE[statusConfig[statu
 const hasProof = (url: string | null): url is string => !!url && url.trim().length > 0;
 /**
  * PAIDY (2026-10-03, owner decision PD1): a Paidy submission carries no proof
- * file — its proof is the authorisation the Hub read back from Paidy. Confirm
- * CAPTURES the Paidy payment; Reject RELEASES it. review-payment-submission
- * applies the same exception server-side (payment_method 'paidy' + record).
+ * file — its proof is the authorisation the Hub read back from Paidy. The Hub
+ * NEVER captures a Paidy payment: staff capture it in the Paidy merchant
+ * dashboard, and Confirm only RECORDS a capture Paidy reports; Reject RELEASES
+ * the authorisation. review-payment-submission applies the same exception
+ * server-side (payment_method 'paidy' + record).
  */
 const isPaidy = (sub: { payment_method: string | null }) => (sub.payment_method ?? '').toLowerCase() === 'paidy';
 /**
@@ -291,7 +296,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           {/* Proof preview — always shown regardless of status */}
           {isPaidy(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Capture it in the Paidy merchant dashboard within 30 days; the Hub records it automatically.
+              <span className="font-medium text-foreground">Paidy authorisation</span> · ref {actionDialog.sub.reference_number ?? '—'} · no transfer slip: the Hub verified this authorisation with Paidy when it was filed. Capture it in the Paidy merchant dashboard before Paidy's expiry date; the Hub records it automatically.
             </div>
           ) : isSquare(actionDialog.sub) && !hasProof(actionDialog.sub.proof_url) ? (
             <div className="rounded-lg border border-gold-500/15 bg-surface-1/60 p-2.5 text-xs text-muted-foreground">
@@ -1181,7 +1186,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       // Path 1: supabase-js parsed the body into `data` (happens for some response shapes).
       // Coded errors (card_unverified, card_hold_closed, square_amount_mismatch, …)
       // carry a plain-words `message`; show that, not the code.
-      if (data?.error) throw new Error(data.message || data.error);
+      if (data?.error) {
+        const coded = new Error(data.message || data.error) as Error & { code?: string };
+        coded.code = data.error;
+        throw coded;
+      }
       if (error) {
         // Path 2: For non-2xx responses, supabase-js v2 wraps the Response in error.context.
         // Extract the server's specific message and attach the HTTP status so onError can
@@ -1196,7 +1205,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           }
           if (body?.error || body?.message) {
             const serverError = new Error(body.message || body.error);
-            (serverError as Error & { status?: number }).status = ctx.status;
+            (serverError as Error & { status?: number; code?: string }).status = ctx.status;
+            (serverError as Error & { status?: number; code?: string }).code = body.error;
             throw serverError;
           }
         }
@@ -1284,7 +1294,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         setActionDialog(null);
       }
     },
-    onError: (err: Error & { status?: number; context?: { status?: number } }) => {
+    onError: (err: Error & { status?: number; code?: string; context?: { status?: number } }) => {
       // A refused card/Paidy action can still change the row server-side (e.g.
       // card_hold_closed rejects it; card_unverified leaves it for "Finish
       // recording"), so always re-read the list.
@@ -1294,11 +1304,10 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       // Read status from either the enrichedError thrown in mutationFn (err.status)
       // OR from the original FunctionsHttpError's Response context (err.context.status).
       const status: number | undefined = err?.status ?? err?.context?.status;
-      const isPermissionError =
-        status === 403 ||
-        message.toLowerCase().includes('access denied') ||
-        message.toLowerCase().includes('permission') ||
-        message.toLowerCase().includes('forbidden');
+      // M1 (Paidy QC 2026-10-10): HTTP 403 or a coded error only — never a
+      // substring of the message. A 502 paidy_unverified can quote Paidy's own
+      // "service.forbidden"; its message (any 5xx) is always shown as sent.
+      const isPermissionError = isPermissionRefusal(status, err?.code);
 
       if (isPermissionError) {
         toast.error(
@@ -1414,7 +1423,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                 <MessageSquare className="h-3.5 w-3.5" /> Clarify
               </Button>
             ))}
-            {row ? (
+            {/* L3 (Paidy QC 2026-10-10): a Paidy / card submission has no proof file (PD1);
+                its proof is the provider's read-back, so no file is attached to it. */}
+            {!isProviderLinked(sub) && (row ? (
               <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-gold-300"
                 aria-label="Attach / Replace proof" title="Attach / Replace proof"
                 onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
@@ -1424,13 +1435,17 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               <Button size="sm" variant="outline" className={btn} onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
                 <ImageIcon className="h-3.5 w-3.5" /> Attach / Replace proof
               </Button>
-            )}
+            ))}
           </>
         )}
         {isPending && !canModerate && (
           <StatusPill label="Pending Confirmation" tone="warning" />
         )}
-        {needsFinishRecording(sub) && canModerate && canConfirm && (
+        {/* L5: only once the Confirm's 5-minute lease has passed — before that it may still be running. */}
+        {needsFinishRecording(sub) && canModerate && canConfirm && !claimLeaseExpired(sub.processing_started_at) && (
+          <StatusPill label="Recording…" tone="info" />
+        )}
+        {needsFinishRecording(sub) && canModerate && canConfirm && claimLeaseExpired(sub.processing_started_at) && (
           <Button size="sm" variant="default" className={btn}
             title={`Recording stopped half-way. Reads ${isSquare(sub) ? 'Square' : 'Paidy'} first; records the capture, never charges twice.`}
             onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
