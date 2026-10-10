@@ -104,6 +104,8 @@ Deno.test("L1 wiring + orphan action + recorded bell", () => {
   assert(get > 0 && rule > get && adopt > rule && record > adopt, `order get=${get} rule=${rule} adopt=${adopt} record=${record}`);
   const rps = code("supabase/functions/review-payment-submission/index.ts");
   assert(rps.includes('await paidyBell(supabase, "paidy_payment_recorded",'));
+  const mri = code("supabase/functions/mark-refund-issued/index.ts");
+  assert(mri.includes("paidy_paid_jpy: r.paidy_paid_jpy ?? null, paidy_refunded_jpy: r.paidy_refunded_jpy ?? null,"), "partial-refund figures reach the dialog");
   const rec = code("supabase/functions/paidy-reconcile/index.ts");
   assert(rec.includes("If Paidy reports the capture, the next check finishes it."), "L2 bell text");
 });
