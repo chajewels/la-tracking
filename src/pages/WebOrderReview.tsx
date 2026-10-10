@@ -236,8 +236,14 @@ export default function WebOrderReview() {
       }
       const res = r as AnyRec;
       const email = res.email as { sent?: boolean } | undefined;
-      toast.success(`${draft.web_reference} confirmed${email?.sent ? ' — the customer was emailed the payment details' : ''}.`);
-      if (email && !email.sent) toast.warning('The order is confirmed, but the email to the customer was not sent. Send the payment details on Messenger.');
+      // Cash on delivery has no payment details to send: the email confirms
+      // the order and says she pays the courier (owner 2026-10-10, QA finding 3).
+      toast.success(`${draft.web_reference} confirmed${email?.sent
+        ? (isCod ? ' — the customer was emailed her order confirmation (she pays the courier on delivery). Ship it when ready' : ' — the customer was emailed the payment details')
+        : ''}.`);
+      if (email && !email.sent) toast.warning(isCod
+        ? 'The order is confirmed, but the email to the customer was not sent. Tell her on Messenger that her order is confirmed and she pays the courier on delivery.'
+        : 'The order is confirmed, but the email to the customer was not sent. Send the payment details on Messenger.');
       qc.invalidateQueries({ queryKey: ['web-draft', id] });
       for (const key of ['web-drafts', 'web-park']) qc.invalidateQueries({ queryKey: [key] });
       const orderPath = res.entity_type === 'cash_order' ? `/cash-orders/${res.entity_id}` : `/accounts/${res.entity_id}`;

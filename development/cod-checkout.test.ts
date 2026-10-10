@@ -250,3 +250,20 @@ Deno.test('F2 wiring: submit-cash-payment refuses before the insert; the Hub dia
   assert(/isCod \? \(/.test(ui), 'partial toggle replaced for COD')
   assert(/codAmountMismatch/.test(ui) && /!codAmountMismatch/.test(ui), 'dialog blocks a COD amount other than the remaining balance')
 })
+
+// ------------------- QA findings 2 + 3 (owner 2026-10-10): wording by method
+Deno.test('Hub wording: the record button is named by method; the COD Confirm toast sends no payment details', () => {
+  const page = read('src/pages/CashOrderDetail.tsx')
+  assert(/webMethodOf\(order\.payment_method\) === 'cod' \? 'Record cash on delivery payment' : 'Confirm transfer received'/.test(page),
+    'COD says "Record cash on delivery payment"; a transfer keeps "Confirm transfer received"')
+  assert(/canRecordPayment && webMethodOf\(order\.payment_method\) !== 'card' &&/.test(page),
+    'a card order has no staff record button (she pays on her order page)')
+  assert(/providerHold \? \(\s*\n\s*<Button size="sm" variant="outline" onClick=\{\(\) => navigate\(`\$\{ROUTES\.SALES\}\?tab=payments`\)\}>/.test(page),
+    'regression: a Paidy / card hold still shows "Open in Payments"')
+  const review = read('src/pages/WebOrderReview.tsx')
+  assert(/isCod \? ' — the customer was emailed her order confirmation \(she pays the courier on delivery\)/.test(review),
+    'COD Confirm toast names the order confirmation, not payment details')
+  assert(/isCod\s*\n\s*\? 'The order is confirmed, but the email to the customer was not sent\. Tell her on Messenger that her order is confirmed and she pays the courier on delivery\.'/.test(review),
+    'COD email-failed warning does not ask staff to send payment details')
+  assert(/' — the customer was emailed the payment details'/.test(review), 'regression: other methods keep the payment-details toast')
+})
