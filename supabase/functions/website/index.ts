@@ -3694,6 +3694,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // may still be on her card and is being handled — never "not charged".
         if (filed.exception === "risk_high") return jsonResponse({ error: "card_declined", code: "risk_high", order_cancelled: action === "risk_high_cancelled", hold: action === "risk_high_cancelled" ? "voided" : "held" }, 402);
         if (filed.reason === "paidy_in_progress") return jsonResponse({ error: "paidy_in_progress", hold: action === "paidy_voided" ? "voided" : "void_pending" }, 409);
+        // L7: a hold on an attempt already closed is voided by the Hub.
+        if (action === "late_hold_voided" || action === "late_hold_void_pending") return jsonResponse({ error: "card_hold_unfiled", detail: filed.reason, hold: action === "late_hold_voided" ? "voided" : "void_pending" }, 409);
         return jsonResponse({ error: "card_hold_unfiled", detail: filed.reason }, 409);
       }
       const cardFacts = paymentFacts(payment);
