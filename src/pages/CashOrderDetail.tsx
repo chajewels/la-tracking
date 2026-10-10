@@ -1678,13 +1678,20 @@ export default function CashOrderDetail() {
                   <p className="text-xs italic text-muted-foreground">“{order.gift_note}”</p>
                 )}
               </div>
+              {/* The action is named by the customer's method (owner
+                  2026-10-10, QA finding 2): a bank transfer is confirmed, a
+                  cash on delivery is recorded when the courier remits, and a
+                  CARD order has no staff record button — she pays by card on
+                  her order page and the hold arrives in Payments (staff can
+                  still "Change payment method"). Paidy is unchanged: its
+                  capture is recorded by the Hub itself (paidy_auto). */}
               {providerHold ? (
                 <Button size="sm" variant="outline" onClick={() => navigate(`${ROUTES.SALES}?tab=payments`)}>
                   Open in Payments
                 </Button>
-              ) : canRecordPayment && (
-                <Button size="sm" onClick={() => setRecordOpen(true)}>
-                  Confirm transfer received
+              ) : canRecordPayment && webMethodOf(order.payment_method) !== 'card' && (
+                <Button size="sm" onClick={() => setRecordOpen(true)} data-testid="cash-order-record-web-payment">
+                  {webMethodOf(order.payment_method) === 'cod' ? 'Record cash on delivery payment' : 'Confirm transfer received'}
                 </Button>
               )}
             </div>
