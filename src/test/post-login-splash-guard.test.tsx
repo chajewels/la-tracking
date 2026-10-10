@@ -20,7 +20,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const authState: { session: { access_token: string } | null } = { session: null };
 vi.mock('@/contexts/AuthContext', () => ({
-  useAuth: () => ({ session: authState.session, loading: false, profile: null, roles: [] }),
+  useAuth: () => ({ session: authState.session, loading: false, profile: null, roles: ['staff'] }),
 }));
 vi.mock('@/components/seo/PageMeta', () => ({ default: () => null }));
 

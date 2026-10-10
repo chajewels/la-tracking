@@ -8,7 +8,7 @@ import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-
 import { maskEmail } from "../_shared/redact.ts";
 import { isWebEntity, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
-import { customerFilingRefusal } from "../_shared/cod-fee.ts";
+import { codAmountRefusal, customerFilingRefusal } from "../_shared/cod-fee.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -289,6 +289,20 @@ Deno.serve(async (req) => {
     if (submittedNum > remaining + 0.005) {
       return new Response(JSON.stringify({
         error: `submitted_amount (${submittedNum}) exceeds remaining_balance (${remaining})`,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 5b. Cash on delivery is recorded in FULL (owner 2026-10-10, QA F2): the
+    //     courier remits the whole amount, so a 'cod' payment must equal the
+    //     remaining balance exactly. Other methods keep partial payments.
+    const codAmountError = codAmountRefusal(payment_method, submittedNum, remaining);
+    if (codAmountError) {
+      return new Response(JSON.stringify({
+        error: codAmountError,
+        message: `Cash on delivery is recorded in full: the amount must be the remaining balance (${remaining}).`,
       }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

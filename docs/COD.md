@@ -73,6 +73,15 @@ docs/MIGRATIONS.md).
   submission path (submit-cash-payment Path B → review-payment-submission). The courier's own
   charges stay outside the Hub. `payment_status` stays `pending_transfer` (the legacy name for
   "awaiting payment") until the order completes.
+- **Recorded in full only (owner 2026-10-10, QA reassessment F2).** A `cod` payment must equal the
+  order's `remaining_balance` exactly — never part of it. `submit-cash-payment` refuses any other
+  amount with 400 `cod_full_amount_only` (`codAmountRefusal` in `_shared/cod-fee.ts`, staff path
+  included); the Hub's Record Cash Payment dialog has no partial option for Cash on Delivery and
+  fixes the amount to the remaining balance. A partly paid order accepts exactly what remains.
+  No SQL change. Other methods keep partial payments. Tests: development/cod-checkout.test.ts "F2".
+- **The ¥300,000 limit excludes the fee (owner 2026-10-10, QA F1).** It is the amount collected on
+  delivery without the COD fee (pieces + shipping, i.e. the bracketed figure); the website's
+  特商法 line says so.
 - **Refused parcel.** Staff cancel (Cancel on the order page, a person, with a reason) — allowed, the
   stock returns as for any web cancel.
 - **The customer never files COD.** `submit-cash-payment` Path A refuses `cod_staff_only` (method
