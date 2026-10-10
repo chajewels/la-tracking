@@ -19,7 +19,10 @@
  * Change one, change the other.
  */
 
-export const CUSTOMER_METHODS = ['transfer', 'paidy', 'square'] as const
+// 'cod' (cash on delivery, owner plan 2026-10-10): the same rules; whether COD is
+// OFFERED on the order (switch on, Japan delivery, within the limit) is the caller's check,
+// and the SQL writer re-brackets the fee.
+export const CUSTOMER_METHODS = ['transfer', 'paidy', 'square', 'cod'] as const
 export type CustomerMethod = typeof CUSTOMER_METHODS[number]
 
 export interface SwitchInput {

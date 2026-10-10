@@ -101,3 +101,11 @@ The only statements that ever inserted rates are the identical seeds in
   `https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=<digits>`
   (verified with a real parcel; the old toi.kuronekoyamato.co.jp form ignores
   GET parameters). Migration 20261025100000.
+
+## Cash on delivery fee (2026-10-10)
+
+The 代引手数料 is NOT a shipping rate and is not on this card. It has its own table
+(`system_settings.cod_fee_table`, Website → Settings → Cash on delivery, `set_cod_settings`), its own
+column (`cash_orders.cod_fee`, …) and its own line in every total. It is bracketed on the amount the
+courier collects — pieces after points + this card's shipping (+ services − discount) — so a
+shipping change can move the COD fee to another bracket. docs/COD.md.

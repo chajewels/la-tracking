@@ -322,3 +322,23 @@ export function jstDate(iso: string | null | undefined, fallback: Date = new Dat
   const d = Number.isFinite(t) ? new Date(t) : fallback;
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(d);
 }
+
+/**
+ * L5 (2026-10-09, eighth release): may a card hold still be CAPTURED for this
+ * order? Read on a FRESH order row right before Square's capture, on every
+ * path — a first Confirm and a resumed "Finish recording" alike (the resume
+ * used to skip the balance check, so Square could take money the order could
+ * no longer record). Mirrors finalize_cash_submission_atomic's refusals:
+ * order_closed, exceeds_remaining (INVARIANT 4, ¥0.005 tolerance).
+ */
+export function cardCaptureOrderRefusal(
+  order: { status?: unknown; remaining_balance?: unknown } | null | undefined,
+  amountJpy: unknown,
+): "order_closed" | "exceeds_remaining" | null {
+  if (!order) return "order_closed";
+  if (order.status === "cancelled" || order.status === "expired") return "order_closed";
+  const amount = Number(amountJpy);
+  const remaining = Number(order.remaining_balance);
+  if (!Number.isFinite(amount) || !Number.isFinite(remaining) || order.remaining_balance == null) return "exceeds_remaining";
+  return amount > remaining + 0.005 ? "exceeds_remaining" : null;
+}

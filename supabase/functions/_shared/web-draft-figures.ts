@@ -69,10 +69,15 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
     : null;
   if (loyaltyTier && loyaltyJpy <= 0) errors.push("LOYALTY_AMOUNT_REQUIRED");
 
-  // Deadline: typed, else the customer's rule (24h first order / 72h returning).
+  // Cash on delivery (owner plan 2026-10-10): NO payment deadline — the courier
+  // collects on delivery. Deadline: typed, else the customer's rule (24h first
+  // order / 72h returning).
+  const isCod = String(draft.payment_method ?? "transfer") === "cod";
   let deadlineHours: number | null = null;
   let transferDueAt: string | null = null;
-  if (body.transfer_due_at) {
+  if (isCod) {
+    // nothing: materialize_web_draft_atomic writes no deadline for COD
+  } else if (body.transfer_due_at) {
     const d = new Date(String(body.transfer_due_at));
     if (Number.isNaN(d.getTime())) errors.push("transfer_due_at_invalid");
     else transferDueAt = d.toISOString();
@@ -122,16 +127,32 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
     if (draft.mode !== "layaway" && pointsValue > total - (shipping ?? 0)) errors.push("points_exceed_total");
   }
 
+  // CASH ON DELIVERY: the fee is re-bracketed on what the courier collects
+  // after the staff's edits (pieces − discount + shipping + services − points),
+  // by THE SQL rule (public.cod_fee_jpy), and added to the total as its own
+  // line. Never in the loyalty basis, never paid by points (the points check
+  // above runs on the total before the fee).
+  let codFee = 0;
+  if (isCod) {
+    const collected = total - pointsValue;
+    const { data: fee, error: feeErr } = await supabase.rpc("cod_fee_jpy", { p_collected: collected });
+    if (feeErr) throw feeErr;
+    if (fee === null || fee === undefined) errors.push(collected <= 0 ? "cod_nothing_to_collect" : "over_cod_limit");
+    else codFee = Number(fee);
+  }
+
   return {
     errors,
     currency,
-    // C1: the method the customer chose (transfer | paidy | square).
+    // C1: the method the customer chose (transfer | paidy | square | cod).
     payment_method: String(draft.payment_method ?? "transfer"),
     points: Math.max(0, Number(draft.points ?? 0)),
     points_value: pointsValue,
     // What the customer will owe after Confirm: the total (full) or the
     // deposit (layaway) less the points.
-    due_now: draft.mode === "layaway" ? Math.max(0, Number(deposit ?? 0) - pointsValue) : total - pointsValue,
+    due_now: draft.mode === "layaway" ? Math.max(0, Number(deposit ?? 0) - pointsValue) : total + codFee - pointsValue,
+    // Cash on delivery fee (0 for every other method), included in `total`.
+    cod_fee: codFee,
     fx_rate: rate,
     order_date: orderDate,
     products,
@@ -140,7 +161,7 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
     services,
     service_lines: serviceLines,
     discount,
-    total,
+    total: total + codFee,
     loyalty_jpy_amount: loyaltyJpy,
     loyalty_default_jpy: defaultLoyalty,
     loyalty_tier: loyaltyTier,

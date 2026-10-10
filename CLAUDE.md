@@ -162,7 +162,8 @@ Reference docs (read the relevant one when a task touches that area):
   - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
     Square; "refund issued" is refused at cancel (card_refund_needs_square),
     and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
-    refund total (never the gross), refusing until one exists. ONE exception
+    refund total of the RECORDED card money (never the gross), refusing until
+    one exists; a mixed order takes one mark per part (L6). ONE exception
     (SQF06 + SQV, owner 2026-10-09): a Square refund FAILED / REJECTED or the
     payment AUTHORISED over one calendar year ago → an ADMIN first APPROVES
     (after a fail-closed Square re-read; refused while any refund is
@@ -1506,6 +1507,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     A card/Paidy submission is never "needs clarification", and its status
     moves only via service_role or the two staff case RPCs that set
     app.provider_submission_writer in-call (F-01/Q-DB1, 2026-10-09).
+  - COD 代金引換 (2026-10-10, docs/COD.md): yen, JP, full payment; cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy (+ _shared/cod-fee.ts), own column, never loyalty/points; no deadline, never lapses or is chased; staff record it.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

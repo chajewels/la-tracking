@@ -37,6 +37,8 @@ export const WORDS = {
   free: { ja: '無料', en: 'Free' },
   total: { ja: '合計', en: 'Total' },
   points: { ja: 'ポイント利用', en: 'Points used' },
+  /** Cash on delivery fee (owner plan 2026-10-10): its own line, already in the total. */
+  codFee: { ja: '代引手数料', en: 'Cash on delivery fee' },
   amountDue: { ja: 'お支払い金額', en: 'Amount to pay' },
   /** The after-points total on a RECEIVED email, where nothing is "to pay" (H3 fix). */
   totalAfterPoints: { ja: 'ポイント利用後のご注文金額', en: 'Order total after points' },
@@ -58,11 +60,11 @@ export const WORDS = {
   help: { ja: 'ご不明な点は、このメールにご返信ください。', en: 'Questions? Reply to this email.' },
 } as const
 
-/** What a payment method is called in an order email (stored 'square' is 'card'). */
-export type PayMethod = 'transfer' | 'paidy' | 'card'
+/** What a payment method is called in an order email (stored 'square' is 'card'; 'cod' = cash on delivery). */
+export type PayMethod = 'transfer' | 'paidy' | 'card' | 'cod'
 export const METHOD_NAME = {
-  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード' },
-  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card' },
+  ja: { transfer: 'お振込', paidy: 'あと払い（ペイディ）', card: 'クレジットカード', cod: '代金引換' },
+  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card', cod: 'cash on delivery' },
 } as const
 
 /**
@@ -128,7 +130,7 @@ export type OrderCurrency = 'JPY' | 'PHP'
  * the total. Absent / 0 = the table exactly as before. `afterPointsLabel`
  * replaces "Amount to pay" on emails where the money has already arrived.
  */
-export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, afterPointsLabel }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; afterPointsLabel?: { ja: string; en: string } }) => (
+export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, pointsApplied, afterPointsLabel, codFee }: { items: OrderEmailItem[]; shippingJpy: number | null; totalJpy: number; lang: Lang; currency?: OrderCurrency; pointsApplied?: number; afterPointsLabel?: { ja: string; en: string }; codFee?: number }) => (
   <Panel gutter={blockGutter} box={block}>
     <Text style={label}>{WORDS.items[lang]}</Text>
     {items.map((i, idx) => (
@@ -138,6 +140,7 @@ export const ItemsTable = ({ items, shippingJpy, totalJpy, lang, currency, point
       k={WORDS.shipping[lang]}
       v={shippingJpy === null ? '—' : shippingJpy === 0 ? WORDS.free[lang] : orderMoney(shippingJpy, currency)}
     />
+    {codFee !== undefined && codFee > 0 && <Row k={WORDS.codFee[lang]} v={orderMoney(codFee, currency)} />}
     <Row k={WORDS.total[lang]} v={orderMoney(totalJpy, currency)} emphasis={!(pointsApplied && pointsApplied > 0)} />
     {pointsApplied !== undefined && pointsApplied > 0 && (
       <>

@@ -364,6 +364,37 @@ export function refundOf(json: Record<string, unknown>, expectedId?: string | nu
   return { ...(r as unknown as SquareRefund), amount_money: money };
 }
 
+/**
+ * L2 (2026-10-09, eighth release): a dispute as Square holds it — the dispute
+ * asked for (when an id was), a state and the disputed payment; anything else
+ * is a bad answer (read again). The MONEY is never a reason to drop a dispute:
+ * a chargeback must be recorded even when its amount cannot be read, because
+ * square_order_disputed_jpy then counts the WHOLE payment and both cancel RPCs
+ * refuse store credit (card_disputed). Readable money is normalised (whole
+ * units, upper-case currency); anything else is passed through unchanged and
+ * record_square_dispute decides: amount stored NULL + one
+ * card_dispute_amount_unreadable bell, or bad_currency / parent_mismatch
+ * refused with one card_dispute_unrecorded bell.
+ */
+export interface DisputeExpectation { id?: string | null }
+export function disputeOf(json: Record<string, unknown>, expect: DisputeExpectation = {}): SquareDispute {
+  const raw = json.dispute;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badAnswer("Square answered without a dispute");
+  const d = raw as Record<string, unknown>;
+  const id = typeof d.id === "string" && d.id.trim() !== "" ? d.id : typeof d.dispute_id === "string" && d.dispute_id.trim() !== "" ? d.dispute_id : null;
+  if (!id) throw badAnswer("Square answered a dispute without an id");
+  if (expect.id && id !== expect.id) throw badAnswer(`Square answered dispute ${id} when ${expect.id} was asked for`);
+  if (typeof d.state !== "string" || d.state.trim() === "") throw badAnswer(`Square answered dispute ${id} without a state`);
+  const dp = d.disputed_payment as Record<string, unknown> | null | undefined;
+  if (!dp || typeof dp !== "object" || typeof dp.payment_id !== "string" || dp.payment_id.trim() === "") {
+    throw badAnswer(`Square answered dispute ${id} without its payment`);
+  }
+  const money = moneyOf(d.amount_money);
+  return money && money.amount > 0
+    ? { ...(d as unknown as SquareDispute), id, amount_money: money }
+    : { ...(d as unknown as SquareDispute), id };
+}
+
 export interface CreateCardPaymentInput {
   env: Env;
   /** The one-time token from the Web Payments SDK (card.tokenize). */
@@ -488,6 +519,9 @@ export const square = {
     if (q.cursor) p.set("cursor", q.cursor);
     const qs = p.toString();
     const json = await call(e, "GET", `/disputes${qs ? `?${qs}` : ""}`);
+    // L2: discovery only ENQUEUES; every dispute is then read with getDispute
+    // (disputeOf) before anything is recorded. A malformed item is not dropped
+    // here: its event fails visibly (inbox retries, then square_event_failed).
     return { disputes: listField<SquareDispute>(json, "disputes"), cursor: cursorField(json) };
   },
   getRefund: async (e: Env, id: string): Promise<SquareRefund> => {
@@ -496,8 +530,8 @@ export const square = {
   },
   getDispute: async (e: Env, id: string): Promise<SquareDispute> => {
     const json = await call(e, "GET", `/disputes/${encodeURIComponent(id)}`);
-    if (!json.dispute || typeof json.dispute !== "object") throw new SquareError(502, "square_bad_response", "Square answered without a dispute");
-    return json.dispute as SquareDispute;
+    // L2: the dispute asked for; its money is the SQL's to judge (never a reason to drop it).
+    return disputeOf(json, { id });
   },
   /**
    * Events API (Beta): only events from while it is ENABLED are searchable
@@ -518,12 +552,15 @@ export const square = {
 /** The fields apply_square_payment_state / file_square_authorization_atomic take, from a Square payment. */
 export function paymentFacts(p: SquarePayment) {
   const amount = Number(p.amount_money?.amount);
-  const refunded = Number(p.refunded_money?.amount ?? 0);
+  // L3 (2026-10-09): Square omits refunded_money when it says nothing about
+  // refunds — that is null ("keep what the Hub knows"), never 0. A figure Square
+  // did send is passed as it stands, even when lower than before.
+  const refunded = p.refunded_money == null ? null : moneyOf(p.refunded_money)?.amount ?? null;
   const cd = p.card_details ?? {};
   return {
     amountJpy: Number.isSafeInteger(amount) ? amount : null,
     currency: p.amount_money?.currency ?? null,
-    refundedJpy: Number.isSafeInteger(refunded) ? refunded : 0,
+    refundedJpy: refunded,
     cardBrand: cd.card?.card_brand ?? null,
     cardLast4: cd.card?.last_4 && /^\d{4}$/.test(cd.card.last_4) ? cd.card.last_4 : null,
     receiptUrl: p.receipt_url ?? null,

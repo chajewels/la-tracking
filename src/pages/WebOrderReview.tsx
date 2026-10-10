@@ -56,11 +56,13 @@ interface Draft {
   cash_order_id: string | null;
   layaway_account_id: string | null;
   created_at: string;
-  /** C1 (2026-10-05): transfer | paidy | square, chosen at checkout. */
+  /** C1 (2026-10-05): transfer | paidy | square | cod, chosen at checkout. */
   payment_method: string | null;
   /** Points used at checkout, held by a pending redemption until Confirm. */
   points: number;
   points_value: number;
+  /** Cash on delivery fee (yen), already in the provisional total. 0 otherwise. */
+  cod_fee?: number;
 }
 interface DraftLine { id: string; title: string; sku: string | null; qty: number; unit_price_jpy: number; line_total_jpy: number; hold_state: string }
 interface Courier { id: string; provider_name: string; title: string; is_active: boolean }
@@ -84,6 +86,8 @@ interface Preview {
   points_value?: number;
   /** What the customer owes after Confirm: total (full) or deposit (layaway), less points. */
   due_now?: number;
+  /** Cash on delivery fee re-bracketed on these figures (0 for other methods); in `total`. */
+  cod_fee?: number;
 }
 
 /** Plain-words version of every refusal the server can give. */
@@ -108,6 +112,9 @@ const PROBLEM: Record<string, string> = {
   points_exceed_total: 'The customer\'s points are more than the pieces after the discount — lower the discount.',
   points_hold_lost: 'The points this customer used are no longer held (the redemption was cancelled). Decline and ask her to check out again.',
   points_insufficient: 'The customer no longer has enough points. Decline and ask her to check out again.',
+  over_cod_limit: 'Cash on delivery is offered only up to the limit (amount the courier collects, before the fee). Lower the total, or change the payment method.',
+  cod_nothing_to_collect: 'Nothing is left for the courier to collect, so cash on delivery does not apply — change the payment method.',
+  cod_fee_mismatch: 'The cash on delivery fee changed while you were editing — check the figures and confirm again.',
 };
 function problemText(code: string): string {
   if (PROBLEM[code]) return PROBLEM[code];
@@ -213,6 +220,7 @@ export default function WebOrderReview() {
   });
 
   const open = draft?.status === 'to_confirm';
+  const isCod = webMethodOf(draft?.payment_method) === 'cod';
   const needsCourier = !courier;
   const problems = preview?.errors ?? [];
   const canConfirm = open && !!preview && problems.length === 0 && !needsCourier && !busy && !previewing;
@@ -419,10 +427,18 @@ export default function WebOrderReview() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="deadline">Payment deadline</Label>
-              <Input id="deadline" type="datetime-local" value={deadline} disabled={!open} onChange={(e) => setDeadline(e.target.value)} />
-              <p className="text-[11px] text-muted-foreground">
-                {deadline ? 'Your date.' : preview?.deadline_hours ? `Leave empty for the customer's rule: ${preview.deadline_hours} hours after you confirm.` : 'Leave empty for the customer\'s rule.'}
-              </p>
+              {isCod ? (
+                <p className="text-sm text-muted-foreground" data-testid="web-review-cod-no-deadline">
+                  None — cash on delivery. Ship after you confirm; the courier collects the payment.
+                </p>
+              ) : (
+                <>
+                  <Input id="deadline" type="datetime-local" value={deadline} disabled={!open} onChange={(e) => setDeadline(e.target.value)} />
+                  <p className="text-[11px] text-muted-foreground">
+                    {deadline ? 'Your date.' : preview?.deadline_hours ? `Leave empty for the customer's rule: ${preview.deadline_hours} hours after you confirm.` : 'Leave empty for the customer\'s rule.'}
+                  </p>
+                </>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="loyalty">Loyalty product amount (¥)</Label>
@@ -483,6 +499,9 @@ export default function WebOrderReview() {
             <dt className="text-muted-foreground">Shipping</dt><dd className="text-right tabular-nums">{money(preview?.shipping)}</dd>
             <dt className="text-muted-foreground">Services</dt><dd className="text-right tabular-nums">{money(preview?.services)}</dd>
             <dt className="text-muted-foreground">Discount</dt><dd className="text-right tabular-nums">− {money(preview?.discount)}</dd>
+            {Number(preview?.cod_fee ?? 0) > 0 && (
+              <><dt className="text-muted-foreground">Cash on delivery fee</dt><dd className="text-right tabular-nums" data-testid="web-review-cod-fee">{money(preview?.cod_fee)}</dd></>
+            )}
             <dt className="font-medium text-card-foreground">Total</dt><dd className="text-right tabular-nums font-medium" data-testid="web-review-total">{money(preview?.total)}</dd>
             {Number(preview?.points_value ?? 0) > 0 && (
               <>
@@ -528,7 +547,11 @@ export default function WebOrderReview() {
             layaway={draft.mode === 'layaway'}
             peso={cur === 'PHP'}
             reference={draft.web_reference}
-            onChanged={() => qc.invalidateQueries({ queryKey: ['web-draft', id] })}
+            codFee={Number(draft.cod_fee ?? 0)}
+            onChanged={() => {
+              qc.invalidateQueries({ queryKey: ['web-draft', id] });
+              qc.invalidateQueries({ queryKey: ['web-draft-preview'] });
+            }}
           />
         )}
         {open && showDecline && (

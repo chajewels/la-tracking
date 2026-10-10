@@ -55,8 +55,8 @@ import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-
 import { useAuth } from '@/contexts/AuthContext';
 import { ChangePaymentMethodDialog } from '@/components/web-orders/ChangePaymentMethodDialog';
 import { EndPaidyWindowDialog } from '@/components/web-orders/EndPaidyWindowDialog';
-import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
-import { WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
+import { MarkRefundIssuedDialog, RefundIssuedLine, canMarkFurtherRefund, canMarkRefundIssued } from '@/components/web-orders/MarkRefundIssuedDialog';
+import { COD_AMOUNT_LOCKED_MESSAGE, WEB_METHOD_LABEL, webMethodOf } from '@/lib/web-payment-method';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -161,6 +161,8 @@ interface CashOrderRow {
   discount_type: string | null;
   discount_value: number | null;
   shipping_fee: number | null;
+  /** Cash on delivery fee (代引手数料), in total_amount; 0 unless payment_method = 'cod'. */
+  cod_fee?: number | null;
   // Shipment tracking (select('*') already fetches these; declaring them so
   // ShipmentTrackingCard receives typed props instead of casts).
   shipping_method_id: string | null;
@@ -519,6 +521,9 @@ export default function CashOrderDetail() {
   const [refundStatus, setRefundStatus] = useState<RefundStatus | ''>('');
   const [refundNote, setRefundNote] = useState('');
   const [refundIssuedOpen, setRefundIssuedOpen] = useState(false);
+  // L6 (2026-10-09): "Record the other part" on an order already marked refunded.
+  const openRefundIssued = useCallback(() => setRefundIssuedOpen(true), []);
+  const [refundMarksVersion, setRefundMarksVersion] = useState(0);
 
   // Edit expiry dialog
   const [editExpiryOpen, setEditExpiryOpen] = useState(false);
@@ -661,7 +666,10 @@ export default function CashOrderDetail() {
     ? Math.round(manageItemsSubtotalAcct * (parseFloat(manageDiscountInput) || 0) / 100)
     : Math.round(parseFloat(manageDiscountInput) || 0);
   const manageShippingFee = Math.round(parseFloat(manageShippingInput) || 0);
-  const manageReconciledTotal = Math.max(0, manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee);
+  // Cash on delivery (review H2, 2026-10-10): the fee is its own line of the total.
+  const manageCodFee = Number(order?.cod_fee ?? 0);
+  const manageIsCod = webMethodOf(order?.payment_method) === 'cod';
+  const manageReconciledTotal = Math.max(0, manageItemsSubtotalAcct - manageDiscountAmount + manageShippingFee + manageCodFee);
   const manageShowReconciliation = (orderItems ?? []).length > 0 || manageDiscountInput !== '' || manageShippingInput !== '';
 
   const openManageInvoice = useCallback(() => {
@@ -725,6 +733,14 @@ export default function CashOrderDetail() {
         setManageSaving(false);
         return;
       }
+      // Cash on delivery (review H2): the fee is bracketed on the amount the
+      // courier collects, so the money of a COD order changes only together
+      // with its method (the database refuses it too: cod_amount_locked).
+      if (manageIsCod && (totalChanged || discountChanged || shippingChanged)) {
+        toast.error(COD_AMOUNT_LOCKED_MESSAGE);
+        setManageSaving(false);
+        return;
+      }
 
       const remaining_balance = Math.max(
         0,
@@ -744,6 +760,14 @@ export default function CashOrderDetail() {
         order_date: nextOrderDate,
       };
       if (loyaltyChanged) updatePayload.loyalty_jpy_amount = nextLoyalty;
+      // L5 (2026-10-09): the balance is written only when the total really
+      // changes. It is recomputed from this page's total_paid, which can be
+      // stale (a card capture recorded meanwhile); the database also refuses a
+      // balance edit while a card or Paidy payment holds the order.
+      if (!totalChanged) {
+        delete updatePayload.total_amount;
+        delete updatePayload.remaining_balance;
+      }
       if (!isAdmin) {
         delete updatePayload.total_amount;
         delete updatePayload.remaining_balance;
@@ -775,7 +799,7 @@ export default function CashOrderDetail() {
           },
           new_value_json: {
             total_amount: newTotal,
-            remaining_balance,
+            remaining_balance: totalChanged ? remaining_balance : Number(order.remaining_balance),
             order_date: nextOrderDate,
             ...(loyaltyChanged ? { loyalty_jpy_amount: nextLoyalty } : {}),
           },
@@ -795,7 +819,7 @@ export default function CashOrderDetail() {
     } finally {
       setManageSaving(false);
     }
-  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, manageLoyaltyInput, canEditLoyalty, manageLoyaltyAward, loyaltyTier, isAdmin, qc, id]);
+  }, [order, manageTotal, manageOrderDate, manageDiscountAmount, manageDiscountMode, manageDiscountInput, manageShippingFee, manageLoyaltyInput, canEditLoyalty, manageLoyaltyAward, loyaltyTier, isAdmin, qc, id, manageIsCod]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -1315,7 +1339,7 @@ export default function CashOrderDetail() {
                   </p>
                 )}
                 {order.status === 'cancelled' && order.source_channel === 'web' && order.refund_status === 'refund_issued' && (
-                  <RefundIssuedLine orderId={order.id} />
+                  <RefundIssuedLine key={refundMarksVersion} orderId={order.id} onRecordAnother={can('cancel_cash_order') ? openRefundIssued : undefined} />
                 )}
                 {canMarkRefundIssued(order) && can('cancel_cash_order') && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1351,7 +1375,8 @@ export default function CashOrderDetail() {
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">
           {(() => {
             const hasLoyalty = order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0;
-            const showExpiry = !!order.expires_at || order.status === 'expired';
+            // Cash on delivery has no payment deadline: no Expires tile (owner plan 2026-10-10).
+            const showExpiry = (!!order.expires_at && webMethodOf(order.payment_method) !== 'cod') || order.status === 'expired';
             const tileCount = 3 + (hasLoyalty ? 1 : 0) + (showExpiry ? 1 : 0);
             const gridClass =
               tileCount === 5 ? 'grid-cols-2 sm:grid-cols-5'
@@ -1522,6 +1547,11 @@ export default function CashOrderDetail() {
                     </>
                   )}
                 </p>
+                {webMethodOf(order.payment_method) === 'cod' && (
+                  <p className="text-xs text-muted-foreground" data-testid="cash-order-cod-steps">
+                    Ship now. When the courier remits, record the FULL amount collected ({formatCurrency(Number(order.remaining_balance), currency)}, the {formatCurrency(Number(order.cod_fee ?? 0), currency)} cash on delivery fee included) with method Cash on Delivery and the remittance statement as proof. The courier's own charges stay outside the Hub.
+                  </p>
+                )}
                 {paidyWindow && !providerHold && (
                   <p className="rounded-md border border-amber-300/70 bg-amber-50/70 px-2 py-1 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200" data-testid="cash-order-paidy-window">
                     Paidy window open since {formatPHTDisplay(paidyWindow.started_at)}
@@ -1607,6 +1637,7 @@ export default function CashOrderDetail() {
             layaway={false}
             peso={String(order.currency) === 'PHP'}
             reference={cashOrderRef(order)}
+            codFee={Number(order.cod_fee ?? 0)}
             onChanged={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
           />
         )}
@@ -1722,16 +1753,25 @@ export default function CashOrderDetail() {
         {/* The transfer deadline. A field staff set and move while the order is
             live, never a computed rule — and it moves expires_at with it, so
             the date the customer sees is the date the hourly job acts on. */}
-        <DeadlinesCard
-          entityType="cash_order"
-          entityId={order.id}
-          status={order.status}
-          transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
-          reference={orderWebFields.web_reference ?? null}
-          sourceChannel={orderWebFields.source_channel ?? null}
-          awaitingConfirmation={awaitingReservation}
-          canEdit={can('edit_account')}
-        />
+        {orderWebFields.source_channel === 'web' && webMethodOf(order.payment_method) === 'cod' ? (
+          <div className="rounded-xl border border-border bg-card p-4 text-sm" data-testid="cash-order-cod-no-deadline">
+            <p className="font-medium text-card-foreground">Payment deadline: none — cash on delivery</p>
+            <p className="text-xs text-muted-foreground">
+              The order never lapses and no reminder is sent. If the parcel is refused, cancel the order (the stock returns).
+            </p>
+          </div>
+        ) : (
+          <DeadlinesCard
+            entityType="cash_order"
+            entityId={order.id}
+            status={order.status}
+            transferDueAt={orderWebFields.transfer_due_at ?? order.expires_at ?? null}
+            reference={orderWebFields.web_reference ?? null}
+            sourceChannel={orderWebFields.source_channel ?? null}
+            awaitingConfirmation={awaitingReservation}
+            canEdit={can('edit_account')}
+          />
+        )}
 
         {/* Every storefront email about this web order, incl. the payment reminder. */}
         {orderWebFields.source_channel === 'web' && <OrderEmailHistory entityType="cash_order" entityId={order.id} />}
@@ -1801,7 +1841,7 @@ export default function CashOrderDetail() {
         {/* Financial Breakdown — recorded discount / shipping (order currency).
             Lists the recorded values + the authoritative total; no reconciliation
             equation is asserted. */}
-        {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0) && (
+        {(Number(order.discount_amount || 0) > 0 || Number(order.shipping_fee || 0) > 0 || Number(order.cod_fee || 0) > 0) && (
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-3">Financial Breakdown</h3>
             <div className="space-y-2 text-sm">
@@ -1817,6 +1857,12 @@ export default function CashOrderDetail() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Shipping fee</span>
                   <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(order.shipping_fee), currency)}</span>
+                </div>
+              )}
+              {Number(order.cod_fee || 0) > 0 && (
+                <div className="flex items-center justify-between" data-testid="cash-order-cod-fee">
+                  <span className="text-muted-foreground">Cash on delivery fee</span>
+                  <span className="tabular-nums text-card-foreground">+{formatCurrency(Number(order.cod_fee), currency)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-border pt-2 font-semibold">
@@ -2714,6 +2760,15 @@ export default function CashOrderDetail() {
                   <span className="text-muted-foreground">+ Shipping</span>
                   <span className="tabular-nums text-card-foreground">{formatCurrency(manageShippingFee, currency)}</span>
                 </div>
+                {manageCodFee > 0 && (
+                  <div className="flex justify-between" data-testid="manage-invoice-cod-fee">
+                    <span className="text-muted-foreground">+ Cash on delivery fee</span>
+                    <span className="tabular-nums text-card-foreground">{formatCurrency(manageCodFee, currency)}</span>
+                  </div>
+                )}
+                {manageIsCod && (
+                  <p className="text-muted-foreground" data-testid="manage-invoice-cod-locked">{COD_AMOUNT_LOCKED_MESSAGE}</p>
+                )}
                 <div className="flex justify-between border-t border-border pt-1 font-medium">
                   <span className="text-card-foreground">= Reconciled</span>
                   <span className="tabular-nums text-card-foreground">{formatCurrency(manageReconciledTotal, currency)}</span>
@@ -2750,13 +2805,13 @@ export default function CashOrderDetail() {
         </DialogContent>
       </Dialog>
 
-      {order && canMarkRefundIssued(order) && (
+      {order && (canMarkRefundIssued(order) || canMarkFurtherRefund(order)) && (
         <MarkRefundIssuedDialog
           open={refundIssuedOpen}
           onOpenChange={setRefundIssuedOpen}
           orderId={order.id}
           reference={cashOrderRef(order)}
-          onDone={() => qc.invalidateQueries({ queryKey: ['cash-order', id] })}
+          onDone={() => { setRefundMarksVersion((v) => v + 1); qc.invalidateQueries({ queryKey: ['cash-order', id] }); }}
         />
       )}
 
