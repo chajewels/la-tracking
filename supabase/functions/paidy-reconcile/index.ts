@@ -7,7 +7,9 @@ import { paidyAdoptBlock, paidyCapturedAmount, paidyConfirmLeaseExpired, paidyPr
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 import { paidyCaseBell } from "../_shared/paidy-case-bell.ts";
-import { PAIDY_RECORDED_BELL_TYPE, paidyRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil } from "../_shared/paidy-recorded-bell.ts";
+import {
+  type MissingRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil, ringPaidyRecordedBell, sweepMissingRecordedBells,
+} from "../_shared/paidy-recorded-bell.ts";
 import { REFERENCE_FIELDS, customerReference } from "../_shared/order-reference.ts";
 import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { advanceCancelIntent, cancellationSnapshot, emitCancellationFollowups, syncStoreCreditToShopify } from "../_shared/cancel-followups.ts";
@@ -43,8 +45,10 @@ import type { RefundStatus } from "../_shared/email-templates/order-cancelled.ts
  *      cancellations interrupted after their Paidy release (finished from
  *      the terminate step on; one interrupted before the release only rings
  *      a bell — owner decision), and open cases whose first bell never rang.
- *   6d. Reassessment F2: a recorded Paidy payment whose "Paidy payment
- *      recorded" bell never rang gets it late (once per cash payment).
+ *   6d. Reassessment F2: every recorded Paidy payment whose "Paidy payment
+ *      recorded" bell never rang gets it late — all of them, not a first page
+ *      (paidy_recorded_bell_missing), at most once per cash payment, enforced
+ *      by the database (ring_paidy_payment_recorded_bell + unique index).
  *
  * Only this environment's payments are read (P07); an inbox event from the
  * other environment is parked and retried daily — never dropped (owner
@@ -614,54 +618,36 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 6d. Reassessment F2 (owner 2026-10-10, option A): a Paidy payment the
-    //     Hub recorded but whose "Paidy payment recorded" bell never rang (the
-    //     ring runs after the recording commits; a crash or a failed insert in
-    //     between loses it). Rung once, late, keyed on the cash payment id;
-    //     only recordings older than the grace period and newer than the
-    //     look-back. Never touches money: reads, then one bell insert.
+    // 6d. Reassessment F2 (owner 2026-10-10, option A; QA reopen 23:21): a
+    //     Paidy payment the Hub recorded but whose "Paidy payment recorded"
+    //     bell never rang. paidy_recorded_bell_missing lists ONLY recordings
+    //     without a bell (keyset-paged, so already-belled ones never hide a
+    //     later one); ring_paidy_payment_recorded_bell writes it atomically
+    //     (one bell per cash payment, enforced by a unique index), the same
+    //     writer the recording path uses. Never touches money.
     {
       const nowMs = Date.now();
       const since = paidyRecordedBellSince(nowMs);
       const until = paidyRecordedBellUntil(nowMs);
-      const { data: subs, error: subErr } = await supabase
-        .from("payment_submissions").select("id, cash_order_id, sender_name, reviewer_user_id, confirmed_payment_id")
-        .not("paidy_payment_id", "is", null).eq("status", "confirmed").not("confirmed_payment_id", "is", null)
-        .gte("updated_at", since).order("updated_at", { ascending: true }).limit(50);
-      if (subErr) throw subErr;
-      const rows = (subs ?? []) as Record<string, any>[];
-      if (rows.length > 0) {
-        const { data: pays, error: payErr } = await supabase.from("cash_payments")
-          .select("id, cash_order_id, amount_paid, created_at, voided_at")
-          .in("id", rows.map((r) => r.confirmed_payment_id));
-        if (payErr) throw payErr;
-        const payById = new Map(((pays ?? []) as Record<string, any>[]).map((p) => [String(p.id), p]));
-        for (const sub of rows) {
-          const pay = payById.get(String(sub.confirmed_payment_id));
-          const at = Date.parse(String(pay?.created_at ?? ""));
-          if (!pay || pay.voided_at || !Number.isFinite(at) || at < Date.parse(since) || at > Date.parse(until)) continue;
-          const { data: prior, error: priorErr } = await supabase.from("staff_notifications").select("id")
-            .eq("type", PAIDY_RECORDED_BELL_TYPE).contains("metadata", { cash_payment_id: pay.id }).limit(1);
-          if (priorErr) { report.write_errors++; continue; }
-          if ((prior ?? []).length > 0) continue;
-          const { data: order, error: oErr } = await supabase.from("cash_orders")
-            .select(`id, status, remaining_balance, ${REFERENCE_FIELDS}`).eq("id", pay.cash_order_id).maybeSingle();
-          if (oErr || !order) { report.write_errors++; continue; }
-          const o = order as Record<string, any>;
-          const automatic = sub.reviewer_user_id == null;
-          const fullyPaid = String(o.status) === "completed";
-          const b = paidyRecordedBell({
-            reference: customerReference(o as never), amountJpy: Number(pay.amount_paid), senderName: sub.sender_name,
-            automatic, fullyPaid, remainingJpy: Number(o.remaining_balance ?? 0), late: true,
+      const sweep = await sweepMissingRecordedBells({
+        missing: async (after, limit) => {
+          const { data, error } = await supabase.rpc("paidy_recorded_bell_missing", {
+            p_since: since, p_until: until, p_after_at: after?.at ?? null, p_after_id: after?.id ?? null, p_limit: limit,
           });
-          const { error } = await supabase.from("staff_notifications").insert({
-            type: b.type, title: b.title, body: b.body,
-            metadata: { cash_order_id: o.id, submission_id: sub.id, cash_payment_id: pay.id, actor: automatic ? "paidy_auto" : "staff", fully_paid: fullyPaid, late: true },
-          });
-          if (error) { report.write_errors++; continue; }
-          report.recorded_bells_late++;
-        }
-      }
+          if (error) throw error;
+          return (data ?? []) as MissingRecordedBell[];
+        },
+        order: async (cashOrderId) => {
+          const { data, error } = await supabase.from("cash_orders")
+            .select(`id, status, remaining_balance, ${REFERENCE_FIELDS}`).eq("id", cashOrderId).maybeSingle();
+          if (error || !data) return null;
+          const o = data as Record<string, any>;
+          return { id: String(o.id), status: String(o.status), remaining_balance: o.remaining_balance, reference: customerReference(o as never) };
+        },
+        ring: (bell, metadata) => ringPaidyRecordedBell(supabase, bell, metadata),
+      });
+      report.recorded_bells_late += sweep.rung;
+      report.write_errors += sweep.failed;
     }
 
     // Lag (R18): how far behind the sweep is — and PA10: what is parked.
