@@ -864,3 +864,32 @@ emailable to Brenda + admins.
   field is `recorded_bells_late`. Edge only: no migration, no money RPC, no
   write to any payment or order. Option B (ringing inside the recording
   transaction) was not chosen.
+- **F2 — QA reopen (2026-10-10 23:21 JST), fixed in migration
+  `20261208150000_paidy_recorded_bell_once.sql`.** QA reproduced two gaps in
+  the first version:
+  1. the sweep read only the 50 oldest recordings, so a missing bell beyond
+     them was never reached;
+  2. two overlapping workers (or a sweep and the normal ring) could both see
+     "no bell" and both insert.
+
+  Now:
+  - The unique index `uq_staff_notifications_paidy_recorded` allows at most one
+    `paidy_payment_recorded` bell per `metadata->>'cash_payment_id'`.
+  - `ring_paidy_payment_recorded_bell(title, body, metadata)` is the ONE writer
+    for both paths: `INSERT … ON CONFLICT DO NOTHING`, returning true only when
+    it inserted, so the staff-email fan-out runs once.
+  - `paidy_recorded_bell_missing(since, until, after_at, after_id, limit)`
+    lists ONLY the recordings without a bell, keyset-paged by
+    (created_at, id); the sweep walks every page (100 per page, at most 50
+    pages per run).
+  - Both functions are service_role only. Neither touches money.
+  - If a recording has no cash payment id, the normal path falls back to the
+    plain insert; there is nothing to key that bell on.
+
+  Tests:
+  - `development/paidy-recorded-bell.test.ts` (CI): more than 50 and more
+    than one page; three overlapping sweeps plus the normal ring.
+  - `development/sql/paidy-recorded-bell-once.sh`, run locally on a replayed
+    database (CI has no Postgres): 237 recordings with missing bells beyond
+    #50; two sessions on one payment; four parallel workers × 300 payments.
+    Result: ALL PASS.
