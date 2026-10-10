@@ -31,8 +31,11 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
    from Paidy with `PAIDY_SECRET_KEY` and `filePaidyAuthorization()`
    (`_shared/paidy-filing.ts`) checks it with `paidyFilingMismatch()` (status
    AUTHORIZED, JPY, `test` flag = mode, amount = remaining balance, `order_ref`
-   = the customer reference); a mismatch is CLOSED on Paidy and answered 409
-   `paidy_mismatch`. Then `file_paidy_submission_atomic` writes the
+   = the customer reference); a mismatch is answered 409 `paidy_mismatch` —
+   CLOSED on Paidy, except an `order_ref` or `test` mismatch, which is never
+   closed from here (QC PR-A M1: another order's or environment's money). An
+   `order_ref` naming HER other order is handed to that order; one naming
+   ANOTHER customer's order is released (QC PR-B M3). Then `file_paidy_submission_atomic` writes the
    `paidy_payments` row (with Paidy's `expires_at`), the `payment_submissions`
    row (`payment_method 'paidy'`, `reference_number` = the Paidy id,
    `proof_url null`) and the audit row in ONE transaction under a lock on the
@@ -49,8 +52,9 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
 5. Reviewer **Reject** (the staff fallback — the invoice stays open) → Paidy is
    read first: a payment Paidy already captured is never rejected; the
    guarded status write claims the rejection; only then
-   `POST /payments/:id/close`. A close Paidy refuses becomes a `close_failed`
-   case the sweep retries.
+   `POST /payments/:id/close`. A close Paidy refuses is answered 502
+   `paidy_close_failed` and the submission stays queued (nothing is rejected
+   until Paidy confirms the close); staff retry.
 6. `paidy-webhook` (public, `verify_jwt = false`): Paidy signs nothing, so the
    body only names an id; the Hub re-reads the payment and runs
    `syncPaidyPayment()` (`_shared/paidy-sync.ts`). CLOSED/REJECTED by Paidy
@@ -218,9 +222,10 @@ refund on an unrecorded payment is **held for a staff decision**.
   land number, land number extension" — what we send; and "If the order item
   is a discount or coupon, set the unit_price to a negative value" — our
   "Discount" / "Points" lines.
-- NOT CHANGED (live-first rule): `terminate_web_order_atomic` /
-  `expire_web_layaway_atomic` bodies — the expiry sweep checks the lock in
-  TypeScript first; a seconds-wide race remains (docs/OPEN-BUGS.md).
+- ~~NOT CHANGED: a seconds-wide expiry race~~ — closed: `terminate_web_order_atomic`
+  checks `cash_order_payment_lock(...) LIKE 'paidy%'` under the order lock for
+  every outcome (QC PR-A H10); Paidy never reaches a layaway plan, and
+  `cancel_cash_order_atomic` refuses the same since QC PR-B L-1.
 
 ## Owner answers (2026-10-04, second round) — migration 20261104110000
 - REASSIGN OWNER — a cash order with ANY Paidy history (a `paidy_payments` row,
@@ -316,7 +321,8 @@ Open for owner (NOT implemented):
   through `set_paidy_settings` (admin role, audited; guard trigger
   `trg_guard_paidy_settings`); never in a migration or SQL. The key family must
   match the mode (test ↔ pk_test_, on ↔ pk_live_); the secret's family is
-  compared too before any Paidy call (`paidySecretIsTest()`).
+  compared too before she can approve anything (`paidyNotOfferedReason`
+  secret_not_configured / secret_mode_mismatch, QC PR-B L1) and again at filing.
 - A Paidy submission is the ONE exception to PROOF REQUIRED (PD1): the proof is
   the authorisation the Hub read back. Every other method keeps the rule.
 - The Hub NEVER captures (owner 2026-10-04): staff capture in the Paidy
@@ -778,3 +784,63 @@ Guards: `development/paidy-qc-pr-a.test.ts` (CI), `development/paidy-sync.test.t
   second start refused; closed window replaced at once; timed-out-unverified
   window stays, verified window reopens; filing ends the noted window; note
   guards; grants. CI: development/paidy-second-hold.test.ts.
+
+## QC PR-B (owner go 2026-10-10 17:10 JST; migration 20261206100000)
+
+Fixes from the 2026-10-10 independent review (four fresh reviewers: database,
+server functions, staff screens, website). Owner decisions: "first payment
+wins"; an orphan capture is recorded by an admin (recommended A); the 特定商取引法
+Paidy sentences follow the Paidy switch; a "Paidy payment recorded" bell, also
+emailable to Brenda + admins.
+
+- **Partial refunds (DB M-1).** `mark_web_order_refund_issued_atomic` marks a
+  Paidy refund issued only once Paidy's verified refunds cover the Paidy money;
+  a partial refund answers `paidy_refund_incomplete` (paid / refunded figures)
+  and the order stays `refund_pending` — the same rule terminate applies.
+- **A noted approval is never forgotten (DB M-2).** While her window notes a
+  DIFFERENT approval Paidy reported (not verified empty), a new approval is
+  refused (`submission_pending`, lock `paidy_approval_noted`) and released —
+  the noted one came first; it is filed when it arrives, or its window ends
+  once the sweep verifies Paidy holds nothing. The window is never overwritten.
+- **Orphan captures (DB M-3, owner A).** Paidy took money the Hub never filed
+  (a capture case with no payment row). An ADMIN presses "Record this Paidy
+  payment" (Payment Submissions → Paidy cases, written reason ≥ 10 chars):
+  `paidy-staff-action` `record_orphan_capture` reads the payment from Paidy
+  (nothing is sent to Paidy), `paidyOrphanCaptureProblem` checks it (captured,
+  nothing refunded, ONE capture = the whole payment in yen, names this order,
+  this environment), `adopt_paidy_orphan_capture_atomic` (service_role, admin
+  re-checked; order pending, yen, nothing paid, amount = balance, nothing else
+  waiting) writes the Hub's receipt + a Paidy submission and resolves the case
+  as `record_capture`, and the ONE recording path (paidy_auto Confirm →
+  `finalize_cash_submission_atomic`) records it. It also ends her open Paidy
+  window, and it requires the same order binding as adoption
+  (`paidy_not_tied_to_order`). Proved end to end on the replay (order
+  completed, lock cleared, no window left open).
+- **First payment wins (edge M1, owner).** An approval arriving while another
+  payment waits on the order (a transfer, a card, an earlier Paidy approval) is
+  RELEASED at once with a bell; nothing waits behind it, so the earlier payment
+  can be confirmed. Accepted trade-off (review LOW-1): when the payment ahead
+  is a Paidy hold that is itself about to end, the customer approves again.
+- **Early approvals are noted (edge M2).** The webhook notes an approval on her
+  window during the 3-minute callback grace, so a new window cannot replace it.
+- **Approvals bound to their order (edge M3).** The website releases an
+  approval naming ANOTHER customer's order; adoption (webhook / sweep / her own
+  other order) files an approval only on an order that opened Paidy for it
+  (`paidyApprovalHasWindow`): the window id the launch put in Paidy's metadata
+  when Paidy returns it, else a window of that order started from 2 h before to
+  10 min after Paidy created the payment — otherwise it is released.
+- **Secret family before approval (edge L1)**, **reject guard (DB L-2:
+  `authorization_open`)**, **environment bound in SQL (DB L-3:
+  `paidy_environment_mismatch`, never closed)**, **refund over capture still
+  raises `refund_jpy` (DB L-5)**, **Hub-order cancel (and its preview) refuses
+  while Paidy holds it (DB L-1)**, **interrupted-Confirm bell tells staff what to press (edge L2)**.
+- **Order page truth (web M1).** A window holding an approval reads
+  `payment_state: "paidy_processing"` with `paidy: null` — never "open Paidy
+  again".
+- **Staff screens.** `cash_order_payment_lock_for_staff` (staff only) feeds the
+  cash order page so every Paidy hold hides the payment actions; permission
+  errors are read from the status / code, never a word in a message; Paidy
+  submissions get no Attach proof; copy fixes.
+- **Bell `paidy_payment_recorded`.** Rung once per Paidy recording ("order
+  completed, ready to ship" when it completed the order). Emailed only when an
+  admin ticks it in Website → Settings → Staff bell emails.

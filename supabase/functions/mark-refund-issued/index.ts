@@ -43,6 +43,7 @@ const STATUS: Record<string, number> = {
   // method 'paidy', only once the Hub has read the refund back from Paidy
   // (paidy_refunds); the amount is the verified total, never the gross.
   no_verified_paidy_refund: 409,
+  paidy_refund_incomplete: 409,
   // SQF06 (owner D-SQF06, 2026-10-09): the card-refund-outside-Square exception —
   // admin only, opened only by a FAILED/REJECTED Square refund or a payment
   // authorised over one calendar year ago, evidence (refund id / ticket /
@@ -152,7 +153,12 @@ Deno.serve(async (req) => {
     const r = (data ?? {}) as Record<string, unknown>;
     if (r.ok !== true) {
       const code = String(r.error ?? "refused");
-      return jsonResponse({ error: code, missing: r.missing ?? null, detail: r.detail ?? null, cap_jpy: r.cap_jpy ?? null }, STATUS[code] ?? 409);
+      // QC PR-B M-1: a partial Paidy refund carries both figures and its message.
+      return jsonResponse({
+        error: code, missing: r.missing ?? null, detail: r.detail ?? null, cap_jpy: r.cap_jpy ?? null,
+        paidy_paid_jpy: r.paidy_paid_jpy ?? null, paidy_refunded_jpy: r.paidy_refunded_jpy ?? null,
+        message: typeof r.message === "string" ? r.message : undefined,
+      }, STATUS[code] ?? 409);
     }
 
     const emailKey = `refund-issued-${orderId}`;

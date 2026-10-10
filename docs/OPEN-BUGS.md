@@ -792,10 +792,9 @@
 - ~~Reject talks to the provider before its guarded status write~~ — FIXED for Paidy by the
   follow-up (2026-10-04, R04): the guarded write claims the rejection, then the winner closes.
   Square still cancels before its write (Square out of scope of the Paidy review).
-- **INVARIANT 12 / the Paidy lock in the expiry SQL functions.** The expiry sweep checks
-  `cash_order_payment_lock` in TypeScript before `terminate_web_order_atomic` /
-  `expire_web_layaway_atomic`; those bodies still freeze on submitted / under_review only. A
-  seconds-wide race remains. Changing those bodies must start from live (Bug #280 rule).
+- ~~**INVARIANT 12 / the Paidy lock in the expiry SQL functions.**~~ — FIXED: `terminate_web_order_atomic`
+  checks the Paidy lock under the order lock for every outcome (QC PR-A H10); Paidy never reaches a
+  layaway plan; `cancel_cash_order_atomic` refuses the same since QC PR-B (2026-10-10).
 - ~~submit-cash-payment still accepts a bank transfer while Paidy is processing~~ — FIXED
   (follow-up R16): the payment lock trigger refuses it on every route.
 - ~~Paidy lock not yet enforced in three money writers~~ — FIXED (migration 20261104110000,

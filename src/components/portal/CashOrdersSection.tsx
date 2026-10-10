@@ -457,7 +457,7 @@ function CashOrderCard({
             ⏳ Paidy payment being processed
           </p>
           <p style={{ color: M.ts, fontSize: 11, marginTop: 4 }}>
-            No other payment is needed for now. If Paidy declines it, you can pay another way here.
+            No other payment is needed for now. If Paidy declines it, you can pay another way on your order page on the website.
           </p>
         </div>
       ) : isPending && order.card_processing ? (
