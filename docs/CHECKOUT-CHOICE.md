@@ -131,3 +131,12 @@ emails English only.
 
 Test (CI): `development/payment-lifecycle-addendum.test.ts` (copy, neutral reason, refund refusal order,
 wiring of every sender, the five dead reserve-first senders gone).
+
+## Cash on delivery — a fourth method (2026-10-10)
+
+`cod` (代金引換) joins transfer / paidy / card: yen, Japan delivery, full payment only, off unless
+`cod_mode` = on. The fee (`public.cod_fee_jpy`, TS mirror `_shared/cod-fee.ts`) is its own line in
+the total, never in the loyalty basis, never paid by points. No deadline, no reminder, no lapse.
+Staff and the customer (after a rejection) may switch to / from it; the fee delta moves total and
+remaining in the same transaction. `payment_options` gains `cod` with `fee_jpy`; `totals` gains
+`cod_fee`. Full rules: docs/COD.md.

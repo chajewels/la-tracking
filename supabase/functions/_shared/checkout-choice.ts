@@ -19,26 +19,35 @@
  *   C7 the figures the "Use points" panel shows all come from here.
  */
 import { jpyToPhpHalfUp } from "./settlement.ts";
+import { type CodBracket, type CodMode, codFeeJpy, codNotOfferedReason } from "./cod-fee.ts";
 
-/** What the storefront calls the methods. "card" is stored as 'square'. */
-export type CheckoutMethod = "transfer" | "paidy" | "card";
-export type StoredMethod = "transfer" | "paidy" | "square";
+/**
+ * What the storefront calls the methods. "card" is stored as 'square'. "cod" is
+ * cash on delivery (代金引換, owner plan 2026-10-10) and is stored as 'cod'.
+ */
+export type CheckoutMethod = "transfer" | "paidy" | "card" | "cod";
+export type StoredMethod = "transfer" | "paidy" | "square" | "cod";
 
-export const CHECKOUT_METHODS: CheckoutMethod[] = ["transfer", "paidy", "card"];
+export const CHECKOUT_METHODS: CheckoutMethod[] = ["transfer", "paidy", "card", "cod"];
 
-/** card → square; anything unknown → null. */
+/** card → square; cod → cod; anything unknown → null. */
 export function storedMethod(m: unknown): StoredMethod | null {
   const v = String(m ?? "").trim().toLowerCase();
-  if (v === "transfer" || v === "paidy") return v;
+  if (v === "transfer" || v === "paidy" || v === "cod") return v;
   if (v === "card" || v === "square") return "square";
   return null;
 }
 
-/** square → card; null/unknown → transfer (every order before 2026-10-05 was transfer). */
+/**
+ * square → card; cod → cod (NEVER transfer: a COD order has no bank details,
+ * no deadline and no transfer reminder); null/unknown → transfer (every order
+ * before 2026-10-05 was transfer).
+ */
 export function publicMethod(m: unknown): CheckoutMethod {
   const v = String(m ?? "").trim().toLowerCase();
   if (v === "paidy") return "paidy";
   if (v === "square" || v === "card") return "card";
+  if (v === "cod") return "cod";
   return "transfer";
 }
 
@@ -60,12 +69,23 @@ export interface MethodOptionsInput {
   squareAllowed?: boolean;
   /** A transfer account exists for the currency (transferAvailable). */
   transferAvailable: boolean;
+  /** Cash on delivery: the switch (cod_mode, fail-closed). Omitted = off. */
+  codMode?: CodMode;
+  /** The fee table (cod_fee_table); null/omitted = no COD. */
+  codTable?: readonly CodBracket[] | null;
+  /** What the courier would collect before the fee, yen (pieces after points + shipping). */
+  codCollectedJpy?: number;
 }
 
 export interface MethodOption {
   available: boolean;
-  /** Why it is greyed: layaway | currency_not_yen | address_not_jp | off | no_account. */
+  /**
+   * Why it is greyed: layaway | currency_not_yen | address_not_jp | off | no_account;
+   * COD also nothing_to_collect | over_cod_limit.
+   */
   reason: string | null;
+  /** COD only: the fee this checkout would add (Hub figure), null when not offered. */
+  fee_jpy?: number | null;
 }
 
 /**
@@ -73,6 +93,11 @@ export interface MethodOption {
  * fails, in the order the customer can do something about it.
  */
 export function checkoutMethodOptions(i: MethodOptionsInput): Record<CheckoutMethod, MethodOption> {
+  const codCollected = Number(i.codCollectedJpy ?? 0);
+  const codReason = codNotOfferedReason({
+    mode: i.mode, currency: i.currency, country: i.country, codMode: i.codMode ?? "off",
+    collectedJpy: codCollected, table: i.codTable ?? null,
+  });
   const providerOff = (m: ProviderMode) => m === "off" || (m === "test" && !i.customerIsTest);
   const paidyReason =
     i.mode === "layaway" ? "layaway"
@@ -89,6 +114,11 @@ export function checkoutMethodOptions(i: MethodOptionsInput): Record<CheckoutMet
     transfer: { available: i.transferAvailable, reason: i.transferAvailable ? null : "no_account" },
     paidy: { available: paidyReason === null, reason: paidyReason },
     card: { available: cardReason === null, reason: cardReason },
+    cod: {
+      available: codReason === null,
+      reason: codReason,
+      fee_jpy: codReason === null ? codFeeJpy(codCollected, i.codTable ?? null) : null,
+    },
   };
 }
 

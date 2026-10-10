@@ -8,6 +8,7 @@ import { NOT_READY_FOR_PAYMENT, isUnconfirmedReservation } from "../_shared/web-
 import { maskEmail } from "../_shared/redact.ts";
 import { isWebEntity, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
+import { customerFilingRefusal } from "../_shared/cod-fee.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -169,6 +170,24 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // 4a''. Cash on delivery (owner plan 2026-10-10): the courier collects it and
+    // STAFF record the full amount with the remittance statement as proof. A
+    // customer never files a 'cod' payment, nor any payment on an order she is
+    // paying on delivery. Staff (Path B) are unaffected.
+    if (pathACustomerId) {
+      const { data: methodRow } = await supabase.from("cash_orders").select("payment_method").eq("id", cash_order_id).maybeSingle();
+      const codRefusal = customerFilingRefusal(payment_method, (methodRow as { payment_method?: string } | null)?.payment_method);
+      if (codRefusal) {
+        return new Response(JSON.stringify({
+          error: codRefusal,
+          message: "Cash on delivery is paid to the courier when the parcel arrives. There is nothing to send.",
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // 4a'. QC P2-4 (2026-10-06): a WEB cash order is never self-filed by the

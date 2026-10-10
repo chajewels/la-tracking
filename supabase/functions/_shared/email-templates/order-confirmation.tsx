@@ -1,7 +1,7 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from 'npm:@react-email/components@0.0.22'
-import { formatDeadline, type Lang } from '../storefront-email.ts'
+import { formatDeadline, orderMoney, type Lang } from '../storefront-email.ts'
 import { ItemsTable, MethodCards, WORDS, button, buttonWrap, container, footer, h1, h2, headerBar, main, muted, rule, text, wordmark, type OrderEmailItem, type OrderEmailMethod, type OrderCurrency, type PayMethod, METHOD_NAME, subjectFor } from './order-shared.tsx'
 
 /**
@@ -47,9 +47,16 @@ export interface OrderConfirmationProps {
    * accounts as before; 'paidy' / 'card' no bank details, a pointer to the
    * order page instead.
    */
-  chosenMethod?: 'transfer' | 'paidy' | 'card'
+  chosenMethod?: 'transfer' | 'paidy' | 'card' | 'cod'
   /** Points used at checkout, already taken off (order currency). Absent/0 = none. */
   pointsApplied?: number
+  /**
+   * Cash on delivery (owner plan 2026-10-10): the 代引手数料, already in the
+   * total, shown on its own line. With chosenMethod 'cod' the email says the
+   * piece ships and is paid to the courier on delivery — no bank details, no
+   * deadline lines.
+   */
+  codFee?: number
   /**
    * Payment lifecycle H3: the method was just changed (by staff, or by her
    * after a rejected payment). Heading 「お支払い方法を変更しました」 and an
@@ -69,6 +76,18 @@ export const CHOSEN_METHOD_LINE = {
   card: {
     ja: 'お支払い方法：クレジットカード・デビットカード（日本円でのお支払い）。ご注文ページの「カードで支払う」から、期限までにお手続きください。',
     en: 'You chose to pay by card (charged in yen). Choose "Pay by card" on your order page before the deadline.',
+  },
+} as const
+
+/** Cash on delivery: no deadline — it ships, and she pays the courier on delivery. */
+export const COD_COPY = {
+  ja: {
+    intro: (ref: string) => `ご注文番号 ${ref} のお品物を確認いたしました。お支払いは代金引換です。準備ができしだい発送いたします。`,
+    line: (amt: string) => `お品物のお届け時に、配達員へ ${amt}（代引手数料を含む）をお支払いください。それまでにお支払いいただくものはありません。`,
+  },
+  en: {
+    intro: (ref: string) => `We have confirmed your piece for order ${ref}. You chose cash on delivery, so we ship it as soon as it is ready.`,
+    line: (amt: string) => `Please pay ${amt} (the cash on delivery fee included) to the courier when your parcel arrives. There is nothing to pay before then.`,
   },
 } as const
 
@@ -138,7 +157,9 @@ const READY_COPY = {
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; primary: boolean }) => {
   const c = p.variant === 'ready' ? READY_COPY[lang] : COPY[lang]
   const other = p.chosenMethod === 'paidy' || p.chosenMethod === 'card' ? p.chosenMethod : null
+  const cod = p.chosenMethod === 'cod'
   const changed = p.methodChanged ? METHOD_CHANGED[lang] : null
+  const collect = p.totalJpy - (p.pointsApplied ?? 0)
   return (
     <>
       <Heading style={primary ? h1 : h2}>{changed ? changed.heading : c.heading}</Heading>
@@ -147,11 +168,13 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
           {changed.line(METHOD_NAME[lang][p.methodChanged.from], METHOD_NAME[lang][p.chosenMethod ?? 'transfer'])}
         </Text>
       )}
-      <Text style={text}>{other ? READY_INTRO_NOT_TRANSFER[lang](p.reference) : c.intro(p.reference)}</Text>
-      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} />
+      <Text style={text}>{cod ? COD_COPY[lang].intro(p.reference) : other ? READY_INTRO_NOT_TRANSFER[lang](p.reference) : c.intro(p.reference)}</Text>
+      <ItemsTable items={p.items} shippingJpy={p.shippingJpy} totalJpy={p.totalJpy} lang={lang} currency={p.currency} pointsApplied={p.pointsApplied} codFee={p.codFee} />
       {p.courier && <Text style={muted}>{c.courier(p.courier)}</Text>}
-      <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].heading : c.payHeading}</Text>
-      {other ? (
+      <Text style={{ ...text, fontWeight: 'bold' as const }}>{cod || other ? PAY_BY[lang].heading : c.payHeading}</Text>
+      {cod ? (
+        <Text style={text}>{COD_COPY[lang].line(orderMoney(collect, p.currency))}</Text>
+      ) : other ? (
         <Text style={text}>{CHOSEN_METHOD_LINE[other][lang]}</Text>
       ) : (
         <>
@@ -159,8 +182,12 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderConfirmationProps; pr
           {p.paidy && <Text style={text}>{PAIDY_LINE[lang]}</Text>}
         </>
       )}
-      <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].deadline(formatDeadline(p.transferDueAt, p.region, lang)) : c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
-      <Text style={muted}>{c.deadlineNote}</Text>
+      {!cod && p.transferDueAt && (
+        <>
+          <Text style={{ ...text, fontWeight: 'bold' as const }}>{other ? PAY_BY[lang].deadline(formatDeadline(p.transferDueAt, p.region, lang)) : c.deadline(formatDeadline(p.transferDueAt, p.region, lang))}</Text>
+          <Text style={muted}>{c.deadlineNote}</Text>
+        </>
+      )}
       {p.orderUrl && (
         <Section style={buttonWrap}>
           <Button style={button} href={p.orderUrl}>{WORDS.viewOrder[lang]}</Button>

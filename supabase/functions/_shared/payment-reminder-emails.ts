@@ -87,6 +87,9 @@ export async function sendClaimedPaymentReminder(
     if (orderErr) throw orderErr;
     const o = (order ?? {}) as AnyRec;
     const method = publicMethod(o.payment_method);
+    // Cash on delivery has no deadline and is never chased (the SQL claim
+    // refuses it too — web_payment_reminder_eligible); never a transfer email.
+    if (method === "cod") return { sent: false, reason: "error", detail: "cod_no_reminder" };
     const lang = emailLang(o.customer_lang, snapshotCountry(o));
     const methods = method === "transfer"
       ? (await transferMethods(supabase, currency)) as unknown as OrderEmailMethod[]

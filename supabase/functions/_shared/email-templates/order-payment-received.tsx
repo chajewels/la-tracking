@@ -50,7 +50,9 @@ const COPY = {
       transfer: (ref: string, amt: string) => `ご注文番号 ${ref} のお振込 ${amt} を確認いたしました。ありがとうございます。`,
       paidy: (ref: string, amt: string) => `ご注文番号 ${ref} のペイディでのお支払い ${amt} を確認いたしました。ありがとうございます。`,
       card: (ref: string, amt: string) => `ご注文番号 ${ref} のカードでのお支払い ${amt} を確認いたしました。ありがとうございます。`,
+      cod: (ref: string, amt: string) => `ご注文番号 ${ref} の代金引換でのお支払い ${amt} を、配送業者から受領いたしました。ありがとうございます。`,
     },
+    codDone: 'お品物のお受け取り、ありがとうございました。',
     pointsIntro: (ref: string) => `ご注文番号 ${ref} は、ポイントで全額のお支払いが完了しました。ありがとうございます。`,
     partIntro: (ref: string, m: string, amt: string) => `ご注文番号 ${ref} について、${m}でのお支払い ${amt} を確認し、ご注文金額の一部を受領いたしました。ありがとうございます。`,
     stillToPay: (amt: string, when: string) => when ? `残りのお支払い金額 ${amt} を、${when} までにお支払いください。` : `残りのお支払い金額 ${amt} のお支払いをお願いいたします。`,
@@ -64,7 +66,9 @@ const COPY = {
       transfer: (ref: string, amt: string) => `We have received your transfer of ${amt} for order ${ref}. Thank you.`,
       paidy: (ref: string, amt: string) => `We have received your payment of ${amt} with Paidy for order ${ref}. Thank you.`,
       card: (ref: string, amt: string) => `We have received your card payment of ${amt} for order ${ref}. Thank you.`,
+      cod: (ref: string, amt: string) => `The courier has passed on your cash on delivery payment of ${amt} for order ${ref}. Thank you.`,
     },
+    codDone: 'Thank you for receiving your parcel.',
     pointsIntro: (ref: string) => `Order ${ref} is fully paid with your loyalty points. Thank you.`,
     partIntro: (ref: string, m: string, amt: string) => `We have received ${amt} by ${m} for order ${ref} — part of the order total. Thank you.`,
     stillToPay: (amt: string, when: string) => when ? `Amount still to pay: ${amt}, by ${when}.` : `Amount still to pay: ${amt}.`,
@@ -74,8 +78,8 @@ const COPY = {
 } as const
 
 const PART_METHOD = {
-  ja: { transfer: 'お振込', paidy: 'ペイディ', card: 'カード' },
-  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card' },
+  ja: { transfer: 'お振込', paidy: 'ペイディ', card: 'カード', cod: '代金引換' },
+  en: { transfer: 'bank transfer', paidy: 'Paidy', card: 'card', cod: 'cash on delivery' },
 } as const
 
 const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps; primary: boolean }) => {
@@ -98,7 +102,7 @@ const Block = ({ lang, p, primary }: { lang: Lang; p: OrderPaymentReceivedProps;
           <Text style={text}>{c.partNext}</Text>
         </>
       ) : (
-        <Text style={text}>{c.shipping}</Text>
+        <Text style={text}>{method === 'cod' ? c.codDone : c.shipping}</Text>
       )}
       {p.orderUrl && (
         <Section style={buttonWrap}>

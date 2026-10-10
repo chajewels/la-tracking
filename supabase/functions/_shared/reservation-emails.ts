@@ -45,7 +45,7 @@ export type ReservationEmailResult = SendStorefrontEmailResult | { sent: false; 
 async function loadOrder(supabase: Db, orderId: string) {
   const { data: order } = await supabase
     .from("cash_orders")
-    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, status, payment_status, payment_method, remaining_balance, source_channel, ready_confirmed_at, ship_to_snapshot, customers(email, is_test)")
+    .select("id, web_reference, invoice_number, customer_lang, shipping_fee, total_amount, currency, transfer_due_at, planned_shipping_method_id, status, payment_status, payment_method, cod_fee, remaining_balance, source_channel, ready_confirmed_at, ship_to_snapshot, customers(email, is_test)")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return null;
@@ -192,6 +192,8 @@ export function sendOrderReadyEmail(supabase: Db, orderId: string, opts: ReadyEm
         paidy: chosen === "transfer" ? await paidyOfferedForEmail(supabase, o.order, o.to.is_test) : false,
         chosenMethod: chosen,
         pointsApplied: Number(ptsPaid ?? 0),
+        // Cash on delivery: the fee line (0 / absent for every other method).
+        codFee: Number(o.order.cod_fee ?? 0),
         ...(opts.methodChanged ? { methodChanged: { from: changedFrom } } : {}),
       }),
     });
@@ -240,7 +242,7 @@ export function sendOrderPaidByPointsEmail(supabase: Db, orderId: string): Promi
  * change_web_payment_method_atomic and the customer switch), old_value_json
  * ->> 'payment_method', mapped to the public name. null when there is none.
  */
-async function previousMethod(supabase: Db, orderId: string): Promise<"transfer" | "paidy" | "card" | null> {
+async function previousMethod(supabase: Db, orderId: string): Promise<"transfer" | "paidy" | "card" | "cod" | null> {
   const { data, error } = await supabase
     .from("audit_logs")
     .select("old_value_json, created_at")
@@ -368,7 +370,7 @@ export function storefrontDraftUrl(draftId: string): string {
 async function loadDraft(supabase: Db, draftId: string) {
   const { data: draft } = await supabase
     .from("web_order_drafts")
-    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, payment_method, customers(email, is_test)")
+    .select("id, web_reference, mode, term_months, settlement_currency, shipping, total, deposit, customer_lang, ship_to_snapshot, points_value, payment_method, cod_fee, customers(email, is_test)")
     .eq("id", draftId)
     .maybeSingle();
   if (!draft) return null;
@@ -442,6 +444,7 @@ export function sendDraftReservedEmail(supabase: Db, draftId: string): Promise<R
         provisional: true,
         pointsApplied: Number(d.draft.points_value ?? 0),
         method: publicMethod(d.draft.payment_method),
+        codFee: Number(d.draft.cod_fee ?? 0),
       }),
     });
   });

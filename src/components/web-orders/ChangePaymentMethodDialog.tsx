@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { WEB_METHOD_LABEL, type WebPaymentMethod } from '@/lib/web-payment-method';
+import { WEB_METHODS, WEB_METHOD_LABEL, formatYen, type WebPaymentMethod } from '@/lib/web-payment-method';
 
 /**
  * CHANGE PAYMENT METHOD (owner C1, 2026-10-05). The customer chooses transfer,
@@ -25,7 +25,9 @@ const REFUSAL: Record<string, string> = {
   payment_in_progress: 'A payment is in progress on this order (Paidy, a card hold or a submission waiting). Reject or confirm it first.',
   method_full_payment_only: 'A layaway is paid by bank transfer only.',
   method_requires_yen: 'Paidy and card are yen only — this order is in pesos.',
-  method_unavailable: 'This order cannot take that method now: Paidy needs Paidy switched on and a delivery address in Japan; card needs card payments switched on.',
+  method_unavailable: 'This order cannot take that method now: Paidy needs Paidy switched on and a delivery address in Japan; card needs card payments switched on; cash on delivery needs it switched on and a delivery address in Japan.',
+  over_cod_limit: 'Cash on delivery is offered only up to the limit (amount collected, before the fee). This order is over it.',
+  cod_nothing_to_collect: 'Nothing is left for the courier to collect, so cash on delivery does not apply.',
   unchanged: 'That is already the payment method.',
   not_open: 'This website order is no longer waiting for confirmation.',
   not_payable: 'This order is not waiting for payment.',
@@ -42,7 +44,7 @@ async function errorCode(error: unknown): Promise<string> {
 }
 
 export function ChangePaymentMethodDialog({
-  open, onOpenChange, entityType, entityId, current, layaway, peso, reference, onChanged,
+  open, onOpenChange, entityType, entityId, current, layaway, peso, reference, onChanged, codFee = 0,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -51,8 +53,10 @@ export function ChangePaymentMethodDialog({
   current: WebPaymentMethod;
   /** A layaway is transfer only (C2). */
   layaway: boolean;
-  /** A peso order: Paidy and card are yen only (C6). */
+  /** A peso order: Paidy, card and cash on delivery are yen only (C6). */
   peso: boolean;
+  /** The COD fee on the order now (0 when not COD). Shown in the fee warning. */
+  codFee?: number;
   reference: string;
   onChanged: () => void;
 }) {
@@ -78,8 +82,15 @@ export function ChangePaymentMethodDialog({
         const code = await errorCode(error);
         throw new Error(REFUSAL[code] ?? code);
       }
-      const email = (data as { email?: { sent?: boolean } | null } | null)?.email;
-      toast.success(`${reference}: payment method is now ${WEB_METHOD_LABEL[method]}${email?.sent ? ' — the customer was emailed' : ''}.`);
+      const r = (data ?? null) as { email?: { sent?: boolean } | null; fee_delta?: number; cod_fee?: number; deadline_missing?: boolean; deadline_in_past?: boolean } | null;
+      const email = r?.email;
+      const delta = Number(r?.fee_delta ?? 0);
+      const feeNote = delta > 0 ? ` The total went up by the ${formatYen(delta)} cash on delivery fee.`
+        : delta < 0 ? ` The ${formatYen(-delta)} cash on delivery fee was removed from the total.` : '';
+      toast.success(`${reference}: payment method is now ${WEB_METHOD_LABEL[method]}${email?.sent ? ' — the customer was emailed' : ''}.${feeNote}`);
+      if (r?.deadline_missing || r?.deadline_in_past) toast.warning(r?.deadline_missing
+        ? 'This order has no payment deadline. Set one with Move deadline so it is chased and can lapse.'
+        : 'This order\'s payment deadline is already in the past, so it will lapse at the next hourly run. Move the deadline now.');
       if (email && !email.sent) toast.warning('The method changed, but the email to the customer was not sent. Tell her on Messenger.');
       setReason('');
       onOpenChange(false);
@@ -102,7 +113,7 @@ export function ChangePaymentMethodDialog({
           </DialogDescription>
         </DialogHeader>
         <RadioGroup value={method} onValueChange={(v) => setMethod(v as WebPaymentMethod)} className="gap-2">
-          {(['transfer', 'paidy', 'card'] as const).map((m) => {
+          {WEB_METHODS.map((m) => {
             const why = disabledWhy(m);
             return (
               <label key={m} className={`flex items-center gap-3 rounded-lg border border-border p-3 text-sm ${why ? 'opacity-50' : 'cursor-pointer'}`}>
@@ -113,6 +124,13 @@ export function ChangePaymentMethodDialog({
             );
           })}
         </RadioGroup>
+        {(method === 'cod' || current === 'cod') && method !== current && (
+          <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-card-foreground" data-testid="cod-fee-warning">
+            {method === 'cod'
+              ? 'The total changes: the cash on delivery fee (代引手数料) is added, bracketed on the amount the courier collects. The order then has no payment deadline.'
+              : `The total changes: the ${codFee > 0 ? formatYen(codFee) + ' ' : ''}cash on delivery fee is removed. A new payment deadline starts now (the customer's 24h / 72h rule).`}
+          </p>
+        )}
         <div className="space-y-1">
           <Label htmlFor="method-reason">Reason</Label>
           <Textarea id="method-reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}

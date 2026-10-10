@@ -125,3 +125,10 @@ The Hub shows it as **Customer emails** on web cash orders and web layaways (`Or
    - `preview-transactional-email` (bundles the changed preview registry; previews only).
 3. Owner runs the migration in the SQL Editor. The mode stays off.
 4. Owner acceptance test in `owner_only` mode, then `on`.
+
+## Cash on delivery is never reminded (2026-10-10)
+
+A web cash order with `payment_method = 'cod'` has no payment deadline: the courier collects on
+delivery. `web_payment_reminder_eligible` skips it (`coalesce(o.payment_method, 'transfer') <> 'cod'`,
+migration 20261202100000), and `sendClaimedPaymentReminder` refuses it again. Switching such an order
+to another method does not give it a deadline — staff set one (Move deadline). docs/COD.md.
