@@ -88,6 +88,9 @@ COMMENT ON COLUMN public.paidy_checkout_attempts.authorization_test IS
 COMMENT ON COLUMN public.paidy_checkout_attempts.stuck_bell_at IS
   'Paidy second-hold fix: when the sweep rang the one staff bell for a noted window still open 3 hours past its expiry.';
 
+-- An earlier draft had a 3-argument version; never on live, removed wherever it ran.
+DROP FUNCTION IF EXISTS public.note_paidy_window_authorization(uuid, uuid, text);
+
 CREATE OR REPLACE FUNCTION public.note_paidy_window_authorization(p_cash_order_id uuid, p_customer_id uuid, p_paidy_payment_id text, p_test boolean)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -128,13 +131,14 @@ BEGIN
   END IF;
   -- No open window (it timed out before the approval came back): open one that
   -- carries the approval and holds the order until the sweep decides.
-  IF v_order.remaining_balance > 0 THEN
+  IF v_order.remaining_balance > 0 AND v_order.status::text = 'pending'
+     AND coalesce(v_order.payment_status, '') = 'pending_transfer' THEN
     INSERT INTO public.paidy_checkout_attempts (cash_order_id, customer_id, amount_jpy, expires_at,
                                                 paidy_payment_id, authorization_noted_at, authorization_test, end_reason)
     VALUES (v_order.id, p_customer_id, v_order.remaining_balance, now(), p_paidy_payment_id, now(), p_test, 'approval_held');
     RETURN jsonb_build_object('ok', true, 'noted', true, 'opened', true);
   END IF;
-  RETURN jsonb_build_object('ok', true, 'noted', false, 'reason', 'nothing_due');
+  RETURN jsonb_build_object('ok', true, 'noted', false, 'reason', 'order_not_payable');
 END
 $function$;
 
