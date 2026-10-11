@@ -10664,6 +10664,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      paidy_window_stuck_missing: {
+        Args: {
+          p_after_at?: string
+          p_after_id?: string
+          p_cutoff: string
+          p_limit?: number
+        }
+        Returns: {
+          attempt_id: string
+          cash_order_id: string
+          expires_at: string
+          paidy_payment_id: string
+          reference: string
+        }[]
+      }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
@@ -10945,6 +10960,15 @@ export type Database = {
       ring_paidy_payment_recorded_bell: {
         Args: { p_body: string; p_metadata: Json; p_title: string }
         Returns: boolean
+      }
+      ring_paidy_window_stuck_bell: {
+        Args: {
+          p_attempt_id: string
+          p_body: string
+          p_metadata: Json
+          p_title: string
+        }
+        Returns: string
       }
       ring_square_deadline_bells: { Args: { p_now?: string }; Returns: Json }
       set_account_deadlines: {
