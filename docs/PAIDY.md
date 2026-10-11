@@ -976,3 +976,20 @@ Tests:
 
 With this, every Paidy staff bell that a sweep can re-ring has a unique key
 in the database: recorded payment (F2), case (6c) and waiting window.
+
+### Sweep backlog limitation (QA, 2026-10-11 12:12 JST)
+
+All three bell sweeps (recorded payment 6d, case 6c and waiting window) work
+the same way:
+- they read at most 50 pages × 100 rows per run;
+- every run restarts from the oldest row.
+
+So if 5,000 or more rows keep failing to ring, the rows after them are never
+attempted. QA reproduced this.
+
+It does not weaken the one-bell guarantee, which is enforced by the unique
+indexes. It is a documented limitation, not a defect. The `write_errors` count
+in the hourly report would show it long before it bites.
+
+Earlier wording said "the next run continues"; that was wrong and has been
+corrected.

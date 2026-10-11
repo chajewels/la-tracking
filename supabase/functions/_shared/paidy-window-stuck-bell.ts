@@ -18,7 +18,9 @@ export const PAIDY_WINDOW_STUCK_BELL_TYPE = "paidy_window_stuck";
 /** A window is "stuck" this long after its expiry. */
 export const PAIDY_WINDOW_STUCK_HOURS = 3;
 export const PAIDY_WINDOW_STUCK_PAGE = 100;
-/** Safety bound per run (100 × 50 = 5,000 windows); the next run continues. */
+/** Safety bound per run (100 × 50 = 5,000 windows). Each run restarts from the oldest:
+ *  5,000 or more that keep failing stop later ones being attempted (backlog
+ *  limitation, QA 2026-10-11 12:12 — documented, not a duplicate-bell defect). */
 export const PAIDY_WINDOW_STUCK_MAX_PAGES = 50;
 
 export function paidyWindowStuckCutoff(nowMs: number): string {
