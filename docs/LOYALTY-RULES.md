@@ -239,7 +239,10 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
    A reversal that cannot be sourced (no earned/revoked row, money WAS
    received) raises audit + bell 'loyalty_reversal_unsourced' and RETURNS,
    never refuses. An order that received NO money stays silent — a
-   loyalty_jpy_amount alone proves nothing (2026-09-24). Corrections that add
+   loyalty_jpy_amount alone proves nothing (2026-09-24). An order whose basis
+   is known and BELOW ¥10,000 also stays silent (20261211100000, 2026-10-11):
+   the award path skips it ("below_minimum") and writes nothing, so there is
+   nothing to reverse; a NULL basis still rings. Corrections that add
    points are an 'earned' row + revoke-and-replace of the one active
    order_earn lot, expiry preserved (never 'adjusted').
 
