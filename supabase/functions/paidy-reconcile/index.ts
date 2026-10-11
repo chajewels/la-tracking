@@ -7,6 +7,7 @@ import { paidyAdoptBlock, paidyCapturedAmount, paidyConfirmLeaseExpired, paidyPr
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
 import { ringPaidyCaseBell, sweepUnrungPaidyCases, type UnrungPaidyCase } from "../_shared/paidy-case-bell.ts";
+import { paidyWindowStuckCutoff, ringPaidyWindowStuckBell, sweepStuckPaidyWindows, type StuckPaidyWindow } from "../_shared/paidy-window-stuck-bell.ts";
 import {
   type MissingRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil, ringPaidyRecordedBell, sweepMissingRecordedBells,
 } from "../_shared/paidy-recorded-bell.ts";
@@ -39,6 +40,8 @@ import type { RefundStatus } from "../_shared/email-templates/order-cancelled.ts
  *      once Paidy can hold nothing for the order (P04; SQL decides). PA04: a
  *      window that knows its payment id is first VERIFIED with Paidy here.
  *   4b. Orphan capture cases: closed only when Paidy reports a full refund.
+ *   4c. Waiting Paidy windows (second-hold fix; one bell per window since
+ *      2026-10-11: paidy_window_stuck_missing + ring_paidy_window_stuck_bell).
  *   5. Bells cash-order Confirms left half-way past the lease.
  *   6. PR 4 (PA06 / PA14 / PA07): follow-up emails the Hub never reached
  *      (no email_send_log row — never a replay of a failed send), staff
@@ -80,7 +83,7 @@ Deno.serve(async (req) => {
     attempts_expired: 0, windows_verified: 0, windows_recovered: 0, stuck_confirms: 0,
     other_environment: 0, paidy_errors: 0, write_errors: 0, skipped_mode_off: false,
     orphan_cases_checked: 0, orphan_cases_resolved: 0,
-    followups_done: 0, followups_failed: 0, cancel_intents_finished: 0, cancel_intents_bell: 0, case_bells_rung: 0, recorded_bells_late: 0,
+    followups_done: 0, followups_failed: 0, cancel_intents_finished: 0, cancel_intents_bell: 0, case_bells_rung: 0, recorded_bells_late: 0, window_stuck_bells: 0,
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
     parked_events: null as number | null, parked_oldest_minutes: null as number | null,
   };
@@ -377,24 +380,24 @@ Deno.serve(async (req) => {
     }
     // Second-hold fix (2026-10-10): a window holding an approval the Hub could
     // not file, still open 3 hours past its expiry, rings ONE staff bell — the
-    // customer cannot pay meanwhile; staff have "End Paidy window".
+    // customer cannot pay meanwhile; staff have "End Paidy window". Since
+    // 2026-10-11 (QA residual): paidy_window_stuck_missing lists every such
+    // window (keyset-paged) and ring_paidy_window_stuck_bell writes the bell
+    // and stamps stuck_bell_at in one transaction, one bell per window.
     {
-      const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-      const { data: stuck, error: stuckErr } = await supabase
-        .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id, cash_order:cash_orders(web_reference, invoice_number)")
-        .eq("status", "open").not("authorization_noted_at", "is", null).is("stuck_bell_at", null).lte("expires_at", cutoff).limit(25);
-      if (stuckErr) throw stuckErr;
-      for (const w of (stuck ?? []) as Record<string, any>[]) {
-        const ref = w.cash_order?.web_reference ?? w.cash_order?.invoice_number ?? w.cash_order_id;
-        const { error } = await supabase.from("staff_notifications").insert({
-          type: "paidy_window_stuck", title: "A Paidy approval is still waiting to be checked",
-          body: `${ref} · ${w.paidy_payment_id} · the customer cannot pay this order until Paidy is checked. Check the Paidy dashboard, then use "End Paidy window" on the order if Paidy holds nothing.`,
-          metadata: { attempt_id: w.id, cash_order_id: w.cash_order_id, paidy_payment_id: w.paidy_payment_id },
-        });
-        if (error) { report.write_errors++; continue; }
-        const { error: stampErr } = await supabase.from("paidy_checkout_attempts").update({ stuck_bell_at: nowIso() }).eq("id", w.id);
-        if (stampErr) report.write_errors++;
-      }
+      const cutoff = paidyWindowStuckCutoff(Date.now());
+      const sweep = await sweepStuckPaidyWindows({
+        missing: async (after, limit) => {
+          const { data, error } = await supabase.rpc("paidy_window_stuck_missing", {
+            p_cutoff: cutoff, p_after_at: after?.at ?? null, p_after_id: after?.id ?? null, p_limit: limit,
+          });
+          if (error) throw error;
+          return (data ?? []) as StuckPaidyWindow[];
+        },
+        ring: (attemptId, bell) => ringPaidyWindowStuckBell(supabase, attemptId, bell),
+      });
+      report.window_stuck_bells += sweep.rung;
+      report.write_errors += sweep.failed;
     }
     const { data: expired, error: expErr } = await supabase.rpc("expire_paidy_checkout_attempts", { p_cash_order_id: null });
     if (expErr) throw expErr;

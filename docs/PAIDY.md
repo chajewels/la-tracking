@@ -930,5 +930,49 @@ Tests:
   one case; four parallel workers × 300 cases; resolved / unknown case; an
   old bell on an unstamped case. Result: ALL PASS.
 
-Not changed (outside this item): the `paidy_window_stuck` bell in
-paidy-reconcile still uses read-then-insert on `stuck_bell_at`.
+The `paidy_window_stuck` bell, left out of this item, is fixed the same way
+in "Window-stuck bell once" below.
+
+## Window-stuck bell once (owner go 2026-10-11 11:43 JST; migration 20261209130000)
+
+QA's 11:41 verdict closed item 4 and noted one non-blocking residual: the
+"A Paidy approval is still waiting to be checked" bell (`paidy_window_stuck`,
+second-hold fix) was rung by paidy-reconcile with read-then-insert. It read
+open, noted windows with no `stuck_bell_at`, inserted the bell, then stamped
+`stuck_bell_at` in a second call, over at most 25 rows in no fixed order.
+Overlapping runs could send the bell twice, and windows whose ring kept failing
+could hide others.
+
+Now:
+- The unique index `uq_staff_notifications_paidy_window_stuck` allows at most
+  one `paidy_window_stuck` bell per `metadata->>'attempt_id'`.
+- `ring_paidy_window_stuck_bell(attempt_id, title, body, metadata)` is the ONE
+  writer. It locks the window and answers `closed` (writing nothing) when the
+  window is no longer open or holds no noted approval. Otherwise it inserts
+  with `ON CONFLICT DO NOTHING` and stamps `stuck_bell_at` in the same
+  transaction. Answers: `rung` (inserted; the staff-email fan-out runs once) or
+  `exists`.
+- `paidy_window_stuck_missing(cutoff, after_at, after_id, limit)` lists open,
+  noted, unstamped windows whose expiry is at or before the cutoff (3 hours
+  ago), keyset-paged by (expires_at, id). The sweep walks every page (100 per
+  page, at most 50 pages per run).
+- Report field `window_stuck_bells` counts `rung`. A failed ring adds to
+  `write_errors` and is retried next hour.
+- The bell text is unchanged, now built in `_shared/paidy-window-stuck-bell.ts`.
+- Both functions are service_role only. Neither touches money.
+- Live before the change (2026-10-11 11:45 JST): 0 `paidy_window_stuck`
+  bells, 0 stamped windows, 12 checkout windows.
+
+Tests:
+- `development/paidy-window-stuck-bell-once.test.ts` (CI).
+- `development/sql/paidy-window-stuck-bell-once.sh`, run locally on a
+  replayed database, migration applied twice. Result: ALL PASS. Cases:
+  - 237 windows with six unstamped beyond the first page;
+  - ineligible windows skipped;
+  - two sessions on one window;
+  - four workers × 300 windows;
+  - filed, not-noted and unknown windows;
+  - an old bell on an unstamped window.
+
+With this, every Paidy staff bell that a sweep can re-ring has a unique key
+in the database: recorded payment (F2), case (6c) and waiting window.

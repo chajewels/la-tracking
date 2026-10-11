@@ -51,7 +51,7 @@ Deno.test("sweep: a window whose Paidy record ended is verified empty", () => {
   assert(/\["closed", "rejected", "expired"\]\.includes\(String\(\(row as Record<string, any>\)\.status\)\)/.test(c));
   assert(!/if \(row\) continue;/.test(c), "the old unconditional skip is gone");
   assert(c.includes("if (w.authorization_noted_at && w.authorization_test === secretTest)"), "same-family 404 verifies a noted approval");
-  assert(c.includes('type: "paidy_window_stuck"'), "one staff bell for a stuck noted window");
+  assert(c.includes("ringPaidyWindowStuckBell(supabase, attemptId, bell)"), "one staff bell for a stuck noted window (atomic writer, 2026-10-11)");
 });
 
 Deno.test("migration: md5-guarded patch, new writer service_role only, no replace of a noted approval", () => {
