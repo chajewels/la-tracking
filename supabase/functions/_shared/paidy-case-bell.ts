@@ -88,7 +88,9 @@ export interface CaseSweepDeps {
 }
 
 export const PAIDY_CASE_BELL_PAGE = 100;
-/** Safety bound per run (100 × 50 = 5,000 cases); the next run continues. */
+/** Safety bound per run (100 × 50 = 5,000 cases). Each run restarts from the oldest:
+ *  5,000 or more that keep failing stop later ones being attempted (backlog
+ *  limitation, QA 2026-10-11 12:12 — documented, not a duplicate-bell defect). */
 export const PAIDY_CASE_BELL_MAX_PAGES = 50;
 
 /** Walk EVERY open case whose first bell never rang (keyset-paged, so cases
