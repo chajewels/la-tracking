@@ -621,7 +621,8 @@ reached the send (no email_send_log row for its key).
   case kinds a bell text (`PAIDY_CASE_KINDS`); `openPaidyCase` stamps
   `paidy_cases.bell_rung_at` after a successful bell; the sweep (step 6c)
   rings open cases with no stamp once (dedupe on metadata.case_id, `late:
-  true`) and stamps them.
+  true`) and stamps them. Since "fix 6c" (2026-10-11) both paths go through
+  `ring_paidy_case_bell` — see "Case bell once (fix 6c)" below.
 - Tables: payment_submission_followups (kind, idempotency_key UNIQUE, status
   pending|done|failed, attempts), cash_order_cancel_intents (stage CHECK,
   bell_rung_at) — RLS staff SELECT / service_role ALL.
@@ -893,3 +894,41 @@ emailable to Brenda + admins.
     database (CI has no Postgres): 237 recordings with missing bells beyond
     #50; two sessions on one payment; four parallel workers × 300 payments.
     Result: ALL PASS.
+
+## Case bell once ("fix 6c", owner 2026-10-11; migration 20261209100000)
+
+QA's 2026-10-11 verdict kept one residual open: the first bell of a Paidy
+case (`paidy_case_<kind>`) had the same shape as the F2 defect. `openPaidyCase`
+inserted the bell and then stamped `paidy_cases.bell_rung_at` in a second
+call; the hourly step 6c read "no bell yet" and then inserted. Two overlapping
+writers could both insert, and 6c read only the 25 oldest unrung cases, so
+cases whose ring kept failing could hide the ones after them.
+
+Now:
+- The unique index `uq_staff_notifications_paidy_case` allows at most one
+  `paidy_case_*` bell per `metadata->>'case_id'`.
+- `ring_paidy_case_bell(case_id, title, body, metadata)` is the ONE writer,
+  used by `openPaidyCase` and by step 6c. It locks the case, takes the bell
+  type from the case's own kind, inserts with `ON CONFLICT DO NOTHING`, and
+  stamps `bell_rung_at` in the same transaction. Answers: `rung` (inserted,
+  so the staff-email fan-out runs once), `exists` (already there; stamped),
+  `closed` (case no longer open; nothing written).
+- `paidy_case_bell_missing(after_at, after_id, limit)` lists open cases with
+  no stamp, keyset-paged by (opened_at, id); step 6c walks every page (100
+  per page, at most 50 pages per run). `case_bells_rung` counts `rung` only;
+  a failed ring adds to `write_errors` and is retried next hour.
+- Both functions are service_role only. Neither touches money. Helpers:
+  `ringPaidyCaseBell` / `sweepUnrungPaidyCases` in `_shared/paidy-case-bell.ts`.
+- Live before the change (2026-10-11 10:50 JST): 0 case bells, 0 cases.
+
+Tests:
+- `development/paidy-case-bell-once.test.ts` (CI): more than two pages;
+  100 failing cases do not hide later ones; outcomes; openPaidyCase wiring;
+  migration grants.
+- `development/sql/paidy-case-bell-once.sh`, run locally on a replayed
+  database: 237 cases with six unrung beyond the first page; two sessions on
+  one case; four parallel workers × 300 cases; resolved / unknown case; an
+  old bell on an unstamped case. Result: ALL PASS.
+
+Not changed (outside this item): the `paidy_window_stuck` bell in
+paidy-reconcile still uses read-then-insert on `stuck_bell_at`.

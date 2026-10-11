@@ -22,6 +22,7 @@
  */
 
 import { paidyBell } from "./paidy-filing.ts";
+import { ringPaidyCaseBell } from "./paidy-case-bell.ts";
 import {
   paidyCapturedAmount, paidyConfirmLeaseExpired, paidyLatestCapture, paidyNewRefunds,
   paidyProviderOutcome, paidyRecordProblem, paidyRefundReceivedKey,
@@ -67,15 +68,12 @@ export async function openPaidyCase(supabase: Db, c: {
   });
   if (error) throw new Error(`open_paidy_case ${c.kind}: ${error.message ?? String(error)}`);
   const r = (data ?? {}) as AnyRec;
-  if (r.new === true && c.bell) {
-    // PA07 (2026-10-08): the bell's success is RECORDED on the case; a bell
-    // that did not ring leaves bell_rung_at NULL and the sweep rings it once.
-    const rang = await paidyBell(supabase, `paidy_case_${c.kind}`, c.bell.title, c.bell.body,
-      { case_id: r.case_id, cash_order_id: c.cash_order_id ?? null, paidy_payment_id: c.paidy_payment_id, kind: c.kind });
-    if (rang && r.case_id) {
-      const { error } = await supabase.from("paidy_cases").update({ bell_rung_at: new Date().toISOString() }).eq("id", r.case_id);
-      if (error) console.warn("[paidy] bell_rung_at stamp failed (the sweep may ring once more):", error);
-    }
+  if (r.new === true && c.bell && typeof r.case_id === "string") {
+    // PA07 (2026-10-08) + "fix 6c" (2026-10-11): ring_paidy_case_bell writes
+    // the bell AND stamps bell_rung_at in one transaction, at most one bell
+    // per case (unique index). A ring that fails leaves bell_rung_at NULL and
+    // the hourly sweep rings it through the same writer.
+    await ringPaidyCaseBell(supabase, r.case_id, c.bell, { cash_order_id: c.cash_order_id ?? null });
   }
   return { case_id: (r.case_id as string) ?? null, new: r.new === true };
 }
