@@ -6,7 +6,7 @@ import { PAIDY_RECORD_FIELDS, openPaidyCase, paidyBellOnce, syncPaidyPayment } f
 import { paidyAdoptBlock, paidyCapturedAmount, paidyConfirmLeaseExpired, paidyProviderOutcome, paidyRefundTotal } from "../_shared/paidy-rules.ts";
 import { claimPaidyEvent, processPaidyEvent } from "../_shared/paidy-events.ts";
 import { paidyAutoRecord } from "../_shared/paidy-autorecord.ts";
-import { paidyCaseBell } from "../_shared/paidy-case-bell.ts";
+import { ringPaidyCaseBell, sweepUnrungPaidyCases, type UnrungPaidyCase } from "../_shared/paidy-case-bell.ts";
 import {
   type MissingRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil, ringPaidyRecordedBell, sweepMissingRecordedBells,
 } from "../_shared/paidy-recorded-bell.ts";
@@ -45,6 +45,9 @@ import type { RefundStatus } from "../_shared/email-templates/order-cancelled.ts
  *      cancellations interrupted after their Paidy release (finished from
  *      the terminate step on; one interrupted before the release only rings
  *      a bell — owner decision), and open cases whose first bell never rang.
+ *   6c. "fix 6c" (2026-10-11): every open case without a bell stamp, all of
+ *      them (paidy_case_bell_missing, keyset-paged), at most one bell per
+ *      case, enforced by the database (ring_paidy_case_bell + unique index).
  *   6d. Reassessment F2: every recorded Paidy payment whose "Paidy payment
  *      recorded" bell never rang gets it late — all of them, not a first page
  *      (paidy_recorded_bell_missing), at most once per cash payment, enforced
@@ -595,27 +598,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 6c. PA07: open cases whose first bell never rang — rung once, deduped
-    //     on the case id, then stamped.
+    // 6c. PA07 + "fix 6c" (owner 2026-10-11): open cases whose first bell
+    //     never rang. paidy_case_bell_missing lists them keyset-paged (so a
+    //     case whose ring keeps failing never hides the ones after it);
+    //     ring_paidy_case_bell writes the bell and stamps the case in one
+    //     transaction, at most one bell per case (unique index) — the same
+    //     writer openPaidyCase uses.
     {
-      const { data: silent, error: sErr } = await supabase
-        .from("paidy_cases").select("id, kind, paidy_payment_id, cash_order_id, detail, cash_order:cash_orders(web_reference, invoice_number)")
-        .eq("status", "open").is("bell_rung_at", null).order("opened_at", { ascending: true }).limit(25);
-      if (sErr) throw sErr;
-      for (const c of (silent ?? []) as Record<string, any>[]) {
-        const { data: prior } = await supabase.from("staff_notifications").select("id").contains("metadata", { case_id: c.id }).limit(1);
-        if ((prior ?? []).length === 0) {
-          const b = paidyCaseBell({ kind: c.kind, paidy_payment_id: String(c.paidy_payment_id), detail: c.detail, reference: c.cash_order?.web_reference ?? c.cash_order?.invoice_number ?? null });
-          const { error } = await supabase.from("staff_notifications").insert({
-            type: b.type, title: b.title, body: b.body,
-            metadata: { case_id: c.id, cash_order_id: c.cash_order_id ?? null, paidy_payment_id: c.paidy_payment_id, kind: c.kind, late: true },
+      const sweep = await sweepUnrungPaidyCases({
+        missing: async (after, limit) => {
+          const { data, error } = await supabase.rpc("paidy_case_bell_missing", {
+            p_after_at: after?.at ?? null, p_after_id: after?.id ?? null, p_limit: limit,
           });
-          if (error) { report.write_errors++; continue; }
-          report.case_bells_rung++;
-        }
-        const { error: stampErr } = await supabase.from("paidy_cases").update({ bell_rung_at: nowIso() }).eq("id", c.id);
-        if (stampErr) report.write_errors++;
-      }
+          if (error) throw error;
+          return (data ?? []) as UnrungPaidyCase[];
+        },
+        ring: (caseId, bell, metadata) => ringPaidyCaseBell(supabase, caseId, bell, metadata),
+      });
+      report.case_bells_rung += sweep.rung;
+      report.write_errors += sweep.failed;
     }
 
     // 6d. Reassessment F2 (owner 2026-10-10, option A; QA reopen 23:21): a

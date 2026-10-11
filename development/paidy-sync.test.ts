@@ -136,6 +136,18 @@ function fakeDb(tables: Record<string, Row[]>, failOn?: { table: string; op: str
       }
       return Promise.resolve({ data: { ok: true, rejected: true, followup_key: key }, error: null });
     }
+    if (fn === "ring_paidy_case_bell") {
+      // "fix 6c": the SQL writer, modelled — one bell per case (unique index),
+      // type from the case's own kind, bell_rung_at stamped with it.
+      tables.staff_notifications ??= [];
+      const c = tables.paidy_cases.find((x) => x.id === args.p_case_id);
+      if (!c) return Promise.resolve({ data: null, error: { message: "case_not_found" } });
+      if (c.status !== "open") return Promise.resolve({ data: "closed", error: null });
+      const exists = tables.staff_notifications.some((n) => String(n.type).startsWith("paidy_case_") && (n.metadata as Row)?.case_id === c.id);
+      if (!exists) tables.staff_notifications.push({ type: `paidy_case_${c.kind}`, title: args.p_title, body: args.p_body, metadata: { ...(args.p_metadata as Row), case_id: c.id, kind: c.kind, paidy_payment_id: c.paidy_payment_id } });
+      c.bell_rung_at ??= new Date().toISOString();
+      return Promise.resolve({ data: exists ? "exists" : "rung", error: null });
+    }
     if (fn === "close_paidy_case_system") {
       const c = tables.paidy_cases.find((x) => x.id === args.p_case_id && x.status === "open");
       if (c) { c.status = "resolved"; c.resolution = args.p_resolution; }

@@ -116,10 +116,12 @@ Deno.test("PA07: every case kind has a bell; the sweep rings unrung bells once a
     assertEquals(b.type, `paidy_case_${kind}`);
     assert(b.title.length > 0 && b.body.includes("pay_unit0001") && b.body.includes("CJ-W-000001"));
   }
+  // "fix 6c" (2026-10-11): both paths ring and stamp through ONE atomic
+  // writer (ring_paidy_case_bell); the detailed checks live in
+  // development/paidy-case-bell-once.test.ts.
   const sync = await read("../supabase/functions/_shared/paidy-sync.ts");
-  assertStringIncludes(sync, 'await supabase.from("paidy_cases").update({ bell_rung_at: new Date().toISOString() }).eq("id", r.case_id);');
+  assertStringIncludes(sync, "await ringPaidyCaseBell(supabase, r.case_id, c.bell, { cash_order_id: c.cash_order_id ?? null });");
   const sweep = await read("../supabase/functions/paidy-reconcile/index.ts");
-  assertStringIncludes(sweep, '.eq("status", "open").is("bell_rung_at", null)');
-  assertStringIncludes(sweep, '.contains("metadata", { case_id: c.id }).limit(1);');
-  assertStringIncludes(sweep, 'metadata: { case_id: c.id, cash_order_id: c.cash_order_id ?? null, paidy_payment_id: c.paidy_payment_id, kind: c.kind, late: true }');
+  assertStringIncludes(sweep, 'supabase.rpc("paidy_case_bell_missing", {');
+  assertStringIncludes(sweep, "ring: (caseId, bell, metadata) => ringPaidyCaseBell(supabase, caseId, bell, metadata),");
 });
