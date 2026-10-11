@@ -101,7 +101,9 @@ export interface SweepDeps {
 }
 
 export const PAIDY_RECORDED_BELL_PAGE = 100;
-/** Safety bound per run (100 × 50 = 5,000 recordings); the next run continues. */
+/** Safety bound per run (100 × 50 = 5,000 recordings). Each run restarts from the oldest:
+ *  5,000 or more that keep failing stop later ones being attempted (backlog
+ *  limitation, QA 2026-10-11 12:12 — documented, not a duplicate-bell defect). */
 export const PAIDY_RECORDED_BELL_MAX_PAGES = 50;
 
 /** Walk EVERY recording in the window that has no bell (keyset-paged, so a
