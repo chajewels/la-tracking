@@ -378,13 +378,16 @@ export function refusalText(r: Refusal): string {
 export function RefundIssuedLine({ orderId, onRecordAnother }: { orderId: string; onRecordAnother?: () => void }) {
   const [marks, setMarks] = useState<RefundMark[]>([]);
   const [another, setAnother] = useState(false);
+  // QA 2026-10-11: a card part reopened by a LATER completed Square refund is
+  // not "the other part" — say what it is.
+  const [cardOnlyOpen, setCardOnlyOpen] = useState(false);
   useEffect(() => {
     let live = true;
     // L6: the marks and the open parts come from the SQL (web_order_refund_parts,
     // staff with cancel_cash_order). "Record the other part" only when it says a
     // part is open; anyone else sees "Refund issued." without the detail.
     loadRefundParts(orderId)
-      .then((p) => { if (live) { setMarks(p.marks); setAnother(p.cardOpen || p.nonCardOpen); } })
+      .then((p) => { if (live) { setMarks(p.marks); setAnother(p.cardOpen || p.nonCardOpen); setCardOnlyOpen(p.cardOpen && !p.nonCardOpen && p.marks.some((m) => m.method === 'card')); } })
       .catch(() => { if (live) { setMarks([]); setAnother(false); } });
     return () => { live = false; };
   }, [orderId, onRecordAnother]);
@@ -396,7 +399,7 @@ export function RefundIssuedLine({ orderId, onRecordAnother }: { orderId: string
       </p>
       {another && onRecordAnother && (
         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onRecordAnother} data-testid="refund-record-another">
-          Record the other part
+          {cardOnlyOpen ? 'Record the later card refund' : 'Record the other part'}
         </Button>
       )}
     </div>
@@ -409,9 +412,10 @@ export function canMarkRefundIssued(o: { source_channel?: string | null; status?
 }
 
 /**
- * L6 (2026-10-09): a cancelled web order already marked refunded may take ONE
- * more mark per part (the card part, or the part paid another way) — the
- * button itself appears only when web_order_refund_parts says a part is open.
+ * L6 (2026-10-09; wording 2026-10-11): a cancelled web order already marked
+ * refunded may take a further mark — the part paid another way ONCE, the card
+ * part again for each later COMPLETED Square refund (only the new amount) —
+ * the button itself appears only when web_order_refund_parts says a part is open.
  */
 export function canMarkFurtherRefund(o: { source_channel?: string | null; status?: string | null; refund_status?: string | null } | null | undefined): boolean {
   return !!o && o.source_channel === 'web' && o.status === 'cancelled' && o.refund_status === 'refund_issued';
@@ -626,7 +630,7 @@ export function MarkRefundIssuedDialog({
             <div className={`rounded-md border p-2.5 text-xs ${cardBlocked ? 'border-warning/60 bg-warning/5 text-warning' : 'border-border bg-background text-muted-foreground'}`}>
               <p>Paid by card: {yen(card.cardPaid)}. Square shows <strong className="text-card-foreground">{yen(card.refundedCompleted)}</strong> refunded (completed).</p>
               {mixed && (
-                <p data-testid="refund-mixed-note">Also paid another way: {yen(card.parts.nonCard)}{card.parts.paidy > 0 ? ` (Paidy ${yen(card.parts.paidy)} — refunded in the Paidy dashboard)` : ''}. Record each part with its own method — the card part as Square completed it, the other part as it was sent. Each part is recorded once.</p>
+                <p data-testid="refund-mixed-note">Also paid another way: {yen(card.parts.nonCard)}{card.parts.paidy > 0 ? ` (Paidy ${yen(card.parts.paidy)} — refunded in the Paidy dashboard)` : ''}. Record each part with its own method — the card part as Square completed it, the other part as it was sent. The other part is recorded once; the card part again only after a later completed Square refund, and then only the new amount.</p>
               )}
               {refundProcessing && <p>Still processing in Square: {yen(card.refundedPending)} (not counted until it completes).</p>}
               {cardBlocked
