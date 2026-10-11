@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791684827072,
+      "tag": "0000_paidy_case_bell_once",
+      "breakpoints": true
+    }
+  ]
+}
