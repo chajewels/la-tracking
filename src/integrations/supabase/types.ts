@@ -10601,6 +10601,18 @@ export type Database = {
       }
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
+      paidy_case_bell_missing: {
+        Args: { p_after_at?: string; p_after_id?: string; p_limit?: number }
+        Returns: {
+          case_id: string
+          cash_order_id: string
+          detail: Json
+          kind: string
+          opened_at: string
+          paidy_payment_id: string
+          reference: string
+        }[]
+      }
       paidy_mode: { Args: never; Returns: string }
       paidy_recorded_bell_missing: {
         Args: {
@@ -10920,6 +10932,15 @@ export type Database = {
           p_source_reference: string
         }
         Returns: Json
+      }
+      ring_paidy_case_bell: {
+        Args: {
+          p_body: string
+          p_case_id: string
+          p_metadata: Json
+          p_title: string
+        }
+        Returns: string
       }
       ring_paidy_payment_recorded_bell: {
         Args: { p_body: string; p_metadata: Json; p_title: string }
