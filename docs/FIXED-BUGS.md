@@ -6240,3 +6240,10 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
   recorded. Now refused at filing, and the card capture checks the Paidy lock first.
 - **M1, M5, M7, L1, L2, L4, L8, L9, L10** — see docs/PAIDY.md "Paidy QC PR-A". L7 was reviewed and kept
   as designed (the over-capture refund row is what PA02's double-compensation refusal reads).
+
+## Unsourced-reversal bell rang on orders below the loyalty minimum (2026-10-11)
+
+- **Symptom:** cancelling a paid cash order whose loyalty product amount was under ¥10,000 (TEST-900080, basis ¥7,840, paid ¥8,570, the first live Square payment) rang `loyalty_reversal_unsourced` ("spend was seeded outside the Hub… review by hand"). Nothing had been seeded: award-loyalty-points skips such an order (`below_minimum`) and writes no points and no spend, so there was nothing to reverse. Every real cancellation under ¥10,000 would have sent staff on the same false errand.
+- **Fix:** migration `20261211100000_revoke_below_minimum_silent.sql` — `revoke_loyalty_points` treats a known basis below 10000 as nothing-to-reverse (silent), exactly like an order that received no money. A NULL basis, or a basis at/above the minimum with no ledger row, still rings. Guarded on the live md5; CI `development/revoke-below-minimum.test.ts`.
+- **Not changed:** orders that earned points are still revoked on cancel / forfeit / void (verified live the same day: TEST-900078 and TEST-900081, +200 → −200).
+
