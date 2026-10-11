@@ -898,14 +898,16 @@ the independent review of PR #481 (H1, M1, M2 and the Low follow-ups).
   Square still shows it held, "the hourly check retries the void"; if Square shows it
   COMPLETED (captured), "it can no longer be voided and the Hub will not retry — refund it in
   the Square Dashboard". The SQL bell for such a hold no longer says "record it".
-- **L6 — "Mark refund issued — card" is capped by the RECORDED card money; one mark per
-  part.** New `square_order_card_refund_recordable_jpy(order)` (service_role only): per card
+- **L6 — "Mark refund issued — card" is capped by the RECORDED card money; card marks are
+  incremental, the non-card part is marked once.** (Wording corrected 2026-10-11 after QA:
+  the earlier "one mark per part" heading did not describe the card part.) New `square_order_card_refund_recordable_jpy(order)` (service_role only): per card
   payment recorded on the order, the COMPLETED refunds less what Square refunded before the
   Hub recorded it (captured − recorded), capped at the recorded money. On an order already
-  `refund_issued`, `mark_web_order_refund_issued_atomic` accepts ONE further mark per part —
-  the non-card part (bank transfer / Paidy / cash / other) once on a mixed order, or the card
-  part again for a later COMPLETED Square refund (records only the remainder). The same
-  request again answers `already_recorded`; a refund outside Square (exception methods) closes
+  `refund_issued`, `mark_web_order_refund_issued_atomic` accepts a further mark: the non-card
+  part (bank transfer / Paidy / cash / other) ONCE on a mixed order; the card part AGAIN each
+  time Square shows more COMPLETED refund than has been marked (each mark records only that
+  increment — recordable − already marked — so card money is never recorded twice). The same
+  request with nothing new answers `already_recorded`; a refund outside Square (exception methods) closes
   the card part. The card amount no longer has Paidy money subtracted from it. The audit row
   carries `further_mark`, `card_marked_before_jpy` and the status the order REALLY had
   (`refund_issued` on a further mark). New `web_order_refund_parts(order)` (staff with

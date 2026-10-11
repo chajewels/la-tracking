@@ -409,9 +409,10 @@ export function canMarkRefundIssued(o: { source_channel?: string | null; status?
 }
 
 /**
- * L6 (2026-10-09): a cancelled web order already marked refunded may take ONE
- * more mark per part (the card part, or the part paid another way) — the
- * button itself appears only when web_order_refund_parts says a part is open.
+ * L6 (2026-10-09; wording 2026-10-11): a cancelled web order already marked
+ * refunded may take a further mark — the part paid another way ONCE, the card
+ * part again for each later COMPLETED Square refund (only the new amount) —
+ * the button itself appears only when web_order_refund_parts says a part is open.
  */
 export function canMarkFurtherRefund(o: { source_channel?: string | null; status?: string | null; refund_status?: string | null } | null | undefined): boolean {
   return !!o && o.source_channel === 'web' && o.status === 'cancelled' && o.refund_status === 'refund_issued';
