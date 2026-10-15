@@ -52,7 +52,7 @@ import { pt, serviceLabel } from '@/i18n/portal';
 import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
-import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError } from '@/lib/portal-session';
+import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError, isDeadLinkError } from '@/lib/portal-session';
 import { portalAuthBody } from '@/lib/portal-auth';
 import { safeHttpUrl } from '@/lib/safe-url';
 
@@ -396,7 +396,15 @@ export default function CustomerPortal() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok || !payload?.success) {
-        setPinError(payload?.error || 'Invalid PIN. Please try again.');
+        if (isDeadLinkError(payload?.error)) {
+          // The link itself is dead (expired / revoked / unknown): no PIN can
+          // open it. Leave the PIN screen for the link-expired screen, which
+          // has the sign-in and new-link buttons (fixed 2026-10-15).
+          setPin('');
+          setError(payload.error);
+        } else {
+          setPinError(payload?.error || 'Invalid PIN. Please try again.');
+        }
       } else {
         // The server now opens the portal session; keep its id for every call.
         if (typeof payload.session_id === 'string' && payload.session_id) {
@@ -634,7 +642,9 @@ export default function CustomerPortal() {
   // ── PIN gate (token links only; signed-in customers never see it) ──
   // Rendered BEFORE the data/error screens: no data exists yet in token mode
   // until the PIN is right (fetchPortal waits for pinVerified).
-  if (authMode === 'token' && !pinVerified) {
+  // A dead link (error set by handlePinSubmit) falls through to the
+  // link-expired / link-invalid screen below.
+  if (authMode === 'token' && !pinVerified && !error) {
     return (
       <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
         <OfflineBanner />
