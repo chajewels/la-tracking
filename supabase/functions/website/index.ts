@@ -32,7 +32,7 @@ import { adoptOrphanAuthorization, filePaidyAuthorization, orderForPaidyRef, pai
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
 import { hubFxRate, type FxRate as HubFxRate } from "../_shared/php-jpy-rate.ts";
 import {
-  CHECKOUT_METHODS, type CheckoutMethod, checkoutMethodOptions, maxUsablePoints, pointsChoiceProblem, pointsUnavailableReason,
+  CHECKOUT_METHODS, type CheckoutMethod, checkoutMethodOptions, customerInJapan, maxUsablePoints, pointsChoiceProblem, pointsUnavailableReason,
   pointsValue, publicMethod, storedMethod,
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
@@ -84,7 +84,7 @@ type AnyRec = Record<string, unknown>;
  * than linked by phone: see the phone-OTP note in migration
  * 20260910140000_phase2_step1_customer_auth_addresses.sql.
  */
-const CUSTOMER_FIELDS = "id, customer_code, full_name, email, mobile_number, auth_user_id, is_test";
+const CUSTOMER_FIELDS = "id, customer_code, full_name, email, mobile_number, auth_user_id, is_test, location, country";
 
 interface CustomerUser { id: string; email: string }
 
@@ -602,7 +602,7 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
   const orderRef = customerReference(order as never);
   const [{ data: money, error: moneyErr }, { data: cust, error: custErr }, pointsApplied, { data: billing, error: billErr }] = await Promise.all([
     supabase.from("cash_orders").select("discount_amount, shipping_fee, total_amount").eq("id", order.id).maybeSingle(),
-    supabase.from("customers").select("created_at, mobile_number, full_name, family_name, given_name, birthday, address_line1, city, postal_code, country").eq("id", customer.id).maybeSingle(),
+    supabase.from("customers").select("created_at, mobile_number, full_name, family_name, given_name, birthday, address_line1, city, postal_code, country, location").eq("id", customer.id).maybeSingle(),
     orderPointsApplied(supabase, String(order.id)),
     supabase.from("customer_addresses").select("id, is_default, line1, line2, city, region, postal_code, country")
       .eq("customer_id", customer.id).order("created_at"),
@@ -633,6 +633,8 @@ async function paidyOffer(supabase: any, customer: AnyRec, order: AnyRec, addres
     // C1: a website order takes Paidy only when the customer chose Paidy.
     paymentMethod: (order.payment_method ?? null) as string | null,
     requirements,
+    // Owner 2026-10-15: Paidy only for a customer who lives in Japan.
+    customerInJapan: customerInJapan(c),
     // QC PR-B L1 (2026-10-10): the secret's family is checked BEFORE she can
     // approve anything, not only when the approval comes back.
     secretTest: (() => { try { return paidySecretIsTest(); } catch { return null; } })(),
@@ -868,7 +870,7 @@ function switchBase(order: AnyRec, lock: string | null, decided: DecisionRow[], 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null, items: AnyRec[], pendingCount: number, lock: string | null, cardUnresolved: boolean, to: CustomerMethod): Promise<boolean> {
   if (to === "transfer") return true;
-  if (to === "cod") return (await codOffer(supabase, order, shipTo)).offered;
+  if (to === "cod") return (await codOffer(supabase, customer, order, shipTo)).offered;
   const as = { ...order, payment_method: to };
   if (to === "paidy") {
     const o = await paidyOffer(supabase, customer, as, shipTo, items, pendingCount, lock);
@@ -888,7 +890,7 @@ async function switchTargetOffered(supabase: any, customer: AnyRec, order: AnyRe
  * re-brackets and refuses the same way.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function codOffer(supabase: any, order: AnyRec, shipTo: AnyRec | null): Promise<{ offered: boolean; reason: string | null; fee_jpy: number | null }> {
+async function codOffer(supabase: any, customer: AnyRec, order: AnyRec, shipTo: AnyRec | null): Promise<{ offered: boolean; reason: string | null; fee_jpy: number | null }> {
   const { data, error } = await supabase.from("system_settings").select("key, value").in("key", ["cod_mode", "cod_fee_table"]);
   if (error) throw error;
   const setting = (k: string) => ((data ?? []) as AnyRec[]).find((r) => r.key === k)?.value;
@@ -896,7 +898,8 @@ async function codOffer(supabase: any, order: AnyRec, shipTo: AnyRec | null): Pr
   const collected = Number(order.remaining_balance ?? 0) - Number(order.cod_fee ?? 0);
   const reason = codNotOfferedReason({
     mode: "full", currency: String(order.currency ?? ""), country: (shipTo as AnyRec | null)?.country as string | null,
-    codMode: codModeFrom(setting("cod_mode")), collectedJpy: collected, table,
+    codMode: codModeFrom(setting("cod_mode")), customerInJapan: customerInJapan(customer),
+    collectedJpy: collected, table,
   });
   return { offered: reason === null, reason, fee_jpy: reason === null ? codFeeJpy(collected, table) : null };
 }
@@ -1040,6 +1043,7 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
     mode: q.mode, currency: q.currency, country: q.country,
     paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
     customerIsTest: customer.is_test === true,
+    customerInJapan: customerInJapan(customer),
     squareAllowed: squareCardAllowed({
       mode: squareModeFrom(setting("square_mode")), audience: squareAudienceFrom(setting("square_audience")),
       listed: squareCardCustomerIds(setting("square_card_customer_ids")),
@@ -4157,7 +4161,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const body = (await req.json().catch(() => ({}))) as AnyRec;
 
-      const ALLOWED_KINDS = ["resize", "cleaning", "repair", "appraisal", "other"];
+      const ALLOWED_KINDS = ["resize", "cleaning", "repair", "appraisal", "certificate", "other"];
       const kind = String(body.kind ?? "").trim();
       if (!ALLOWED_KINDS.includes(kind)) return jsonResponse({ error: "bad_kind" }, 400);
 

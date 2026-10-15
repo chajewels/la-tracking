@@ -45,7 +45,7 @@ because the number lands in the account total. It does not.
 **Open** = `requested`, `received`, `in_progress`. That is what the badge
 counts and what the quick view shows.
 
-Kinds: `resize`, `cleaning`, `repair`, `appraisal`, `other`.
+Kinds: `resize`, `cleaning`, `repair`, `appraisal`, `certificate` (2026-10-15), `other`.
 
 ## Columns worth knowing
 
@@ -111,7 +111,7 @@ that is not there yet. Pinned by
 `jobTypeForKind`: `resize` → Ring Resize **only when a ring size came with the
 request** (without one, nothing says the piece is a ring and Bracelet Resize is
 the other half of that coin), `cleaning` → Polishing, `repair` → Repair,
-`appraisal` → Appraisal, anything else → no type plus a hint telling the CSR to
+`appraisal` → Appraisal, `certificate` → Certificate, anything else → no type plus a hint telling the CSR to
 choose.
 
 **After creation the database owns the request's status.** Trigger
