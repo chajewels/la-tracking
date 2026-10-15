@@ -9001,6 +9001,7 @@ export type Database = {
           id: string
           price_jpy: number
           product_id: string
+          sale_price_jpy: number | null
           size: string | null
           sort: number
           stock_qty: number
@@ -9013,6 +9014,7 @@ export type Database = {
           id?: string
           price_jpy: number
           product_id: string
+          sale_price_jpy?: number | null
           size?: string | null
           sort?: number
           stock_qty?: number
@@ -9025,6 +9027,7 @@ export type Database = {
           id?: string
           price_jpy?: number
           product_id?: string
+          sale_price_jpy?: number | null
           size?: string | null
           sort?: number
           stock_qty?: number
@@ -11260,6 +11263,12 @@ export type Database = {
           p_lines: Json
         }
         Returns: Json
+      }
+      website_variant_price_jpy: {
+        Args: {
+          v: Database["public"]["Tables"]["website_product_variants"]["Row"]
+        }
+        Returns: number
       }
       withdraw_cart_reminder_by_email: {
         Args: { p_email: string }
