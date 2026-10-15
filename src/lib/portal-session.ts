@@ -93,6 +93,25 @@ export function isPinRequiredError(message: unknown): boolean {
   return m === 'pin_required' || m === 'session expired' || m === 'invalid or expired session';
 }
 
+/**
+ * True when the server answer means the LINK itself is dead (expired, revoked,
+ * unknown) — no PIN can open it. verify-portal-pin answers these with the
+ * token message from _shared/portal-auth.ts. The PIN screen must hand them to
+ * the link-expired / link-invalid screen (sign-in + new-link buttons) instead
+ * of showing them as small text under the PIN box (fixed 2026-10-15).
+ * A wrong PIN, a lock-out or a network error is NOT a dead link.
+ */
+export function isDeadLinkError(message: unknown): boolean {
+  if (typeof message !== 'string') return false;
+  const m = message.trim().toLowerCase();
+  return m === 'token expired'
+    || m === 'invalid token'
+    || m === 'token has been revoked'
+    || m === 'source token has been revoked'
+    || m === 'source token not found'
+    || m === 'invalid portal token';
+}
+
 /** Where to send a link-token visitor who has no session: the PIN screen. */
 export function pinScreenUrl(token: string, next?: 'loyalty'): string {
   const q = new URLSearchParams({ token });
