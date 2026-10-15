@@ -287,6 +287,17 @@ export interface SquareOpsResidue {
 }
 
 /**
+ * The strip's scope line. The live environment's counters also include every
+ * record that carries no environment tag (square_ops_counts(p_env, true)), so
+ * "production only" was not literally true — QA qualification 1, 2026-10-15.
+ * Wording is QA's exact text.
+ */
+export function squareCountingLine(environment: string | null | undefined): string | null {
+  if (environment !== 'sandbox' && environment !== 'production') return null;
+  return `Counting ${environment}, including untagged records`;
+}
+
+/**
  * One line naming what the OTHER environment still holds, or null when it
  * holds nothing worth a person's eye (2026-10-15, QA finding A: the panel used
  * to add sandbox and production together).

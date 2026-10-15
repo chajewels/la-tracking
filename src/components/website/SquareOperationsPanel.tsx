@@ -29,7 +29,7 @@ import {
   DISPUTE_CLOSED_STATES, DISPUTE_WARNING_DAYS, HOLD_WARNING_DAYS, SQUARE_DECISIONS,
   ageLabel, defaultSettlementRange, isDeadlineSoon, isOpenSquareException, orderRef,
   refundNotPaidBack, settlementCsv, settlementFileName, settlementTotals,
-  eventsApiNotEnabled, refundPendingDays, squareResidueLine, REFUND_PENDING_SUPPORT_DAYS, REFUND_PENDING_WARN_DAYS, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
+  eventsApiNotEnabled, refundPendingDays, squareCountingLine, squareResidueLine, REFUND_PENDING_SUPPORT_DAYS, REFUND_PENDING_WARN_DAYS, squareDecisionRefusal, squareExceptionLabel, squareHealthStatus, squareNoteRequired, squarePaymentStateLabel,
   type SettlementRow, type SquareCaseKind, type SquareOpsHealth,
 } from "@/lib/square-ops";
 
@@ -339,8 +339,8 @@ export function SquareOperationsPanel() {
             <span title={PHT_TIP}>Last run {when(health.data?.last_run?.at ?? null)} · last good run {when(health.data?.last_ok_at ?? null)}</span>
             <span>Inbox backlog {health.data?.events_backlog ?? "—"}{(health.data?.events_dead ?? 0) > 0 ? ` · ${health.data?.events_dead} failed for good` : ""}</span>
             <span>Refunds open {health.data?.refunds_open ?? "—"} · awaiting a decision {health.data?.refunds_undecided ?? "—"} · disputes open {health.data?.disputes_open ?? "—"}</span>
-            {health.data?.environment && (
-              <span className="text-muted-foreground">Counting {health.data.environment === "sandbox" ? "sandbox (Test mode)" : "production"} only</span>
+            {squareCountingLine(health.data?.environment) && (
+              <span className="text-muted-foreground" data-testid="square-ops-counting">{squareCountingLine(health.data?.environment)}</span>
             )}
             {oldestRefundDays != null && (
               <span className={cn(oldestRefundDays >= REFUND_PENDING_WARN_DAYS && "font-medium text-warning", oldestRefundDays >= REFUND_PENDING_SUPPORT_DAYS && "text-destructive")}>
