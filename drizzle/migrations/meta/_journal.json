@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792036610226,
+      "tag": "0000_square_ops_environment_and_refund_decision",
+      "breakpoints": true
+    }
+  ]
+}
