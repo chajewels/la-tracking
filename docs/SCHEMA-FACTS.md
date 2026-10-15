@@ -1543,6 +1543,39 @@ supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
 - Seed: docs/sql/20261001100000_message_lines_seed.sql — applied 2026-10-01 02:10 JST (222 rows + 8 review_invite).
 - EDITOR (2026-10-01): Hub → Settings → Message lines (admin; src/components/settings/MessageLinesTab.tsx, pure helpers src/lib/message-lines-admin.ts). Pools are fixed to what the code reads (37 + review_invite:full); lines are added, edited or switched off — NEVER deleted (no DELETE policy; a line a customer received stays traceable). LINE 1 OF EVERY POOL IS LOCKED (owner decision 2026-10-01) — today's wording = the code FALLBACK; the editor refuses to edit or switch it off. Save is refused with the reason when the readers' isValidLine would skip the line (same rule, with words). Every write logs audit_logs entity_type 'message_line' (create / update / activate / deactivate) with the old and new text, and invalidates the ['message_lines'] cache so the next Copy Message uses it. RLS: SELECT staff, UPDATE admin, INSERT admin (20261022100000_message_lines_admin_insert.sql). review_invite placeholders: {first_name} {piece} {link} ({link} required).
 
+## Website sale price (2026-10-15, migration 20261216100000_website_sale_price.sql)
+
+- Column `website_product_variants.sale_price_jpy integer NULL` — the optional
+  sale price, whole yen. NULL = not on sale. `price_jpy` stays the FULL price of
+  record (Page365 `hub_price_jpy`, the publish guard and every import read it).
+- CHECK `website_variants_sale_below_price`: `sale_price_jpy IS NULL OR
+  (sale_price_jpy > 0 AND sale_price_jpy < price_jpy)`. It also refuses lowering
+  `price_jpy` to or below an existing sale: change or clear the sale first.
+- `public.website_variant_price_jpy(website_product_variants)` (SQL, STABLE,
+  invoker; EXECUTE authenticated + service_role) is THE single place the price
+  the customer pays is decided: the sale price while set and below the full
+  price, else `price_jpy`. TS mirror `effectivePriceJpy()` in
+  `supabase/functions/_shared/website-down-payments.ts`; keep them identical
+  (src/test/website-sale-price.test.ts).
+- Wire shape (`website` function, `shapeProduct`): `price_jpy` = the effective
+  price; `full_price_jpy` (integer | null) = the full price, only while
+  `on_sale` (boolean) is true; `sale_price_jpy` is never sent. `price_php` and
+  the down payments follow the effective price. Readers on the effective price:
+  `POST /checkout/quote` (unit price → the draft via `checkout_quotes.items`),
+  `GET /me/points-preview`, `cart_reminder_candidates`, the newsletter
+  (`_shared/newsletter/render.tsx`), and the `create_web_draft_atomic` fallback
+  when a quote line carries no unit price. `materialize_web_draft_atomic`
+  copies the draft lines' unit price and is unchanged.
+- Editors: Hub → Website → Catalog → Edit product → "Sale price (¥)" per
+  variant (blank = no sale; Save refused while invalid, `saleError` in
+  `src/components/website/product-form.ts`); the catalog list's "from" price is
+  the effective price. Upload sheet column `hub_sale_price` (Upload!AK, after
+  the Hub columns — `price` is in Page365's own A–X block); blank keeps the
+  existing sale, and the import stops with a plain message when a new `price`
+  is not above the kept sale. No sale end date in v1.
+- `trg_website_variants_revalidate` fires on any variant UPDATE, so a sale
+  change revalidates the storefront with no trigger change.
+
 ## Rules moved from CLAUDE.md (2026-10-02, verbatim)
 
 Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (only the 2-space CLAUDE.md indent removed); CLAUDE.md keeps the one-line rules and a pointer here.

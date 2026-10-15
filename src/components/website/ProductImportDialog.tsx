@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-import type { TablesInsert } from "@/integrations/supabase/types";
+import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -142,6 +142,8 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
           // New to the template; an older sheet without them yields "" — keep existing.
           collection_slugs: cell(r, "collection_slugs"),
           category_slugs: cell(r, "category_slugs"),
+          // New to the template (2026-10-15); an older sheet yields "" — keep the existing sale.
+          hub_sale_price: cell(r, "hub_sale_price"),
           images: IMAGE_COLUMNS.map((c) => cell(r, c)),
         };
         if (isBlankRow(input)) continue;
@@ -227,11 +229,28 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
 
     // One variant per row. Reuse the first existing variant so its media and id
     // survive an update; drop any extras.
-    const { data: variants, error: vErr } = await supabase
+    // sale_price_jpy (migration 20261216100000) is not in the generated types
+    // until Lovable regenerates them; the select is read through this shape
+    // rather than by hand-editing types.ts (CLAUDE.md).
+    const { data: variantRows, error: vErr } = await supabase
       .from("website_product_variants")
-      .select("id").eq("product_id", productId).order("sort");
+      .select("id, sale_price_jpy" as "id").eq("product_id", productId).order("sort");
     if (vErr) throw vErr;
-    const variantIds = (variants ?? []).map((x) => x.id as string);
+    const variants = (variantRows ?? []) as unknown as Array<{ id: string; sale_price_jpy?: number | null }>;
+    const variantIds = variants.map((x) => x.id as string);
+
+    // A blank hub_sale_price keeps the existing sale, so a new price at or below
+    // it would trip the DB CHECK (website_variants_sale_below_price). Say so
+    // plainly instead of failing on a constraint name.
+    const keptSale = v.sale_price_jpy === null
+      ? Number(variants[0]?.sale_price_jpy ?? 0)
+      : 0;
+    if (keptSale > 0 && keptSale >= v.price_jpy) {
+      throw new Error(
+        `${v.sku}: its sale price ¥${keptSale.toLocaleString("en-US")} is not below the new price ` +
+        `¥${v.price_jpy.toLocaleString("en-US")}. Put a lower hub_sale_price in the sheet, or remove the sale in Edit product.`,
+      );
+    }
 
     const variantPayload = {
       product_id: productId,
@@ -241,13 +260,15 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       stock_qty: v.stock_qty,
       sort: 0,
       ...(v.cost_basis === null ? {} : { cost_basis: v.cost_basis }),
+      // Blank cell = keep the existing sale (the key is left out).
+      ...(v.sale_price_jpy === null ? {} : { sale_price_jpy: v.sale_price_jpy }),
     };
 
     let variantId: string;
     if (variantIds.length) {
       variantId = variantIds[0];
       const { error } = await supabase.from("website_product_variants")
-        .update(variantPayload).eq("id", variantId);
+        .update(variantPayload as TablesUpdate<"website_product_variants">).eq("id", variantId);
       if (error) throw error;
       if (variantIds.length > 1) {
         const { error: delErr } = await supabase.from("website_product_variants")
@@ -256,7 +277,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       }
     } else {
       const { data, error } = await supabase.from("website_product_variants")
-        .insert(variantPayload).select("id").single();
+        .insert(variantPayload as TablesInsert<"website_product_variants">).select("id").single();
       if (error) throw error;
       variantId = data.id;
     }

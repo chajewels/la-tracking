@@ -19,7 +19,7 @@ import {
 } from "@/lib/website-catalog-import";
 import {
   ITEM_KINDS, ITEM_KIND_LABEL, type ItemKind, type ProductForm, type Status, type VariantRow, emptyVariant,
-  PRODUCT_METAL_VALUES, metalLabel, metalRequired, slugify,
+  PRODUCT_METAL_VALUES, metalLabel, metalRequired, saleError, slugify,
 } from "@/components/website/product-form";
 
 /**
@@ -387,6 +387,29 @@ export default function ProductDialog({
                     </div>
                   </div>
 
+                  {/* Sale price (owner 2026-10-15): blank = not on sale. The
+                      website charges it everywhere and shows the full price
+                      struck through beside it. */}
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs" htmlFor={`${formId}-sale-${i}`}>Sale price (¥)</Label>
+                      <Input
+                        id={`${formId}-sale-${i}`}
+                        type="number" min={1} placeholder="No sale"
+                        value={v.sale_price_jpy ?? ""}
+                        aria-invalid={saleError(v) !== null}
+                        onChange={(e) => onPatchVariant(i, { sale_price_jpy: e.target.value === "" ? null : Number(e.target.value) })}
+                        data-testid={`variant-sale-price-${i}`}
+                      />
+                      <p className={`text-[11px] ${saleError(v) ? "text-destructive" : "text-muted-foreground"}`}>
+                        {saleError(v)
+                          ?? (v.sale_price_jpy && v.sale_price_jpy > 0
+                            ? `≈ ${peso(v.sale_price_jpy)} on the website · must be below ¥${Number(v.price_jpy).toLocaleString("en-US")}`
+                            : " ")}
+                      </p>
+                    </div>
+                  </div>
+
                   {isAdmin && (
                     <div className="grid gap-3 sm:grid-cols-4">
                       <div className="space-y-1">
@@ -466,7 +489,7 @@ export default function ProductDialog({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={onSave} disabled={saving}>
+            <Button onClick={onSave} disabled={saving || form.variants.some((v) => saleError(v) !== null)}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save product
             </Button>

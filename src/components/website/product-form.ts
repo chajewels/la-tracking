@@ -69,7 +69,11 @@ export interface VariantRow {
   id?: string;
   size: string | null;
   stone: string | null;
+  /** The FULL price of record (Page365, imports and the publish guard read it). */
   price_jpy: number;
+  /** Optional sale price, whole yen, always below price_jpy; null = not on
+   *  sale. The website charges and shows it (website_variant_price_jpy). */
+  sale_price_jpy: number | null;
   cost_basis: number | null;
   stock_qty: number;
   sort: number;
@@ -117,8 +121,22 @@ export interface ProductForm {
 }
 
 export const emptyVariant = (sort: number): VariantRow => ({
-  size: "", stone: "", price_jpy: 0, cost_basis: null, stock_qty: 0, sort, media: [],
+  size: "", stone: "", price_jpy: 0, sale_price_jpy: null, cost_basis: null, stock_qty: 0, sort, media: [],
 });
+
+/**
+ * Why a variant's sale price cannot be saved, or null when it can (blank = no
+ * sale). Mirrors the DB CHECK website_variants_sale_below_price: a whole yen
+ * amount above 0 and below the full price.
+ */
+export function saleError(v: Pick<VariantRow, "price_jpy" | "sale_price_jpy">): string | null {
+  if (v.sale_price_jpy === null || v.sale_price_jpy === undefined) return null;
+  const sale = Number(v.sale_price_jpy);
+  const full = Number(v.price_jpy);
+  if (!Number.isInteger(sale) || sale <= 0) return "Sale price must be a whole yen amount above 0.";
+  if (!(sale < full)) return `Sale price must be below the full price (¥${full.toLocaleString("en-US")}).`;
+  return null;
+}
 
 export const emptyProduct = (): ProductForm => ({
   sku: "", slug: "", name: "", name_ja: "", savedName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
