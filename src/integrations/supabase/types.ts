@@ -9783,6 +9783,7 @@ export type Database = {
         }
         Returns: Json
       }
+      customer_in_japan: { Args: { p_customer: string }; Returns: boolean }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       deactivate_shipping_rate: { Args: { p_id: string }; Returns: Json }
       decide_square_case: {
