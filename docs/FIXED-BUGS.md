@@ -6282,3 +6282,20 @@ QA rev. 2 of the live-production brief (`claude/qa-brief-live-production-2026-10
 - **B — six Square refunds showed "awaiting a decision" although staff had already recorded them with "Mark refund issued — card".** The mark never wrote `square_refunds.decision`. Fixed: a card mark decides the order's undecided COMPLETED refunds `order_cancelled_refunded` (same person, same transaction; a person's earlier decision is kept; PENDING left alone). The six existing undecided test-order rows were NOT backfilled — the owner records them in the panel. `refunds_undecided` is now a counter on the strip.
 - **C — on a card-refunded web order the "Refund emails" panel listed 「返金が完了しました」 as "Never attempted / not attempted" and did not list the Square 「返金を受け付けました」 that was sent** (TEST-900080). The skip is by design (mark-refund-issued: Square's email already told her). Fixed: the list carries each COMPLETED Square refund's email with its real send-log status (`refund_received_square`, not resendable from the panel — the hourly B02 replay owns it) and flags the card mark row `not_sent_reason = card_refund_email_sent_by_square` → badge "skipped by design", no Resend button.
 - Evidence: drift audit 421/421 before the migration; SQL acceptance `development/sql/square-ops-environment-acceptance.sql` 13/13 on the replay (migration re-run = no-op); CI `development/square-ops-environment.test.ts`; vitest `square-ops` + `refund-email-resend`; `tsc -p tsconfig.app.json` clean.
+
+### Full-catalog list failed past ~400 products, emptying storefront search and /layaway (2026-10-15)
+Symptom: every storefront `/api/search` answered after ~9 s with `products: []` (production and the
+develop preview), and the /layaway pool was empty. Collection and product pages worked. Both
+read the Hub's `GET /catalog/products?limit=5000`, and the storefront deliberately treats a
+failure there as an empty list (cha-jewels-web lib/search.ts `loadIndex`, lib/catalog-context.ts
+`catalogue`).
+Cause: `attachCategorySlugs` (website/index.ts) looked up categories with ONE PostgREST GET carrying
+every active product id in `.in("product_id", ids)`. The active catalogue grew from ~300 to 406 in
+October; at 406 ids the URL is ~16,043 chars, at the 16 KB gateway limit, the request failed and the
+helper threw, so the whole route failed. The other two helpers (hero cut-outs, down payments) send
+POST RPCs and already degrade instead of throwing. Not caused by the sale-price deploy that day.
+Fix: the lookup is batched, 150 ids per request (`_shared/chunk.ts`), output identical. The list
+route also wraps each of the three enrichments so a failure is logged by name and the list still
+answers (a failed category lookup returns `category_slugs: []`), and it logs the product count and
+elapsed ms per request. Guard: src/test/chunk.test.ts. Do not reintroduce: a `.in()` over a list
+that grows with the catalogue in one GET; a list enrichment that can throw away the whole list.

@@ -3,6 +3,9 @@
 ## App Version
 1.6.0 (commit 02a040c)
 
+## 2026-10-15 — Website catalog list
+- Website catalog list: category lookup batched (150 ids) after the 406-product catalogue overflowed the URL limit and emptied storefront search; deploy of `website` pending.
+
 ## 2026-10-15 — Website sale price
 - Website sale price: migration + website/newsletter functions pending apply/deploy (migration 20261216100000_website_sale_price.sql; docs/SCHEMA-FACTS.md "Website sale price").
 
