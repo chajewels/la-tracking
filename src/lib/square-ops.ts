@@ -263,6 +263,49 @@ export interface SquareOpsHealth {
   refund_oldest_pending_at?: string | null;
   /** S01 (2026-10-08): open card attempts that already rang 'card_attempt_stuck'. */
   attempts_stuck?: number;
+  /** Environment-true counters (2026-10-15): every count above is for THIS environment only. */
+  environment?: 'sandbox' | 'production';
+  /** Square refunds with no staff decision yet (live environment). */
+  refunds_undecided?: number;
+  /** The other environment's rows, reported apart — never mixed into the counts above. */
+  other_environment?: SquareOpsResidue | null;
+}
+
+/** The other environment's counters, as square_ops_health() reports them. */
+export interface SquareOpsResidue {
+  environment?: 'sandbox' | 'production';
+  events_backlog?: number;
+  events_dead?: number;
+  holds_live?: number;
+  attempts_open?: number;
+  captured_unrecorded?: number;
+  exceptions_open?: number;
+  refunds_open?: number;
+  disputes_open?: number;
+  attempts_stuck?: number;
+  refunds_undecided?: number;
+}
+
+/**
+ * One line naming what the OTHER environment still holds, or null when it
+ * holds nothing worth a person's eye (2026-10-15, QA finding A: the panel used
+ * to add sandbox and production together).
+ */
+export function squareResidueLine(r: SquareOpsResidue | null | undefined): string | null {
+  if (!r) return null;
+  const parts: string[] = [];
+  const add = (n: number | undefined, label: string) => { if ((n ?? 0) > 0) parts.push(`${n} ${label}`); };
+  add(r.holds_live, 'open hold(s)');
+  add(r.attempts_open, 'open attempt(s)');
+  add(r.captured_unrecorded, 'captured but unrecorded');
+  add(r.exceptions_open, 'open exception(s)');
+  add(r.refunds_open, 'refund(s) in flight');
+  add(r.refunds_undecided, 'refund(s) awaiting a decision');
+  add(r.disputes_open, 'open dispute(s)');
+  add(r.events_backlog, 'inbox event(s) pending');
+  add(r.events_dead, 'inbox event(s) failed for good');
+  if (parts.length === 0) return null;
+  return `${r.environment === 'sandbox' ? 'Sandbox' : 'Production'} residue (not counted above): ${parts.join(' · ')}`;
 }
 
 /** S05: the first bell rings at 7 days, the second (contact Square support) at 14. Every day counts (owner E1). */

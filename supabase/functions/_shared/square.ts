@@ -598,6 +598,27 @@ export async function verifySquareSignature(notificationUrl: string, rawBody: st
   return false;
 }
 
+/**
+ * Which environment's signature key verified the header (ops-env, 2026-10-15):
+ * 'production' when SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY matches, 'sandbox'
+ * when SQUARE_WEBHOOK_SIGNATURE_KEY does, null when neither (or no header).
+ * The inbox row is tagged with it, so the operations counters can tell sandbox
+ * residue from live traffic. Same timing-safe compare as verifySquareSignature.
+ */
+export async function verifySquareSignatureEnvironment(notificationUrl: string, rawBody: string, header: string | null | undefined): Promise<SquareEnvironment | null> {
+  if (!header) return null;
+  const pairs: Array<[SquareEnvironment, string]> = [
+    ["production", (Deno.env.get("SQUARE_PRODUCTION_WEBHOOK_SIGNATURE_KEY") ?? "").trim()],
+    ["sandbox", (Deno.env.get("SQUARE_WEBHOOK_SIGNATURE_KEY") ?? "").trim()],
+  ];
+  for (const [env, secret] of pairs) {
+    if (!secret) continue;
+    const expected = await hmacSha256Base64(secret, notificationUrl + rawBody);
+    if (timingSafeEqual(expected, header.trim())) return env;
+  }
+  return null;
+}
+
 export async function hmacSha256Base64(key: string, message: string): Promise<string> {
   const enc = new TextEncoder();
   const k = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

@@ -14,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatPHTDisplay } from '@/lib/date-utils';
 import { emailStatusTone } from '@/components/orders/order-email-history';
+import { MAX_MANUAL_RESENDS, refundEmailBadge, refundEmailStateLine } from '@/components/orders/refund-email-state';
 
 /**
  * PA08 (owner decision 2026-10-09): the AUDITED MANUAL resend of a refund
@@ -26,20 +27,26 @@ import { emailStatusTone } from '@/components/orders/order-email-history';
  * the work and writes the audit row before it sends.
  */
 interface ResendableEmail {
-  kind: 'refund_issued' | 'refund_received_paidy';
+  kind: 'refund_issued' | 'refund_received_paidy' | 'refund_received_square';
   key: string;
   amount: number;
   last_status: string | null;
   last_at: string | null;
   resends_used: number;
+  /** Why a row with no attempt is not a missed email (card orders: Square's own email went instead). */
+  not_sent_reason?: 'card_refund_email_sent_by_square' | null;
+  /** false = re-sent by the hourly check only (Square refund email), never from here. */
+  resendable?: boolean;
 }
 
-const MAX = 3;
+const MAX = MAX_MANUAL_RESENDS;
 const MIN_REASON = 10;
 const KIND_LABEL: Record<ResendableEmail['kind'], string> = {
   refund_issued: 'Refund sent (返金が完了しました)',
   refund_received_paidy: 'Paidy refund received (返金を受け付けました)',
+  refund_received_square: 'Card refund received — Square (返金を受け付けました)',
 };
+
 const REFUSAL: Record<string, string> = {
   reason_required: `Write a reason (at least ${MIN_REASON} characters).`,
   not_resendable: 'This email can no longer be resent from here.',
@@ -134,19 +141,19 @@ export default function RefundEmailResend({ orderId }: { orderId: string }) {
             <li key={e.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <div className="min-w-0">
                 <p className="font-medium">{KIND_LABEL[e.kind]} · {yen(e.amount)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {e.last_at ? `Last attempt ${formatPHTDisplay(e.last_at)} PHT` : 'Never attempted'} · manual resends {e.resends_used} of {MAX}
-                </p>
+                <p className="text-xs text-muted-foreground">{refundEmailStateLine(e, formatPHTDisplay)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={emailStatusTone(e.last_status ?? 'none')}>{e.last_status ?? 'not attempted'}</Badge>
-                <Button
-                  size="sm" variant="outline"
-                  disabled={e.resends_used >= MAX || e.last_status === 'suppressed'}
-                  onClick={() => { setTarget(e); setReason(''); }}
-                >
-                  <RotateCw className="mr-1 h-3.5 w-3.5" /> Resend
-                </Button>
+                <Badge variant={emailStatusTone(e.last_status ?? 'none')}>{refundEmailBadge(e)}</Badge>
+                {e.resendable !== false && !(e.not_sent_reason && !e.last_at) && (
+                  <Button
+                    size="sm" variant="outline"
+                    disabled={e.resends_used >= MAX || e.last_status === 'suppressed'}
+                    onClick={() => { setTarget(e); setReason(''); }}
+                  >
+                    <RotateCw className="mr-1 h-3.5 w-3.5" /> Resend
+                  </Button>
+                )}
               </div>
             </li>
           ))}
