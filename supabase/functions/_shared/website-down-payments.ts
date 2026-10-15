@@ -33,6 +33,20 @@ const wholeYen = (v: unknown): number | null => {
 };
 
 /**
+ * The price the customer pays for a variant: its sale price while one is set
+ * and below the full price, else price_jpy (the full price of record). TS
+ * mirror of the SQL public.website_variant_price_jpy(), the single place the
+ * effective price is decided; keep the two identical (sale 2026-10-15).
+ */
+export function effectivePriceJpy(v: { price_jpy: unknown; sale_price_jpy?: unknown }): number {
+  const full = Number(v.price_jpy ?? 0);
+  const sale = v.sale_price_jpy === null || v.sale_price_jpy === undefined || v.sale_price_jpy === ""
+    ? null
+    : Number(v.sale_price_jpy);
+  return sale !== null && Number.isFinite(sale) && sale > 0 && sale < full ? sale : full;
+}
+
+/**
  * A variant's peso price: exact half-up, the conversion a peso checkout stores
  * (create_web_order_atomic / create_web_layaway_atomic: round(jpy * rate)).
  * null with no rate, or when price_jpy is not a whole non-negative yen amount.

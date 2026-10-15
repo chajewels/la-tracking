@@ -1,6 +1,7 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
 import { renderEmail } from '../render-email.ts'
+import { effectivePriceJpy } from '../website-down-payments.ts'
 import {
   NewsletterCampaignEmail,
   type PostCard,
@@ -78,7 +79,7 @@ export async function loadCards(
   if (ids.length > 0) {
     const { data } = await supabase
       .from('website_products')
-      .select('id, slug, name, name_ja, website_product_variants(id, price_jpy, sort, website_product_media(url, sort))')
+      .select('id, slug, name, name_ja, website_product_variants(id, price_jpy, sale_price_jpy, sort, website_product_media(url, sort))')
       .in('id', ids)
     for (const id of ids) {
       // deno-lint-ignore no-explicit-any
@@ -86,9 +87,10 @@ export async function loadCards(
       if (!p) continue
       // deno-lint-ignore no-explicit-any
       const variants = [...(p.website_product_variants ?? [])].sort((a: any, b: any) => (a.sort ?? 0) - (b.sort ?? 0))
+      // The price the customer pays: the sale price while one is set (2026-10-15).
       const prices = variants
         // deno-lint-ignore no-explicit-any
-        .map((v: any) => Number(v.price_jpy))
+        .map((v: any) => effectivePriceJpy(v))
         .filter((n: number) => Number.isFinite(n) && n > 0)
       // deno-lint-ignore no-explicit-any
       const media = variants.flatMap((v: any) => v.website_product_media ?? [])

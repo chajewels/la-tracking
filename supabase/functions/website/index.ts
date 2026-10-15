@@ -5,7 +5,7 @@ import { pickLang } from "../_shared/storefront-email.ts";
 import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
-import { attachDownPayments, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
+import { attachDownPayments, effectivePriceJpy, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
 import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from "../_shared/latest-decision.ts";
 import { type CustomerMethod, type SwitchInput, canCustomerSwitch, customerSwitchEmailKey, switchTargets } from "../_shared/method-switch-rules.ts";
@@ -62,7 +62,7 @@ const ITEM_TYPE_OF: Record<string, "Jewelry" | "Watch" | "Accessory"> = {
   accessory: "Accessory",
 };
 const VARIANT_SELECT =
-  "product_variants:website_product_variants(id, size, stone, price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
+  "product_variants:website_product_variants(id, size, stone, price_jpy, sale_price_jpy, stock_qty, sort, product_media:website_product_media(url, alt, sort))";
 const PRODUCT_SELECT = `${PRODUCT_FIELDS}, ${VARIANT_SELECT}`;
 
 type AnyRec = Record<string, unknown>;
@@ -284,9 +284,20 @@ function shapeProduct(product: AnyRec | null, fx: FxRate | null): AnyRec | null 
     const media = (v.product_media as AnyRec[] | undefined) ?? [];
     media.sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0));
     delete v.sort;
+    // SALE PRICE (owner 2026-10-15): price_jpy on the wire is the price the
+    // customer pays (effectivePriceJpy, mirror of website_variant_price_jpy);
+    // the full price travels as full_price_jpy only while on sale.
+    // sale_price_jpy itself never leaves the Hub.
+    const full = Number(v.price_jpy ?? 0);
+    const eff = effectivePriceJpy(v as { price_jpy: unknown; sale_price_jpy?: unknown });
+    v.on_sale = eff < full;
+    v.full_price_jpy = v.on_sale ? full : null;
+    v.price_jpy = eff;
+    delete v.sale_price_jpy;
     // Exact half-up (H-DP): the conversion a peso checkout stores, to the
-    // peso. Down payments are added per request by attachDownPayments.
-    v.price_php = variantPricePhp(v.price_jpy ?? 0, fx);
+    // peso. Down payments are added per request by attachDownPayments, keyed
+    // on this effective price.
+    v.price_php = variantPricePhp(eff, fx);
   }
   return product;
 }
@@ -2022,7 +2033,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           .select("id, current_tier_id, earned_tier_id, cumulative_spend_jpy, is_downgraded, downgrade_spend_baseline")
           .eq("customer_id", customer.id).maybeSingle(),
         supabase.from("website_product_variants")
-          .select("id, price_jpy, product:website_products(status)")
+          .select("id, price_jpy, sale_price_jpy, product:website_products(status)")
           .in("id", ids),
       ]);
       for (const r of [flagRes, tiersRes, memberRes, variantsRes]) if (r.error) throw r.error;
@@ -2089,7 +2100,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const items = ((variantsRes.data ?? []) as AnyRec[])
         .filter((v) => (v.product as AnyRec | null)?.status === "active")
         .map((v) => {
-          const price = Number(v.price_jpy ?? 0);
+          // Points on the price the customer pays (sale 2026-10-15).
+          const price = effectivePriceJpy(v as { price_jpy: unknown; sale_price_jpy?: unknown });
           const preview = member ? previewEarn(price, member, tiers, promo) : previewEarnAsNewMember(price, tiers);
           return { variant_id: String(v.id), ...(preview ?? { points: 0, base_points: 0, promo_points: 0, multiplier: null, tier: null, upgraded_to: null }), eligible: preview != null };
         });
@@ -2289,7 +2301,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: variants, error: varErr } = await supabase
         .from("website_product_variants")
-        .select("id, product_id, size, stone, price_jpy, stock_qty, product:website_products(id, sku, name, slug, status)")
+        .select("id, product_id, size, stone, price_jpy, sale_price_jpy, stock_qty, product:website_products(id, sku, name, slug, status)")
         .in("id", [...wanted.keys()]);
       if (varErr) throw varErr;
 
@@ -2310,7 +2322,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
             available: Number(variant.stock_qty ?? 0),
           }, 409);
         }
-        const unit = Number(variant.price_jpy ?? 0);
+        // Re-priced on the server at the price the customer pays: the sale price while
+        // one is set (owner 2026-10-15). The draft copies this unit price.
+        const unit = effectivePriceJpy(variant as { price_jpy: unknown; sale_price_jpy?: unknown });
         subtotal += unit * qty;
         items.push({
           variant_id: variantId,
