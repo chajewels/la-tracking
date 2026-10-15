@@ -3,6 +3,7 @@ import {
   clearPortalSession,
   getPortalSessionId,
   hasLegacyPinFlag,
+  isDeadLinkError,
   isPinRequiredError,
   pinScreenUrl,
   savePortalSession,
@@ -67,5 +68,35 @@ describe('portal PIN session', () => {
   it('builds the PIN screen url, with the loyalty return', () => {
     expect(pinScreenUrl('t 1')).toBe('/portal?token=t+1');
     expect(pinScreenUrl('abc', 'loyalty')).toBe('/portal?token=abc&next=loyalty');
+  });
+});
+
+/**
+ * Expired link on the PIN screen (Lovable issue, fixed 2026-10-15): a dead-link
+ * answer from verify-portal-pin must leave the PIN screen for the link-expired
+ * screen; a wrong PIN must not.
+ */
+describe('isDeadLinkError', () => {
+  it('recognises every token-class message from portal-auth', () => {
+    for (const m of ['Token expired', 'Invalid token', 'Token has been revoked',
+      'Source token has been revoked', 'Source token not found', 'Invalid portal token']) {
+      expect(isDeadLinkError(m), m).toBe(true);
+    }
+  });
+  it('never treats a PIN problem or a session problem as a dead link', () => {
+    for (const m of ['Incorrect PIN. 2 attempts remaining.', 'Too many incorrect attempts. Account locked for 30 minutes.',
+      'Account locked. Try again after 12:30.', 'pin_required', 'Session expired', 'Invalid or expired session',
+      'Something went wrong. Please try again.', '', undefined, null, 42]) {
+      expect(isDeadLinkError(m as unknown), String(m)).toBe(false);
+    }
+  });
+});
+
+describe('CustomerPortal hands a dead link to the expired screen', () => {
+  it('routes isDeadLinkError to setError and keeps the PIN gate closed while an error is set', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(`${process.cwd()}/src/pages/CustomerPortal.tsx`, 'utf8');
+    expect(src).toMatch(/if \(isDeadLinkError\(payload\?\.error\)\) \{[\s\S]{0,400}setError\(payload\.error\);/);
+    expect(src).toContain("if (authMode === 'token' && !pinVerified && !error) {");
   });
 });
