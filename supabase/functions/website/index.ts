@@ -41,6 +41,9 @@ import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 import { customerCancellationReason } from "../_shared/customer-reasons.ts";
 import { codFeeJpy, codFeeTable, codModeFrom, codNotOfferedReason } from "../_shared/cod-fee.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import {
+  type CouponState, appliedCouponJpy, couponBlock, couponSettle, couponStateFrom, fullPriceSubtotalJpy, normalizeCouponCode,
+} from "../_shared/website-coupons.ts";
 
 /**
  * Public website API (server-to-server).
@@ -390,6 +393,18 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
   // Cash on delivery (owner plan 2026-10-10).
   over_cod_limit: 409,
   cod_nothing_to_collect: 409,
+  // Coupon codes (owner 2026-10-15): website_coupon_quote / create_web_draft_atomic.
+  coupon_not_found: 409,
+  coupon_inactive: 409,
+  coupon_not_started: 409,
+  coupon_expired: 409,
+  coupon_exhausted: 409,
+  coupon_customer_limit: 409,
+  coupon_min_subtotal: 409,
+  coupon_layaway_not_allowed: 409,
+  coupon_full_price_only: 409,
+  coupon_changed: 409,
+  coupon_total_zero: 409,
 };
 
 /**
@@ -983,7 +998,13 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   mode: "full" | "layaway"; currency: "JPY" | "PHP"; fxRate: number | null; country: string | null;
   subtotalJpy: number; subtotalSettle: number; totalSettle: number; deposit: number | null;
   paymentMethod: unknown; points: unknown;
+  /** resolveCoupon's answer. subtotal / total above are BEFORE it; `deposit` is already priced on pieces − coupon. */
+  coupon?: CouponState;
 }) {
+  // Coupon first, then points (owner 2026-10-15): the points cap is pieces −
+  // coupon. A refused code shows its reason and changes no figure.
+  const couponJpy = appliedCouponJpy(q.coupon ?? null);
+  const couponValue = couponSettle(couponJpy, q.currency, q.fxRate);
   const { data: settings, error: setErr } = await supabase.from("system_settings").select("key, value")
     .in("key", ["paidy_mode", "square_mode", "loyalty_enabled", "square_audience", "square_card_customer_ids", "cod_mode", "cod_fee_table"]);
   if (setErr) throw setErr;
@@ -1004,8 +1025,8 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   const balance = Math.max(0, Math.floor(Number((member as AnyRec | null)?.remaining_points ?? 0)));
   const reason = pointsUnavailableReason({ loyaltyEnabled, enrolled: !!member, remainingPoints: balance, heldPoints: held });
   const available = reason ? 0 : Math.max(0, balance - held);
-  const limit = q.mode === "layaway" ? Number(q.deposit ?? 0) : q.subtotalSettle;
-  const max = reason ? 0 : maxUsablePoints({ available, subtotalJpy: q.subtotalJpy, limitSettle: limit, currency: q.currency, rate: q.fxRate });
+  const limit = q.mode === "layaway" ? Number(q.deposit ?? 0) : q.subtotalSettle - couponValue;
+  const max = reason ? 0 : maxUsablePoints({ available, subtotalJpy: q.subtotalJpy - couponJpy, limitSettle: limit, currency: q.currency, rate: q.fxRate });
   const chosenRaw = Math.floor(Number(q.points ?? 0));
   const chosen = Number.isSafeInteger(chosenRaw) && chosenRaw > 0 && chosenRaw <= max ? chosenRaw : 0;
   const chosenValue = pointsValue(chosen, q.currency, q.fxRate);
@@ -1014,7 +1035,7 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
   // after points + shipping (yen, full payment only); the fee is bracketed on
   // that amount and is never paid by points.
   const codTable = codFeeTable(setting("cod_fee_table"));
-  const codCollected = q.mode === "full" && q.currency === "JPY" ? q.totalSettle - chosenValue : 0;
+  const codCollected = q.mode === "full" && q.currency === "JPY" ? q.totalSettle - couponValue - chosenValue : 0;
   const options = checkoutMethodOptions({
     mode: q.mode, currency: q.currency, country: q.country,
     paidyMode: paidyModeFrom(setting("paidy_mode")), squareMode: squareModeFrom(setting("square_mode")),
@@ -1050,14 +1071,46 @@ async function checkoutChoiceBlock(supabase: any, customer: AnyRec, q: {
       chosen_value: chosenValue,
       applies_to: q.mode === "layaway" ? "deposit" : "pieces",
     },
+    // null = no code entered; { code, error } = refused (no figure changes);
+    // else the discount on the pieces, in yen and in this order's currency.
+    coupon: couponBlock(q.coupon ?? null, q.currency, q.fxRate),
     totals: {
+      // The coupon, already taken off the two figures below (0 when none).
+      coupon_discount: couponValue,
       // Cash on delivery: the 代引手数料 when COD is the chosen method, else 0.
       // Already included in the two figures below.
       cod_fee: codFee,
-      total_after_points: q.totalSettle - chosenValue + codFee,
-      due_now_after_points: q.mode === "layaway" ? Math.max(0, Number(q.deposit ?? 0) - chosenValue) : q.totalSettle - chosenValue + codFee,
+      total_after_points: q.totalSettle - couponValue - chosenValue + codFee,
+      due_now_after_points: q.mode === "layaway" ? Math.max(0, Number(q.deposit ?? 0) - chosenValue) : q.totalSettle - couponValue - chosenValue + codFee,
     },
   };
+}
+
+/**
+ * COUPON CODES (owner 2026-10-15): ask the Hub's one coupon function,
+ * website_coupon_quote, about a code for these pieces. null when no code was
+ * entered. The full-price basis (for full_price_only coupons) is the lines
+ * whose unit price is the variant's full price_jpy — the same comparison
+ * create_web_draft_atomic makes when it re-checks the code.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveCoupon(supabase: any, rawCode: unknown, customerId: string, items: AnyRec[],
+  subtotalJpy: number, mode: "full" | "layaway"): Promise<CouponState> {
+  const code = normalizeCouponCode(rawCode);
+  if (!code) return null;
+  const ids = [...new Set(items.map((i) => String(i.variant_id ?? "")).filter(Boolean))];
+  const priceById = new Map<string, number>();
+  if (ids.length > 0) {
+    const { data: vs, error: vErr } = await supabase.from("website_product_variants").select("id, price_jpy").in("id", ids);
+    if (vErr) throw vErr;
+    for (const v of (vs ?? []) as AnyRec[]) priceById.set(String(v.id), Number(v.price_jpy));
+  }
+  const { data, error } = await supabase.rpc("website_coupon_quote", {
+    p_code: code, p_customer_id: customerId, p_subtotal_jpy: Math.floor(subtotalJpy),
+    p_full_price_subtotal_jpy: fullPriceSubtotalJpy(items, priceById), p_mode: mode,
+  });
+  if (error) throw error;
+  return couponStateFrom(code, data);
 }
 
 /** The delivery country of one of THIS customer's addresses, upper-case, or null. */
@@ -1082,7 +1135,7 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
   const fail = (status: number, b: AnyRec) => ({ error: true as const, status, body: b });
   if (!quoteId) return fail(400, { error: "quote_id_required" });
   const { data: q, error: qErr } = await supabase.from("checkout_quotes")
-    .select("id, mode, term_months, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, expires_at, consumed_at, ship_to_address_id, payment_method, points")
+    .select("id, items, mode, term_months, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, expires_at, consumed_at, ship_to_address_id, payment_method, points, coupon_code")
     .eq("id", quoteId).eq("customer_id", customer.id).maybeSingle();
   if (qErr) throw qErr;
   if (!q) return fail(404, { error: "quote_not_found" });
@@ -1105,18 +1158,31 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
     shippingSettle = shippingJpy === null ? null : toSettle(shippingJpy);
     subtotalSettle = totalSettle - (shippingSettle ?? 0);
   }
+  // The coupon (owner 2026-10-15): undefined keeps the stored code (re-checked),
+  // "" or null clears it. A refused code stores NOTHING and answers 409.
+  const couponIn = body.coupon_code === undefined ? row.coupon_code : body.coupon_code;
+  const coupon = await resolveCoupon(supabase, couponIn, String(customer.id),
+    Array.isArray(row.items) ? (row.items as AnyRec[]) : [], subtotalJpy, mode);
+  if (coupon && !coupon.ok) return fail(409, { ...coupon.payload, error: coupon.error, code: coupon.code });
+  const couponJpy = appliedCouponJpy(coupon);
+  if (couponJpy > 0 && totalJpy - couponJpy <= 0) return fail(409, { error: "coupon_total_zero", code: coupon?.code ?? null });
   let deposit: number | null = null;
   if (mode === "layaway") {
-    // The same call create_web_draft_atomic makes, so the cap is its deposit.
+    // The same call create_web_draft_atomic makes, so the cap is its deposit:
+    // the plan is priced on pieces − coupon.
     const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
-      p_price: subtotalSettle, p_term_months: Number(row.term_months ?? 3), p_currency: currency,
+      p_price: subtotalSettle - couponSettle(couponJpy, currency, fxRate), p_term_months: Number(row.term_months ?? 3), p_currency: currency,
       p_order_date: phtToday(), p_shipping: shippingSettle ?? 0, p_services: 0,
     });
     if (lqErr) throw lqErr;
-    deposit = Number((lq as AnyRec | null)?.deposit ?? 0);
+    const lay = (lq ?? {}) as AnyRec;
+    if (couponJpy > 0 && (lay.eligible !== true || lay.term_downgraded === true)) {
+      return fail(409, { error: "below_plan_minimum", code: coupon?.code ?? null, allowed_terms: lay.allowed_terms ?? [] });
+    }
+    deposit = Number(lay.deposit ?? 0);
   }
   const country = await addressCountry(supabase, String(customer.id), row.ship_to_address_id);
-  const figures = { mode, currency, fxRate, country, subtotalJpy, subtotalSettle, totalSettle, deposit };
+  const figures = { mode, currency, fxRate, country, subtotalJpy, subtotalSettle, totalSettle, deposit, coupon };
 
   // The method: as sent, else what the quote already holds, else transfer.
   const methodIn = body.payment_method === undefined || body.payment_method === null || body.payment_method === ""
@@ -1139,7 +1205,10 @@ async function applyCheckoutChoice(supabase: any, customer: AnyRec, quoteId: str
   }
   const codFeeJpyNow = stored === "cod" ? Number(option.fee_jpy ?? 0) : 0;
   const { error: upErr } = await supabase.from("checkout_quotes")
-    .update({ payment_method: stored, points: pointsIn, cod_fee_jpy: codFeeJpyNow })
+    .update({
+      payment_method: stored, points: pointsIn, cod_fee_jpy: codFeeJpyNow,
+      coupon_code: coupon && coupon.ok ? coupon.code : null, coupon_discount_jpy: couponJpy,
+    })
     .eq("id", quoteId).eq("customer_id", customer.id).is("consumed_at", null);
   if (upErr) throw upErr;
   return { block: await checkoutChoiceBlock(supabase, customer, { ...figures, paymentMethod: stored, points: pointsIn }) };
@@ -2397,6 +2466,20 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         subtotalSettle = totalSettle - (shippingSettle ?? 0);
       }
 
+      // COUPON CODE (owner 2026-10-15): optional, one per order, on the pieces
+      // only. A refused code answers 409 and NO quote is created. Applied
+      // before points and before the layaway plan (plan price = pieces − coupon).
+      const quoteCoupon = await resolveCoupon(supabase, body.coupon_code, String(customer.id), items, subtotal,
+        mode as "full" | "layaway");
+      if (quoteCoupon && !quoteCoupon.ok) {
+        return jsonResponse({ ...quoteCoupon.payload, error: quoteCoupon.error, code: quoteCoupon.code }, 409);
+      }
+      const quoteCouponJpy = appliedCouponJpy(quoteCoupon);
+      if (quoteCouponJpy > 0 && total - quoteCouponJpy <= 0) {
+        return jsonResponse({ error: "coupon_total_zero", code: quoteCoupon?.code ?? null }, 409);
+      }
+      const quoteCouponSettle = couponSettle(quoteCouponJpy, settlement as "JPY" | "PHP", fxRate);
+
       // Layaway terms, deposit and dated schedule come from the Hub's own
       // function, per settlement currency — so the site can only ever offer a
       // term plan_configurations allows and this order's amount clears.
@@ -2406,7 +2489,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         // Draft mode: priced without shipping and marked provisional; the
         // review screen re-runs layaway_quote with the shipping staff add.
         const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
-          p_price: subtotalSettle,
+          p_price: subtotalSettle - quoteCouponSettle,
           p_term_months: termMonths,
           p_currency: settlement,
           p_order_date: orderDate,
@@ -2424,7 +2507,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         if (!layaway.eligible || layaway.term_downgraded) {
           return jsonResponse({
             error: "below_plan_minimum",
-            total: totalSettle,
+            total: totalSettle - quoteCouponSettle,
             currency: settlement,
             requested_term_months: termMonths,
             max_term_months: layaway.max_term_months ?? null,
@@ -2463,6 +2546,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           subtotal_jpy: subtotal,
           shipping_jpy: shipping,
           total_jpy: total,
+          // The coupon's label and yen; subtotal_jpy / total_jpy stay BEFORE it.
+          coupon_code: quoteCouponJpy > 0 ? quoteCoupon?.code ?? null : null,
+          coupon_discount_jpy: quoteCouponJpy,
         })
         .select("id, expires_at, reserved_invoice_seq")
         .maybeSingle();
@@ -2554,7 +2640,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           country: String(address.country ?? "").toUpperCase() || null,
           subtotalJpy: subtotal, subtotalSettle, totalSettle,
           deposit: layaway ? Number(layaway.deposit ?? 0) : null,
-          paymentMethod: null, points: 0,
+          paymentMethod: null, points: 0, coupon: quoteCoupon,
         })),
       }));
     }
@@ -2594,7 +2680,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: q, error: qErr } = await supabase
         .from("checkout_quotes")
-        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id, reserved_invoice_seq, payment_method, points")
+        .select("id, items, mode, term_months, order_type, recipient_name, recipient_phone, gift_note, subtotal_jpy, shipping_jpy, total_jpy, settlement_currency, fx_rate, fx_rate_date, expires_at, consumed_at, ship_to_address_id, reserved_invoice_seq, payment_method, points, coupon_code, coupon_discount_jpy")
         .eq("id", quoteId)
         .eq("customer_id", customer.id)
         .maybeSingle();
@@ -2634,11 +2720,22 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         subtotalSettle = totalSettle - (shippingSettle ?? 0);
       }
 
+      // The stored coupon, re-checked by the Hub's coupon function. If its answer
+      // is no longer what the quote holds, it is shown as refused (coupon_changed
+      // — /checkout/pay would refuse it the same way) and no figure uses it.
+      const quoteMode: "full" | "layaway" = String(row.mode ?? "full") === "layaway" ? "layaway" : "full";
+      let storedCoupon = await resolveCoupon(supabase, row.coupon_code, String(customer.id),
+        Array.isArray(row.items) ? (row.items as AnyRec[]) : [], subtotalJpy, quoteMode);
+      if (storedCoupon && storedCoupon.ok && storedCoupon.discount_jpy !== Number(row.coupon_discount_jpy ?? 0)) {
+        storedCoupon = { ok: false, code: storedCoupon.code, error: "coupon_changed", payload: {} };
+      }
+      const storedCouponSettle = couponSettle(appliedCouponJpy(storedCoupon), settlement === "PHP" ? "PHP" : "JPY", fxRate);
+
       // Website orders PR 6 / PR 10: same flags as POST /checkout/quote.
       let layawayOut: AnyRec | null = null;
       if (String(row.mode ?? "full") === "layaway") {
         const { data: lq, error: lqErr } = await supabase.rpc("layaway_quote", {
-          p_price: subtotalSettle,
+          p_price: subtotalSettle - storedCouponSettle,
           p_term_months: Number(row.term_months ?? 3),
           p_currency: settlement,
           p_order_date: phtToday(),
@@ -2707,7 +2804,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           country: await addressCountry(supabase, String(customer.id), row.ship_to_address_id),
           subtotalJpy, subtotalSettle, totalSettle,
           deposit: layawayOut ? Number(layawayOut.deposit ?? 0) : null,
-          paymentMethod: row.payment_method, points: row.points,
+          paymentMethod: row.payment_method, points: row.points, coupon: storedCoupon,
         })),
       }));
     }
@@ -2742,9 +2839,9 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // C1 (2026-10-05): the method she chose (transfer | paidy | card) and the
       // points she used. Sent here or stored earlier by /checkout/quote/:id/choice;
       // checked against what this quote may take, then again in SQL.
-      if (body.method !== undefined || body.points !== undefined) {
+      if (body.method !== undefined || body.points !== undefined || body.coupon_code !== undefined) {
         const chosen = await applyCheckoutChoice(supabase, customer, quoteId, {
-          payment_method: body.method, points: body.points,
+          payment_method: body.method, points: body.points, coupon_code: body.coupon_code,
         });
         if ("error" in chosen) return jsonResponse(chosen.body, chosen.status);
       }
@@ -2826,6 +2923,10 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           points_value: Number(draft.points_value ?? 0),
           // Cash on delivery: the fee, already in `total` (0 otherwise).
           cod_fee: Number(draft.cod_fee ?? 0),
+          // Coupon (owner 2026-10-15): already off `total`; null code = none.
+          coupon_code: draft.coupon_code ?? null,
+          coupon_discount: Number(draft.coupon_discount ?? 0),
+          coupon_discount_jpy: Number(draft.coupon_discount_jpy ?? 0),
           provisional: true,
           awaiting_confirmation: true,
           reservation_mode: true,

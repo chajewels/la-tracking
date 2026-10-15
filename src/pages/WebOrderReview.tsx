@@ -63,6 +63,9 @@ interface Draft {
   points_value: number;
   /** Cash on delivery fee (yen), already in the provisional total. 0 otherwise. */
   cod_fee?: number;
+  /** Website coupon (2026-10-15): already off subtotal / total; null when none. */
+  coupon_code?: string | null;
+  coupon_discount?: number;
 }
 interface DraftLine { id: string; title: string; sku: string | null; qty: number; unit_price_jpy: number; line_total_jpy: number; hold_state: string }
 interface Courier { id: string; provider_name: string; title: string; is_active: boolean }
@@ -74,6 +77,9 @@ interface Preview {
   shipping: number | null;
   services: number;
   discount: number;
+  /** The coupon inside `discount` (products is the full pieces price). */
+  coupon_code?: string | null;
+  coupon_discount?: number;
   total: number;
   loyalty_jpy_amount: number;
   loyalty_default_jpy: number;
@@ -96,6 +102,8 @@ const PROBLEM: Record<string, string> = {
   shipping_invalid: 'Shipping must be a whole number, 0 or more.',
   discount_invalid: 'Discount must be a whole number, 0 or more.',
   discount_exceeds_products: 'The discount is larger than the pieces\' price.',
+  discount_below_coupon: 'The discount includes the customer\'s coupon and cannot be lower than it.',
+  coupon_changed: 'The coupon changed after checkout. Decline and ask her to check out again.',
   LOYALTY_AMOUNT_REQUIRED: 'This customer is a loyalty member: the loyalty product amount (¥) must be more than 0.',
   loyalty_jpy_amount_invalid: 'Loyalty product amount must be a whole number of yen.',
   transfer_due_at_invalid: 'The payment deadline is not a valid date and time.',
@@ -120,6 +128,7 @@ function problemText(code: string): string {
   if (PROBLEM[code]) return PROBLEM[code];
   if (/^service_lines\[\d+\]\.title_required$/.test(code)) return 'Every service line needs a name.';
   if (/^service_lines\[\d+\]\.amount_invalid$/.test(code)) return 'Service amounts must be whole numbers, 0 or more.';
+  if (/^coupon_/.test(code)) return 'The customer\'s coupon can no longer be applied (' + code.replace(/^coupon_/, '').replace(/_/g, ' ') + '). Decline and ask her to check out again.';
   return code;
 }
 
@@ -189,6 +198,8 @@ export default function WebOrderReview() {
   useEffect(() => {
     if (!data) return;
     if (data.draft.shipping != null) setShipping(String(data.draft.shipping));
+    // The Discount box starts at the coupon and may not go below it.
+    if (Number(data.draft.coupon_discount ?? 0) > 0) setDiscount(String(Number(data.draft.coupon_discount)));
     if ((data.draft.country ?? '').toUpperCase() === 'PH') {
       const pab = data.couriers.find((c) => /pabitbit/i.test(c.provider_name) || /pabitbit/i.test(c.title));
       if (pab) setCourier(pab.id);
@@ -198,7 +209,8 @@ export default function WebOrderReview() {
   const request = useMemo(() => ({
     draft_id: id,
     shipping: shipping.trim() === '' ? null : Number(shipping),
-    discount: discount.trim() === '' ? 0 : Number(discount),
+    // Empty = the coupon (or 0): the server fills it in.
+    discount: discount.trim() === '' ? null : Number(discount),
     service_lines: services.map((s) => ({ title: s.title, amount: s.amount.trim() === '' ? 0 : Number(s.amount) })),
     transfer_due_at: deadline ? new Date(deadline).toISOString() : null,
     loyalty_jpy_amount: loyalty.trim() === '' ? null : Number(loyalty),
@@ -309,6 +321,8 @@ export default function WebOrderReview() {
 
   const address = addressLines(draft.ship_to_snapshot);
   const money = (n: number | null | undefined) => (n == null ? '—' : formatCurrency(Number(n), cur));
+  const couponCode = draft?.coupon_code ? String(draft.coupon_code) : null;
+  const couponDiscount = Number(draft?.coupon_discount ?? 0);
 
   return (
     <AppLayout>
@@ -428,8 +442,19 @@ export default function WebOrderReview() {
               </p>
             </div>
             <div className="space-y-1">
+              {couponCode && (
+                <p className="flex justify-between text-sm" data-testid="web-review-coupon">
+                  <span className="text-muted-foreground">Coupon <span className="font-mono">{couponCode}</span></span>
+                  <span className="tabular-nums">− {money(couponDiscount)}</span>
+                </p>
+              )}
               <Label htmlFor="discount">Discount ({cur})</Label>
               <Input id="discount" inputMode="numeric" value={discount} disabled={!open} onChange={(e) => setDiscount(e.target.value)} />
+              {couponCode && (
+                <p className="text-[11px] text-muted-foreground">
+                  Includes coupon {couponCode} ({money(couponDiscount)}). Add to it for an extra discount; it cannot go lower.
+                </p>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="deadline">Payment deadline</Label>
@@ -502,9 +527,12 @@ export default function WebOrderReview() {
           <h2 className="font-display text-base text-card-foreground">Total {previewing && <span className="text-xs text-muted-foreground">(updating…)</span>}</h2>
           <dl className="grid grid-cols-2 gap-y-1 text-sm max-w-sm">
             <dt className="text-muted-foreground">Pieces</dt><dd className="text-right tabular-nums">{money(preview?.products)}</dd>
+            {couponCode && (
+              <><dt className="text-muted-foreground">Coupon <span className="font-mono">{couponCode}</span></dt><dd className="text-right tabular-nums" data-testid="web-review-coupon-total">− {money(couponDiscount)}</dd></>
+            )}
             <dt className="text-muted-foreground">Shipping</dt><dd className="text-right tabular-nums">{money(preview?.shipping)}</dd>
             <dt className="text-muted-foreground">Services</dt><dd className="text-right tabular-nums">{money(preview?.services)}</dd>
-            <dt className="text-muted-foreground">Discount</dt><dd className="text-right tabular-nums">− {money(preview?.discount)}</dd>
+            <dt className="text-muted-foreground">{couponCode ? 'Other discount' : 'Discount'}</dt><dd className="text-right tabular-nums" data-testid="web-review-discount">− {money(preview == null ? null : Math.max(0, Number(preview.discount) - couponDiscount))}</dd>
             {Number(preview?.cod_fee ?? 0) > 0 && (
               <><dt className="text-muted-foreground">Cash on delivery fee</dt><dd className="text-right tabular-nums" data-testid="web-review-cod-fee">{money(preview?.cod_fee)}</dd></>
             )}

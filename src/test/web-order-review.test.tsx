@@ -191,3 +191,16 @@ describe("payment choice + points (owner C1–C5, 2026-10-05)", () => {
     }));
   });
 });
+
+describe("website coupon on the review screen (2026-10-15)", () => {
+  it("shows full pieces, a Coupon row, and the Discount box starts at the coupon", async () => {
+    draft = { ...draft, subtotal: 18000, total: 18800, coupon_code: "SAVE10", coupon_discount: 2000 };
+    preview = { ...preview, products: 20000, discount: 2000, total: 18800, coupon_code: "SAVE10", coupon_discount: 2000 };
+    mount();
+    await waitFor(() => expect(screen.getByTestId("web-review-total")).toHaveTextContent("18,800"));
+    expect(screen.getByTestId("web-review-coupon-total")).toHaveTextContent("2,000");
+    expect(screen.getByTestId("web-review-discount")).toHaveTextContent("0");
+    expect((screen.getByLabelText(/^Discount/) as HTMLInputElement).value).toBe("2000");
+    expect(screen.getByText(/Includes coupon SAVE10/)).toBeInTheDocument();
+  });
+});
