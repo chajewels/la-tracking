@@ -40,7 +40,8 @@ Deno.test("A: the verifying key names the environment; unknown or missing → nu
 Deno.test("A: the webhook stores the environment with the receipt and still answers 403 on a bad signature", async () => {
   const src = await read("../supabase/functions/square-webhook/index.ts");
   assertStringIncludes(src, "verifySquareSignatureEnvironment(NOTIFICATION_URL, raw,");
-  assertStringIncludes(src, 'if (!environment) return jsonResponse({ error: "bad_signature" }, 403);');
+  assertStringIncludes(src, "const ok = environment !== null;");
+  assertStringIncludes(src, 'if (!ok) return jsonResponse({ error: "bad_signature" }, 403);');
   assertStringIncludes(src, "object_id: id, payload: body, environment }");
   assert(!src.includes("verifySquareSignature(NOTIFICATION_URL"), "the boolean check must not run a second time");
 });

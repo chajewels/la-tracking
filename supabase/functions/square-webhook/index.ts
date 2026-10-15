@@ -46,9 +46,10 @@ Deno.serve(async (req) => {
   // ops-env (2026-10-15): the key that verifies names the environment the
   // event came from; the inbox row carries it (sandbox residue vs live).
   const environment = await verifySquareSignatureEnvironment(NOTIFICATION_URL, raw, req.headers.get("x-square-hmacsha256-signature"));
+  const ok = environment !== null;
   // Square: a request whose signature does not verify is discarded with 403
   // (developer.squareup.com/docs/webhooks/step3validate).
-  if (!environment) return jsonResponse({ error: "bad_signature" }, 403);
+  if (!ok) return jsonResponse({ error: "bad_signature" }, 403);
 
   let body: Rec = {};
   try { body = JSON.parse(raw); } catch { return jsonResponse({ error: "bad_json" }, 400); }

@@ -14,9 +14,12 @@
 --    count under the live environment — never silently dropped.
 -- B. mark_web_order_refund_issued_atomic: a card mark on a cancelled order IS
 --    the staff decision on its COMPLETED Square refunds, so it writes
---    decision = 'order_cancelled_refunded' on the ones still undecided. The
---    six undecided test-order refunds already on live are the owner's to
---    decide in the panel; this migration does not touch them.
+--    decision = 'order_cancelled_refunded' on the ones still undecided, by the
+--    same person, in the same transaction; rows a staff member already decided
+--    are left alone (decide_square_case stays the manual path). The six
+--    undecided test-order refunds already on live are the owner's to decide in
+--    the panel; this migration does not touch them. (No comment lines inside
+--    the patch block itself — Lovable drops them on apply, DOC-4 rule.)
 --
 -- FUNCTION CHANGES START FROM LIVE (Bug #280): drift audit on 2026-10-15
 -- 11:40 JST = 421/421 functions identical (one-hash compare, all three buckets
@@ -225,12 +228,7 @@ GRANT EXECUTE ON FUNCTION public.square_ops_health() TO authenticated, service_r
 -- ---------------------------------------------------------------------------
 SELECT pg_temp.cj_patch('public.mark_web_order_refund_issued_atomic(uuid,uuid,text,date,text,jsonb)', '0637d241d65fa7c04312b147d1c9601b', jsonb_build_array(
   jsonb_build_object('old', $o$  INSERT INTO public.audit_logs (entity_type, entity_id, action, old_value_json, new_value_json, performed_by_user_id)
-  VALUES ('cash_order', p_order_id, 'refund_marked_issued',$o$, 'new', $n$  -- CARD MARK = REFUND DECISION (2026-10-15): the order is cancelled (checked
-  -- above) and the card money came back through Square, so the COMPLETED
-  -- Square refunds this mark records are decided 'order_cancelled_refunded'
-  -- here, by the same person, in the same transaction. Rows a staff member
-  -- already decided are left alone (decide_square_case stays the manual path).
-  IF v_method = 'card' THEN
+  VALUES ('cash_order', p_order_id, 'refund_marked_issued',$o$, 'new', $n$  IF v_method = 'card' THEN
     UPDATE public.square_refunds
        SET decision = 'order_cancelled_refunded', decided_at = now(), decided_by = p_user_id,
            decision_note = COALESCE(decision_note, 'Recorded by "Mark refund issued — card"'), updated_at = now()
