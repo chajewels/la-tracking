@@ -11081,7 +11081,12 @@ export type Database = {
         Args: { p_detail: Json; p_order_id: string; p_trigger: string }
         Returns: Json
       }
+      square_live_environment: { Args: never; Returns: string }
       square_mode: { Args: never; Returns: string }
+      square_ops_counts: {
+        Args: { p_env: string; p_unknown_here: boolean }
+        Returns: Json
+      }
       square_ops_health: { Args: never; Returns: Json }
       square_order_card_refund_recordable_jpy: {
         Args: { p_order_id: string }
