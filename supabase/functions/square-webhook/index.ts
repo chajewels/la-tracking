@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
-import { verifySquareSignature } from "../_shared/square.ts";
+import { verifySquareSignatureEnvironment } from "../_shared/square.ts";
 import { eventObjectId, processSquareEvent, rpc } from "../_shared/square-sync.ts";
 
 /**
@@ -43,10 +43,12 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   const raw = await req.text();
-  const ok = await verifySquareSignature(NOTIFICATION_URL, raw, req.headers.get("x-square-hmacsha256-signature"));
+  // ops-env (2026-10-15): the key that verifies names the environment the
+  // event came from; the inbox row carries it (sandbox residue vs live).
+  const environment = await verifySquareSignatureEnvironment(NOTIFICATION_URL, raw, req.headers.get("x-square-hmacsha256-signature"));
   // Square: a request whose signature does not verify is discarded with 403
   // (developer.squareup.com/docs/webhooks/step3validate).
-  if (!ok) return jsonResponse({ error: "bad_signature" }, 403);
+  if (!environment) return jsonResponse({ error: "bad_signature" }, 403);
 
   let body: Rec = {};
   try { body = JSON.parse(raw); } catch { return jsonResponse({ error: "bad_json" }, 400); }
@@ -61,7 +63,7 @@ Deno.serve(async (req) => {
   try {
     const { kind, id } = eventObjectId(body);
     const { error: insErr } = await supabase.from("square_webhook_events").upsert(
-      { event_id: eventId, event_type: type, payment_id: kind === "payment" ? id : null, object_id: id, payload: body },
+      { event_id: eventId, event_type: type, payment_id: kind === "payment" ? id : null, object_id: id, payload: body, environment },
       { onConflict: "event_id", ignoreDuplicates: true },
     );
     if (insErr) throw new Error(`square_webhook_events insert: ${insErr.message}`);

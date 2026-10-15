@@ -18,6 +18,7 @@ import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { paidyRefundReceivedKey } from "../_shared/paidy-rules.ts";
+import { refundReceivedKey as squareRefundReceivedKey } from "../_shared/square-reconcile-rules.ts";
 import { customerRefundMethod } from "../_shared/refund-issued-rules.ts";
 import {
   latestByOriginalKey, MAX_MANUAL_RESENDS, resendKey, resendRefusal, type ResendableEmail,
@@ -57,6 +58,25 @@ async function resendableEmails(supabase: Db, orderId: string): Promise<Resendab
       last_status: null, last_at: null, resends_used: 0,
     });
   }
+
+  // 「返金を受け付けました」 — one per COMPLETED Square refund (ops-panel truth,
+  // 2026-10-15). Listed with its real send-log status so a card order no longer
+  // looks like "refund email never attempted"; NOT resendable from here — the
+  // hourly check re-sends it itself (B02), and two paths would double up.
+  const { data: srs, error: sErr } = await supabase.from("square_refunds")
+    .select("square_refund_id, amount_jpy").eq("cash_order_id", orderId).eq("status", "COMPLETED").order("created_at");
+  if (sErr) throw sErr;
+  const squareRows = (srs ?? []) as AnyRec[];
+  for (const r of squareRows) {
+    items.push({
+      kind: "refund_received_square", key: squareRefundReceivedKey(String(r.square_refund_id)), amount: Number(r.amount_jpy ?? 0),
+      resendable: false, last_status: null, last_at: null, resends_used: 0,
+    });
+  }
+  // A card mark skips the 「返金が完了しました」 email on purpose (mark-refund-issued:
+  // Square's email already told her). Say so instead of "never attempted".
+  const cardMark = items.find((i) => i.kind === "refund_issued" && i.refund_method === "card");
+  if (cardMark && squareRows.length > 0) cardMark.not_sent_reason = "card_refund_email_sent_by_square";
 
   // 「返金を受け付けました」 — one per verified Paidy refund.
   const { data: prs, error: pErr } = await supabase.from("paidy_refunds")
