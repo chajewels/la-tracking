@@ -43,6 +43,10 @@ the pieces; a changed answer is `coupon_changed`.
   discount, error: null }` and `totals.coupon_discount`; `total_after_points` and
   `due_now_after_points` are after the coupon. The pay reply carries `coupon_code`,
   `coupon_discount`, `coupon_discount_jpy`.
+- The customer's reads carry the coupon too: `GET /drafts` and `/drafts/:id` return `coupon_code`,
+  `coupon_discount`, `coupon_discount_jpy` (null / 0 when none); `GET /orders`, `/orders/:id`,
+  `/layaway` and `/layaway/:id` return `coupon_code` only (the label; its value is in the order's
+  discount / the plan's price).
 - Errors (409): `coupon_not_found`, `coupon_inactive`, `coupon_not_started`, `coupon_expired`,
   `coupon_exhausted`, `coupon_customer_limit`, `coupon_min_subtotal`, `coupon_layaway_not_allowed`,
   `coupon_full_price_only`, `coupon_changed`, `coupon_total_zero`.
