@@ -81,6 +81,8 @@ export interface CodOfferInput {
   /** Delivery country, upper-case ISO. */
   country: string | null | undefined;
   codMode: CodMode;
+  /** customerInJapan(customer row) — owner 2026-10-15: COD only for a customer who lives in Japan. */
+  customerInJapan: boolean;
   /** Amount the courier would collect, before the fee, in yen. */
   collectedJpy: number;
   table: readonly CodBracket[] | null;
@@ -89,12 +91,14 @@ export interface CodOfferInput {
 /**
  * Why COD is greyed, or null when it is offered. One reason, the first that
  * fails, in the same order as the checkout's other methods:
- *   layaway | currency_not_yen | off | address_not_jp | nothing_to_collect | over_cod_limit
+ *   layaway | currency_not_yen | off | customer_not_jp | address_not_jp |
+ *   nothing_to_collect | over_cod_limit
  */
 export function codNotOfferedReason(i: CodOfferInput): string | null {
   if (i.mode === "layaway") return "layaway";
   if (i.currency !== "JPY") return "currency_not_yen";
   if (i.codMode !== "on" || !i.table || !codFeeTableValid(i.table as unknown)) return "off";
+  if (!i.customerInJapan) return "customer_not_jp";
   if (String(i.country ?? "").trim().toUpperCase() !== "JP") return "address_not_jp";
   if (!(i.collectedJpy > 0)) return "nothing_to_collect";
   if (codFeeJpy(i.collectedJpy, i.table) === null) return "over_cod_limit";

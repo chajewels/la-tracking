@@ -53,6 +53,21 @@ export function publicMethod(m: unknown): CheckoutMethod {
 
 export type ProviderMode = "off" | "test" | "on";
 
+/**
+ * Owner decision 2026-10-15: Paidy and cash on delivery only for a customer who
+ * LIVES in Japan. A Japanese delivery address alone (a gift, buying for someone
+ * else) is not enough. Where she lives is customers.location — what website
+ * registration and the Hub's Edit Customer write ('Japan', 'Philippines' or a
+ * country name); only when location is empty does customers.country (the
+ * portal sign-up's field) decide (owner 2026-10-15). SQL twin:
+ * public.customer_in_japan(uuid) — change both together.
+ */
+export function customerInJapan(c: { location?: unknown; country?: unknown } | null | undefined): boolean {
+  const location = String(c?.location ?? "").trim();
+  const where = location !== "" ? location : String(c?.country ?? "").trim();
+  return where.toLowerCase() === "japan";
+}
+
 export interface MethodOptionsInput {
   mode: "full" | "layaway";
   currency: "JPY" | "PHP";
@@ -61,6 +76,8 @@ export interface MethodOptionsInput {
   paidyMode: ProviderMode;
   squareMode: ProviderMode;
   customerIsTest: boolean;
+  /** customerInJapan(customer row): Paidy and COD need it on top of a JP delivery address. */
+  customerInJapan: boolean;
   /**
    * D-G04 (2026-10-09): squareCardAllowed for this customer. Omitted = allowed
    * (the mode rule alone). A customer not on the card list sees card as "off" —
@@ -80,8 +97,8 @@ export interface MethodOptionsInput {
 export interface MethodOption {
   available: boolean;
   /**
-   * Why it is greyed: layaway | currency_not_yen | address_not_jp | off | no_account;
-   * COD also nothing_to_collect | over_cod_limit.
+   * Why it is greyed: layaway | currency_not_yen | off | customer_not_jp |
+   * address_not_jp | no_account; COD also nothing_to_collect | over_cod_limit.
    */
   reason: string | null;
   /** COD only: the fee this checkout would add (Hub figure), null when not offered. */
@@ -96,13 +113,14 @@ export function checkoutMethodOptions(i: MethodOptionsInput): Record<CheckoutMet
   const codCollected = Number(i.codCollectedJpy ?? 0);
   const codReason = codNotOfferedReason({
     mode: i.mode, currency: i.currency, country: i.country, codMode: i.codMode ?? "off",
-    collectedJpy: codCollected, table: i.codTable ?? null,
+    customerInJapan: i.customerInJapan, collectedJpy: codCollected, table: i.codTable ?? null,
   });
   const providerOff = (m: ProviderMode) => m === "off" || (m === "test" && !i.customerIsTest);
   const paidyReason =
     i.mode === "layaway" ? "layaway"
     : i.currency !== "JPY" ? "currency_not_yen"
     : providerOff(i.paidyMode) ? "off"
+    : !i.customerInJapan ? "customer_not_jp"
     : String(i.country ?? "").toUpperCase() !== "JP" ? "address_not_jp"
     : null;
   const cardReason =

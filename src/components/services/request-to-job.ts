@@ -37,6 +37,8 @@ export function jobTypeForKind(
       return 'Repair';
     case 'appraisal':
       return 'Appraisal';
+    case 'certificate':
+      return 'Certificate';
     default:
       return '';
   }

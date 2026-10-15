@@ -95,6 +95,12 @@ export interface PaidyOfferInput {
    * her Paidy limit). Omitted = not checked (older callers).
    */
   secretTest?: boolean | null;
+  /**
+   * Owner decision 2026-10-15: Paidy only for a customer who LIVES in Japan
+   * (customerInJapan(customer row), checkout-choice.ts), on top of the Japanese delivery
+   * address. Only exactly false refuses; omitted = not checked (older callers).
+   */
+  customerInJapan?: boolean;
 }
 
 /** Why Paidy is not offered, or null when it is. One reason, the first that fails. */
@@ -107,6 +113,7 @@ export function paidyNotOfferedReason(i: PaidyOfferInput): string | null {
   if (i.secretTest === null) return "secret_not_configured";
   if (i.secretTest !== undefined && i.secretTest !== (i.mode === "test")) return "secret_mode_mismatch";
   if (i.paymentMethod !== undefined && i.order.source_channel === "web" && (i.paymentMethod ?? "transfer") !== "paidy") return "method_not_chosen";
+  if (i.customerInJapan === false) return "customer_not_jp";
   if (String(i.order.currency ?? "") !== "JPY") return "not_jpy";
   if (i.order.status !== "pending") return "order_not_open";
   if (i.order.payment_status !== "pending_transfer") return "no_payment_due";
