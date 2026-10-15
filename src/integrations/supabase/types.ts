@@ -460,6 +460,7 @@ export type Database = {
           cash_receipt_sheet_id: string | null
           cod_fee: number
           completed_at: string | null
+          coupon_code: string | null
           created_at: string
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
@@ -527,6 +528,7 @@ export type Database = {
           cash_receipt_sheet_id?: string | null
           cod_fee?: number
           completed_at?: string | null
+          coupon_code?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
@@ -594,6 +596,7 @@ export type Database = {
           cash_receipt_sheet_id?: string | null
           cod_fee?: number
           completed_at?: string | null
+          coupon_code?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
@@ -751,6 +754,8 @@ export type Database = {
         Row: {
           cod_fee_jpy: number
           consumed_at: string | null
+          coupon_code: string | null
+          coupon_discount_jpy: number
           created_at: string
           customer_id: string
           deposit_jpy: number | null
@@ -778,6 +783,8 @@ export type Database = {
         Insert: {
           cod_fee_jpy?: number
           consumed_at?: string | null
+          coupon_code?: string | null
+          coupon_discount_jpy?: number
           created_at?: string
           customer_id: string
           deposit_jpy?: number | null
@@ -805,6 +812,8 @@ export type Database = {
         Update: {
           cod_fee_jpy?: number
           consumed_at?: string | null
+          coupon_code?: string | null
+          coupon_discount_jpy?: number
           created_at?: string
           customer_id?: string
           deposit_jpy?: number | null
@@ -2140,6 +2149,7 @@ export type Database = {
           agreement_version: string | null
           cash_receipt_sheet_id: string | null
           completed_at: string | null
+          coupon_code: string | null
           created_at: string
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
@@ -2199,6 +2209,7 @@ export type Database = {
           agreement_version?: string | null
           cash_receipt_sheet_id?: string | null
           completed_at?: string | null
+          coupon_code?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
@@ -2258,6 +2269,7 @@ export type Database = {
           agreement_version?: string | null
           cash_receipt_sheet_id?: string | null
           completed_at?: string | null
+          coupon_code?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
@@ -7997,6 +8009,10 @@ export type Database = {
           cod_fee: number
           cod_fee_jpy: number
           country: string | null
+          coupon_code: string | null
+          coupon_discount: number
+          coupon_discount_jpy: number
+          coupon_use_id: string | null
           created_at: string
           customer_id: string
           customer_lang: string | null
@@ -8042,6 +8058,10 @@ export type Database = {
           cod_fee?: number
           cod_fee_jpy?: number
           country?: string | null
+          coupon_code?: string | null
+          coupon_discount?: number
+          coupon_discount_jpy?: number
+          coupon_use_id?: string | null
           created_at?: string
           customer_id: string
           customer_lang?: string | null
@@ -8087,6 +8107,10 @@ export type Database = {
           cod_fee?: number
           cod_fee_jpy?: number
           country?: string | null
+          coupon_code?: string | null
+          coupon_discount?: number
+          coupon_discount_jpy?: number
+          coupon_use_id?: string | null
           created_at?: string
           customer_id?: string
           customer_lang?: string | null
@@ -8131,6 +8155,13 @@ export type Database = {
             columns: ["cash_order_id"]
             isOneToOne: false
             referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_order_drafts_coupon_use_id_fkey"
+            columns: ["coupon_use_id"]
+            isOneToOne: false
+            referencedRelation: "website_coupon_uses"
             referencedColumns: ["id"]
           },
           {
@@ -8376,6 +8407,118 @@ export type Database = {
           name_ja?: string | null
           slug?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      website_coupon_uses: {
+        Row: {
+          coupon_id: string
+          created_at: string
+          customer_id: string
+          decided_at: string | null
+          discount_jpy: number
+          id: string
+          status: string
+          web_draft_id: string
+        }
+        Insert: {
+          coupon_id: string
+          created_at?: string
+          customer_id: string
+          decided_at?: string | null
+          discount_jpy: number
+          id?: string
+          status: string
+          web_draft_id: string
+        }
+        Update: {
+          coupon_id?: string
+          created_at?: string
+          customer_id?: string
+          decided_at?: string | null
+          discount_jpy?: number
+          id?: string
+          status?: string
+          web_draft_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_coupon_uses_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "website_coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_coupon_uses_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_coupon_uses_web_draft_id_fkey"
+            columns: ["web_draft_id"]
+            isOneToOne: true
+            referencedRelation: "web_order_drafts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_coupons: {
+        Row: {
+          allow_layaway: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          ends_at: string | null
+          full_price_only: boolean
+          id: string
+          is_active: boolean
+          kind: string
+          max_uses: number | null
+          min_subtotal_jpy: number | null
+          note: string | null
+          per_customer_limit: number
+          starts_at: string | null
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          allow_layaway?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          full_price_only?: boolean
+          id?: string
+          is_active?: boolean
+          kind: string
+          max_uses?: number | null
+          min_subtotal_jpy?: number | null
+          note?: string | null
+          per_customer_limit?: number
+          starts_at?: string | null
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          allow_layaway?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          full_price_only?: boolean
+          id?: string
+          is_active?: boolean
+          kind?: string
+          max_uses?: number | null
+          min_subtotal_jpy?: number | null
+          note?: string | null
+          per_customer_limit?: number
+          starts_at?: string | null
+          updated_at?: string
+          value?: number
         }
         Relationships: []
       }
@@ -10138,6 +10281,7 @@ export type Database = {
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       get_web_checkout_mode: { Args: never; Returns: Json }
       get_web_payment_reminders: { Args: never; Returns: Json }
+      get_website_coupons: { Args: never; Returns: Json }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
         Returns: boolean
@@ -11074,6 +11218,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_website_coupon_active: {
+        Args: { p_active: boolean; p_id: string }
+        Returns: Json
+      }
       square_audience: { Args: never; Returns: string }
       square_card_allowed: { Args: { p_customer_id: string }; Returns: boolean }
       square_card_customer_ids_json: { Args: never; Returns: Json }
@@ -11178,6 +11326,7 @@ export type Database = {
         Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
       }
+      upsert_website_coupon: { Args: { p: Json }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
       void_redemption_atomic: {
         Args: {
@@ -11243,6 +11392,16 @@ export type Database = {
       }
       web_payment_reminder_mode: { Args: never; Returns: string }
       web_reservation_expiring_bells: { Args: never; Returns: number }
+      website_coupon_quote: {
+        Args: {
+          p_code: string
+          p_customer_id: string
+          p_full_price_subtotal_jpy: number
+          p_mode: string
+          p_subtotal_jpy: number
+        }
+        Returns: Json
+      }
       website_down_payments: {
         Args: { p_prices_jpy: number[]; p_rate: number }
         Returns: {
