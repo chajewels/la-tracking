@@ -204,7 +204,20 @@ describe("refundPendingDays (S05, every day counts)", () => {
 
 // 2026-10-15 (QA rev. 2, finding A): the counters are for one environment; the
 // other environment's rows are a separate line, or nothing when it holds nothing.
-import { squareResidueLine } from "../lib/square-ops";
+import { squareCountingLine, squareResidueLine } from "../lib/square-ops";
+// 2026-10-15 (QA qualification 1 on rev. 4): the live environment's counters
+// include untagged records, so the scope line says so — QA's exact wording.
+describe("squareCountingLine — the strip's scope line", () => {
+  it("names the environment and the untagged records it carries", () => {
+    expect(squareCountingLine("production")).toBe("Counting production, including untagged records");
+    expect(squareCountingLine("sandbox")).toBe("Counting sandbox, including untagged records");
+  });
+  it("says nothing until the health read names an environment", () => {
+    expect(squareCountingLine(null)).toBeNull();
+    expect(squareCountingLine(undefined)).toBeNull();
+    expect(squareCountingLine("")).toBeNull();
+  });
+});
 describe("squareResidueLine — the other environment, apart", () => {
   it("is silent when the other environment holds nothing worth a look", () => {
     expect(squareResidueLine(null)).toBeNull();
