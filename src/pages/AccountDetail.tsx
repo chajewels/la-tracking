@@ -1706,6 +1706,10 @@ export default function AccountDetail() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">
                     Discount{account.discount_type === 'percent' ? ` (${account.discount_value}%)` : ''}
+                    {/* Website coupon (2026-10-15): the label; the money is in discount_amount. */}
+                    {((account as { coupon_code?: string | null }).coupon_code) && (
+                      <span data-testid="order-coupon-code"> · includes coupon <span className="font-mono">{(account as { coupon_code?: string | null }).coupon_code}</span></span>
+                    )}
                   </span>
                   <span className="tabular-nums text-destructive">−{formatCurrency(Number(account.discount_amount), currency)}</span>
                 </div>

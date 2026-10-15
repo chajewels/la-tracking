@@ -1920,6 +1920,10 @@ export default function CashOrderDetail() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">
                     Discount{order.discount_type === 'percent' ? ` (${order.discount_value}%)` : ''}
+                    {/* Website coupon (2026-10-15): the label; the money is in discount_amount. */}
+                    {((order as { coupon_code?: string | null }).coupon_code) && (
+                      <span data-testid="order-coupon-code"> · includes coupon <span className="font-mono">{(order as { coupon_code?: string | null }).coupon_code}</span></span>
+                    )}
                   </span>
                   <span className="tabular-nums text-destructive">−{formatCurrency(Number(order.discount_amount), currency)}</span>
                 </div>

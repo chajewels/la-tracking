@@ -152,3 +152,53 @@ describe("layaway figures", () => {
     expect(f.errors).toContain("quote_total_mismatch");
   });
 });
+
+describe("website coupon (owner 2026-10-15)", () => {
+  // The draft stores its figures AFTER the coupon (¥20,000 pieces − ¥2,000).
+  const couponDraft: Rec = {
+    ...cashDraft, subtotal: 18000, subtotal_jpy: 18000,
+    coupon_code: "SAVE10", coupon_discount: 2000, coupon_discount_jpy: 2000,
+  };
+
+  it("an empty Discount box defaults to the coupon; products show the full pieces price; the coupon is counted once", async () => {
+    const { client } = fakeClient();
+    const f = await computeWebDraftFigures(client, couponDraft, {});
+    expect(f.errors).toEqual([]);
+    expect(f.products).toBe(20000);
+    expect(f.discount).toBe(2000);
+    expect(f.coupon_code).toBe("SAVE10");
+    expect(f.coupon_discount).toBe(2000);
+    expect(f.total).toBe(20000 + 800 - 2000);
+    expect(f.loyalty_jpy_amount).toBe(18000);
+  });
+
+  it("a typed discount lower than the coupon is refused", async () => {
+    const { client } = fakeClient();
+    const f = await computeWebDraftFigures(client, couponDraft, { discount: 1500 });
+    expect(f.errors).toContain("discount_below_coupon");
+  });
+
+  it("staff may add to the coupon: the whole discount comes off once", async () => {
+    const { client } = fakeClient();
+    const f = await computeWebDraftFigures(client, couponDraft, { discount: 3000 });
+    expect(f.errors).toEqual([]);
+    expect(f.total).toBe(20000 + 800 - 3000);
+    expect(f.loyalty_jpy_amount).toBe(17000);
+  });
+
+  it("a layaway is priced on pieces − coupon", async () => {
+    const { client, calls } = fakeClient();
+    const f = await computeWebDraftFigures(client, { ...couponDraft, mode: "layaway", term_months: 3 }, {});
+    expect(f.errors).toEqual([]);
+    expect(calls.find((c) => c.rpc === "layaway_quote")?.args.p_price).toBe(18000);
+  });
+
+  it("without a coupon nothing changes", async () => {
+    const { client } = fakeClient();
+    const f = await computeWebDraftFigures(client, cashDraft, {});
+    expect(f.products).toBe(20000);
+    expect(f.discount).toBe(0);
+    expect(f.coupon_code).toBeNull();
+    expect(f.coupon_discount).toBe(0);
+  });
+});

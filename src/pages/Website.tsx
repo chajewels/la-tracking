@@ -33,6 +33,7 @@ import { SquareSettingsCard } from "@/components/settings/SquareSettingsCard";
 import { CodSettingsCard } from "@/components/settings/CodSettingsCard";
 import { SquareOperationsPanel } from "@/components/website/SquareOperationsPanel";
 import { ShippingFeesCard } from "@/components/website/ShippingFeesCard";
+import { CouponsCard } from "@/components/website/CouponsCard";
 
 /**
  * The Website workspace — everything that feeds chajewelsjp.com, on six tabs.
@@ -84,6 +85,7 @@ export const WEBSITE_SETTINGS_SECTIONS = {
   paidy: "paidy",
   square: "square",
   cod: "cash-on-delivery",
+  coupons: "coupons",
   shippingFees: "shipping-fees",
   siteSettings: "site-settings",
 } as const;
@@ -273,6 +275,14 @@ export default function Website() {
               {isAdmin && (
                 <section id={WEBSITE_SETTINGS_SECTIONS.cod} className="scroll-mt-20">
                   <CodSettingsCard />
+                </section>
+              )}
+              {/* Admin only (coupon codes, 2026-10-15): website checkout coupons.
+                  upsert_website_coupon / set_website_coupon_active re-check the
+                  admin role and audit every change. */}
+              {isAdmin && (
+                <section id={WEBSITE_SETTINGS_SECTIONS.coupons} className="scroll-mt-20">
+                  <CouponsCard />
                 </section>
               )}
               {/* Admin only (website-orders PR 2): the storefront shipping
