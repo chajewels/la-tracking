@@ -72,9 +72,9 @@ type Rec = Record<string, unknown>;
 type Db = any;
 
 /** Queues an event in the durable inbox for step 1 (duplicates are ignored). */
-async function enqueue(db: Db, eventId: string, type: string, payload: Rec, objectId: string | null, source: string): Promise<boolean> {
+async function enqueue(db: Db, eventId: string, type: string, payload: Rec, objectId: string | null, source: string, environment: SquareEnvironment | null): Promise<boolean> {
   const { data, error } = await db.from("square_webhook_events").upsert(
-    { event_id: eventId, event_type: type, object_id: objectId, payload, status: "failed", next_attempt_at: new Date().toISOString(), outcome: source },
+    { event_id: eventId, event_type: type, object_id: objectId, payload, status: "failed", next_attempt_at: new Date().toISOString(), outcome: source, environment },
     { onConflict: "event_id", ignoreDuplicates: true },
   ).select("event_id");
   if (error) throw new Error(`square_webhook_events enqueue: ${error.message}`);
@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
         handle: async (ev) => {
           const id = typeof ev.event_id === "string" ? ev.event_id : null;
           if (!id) return;
-          if (await enqueue(db, id, String(ev.type ?? ""), ev, null, "events_api")) report.events_api_queued++;
+          if (await enqueue(db, id, String(ev.type ?? ""), ev, null, "events_api", env)) report.events_api_queued++;
         },
       });
       report.events_api_pages = r.pages;
@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
           const id = String(rf.id ?? "");
           if (!id) return;
           const payload = { type: "refund.updated", event_id: `refund_list:${id}:${String(rf.updated_at ?? "")}`, data: { id, object: { refund: rf } } };
-          if (await enqueue(db, payload.event_id, "refund.updated", payload, id, "refund_discovery")) report.refunds_discovered++;
+          if (await enqueue(db, payload.event_id, "refund.updated", payload, id, "refund_discovery", dEnv)) report.refunds_discovered++;
         },
       });
       refundDiscovery.push(`${dEnv}: ok (through ${r.through ?? "—"})`);
@@ -266,7 +266,7 @@ Deno.serve(async (req) => {
           const id = String(d.id ?? d.dispute_id ?? "");
           if (!id) continue;
           const payload = { type: "dispute.state.updated", event_id: `dispute_list:${id}:${String(d.updated_at ?? d.state ?? "")}`, data: { id, object: { dispute: d } } };
-          if (await enqueue(db, payload.event_id, "dispute.state.updated", payload, id, "dispute_discovery")) report.disputes_discovered++;
+          if (await enqueue(db, payload.event_id, "dispute.state.updated", payload, id, "dispute_discovery", dEnv)) report.disputes_discovered++;
         }
         cursor = page.cursor;
         pages++;

@@ -17,7 +17,7 @@
 export const MAX_MANUAL_RESENDS = 3;
 export const MIN_RESEND_REASON = 10;
 
-export type ResendKind = "refund_issued" | "refund_received_paidy";
+export type ResendKind = "refund_issued" | "refund_received_paidy" | "refund_received_square";
 
 export interface ResendableEmail {
   kind: ResendKind;
@@ -26,6 +26,19 @@ export interface ResendableEmail {
   /** refund_issued only: the method and day staff recorded. */
   refund_method?: string | null;
   refunded_on?: string | null;
+  /**
+   * ops-panel truth (2026-10-15): why a row with no send-log attempt is NOT a
+   * missed email. 'card_refund_email_sent_by_square' — on a card-paid order the
+   * 「返金が完了しました」 email is skipped on purpose; Square's own
+   * 「返金を受け付けました」 (refund_received_square rows) told the customer.
+   */
+  not_sent_reason?: "card_refund_email_sent_by_square" | null;
+  /**
+   * false for refund_received_square: that email is re-sent by the hourly
+   * check itself (B02, up to 3 times, then a bell) — never from this panel,
+   * so the two paths cannot double up. Absent = resendable (the default).
+   */
+  resendable?: boolean;
   /** The newest send-log status for this email or any of its resends; null = never attempted. */
   last_status: string | null;
   last_at: string | null;
@@ -50,7 +63,7 @@ export function resendRefusal(i: { reason: unknown; item: ResendableEmail | null
   | "reason_required" | "not_resendable" | "recipient_suppressed" | "resend_cap_reached" | null {
   const reason = typeof i.reason === "string" ? i.reason.trim() : "";
   if (reason.length < MIN_RESEND_REASON) return "reason_required";
-  if (!i.item) return "not_resendable";
+  if (!i.item || i.item.resendable === false) return "not_resendable";
   if (i.item.last_status === "suppressed") return "recipient_suppressed";
   if (i.item.resends_used >= MAX_MANUAL_RESENDS) return "resend_cap_reached";
   return null;

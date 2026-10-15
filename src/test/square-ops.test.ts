@@ -201,3 +201,20 @@ describe("refundPendingDays (S05, every day counts)", () => {
     expect(refundPendingDays({ refund_oldest_pending_at: "2026-10-01T00:00:00Z" }, now)).toBe(14);
   });
 });
+
+// 2026-10-15 (QA rev. 2, finding A): the counters are for one environment; the
+// other environment's rows are a separate line, or nothing when it holds nothing.
+import { squareResidueLine } from "../lib/square-ops";
+describe("squareResidueLine — the other environment, apart", () => {
+  it("is silent when the other environment holds nothing worth a look", () => {
+    expect(squareResidueLine(null)).toBeNull();
+    expect(squareResidueLine(undefined)).toBeNull();
+    expect(squareResidueLine({ environment: "sandbox", holds_live: 0, refunds_open: 0, events_dead: 0 })).toBeNull();
+  });
+  it("names the environment and only the non-zero counts", () => {
+    expect(squareResidueLine({ environment: "sandbox", holds_live: 2, attempts_open: 0, refunds_open: 1, refunds_undecided: 5, events_dead: 1 }))
+      .toBe("Sandbox residue (not counted above): 2 open hold(s) · 1 refund(s) in flight · 5 refund(s) awaiting a decision · 1 inbox event(s) failed for good");
+    expect(squareResidueLine({ environment: "production", captured_unrecorded: 1 }))
+      .toBe("Production residue (not counted above): 1 captured but unrecorded");
+  });
+});
