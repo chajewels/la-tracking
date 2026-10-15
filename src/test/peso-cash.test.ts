@@ -212,7 +212,8 @@ describe("peso layaway is unchanged", () => {
 
   it("layaway still converts with toSettle and prices through layaway_quote", () => {
     expect(src).toMatch(/\} else \{\s+totalSettle = toSettle\(total\);\s+shippingSettle = shipping === null \? null : toSettle\(shipping\);\s+subtotalSettle = totalSettle - \(shippingSettle \?\? 0\);\s+\}/);
-    expect(src).toMatch(/p_price: subtotalSettle,\s+p_term_months: termMonths,\s+p_currency: settlement,/);
+    // Coupon codes (2026-10-15): the plan is priced on pieces − coupon (0 when none).
+    expect(src).toMatch(/p_price: subtotalSettle - quoteCouponSettle,\s+p_term_months: termMonths,\s+p_currency: settlement,/);
     // The GET re-read of a saved layaway quote, likewise.
     expect(src).toMatch(/\} else \{\s+totalSettle = toSettle\(totalJpy\);\s+shippingSettle = shippingJpy === null \? null : toSettle\(shippingJpy\);\s+subtotalSettle = totalSettle - \(shippingSettle \?\? 0\);\s+\}/);
   });

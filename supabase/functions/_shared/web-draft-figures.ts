@@ -30,7 +30,13 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
   const errors: string[] = [];
   const currency = String(draft.settlement_currency ?? "JPY");
   const rate = draft.fx_rate == null ? null : Number(draft.fx_rate);
-  const products = Number(draft.subtotal ?? 0);
+  // COUPON (owner 2026-10-15): the draft stores its figures AFTER the coupon.
+  // Staff see the full pieces price, and the coupon becomes part of the
+  // order's discount (the box starts at it and may not go below it).
+  const couponCode = draft.coupon_code == null || draft.coupon_code === "" ? null : String(draft.coupon_code);
+  const couponDiscount = Math.max(0, Number(draft.coupon_discount ?? 0));
+  const couponDiscountJpy = Math.max(0, Number(draft.coupon_discount_jpy ?? 0));
+  const products = Number(draft.subtotal ?? 0) + couponDiscount;
 
   // Shipping: what the staff typed; else what checkout carried (JP rate card).
   // A draft whose shipping was left for confirmation must get a figure here.
@@ -38,7 +44,9 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
   const shipping = typedShipping ?? (draft.shipping == null ? null : Number(draft.shipping));
   if (shipping === null) errors.push("shipping_required");
 
-  const discount = wholeNumber(body.discount, "discount", errors) ?? 0;
+  const typedDiscount = wholeNumber(body.discount, "discount", errors, { allowNull: true });
+  const discount = typedDiscount ?? couponDiscount;
+  if (typedDiscount !== null && typedDiscount < couponDiscount) errors.push("discount_below_coupon");
 
   const rawLines = Array.isArray(body.service_lines) ? (body.service_lines as AnyRec[]) : [];
   const serviceLines: { title: string; amount: number }[] = [];
@@ -55,7 +63,7 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
 
   // Loyalty basis: PRODUCT lines − discount, in YEN (never shipping or services).
   const discountJpy = currency === "PHP" && rate ? Math.round(discount / rate) : discount;
-  const defaultLoyalty = Math.max(0, Number(draft.subtotal_jpy ?? 0) - discountJpy);
+  const defaultLoyalty = Math.max(0, Number(draft.subtotal_jpy ?? 0) + couponDiscountJpy - discountJpy);
   const typedLoyalty = wholeNumber(body.loyalty_jpy_amount, "loyalty_jpy_amount", errors, { allowNull: true });
   const loyaltyJpy = typedLoyalty ?? defaultLoyalty;
 
@@ -161,6 +169,9 @@ export async function computeWebDraftFigures(supabase: any, draft: AnyRec, body:
     services,
     service_lines: serviceLines,
     discount,
+    // The coupon inside `discount` (0 / null when none). `products` is the full pieces price.
+    coupon_code: couponCode,
+    coupon_discount: couponDiscount,
     total: total + codFee,
     loyalty_jpy_amount: loyaltyJpy,
     loyalty_default_jpy: defaultLoyalty,
