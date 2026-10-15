@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { toast } from "@/hooks/use-toast";
@@ -34,7 +34,7 @@ import {
 } from "@/lib/website-catalog-import";
 import {
   type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
-  ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, slugify, yen,
+  ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, saleError, slugify, yen,
 } from "@/components/website/product-form";
 
 /** One product as the Catalog list reads it: the row plus its nested selects. */
@@ -45,7 +45,12 @@ type CatalogMediaRead = Pick<
 type CatalogVariantRead = Pick<
   Tables<"website_product_variants">,
   "id" | "size" | "stone" | "price_jpy" | "cost_basis" | "stock_qty" | "sort"
-> & { website_product_media: CatalogMediaRead[] | null };
+> & {
+  // sale_price_jpy (migration 20261216100000) reaches the generated types on
+  // Lovable's next regeneration; typed here, never by hand-editing types.ts.
+  sale_price_jpy?: number | null;
+  website_product_media: CatalogMediaRead[] | null;
+};
 type CatalogProductRead = Tables<"website_products"> & {
   website_product_variants: CatalogVariantRead[] | null;
   website_collection_products: Array<{ collection_id: string }> | null;
@@ -131,7 +136,7 @@ export default function ProductsCard() {
             // "*" rather than a column list: page365_product_id (PR 4) is read when
             // the migration has run and simply absent before it.
             "*, " +
-            "website_product_variants(id, size, stone, price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
+            "website_product_variants(id, size, stone, price_jpy, sale_price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
             "website_collection_products(collection_id), website_category_products(category_id)"
           )
           .order("created_at", { ascending: false })
@@ -179,7 +184,12 @@ export default function ProductsCard() {
 
   const rows = useMemo(() => (products.data ?? []).map((p) => {
     const variants = p.website_product_variants ?? [];
-    const prices = variants.map((v) => Number(v.price_jpy ?? 0)).filter((n) => n > 0);
+    // "From" is what the website charges: the sale price while one is set.
+    const prices = variants.map((v) => {
+      const full = Number(v.price_jpy ?? 0);
+      const sale = v.sale_price_jpy == null ? null : Number(v.sale_price_jpy);
+      return sale !== null && sale > 0 && sale < full ? sale : full;
+    }).filter((n) => n > 0);
     return {
       ...p,
       variantCount: variants.length,
@@ -315,6 +325,7 @@ export default function ProductsCard() {
         size: v.size ?? "",
         stone: v.stone ?? "",
         price_jpy: Number(v.price_jpy ?? 0),
+        sale_price_jpy: v.sale_price_jpy == null ? null : Number(v.sale_price_jpy),
         cost_basis: v.cost_basis === null ? null : Number(v.cost_basis),
         stock_qty: Number(v.stock_qty ?? 0),
         sort: Number(v.sort ?? 0),
@@ -423,6 +434,10 @@ export default function ProductsCard() {
         throw new Error("Pick at least one metal stamp — required to publish jewelry. Save it as a draft until then.");
       }
       if (!f.variants.length) throw new Error("Add at least one variant.");
+      for (const v of f.variants) {
+        const why = saleError(v);
+        if (why) throw new Error(why);
+      }
       if (f.origin === "BRAND" && !f.brand.trim()) throw new Error("Enter the brand name for a Branded piece.");
       const slug = (f.slug.trim() || slugify(f.name));
       const wasActive = (products.data ?? []).some((p) => p.id === f.id && p.status === "active");
@@ -500,18 +515,21 @@ export default function ProductsCard() {
           size: v.size?.trim() || null,
           stone: v.stone?.trim() || null,
           price_jpy: Math.round(Number(v.price_jpy) || 0),
+          sale_price_jpy: v.sale_price_jpy == null ? null : Math.round(Number(v.sale_price_jpy)),
           cost_basis: v.cost_basis === null || v.cost_basis === undefined ? null : Math.round(Number(v.cost_basis)),
           stock_qty: Math.round(Number(v.stock_qty) || 0),
           sort: i,
         };
         let variantId = v.id;
         if (variantId) {
+          // Cast at the call site until Lovable regenerates types.ts with
+          // sale_price_jpy (CLAUDE.md: never hand-edit the generated types).
           const { error } = await supabase.from("website_product_variants")
-            .update(payload).eq("id", variantId);
+            .update(payload as TablesUpdate<"website_product_variants">).eq("id", variantId);
           if (error) throw error;
         } else {
           const { data, error } = await supabase.from("website_product_variants")
-            .insert(payload).select("id").single();
+            .insert(payload as TablesInsert<"website_product_variants">).select("id").single();
           if (error) throw error;
           variantId = data.id;
         }

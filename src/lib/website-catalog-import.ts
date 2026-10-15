@@ -158,6 +158,10 @@ export interface ImportRowInput {
   collection_slugs: string;
   /** Website categories by slug, |-separated. Blank keeps the existing ones. */
   category_slugs: string;
+  /** Optional sale price, whole yen, below price. Blank keeps the existing sale
+   *  (none on a new piece). A Hub column at the end: price is in Page365's own
+   *  A–X block, where a new column would shift Page365's upload format. */
+  hub_sale_price: string;
   images: string[];
 }
 
@@ -203,6 +207,7 @@ const TEMPLATE_HUB_FIELD_COLUMNS = [
   "hub_brand",
   "collection_slugs",
   "category_slugs",
+  "hub_sale_price",
 ] as const satisfies readonly TemplateFieldKey[];
 
 export const TEMPLATE_HUB_COLUMNS: readonly string[] = [
@@ -249,6 +254,8 @@ export interface ImportRow {
     size: string | null;
     stone: string | null;
     price_jpy: number;
+    /** null = blank cell: keep the piece's existing sale (none on a new piece). */
+    sale_price_jpy: number | null;
     cost_basis: number | null;
     stock_qty: number;
     /** Empty means "leave the product's existing photos alone". */
@@ -400,6 +407,21 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
     errors.push("price must be a whole number of yen");
   }
 
+  // Optional; blank keeps the existing sale. Mirrors the DB CHECK
+  // website_variants_sale_below_price (> 0 and below the full price).
+  const saleRaw = (r.hub_sale_price ?? "").trim();
+  let sale: number | null = null;
+  if (saleRaw) {
+    const parsed = toNumber(saleRaw);
+    if (parsed === null || parsed <= 0 || !Number.isInteger(parsed)) {
+      errors.push("hub_sale_price must be a whole number of yen above 0");
+    } else if (price !== null && Number.isInteger(price) && parsed >= price) {
+      errors.push("hub_sale_price must be below price");
+    } else {
+      sale = parsed;
+    }
+  }
+
   const costRaw = r.cost.trim();
   let cost: number | null = null;
   if (costRaw) {
@@ -450,6 +472,7 @@ export function validateRow(r: ImportRowInput, ctx: ValidateContext): ImportRow 
       size: r.hub_size.trim() || null,
       stone: r.hub_stone.trim() || null,
       price_jpy: price!,
+      sale_price_jpy: sale,
       cost_basis: cost,
       stock_qty: stock,
       images,

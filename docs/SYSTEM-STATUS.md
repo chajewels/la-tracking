@@ -3,6 +3,9 @@
 ## App Version
 1.6.0 (commit 02a040c)
 
+## 2026-10-15 — Website sale price
+- Website sale price: migration + website/newsletter functions pending apply/deploy (migration 20261216100000_website_sale_price.sql; docs/SCHEMA-FACTS.md "Website sale price").
+
 ## 2026-07-05 — Phase 2 Batch 0: shared edge-function helpers added
 - Shared edge-function helpers added (`_shared/cors.ts` superset CORS + `_shared/handler.ts` `requireAuth`/`requirePermission` encoding the Bug #168/#170 locked rules); no function migrated yet, zero behavior change; the `_shared` files bundle into a function only when that function is next deployed via Lovable IDE (the GitHub deploy workflow was proven inert and removed).
 - Smoke-test convention: functions with `verify_jwt=true` answer a bare unauthenticated POST with 401; portal/no-verify functions must be probed with an empty JSON body (`{}`) and answer with their first documented gate (400 or 401 per function).
