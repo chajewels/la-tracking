@@ -349,6 +349,8 @@ const ORDER_FIELDS =
   // Cancelled orders stay in the customer's history with the reason and the
   // refund decision; a lapse carries expired_at.
   "cancellation_reason, refund_status, refund_note, expired_at, source_channel, " +
+  // Coupon (2026-10-15): the label only — its value is inside discount_amount.
+  "coupon_code, " +
   // Read for the reservation flags only — withReservationFlags strips it.
   "ready_confirmed_at";
 
@@ -414,7 +416,7 @@ const CHECKOUT_ERROR_STATUS: Record<string, number> = {
  * decline_reason is the reason the customer is told; staff notes never leave.
  */
 const DRAFT_FIELDS =
-  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id, payment_method, points, points_value, cod_fee";
+  "id, web_reference, status, mode, term_months, settlement_currency, subtotal, shipping, total, deposit, schedule, decline_reason, created_at, decided_at, cash_order_id, layaway_account_id, payment_method, points, points_value, cod_fee, coupon_code, coupon_discount, coupon_discount_jpy";
 
 function shapeDraft(d: AnyRec): AnyRec {
   return {
@@ -446,6 +448,12 @@ function shapeDraft(d: AnyRec): AnyRec {
     // Cash on delivery (2026-10-10): the 代引手数料, its own line, already in
     // `total`. 0 for every other method.
     cod_fee: Number(d.cod_fee ?? 0),
+    // Coupon (2026-10-15): the draft's subtotal / total are already after it;
+    // these let the storefront explain the reduced figure. coupon_discount is
+    // in `currency`, coupon_discount_jpy in yen; 0 / null when none.
+    coupon_code: d.coupon_code ?? null,
+    coupon_discount: Number(d.coupon_discount ?? 0),
+    coupon_discount_jpy: Number(d.coupon_discount_jpy ?? 0),
     // Payment lifecycle H6 (2026-10-05): what is left to pay once the points
     // are taken off — the Hub's figure, the storefront computes nothing. On a
     // layaway draft the points pay the DEPOSIT (the deposit already shows
@@ -938,6 +946,8 @@ const LAYAWAY_FIELDS =
   "remaining_balance, downpayment_amount, payment_plan_months, shipping_fee, " +
   "order_date, end_date, transfer_due_at, expired_at, " +
   "created_at, completed_at, tracking_number, shipped_at, source_channel, " +
+  // Coupon (2026-10-15): the label only — the plan is already priced on pieces − coupon.
+  "coupon_code, " +
   // Read for the reservation flags only — withReservationFlags strips it.
   "ready_confirmed_at";
 

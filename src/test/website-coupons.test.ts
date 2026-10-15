@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   appliedCouponJpy, couponBlock, couponSettle, couponStateFrom, fullPriceSubtotalJpy, normalizeCouponCode,
@@ -69,5 +70,30 @@ describe("Hub coupon form", () => {
     expect(couponStatus({ is_active: true, starts_at: "2026-11-01T00:00:00Z", ends_at: null }, now)).toBe("Scheduled");
     expect(couponStatus({ is_active: true, starts_at: null, ends_at: "2026-10-01T00:00:00Z" }, now)).toBe("Ended");
     expect(usesLabel({ used_count: 3, held_count: 1, max_uses: 50 })).toBe("3 used · 1 held / 50");
+  });
+});
+
+// The customer's reads carry the coupon so the storefront can explain a
+// reduced figure (2026-10-15). Asserted on code with comment lines stripped.
+describe("website reads carry the coupon", () => {
+  const code = readFileSync("supabase/functions/website/index.ts", "utf8")
+    .split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  const fields = (name: string) => {
+    const m = code.match(new RegExp(`const ${name} =([\\s\\S]*?);\\n`));
+    return (m?.[1] ?? "").replace(/["+\s]/g, "").split(",");
+  };
+
+  it("drafts: code and both amounts, selected and passed through (null / 0 when none)", () => {
+    expect(fields("DRAFT_FIELDS")).toEqual(expect.arrayContaining(["coupon_code", "coupon_discount", "coupon_discount_jpy"]));
+    expect(code).toContain("coupon_code: d.coupon_code ?? null,");
+    expect(code).toContain("coupon_discount: Number(d.coupon_discount ?? 0),");
+    expect(code).toContain("coupon_discount_jpy: Number(d.coupon_discount_jpy ?? 0),");
+  });
+
+  it("orders and plans: the code only (the value is inside the order's discount / the plan's price)", () => {
+    expect(fields("ORDER_FIELDS")).toContain("coupon_code");
+    expect(fields("LAYAWAY_FIELDS")).toContain("coupon_code");
+    expect(fields("ORDER_FIELDS")).not.toContain("coupon_discount");
+    expect(fields("LAYAWAY_FIELDS")).not.toContain("coupon_discount");
   });
 });
