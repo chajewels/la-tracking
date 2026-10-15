@@ -1103,6 +1103,8 @@ function ProductDialogFixture() {
       size: `${40 + i * 5}cm`,
       stone: i % 2 ? '0.30ct' : '0.20ct',
       price_jpy: 128000 + i * 24000,
+      // Sale price (2026-10-15): one variant on sale, the rest blank.
+      sale_price_jpy: i === 0 ? 115000 : null,
       stock_qty: 3 - (i % 3),
     })),
   }));

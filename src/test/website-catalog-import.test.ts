@@ -36,7 +36,7 @@ const blank: ImportRowInput = {
   sheetRow: 5, buy_code: "", product_name: "", product_description: "", price: "",
   cost: "", stock_amount: "", hub_jewelry_type: "", hub_metal: "", hub_weight_g: "",
   hub_stone: "", hub_size: "", hub_condition: "", hub_status: "",
-  hub_origin: "", hub_brand: "", collection_slugs: "", category_slugs: "", images: [],
+  hub_origin: "", hub_brand: "", collection_slugs: "", category_slugs: "", hub_sale_price: "", images: [],
 };
 
 const good: ImportRowInput = {
@@ -263,6 +263,7 @@ describe("the shipped template", () => {
     hub_brand: cell(r, "hub_brand"),
     collection_slugs: cell(r, "collection_slugs"),
     category_slugs: cell(r, "category_slugs"),
+    hub_sale_price: cell(r, "hub_sale_price"),
     images: Array.from({ length: 10 }, (_, i) => cell(r, `image_${i + 1}`)),
   });
 
@@ -274,6 +275,7 @@ describe("the shipped template", () => {
     expect(header).toContain("image_10");
     expect(header).toContain("collection_slugs");
     expect(header).toContain("category_slugs");
+    expect(header).toContain("hub_sale_price");
   });
 
   it("ships a Reference sheet listing the seeded collection slugs", () => {

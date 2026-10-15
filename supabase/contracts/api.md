@@ -60,8 +60,8 @@ One active product by slug; 404 otherwise.
 `{ id, sku, slug, name, name_en, name_ja, karat, metals, weight_g,
 description_en, description_ja, status, condition, origin, brand,
 item_type, video_url, video_poster_url, updated_at,
-product_variants: [{ id, size, stone, price_jpy, price_php, stock_qty,
-down_payment_jpy?, down_payment_php?, down_payment_pct?,
+product_variants: [{ id, size, stone, price_jpy, price_php, full_price_jpy,
+on_sale, stock_qty, down_payment_jpy?, down_payment_php?, down_payment_pct?,
 product_media: [{ url, alt }] }], category_slugs: string[] }`
 
 - `item_type` (2026-09-29, D2-1): `"Jewelry" | "Watch" | "Accessory"`, from
@@ -83,6 +83,17 @@ product_media: [{ url, alt }] }], category_slugs: string[] }`
   after any staff photos). Still no field or shape change: `product_media`
   items stay `{ url, alt }`, every URL is the Hub's own `promotions` bucket
   (never a Page365 hotlink), and the same revalidation trigger fires.
+- **Sale price (2026-10-15, owner).** `price_jpy` is the price the customer
+  PAYS: the variant's sale price while staff have set one (Hub: Website →
+  Catalog → Edit product → Sale price), else its full price. `full_price_jpy`
+  (integer | null) is the full price, sent only while `on_sale` (boolean) is
+  true, and is always greater than `price_jpy`; `null` when not on sale. The
+  sale price itself (`sale_price_jpy`) never leaves the Hub. `price_php`, the
+  down payments, `POST /checkout/quote`, `GET /me/points-preview`, cart-reminder
+  and newsletter emails all use the effective `price_jpy`. One rule, two
+  copies: SQL `website_variant_price_jpy()` and TS `effectivePriceJpy()`
+  (`_shared/website-down-payments.ts`). No sale end date in v1. A storefront
+  built before this change keeps working: it simply shows `price_jpy`.
 - `price_php` is derived per request from the latest `fx_rates` row
   (`PHP = JPY × rate`), rounded **half-up to a whole peso** with the same
   integer maths the peso checkout stores (2026-09-25; before, a float round
