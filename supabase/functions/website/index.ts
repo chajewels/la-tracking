@@ -6,6 +6,7 @@ import { resolveItemImages } from "../_shared/item-images.ts";
 import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.ts";
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, effectivePriceJpy, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
+import { chunk } from "../_shared/chunk.ts";
 import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from "../_shared/latest-decision.ts";
 import { type CustomerMethod, type SwitchInput, canCustomerSwitch, customerSwitchEmailKey, switchTargets } from "../_shared/method-switch-rules.ts";
@@ -228,11 +229,17 @@ async function attachCategorySlugs(supabase: any, products: AnyRec[]): Promise<A
   if (!products.length) return products;
   const ids = products.map((p) => String(p.id ?? "")).filter(Boolean);
   if (!ids.length) return products.map((p) => ({ ...p, category_slugs: [] as string[] }));
-  const { data, error } = await supabase
-    .from("website_category_products")
-    .select("product_id, category:website_categories!website_category_products_category_id_fkey(slug, published)")
-    .in("product_id", ids);
-  if (error) throw error;
+  // Batched (2026-10-15): one .in() over every id overflows the 16 KB URL limit past ~410 products.
+  const CHUNK = 150;
+  const parts = await Promise.all(
+    chunk(ids, CHUNK).map((slice) =>
+      supabase
+        .from("website_category_products")
+        .select("product_id, category:website_categories!website_category_products_category_id_fkey(slug, published)")
+        .in("product_id", slice)),
+  );
+  for (const r of parts) if (r.error) throw r.error;
+  const data = parts.flatMap((r: AnyRec) => (r.data as AnyRec[] | null) ?? []);
   const byProduct = new Map<string, string[]>();
   for (const row of (data ?? []) as AnyRec[]) {
     const cat = row.category as AnyRec | null;
@@ -1471,6 +1478,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         return jsonResponse(scrub(data ?? []));
       }
 
+      const t0 = Date.now();
       const { data, error } = await supabase
         .from("website_products")
         .select(PRODUCT_SELECT)
@@ -1482,9 +1490,14 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const shaped = (data ?? [])
         .map((p) => shapeProduct(p as AnyRec, fx))
         .filter((p): p is AnyRec => p !== null);
-      await attachHeroCutouts(supabase, shaped);
-      await attachDownPayments(supabase, shaped, fx);
-      const products = await attachCategorySlugs(supabase, shaped);
+      // Each enrichment degrades on its own (2026-10-15): a failed helper names
+      // itself in the log and the list still answers. One throw here used to
+      // empty storefront search and the /layaway pool.
+      try { await attachHeroCutouts(supabase, shaped); } catch (e) { console.error("[website] catalog list: attachHeroCutouts failed", (e as Error)?.message ?? e); }
+      try { await attachDownPayments(supabase, shaped, fx); } catch (e) { console.error("[website] catalog list: attachDownPayments failed", (e as Error)?.message ?? e); }
+      let products = shaped;
+      try { products = await attachCategorySlugs(supabase, shaped); } catch (e) { console.error("[website] catalog list: attachCategorySlugs failed; category_slugs omitted", (e as Error)?.message ?? e); products = shaped.map((p) => ({ ...p, category_slugs: [] })); }
+      console.log("[website] catalog list", { products: shaped.length, ms: Date.now() - t0 });
       return jsonResponse(scrub(products));
     }
 
