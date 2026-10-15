@@ -18,7 +18,9 @@ merchant once in full. Reference: paidy.com/docs/api/en, paidy.com/docs/en/paidy
    `paidy_mode` on (or test + `customers.is_test`), a public key of the mode's
    family, JPY, order `pending` / `pending_transfer`, not an unconfirmed
    reservation, `remaining_balance > 0`, ship-to snapshot country JP with line1,
-   city, region and a 7-digit postal code, no `submitted | under_review`
+   city, region and a 7-digit postal code, the customer herself lives in Japan
+   (owner 2026-10-15: `customers.location`, else `customers.country`, = Japan;
+   `customer_not_jp` otherwise), no `submitted | under_review`
    submission. `checkout` is the exact `Paidy.launch()` payload — amount =
    remaining balance, the order's lines, `buyer_data` from this customer's
    COMPLETED yen orders that were not paid with Paidy and not refunded

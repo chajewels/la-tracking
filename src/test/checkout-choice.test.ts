@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkoutMethodOptions, maxUsablePoints, pointsChoiceProblem, pointsUnavailableReason, pointsValue,
+  checkoutMethodOptions, customerInJapan, maxUsablePoints, pointsChoiceProblem, pointsUnavailableReason, pointsValue,
   publicMethod, storedMethod,
 } from "../../supabase/functions/_shared/checkout-choice.ts";
 
@@ -9,7 +9,7 @@ import {
 
 const base = {
   mode: "full" as const, currency: "JPY" as const, country: "JP", paidyMode: "on" as const, squareMode: "on" as const,
-  customerIsTest: false, transferAvailable: true,
+  customerIsTest: false, customerInJapan: true, transferAvailable: true,
 };
 
 describe("storedMethod / publicMethod", () => {
@@ -50,6 +50,31 @@ describe("checkoutMethodOptions — what is offered, what is greyed and why", ()
     expect(checkoutMethodOptions({ ...base, paidyMode: "off" }).paidy.reason).toBe("off");
     expect(checkoutMethodOptions({ ...base, squareMode: "test" }).card.reason).toBe("off");
     expect(checkoutMethodOptions({ ...base, squareMode: "test", customerIsTest: true }).card.available).toBe(true);
+  });
+  it("owner 2026-10-15: Paidy and COD only for a customer who lives in Japan, even to a JP address", () => {
+    const o = checkoutMethodOptions({
+      ...base, customerInJapan: false, codMode: "on", codTable: [{ max_jpy: 300_000, fee_jpy: 1_810 }], codCollectedJpy: 20_000,
+    });
+    expect(o.paidy).toEqual({ available: false, reason: "customer_not_jp" });
+    expect(o.cod).toEqual({ available: false, reason: "customer_not_jp", fee_jpy: null });
+    expect(o.card.available).toBe(true);
+    expect(o.transfer.available).toBe(true);
+    const home = checkoutMethodOptions({ ...base, codMode: "on", codTable: [{ max_jpy: 300_000, fee_jpy: 1_810 }], codCollectedJpy: 20_000 });
+    expect(home.paidy.available).toBe(true);
+    expect(home.cod.available).toBe(true);
+  });
+  it("customer_not_jp comes after the switch, before the address", () => {
+    expect(checkoutMethodOptions({ ...base, customerInJapan: false, paidyMode: "off" }).paidy.reason).toBe("off");
+    expect(checkoutMethodOptions({ ...base, customerInJapan: false, country: "PH" }).paidy.reason).toBe("customer_not_jp");
+  });
+  it("customerInJapan: location decides; country only when location is empty", () => {
+    expect(customerInJapan({ location: "Japan", country: null })).toBe(true);
+    expect(customerInJapan({ location: " japan ", country: "Philippines" })).toBe(true);
+    expect(customerInJapan({ location: "Philippines", country: "Japan" })).toBe(false);
+    expect(customerInJapan({ location: null, country: "Japan" })).toBe(true);
+    expect(customerInJapan({ location: "  ", country: "JAPAN" })).toBe(true);
+    expect(customerInJapan({ location: "", country: null })).toBe(false);
+    expect(customerInJapan(null)).toBe(false);
   });
   it("no transfer account for the currency greys transfer", () => {
     expect(checkoutMethodOptions({ ...base, transferAvailable: false }).transfer).toEqual({ available: false, reason: "no_account" });

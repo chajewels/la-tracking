@@ -270,6 +270,20 @@ describe("C1 method lock (2026-10-05): a website order offers Paidy only when Pa
   });
 });
 
+describe("owner 2026-10-15: Paidy only for a customer who lives in Japan", () => {
+  it("customerInJapan false → customer_not_jp, even to a JP address", () => {
+    expect(paidyNotOfferedReason({ ...base, customerInJapan: false })).toBe("customer_not_jp");
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: "paidy", customerInJapan: false })).toBe("customer_not_jp");
+  });
+  it("checked after method_not_chosen", () => {
+    expect(paidyNotOfferedReason({ ...base, paymentMethod: "transfer", customerInJapan: false })).toBe("method_not_chosen");
+  });
+  it("true or omitted → unchanged", () => {
+    expect(paidyNotOfferedReason({ ...base, customerInJapan: true })).toBeNull();
+    expect(paidyNotOfferedReason(base)).toBeNull();
+  });
+});
+
 describe("P11 refunds are recorded once per refund id", () => {
   it("returns only unseen, positive refunds", () => {
     const p = { refunds: [{ id: "ref_1", amount: 1000 }, { id: "ref_2", amount: 500, created_at: "2026-10-05T00:00:00Z" }, { id: "ref_3", amount: 0 }] };

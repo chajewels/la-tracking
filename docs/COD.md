@@ -8,7 +8,9 @@ docs/MIGRATIONS.md).
 ## Rules
 
 - **Who.** Method `cod`: a yen, full-payment website order delivered in Japan. Never layaway,
-  never pesos, never abroad.
+  never pesos, never abroad. And only for a customer who lives in Japan (owner 2026-10-15):
+  `customers.location`, else `customers.country`, = Japan (`public.customer_in_japan()`, TS
+  `customerInJapan()`); a Japan address for someone else is not enough (reason `customer_not_jp`).
 - **Switch.** `system_settings.cod_mode` = `"off"` | `"on"`. Anything but the exact string `"on"`
   reads as off (`public.cod_mode()`). Seeded off. Changed ONLY in Hub → Website → Settings →
   **Cash on delivery** (`CodSettingsCard`, admins) through `set_cod_settings(p_mode, p_fee_table,

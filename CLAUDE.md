@@ -1510,7 +1510,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     A card/Paidy submission is never "needs clarification", and its status
     moves only via service_role or the two staff case RPCs that set
     app.provider_submission_writer in-call (F-01/Q-DB1, 2026-10-09).
-  - COD 代金引換 (2026-10-10, docs/COD.md): yen, JP, full payment; cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy (+ _shared/cod-fee.ts), own column, never loyalty/points; no deadline, never lapses or is chased; staff record it IN FULL ONLY (amount = remaining_balance, cod_full_amount_only).
+  - COD 代金引換 (2026-10-10, docs/COD.md): yen, JP, full payment; cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy (+ _shared/cod-fee.ts), own column, never loyalty/points; no deadline, never lapses or is chased; staff record it IN FULL ONLY (amount = remaining_balance, cod_full_amount_only). Paidy and COD only for customers who live in Japan: customers.location, else customers.country, = Japan (customer_in_japan(), TS customerInJapan; reason customer_not_jp), on top of the JP delivery address.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 

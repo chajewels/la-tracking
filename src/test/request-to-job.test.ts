@@ -43,6 +43,7 @@ describe('jobTypeForKind', () => {
     expect(jobTypeForKind('cleaning', null)).toBe('Polishing');
     expect(jobTypeForKind('repair', null)).toBe('Repair');
     expect(jobTypeForKind('appraisal', null)).toBe('Appraisal');
+    expect(jobTypeForKind('certificate', null)).toBe('Certificate');
     expect(jobTypeForKind('other', null)).toBe('');
     expect(jobTypeForKind(null, null)).toBe('');
   });

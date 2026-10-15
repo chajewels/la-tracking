@@ -46,6 +46,7 @@ export const SERVICE_REQUEST_KINDS = [
   'cleaning',
   'repair',
   'appraisal',
+  'certificate',
   'other',
 ] as const;
 export type ServiceRequestKind = typeof SERVICE_REQUEST_KINDS[number];
@@ -64,6 +65,7 @@ export const KIND_LABEL: Record<ServiceRequestKind, string> = {
   cleaning: 'Cleaning',
   repair: 'Repair',
   appraisal: 'Appraisal',
+  certificate: 'Certificate',
   other: 'Other',
 };
 

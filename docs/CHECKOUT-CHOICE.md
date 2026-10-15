@@ -140,3 +140,5 @@ the total, never in the loyalty basis, never paid by points. No deadline, no rem
 Staff and the customer (after a rejection) may switch to / from it; the fee delta moves total and
 remaining in the same transaction. `payment_options` gains `cod` with `fee_jpy`; `totals` gains
 `cod_fee`. Full rules: docs/COD.md.
+
+Paidy and COD only for a customer who LIVES in Japan (owner 2026-10-15): `customers.location`, else `customers.country`, = Japan (`customerInJapan()` / `public.customer_in_japan()`), on top of the Japan delivery address; otherwise greyed with reason `customer_not_jp`.

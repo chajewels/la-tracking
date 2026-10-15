@@ -88,14 +88,17 @@ Deno.test({
 
 // ---------------------------------------------------------------- who is offered COD
 const offer = (o: Partial<Parameters<typeof codNotOfferedReason>[0]>) => codNotOfferedReason({
-  mode: 'full', currency: 'JPY', country: 'JP', codMode: 'on', collectedJpy: 20000, table: T, ...o,
+  mode: 'full', currency: 'JPY', country: 'JP', codMode: 'on', customerInJapan: true, collectedJpy: 20000, table: T, ...o,
 })
-Deno.test('COD reasons, in order: layaway, currency_not_yen, off, address_not_jp, nothing_to_collect, over_cod_limit', () => {
+Deno.test('COD reasons, in order: layaway, currency_not_yen, off, customer_not_jp, address_not_jp, nothing_to_collect, over_cod_limit', () => {
   eq(offer({}), null, 'offered')
   eq(offer({ mode: 'layaway', currency: 'PHP' }), 'layaway', 'layaway first')
   eq(offer({ currency: 'PHP' }), 'currency_not_yen', 'pesos')
   eq(offer({ codMode: 'off' }), 'off', 'switched off')
   eq(offer({ table: null }), 'off', 'no valid table')
+  eq(offer({ customerInJapan: false }), 'customer_not_jp', 'lives abroad, ships to a JP address (owner 2026-10-15)')
+  eq(offer({ customerInJapan: false, codMode: 'off' }), 'off', 'switch first')
+  eq(offer({ customerInJapan: false, country: 'PH' }), 'customer_not_jp', 'before the address')
   eq(offer({ country: 'PH' }), 'address_not_jp', 'abroad')
   eq(offer({ collectedJpy: 0 }), 'nothing_to_collect', 'nothing to collect')
   eq(offer({ collectedJpy: 300001 }), 'over_cod_limit', 'over the limit')
@@ -103,7 +106,7 @@ Deno.test('COD reasons, in order: layaway, currency_not_yen, off, address_not_jp
 })
 
 Deno.test('checkout options: cod offered with its Hub fee; greyed with a reason otherwise', () => {
-  const base = { mode: 'full' as const, currency: 'JPY' as const, country: 'JP', paidyMode: 'off' as const, squareMode: 'off' as const, customerIsTest: false, transferAvailable: true }
+  const base = { mode: 'full' as const, currency: 'JPY' as const, country: 'JP', paidyMode: 'off' as const, squareMode: 'off' as const, customerIsTest: false, customerInJapan: true, transferAvailable: true }
   const on = checkoutMethodOptions({ ...base, codMode: 'on', codTable: T, codCollectedJpy: 20800 })
   eq(on.cod, { available: true, reason: null, fee_jpy: 1150 }, 'offered')
   const off = checkoutMethodOptions(base)

@@ -215,7 +215,7 @@ Deno.test('D-G04: a customer off the list is not offered card (order page + chec
   eq(cardNotOfferedReason({ ...offer, cardAllowed: false }), 'not_on_card_list', 'refused')
   assert(cardNotOfferedReason({ ...offer, cardAllowed: true }) !== 'not_on_card_list', 'listed passes this rule')
   assert(cardNotOfferedReason(offer) !== 'not_on_card_list', 'omitted = old behaviour')
-  const base = { mode: 'full' as const, currency: 'JPY' as const, country: 'JP', paidyMode: 'off' as const, squareMode: 'on' as const, customerIsTest: false, transferAvailable: true }
+  const base = { mode: 'full' as const, currency: 'JPY' as const, country: 'JP', paidyMode: 'off' as const, squareMode: 'on' as const, customerIsTest: false, customerInJapan: true, transferAvailable: true }
   eq(checkoutMethodOptions({ ...base, squareAllowed: false }).card, { available: false, reason: 'off' }, 'checkout says "off"')
   eq(checkoutMethodOptions({ ...base, squareAllowed: true }).card, { available: true, reason: null }, 'listed customer sees card')
 })
