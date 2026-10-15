@@ -6247,3 +6247,20 @@ Independent revalidation (HOLD) of the SQF release; response and owner decisions
 - **Fix:** migration `20261211100000_revoke_below_minimum_silent.sql` — `revoke_loyalty_points` treats a known basis below 10000 as nothing-to-reverse (silent), exactly like an order that received no money. A NULL basis, or a basis at/above the minimum with no ledger row, still rings. Guarded on the live md5; CI `development/revoke-below-minimum.test.ts`.
 - **Not changed:** orders that earned points are still revoked on cancel / forfeit / void (verified live the same day: TEST-900078 and TEST-900081, +200 → −200).
 
+
+### Page365 stock sync: 14-day cleanup and quick plan timed out on every run (2026-10-15)
+Lovable issue "Page365 stock sync: cleanup and quick-plan steps time out on every scheduled run"
+(~43 failures a day each). Measured live: `page365_inventory_retention` tried to clear the whole
+backlog in one call; every deleted product row cascades to `page365_inventory_items` through
+`inventory_product_id`, a column with NO index, so each delete scanned ~667k item rows. The call
+never finished inside the API's 8 s statement_timeout, rolled back, and the backlog grew (268 runs
+older than 14 days, oldest 2026-09-25; ~1.1 GB). `page365_inventory_plan_quick` step (b) read the
+whole items table (no index on page365_product_id), hit the 8 s limit under load, and each failed
+quick plan fell back to a full fetch (2 quick runs out of 74 in a day). The extra load is the likely
+cause of the "website product list server errors" and "account screens time out" issues the same day.
+Fix: migration 20261215100000 — indexes on items(inventory_product_id), items(page365_product_id,
+code, run_id) WHERE kind='page365', page365_landings(item_id); retention handles the 25 oldest old
+runs per call (rules unchanged; returns `remaining`). Dry run on live: migration 1.4 s, retention
+batches 1.8 s / 0.6 s, quick-plan lookup an index-only scan (513 ms -> 167 ms). Guard:
+src/test/page365-retention-batched.test.ts. Do not reintroduce: an unbounded cleanup in one call; a
+cascading FK without an index on the child column.
