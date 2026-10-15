@@ -6264,3 +6264,12 @@ runs per call (rules unchanged; returns `remaining`). Dry run on live: migration
 batches 1.8 s / 0.6 s, quick-plan lookup an index-only scan (513 ms -> 167 ms). Guard:
 src/test/page365-retention-batched.test.ts. Do not reintroduce: an unbounded cleanup in one call; a
 cascading FK without an index on the child column.
+
+### Expired portal link stranded the customer on the PIN screen (2026-10-15)
+Since the PIN became server-enforced (2026-10-03) every link visitor sees the PIN screen first.
+With a dead link, verify-portal-pin answers 401 with the token message ('Token expired', 'Invalid
+token', 'Token has been revoked', …) and CustomerPortal.handlePinSubmit showed it as small text under
+the PIN box — the link-expired screen with its Sign in / First-time setup / Messenger buttons was
+never reached. Fix: `isDeadLinkError` (src/lib/portal-session.ts) routes those answers to `setError`,
+and the PIN gate steps aside while an error is set, so the existing expired / invalid screen shows.
+A wrong PIN or a lock-out still stays on the PIN screen. Guard: src/test/portal-session.test.ts.
