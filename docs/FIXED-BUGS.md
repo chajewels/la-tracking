@@ -6306,7 +6306,7 @@ R3: step 5 read 100 "Confirmed, no payment" submissions unordered and applied th
 reading, so the same 100 could fill every run and the rest were never bell-checked. R4: window
 verification, orphan capture cases and cancel intents kept unresolved rows at the front of their
 capped batches. Fix (migration 20261219100000 + paidy-reconcile): `paidy_stuck_confirms`
-(lease in the query, keyset-paged, every page walked); `verify_tried_at` / `sweep_tried_at`
+(lease in the query, keyset-paged, at most 50 pages of 100 per run — beyond that backlog limit R1 applies); `verify_tried_at` / `sweep_tried_at`
 rotation stamps written on every attempt; started intents with a rung bell excluded; three lag
 figures. Guards: development/paidy-reconcile-r3-r4.test.ts, development/sql/paidy-reconcile-r3-r4.sh.
 Do not reintroduce: an unordered capped read of a queue whose rows can stay unresolved; a lease or
