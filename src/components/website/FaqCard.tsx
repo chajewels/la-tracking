@@ -23,7 +23,7 @@ import {
   emptyItem, emptySection, faqSlug, inOrder, itemPayload, itemToDraft, nextSortOrder,
   reorder, sectionDeleteBlocker, sectionPayload, sectionToDraft, validateItem, validateSection,
 } from "@/components/website/website-faq";
-import { LAYAWAY_ONLY_LOCKED_NOTE, jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
+import { LAYAWAY_ONLY_JA_HINT, jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
 
 /**
  * The storefront FAQ: sections, and the questions inside them.
@@ -93,8 +93,8 @@ export function FaqCard() {
     setEditing((e) => (e?.kind === "section" ? { kind: "section", draft: { ...e.draft, ...p } } : e));
   const patchItem = (p: Partial<FaqItemDraft>) =>
     setEditing((e) => (e?.kind === "item" ? { kind: "item", draft: { ...e.draft, ...p } } : e));
-  // The DB trigger forces layaway_only when the Japanese text mentions layaway (layaway-only-rule.ts).
-  const jaLocked = editing?.kind === "item" && jaTextMentionsLayaway(editing.draft);
+  // Hint only: the switch stays the user's choice (layaway-only-rule.ts).
+  const jaHint = editing?.kind === "item" && jaTextMentionsLayaway(editing.draft);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["website-faq-sections"] });
@@ -537,13 +537,13 @@ export function FaqCard() {
                     Published
                   </label>
                   <label className="flex items-start gap-2 text-sm">
-                    <Switch checked={editing.draft.layaway_only || jaLocked} disabled={!canManage || jaLocked}
+                    <Switch checked={editing.draft.layaway_only} disabled={!canManage}
                       onCheckedChange={(v) => patchItem({ layaway_only: v })} aria-label="Layaway only" />
                     <span>
                       Layaway only
                       <span className="block text-xs text-muted-foreground">English site only</span>
-                      {jaLocked && (
-                        <span className="block text-xs text-muted-foreground">{LAYAWAY_ONLY_LOCKED_NOTE}</span>
+                      {jaHint && (
+                        <span className="block text-xs text-muted-foreground">{LAYAWAY_ONLY_JA_HINT}</span>
                       )}
                     </span>
                   </label>

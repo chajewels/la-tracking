@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
+import { LAYAWAY_ONLY_JA_HINT, jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
 
 describe("jaTextMentionsLayaway", () => {
   it("ignores an English-only mention", () => {
@@ -23,5 +23,10 @@ describe("jaTextMentionsLayaway", () => {
   it("is false for empty Japanese text", () => {
     expect(jaTextMentionsLayaway({})).toBe(false);
     expect(jaTextMentionsLayaway({ title_ja: "", excerpt_ja: "", body_ja: "" })).toBe(false);
+  });
+
+  it("the hint is a hint, not a lock (owner 2026-10-16 17:34 JST)", () => {
+    expect(LAYAWAY_ONLY_JA_HINT).not.toContain("English-site only");
+    expect(LAYAWAY_ONLY_JA_HINT).toContain("if this switch is off");
   });
 });
