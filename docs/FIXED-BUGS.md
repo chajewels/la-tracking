@@ -6324,6 +6324,6 @@ Fix (owner decision 2026-10-16): migration 20261220100000_layaway_only_ja_text.s
 from the live body) builds the text from the Japanese fields only and also catches 分割予約;
 triggers unchanged. PostsCard / FaqCard show the switch on and disabled, with the reason, when the
 Japanese text matches (`src/lib/layaway-only-rule.ts`; guard src/test/layaway-only-rule.test.ts).
-PRs: #PR_FIX (fix → develop), #PR_RELEASE (develop → main).
+PRs: #540 (fix → develop), #541 (develop → main).
 Do not reintroduce: an English field in the layaway_only trigger; a Hub switch that lets staff
 pick a value the database will silently overwrite.
