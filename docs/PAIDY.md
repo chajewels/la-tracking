@@ -1039,3 +1039,23 @@ repeat daily) remain accepted risks.**
   walked across three pages, each once, oldest first; lease / recorded /
   layaway excluded; rotation of windows and cases; the partial index serves the
   window order; grants; idempotent re-apply).
+
+## Error reporting O1 + O2 (QA 2026-10-16 23:42 JST; owner go 23:51 JST)
+
+Two reporting gaps QA found in the code review. Neither touches money; both
+made a failure look like success.
+
+- **O1 — recorded bell.** `ringPaidyRecordedBell` (`_shared/paidy-recorded-bell.ts`)
+  read anything other than `true` as "already exists". It now reads only the
+  writer's boolean: `true` = rung, `false` = exists; any other answer (null, a
+  non-boolean), an error or a throw = **failed** (logged; the sweep counts it in
+  `write_errors`). Retrying is safe: the unique index stops a second bell and
+  the hourly sweep re-lists a payment that still has none.
+- **O2 — run summary.** paidy-reconcile's end-of-run queries (the lag figures,
+  `open_cases`, `parked_events`) dropped the error each query returned, so a
+  failed query left a null figure and an `ok: true` run. Each error is now
+  counted in the new report field **`summary_errors`** (and logged), and the run
+  is `ok: true` only when `summary_errors` is 0. The figure itself stays null.
+- Edge only: no migration, no money RPC. Deploys `paidy-reconcile` and
+  `review-payment-submission` (it imports the recorded-bell helper).
+- Tests: `development/paidy-reconcile-error-reporting.test.ts` (CI).
