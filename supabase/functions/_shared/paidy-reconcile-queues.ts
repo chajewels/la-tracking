@@ -61,3 +61,19 @@ export async function sweepStuckConfirms(
   }
   return out;
 }
+
+/**
+ * The end-of-run summary queries (lag figures, open cases, parked events) each
+ * answer { data, count, error }. Count the ones that answered with an error so
+ * a missing figure makes the run report not-ok instead of looking healthy
+ * (QA 2026-10-16 23:42). The figure itself stays null.
+ */
+export function countSummaryErrors(
+  results: ReadonlyArray<{ error?: unknown }>, onError?: (index: number, error: unknown) => void,
+): number {
+  let n = 0;
+  results.forEach((r, i) => {
+    if (r?.error) { n++; onError?.(i, r.error); }
+  });
+  return n;
+}

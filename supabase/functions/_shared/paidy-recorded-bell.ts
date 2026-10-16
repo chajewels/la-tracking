@@ -77,7 +77,15 @@ export async function ringPaidyRecordedBell(
       p_title: bell.title, p_body: bell.body, p_metadata: metadata,
     });
     if (error) { console.error("[paidy] recorded bell failed:", error); return "failed"; }
-    return data === true ? "rung" : "exists";
+    // The writer returns a boolean: true = this call inserted the bell, false =
+    // the unique key already holds one. Anything else (null, a non-boolean) is
+    // not an answer, so it is a failure — never read as "already exists"
+    // (QA 2026-10-16 23:42). A failure is safe to retry: the unique index stops
+    // a second bell, and the hourly sweep re-lists the payment if none exists.
+    if (data === true) return "rung";
+    if (data === false) return "exists";
+    console.error("[paidy] recorded bell: unexpected answer from ring_paidy_payment_recorded_bell:", data);
+    return "failed";
   } catch (e) {
     console.error("[paidy] recorded bell threw:", e);
     return "failed";

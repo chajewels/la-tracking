@@ -6360,3 +6360,14 @@ migration also records the live bodies of `mark_web_order_refund_issued_atomic` 
 counts one environment". Acceptance: development/sql/square-settings-environment-acceptance.sql
 (9/9), src/test/square-settings.test.ts.
 Do not reintroduce: a Square counter without the live-environment filter.
+
+## Paidy error reporting: unexpected bell answer read as "exists"; summary errors dropped (2026-10-16)
+QA code review 2026-10-16 23:42 JST (O1, O2); owner go 23:51 JST. O1: `ringPaidyRecordedBell`
+mapped every non-`true` answer from `ring_paidy_payment_recorded_bell` to "exists", so a null or
+malformed answer was counted as success. Now `true` = rung, `false` = exists, anything else =
+failed (logged, counted). O2: paidy-reconcile's end-of-run summary queries destructured only
+`data` / `count`, discarding `error`; a failed query left a null figure in an `ok: true` run.
+Errors are now counted in `summary_errors` and make the run not-ok. Edge only (paidy-reconcile,
+review-payment-submission). Guard: development/paidy-reconcile-error-reporting.test.ts.
+Do not reintroduce: reading a provider/RPC answer that is not the expected shape as success; a
+Supabase query whose `error` is discarded.
