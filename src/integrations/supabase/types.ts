@@ -9045,6 +9045,75 @@ export type Database = {
         }
         Relationships: []
       }
+      website_post_comments: {
+        Row: {
+          auth_user_id: string
+          body: string
+          created_at: string
+          customer_id: string
+          deleted_at: string | null
+          id: string
+          lang: string
+          moderated_at: string | null
+          moderated_by: string | null
+          post_id: string
+          reply_at: string | null
+          reply_body: string | null
+          reply_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auth_user_id: string
+          body: string
+          created_at?: string
+          customer_id: string
+          deleted_at?: string | null
+          id?: string
+          lang: string
+          moderated_at?: string | null
+          moderated_by?: string | null
+          post_id: string
+          reply_at?: string | null
+          reply_body?: string | null
+          reply_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auth_user_id?: string
+          body?: string
+          created_at?: string
+          customer_id?: string
+          deleted_at?: string | null
+          id?: string
+          lang?: string
+          moderated_at?: string | null
+          moderated_by?: string | null
+          post_id?: string
+          reply_at?: string | null
+          reply_body?: string | null
+          reply_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_post_comments_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_post_comments_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "website_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_posts: {
         Row: {
           body_en: string
@@ -10578,6 +10647,10 @@ export type Database = {
       }
       media_cutout_url_published: { Args: { p_url: string }; Returns: boolean }
       media_cutout_wake: { Args: never; Returns: undefined }
+      moderate_post_comment: {
+        Args: { p_action: string; p_id: string; p_reply?: string }
+        Returns: Json
+      }
       monthly_inflow_by_plan_6m: {
         Args: never
         Returns: {
