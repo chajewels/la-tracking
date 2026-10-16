@@ -883,8 +883,8 @@ emailable to Brenda + admins.
     it inserted, so the staff-email fan-out runs once.
   - `paidy_recorded_bell_missing(since, until, after_at, after_id, limit)`
     lists ONLY the recordings without a bell, keyset-paged by
-    (created_at, id); the sweep walks every page (100 per page, at most 50
-    pages per run).
+    (created_at, id); the sweep reads at most 50 pages of 100 per run and
+    restarts from the oldest each run (backlog limit R1).
   - Both functions are service_role only. Neither touches money.
   - If a recording has no cash payment id, the normal path falls back to the
     plain insert; there is nothing to key that bell on.
@@ -916,8 +916,8 @@ Now:
   so the staff-email fan-out runs once), `exists` (already there; stamped),
   `closed` (case no longer open; nothing written).
 - `paidy_case_bell_missing(after_at, after_id, limit)` lists open cases with
-  no stamp, keyset-paged by (opened_at, id); step 6c walks every page (100
-  per page, at most 50 pages per run). `case_bells_rung` counts `rung` only;
+  no stamp, keyset-paged by (opened_at, id); step 6c reads at most 50 pages
+  of 100 per run, restarting from the oldest each run (backlog limit R1). `case_bells_rung` counts `rung` only;
   a failed ring adds to `write_errors` and is retried next hour.
 - Both functions are service_role only. Neither touches money. Helpers:
   `ringPaidyCaseBell` / `sweepUnrungPaidyCases` in `_shared/paidy-case-bell.ts`.
@@ -956,8 +956,8 @@ Now:
   `exists`.
 - `paidy_window_stuck_missing(cutoff, after_at, after_id, limit)` lists open,
   noted, unstamped windows whose expiry is at or before the cutoff (3 hours
-  ago), keyset-paged by (expires_at, id). The sweep walks every page (100 per
-  page, at most 50 pages per run).
+  ago), keyset-paged by (expires_at, id). The sweep reads at most 50 pages of
+  100 per run, restarting from the oldest each run (backlog limit R1).
 - Report field `window_stuck_bells` counts `rung`. A failed ring adds to
   `write_errors` and is retried next hour.
 - The bell text is unchanged, now built in `_shared/paidy-window-stuck-bell.ts`.
@@ -999,9 +999,10 @@ corrected.
 ## Recovery limits R3 + R4 fixed (owner go 2026-10-16 15:41 JST; migration 20261219100000)
 
 QA's assessment of paidy-reconcile (2026-10-11 13:15 JST) listed four accepted
-recovery limits. R3 and R4 are fixed here; **R1 (sweep backlog, above) and R2
-(the six 24-hour "repeat" bells can duplicate under concurrent calls) remain
-accepted risks.**
+recovery limits. R3 and R4 are fixed here; **R1 (sweep backlog, above, now
+including the stuck-Confirm sweep) and R2 (six reminder types use a 24-hour
+read-then-insert check and can duplicate under concurrent calls; not all six
+repeat daily) remain accepted risks.**
 
 - **R3 — step 5, Confirms left half-way.** It read 100 matching submissions in
   no order and checked the 5-minute lease after reading, so the same 100 (some
@@ -1010,8 +1011,13 @@ accepted risks.**
   only) lists ONLY Confirms past the lease (a missing `processing_started_at`
   counts as past it, as `paidyConfirmLeaseExpired` does), oldest first,
   keyset-paged on `(coalesce(processing_started_at, '-infinity'), id)`; the
-  sweep (`_shared/paidy-reconcile-queues.ts`) walks every page (100 per page,
-  50 pages). Bells and texts are unchanged.
+  sweep (`_shared/paidy-reconcile-queues.ts`) reads at most 50 pages of 100
+  (5,000) per run and restarts from the oldest each run, so 5,000+ Confirms
+  that stay eligible still keep later ones waiting: that is backlog limit R1,
+  which now covers this sweep too (QA, 2026-10-16). Bells and texts are
+  unchanged. (Two code comments, in that file's header and in the migration,
+  still say "every"; they are left as they are so the deployed source keeps
+  matching main — the bound is `PAIDY_STUCK_CONFIRM_MAX_PAGES = 50`.)
 - **R4 — retained rows filling capped lists.**
   - Window verification (50 per run): `paidy_checkout_attempts.verify_tried_at`
     is stamped on every attempt, before the Paidy read; the list is read
