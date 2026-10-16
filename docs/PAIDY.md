@@ -995,3 +995,41 @@ in the hourly report would show it long before it bites.
 
 Earlier wording said "the next run continues"; that was wrong and has been
 corrected.
+
+## Recovery limits R3 + R4 fixed (owner go 2026-10-16 15:41 JST; migration 20261219100000)
+
+QA's assessment of paidy-reconcile (2026-10-11 13:15 JST) listed four accepted
+recovery limits. R3 and R4 are fixed here; **R1 (sweep backlog, above) and R2
+(the six 24-hour "repeat" bells can duplicate under concurrent calls) remain
+accepted risks.**
+
+- **R3 — step 5, Confirms left half-way.** It read 100 matching submissions in
+  no order and checked the 5-minute lease after reading, so the same 100 (some
+  still inside their lease) could fill every run. Now
+  `paidy_stuck_confirms(lease_cut, after_at, after_id, limit)` (service_role
+  only) lists ONLY Confirms past the lease (a missing `processing_started_at`
+  counts as past it, as `paidyConfirmLeaseExpired` does), oldest first,
+  keyset-paged on `(coalesce(processing_started_at, '-infinity'), id)`; the
+  sweep (`_shared/paidy-reconcile-queues.ts`) walks every page (100 per page,
+  50 pages). Bells and texts are unchanged.
+- **R4 — retained rows filling capped lists.**
+  - Window verification (50 per run): `paidy_checkout_attempts.verify_tried_at`
+    is stamped on every attempt, before the Paidy read; the list is read
+    never-tried first, then least recently tried, then `expires_at`.
+  - Orphan capture cases (50 per run): `paidy_cases.sweep_tried_at`, the same
+    rotation. `last_seen_at` / `attempts` keep meaning "Paidy answered", so the
+    Paidy cases panel is unchanged.
+  - Cancel intents (20 per run): a `started` intent whose bell already rang is
+    excluded in the query; it needs a person, not the sweep.
+  - Webhook inbox, payment checks and follow-ups already rotate (backoff on
+    `next_attempt_at`, `last_checked_at`, attempt counts) — unchanged.
+  - Lag figures added to the report: `oldest_window_verify_minutes`,
+    `oldest_orphan_case_minutes`, `oldest_stuck_confirm_minutes`.
+- **Migration** is additive only: two nullable columns (no default, no
+  backfill; NULL = never tried, which sorts first), three partial indexes, one
+  new read-only function. No existing function is redefined. No money touched.
+- **Tests:** `development/paidy-reconcile-r3-r4.test.ts` (CI);
+  `development/sql/paidy-reconcile-r3-r4.sh` (real Postgres: 237 stuck Confirms
+  walked across three pages, each once, oldest first; lease / recorded /
+  layaway excluded; rotation of windows and cases; the partial index serves the
+  window order; grants; idempotent re-apply).

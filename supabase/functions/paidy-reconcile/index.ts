@@ -12,6 +12,7 @@ import {
   type MissingRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil, ringPaidyRecordedBell, sweepMissingRecordedBells,
 } from "../_shared/paidy-recorded-bell.ts";
 import { REFERENCE_FIELDS, customerReference } from "../_shared/order-reference.ts";
+import { paidyStuckConfirmLeaseCut, sweepStuckConfirms, type StuckConfirm } from "../_shared/paidy-reconcile-queues.ts";
 import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { advanceCancelIntent, cancellationSnapshot, emitCancellationFollowups, syncStoreCreditToShopify } from "../_shared/cancel-followups.ts";
 import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
@@ -38,11 +39,14 @@ import type { RefundStatus } from "../_shared/email-templates/order-cancelled.ts
  *      close_failed case with no payment row).
  *   4. Expires Paidy checkout windows nobody came back from (30 min), only
  *      once Paidy can hold nothing for the order (P04; SQL decides). PA04: a
- *      window that knows its payment id is first VERIFIED with Paidy here.
- *   4b. Orphan capture cases: closed only when Paidy reports a full refund.
+ *      window that knows its payment id is first VERIFIED with Paidy here —
+ *      never-tried first, then least recently tried (verify_tried_at, R4).
+ *   4b. Orphan capture cases: closed only when Paidy reports a full refund;
+ *      never-tried first, then least recently tried (sweep_tried_at, R4).
  *   4c. Waiting Paidy windows (second-hold fix; one bell per window since
  *      2026-10-11: paidy_window_stuck_missing + ring_paidy_window_stuck_bell).
- *   5. Bells cash-order Confirms left half-way past the lease.
+ *   5. Bells cash-order Confirms left half-way past the lease — every one,
+ *      oldest first, lease filtered in the query (paidy_stuck_confirms, R3).
  *   6. PR 4 (PA06 / PA14 / PA07): follow-up emails the Hub never reached
  *      (no email_send_log row — never a replay of a failed send), staff
  *      cancellations interrupted after their Paidy release (finished from
@@ -86,6 +90,8 @@ Deno.serve(async (req) => {
     followups_done: 0, followups_failed: 0, cancel_intents_finished: 0, cancel_intents_bell: 0, case_bells_rung: 0, recorded_bells_late: 0, window_stuck_bells: 0,
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
     parked_events: null as number | null, parked_oldest_minutes: null as number | null,
+    oldest_window_verify_minutes: null as number | null, oldest_orphan_case_minutes: null as number | null,
+    oldest_stuck_confirm_minutes: null as number | null,
   };
 
   try {
@@ -308,10 +314,15 @@ Deno.serve(async (req) => {
       const { data: windows, error: winErr } = await supabase
         .from("paidy_checkout_attempts").select("id, cash_order_id, paidy_payment_id, authorization_noted_at, authorization_test")
         .eq("status", "open").lte("expires_at", nowIso()).not("paidy_payment_id", "is", null).is("verified_empty_at", null)
-        .order("expires_at", { ascending: true }).limit(MAX_WINDOWS_VERIFIED_PER_RUN);
+        // R4 (2026-10-16): never-tried first, then least recently tried — a
+        // window Paidy cannot answer for rotates to the back of the line.
+        .order("verify_tried_at", { ascending: true, nullsFirst: true }).order("expires_at", { ascending: true })
+        .limit(MAX_WINDOWS_VERIFIED_PER_RUN);
       if (winErr) throw winErr;
       for (const w of (windows ?? []) as Record<string, any>[]) {
         const pid = String(w.paidy_payment_id);
+        const { error: triedErr } = await supabase.from("paidy_checkout_attempts").update({ verify_tried_at: nowIso() }).eq("id", w.id).eq("status", "open");
+        if (triedErr) report.write_errors++;
         const { data: row, error: rowErr } = await supabase.from("paidy_payments").select(PAIDY_RECORD_FIELDS).eq("paidy_payment_id", pid).maybeSingle();
         if (rowErr) throw rowErr;
         // The record exists: its own sync (steps 2–3) decides; the lock reads
@@ -415,10 +426,15 @@ Deno.serve(async (req) => {
         .from("paidy_cases").select("id, paidy_payment_id, kind, cash_order_id, attempts")
         .eq("status", "open").is("paidy_payment_row", null)
         .in("kind", ["captured_unrecorded", "captured_no_submission", "record_failed"])
-        .order("opened_at", { ascending: true }).limit(50);
+        // R4 (2026-10-16): never-tried first, then least recently tried. The
+        // stamp is written on EVERY attempt (a failed Paidy read too);
+        // last_seen_at / attempts keep meaning "Paidy answered".
+        .order("sweep_tried_at", { ascending: true, nullsFirst: true }).order("opened_at", { ascending: true }).limit(50);
       if (orErr) throw orErr;
       for (const c of (orphans ?? []) as Record<string, any>[]) {
         report.orphan_cases_checked++;
+        const { error: triedErr } = await supabase.from("paidy_cases").update({ sweep_tried_at: nowIso() }).eq("id", c.id);
+        if (triedErr) report.write_errors++;
         let live: PaidyPayment;
         try {
           live = await paidy.get(String(c.paidy_payment_id));
@@ -444,29 +460,41 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Cash-order Confirms left half-way past the lease.
-    const { data: stuck, error: stuckErr } = await supabase
-      .from("payment_submissions")
-      .select("id, cash_order_id, payment_method, reference_number, processing_started_at, paidy_payment_id, paidy:paidy_payments(paidy_payment_id)")
-      .not("cash_order_id", "is", null).eq("status", "confirmed").is("confirmed_payment_id", null).limit(100);
-    if (stuckErr) throw stuckErr;
-    for (const s of (stuck ?? []) as Record<string, any>[]) {
-      if (!paidyConfirmLeaseExpired(s.processing_started_at)) continue;
-      report.stuck_confirms++;
-      if (s.payment_method === "paidy" && s.paidy_payment_id) {
-        // The automatic recorder resumes these itself (sync step 4); the bell
-        // only says one is waiting.
-        const pid = String(s.paidy?.paidy_payment_id ?? s.paidy_payment_id);
-        await paidyBellOnce(supabase, "paidy_confirm_interrupted", "Paidy recording did not finish",
-          // QC PR-B edge L2 (2026-10-10): the sweep resumes it only when Paidy
-          // reports the capture; a payment Paidy ended needs a person.
-          `A recording of ${pid} stopped before the payment was written. If Paidy reports the capture, the next check finishes it. Otherwise open its submission in Payment Submissions and press "Finish recording": the Hub re-reads Paidy and records it, or ends it if Paidy ended the payment.`,
-          { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: pid });
-      } else {
-        await paidyBellOnce(supabase, "cash_confirm_interrupted", "Payment Confirm did not finish",
-          `A Confirm of a ${String(s.payment_method ?? "cash")} payment (ref ${String(s.reference_number ?? "—")}) stopped before it was recorded. The submission shows Confirmed but no payment is on the order — check the order and the card/bank record before doing anything.`,
-          { cash_order_id: s.cash_order_id, submission_id: s.id, paidy_payment_id: `submission:${s.id}` });
-      }
+    // 5. Cash-order Confirms left half-way past the lease. R3 (2026-10-16):
+    // every Confirm past its lease, oldest first, keyset-paged
+    // (paidy_stuck_confirms) — the lease is filtered in the query, so Confirms
+    // still inside it can no longer fill the page and hide the rest.
+    {
+      const leaseCut = paidyStuckConfirmLeaseCut(Date.now());
+      const sweep = await sweepStuckConfirms({
+        list: async (after, limit) => {
+          const { data, error } = await supabase.rpc("paidy_stuck_confirms", {
+            p_lease_cut: leaseCut, p_after_at: after?.at ?? null, p_after_id: after?.id ?? null, p_limit: limit,
+          });
+          if (error) throw error;
+          return (data ?? []) as StuckConfirm[];
+        },
+        handle: async (s) => {
+          if (!paidyConfirmLeaseExpired(s.processing_started_at)) return;
+          report.stuck_confirms++;
+          if (s.payment_method === "paidy" && s.paidy_payment_id) {
+            // The automatic recorder resumes these itself (sync step 4); the bell
+            // only says one is waiting.
+            const pid = String(s.paidy_payment_id);
+            await paidyBellOnce(supabase, "paidy_confirm_interrupted", "Paidy recording did not finish",
+              // QC PR-B edge L2 (2026-10-10): the sweep resumes it only when Paidy
+              // reports the capture; a payment Paidy ended needs a person.
+              `A recording of ${pid} stopped before the payment was written. If Paidy reports the capture, the next check finishes it. Otherwise open its submission in Payment Submissions and press "Finish recording": the Hub re-reads Paidy and records it, or ends it if Paidy ended the payment.`,
+              { cash_order_id: s.cash_order_id, submission_id: s.submission_id, paidy_payment_id: pid });
+          } else {
+            await paidyBellOnce(supabase, "cash_confirm_interrupted", "Payment Confirm did not finish",
+              `A Confirm of a ${String(s.payment_method ?? "cash")} payment (ref ${String(s.reference_number ?? "—")}) stopped before it was recorded. The submission shows Confirmed but no payment is on the order — check the order and the card/bank record before doing anything.`,
+              { cash_order_id: s.cash_order_id, submission_id: s.submission_id, paidy_payment_id: `submission:${s.submission_id}` });
+          }
+        },
+      });
+      report.oldest_stuck_confirm_minutes = sweep.oldest?.processing_started_at
+        ? Math.round((Date.now() - Date.parse(sweep.oldest.processing_started_at)) / 60000) : null;
     }
 
     // 6a. PA06 / PA14: follow-up emails the Hub owes and never reached. A
@@ -540,6 +568,9 @@ Deno.serve(async (req) => {
       const { data: intents, error: inErr } = await supabase
         .from("cash_order_cancel_intents").select("id, cash_order_id, user_id, user_email, reason, refund_status, refund_note, stage, bell_rung_at")
         .in("stage", ["started", "paidy_released", "terminated", "notified"]).lte("updated_at", cut)
+        // R4 (2026-10-16): a "started" intent whose bell already rang needs a
+        // person, not this sweep — it no longer fills the batch every run.
+        .or("stage.neq.started,bell_rung_at.is.null")
         .order("updated_at", { ascending: true }).limit(20);
       if (inErr) throw inErr;
       for (const it of (intents ?? []) as Record<string, any>[]) {
@@ -655,11 +686,16 @@ Deno.serve(async (req) => {
     }
 
     // Lag (R18): how far behind the sweep is — and PA10: what is parked.
-    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }, { data: parkedOldest, count: parkedCount }] = await Promise.all([
+    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }, { data: parkedOldest, count: parkedCount }, { data: oldestWin }, { data: oldestOrphan }] = await Promise.all([
       supabase.from("paidy_webhook_events").select("received_at").is("processed_at", null).is("parked_reason", null).order("received_at", { ascending: true }).limit(1),
       supabase.from("paidy_payments").select("last_checked_at").eq("status", "authorized").order("last_checked_at", { ascending: true, nullsFirst: true }).limit(1),
       supabase.from("paidy_cases").select("id", { count: "exact", head: true }).eq("status", "open"),
       supabase.from("paidy_webhook_events").select("received_at", { count: "exact" }).is("processed_at", null).not("parked_reason", "is", null).order("received_at", { ascending: true }).limit(1),
+      // R4 (2026-10-16): the two recovery queues the lag figures did not cover.
+      supabase.from("paidy_checkout_attempts").select("expires_at").eq("status", "open").lte("expires_at", nowIso())
+        .not("paidy_payment_id", "is", null).is("verified_empty_at", null).order("expires_at", { ascending: true }).limit(1),
+      supabase.from("paidy_cases").select("opened_at").eq("status", "open").is("paidy_payment_row", null)
+        .in("kind", ["captured_unrecorded", "captured_no_submission", "record_failed"]).order("opened_at", { ascending: true }).limit(1),
     ]);
     const minutesSince = (t: unknown) => typeof t === "string" ? Math.round((Date.now() - Date.parse(t)) / 60000) : null;
     report.oldest_event_minutes = minutesSince((oldestEv as Record<string, any>[] | null)?.[0]?.received_at);
@@ -667,6 +703,8 @@ Deno.serve(async (req) => {
     report.open_cases = openCases ?? null;
     report.parked_events = parkedCount ?? null;
     report.parked_oldest_minutes = minutesSince((parkedOldest as Record<string, any>[] | null)?.[0]?.received_at);
+    report.oldest_window_verify_minutes = minutesSince((oldestWin as Record<string, any>[] | null)?.[0]?.expires_at);
+    report.oldest_orphan_case_minutes = minutesSince((oldestOrphan as Record<string, any>[] | null)?.[0]?.opened_at);
 
     const ok = report.write_errors === 0 && report.events_failed === 0 && report.paidy_errors === 0 && report.inbox_write_errors === 0;
     return jsonResponse({ ok, ...report });
