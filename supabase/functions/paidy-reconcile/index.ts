@@ -12,7 +12,7 @@ import {
   type MissingRecordedBell, paidyRecordedBellSince, paidyRecordedBellUntil, ringPaidyRecordedBell, sweepMissingRecordedBells,
 } from "../_shared/paidy-recorded-bell.ts";
 import { REFERENCE_FIELDS, customerReference } from "../_shared/order-reference.ts";
-import { paidyStuckConfirmLeaseCut, sweepStuckConfirms, type StuckConfirm } from "../_shared/paidy-reconcile-queues.ts";
+import { countSummaryErrors, paidyStuckConfirmLeaseCut, sweepStuckConfirms, type StuckConfirm } from "../_shared/paidy-reconcile-queues.ts";
 import { sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { advanceCancelIntent, cancellationSnapshot, emitCancellationFollowups, syncStoreCreditToShopify } from "../_shared/cancel-followups.ts";
 import type { RefundStatus } from "../_shared/email-templates/order-cancelled.tsx";
@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
     oldest_event_minutes: null as number | null, oldest_check_minutes: null as number | null, open_cases: null as number | null,
     parked_events: null as number | null, parked_oldest_minutes: null as number | null,
     oldest_window_verify_minutes: null as number | null, oldest_orphan_case_minutes: null as number | null,
-    oldest_stuck_confirm_minutes: null as number | null,
+    oldest_stuck_confirm_minutes: null as number | null, summary_errors: 0,
   };
 
   try {
@@ -686,7 +686,7 @@ Deno.serve(async (req) => {
     }
 
     // Lag (R18): how far behind the sweep is — and PA10: what is parked.
-    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }, { data: parkedOldest, count: parkedCount }, { data: oldestWin }, { data: oldestOrphan }] = await Promise.all([
+    const summary = await Promise.all([
       supabase.from("paidy_webhook_events").select("received_at").is("processed_at", null).is("parked_reason", null).order("received_at", { ascending: true }).limit(1),
       supabase.from("paidy_payments").select("last_checked_at").eq("status", "authorized").order("last_checked_at", { ascending: true, nullsFirst: true }).limit(1),
       supabase.from("paidy_cases").select("id", { count: "exact", head: true }).eq("status", "open"),
@@ -697,6 +697,10 @@ Deno.serve(async (req) => {
       supabase.from("paidy_cases").select("opened_at").eq("status", "open").is("paidy_payment_row", null)
         .in("kind", ["captured_unrecorded", "captured_no_submission", "record_failed"]).order("opened_at", { ascending: true }).limit(1),
     ]);
+    // A summary query that fails leaves its figure null; count it so the run
+    // reports it instead of looking healthy (QA 2026-10-16 23:42).
+    report.summary_errors = countSummaryErrors(summary, (i, e) => console.error(`${LOG} summary query ${i} failed:`, e));
+    const [{ data: oldestEv }, { data: oldestChk }, { count: openCases }, { data: parkedOldest, count: parkedCount }, { data: oldestWin }, { data: oldestOrphan }] = summary;
     const minutesSince = (t: unknown) => typeof t === "string" ? Math.round((Date.now() - Date.parse(t)) / 60000) : null;
     report.oldest_event_minutes = minutesSince((oldestEv as Record<string, any>[] | null)?.[0]?.received_at);
     report.oldest_check_minutes = minutesSince((oldestChk as Record<string, any>[] | null)?.[0]?.last_checked_at);
@@ -706,7 +710,8 @@ Deno.serve(async (req) => {
     report.oldest_window_verify_minutes = minutesSince((oldestWin as Record<string, any>[] | null)?.[0]?.expires_at);
     report.oldest_orphan_case_minutes = minutesSince((oldestOrphan as Record<string, any>[] | null)?.[0]?.opened_at);
 
-    const ok = report.write_errors === 0 && report.events_failed === 0 && report.paidy_errors === 0 && report.inbox_write_errors === 0;
+    const ok = report.write_errors === 0 && report.events_failed === 0 && report.paidy_errors === 0 && report.inbox_write_errors === 0
+      && report.summary_errors === 0;
     return jsonResponse({ ok, ...report });
   } catch (e) {
     console.error(`${LOG} run failed:`, e);
