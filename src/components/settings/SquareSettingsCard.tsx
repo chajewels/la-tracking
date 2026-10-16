@@ -19,7 +19,7 @@ import {
 import {
   SQUARE_AUDIENCE_LABEL, SQUARE_KEY, SQUARE_MODE_LABEL, type SquareAudience, type SquareMode, type SquareSettingsState,
   customerCodesProblem, parseCustomerCodes, preflightLines,
-  squareAgreementLabel, squareAppIdProblem, squareEffect, squareLocationIdProblem, squareRefusal,
+  squareAgreementLabel, squareAppIdProblem, squareCountersLine, squareEffect, squareLocationIdProblem, squareRefusal,
 } from "@/components/settings/square-settings";
 
 /**
@@ -183,7 +183,7 @@ export function SquareSettingsCard() {
               {data.updated_by_user_id
                 ? <>Last changed {data.updated_at ? formatPHTDisplay(data.updated_at) : ""} by {data.updated_by_name ?? "an unknown user"}.</>
                 : <>Not changed from the Hub yet.</>}
-              {" "}{data.authorized_now} awaiting Confirm · {data.captured_30d} captured in the last 30 days
+              {" "}<span data-testid="square-counters">{squareCountersLine(data)}</span>
               {data.disputes_open > 0 ? <> · <span className="text-destructive font-medium">{data.disputes_open} dispute(s) open</span></> : null}.
             </p>
             <p className="text-xs" data-testid="square-agreement">{squareAgreementLabel(Number(data.agreement_min_jpy ?? 0))}</p>
