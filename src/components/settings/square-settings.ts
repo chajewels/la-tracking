@@ -44,6 +44,12 @@ export interface SquareSettingsState {
   authorized_now: number;
   captured_30d: number;
   disputes_open: number;
+  /**
+   * The Square environment the three counters above are for — 'production' or
+   * 'sandbox' (square_live_environment(): mode Test → sandbox, else production).
+   * Absent on a Hub whose migration 20261223100000 is not applied yet.
+   */
+  environment?: string | null;
   audience: SquareAudience;
   card_customers: SquareCardCustomer[];
   preflight: SquarePreflight | null;
@@ -85,6 +91,18 @@ export function squareAgreementLabel(minJpy: number): string {
   return minJpy <= 0
     ? "Every card payment needs the signed Card Purchase Agreement (owner decision 2026-10-03)."
     : `Card payments of ¥${Math.round(minJpy).toLocaleString("en-US")} and above need the signed Card Purchase Agreement; smaller ones need the terms tick only.`;
+}
+
+/**
+ * The counters sentence on the settings card (QA 2026-10-16: the card said
+ * "11 captured" on production while production had 1 — the function counted
+ * sandbox test captures too). The figures are the Hub's for ONE environment,
+ * named in brackets; an older function that returns no environment gets no
+ * bracket rather than a guessed one.
+ */
+export function squareCountersLine(d: Pick<SquareSettingsState, "authorized_now" | "captured_30d" | "environment">): string {
+  const env = d.environment === "production" || d.environment === "sandbox" ? ` (${d.environment})` : "";
+  return `${d.authorized_now} awaiting Confirm · ${d.captured_30d} captured in the last 30 days${env}`;
 }
 
 export function squareRefusal(code: string): string {

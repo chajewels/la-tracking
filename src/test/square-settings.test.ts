@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  SQUARE_MODE_LABEL, squareAgreementLabel, squareAppIdProblem, squareEffect,
+  SQUARE_MODE_LABEL, squareAgreementLabel, squareAppIdProblem, squareCountersLine, squareEffect,
   squareLocationIdProblem, squareRefusal,
 } from "../components/settings/square-settings";
 
@@ -34,6 +34,22 @@ describe("squareLocationIdProblem", () => {
     expect(squareLocationIdProblem("l8xk2m9q4zt1a")).toMatch(/Not a Square Location ID/);
     expect(squareLocationIdProblem("L8XK2")).toMatch(/Not a Square Location ID/);
     expect(squareLocationIdProblem("L8XK 2M9Q4")).toMatch(/Not a Square Location ID/);
+  });
+});
+
+describe("counters line — one environment, named (QA 2026-10-16: 11 vs 1 captured)", () => {
+  it("names production when the function counts production", () => {
+    expect(squareCountersLine({ authorized_now: 0, captured_30d: 1, environment: "production" }))
+      .toBe("0 awaiting Confirm · 1 captured in the last 30 days (production)");
+  });
+  it("names sandbox in Test mode", () => {
+    expect(squareCountersLine({ authorized_now: 2, captured_30d: 10, environment: "sandbox" }))
+      .toBe("2 awaiting Confirm · 10 captured in the last 30 days (sandbox)");
+  });
+  it("an older function without an environment gets no bracket, never a guessed one", () => {
+    expect(squareCountersLine({ authorized_now: 0, captured_30d: 11 })).toBe("0 awaiting Confirm · 11 captured in the last 30 days");
+    expect(squareCountersLine({ authorized_now: 0, captured_30d: 11, environment: null })).not.toMatch(/\(/);
+    expect(squareCountersLine({ authorized_now: 0, captured_30d: 11, environment: "live" })).not.toMatch(/live/);
   });
 });
 
