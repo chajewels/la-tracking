@@ -6299,3 +6299,15 @@ route also wraps each of the three enrichments so a failure is logged by name an
 answers (a failed category lookup returns `category_slugs: []`), and it logs the product count and
 elapsed ms per request. Guard: src/test/chunk.test.ts. Do not reintroduce: a `.in()` over a list
 that grows with the catalogue in one GET; a list enrichment that can throw away the whole list.
+
+## paidy-reconcile recovery limits R3 + R4 (2026-10-16)
+
+R3: step 5 read 100 "Confirmed, no payment" submissions unordered and applied the lease after
+reading, so the same 100 could fill every run and the rest were never bell-checked. R4: window
+verification, orphan capture cases and cancel intents kept unresolved rows at the front of their
+capped batches. Fix (migration 20261219100000 + paidy-reconcile): `paidy_stuck_confirms`
+(lease in the query, keyset-paged, every page walked); `verify_tried_at` / `sweep_tried_at`
+rotation stamps written on every attempt; started intents with a rung bell excluded; three lag
+figures. Guards: development/paidy-reconcile-r3-r4.test.ts, development/sql/paidy-reconcile-r3-r4.sh.
+Do not reintroduce: an unordered capped read of a queue whose rows can stay unresolved; a lease or
+eligibility check applied after LIMIT; a "last tried" stamp written only on success.
