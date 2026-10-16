@@ -6341,3 +6341,22 @@ hint only (`LAYAWAY_ONLY_JA_HINT`). All 14 switches in Website → Content were 
 column with live triggers and RPC bodies read: this trigger was the only thing that changed a
 switch value server-side. PRs: #543 (fix → develop), #544 (develop → main).
 Do not reintroduce: any trigger, RPC or Hub lock that overrides a Website → Content switch.
+
+## Card payments settings card counted sandbox captures as production (2026-10-16)
+
+Symptom (QA production inspection, 2026-10-16): Website → Settings → Card payments read
+"11 captured in the last 30 days" while production had 1 capture in the window.
+Cause: `get_square_settings()` computed `authorized_now`, `captured_30d` and `disputes_open` over
+every `square_payments` / `square_disputes` row, with no environment filter — the other 10 were
+sandbox test captures. The operations panel (`square_ops_health`, 20261212100000) already counted
+the live environment; the settings card did not.
+Fix (owner "go" 2026-10-16): migration 20261223100000_square_settings_environment.sql patches the
+function in place from live (cj_patch, md5 ee547d9d… → e160e891…): the two payment counters filter
+`environment = square_live_environment()` (NULL counts under the live environment), `disputes_open`
+joins the parent payment's environment, and a new `environment` key lets the card say which
+environment it counts — "… captured in the last 30 days (production)" (`squareCountersLine`). The
+migration also records the live bodies of `mark_web_order_refund_issued_atomic` and
+`cart_reminder_candidates` so the function drift audit is 0 again. docs/SQUARE.md "Settings card
+counts one environment". Acceptance: development/sql/square-settings-environment-acceptance.sql
+(9/9), src/test/square-settings.test.ts.
+Do not reintroduce: a Square counter without the live-environment filter.

@@ -146,7 +146,9 @@ Payments API `autocomplete:false`, Webhooks). API version 2026-09-16.
   `trg_guard_square_settings` refuse any write without GUC
   `app.allow_square_settings_change`; `square_mode()` reads fail-closed;
   `get_square_settings()` (mode, ids, threshold, last change, `can_change`,
-  `authorized_now`, `captured_30d`, `disputes_open`); `set_square_settings(
+  `authorized_now`, `captured_30d`, `disputes_open` — for the LIVE environment
+  only, named in `environment`, since 20261223100000; see "Settings card counts
+  one environment" below); `set_square_settings(
   p_mode, p_app_id, p_location_id, p_agreement_min_jpy, p_expected_mode)` —
   admin only, audited (`audit_logs` action `set_square_settings`), refusals
   `invalid_app_id` (an access token `EAAA…` / `sq0atp` / `sq0csp` is refused;
@@ -927,6 +929,35 @@ the independent review of PR #481 (H1, M1, M2 and the Low follow-ups).
 - **Record-only follow-up.** After the Lovable apply, the five patched functions show
   `a_differs` in `scripts/function-drift-audit` until a record-only migration copies their live
   bodies into the repo.
+
+## Settings card counts one environment (2026-10-16, tenth release)
+
+QA's fresh production inspection of 2026-10-16 (brief §8): Website → Settings → Card payments said
+"11 captured in the last 30 days" while production had ONE capture — `get_square_settings()` counted
+every `square_payments` / `square_disputes` row, so the ten sandbox test captures were in the
+figure. Owner "go" 2026-10-16. Migration `20261223100000_square_settings_environment.sql` patches the
+function in place from live (`pg_temp.cj_patch`, live md5 `ee547d9d8e38338302f4c08d2eb11021` →
+`e160e8911889258201cdaf8bda8e7d0f`, asserted and recorded in the same file):
+
+- `authorized_now` and `captured_30d` count rows whose `environment` is `square_live_environment()`
+  (Test → sandbox, else production — the same rule as `square_ops_health`); a row with NULL
+  environment counts under the live environment, never silently dropped.
+- `disputes_open` takes each dispute's environment from its parent payment
+  (`square_disputes.square_payment_row` → `square_payments`); a dispute has no environment column
+  of its own.
+- A new key `environment` (`production` | `sandbox`); the card prints it in brackets:
+  "0 awaiting Confirm · 1 captured in the last 30 days (production)" (`squareCountersLine` in
+  `src/components/settings/square-settings.ts`; an older function that returns no environment gets
+  no bracket rather than a guessed one). Nothing else in the function or the card changed.
+- The same migration records two live bodies the function drift audit had flagged (both already
+  live, neither changed in substance): `mark_web_order_refund_issued_atomic` (patched by
+  20261212100000, never recorded) and `cart_reminder_candidates` (the repo CREATE carried a comment
+  block Lovable dropped on apply). After the apply the audit's three buckets are 0 again.
+- Tests: `development/sql/square-settings-environment-acceptance.sql` (9/9 on the replay after the
+  migration; 7 of 9 fail before it — the defect), `src/test/square-settings.test.ts`.
+- Do not reintroduce: a settings-card or panel counter that reads `square_payments` /
+  `square_disputes` without the live-environment filter; a dispute counted without its parent
+  payment's environment.
 
 ## Operations panel is environment-true; card mark = refund decision (2026-10-15, ninth release)
 
