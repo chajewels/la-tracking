@@ -6311,3 +6311,19 @@ rotation stamps written on every attempt; started intents with a rung bell exclu
 figures. Guards: development/paidy-reconcile-r3-r4.test.ts, development/sql/paidy-reconcile-r3-r4.sh.
 Do not reintroduce: an unordered capped read of a queue whose rows can stay unresolved; a lease or
 eligibility check applied after LIMIT; a "last tried" stamp written only on success.
+
+## "Layaway only" switch snapped back on after Save (Posts and FAQ) (2026-10-16)
+
+Symptom: Hub → Website → Content, a Post or FAQ question: switch "Layaway only" off, Save, and it
+came back on. The row could never be shown on the Japanese site.
+Cause: the live-only trigger function `public.force_layaway_english_only()` (triggers
+`trg_posts_layaway_en`, `trg_faq_items_layaway_en`; recorded in 20261009500000 section 8) forced
+`layaway_only = true` whenever ANY text field mentioned layaway — the English fields included. The
+Japanese site never renders English, so an English mention never needed the lock.
+Fix (owner decision 2026-10-16): migration 20261220100000_layaway_only_ja_text.sql (md5-guarded
+from the live body) builds the text from the Japanese fields only and also catches 分割予約;
+triggers unchanged. PostsCard / FaqCard show the switch on and disabled, with the reason, when the
+Japanese text matches (`src/lib/layaway-only-rule.ts`; guard src/test/layaway-only-rule.test.ts).
+PRs: #PR_FIX (fix → develop), #PR_RELEASE (develop → main).
+Do not reintroduce: an English field in the layaway_only trigger; a Hub switch that lets staff
+pick a value the database will silently overwrite.

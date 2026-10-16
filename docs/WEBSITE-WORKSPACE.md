@@ -378,6 +378,34 @@ writer likes.
 `layaway_only` is labelled *"Shown on the English site only"* and shows as an
 **EN only** chip in the list.
 
+### Layaway only (Posts and FAQ questions)
+
+`layaway_only = true` means the row is shown on the **English site only**. It
+applies to `website_posts` and `website_faq_items` alike.
+
+The database decides it as well as the switch:
+`public.force_layaway_english_only()`, fired BEFORE INSERT OR UPDATE by
+`trg_posts_layaway_en` and `trg_faq_items_layaway_en`, forces
+`layaway_only := true` when the **Japanese** text — `title_ja`, `excerpt_ja`,
+`body_ja`, `question_ja`, `answer_ja` — mentions `layaway` (any case),
+`レイアウェイ` or `分割予約`. English text never forces it: the Japanese site
+never renders English (website CLAUDE.md, 2026-09-25), so an English mention
+cannot reach a Japanese reader.
+
+Owner decision 2026-10-16 (migration `20261220100000_layaway_only_ja_text.sql`).
+Before it, the function read the English fields too, so a row whose English
+text said "layaway" could never be switched off: Save, and the switch snapped
+back on. The rule is one-way — the trigger only ever sets the flag, never
+clears it — and existing rows keep their flag until they are next saved.
+
+The Hub explains the lock instead of letting it snap back: when the draft's
+Japanese text matches, PostsCard and FaqCard render the switch on and disabled
+with the line *"The Japanese text mentions layaway, so this is English-site
+only (owner rule 2026-09-25). Trim the Japanese text to change it."* The Hub
+copy of the three patterns is `src/lib/layaway-only-rule.ts`
+(`jaTextMentionsLayaway`); change it with the SQL. Guard:
+`src/test/layaway-only-rule.test.ts`.
+
 ### Saving and deleting
 
 Upsert on `id` with `updated_by`; one `audit_logs` row per save
