@@ -6327,3 +6327,17 @@ Japanese text matches (`src/lib/layaway-only-rule.ts`; guard src/test/layaway-on
 PRs: #540 (fix → develop), #541 (develop → main).
 Do not reintroduce: an English field in the layaway_only trigger; a Hub switch that lets staff
 pick a value the database will silently overwrite.
+
+## "Layaway only" was still not the user's choice — forcing removed (2026-10-16, follow-up)
+
+Follow-up to the entry above. #540/#541 narrowed the forcing to the Japanese text and locked the
+switch in the Hub, but the switch still did not save as set whenever the Japanese text matched.
+Owner decision 2026-10-16 17:34 JST: every switch in Website → Content is a plain on/off switch.
+Fix: migration 20261221100000_layaway_only_manual.sql (md5-guarded, idempotent) drops
+`trg_posts_layaway_en`, `trg_faq_items_layaway_en` and `public.force_layaway_english_only()`;
+layaway_only data untouched; storefront still hides layaway_only rows on the Japanese site. The
+Hub switch is enabled whenever the user can manage content; the Japanese-text match is a grey
+hint only (`LAYAWAY_ONLY_JA_HINT`). All 14 switches in Website → Content were traced to their
+column with live triggers and RPC bodies read: this trigger was the only thing that changed a
+switch value server-side. PRs: #PR_FIX (fix → develop), #PR_RELEASE (develop → main).
+Do not reintroduce: any trigger, RPC or Hub lock that overrides a Website → Content switch.
