@@ -6339,5 +6339,5 @@ layaway_only data untouched; storefront still hides layaway_only rows on the Jap
 Hub switch is enabled whenever the user can manage content; the Japanese-text match is a grey
 hint only (`LAYAWAY_ONLY_JA_HINT`). All 14 switches in Website → Content were traced to their
 column with live triggers and RPC bodies read: this trigger was the only thing that changed a
-switch value server-side. PRs: #PR_FIX (fix → develop), #PR_RELEASE (develop → main).
+switch value server-side. PRs: #543 (fix → develop), #544 (develop → main).
 Do not reintroduce: any trigger, RPC or Hub lock that overrides a Website → Content switch.
