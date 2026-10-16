@@ -380,31 +380,28 @@ writer likes.
 
 ### Layaway only (Posts and FAQ questions)
 
-`layaway_only = true` means the row is shown on the **English site only**. It
-applies to `website_posts` and `website_faq_items` alike.
+`layaway_only = true` means the row is shown on the **English site only**: the
+storefront hides `layaway_only = true` rows on the Japanese site. It applies to
+`website_posts` and `website_faq_items` alike. Storefront behaviour is unchanged.
 
-The database decides it as well as the switch:
-`public.force_layaway_english_only()`, fired BEFORE INSERT OR UPDATE by
-`trg_posts_layaway_en` and `trg_faq_items_layaway_en`, forces
-`layaway_only := true` when the **Japanese** text — `title_ja`, `excerpt_ja`,
-`body_ja`, `question_ja`, `answer_ja` — mentions `layaway` (any case),
-`レイアウェイ` or `分割予約`. English text never forces it: the Japanese site
-never renders English (website CLAUDE.md, 2026-09-25), so an English mention
-cannot reach a Japanese reader.
+**It is a plain manual switch.** Owner decision 2026-10-16 17:34 JST: every
+switch in Website → Content saves and stays as the user set it, and the owner
+decides per row. Migration `20261221100000_layaway_only_manual.sql` dropped the
+triggers `trg_posts_layaway_en` / `trg_faq_items_layaway_en` and the function
+`public.force_layaway_english_only()`. This supersedes both the live-only
+trigger recorded 2026-09-28 (`20261009500000` section 8: forced the flag on when
+ANY text, English included, mentioned layaway) and the Japanese-text-only lock
+earlier the same day (`20261220100000`, PR #540/#541). No row was rewritten:
+every row keeps the value it had.
 
-Owner decision 2026-10-16 (migration `20261220100000_layaway_only_ja_text.sql`).
-Before it, the function read the English fields too, so a row whose English
-text said "layaway" could never be switched off: Save, and the switch snapped
-back on. The rule is one-way — the trigger only ever sets the flag, never
-clears it — and existing rows keep their flag until they are next saved.
-
-The Hub explains the lock instead of letting it snap back: when the draft's
-Japanese text matches, PostsCard and FaqCard render the switch on and disabled
-with the line *"The Japanese text mentions layaway, so this is English-site
-only (owner rule 2026-09-25). Trim the Japanese text to change it."* The Hub
-copy of the three patterns is `src/lib/layaway-only-rule.ts`
-(`jaTextMentionsLayaway`); change it with the SQL. Guard:
-`src/test/layaway-only-rule.test.ts`.
+**The hint.** When the draft's Japanese text (`title_ja`, `excerpt_ja`,
+`body_ja`, `question_ja`, `answer_ja`) mentions `layaway` (any case),
+`レイアウェイ` or `分割予約`, PostsCard and FaqCard show one grey line under the
+switch: *"Japanese text mentions layaway — if this switch is off, it appears on
+the Japanese site."* It never disables or changes the switch.
+`src/lib/layaway-only-rule.ts` (`jaTextMentionsLayaway`, `LAYAWAY_ONLY_JA_HINT`);
+guard `src/test/layaway-only-rule.test.ts`. Never re-add a trigger or a Hub lock
+that sets this flag for the user.
 
 ### Saving and deleting
 

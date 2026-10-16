@@ -23,7 +23,7 @@ import {
   POST_SELECT, POST_TYPES, POST_TYPE_LABEL,
   emptyPost, isUniqueViolation, postSlug, toDraft, toPayload, todayPHT, validatePost,
 } from "@/components/website/website-posts";
-import { LAYAWAY_ONLY_LOCKED_NOTE, jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
+import { LAYAWAY_ONLY_JA_HINT, jaTextMentionsLayaway } from "@/lib/layaway-only-rule";
 
 /**
  * Articles and news for chajewelsjp.com.
@@ -73,8 +73,8 @@ export function PostsCard() {
   const [preview, setPreview] = useState<"en" | "ja" | null>(null);
   const [translating, setTranslating] = useState(false);
   const patch = (p: Partial<PostDraft>) => setDraft((d) => (d ? { ...d, ...p } : d));
-  // The DB trigger forces layaway_only when the Japanese text mentions layaway (layaway-only-rule.ts).
-  const jaLocked = !!draft && jaTextMentionsLayaway(draft);
+  // Hint only: the switch stays the user's choice (layaway-only-rule.ts).
+  const jaHint = !!draft && jaTextMentionsLayaway(draft);
 
   /**
    * Opening or closing the editor always lands on the WRITE pane. Done here
@@ -470,13 +470,13 @@ export function PostsCard() {
                     </div>
                   </div>
                   <label className="flex items-start gap-2 text-sm">
-                    <Switch checked={draft.layaway_only || jaLocked} disabled={!canManage || jaLocked}
+                    <Switch checked={draft.layaway_only} disabled={!canManage}
                       onCheckedChange={(v) => patch({ layaway_only: v })} aria-label="Layaway only" />
                     <span>
                       Layaway only
                       <span className="block text-xs text-muted-foreground">Shown on the English site only</span>
-                      {jaLocked && (
-                        <span className="block text-xs text-muted-foreground">{LAYAWAY_ONLY_LOCKED_NOTE}</span>
+                      {jaHint && (
+                        <span className="block text-xs text-muted-foreground">{LAYAWAY_ONLY_JA_HINT}</span>
                       )}
                     </span>
                   </label>

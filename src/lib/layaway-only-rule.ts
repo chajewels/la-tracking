@@ -1,10 +1,12 @@
 /**
- * The "Layaway only" rule for website Posts and FAQ questions (owner decision 2026-10-16).
+ * "Layaway only" hint for website Posts and FAQ questions — a HINT, never a lock.
  *
- * A row whose JAPANESE text mentions layaway is forced to layaway_only = true (English site
- * only) by the database trigger function public.force_layaway_english_only(). English text
- * never forces it: the Japanese site never renders English. Keep these three patterns in
- * step with supabase/migrations/20261220100000_layaway_only_ja_text.sql.
+ * layaway_only is a plain manual switch (owner decision 2026-10-16 17:34 JST): nothing in the
+ * database forces it any more (migration 20261221100000_layaway_only_manual.sql dropped the
+ * trigger). When the Japanese text mentions layaway, the Hub shows one grey line under the
+ * switch so the owner knows the row will reach the Japanese site if the switch is off. The
+ * three patterns are the ones the dropped trigger used: 'layaway' (any case), レイアウェイ,
+ * 分割予約. English text is not read: the Japanese site never renders it.
  */
 export interface LayawayOnlyJaFields {
   title_ja?: string | null;
@@ -21,6 +23,6 @@ export function jaTextMentionsLayaway(fields: LayawayOnlyJaFields): boolean {
   return /layaway/i.test(t) || t.includes("レイアウェイ") || t.includes("分割予約");
 }
 
-/** Shown under the locked switch on Website → Content (Posts and FAQ). */
-export const LAYAWAY_ONLY_LOCKED_NOTE =
-  "The Japanese text mentions layaway, so this is English-site only (owner rule 2026-09-25). Trim the Japanese text to change it.";
+/** Shown under the switch on Website → Content (Posts and FAQ) when the hint applies. */
+export const LAYAWAY_ONLY_JA_HINT =
+  "Japanese text mentions layaway — if this switch is off, it appears on the Japanese site.";
