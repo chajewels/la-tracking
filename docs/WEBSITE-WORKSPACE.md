@@ -12,7 +12,7 @@ Added 2026-09-21.
 | Tab | `?tab=` | Cards | Permission |
 |---|---|---|---|
 | Catalog | `catalog` | ProductsCard, JewelryTypesCard, CategoriesCard | `manage_website_catalog` |
-| Content | `content` | PostsCard, FaqCard, TestimonialsCard | `manage_website_content` |
+| Content | `content` | PostsCard, FaqCard, TestimonialsCard, CommentsCard | `manage_website_content`; CommentsCard additionally `moderate_reviews` (the ReviewsCard gate) — see §9b |
 | Audience | `audience` | CampaignsCard, NewsletterSubscribersCard, WholesaleInquiriesCard, ContactInquiriesCard | **either key** — see below |
 | Settings | `settings` | a static "Website orders" note (PR 10, 2026-10-01 — the reserve-first and checkout-mode cards are retired), PaymentMethodsTab ("Payment details"), PaymentRemindersCard ("Payment reminders"), PaidySettingsCard ("Paidy", 2026-10-03), SquareSettingsCard ("Card payments (Square)", S1 2026-10-04, docs/SQUARE.md), ShippingFeesCard ("Shipping fees", website-orders PR 2), SettingsCard ("Site settings"), in that order | `manage_website_content` for the tab and for the reserve-first card and Site settings (the reserve-first switch itself: **admin only**). Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees render **for admins only** — content editors can open this tab and never see them. Both moved here from Hub Settings in website-orders PR 1 (2026-09-27); see §3 for the redirect |
 | Page365 stock | `page365-stock` | Page365InventoryCard, Page365StockCard | `manage_website_catalog` — fetch the Page365 catalogue, review and apply stock/photos (added 2026-09-27, docs/PAGE365-IMPORT.md "INVENTORY"); Page365 lines that did not reduce website stock, resolved with a note (added 2026-09-26, "STOCK"); "Create drafts" from new Page365 codes (added 2026-09-28, "DRAFTS") |
@@ -482,6 +482,47 @@ Entity types: `website_faq_section`, `website_faq_item`. Actions:
 Recorded in `supabase/migrations/20260922100000_record_website_faq.sql`. The
 revalidation triggers on both tables are Lovable's and are not recorded; the
 `updated_at` triggers are.
+
+## 9b. website_post_comments — article comments (Comments)
+
+Owner plan 2026-10-16 18:47 JST, decisions C1–C8. Verified customers comment
+under blog articles on chajewelsjp.com; **nothing is public until approved
+here.** Same pattern as product reviews: the customer writes through the
+`website` edge function → a pending row → moderation in the Hub → staff bell.
+
+- **Who can comment (C1, C8):** a customer whose auth user is email-confirmed
+  and linked to a `customers` row, on a post with `type = 'article'`,
+  `published = true` and `published_at <= today` (PHT). Shown publicly as first
+  name + "Verified customer"; never the email.
+- **States (C2):** `pending → approved | rejected`; `approved ↔ hidden`. The
+  website shows approved only, plus the author's own pending ones, to her.
+- **Author (C4, C5):** edits while pending, soft-deletes her own any time
+  (`deleted_at` — gone from every list, including the Hub's). Plain text,
+  1–1000 characters; 5 per customer per rolling 24 h.
+- **CommentsCard** (`src/components/website/CommentsCard.tsx`, after
+  TestimonialsCard, anchor `#comments`): tabs Pending / Approved / Hidden /
+  Rejected (pending shows a count). Each row: article title, first name +
+  customer code, which site she wrote on, the body, the date, the reply. Actions
+  per state: Pending → Approve · Reject; Approved → Hide; Hidden → Show; Reply
+  (or Edit reply) on every row, in a dialog. Every action calls
+  `moderate_post_comment` (one `audit_logs` row, `post_comment` / approve |
+  reject | hide | show | reply). Rendered only for `moderate_reviews` holders
+  (admin), the same gate as Website → Reviews, inside the Content tab.
+- **Reply (C3):** one per comment, editable, shown on the website as
+  "Cha Jewels" under an approved comment.
+- **Layaway hint (C6):** comments show on both language sites as written. When
+  a comment's text mentions `layaway`, `レイアウェイ` or `分割予約`
+  (`jaTextMentionsLayaway`), the card shows one grey line — *"Mentions layaway —
+  if approved, it shows on both the English and the Japanese site as written."*
+  Hint only: it never blocks an action.
+- **Bell:** `comment_submitted`, inserted by the website function exactly like
+  `review_submitted`; clicking it opens Website → Content at the Comments card.
+- **Freshness:** an AFTER UPDATE trigger runs the existing
+  `notify_website_revalidate()` (tag `content`) only when an approved comment is
+  involved.
+
+Schema, RPC and routes: docs/SCHEMA-FACTS.md "Article comments (2026-10-16)";
+API: `supabase/contracts/api.md` "Article comments".
 
 ## 10. newsletter_campaigns — sending to the list
 

@@ -14,6 +14,7 @@ import { CategoriesCard } from "@/components/website/CategoriesCard";
 import { PostsCard } from "@/components/website/PostsCard";
 import { FaqCard } from "@/components/website/FaqCard";
 import { TestimonialsCard } from "@/components/website/TestimonialsCard";
+import { CommentsCard } from "@/components/website/CommentsCard";
 import { CampaignsCard } from "@/components/website/CampaignsCard";
 import { NewsletterSubscribersCard } from "@/components/website/NewsletterSubscribersCard";
 import { WholesaleInquiriesCard } from "@/components/website/WholesaleInquiriesCard";
@@ -188,6 +189,8 @@ export default function Website() {
               <PostsCard />
               <FaqCard />
               <TestimonialsCard />
+              {/* Article comments: the review gate (moderate_reviews), not the content key. */}
+              {canReviews && <CommentsCard />}
             </TabsContent>
           )}
 

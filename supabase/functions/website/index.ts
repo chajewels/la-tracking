@@ -36,6 +36,7 @@ import {
   pointsValue, publicMethod, storedMethod,
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
+import { COMMENT_DAILY_LIMIT, cleanCommentBody, commentsOpen, isCommentLang, toPublicComment } from "../_shared/post-comments.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
 import { customerCancellationReason } from "../_shared/customer-reasons.ts";
@@ -1642,6 +1643,166 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const { data, error } = await q;
       if (error) throw error;
       return jsonResponse(scrub(data ?? []));
+    }
+
+    // Article comments (owner plan 2026-10-16, C1–C8; _shared/post-comments.ts).
+    // Four routes under /content/posts/:slug/comments, matched BEFORE the
+    // /content/posts/:slug read below, which would otherwise swallow them.
+    if (segments[0] === "content" && segments[1] === "posts" && segments[2] && segments[3] === "comments" && !segments[5]) {
+      const commentId = segments[4] ?? null;
+      const { data: post, error: postErr } = await supabase
+        .from("website_posts")
+        .select("id, type, published, published_at, title_en")
+        .eq("slug", segments[2])
+        .maybeSingle();
+      if (postErr) throw postErr;
+      const open = !!post && commentsOpen(post as AnyRec, phtToday());
+
+      // GET — approved comments (newest first) and, for a signed-in verified
+      // customer, her own pending ones. Unknown / unpublished / future posts are
+      // 404, like GET /content/posts/:slug.
+      if (req.method === "GET" && !commentId) {
+        const p = post as AnyRec | null;
+        if (!p || p.published !== true || String(p.published_at ?? "").slice(0, 10) > phtToday()) {
+          return jsonResponse({ error: "not_found" }, 404);
+        }
+        const { data: approved, error: aErr } = await supabase
+          .from("website_post_comments")
+          .select("id, body, created_at, reply_body, reply_at, updated_at, customer:customers(full_name)")
+          .eq("post_id", p.id)
+          .eq("status", "approved")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(200);
+        if (aErr) throw aErr;
+        let pendingOwn: AnyRec[] = [];
+        let personal = false;
+        if ((req.headers.get("Authorization") ?? "").startsWith("Bearer ")) {
+          personal = true;
+          const who = await requireCustomerUser(req, supabase);
+          const customer = who instanceof Response ? null : await customerForAuthUser(supabase, who.id);
+          if (customer) {
+            const { data: mine, error: mErr } = await supabase
+              .from("website_post_comments")
+              .select("id, body, created_at, reply_body, reply_at, updated_at, customer:customers(full_name)")
+              .eq("post_id", p.id)
+              .eq("customer_id", customer.id)
+              .eq("status", "pending")
+              .is("deleted_at", null)
+              .order("created_at", { ascending: false });
+            if (mErr) throw mErr;
+            pendingOwn = (mine ?? []) as AnyRec[];
+          }
+        }
+        const res = jsonResponse({
+          open,
+          comments: ((approved ?? []) as AnyRec[]).map(toPublicComment),
+          pending_own: pendingOwn.map(toPublicComment),
+        });
+        // A response carrying her own pending comments must never be shared.
+        if (personal) res.headers.set("Cache-Control", "no-store");
+        return res;
+      }
+
+      if (req.method === "POST" && !commentId) {
+        const who = await requireCustomerUser(req, supabase);
+        if (who instanceof Response) return who;
+        const customer = await customerForAuthUser(supabase, who.id);
+        if (!customer) return jsonResponse({ error: "customer_not_linked" }, 404);
+        if (!post) return jsonResponse({ error: "not_found" }, 404);
+        if (!open) return jsonResponse({ error: "comments_closed" }, 409);
+        const payload = await req.json().catch(() => null) as AnyRec | null;
+        const text = cleanCommentBody(payload?.body);
+        if (text === null) return jsonResponse({ error: "body_invalid" }, 422);
+        if (!isCommentLang(payload?.lang)) return jsonResponse({ error: "lang_invalid" }, 422);
+
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count, error: cErr } = await supabase
+          .from("website_post_comments")
+          .select("id", { count: "exact", head: true })
+          .eq("customer_id", customer.id)
+          .is("deleted_at", null)
+          .gte("created_at", since);
+        if (cErr) throw cErr;
+        if ((count ?? 0) >= COMMENT_DAILY_LIMIT) return jsonResponse({ error: "rate_limited" }, 429);
+
+        const { data: row, error: insErr } = await supabase
+          .from("website_post_comments")
+          .insert({
+            post_id: (post as AnyRec).id,
+            customer_id: customer.id,
+            auth_user_id: who.id,
+            body: text,
+            lang: payload!.lang,
+            status: "pending",
+          })
+          .select("id, body, created_at, reply_body, reply_at, updated_at, customer:customers(full_name)")
+          .single();
+        if (insErr) throw insErr;
+        const created = row as AnyRec;
+
+        try {
+          await supabase.from("staff_notifications").insert({
+            type: "comment_submitted",
+            title: "New article comment",
+            body: `${String(customer.full_name ?? "A customer")} commented on "${String((post as AnyRec).title_en ?? segments[2])}" — Website → Content`,
+            customer_id: customer.id,
+            metadata: { comment_id: created.id, post_id: (post as AnyRec).id, link: "/website?tab=content#comments" },
+          });
+        } catch (notifyErr) {
+          console.warn("[website] comment_submitted notification failed (non-blocking):", notifyErr);
+        }
+        return jsonResponse({ comment: { ...toPublicComment(created), status: "pending" } }, 201);
+      }
+
+      // PATCH (edit while pending) and DELETE (soft delete, any status) — her own only.
+      // Someone else's comment, or one on another post, reads as not_found.
+      if ((req.method === "PATCH" || req.method === "DELETE") && commentId) {
+        const who = await requireCustomerUser(req, supabase);
+        if (who instanceof Response) return who;
+        const customer = await customerForAuthUser(supabase, who.id);
+        if (!customer) return jsonResponse({ error: "customer_not_linked" }, 404);
+        if (!post || !/^[0-9a-f-]{36}$/i.test(commentId)) return jsonResponse({ error: "not_found" }, 404);
+        const { data: mine, error: gErr } = await supabase
+          .from("website_post_comments")
+          .select("id, status")
+          .eq("id", commentId)
+          .eq("post_id", (post as AnyRec).id)
+          .eq("customer_id", customer.id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (gErr) throw gErr;
+        if (!mine) return jsonResponse({ error: "not_found" }, 404);
+
+        if (req.method === "DELETE") {
+          const { error: dErr } = await supabase
+            .from("website_post_comments")
+            .update({ deleted_at: new Date().toISOString() })
+            .eq("id", commentId)
+            .is("deleted_at", null);
+          if (dErr) throw dErr;
+          return jsonResponse({ ok: true });
+        }
+
+        if ((mine as AnyRec).status !== "pending") return jsonResponse({ error: "comment_locked" }, 409);
+        const payload = await req.json().catch(() => null) as AnyRec | null;
+        const text = cleanCommentBody(payload?.body);
+        if (text === null) return jsonResponse({ error: "body_invalid" }, 422);
+        const { data: updated, error: uErr } = await supabase
+          .from("website_post_comments")
+          .update({ body: text })
+          .eq("id", commentId)
+          .eq("status", "pending")
+          .is("deleted_at", null)
+          .select("id, body, created_at, reply_body, reply_at, updated_at, customer:customers(full_name)")
+          .maybeSingle();
+        if (uErr) throw uErr;
+        // Approved / rejected between the read and the write: locked.
+        if (!updated) return jsonResponse({ error: "comment_locked" }, 409);
+        return jsonResponse({ comment: { ...toPublicComment(updated as AnyRec), status: "pending" } });
+      }
+
+      return notFound();
     }
 
     // GET /content/posts/:slug — the full row, body included. Unpublished,

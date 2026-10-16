@@ -191,6 +191,61 @@ triggers, which post `{ "tag": "content", "path": "/faq" }` on every insert,
 update or delete.
 
 
+## Article comments
+
+Owner plan 2026-10-16 (C1–C8). Comments under blog articles; nothing is public
+until the owner approves it in the Hub (Website → Content → Comments). Table
+`website_post_comments`, migration `20261222100000_website_post_comments.sql`.
+Shared rules: `supabase/functions/_shared/post-comments.ts`. Bodies are PLAIN
+TEXT — render escaped, never as HTML or markdown. Comments are shown on both
+language sites as written.
+
+The public comment shape:
+`{ id, author_first_name, body, created_at, reply: { body, created_at } | null }`
+— `author_first_name` is the first word of the customer's name (shown with
+"Verified customer"); `reply` is the staff reply, shown as "Cha Jewels". Never
+an email, customer id or status.
+
+Commenting is OPEN only on a post with `type = 'article'`, `published = true`
+and `published_at <= today` (PHT).
+
+### GET /content/posts/:slug/comments
+`x-api-key`; customer JWT optional. →
+`{ open, comments: [...], pending_own: [...] }`. `comments` = approved, not
+deleted, newest first (max 200). `pending_own` = the signed-in customer's own
+pending comments on this post, newest first — only with a valid,
+email-verified, linked customer JWT; silently `[]` otherwise (never an error).
+`open` = whether the form should be offered. 404 `not_found` when the slug is
+unknown, unpublished or future-dated (as `GET /content/posts/:slug`).
+Without a JWT the answer is public: cache it with the `content` tag (the
+table's revalidate trigger posts `{ "tag": "content" }` whenever an approved
+comment changes). With a JWT the Hub sends `Cache-Control: no-store` — never
+cache or share that answer.
+
+### POST /content/posts/:slug/comments
+Customer JWT + `x-api-key`. Body `{ body, lang: 'en' | 'ja' }` (`lang` = the
+site she wrote on). Inserts a PENDING comment, rings staff bell
+`comment_submitted`, returns 201 `{ comment: { ...public shape, status:
+'pending' } }`.
+Errors: 401 `customer_auth_required` · 403 `email_unverified` · 422
+`email_required_for_account` (phone-only session) · 404 `customer_not_linked` ·
+404 `not_found` (unknown slug) · 409 `comments_closed` (not an article,
+unpublished or future-dated) · 422 `body_invalid` (not 1–1000 characters after
+trimming) · 422 `lang_invalid` · 429 `rate_limited` (5 non-deleted comments per
+customer in a rolling 24 h).
+
+### PATCH /content/posts/:slug/comments/:id
+Customer JWT + `x-api-key`. Body `{ body }`. The author edits her own comment
+while it is PENDING. 200 `{ comment: { ...public shape, status: 'pending' } }`.
+Errors: the auth errors above · 404 `customer_not_linked` · 404 `not_found`
+(unknown slug or comment, someone else's, deleted, or on another post) · 409
+`comment_locked` (already approved, rejected or hidden) · 422 `body_invalid`.
+
+### DELETE /content/posts/:slug/comments/:id
+Customer JWT + `x-api-key`. The author soft-deletes her own comment, any status
+(sets `deleted_at`; it disappears from every list). 200 `{ ok: true }`.
+Errors: the auth errors above · 404 `customer_not_linked` · 404 `not_found`.
+
 ## Newsletter
 
 ### POST /newsletter

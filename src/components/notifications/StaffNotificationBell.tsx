@@ -206,6 +206,11 @@ export default function StaffNotificationBell() {
       navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
       return;
     }
+    // An article comment is moderated on Website → Content (the Comments card).
+    if (n.type === 'comment_submitted') {
+      navigate(`${ROUTES.WEBSITE}?tab=content#comments`);
+      return;
+    }
     // Background removal near its monthly limit: the limit lives on Website → Photos.
     if (n.type === 'media_cutout_cap_near') {
       navigate(`${ROUTES.WEBSITE}?tab=photos`);

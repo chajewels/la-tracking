@@ -1534,6 +1534,44 @@ supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
   Audit rows: `product_review / approve | reject | hide | show`.
 - Website API: GET /reviews, GET /review-invite/:token, POST /review-invite/:token.
 
+## Article comments (2026-10-16)
+
+Owner plan 2026-10-16 18:47 JST, C1–C8. Migration
+`supabase/migrations/20261222100000_website_post_comments.sql`. Workspace:
+docs/WEBSITE-WORKSPACE.md §9b; API: `supabase/contracts/api.md` "Article comments".
+
+- `website_post_comments` — `post_id` (→ website_posts, ON DELETE CASCADE),
+  `customer_id` (→ customers), `auth_user_id`, `body` (1–1000 chars after
+  btrim), `lang` en|ja (the site she wrote on), `status` pending | approved |
+  rejected | hidden (default pending), `reply_body` / `reply_by` / `reply_at`,
+  `moderated_by` / `moderated_at`, `deleted_at` (author soft delete),
+  `created_at` / `updated_at` (`set_updated_at`). Indexes `(post_id, status,
+  created_at DESC)` and `(customer_id, created_at DESC)`.
+- RLS: `moderate_reviews` holders SELECT and UPDATE; no anon or customer
+  policy — the `website` function writes with the service role.
+- `moderate_post_comment(p_id uuid, p_action text, p_reply text DEFAULT NULL)`
+  SECURITY DEFINER, EXECUTE `authenticated` only (revoked from PUBLIC, anon).
+  Checks `has_permission(auth.uid(), 'moderate_reviews')` first. Actions:
+  approve (pending → approved), reject (pending → rejected), hide (approved →
+  hidden), show (hidden → approved), reply (any live state, 1–1000 chars).
+  Returns `{ ok, comment }` or `{ error }`: user_identity_required,
+  permission_denied, bad_action, not_found, comment_deleted, reply_invalid,
+  invalid_transition (+ status). One `audit_logs` row per action:
+  `post_comment` / approve | reject | hide | show | reply, old and new row.
+- Revalidation: `trg_website_post_comments_revalidate` (AFTER UPDATE, WHEN an
+  approved row is involved and status / body / reply / deleted_at changed) →
+  the existing `notify_website_revalidate()` → tag `content`.
+- Staff bell `comment_submitted` (title "New article comment", metadata
+  `{ comment_id, post_id, link }`) — inserted by the website function after a
+  POST, non-blocking, exactly like `review_submitted`. Not in the staff bell
+  email list (neither is `review_submitted`).
+- Permission: `moderate_reviews` (admin) — no new key.
+- Website API: `GET` / `POST /content/posts/:slug/comments`,
+  `PATCH` / `DELETE /content/posts/:slug/comments/:id`. Rules in
+  `supabase/functions/_shared/post-comments.ts` (body 1–1000, 5 per customer
+  per rolling 24 h counting non-deleted rows, open only on a published article,
+  public shape = first name + body + date + reply).
+
 ## message_lines (Random Copy Message lines, 2026-10-01)
 
 - Table `public.message_lines` (message_type, part, body, active, sort). Only the opening/closing words of Copy Message / Messenger prefills come from it; line sort=1 of each pool = today's text = the code fallback (src/lib/message-lines.ts FALLBACK). Read by the Hub via an untyped cast (not in generated types).
