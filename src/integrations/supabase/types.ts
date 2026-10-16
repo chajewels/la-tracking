@@ -4469,6 +4469,7 @@ export type Database = {
           resolved_by: string | null
           status: string
           submission_id: string | null
+          sweep_tried_at: string | null
         }
         Insert: {
           attempts?: number
@@ -4487,6 +4488,7 @@ export type Database = {
           resolved_by?: string | null
           status?: string
           submission_id?: string | null
+          sweep_tried_at?: string | null
         }
         Update: {
           attempts?: number
@@ -4505,6 +4507,7 @@ export type Database = {
           resolved_by?: string | null
           status?: string
           submission_id?: string | null
+          sweep_tried_at?: string | null
         }
         Relationships: [
           {
@@ -4545,6 +4548,7 @@ export type Database = {
           stuck_bell_at: string | null
           verification: string | null
           verified_empty_at: string | null
+          verify_tried_at: string | null
         }
         Insert: {
           amount_jpy: number
@@ -4567,6 +4571,7 @@ export type Database = {
           stuck_bell_at?: string | null
           verification?: string | null
           verified_empty_at?: string | null
+          verify_tried_at?: string | null
         }
         Update: {
           amount_jpy?: number
@@ -4589,6 +4594,7 @@ export type Database = {
           stuck_bell_at?: string | null
           verification?: string | null
           verified_empty_at?: string | null
+          verify_tried_at?: string | null
         }
         Relationships: [
           {
@@ -10777,6 +10783,23 @@ export type Database = {
           payment_created_at: string
           reviewer_user_id: string
           sender_name: string
+          submission_id: string
+        }[]
+      }
+      paidy_stuck_confirms: {
+        Args: {
+          p_after_at?: string
+          p_after_id?: string
+          p_lease_cut: string
+          p_limit?: number
+        }
+        Returns: {
+          cash_order_id: string
+          paidy_payment_id: string
+          payment_method: string
+          processing_started_at: string
+          reference_number: string
+          sort_at: string
           submission_id: string
         }[]
       }
