@@ -35,6 +35,12 @@ because the number lands in the account total. It does not.
 - **AccountDetail / CashOrderDetail** — `ServiceRequestsSection`, read-only,
   beside `ServiceJobsSection`.
 - **AccountQuickView** — open requests only, above Penalties.
+- **Deep link not found** — `?tab=requests&open=<id>` naming a request the
+  queue does not hold (test customer or removed) shows one muted line, "That
+  request is not in this queue (test customer or removed).", and strips the
+  `open` / `convert` / `fee` / `return` params; it is decided only after the
+  queue's fetch settles, so a stale cache never misreports a new request.
+  Both the bell and Monitoring → Notifications send this link.
 
 ## Statuses
 
@@ -71,9 +77,13 @@ Every financial surface filters on `invoice_number ~ '^[0-9]+$'` (CLAUDE.md
 TEST ACCOUNT EXCLUSION), but a request can exist with no order and no plan —
 a customer asking about a piece they have not bought — so there is no invoice
 to test. `is_test` is the DB-enforced flag and the only signal that covers
-every row. The sidebar badge is the one exception: a `head: true` count cannot
-filter on an embedded column, so it counts rows and the tab does the exclusion.
-An occasional off-by-one badge beats a second round trip every 30 seconds.
+every row. The sidebar badge excludes test customers too (2026-10-17): its
+`head: true` count inner-joins `customers!inner(is_test)` and filters
+`customers.is_test = false`, still one round trip. `customer_id` is NOT NULL
+(FK ON DELETE CASCADE), so the inner join drops nothing the tab would show —
+badge and queue count the same rows. The old "badge counts every row"
+exception lit the badge for a test customer's request with no row in the
+queue to clear it.
 
 **Editing is gated on `add_service`** and happens only in the drawer, so there
 is one audited path for a status change.
@@ -162,3 +172,4 @@ never straight to the table.
     src/components/services/LinkedJobCell.tsx          the Job column, both tables
     src/hooks/useServiceRequestCount.ts                sidebar badge count
     src/test/request-to-job.test.ts                    the prefill guard
+    src/test/service-request-test-customers.test.tsx   badge query shape, not-found notice
