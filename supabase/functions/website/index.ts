@@ -4437,7 +4437,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
     // GET /reviews?product=<slug>&limit=<n<=50>&lang=<en|ja> — APPROVED reviews
     // only, newest approved first, plus { count, average } for the same filter.
-    // Never returns customer, order, email or ip fields.
+    // Never returns customer, order, email or ip fields; only the derived location.
     if (req.method === "GET" && segments[0] === "reviews" && !segments[1]) {
       const slug = (url.searchParams.get("product") ?? "").trim();
       const lang = (url.searchParams.get("lang") ?? "en").trim().toLowerCase() === "ja" ? "ja" : "en";
@@ -4455,7 +4455,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       let listQ = supabase
         .from("product_reviews")
-        .select("id, rating, body_original, body_en, body_ja, original_language, display_name, piece_name, photo_urls, reviewed_at, product:website_products(slug, name, status)")
+        .select("id, rating, body_original, body_en, body_ja, original_language, display_name, piece_name, photo_urls, reviewed_at, product:website_products(slug, name, status), customer:customers(location, city, country)")
         .eq("status", "approved")
         .order("reviewed_at", { ascending: false })
         .limit(limit);
@@ -4474,9 +4474,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const reviews = ((rows ?? []) as AnyRec[]).map((r) => {
         const prod = r.product as AnyRec | null;
+        const cust = r.customer as AnyRec | null;
         const body = lang === "ja"
           ? r.body_ja
           : (r.original_language === "ja" ? r.body_en : r.body_original);
+        // Reviewer location (owner 2026-10-17): the directory location as stored,
+        // else "City, Country" from whichever parts are non-empty, else null.
+        // Nothing else about the customer leaves this handler.
+        const stored = String(cust?.location ?? "").trim();
+        const parts = [String(cust?.city ?? "").trim(), String(cust?.country ?? "").trim()]
+          .filter((p) => p.length > 0);
+        const location = stored.length > 0 ? stored : (parts.length > 0 ? parts.join(", ") : null);
         return {
           id: r.id,
           rating: r.rating,
@@ -4486,6 +4494,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
           product: prod && prod.status === "active" ? { slug: prod.slug, name: prod.name } : null,
           photos: r.photo_urls ?? [],
           approved_at: r.reviewed_at,
+          location,
         };
       });
       return jsonResponse({ reviews, count, average });
