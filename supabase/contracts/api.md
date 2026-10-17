@@ -148,6 +148,26 @@ quote_ja, item, rating, testimonial_date }]`. `testimonial_date` is a nullable
 date (when the testimonial was originally given). Returns `[]` when there are
 none — never an error.
 
+## Reviews
+
+### GET /reviews?product=<slug>&limit=<n<=50>&lang=<en|ja>
+Approved product reviews only (`status = 'approved'`), newest approved first
+(`reviewed_at DESC`); `limit` defaults to 20, capped at 50; `product=<slug>`
+narrows to one active product (an unknown or inactive slug is an empty result).
+Response `{ reviews, count, average }` — `count` and `average` (one decimal,
+`null` when there is no review) cover the same filter, not just the page. Each
+review: `{ id, rating, body, display_name, piece_name, product, photos,
+approved_at, location }`. `product` is `{ slug, name }` while the product is
+still active, else `null`; `photos` is the approved public copies (may be `[]`);
+`body` is the reviewer's own words, or her English translation when she wrote in
+Japanese (`lang=ja` serves the Japanese version). `location: string | null` —
+the reviewer's directory location, else `"City, Country"`, else `null`:
+`customers.location` when it is non-empty, otherwise her non-empty
+`customers.city` and/or `customers.country` joined with `", "` (the country sent
+as stored — it is already its full name). No customer id, name, email, phone,
+address or order field is ever returned. Never an error: `{ reviews: [], count:
+0, average: null }` when nothing matches.
+
 ## Content
 
 ### GET /content/settings
