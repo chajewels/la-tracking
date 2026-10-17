@@ -39,8 +39,9 @@ interface Props {
  *
  * `?open=<id>` deep-links a single request — the staff notification bell sends
  * that when a `service_request_created` notification is clicked. The param is
- * consumed once the row it names has loaded, so closing the drawer and coming
- * back to the tab does not reopen it.
+ * consumed once the queue has settled, so closing the drawer and coming back
+ * to the tab does not reopen it; an id the queue does not hold shows a
+ * one-line notice instead of nothing.
  */
 export default function ServiceRequestsTab({ searchValue }: Props = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -53,7 +54,12 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
     convert: false, fee: null, returnTo: null,
   });
 
-  const { data: requests = [], isLoading, isError } = useQuery<ServiceRequestRow[]>({
+  // Set when ?open= names a request the queue does not hold — said once, in
+  // one muted line, instead of the silent no-op that read as "a notification
+  // with no detail" (docs/FIXED-BUGS.md, 2026-10-17).
+  const [openNotFound, setOpenNotFound] = useState(false);
+
+  const { data: requests = [], isLoading, isFetching, isError } = useQuery<ServiceRequestRow[]>({
     queryKey: ['service-requests'],
     queryFn: async () => {
       const { data, error } = await serviceRequests()
@@ -67,14 +73,25 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
   });
 
   // Deep link: open the named request once the queue has loaded it. An id
-  // that matches nothing (wrong row, test customer, already deleted) is left
-  // alone rather than surfacing an error — the queue itself is the fallback.
+  // that matches nothing (test customer, deleted, wrong id) gets a one-line
+  // notice and its params are stripped like a match's. "Loaded" means the
+  // fetch has SETTLED, not just that cached rows exist: the bell usually
+  // fires for a request created seconds ago, which a stale cache from an
+  // earlier visit does not hold yet — so wait for the refetch before saying
+  // it is missing. A failed fetch keeps the params; the error already shows.
   const openParam = searchParams.get('open');
   useEffect(() => {
-    if (!openParam || consumedOpenParam.current || requests.length === 0) return;
+    if (!openParam || consumedOpenParam.current) return;
+    if (isLoading || isFetching || isError) return;
     const match = requests.find((r) => r.id === openParam);
-    if (!match) return;
     consumedOpenParam.current = true;
+    if (!match) {
+      setOpenNotFound(true);
+      const next = new URLSearchParams(searchParams);
+      for (const k of ['open', 'convert', 'fee', 'return']) next.delete(k);
+      setSearchParams(next, { replace: true });
+      return;
+    }
     const feeRaw = searchParams.get('fee');
     const fee = feeRaw !== null && feeRaw.trim() !== '' && Number.isFinite(Number(feeRaw)) ? Number(feeRaw) : null;
     const ret = searchParams.get('return');
@@ -87,7 +104,7 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
     const next = new URLSearchParams(searchParams);
     for (const k of ['open', 'convert', 'fee', 'return']) next.delete(k);
     setSearchParams(next, { replace: true });
-  }, [openParam, requests, searchParams, setSearchParams]);
+  }, [openParam, requests, isLoading, isFetching, isError, searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     const q = (searchValue ?? '').trim().toLowerCase();
@@ -121,6 +138,12 @@ export default function ServiceRequestsTab({ searchValue }: Props = {}) {
 
   return (
     <div className="space-y-4">
+      {openNotFound && (
+        <p role="status" className="text-sm text-muted-foreground">
+          That request is not in this queue (test customer or removed).
+        </p>
+      )}
+
       {/* All + one chip per status */}
       <div className="flex flex-wrap items-center gap-2">
         <Chip active={statusChip === 'All'} onClick={() => setStatusChip('All')}>

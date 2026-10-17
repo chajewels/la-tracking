@@ -6371,3 +6371,20 @@ Errors are now counted in `summary_errors` and make the run not-ok. Edge only (p
 review-payment-submission). Guard: development/paidy-reconcile-error-reporting.test.ts.
 Do not reintroduce: reading a provider/RPC answer that is not the expected shape as success; a
 Supabase query whose `error` is discarded.
+
+## Service-request bell linked to a request the queue hid; badge counted it (2026-10-17)
+Symptom (owner, 2026-10-17): a test customer (`customers.is_test = true`) raised two service
+requests from the website on 2026-09-20. The bell rang correctly, but clicking it opened
+Services → Requests with nothing — "a notification with no detail" — and the sidebar Requests
+badge stayed lit with no way to clear it.
+Cause: three surfaces disagreed. ServiceRequestsTab drops `is_test` rows, so `?open=<id>` matched
+nothing and was a silent no-op; `useServiceRequestCount` counted ALL open rows (a documented
+"off-by-one" exception); and Monitoring → Notifications had no `service_request_created` branch,
+so it navigated to the account instead of the queue.
+Fix (Hub frontend only): the badge count inner-joins `customers!inner(is_test)` and filters
+`customers.is_test = false`; NotificationsPanel gets the bell's `service_request_created` branch
+(before the account branch); the tab shows "That request is not in this queue (test customer or
+removed)." and strips the deep-link params once its fetch has settled (not off a stale cache).
+docs/SERVICE-REQUESTS.md. Guard: src/test/service-request-test-customers.test.tsx.
+Do not reintroduce: a badge or count that includes rows its queue hides; a deep link that fails
+silently; a notification type handled in the bell but not in the Notifications panel.

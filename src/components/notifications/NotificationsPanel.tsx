@@ -32,6 +32,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { ROUTES } from '@/constants/routes';
 
 interface StaffNotificationRow {
   id: string;
@@ -186,6 +187,15 @@ export default function NotificationsPanel() {
 
   const handleItemClick = (n: StaffNotificationRow) => {
     if (!readIds.has(n.id)) markRead.mutate([n.id]);
+    // A service request is triaged in the Services queue, not on the account
+    // it happens to reference, so this branch comes before the account one.
+    if (n.type === 'service_request_created') {
+      const requestId = (n.metadata as { service_request_id?: string } | null)?.service_request_id;
+      const params = new URLSearchParams({ tab: 'requests' });
+      if (requestId) params.set('open', requestId);
+      navigate(`${ROUTES.SERVICES}?${params.toString()}`);
+      return;
+    }
     if (n.account_id) {
       navigate(`/accounts/${n.account_id}`);
       return;

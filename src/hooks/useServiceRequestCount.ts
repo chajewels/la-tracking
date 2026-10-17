@@ -5,11 +5,13 @@ import { OPEN_SERVICE_REQUEST_STATUSES, serviceRequests } from '@/components/ser
  * Open customer service requests, for the Services → Requests sidebar badge.
  * 30s poll, matching useExtensionRequestCount and the other queue badges.
  *
- * A head+count query cannot filter on an embedded column, so test customers
- * are NOT excluded here — the badge counts rows, the tab does the exclusion.
- * Test customers raise requests only from a seeded portal session, which is
- * rare enough that an occasional off-by-one badge beats a second round trip
- * on every 30s tick.
+ * Test customers are excluded HERE as well as in the tab, so the badge never
+ * counts a row the queue will not show. A plain head+count cannot see the
+ * customer, so the count inner-joins `customers` and filters on `is_test`.
+ * `customer_id` is NOT NULL (FK ON DELETE CASCADE), so the inner join drops
+ * no real request — it counts exactly the rows ServiceRequestsTab keeps.
+ * Before this, a test customer's open request lit the badge with nothing in
+ * the queue to clear it (docs/FIXED-BUGS.md, 2026-10-17).
  */
 export function useServiceRequestCount() {
   const { data, isLoading } = useQuery({
@@ -18,8 +20,9 @@ export function useServiceRequestCount() {
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const { count, error } = await serviceRequests()
-        .select('id', { count: 'exact', head: true })
-        .in('status', OPEN_SERVICE_REQUEST_STATUSES);
+        .select('id, customers!inner(is_test)', { count: 'exact', head: true })
+        .in('status', OPEN_SERVICE_REQUEST_STATUSES)
+        .eq('customers.is_test', false);
       if (error) throw error;
       return (count as number | null) ?? 0;
     },
