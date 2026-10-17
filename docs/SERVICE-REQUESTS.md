@@ -158,6 +158,11 @@ The `website` edge function serves `GET`/`POST /me/service-requests`. Customers
 are already creating rows from the storefront — this feature is the Hub
 catching up to data that already exists.
 
+`POST /me/service-requests` rings the `service_request_created` staff bell for
+real customers only: when `customers.is_test = true` the bell insert is skipped
+entirely (the request row is still written), because the Hub's queue, badge and
+bell all hide test customers and a bell for one would open nothing.
+
 Nothing in the Hub writes a request; it only triages one. Per DOMAIN
 ARCHITECTURE, customer-facing writes go through the service-role edge function,
 never straight to the table.

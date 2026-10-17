@@ -6388,3 +6388,7 @@ removed)." and strips the deep-link params once its fetch has settled (not off a
 docs/SERVICE-REQUESTS.md. Guard: src/test/service-request-test-customers.test.tsx.
 Do not reintroduce: a badge or count that includes rows its queue hides; a deep link that fails
 silently; a notification type handled in the bell but not in the Notifications panel.
+Follow-up (writer, same day): `website` POST /me/service-requests no longer inserts the
+`service_request_created` staff_notifications row when `customer.is_test === true`
+(`if ((customer as AnyRec).is_test !== true) {` around the existing non-blocking try), so a test
+customer's request never rings a bell the Hub cannot open. Real customers unchanged.

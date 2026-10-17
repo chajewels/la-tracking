@@ -4409,26 +4409,29 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       // Staff bell, non-blocking — a notification failure must never fail the
       // request that was just created successfully.
-      try {
-        const customerName = String(customer.full_name ?? customer.customer_code ?? "Customer");
-        const itemLabel = itemTitle ?? "no item";
-        const detailsSnippet = details.length > 120 ? details.slice(0, 120) : details;
-        await supabase.from("staff_notifications").insert({
-          type: "service_request_created",
-          title: `Service request: ${kind}`,
-          body: `${customerName} — ${targetInvoiceNumber ?? "no invoice"} · ${itemLabel} · ${detailsSnippet}`,
-          customer_id: customer.id,
-          invoice_number: targetInvoiceNumber,
-          metadata: {
-            service_request_id: (created as AnyRec).id,
-            kind,
-            cash_order_id: cashOrderId || null,
-            layaway_account_id: layawayPlanId || null,
-            web_draft_id: draftId || null,
-          },
-        });
-      } catch (notifyErr) {
-        console.warn("[website] service_request_created notification failed (non-blocking):", notifyErr);
+      // Test customers never ring the staff bell — the Hub hides their requests (docs/SERVICE-REQUESTS.md).
+      if ((customer as AnyRec).is_test !== true) {
+        try {
+          const customerName = String(customer.full_name ?? customer.customer_code ?? "Customer");
+          const itemLabel = itemTitle ?? "no item";
+          const detailsSnippet = details.length > 120 ? details.slice(0, 120) : details;
+          await supabase.from("staff_notifications").insert({
+            type: "service_request_created",
+            title: `Service request: ${kind}`,
+            body: `${customerName} — ${targetInvoiceNumber ?? "no invoice"} · ${itemLabel} · ${detailsSnippet}`,
+            customer_id: customer.id,
+            invoice_number: targetInvoiceNumber,
+            metadata: {
+              service_request_id: (created as AnyRec).id,
+              kind,
+              cash_order_id: cashOrderId || null,
+              layaway_account_id: layawayPlanId || null,
+              web_draft_id: draftId || null,
+            },
+          });
+        } catch (notifyErr) {
+          console.warn("[website] service_request_created notification failed (non-blocking):", notifyErr);
+        }
       }
 
       const { layaway_account_id, web_draft_id, ...rest } = created as AnyRec;
