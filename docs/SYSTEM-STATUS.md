@@ -1,7 +1,7 @@
-# System Status — last updated 2026-07-01
+# System Status — last updated 2026-10-18
 
 ## App Version
-1.6.0 (commit 02a040c)
+2.1.2 (package.json on develop, 2026-10-18)
 
 ## 2026-10-15 — Website catalog list
 - Website catalog list: category lookup batched (150 ids) after the 406-product catalogue overflowed the URL limit and emptied storefront search; deploy of `website` pending.

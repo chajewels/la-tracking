@@ -44,9 +44,10 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/RESERVE-FIRST.md — RETIRED by PR 10 (2026-10-01), history only; every checkout is a draft (docs/WEB-ORDER-DRAFTS.md)
 - docs/WEB-ORDER-DRAFTS.md — website orders PR 3: drafts held until staff Confirm (dormant behind system_settings.web_checkout_mode), the materialize contract, web_released_at; rules moved 2026-10-02
 - docs/WEB-PAYMENT-REMINDERS.md — stage D payment reminder + 48h reservation bell: eligibility, timing, the off/owner_only/on switch, email history
-- docs/PAIDY.md — Paidy あと払い: offer rule, dashboard capture + Hub auto-record, payment lock, cases, webhook inbox, go-live
-- docs/SQUARE.md — Square card payments: switch + public ids, square_payments ledger, agreement, capture/void
-- docs/CHECKOUT-CHOICE.md — payment method chosen at checkout (locked) + points at checkout
+- docs/PAIDY.md — Paidy あと払い, Paidy refunds
+- docs/SQUARE.md — Square cards, card refunds, cancellation charge, staff bell emails
+- docs/CHECKOUT-CHOICE.md — payment method chosen at checkout + points
+- docs/COD.md — cash on delivery (代金引換)
 - docs/MEDIA-CUTOUTS.md — automatic background removal for website photos (PR 1 of 3): queue keyed by source URL, worker, quality checks, switch + cap, Photos tab, timing test / D10 path; rules moved 2026-10-02
 - docs/HERO-PICKS.md — hero from ticked product cut-outs: website_hero_picks, the hero_photo_source switch (ships hero_record), carry-over, the release order (PR 1–4); rules moved 2026-10-02
 - docs/HERO-CUTOUTS.md — the HERO-ONLY cut-out record (original tool, BiRefNet via the storefront workflow), separate from Photoroom: approval-first, go-live switch (admin, ships "approve"), admin approve/reject audited, service-only writer, once per unchanged source
@@ -54,7 +55,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
 - docs/WEBSITE-COUPONS.md — website checkout coupon codes: pieces only, coupon before points, held/used/released, website_coupon_quote is the only maths, the draft stores reduced figures and the review screen adds the coupon back
 - Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
-  full text moved out verbatim on 2026-09-24 / 2026-10-02 under that heading;
+  full text moved out verbatim on 2026-09-24 / 2026-10-02 / 2026-10-18 under that heading;
   CLAUDE.md keeps the one-line rules and the pointer.
 - SIZE LIMIT: under 100k characters (Claude Code stops loading at 150k). Long
   reference text goes to docs/; rules stay here.
@@ -126,8 +127,7 @@ Reference docs (read the relevant one when a task touches that area):
     cancel with "Later" (no refund) ONLY; partial refunds ONLY via Edit order →
     Update order, NEVER the Refund page; the "You owe the customer" banner is
     cosmetic — never settle it; cash_orders 'cancelled' is TERMINAL (every
-    shopify-webhook status writer chains .neq("status","cancelled"));
-    service-role callers pass p_source = 'shopify_webhook'.
+    shopify-webhook status writer chains .neq("status","cancelled")).
   - Service-role callers pass p_source = 'shopify_webhook'; the audit trail then
     records actor = 'shopify_webhook' and the user-identity guard is skipped for
     that source only. Human callers default to p_source = 'staff' and the guard
@@ -147,65 +147,13 @@ Reference docs (read the relevant one when a task touches that area):
     store_credit_issued, never automatically; the one terminal RPC is
     terminate_web_order_atomic; web orders are NEVER hard-deleted — docs
     "Rules moved from CLAUDE.md".
-  - CANCELLATION CHARGE (owner 2026-10-06/08; D-SQF01 = A, 2026-10-08): a
-    website or Hub cash order cancelled on its ORDER DAY IN JAPAN TIME → 100 %
-    of the money paid as credit; a later Japan day → 30 % of the money PAID is
-    kept, 70 % is credit. The order day is the Japan day of created_at while
-    order_date still equals that instant's PHT day; an edited / typed
-    order_date is read as a Japan day as it stands; the cancel day is the
-    Japan day of now(). order_date itself and the PHT day boundary are
-    untouched. No override (a special case is a separate manual credit).
-    Shopify stays 100 %. ONE formula: cancellation_credit_split(currency,
-    order_date, money, at, order_at) (SQL; the 4-arg overload is gone) + the
-    TS mirror _shared/cancellation-credit.ts; used by
-    terminate_web_order_atomic (store_credit_issued) and
-    cancel_cash_order_atomic, both passing created_at. docs/SQUARE.md "SQF01".
-  - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
-    Square; "refund issued" is refused at cancel (card_refund_needs_square),
-    and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
-    refund total of the RECORDED card money (never the gross), refusing until
-    one exists; card marks are incremental (only COMPLETED refund not yet
-    marked), the non-card part of a mixed order is marked once (L6). ONE exception
-    (SQF06 + SQV, owner 2026-10-09): a Square refund FAILED / REJECTED or the
-    payment AUTHORISED over one calendar year ago → an ADMIN first APPROVES
-    (after a fail-closed Square re-read; refused while any refund is
-    processing) an amount ≤ captured − COMPLETED refunds − credit issued, then
-    pays and records AGAINST the approval: bank_transfer_exception, or
-    store_credit_exception (written request; an unspent lot issued after the
-    approval, locked, never reused). Writer is service_role only.
-    docs/SQUARE.md "SQF06", "Fix revalidation".
-  - SQUARE ANSWERS ARE VALIDATED (SQF02, 2026-10-09): paymentOf / refundOf /
-    moneyOf in _shared/square.ts — the object asked for (id), whole-unit money
-    in a named currency, our own payments in JPY, a refund with POSITIVE money
-    (never ¥0); record_square_refund refuses bad_amount / bad_currency /
-    over_ceiling / parent_mismatch with ONE card_refund_unrecorded bell each.
-    Never write a provider figure the Hub could not read.
-  - STAFF BELL EMAILS (V11b, owner 2026-10-08): bells stay in the Hub for every
-    member; the types in system_settings.staff_bell_email_types are ALSO emailed
-    to Brenda + every active admin (staff_bell_email_recipients, frozen at bell
-    time); changed ONLY via set_staff_bell_emails (admin, audited, guard
-    trigger). A provider bounce / complaint, or a suppressed refund email, rings
-    bell email_bounced (V13). Never a customer email. docs/SQUARE.md "Staff bell
-    emails".
-  - NO DOUBLE COMPENSATION (R05, owner 2026-10-08): money already refunded
-    through Square (any square_refunds row not FAILED/REJECTED) is NEVER issued
-    again as store credit — both cancel RPCs refuse (card_already_refunded);
-    record_square_refund locks the ORDER first and rings
-    card_refund_after_credit when a refund lands on an order already cancelled
-    with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
-    A chargeback holding/taking the money (EVIDENCE_REQUIRED, PROCESSING, LOST,
-    ACCEPTED) is money returned too: card_disputed refusal, subtracted from the
-    outside-Square cap, never recorded as paid (F-02, D-QC1, CODE-M1; square_order_disputed_jpy).
-  - PAIDY — SAME RULE (PA02/PA03, owner 2026-10-08, refuse): any VERIFIED
-    paidy_refunds row on the order refuses "store credit issued" at cancel
-    (paidy_already_refunded) in BOTH cancel RPCs; record_paidy_refund (service
-    role) is the ONLY writer of paidy_refunds — order lock first, idempotent by
-    refund id, monotonic refund_jpy, bell paidy_refund_after_credit when the
-    order already holds a cancellation lot; "refund issued" on a Paidy-paid web
-    order needs verified refunds COVERING the Paidy money (paidy_refund_incomplete)
-    and records the verified total, never the gross. An orphan capture case is
-    never closed by a note (PA01); an ADMIN records it from Paidy's read-back
-    (record_orphan_capture). docs/PAIDY.md "PA01–PA15", "QC PR-B".
+  - CARD / PAIDY REFUNDS & CANCELLATION CHARGE — full text docs/SQUARE.md, docs/PAIDY.md (moved 2026-10-18):
+    - CANCELLATION CHARGE: cash order cancelled on its Japan-time order day → 100 % credit; a later Japan day → 30 % of money PAID kept, 70 % credit; Shopify 100 %; no override; ONE formula cancellation_credit_split + _shared/cancellation-credit.ts.
+    - CARD REFUNDS: ONLY in Square; "refund issued" records only Square's COMPLETED refunds of the recorded card money, never the gross; the FAILED/REJECTED or > 1-year exception is ADMIN-approved first.
+    - SQUARE ANSWERS ARE VALIDATED: never write a provider figure the Hub could not read.
+    - STAFF BELL EMAILS: listed types also emailed to Brenda + active admins; changed ONLY via set_staff_bell_emails; never a customer email.
+    - NO DOUBLE COMPENSATION: money refunded through Square or held/taken by a chargeback is NEVER also issued as store credit.
+    - PAIDY — SAME RULE: a VERIFIED Paidy refund refuses "store credit issued"; record_paidy_refund is the ONLY paidy_refunds writer.
 
 ## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
 
@@ -381,8 +329,7 @@ no code change. docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   Shows ONLY on a fresh staff sign-in with no ?next (freshLoginRef set before
   the sign-in await); never on session restore or ?next flows. Failsafes
   (onError, 5s canplay watchdog, reduced motion) are mandatory; there is NO
-  auto-navigate timer. The DOUBLE SLASH in brand-assets//AdminSpalshScreen.mp4
-  is the real key — NEVER normalize it. Invariants are locked by
+  auto-navigate timer. Invariants are locked by
   src/test/post-login-splash-guard.test.tsx.
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
@@ -406,12 +353,6 @@ no code change. docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   Canonical remaining_balance formula:
     remaining_balance = total_amount + Σ(non-waived penalty_fees) - Σ(non-voided payments)
     total_paid        = Σ(payments.amount_paid WHERE voided_at IS NULL)
-
-  NOTE: Services are already in total_amount — do NOT add services separately
-  in the remaining_balance formula. Only penalties are added separately.
-
-  Never compute total_paid from SUM(schedule.paid_amount) — schedule rows are
-  derived data; payments table is the single source of truth.
 
 ## CALCULATION STANDARD — NON-NEGOTIABLE (updated 2026-04-12)
 
@@ -554,12 +495,6 @@ no code change. docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
                     Source row → paid. Next row gets carried_amount = shortfall.
                     NEVER happens automatically.
 
-  NEVER:
-    - Change base_installment_amount for any of the above
-    - Inflate total_due_amount on next row
-    - Auto-carry without explicit admin button click
-    - Call accept-underpayment to perform carry (it is audit-log only)
-
   total_due_amount semantics by status:
     pending / overdue:    base_installment_amount + penalty_amount + carried_amount (full amount owed)
     partially_paid:       full amount owed (base + penalty + carried) — paid_amount tracked separately
@@ -625,10 +560,6 @@ and the Hub frontend that depends on it go `develop` -> `main` in the same PR,
 and only then is the Lovable apply-and-deploy message sent. Never merge a
 migration to `main` ahead of the frontend that needs it, and never send an apply
 message for a migration that is still on `develop`.
-
-Every Lovable apply message must still assert on SOURCE CONTENT (grep counts
-plus line counts) before applying or deploying, and STOP if an assertion fails —
-see "GENERATED FILES & DEPLOY VERIFICATION".
 
 ### ONE SENDER PER LOVABLE MESSAGE — AND THAT SENDER IS CLAUDE CODE
 
@@ -904,7 +835,6 @@ When completing a partially_paid month:
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view
-  actual_remaining → only source for per-row remaining
   allocated        → only source for per-row paid amount
   computed_status  → only source for row status in display
   paid_amount and total_due_amount → write-only caches, never read for display
@@ -952,14 +882,8 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
 ## CARRY-OVER RULES (updated 2026-03-29)
 
-  Underpayment default behavior:
-    When a payment underpays a month, the row is marked 'partially_paid'.
-    The next row is COMPLETELY UNTOUCHED — no carry is written automatically.
-    This is enforced in review-payment-submission (auto-carry removed 2026-03-29).
-
-  Carry-over is a MANUAL STAFF DECISION ONLY:
-    Staff clicks the "Carry Over" button on a partially_paid row in AccountDetail.
-    This calls the carry-over edge function (NOT accept-underpayment).
+  No auto-carry on underpayment (PAYMENT ALLOCATION RULES) is enforced in
+  review-payment-submission (auto-carry removed 2026-03-29).
 
   carry-over edge function (/functions/v1/carry-over; confirm_payment permission):
     total_due_amount = existing_total_due_amount + shortfall (NEVER base +
@@ -971,19 +895,12 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   carried_amount column:
     Written ONLY by the carry-over edge function
     Cleared by void-payment when a payment that triggered carry is voided
-    NEVER written by accept-underpayment
-    NEVER written by inflating total_due_amount
-    NEVER written automatically on underpayment
 
   FORBIDDEN:
-    - Auto-carry on underpayment
-    - Inflating total_due_amount on any row
-    - Writing carried_amount from accept-underpayment
     - carried_amount written when source row is still partially_paid
     - Running carry-over on a paid source row (must be partially_paid)
     - Writing carried_amount without a valid carried_from_schedule_id
     - Writing carried_amount when source row paid_amount = 0
-    - Adding services separately to remaining_balance (services are in total_amount)
 
 ## CARRIED_AMOUNT PRESERVATION (added 2026-05-21)
 
@@ -1455,8 +1372,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - PROOF REQUIRED on EVERY submit path (portal and staff; 400 "Proof of
     payment is required"; previews exempt) and to CONFIRM (400). Bulk import
     rows need proof too: one batch proof, or the row's own proof_url. ONE
-    exception (PD1, 2026-10-03): a 'paidy' submission — its proof is the
-    authorisation read back from Paidy (docs/PAIDY.md).
+    exception: a 'paidy' submission (proof = Paidy's read-back; docs/PAIDY.md PD1).
   - BATCHES (bulk import, multi-invoice) go through insert_payment_submissions_batch
     in one transaction, idempotent on batch_key (docs/PAYMENT-SUBMISSIONS.md
     "BATCH INSERT"). Never loop single inserts for a batch.
@@ -1468,49 +1384,19 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     not_ready_for_payment. Since PR 10 (2026-10-01) only a draft can be
     unconfirmed — materialize_web_draft_atomic stamps ready_confirmed_at.
 
-## PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE (2026-10-03/04; docs/PAIDY.md, docs/SQUARE.md)
+## PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE (2026-10-03/04)
 
-  - Paidy ONLY on a confirmed YEN cash order with a complete Japanese
-    delivery address, money due and nothing paid yet (_shared/paidy-rules.ts).
-  - PAIDY_SECRET_KEY is an edge secret ONLY (never DB/repo/chat/prompt);
-    set_paidy_settings refuses an sk_ key. The website reads the PUBLIC key
-    from the Hub; it has no Paidy env.
-  - paidy_mode off|test|on (fail-closed) + paidy_public_key change ONLY via
-    set_paidy_settings (admin, audited, guard trigger); never in SQL. Key
-    family must match the mode; the secret's family is checked too.
-  - Trust NOTHING about a Paidy payment not read back from Paidy. The Hub
-    NEVER captures: staff capture in the Paidy dashboard, the Hub records it
-    (actor paidy_auto); close on Reject; past expires_at auto-rejects (PD4); a
-    refund before recording is a staff case. docs/PAIDY.md "Follow-up".
-  - PAIDY INTEGRITY: file only via file_paidy_submission_atomic; record only
-    via finalize_cash_submission_atomic (exact yen, provider_capture_id).
-  - CHECKOUT CHOICE (owner C1–C7, 2026-10-05; docs/CHECKOUT-CHOICE.md): the
-    customer picks transfer/paidy/card at checkout, LOCKED for her; staff change
-    it ONLY via change_web_payment_method_atomic. Checkout points = LOYALTY-
-    discount (not money), approved at Confirm; 'nothing paid' checks use
-    cash_order_points_paid / layaway_deposit_started, never total_paid alone.
-    C1 exception: after a REJECTED submission the customer may switch method herself
-    ONCE (switch_web_payment_method_by_customer_atomic), never while locked.
-  - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
-    on that order, any route (trigger); fallback = staff Reject. Paidy rows
-    are immutable, never restored; exceptions go to paidy_cases. First payment
-    wins: a later Paidy approval is released, never queued (QC PR-B).
-  - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
-    PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
-    EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
-    change ONLY via set_square_settings (admin, audited, guard, refuses a
-    token). SQUARE_[PRODUCTION_]ACCESS_TOKEN / _WEBHOOK_SIGNATURE_KEY: edge
-    secrets ONLY. Yen cash orders, any country, never layaway. Authorise
-    on pay, CAPTURE only on Confirm, VOID on Reject. While On, card reaches
-    only square_card_allowed() customers (square_audience listed|everyone,
-    fail-closed listed; set_square_settings only). Preflight: square-preflight.
-  - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
-    file_square_authorization_atomic / apply_square_payment_state; lock
-    card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).
-    A card/Paidy submission is never "needs clarification", and its status
-    moves only via service_role or the two staff case RPCs that set
-    app.provider_submission_writer in-call (F-01/Q-DB1, 2026-10-09).
-  - COD 代金引換 (2026-10-10, docs/COD.md): yen, JP, full payment; cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy (+ _shared/cod-fee.ts), own column, never loyalty/points; no deadline, never lapses or is chased; staff record it IN FULL ONLY (amount = remaining_balance, cod_full_amount_only). Paidy and COD only for customers who live in Japan: customers.location, else customers.country, = Japan (customer_in_japan(), TS customerInJapan; reason customer_not_jp), on top of the JP delivery address.
+  Full text: docs/PAIDY.md, docs/SQUARE.md, docs/CHECKOUT-CHOICE.md, docs/COD.md (moved 2026-10-18).
+  - Paidy ONLY on a confirmed YEN cash order, JP delivery address, money due, nothing paid (_shared/paidy-rules.ts).
+  - PAIDY_SECRET_KEY and Square tokens: edge secrets ONLY, never DB/repo/chat.
+  - paidy_mode / square_mode (off|test|on, fail-closed) + public keys: ONLY via set_paidy_settings / set_square_settings (admin, audited).
+  - Trust NOTHING about a Paidy payment not read back from Paidy; the Hub NEVER captures.
+  - PAIDY INTEGRITY: file only via file_paidy_submission_atomic; record only via finalize_cash_submission_atomic.
+  - CHECKOUT CHOICE: the method is LOCKED at checkout; staff change it ONLY via change_web_payment_method_atomic; checkout points are a loyalty discount, not money.
+  - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment on that order; Paidy rows immutable.
+  - SQUARE: yen cash orders, never layaway; authorise on pay, CAPTURE only on Confirm, VOID on Reject.
+  - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; card_payment_unresolved blocks other payment/expiry/cancel.
+  - COD 代金引換: yen, JP, cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy, never loyalty/points; staff record it IN FULL ONLY; Paidy and COD only for customers living in Japan.
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
@@ -1662,7 +1548,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
   Full text: docs/EMAIL-DELIVERY.md (moved verbatim 2026-09-24).
 
-  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job. ONE exception (B02, owner 2026-10-08): square-reconcile re-sends a card 「返金を受け付けました」 email that has no `sent` row (same key, max 3, then bell refund_email_failed; only refunds after the release — square_refunds.refund_email_replay).
+  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job. ONE exception (B02): square-reconcile re-sends an unsent card refund email (max 3, then bell refund_email_failed; docs/EMAIL-DELIVERY.md).
   - EVERY email attempt is logged via _shared/email-log.ts recordEmailAttempt()
     (sent | failed | suppressed | skipped) by both senders. A new sender that
     bypasses the helpers MUST call recordEmailAttempt() itself. A row absent from
@@ -1676,17 +1562,6 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     except the B02 card refund email above.
   - Render email ONLY with renderEmail (_shared/render-email.ts); never
     renderAsync — it splits UTF-8 across stream chunks (U+FFFD). CI-guarded.
-
-## SERVICES RULE (added 2026-04-12)
-
-  account_services are included in total_amount at the time of service creation.
-  When a service is added:
-    total_amount = downpayment_amount + SUM(base_installment_amounts) + SUM(account_services)
-
-  remaining_balance = total_amount + Σ(non-waived penalties) - Σ(non-voided payments)
-  Services are NOT added separately in remaining_balance formula — they are in total_amount.
-
-  NEVER add services as a separate term alongside total_amount in the formula.
 
 ## DECIMAL RULES
 
@@ -1738,19 +1613,12 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
 ## PLAN MINIMUM ENFORCEMENT (added 2026-04-23)
 
-  Minimum amounts stored in: plan_configurations table
-  Columns: plan_months, min_amount_jpy, min_amount_php
-
-  Current minimums: see PLAN CONFIGURATIONS above (same table).
-
   Enforcement layers:
     1. UI — NewAccount.tsx reads plan_configurations on load,
        shows minimum subtitle on each plan pill button,
        shows red warning under Total Amount if below minimum,
        disables Create button when below minimum — commit 639c3f6
-    2. DB trigger — trg_enforce_plan_minimum fires on INSERT
-       and UPDATE via enforce_plan_minimum_amount() function.
-       Blocks any account creation or edit below the minimum.
+    2. DB trigger (see PLAN CONFIGURATIONS above).
     3. Both PHP and JPY enforced — hard block, no override
 
 
