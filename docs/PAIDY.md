@@ -1059,3 +1059,42 @@ made a failure look like success.
 - Edge only: no migration, no money RPC. Deploys `paidy-reconcile` and
   `review-payment-submission` (it imports the recorded-bell helper).
 - Tests: `development/paidy-reconcile-error-reporting.test.ts` (CI).
+
+
+## Rules moved from CLAUDE.md (2026-10-18)
+
+Moved verbatim from CLAUDE.md on 2026-10-18 (trim back under 100k characters). CLAUDE.md keeps one line per rule and a pointer here.
+
+From "STORE CREDIT — NON-NEGOTIABLE":
+
+  - PAIDY — SAME RULE (PA02/PA03, owner 2026-10-08, refuse): any VERIFIED
+    paidy_refunds row on the order refuses "store credit issued" at cancel
+    (paidy_already_refunded) in BOTH cancel RPCs; record_paidy_refund (service
+    role) is the ONLY writer of paidy_refunds — order lock first, idempotent by
+    refund id, monotonic refund_jpy, bell paidy_refund_after_credit when the
+    order already holds a cancellation lot; "refund issued" on a Paidy-paid web
+    order needs verified refunds COVERING the Paidy money (paidy_refund_incomplete)
+    and records the verified total, never the gross. An orphan capture case is
+    never closed by a note (PA01); an ADMIN records it from Paidy's read-back
+    (record_orphan_capture). docs/PAIDY.md "PA01–PA15", "QC PR-B".
+
+From "PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE":
+
+  - Paidy ONLY on a confirmed YEN cash order with a complete Japanese
+    delivery address, money due and nothing paid yet (_shared/paidy-rules.ts).
+  - PAIDY_SECRET_KEY is an edge secret ONLY (never DB/repo/chat/prompt);
+    set_paidy_settings refuses an sk_ key. The website reads the PUBLIC key
+    from the Hub; it has no Paidy env.
+  - paidy_mode off|test|on (fail-closed) + paidy_public_key change ONLY via
+    set_paidy_settings (admin, audited, guard trigger); never in SQL. Key
+    family must match the mode; the secret's family is checked too.
+  - Trust NOTHING about a Paidy payment not read back from Paidy. The Hub
+    NEVER captures: staff capture in the Paidy dashboard, the Hub records it
+    (actor paidy_auto); close on Reject; past expires_at auto-rejects (PD4); a
+    refund before recording is a staff case. docs/PAIDY.md "Follow-up".
+  - PAIDY INTEGRITY: file only via file_paidy_submission_atomic; record only
+    via finalize_cash_submission_atomic (exact yen, provider_capture_id).
+  - PAIDY LOCK: while cash_order_payment_lock says paidy_*, NO other payment
+    on that order, any route (trigger); fallback = staff Reject. Paidy rows
+    are immutable, never restored; exceptions go to paidy_cases. First payment
+    wins: a later Paidy approval is released, never queued (QC PR-B).

@@ -142,3 +142,18 @@ remaining in the same transaction. `payment_options` gains `cod` with `fee_jpy`;
 `cod_fee`. Full rules: docs/COD.md.
 
 Paidy and COD only for a customer who LIVES in Japan (owner 2026-10-15): `customers.location`, else `customers.country`, = Japan (`customerInJapan()` / `public.customer_in_japan()`), on top of the Japan delivery address; otherwise greyed with reason `customer_not_jp`.
+
+
+## Rules moved from CLAUDE.md (2026-10-18)
+
+Moved verbatim from CLAUDE.md on 2026-10-18 (trim back under 100k characters). CLAUDE.md keeps one line per rule and a pointer here.
+
+From "PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE":
+
+  - CHECKOUT CHOICE (owner C1–C7, 2026-10-05; docs/CHECKOUT-CHOICE.md): the
+    customer picks transfer/paidy/card at checkout, LOCKED for her; staff change
+    it ONLY via change_web_payment_method_atomic. Checkout points = LOYALTY-
+    discount (not money), approved at Confirm; 'nothing paid' checks use
+    cash_order_points_paid / layaway_deposit_started, never total_paid alone.
+    C1 exception: after a REJECTED submission the customer may switch method herself
+    ONCE (switch_web_payment_method_by_customer_atomic), never while locked.

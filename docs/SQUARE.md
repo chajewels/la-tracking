@@ -969,3 +969,78 @@ Owner "go" 2026-10-15 11:14 JST on the QA rev. 2 dispositions (brief §7 A–C).
 - **A card mark is the refund decision.** `mark_web_order_refund_issued_atomic` with method `card` sets `decision = 'order_cancelled_refunded'`, `decided_at`, `decided_by` (and a default `decision_note`) on the order's COMPLETED Square refunds that have no decision yet. A decision a person already recorded is never overwritten; PENDING / FAILED refunds are untouched (`decide_square_case` remains the manual path and its state checks still apply). Nothing was backfilled: the six undecided test-order refunds of 2026-10-04…11 are the owner's to record.
 - **"Refund emails" on a card order tells the truth.** `resend-order-email` (list) adds one `refund_received_square` row per COMPLETED Square refund (key `refund-received-square-<id>`, real send-log status, `resendable: false` — the hourly B02 replay is the only re-sender, so the two paths cannot double up) and flags the card 「返金が完了しました」 row `not_sent_reason: card_refund_email_sent_by_square` when Square refunds exist; the Hub shows "skipped by design" with no Resend button instead of "Never attempted". A mixed order whose non-card part DID send is unaffected (the flag only applies while there is no attempt).
 - Tests: `development/sql/square-ops-environment-acceptance.sql` (13/13 on the replay; re-run of the migration is a no-op), `development/square-ops-environment.test.ts` (CI), `src/test/square-ops.test.ts`, `src/test/refund-email-resend.test.ts`.
+
+
+## Rules moved from CLAUDE.md (2026-10-18)
+
+Moved verbatim from CLAUDE.md on 2026-10-18 (trim back under 100k characters). CLAUDE.md keeps one line per rule and a pointer here.
+
+From "STORE CREDIT — NON-NEGOTIABLE":
+
+  - CANCELLATION CHARGE (owner 2026-10-06/08; D-SQF01 = A, 2026-10-08): a
+    website or Hub cash order cancelled on its ORDER DAY IN JAPAN TIME → 100 %
+    of the money paid as credit; a later Japan day → 30 % of the money PAID is
+    kept, 70 % is credit. The order day is the Japan day of created_at while
+    order_date still equals that instant's PHT day; an edited / typed
+    order_date is read as a Japan day as it stands; the cancel day is the
+    Japan day of now(). order_date itself and the PHT day boundary are
+    untouched. No override (a special case is a separate manual credit).
+    Shopify stays 100 %. ONE formula: cancellation_credit_split(currency,
+    order_date, money, at, order_at) (SQL; the 4-arg overload is gone) + the
+    TS mirror _shared/cancellation-credit.ts; used by
+    terminate_web_order_atomic (store_credit_issued) and
+    cancel_cash_order_atomic, both passing created_at. docs/SQUARE.md "SQF01".
+  - CARD REFUNDS (B01, 2026-10-08): a card-paid web order is refunded ONLY in
+    Square; "refund issued" is refused at cancel (card_refund_needs_square),
+    and mark_web_order_refund_issued_atomic records exactly Square's COMPLETED
+    refund total of the RECORDED card money (never the gross), refusing until
+    one exists; card marks are incremental (only COMPLETED refund not yet
+    marked), the non-card part of a mixed order is marked once (L6). ONE exception
+    (SQF06 + SQV, owner 2026-10-09): a Square refund FAILED / REJECTED or the
+    payment AUTHORISED over one calendar year ago → an ADMIN first APPROVES
+    (after a fail-closed Square re-read; refused while any refund is
+    processing) an amount ≤ captured − COMPLETED refunds − credit issued, then
+    pays and records AGAINST the approval: bank_transfer_exception, or
+    store_credit_exception (written request; an unspent lot issued after the
+    approval, locked, never reused). Writer is service_role only.
+    docs/SQUARE.md "SQF06", "Fix revalidation".
+  - SQUARE ANSWERS ARE VALIDATED (SQF02, 2026-10-09): paymentOf / refundOf /
+    moneyOf in _shared/square.ts — the object asked for (id), whole-unit money
+    in a named currency, our own payments in JPY, a refund with POSITIVE money
+    (never ¥0); record_square_refund refuses bad_amount / bad_currency /
+    over_ceiling / parent_mismatch with ONE card_refund_unrecorded bell each.
+    Never write a provider figure the Hub could not read.
+  - STAFF BELL EMAILS (V11b, owner 2026-10-08): bells stay in the Hub for every
+    member; the types in system_settings.staff_bell_email_types are ALSO emailed
+    to Brenda + every active admin (staff_bell_email_recipients, frozen at bell
+    time); changed ONLY via set_staff_bell_emails (admin, audited, guard
+    trigger). A provider bounce / complaint, or a suppressed refund email, rings
+    bell email_bounced (V13). Never a customer email. docs/SQUARE.md "Staff bell
+    emails".
+  - NO DOUBLE COMPENSATION (R05, owner 2026-10-08): money already refunded
+    through Square (any square_refunds row not FAILED/REJECTED) is NEVER issued
+    again as store credit — both cancel RPCs refuse (card_already_refunded);
+    record_square_refund locks the ORDER first and rings
+    card_refund_after_credit when a refund lands on an order already cancelled
+    with credit. Never subtract-and-credit. docs/SQUARE.md "Reassessment R01–R10".
+    A chargeback holding/taking the money (EVIDENCE_REQUIRED, PROCESSING, LOST,
+    ACCEPTED) is money returned too: card_disputed refusal, subtracted from the
+    outside-Square cap, never recorded as paid (F-02, D-QC1, CODE-M1; square_order_disputed_jpy).
+
+From "PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE":
+
+  - SQUARE = same shape with a card (S1 2026-10-04): square_mode off|test|on,
+    PUBLIC square_app_id / square_location_id, card_agreement_min_jpy (0 =
+    EVERY card payment needs the e-signed Card Purchase Agreement, owner D9)
+    change ONLY via set_square_settings (admin, audited, guard, refuses a
+    token). SQUARE_[PRODUCTION_]ACCESS_TOKEN / _WEBHOOK_SIGNATURE_KEY: edge
+    secrets ONLY. Yen cash orders, any country, never layaway. Authorise
+    on pay, CAPTURE only on Confirm, VOID on Reject. While On, card reaches
+    only square_card_allowed() customers (square_audience listed|everyone,
+    fail-closed listed; set_square_settings only). Preflight: square-preflight.
+  - SQUARE INTEGRITY: reserve_square_attempt BEFORE Square; then
+    file_square_authorization_atomic / apply_square_payment_state; lock
+    card_payment_unresolved: no other payment/expiry/cancel (SQUARE.md).
+    A card/Paidy submission is never "needs clarification", and its status
+    moves only via service_role or the two staff case RPCs that set
+    app.provider_submission_writer in-call (F-01/Q-DB1, 2026-10-09).
