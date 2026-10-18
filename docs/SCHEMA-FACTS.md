@@ -1508,10 +1508,11 @@ Migration 20261006100000_media_cutouts.sql; rules in docs/MEDIA-CUTOUTS.md.
   `website_media_cutout / review_media_cutout:<action>`.
 
 
-## Product reviews (PR-R1, 2026-09-30 — migration staged, not applied)
+## Product reviews (PR-R1, 2026-09-30 — live)
 
-Staged SQL: docs/sql/20261020100000_product_reviews_r1.sql (intended as
-supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
+Original staged SQL: docs/sql/20261020100000_product_reviews_r1.sql. The
+public-schema tables and policies are recorded in the record_live_only_*
+migrations; the storage policies below are live (checked 2026-10-18).
 
 - `review_invites` — one personal review link per ORDER (exactly one of
   cash_order_id / layaway_account_id), created by staff from a COMPLETED order.
@@ -1527,6 +1528,13 @@ supabase/migrations/20261020100000_product_reviews_r1.sql on apply).
   {first_name}, {piece}, {link}.
 - Buckets: `review-uploads` (PRIVATE, customer photos pre-approval, no public
   policy) and `review-photos` (PUBLIC, approved copies). 5 MB, jpeg/png/webp.
+  Storage policies, all `TO authenticated` and gated on `moderate_reviews`:
+  `review-uploads` SELECT; `review-photos` SELECT, INSERT, UPDATE, DELETE.
+  Approve copies photos with `upload(..., { upsert: true })`, which needs
+  SELECT + INSERT + UPDATE on the target bucket — the bucket being public does
+  NOT count for RLS. The SELECT policy ("Moderators can read review photos",
+  migration 20261224100000) was missing until 2026-10-18 and every photo
+  approval failed; Hide's remove() also needs it to see the files. Never drop it.
 - Permissions: `send_review_invite` (admin, staff, csr) — "Copy review message"
   on completed orders; `moderate_reviews` (admin) — Website → Reviews and the
   translate-review function. Matrix module "Reviews".
