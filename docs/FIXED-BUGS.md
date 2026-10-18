@@ -6392,3 +6392,26 @@ Follow-up (writer, same day): `website` POST /me/service-requests no longer inse
 `service_request_created` staff_notifications row when `customer.is_test === true`
 (`if ((customer as AnyRec).is_test !== true) {` around the existing non-blocking try), so a test
 customer's request never rings a bell the Hub cannot open. Real customers unchanged.
+
+## Approving a review with a photo failed: "new row violates row-level security policy" (2026-10-18)
+Symptom (owner, 2026-10-18): Website → Reviews → Approve on a review WITH a customer photo
+(岩城 ミッシェル, Inv #19012) showed "Action failed — new row violates row-level security policy"
+and the review stayed Pending. Live check: the review-photos bucket held 0 objects and the only
+approval ever done (2026-10-17) was on a review without a photo — no photo approval had ever
+succeeded. The approver (sales@, admin) had moderate_reviews = true, so permission was not the cause.
+Cause: ReviewsCard.publishPhotos copies each photo into the PUBLIC review-photos bucket with
+`storage.upload(dest, blob, { upsert: true })`. An upsert is INSERT ... ON CONFLICT DO UPDATE,
+which RLS also checks against SELECT; Supabase documents that upsert uploads need SELECT and
+UPDATE besides INSERT. Live had moderator INSERT / UPDATE / DELETE policies on review-photos but
+NO SELECT policy — the PR-R1 staged SQL (docs/sql/20261020100000_product_reviews_r1.sql) never
+had one. A public bucket only serves anonymous public URLs; it does not satisfy RLS on
+storage.objects. The same gap meant Hide's remove() could not see the files it deletes (its
+error is not checked), so hidden photos would have stayed public.
+Fix (DB only, no frontend or edge change): migration 20261224100000_review_photos_select_policy.sql
+adds "Moderators can read review photos" (SELECT on review-photos, moderate_reviews, guarded).
+It exposes nothing new — the bucket is public by design. docs/SCHEMA-FACTS.md "Product reviews".
+Reproduced on a throwaway Postgres 16 with the live policy set: the upsert raised the same
+error and the Hide delete matched 0 rows; with the SELECT policy, upload, re-upload and delete all
+succeed and other buckets stay refused.
+Do not reintroduce: a storage upload with `upsert: true` (or a remove()) into a bucket that has no
+SELECT policy for the caller; reading "the bucket is public" as permission to write or read under RLS.
