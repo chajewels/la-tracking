@@ -100,7 +100,7 @@ directly; do not infer from the absent row.
 | A2 | `POST /layaway/quote` for the basket, term 6M | `eligible: true`, `term_downgraded: false`, a 6-row schedule |
 | A3 | `POST /checkout/quote` with `mode: "layaway"`, `term_months: 6` | 200, a `checkout_quotes` row, `settlement_currency = 'JPY'` |
 | A4 | `POST /checkout/pay` on that quote | 200, a `layaway_accounts` row created |
-| A5 | **Account row** | `source_channel = 'web'`, `web_reference` matches `CJ-W-\d{6}`, `quote_id` set, `customer_lang` set, `expired_at` NULL, `transfer_due_at` ≈ now + 72h |
+| A5 | **Account row** | `source_channel = 'web'`, `web_reference` matches `CJ-W-\d{6}`, `quote_id` set, `customer_lang` set, `expired_at` NULL, `transfer_due_at` ≈ now + 24h (new customer) or 72h (returning) |
 | A6 | **Deposit** | `downpayment_amount` = **30% of the total** (product + shipping + services), not 30% of the product alone |
 | A7 | **Schedule, to the yen** | Every `base_installment_amount` and `due_date` identical to what the Hub's own preview produces for the same figures. Instalment 1 is order month **+ 1**, never the order month |
 | A8 | **Item lines** | One `layaway_account_items` row per basket line, `variant_id` and `quantity` correct |

@@ -43,6 +43,10 @@ here because the Hub is where the schema lives.
 >   CASH orders, which are hard-coded to `now() + interval '72 hours'` in
 >   `create_web_order_atomic` with no way to extend; (c) whether extending a deadline
 >   that has already passed reopens the order.
+>   UPDATE 2026-10-18 (owner): (a) and (b) are settled — every web order and web
+>   layaway gets 24 h for a new customer and 72 h for a returning one
+>   (`web_deposit_deadline_hours()`), and staff can still move it with
+>   set_account_deadlines. The hard-coded 72 h described above is gone.
 > - **Proof of payment:** the CSR uploads in the Hub, the customer uploads on the
 >   website. The customer portal already does this through `submit-payment`. The
 >   storefront needs the plumbing (upload to `payment-proofs`, insert
