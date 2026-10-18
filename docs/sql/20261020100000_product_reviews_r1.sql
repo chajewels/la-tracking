@@ -172,6 +172,12 @@ CREATE POLICY "Moderators can replace review photos" ON storage.objects
   FOR UPDATE TO authenticated
   USING (bucket_id = 'review-photos'
          AND (SELECT has_permission((SELECT auth.uid()), 'moderate_reviews')));
+-- Added 2026-10-18 (migration 20261224100000): upload(..., { upsert: true })
+-- needs SELECT as well as INSERT/UPDATE; without it every photo approval failed.
+CREATE POLICY "Moderators can read review photos" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (bucket_id = 'review-photos'
+         AND (SELECT has_permission((SELECT auth.uid()), 'moderate_reviews')));
 CREATE POLICY "Moderators can remove review photos" ON storage.objects
   FOR DELETE TO authenticated
   USING (bucket_id = 'review-photos'

@@ -165,3 +165,12 @@ docs/MIGRATIONS.md).
 4. Storefront PR (checkout option, 代引手数料 row, order page, switch, i18n, fixtures, contract,
    特定商取引法 rows, a `check:money` rule against bracket lookups).
 5. Owner acceptance, then the admin switches COD on in the card.
+
+
+## Rules moved from CLAUDE.md (2026-10-18)
+
+Moved verbatim from CLAUDE.md on 2026-10-18 (trim back under 100k characters). CLAUDE.md keeps one line per rule and a pointer here.
+
+From "PAIDY あと払い & SQUARE CARDS — NON-NEGOTIABLE":
+
+  - COD 代金引換 (2026-10-10, docs/COD.md): yen, JP, full payment; cod_mode via set_cod_settings only; ONE fee rule cod_fee_jpy (+ _shared/cod-fee.ts), own column, never loyalty/points; no deadline, never lapses or is chased; staff record it IN FULL ONLY (amount = remaining_balance, cod_full_amount_only). Paidy and COD only for customers who live in Japan: customers.location, else customers.country, = Japan (customer_in_japan(), TS customerInJapan; reason customer_not_jp), on top of the JP delivery address.
