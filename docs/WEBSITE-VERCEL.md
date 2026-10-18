@@ -348,6 +348,17 @@ with a real slug** rather than a null. Media rows resolve their product through
 `vault.decrypted_secrets` (`email_queue_service_role_key`) — never embedded.
 It posts only when at least one slug resolved.
 
+**Reviews and tiers (2026-10-18, migration 20261225100000).** Two more tables
+notify, with a tag instead of (or as well as) a slug:
+
+| Table | Triggers | Sends |
+|---|---|---|
+| `product_reviews` | `trg_product_reviews_revalidate_ins` (WHEN NEW approved), `…_upd` (WHEN OLD or NEW approved), `…_del` (WHEN OLD approved) | `tag: "reviews"` + `productSlug` from `website_product_id` (tag alone when the review has no linked product) |
+| `loyalty_tiers` | `trg_loyalty_tiers_revalidate` (INSERT/UPDATE/DELETE) | `tag: "loyalty"` |
+
+A review that is never approved (pending → rejected) sends nothing — the site
+never showed it. The storefront accepts both tags from cha-jewels-web #375.
+
 `EXECUTE` is revoked from `anon`, `authenticated` and `PUBLIC`.
 
 ### Relay — `notify_website` edge function
