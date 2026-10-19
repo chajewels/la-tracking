@@ -1127,7 +1127,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - THE DEPOSIT DEADLINE IS A FIELD (transfer_due_at), moved ONLY through
     set_account_deadlines / set-account-deadlines (edit_account, audited). A
     REASON IS REQUIRED (400 reason_required); creation is exempt. On a cash
-    order it writes transfer_due_at AND expires_at together. Web default 72h.
+    order it writes transfer_due_at AND expires_at together. Web default:
+    24 h for a new customer, 72 h (3 days) for a returning one — public.web_deposit_deadline_hours(); returning = has a non-cancelled cash order or layaway in the Hub (an old Hub customer matched by email counts), owner confirmed 2026-10-18.
     No violation predicate, no automatic violator classification.
   - A DEADLINE IS MOVED, NEVER REMOVED: null → deadline_required. Backdating is
     legal but returns deadline_in_past: true and the Hub warns.

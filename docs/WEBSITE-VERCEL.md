@@ -162,7 +162,7 @@ consumption in **one transaction** — two buyers cannot both clear a stock chec
 Failure returns `{error}` in the payload (mapped to 409 `out_of_stock` etc.),
 not a 500.
 
-**72 hours, then the stock comes back.** `expire_transfer_orders()` runs hourly
+**24 or 72 hours, then the stock comes back.** (24 h for a new customer, 72 h for a returning one — `web_deposit_deadline_hours()`; owner confirmed 2026-10-18.) `expire_transfer_orders()` runs hourly
 at `:17` and cancels unpaid web transfer orders past `transfer_due_at`,
 restoring each line's `stock_qty`. It is a **SQL function called directly by
 pg_cron**, not an edge function: no HTTP hop and no Vault service key to drift
@@ -560,7 +560,7 @@ shared pieces in `order-shared.tsx`); the sender/gate/log helper is
 |---|---|---|---|
 | Order confirmation | `website` `/checkout/pay` | order created | 「ご注文ありがとうございます CJ-W-… / Your Cha Jewels order CJ-W-…」 |
 | Payment received | `review-payment-submission` | CSR confirms and the web order is fully paid | 「お支払いを確認しました … / Payment received — …」 |
-| Order cancelled | `auto-expire-cash-orders` | 72-hour deadline passes | 「ご注文がキャンセルされました … / … has been cancelled」 |
+| Order cancelled | `auto-expire-cash-orders` | deposit deadline passes (24 h new / 72 h returning) | 「ご注文がキャンセルされました … / … has been cancelled」 |
 
 Body language = `cash_orders.customer_lang` (the storefront's language cookie at
 pay time, sent as `lang` in the `/checkout/pay` body; NULL reads as `ja`).

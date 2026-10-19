@@ -40,7 +40,7 @@
   is exempt — it sets a first deadline rather than changing one. On a
   cash order it writes `transfer_due_at` AND `expires_at` together, because
   the hourly cron reads `expires_at` and a customer must never be shown a
-  deadline the cron does not act on. Web layaway default: 72 hours.
+  deadline the cron does not act on. Web layaway default: 24 h for a new customer, 72 h (3 days) for a returning one — public.web_deposit_deadline_hours(); returning = has a non-cancelled cash order or layaway in the Hub (an old Hub customer matched by email counts), owner confirmed 2026-10-18.
   There is no 24h/72h violation predicate, no forfeiture lookup and no
   automatic violator classification — those were replaced by this field.
 
