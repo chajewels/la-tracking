@@ -251,7 +251,13 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
 - `loyalty-inactivity-check` (pg_cron job 16, 180-day) now derives
   `effectiveLastPurchase = GREATEST(stored last_purchase_at, MAX
   successful order_date)` per member and measures the 166-day
-  warning + 180-day expiry against it. Read-only derivation — the
+  warning + 180-day expiry against it. Only orders that can earn points
+  count here: an order whose `loyalty_jpy_amount` is known and below
+  ¥10,000 is skipped by the award path ("below_minimum") and is likewise
+  ignored by this gate; a NULL amount still counts (safety net). The gap
+  clock is unchanged and still counts every paid order (owner rule
+  2026-10-19 — six members' points had been held open since June by
+  ₱1,465–¥8,500 cash orders). Read-only derivation — the
   cron does NOT write `last_purchase_at` back. This guarantees a
   member with a recent real order is never warned or expired even
   if `award-loyalty-points` never fired for it. The customer's

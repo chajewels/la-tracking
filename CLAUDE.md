@@ -1495,7 +1495,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
   - loyalty-inactivity-check measures the 166-day warning + 180-day expiry
     against effectiveLastPurchase = GREATEST(stored last_purchase_at, MAX
-    successful order_date), read-only (never written back). NEVER use
+    successful order_date), read-only (never written back); orders with a
+    known loyalty amount < ¥10,000 do NOT count (2026-10-19). NEVER use
     `created_at` as an order/purchase date (import contamination) — use
     `order_date` / `date_paid`. docs/LOYALTY-RULES.md "Rules moved from CLAUDE.md".
 
