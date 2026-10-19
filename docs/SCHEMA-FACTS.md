@@ -1859,3 +1859,13 @@ Bug #165 pattern). They never granted anything; the portal writes through
 `request-extension` and reads through `customer-portal` (service role). Dropped
 in migration 20261025100000 so the table no longer carries a policy that only
 looks like an anon write path. `extension_requests.portal_token` stays.
+
+## Website revalidation — reviews and loyalty tiers (2026-10-18)
+
+- `notify_website_revalidate()` branches: `product_reviews` → tag `reviews` +
+  product slug (via `website_product_id`); `loyalty_tiers` → tag `loyalty`.
+  Migration `20261225100000_revalidate_reviews_loyalty.sql`.
+- Triggers: `trg_product_reviews_revalidate_ins` / `_upd` / `_del` (only rows
+  that are, or were, `status = 'approved'`); `trg_loyalty_tiers_revalidate`
+  (every row change). The existing `update_product_reviews_updated_at` is
+  unchanged.
