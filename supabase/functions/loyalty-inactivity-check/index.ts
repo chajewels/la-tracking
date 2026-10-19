@@ -257,26 +257,36 @@ Deno.serve(async (req) => {
   const PAGE_SIZE = 1000;
   const MAX_PAGES = 20;
 
+  type OrderDateRow = {
+    customer_id: string;
+    order_date: string;
+    loyalty_jpy_amount: number | string | null;
+  };
+
+  // Mirrors award-loyalty-points (BELOW_MINIMUM): an order whose loyalty
+  // amount is known and under ¥10,000 earns nothing and never moves the
+  // stored last_purchase_at, so it must not restart the 180-day EXPIRY
+  // clock either (owner rule 2026-10-19). A NULL amount still counts — the
+  // safety net for an order whose award never ran.
+  const EXPIRY_MIN_LOYALTY_JPY = 10000;
+
   async function fetchAllOrderDates(
     table: "layaway_accounts" | "cash_orders",
     statuses: string[],
-  ): Promise<Array<{ customer_id: string; order_date: string }>> {
-    const acc: Array<{ customer_id: string; order_date: string }> = [];
+  ): Promise<Array<OrderDateRow>> {
+    const acc: Array<OrderDateRow> = [];
     for (let page = 0; page < MAX_PAGES; page++) {
       const from = page * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const { data, error } = await supabase
         .from(table)
-        .select("customer_id, order_date")
+        .select("customer_id, order_date, loyalty_jpy_amount")
         .in("status", statuses)
         .gt("total_paid", 0)
         .not("order_date", "is", null)
         .range(from, to);
       if (error) throw error;
-      const rows = (data ?? []) as Array<{
-        customer_id: string;
-        order_date: string;
-      }>;
+      const rows = (data ?? []) as Array<OrderDateRow>;
       acc.push(...rows);
       if (rows.length < PAGE_SIZE) break;
     }
@@ -286,20 +296,30 @@ Deno.serve(async (req) => {
   // topTwoByCustomer: the two most recent successful order dates per
   // customer, sorted DESCENDING (index 0 = most recent). The gap clock
   // uses these two dates directly when available, so any successful order
-  // of any amount counts toward keeping the account active — matching the
-  // expiry gate's definition of activity. Fewer than 2 rows → caller
+  // of any amount counts toward keeping the account active (the expiry
+  // gate is stricter — see qualifyingLastByCustomer). Fewer than 2 rows → caller
   // falls back to the prev_purchase_at-based scalar computation.
   let topTwoByCustomer: Map<string, Date[]>;
+  // qualifyingLastByCustomer: the most recent successful paid order that
+  // can earn points (loyalty amount NULL or >= ¥10,000). Used ONLY by the
+  // warning/expiry gate; the gap clock above keeps counting every order.
+  let qualifyingLastByCustomer: Map<string, Date>;
   try {
     const [layawayRows, cashRows] = await Promise.all([
       fetchAllOrderDates("layaway_accounts", LAYAWAY_SUCCESSFUL),
       fetchAllOrderDates("cash_orders", CASH_SUCCESSFUL),
     ]);
     topTwoByCustomer = new Map<string, Date[]>();
+    qualifyingLastByCustomer = new Map<string, Date>();
     for (const r of [...layawayRows, ...cashRows]) {
       if (!r.customer_id || !r.order_date) continue;
       const d = new Date(r.order_date);
       if (Number.isNaN(d.getTime())) continue;
+      const amt = r.loyalty_jpy_amount == null ? null : Number(r.loyalty_jpy_amount);
+      if (amt == null || !Number.isFinite(amt) || amt >= EXPIRY_MIN_LOYALTY_JPY) {
+        const q = qualifyingLastByCustomer.get(r.customer_id);
+        if (!q || d.getTime() > q.getTime()) qualifyingLastByCustomer.set(r.customer_id, d);
+      }
       const list = topTwoByCustomer.get(r.customer_id) ?? [];
       // Insert d in DESCENDING order; keep at most 2 entries.
       if (list.length === 0 || d.getTime() >= list[0].getTime()) {
@@ -326,10 +346,11 @@ Deno.serve(async (req) => {
         ? new Date(member.prev_purchase_at)
         : null;
       // effectiveLastPurchase = GREATEST(stored last_purchase_at,
-      // most recent successful order_date). Read-only gate input — we
-      // do NOT write it back to loyalty_members.
+      // most recent successful paid order that can earn points — loyalty
+      // amount NULL or >= ¥10,000). Read-only gate input — we do NOT write
+      // it back to loyalty_members.
       const topTwo = topTwoByCustomer.get(member.customer_id) ?? [];
-      const mostRecentOrder = topTwo[0] ?? null;
+      const mostRecentOrder = qualifyingLastByCustomer.get(member.customer_id) ?? null;
       const effectiveLastPurchase =
         mostRecentOrder && mostRecentOrder.getTime() > lastPurchase.getTime()
           ? mostRecentOrder
