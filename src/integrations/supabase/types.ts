@@ -11059,6 +11059,10 @@ export type Database = {
         }
         Returns: Json
       }
+      release_final_forfeit_settlement_hold: {
+        Args: { p_submission_id: string }
+        Returns: Json
+      }
       release_loyalty_award_claim: {
         Args: { p_source_id: string; p_source_kind: string }
         Returns: undefined
@@ -11317,6 +11321,22 @@ export type Database = {
       }
       set_website_coupon_active: {
         Args: { p_active: boolean; p_id: string }
+        Returns: Json
+      }
+      settle_final_forfeited_same_day_atomic: {
+        Args: {
+          p_account_id: string
+          p_amount: number
+          p_notes: string
+          p_payment_date: string
+          p_payment_method: string
+          p_penalties: Json
+          p_preview?: boolean
+          p_proof_url: string
+          p_reference_number: string
+          p_sender_name: string
+          p_user_id: string
+        }
         Returns: Json
       }
       square_audience: { Args: never; Returns: string }
