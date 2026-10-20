@@ -25,6 +25,7 @@ import { applyPaymentState, syncSquareRefund } from "../_shared/square-sync.ts";
 import { notAcceptedMethod, sendCashPaymentRejectedEmail } from "../_shared/payment-rejected-email.ts";
 import { regionForCurrency } from "../_shared/transfer-methods.ts";
 import { isWebEntity, reviewEmailKey, routeSubmissionEmail, sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
+import { FINAL_FORFEIT_SETTLEMENT_TYPE, settlementAmount } from "../_shared/final-forfeit-settlement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1344,6 +1345,32 @@ Deno.serve(async (req) => {
 
     // If confirming, create actual payment records
     if (action === "confirmed") {
+      // R7 same-day settlement (owner 2026-10-20): FULL amount only. Confirming
+      // may happen any day, but only while the account is still final_forfeited
+      // and the submission equals what is left — total_amount + non-waived
+      // penalties − non-voided payments (allocate_payment_atomic's formula) — so
+      // the payment completes the account. Checked before the CAS flip.
+      if (submission.submission_type === FINAL_FORFEIT_SETTLEMENT_TYPE) {
+        const [{ data: sAcc }, { data: sPens }, { data: sPays }] = await Promise.all([
+          supabase.from("layaway_accounts").select("status, total_amount").eq("id", submission.account_id).single(),
+          supabase.from("penalty_fees").select("penalty_amount").eq("account_id", submission.account_id).neq("status", "waived"),
+          supabase.from("payments").select("amount_paid").eq("account_id", submission.account_id).is("voided_at", null),
+        ]);
+        const due = settlementAmount({
+          totalAmount: Number(sAcc?.total_amount ?? 0),
+          nonWaivedPenalties: (sPens ?? []).reduce((t: number, p: { penalty_amount: number }) => t + Number(p.penalty_amount), 0),
+          newPenalties: 0,
+          payments: (sPays ?? []).reduce((t: number, p: { amount_paid: number }) => t + Number(p.amount_paid), 0),
+        });
+        if (sAcc?.status !== "final_forfeited" || Math.round(Number(submission.submitted_amount) * 100) !== Math.round(due * 100)) {
+          return new Response(JSON.stringify({
+            error: `A same-day settlement is confirmed only in full while the account is final-forfeited (due now: ${due}).`,
+            code: "settlement_not_full",
+            due,
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
       // Idempotency guard — atomic verify-and-flip from a pre-confirm
       // state ('submitted' or 'under_review') to 'confirmed'. If zero
       // rows match, the submission was already processed concurrently;
@@ -1422,6 +1449,43 @@ Deno.serve(async (req) => {
           });
         }
         confirmedPaymentIds.push(result.paymentId);
+
+        // R7: the settlement completed the account → restore the points the
+        // final forfeit revoked, the same way reactivation does (Bug #101):
+        // restore-loyalty-points on the most recent revoke transaction.
+        // Non-blocking; a failure never undoes the confirmed payment.
+        if (submission.submission_type === FINAL_FORFEIT_SETTLEMENT_TYPE) {
+          try {
+            const { data: done } = await supabase
+              .from("layaway_accounts").select("status").eq("id", submission.account_id).single();
+            if (done?.status === "completed") {
+              const { data: revokeTx } = await supabase
+                .from("loyalty_transactions")
+                .select("id")
+                .eq("account_id", submission.account_id)
+                .eq("transaction_type", "revoked")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (revokeTx?.id) {
+                const rsRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                  },
+                  // Same call as reactivate-account (owner R7: restore "the same way reactivation does").
+                  body: JSON.stringify({ revoke_transaction_id: revokeTx.id, trigger_event: "account_reactivated" }),
+                });
+                if (!rsRes.ok) {
+                  console.error(`[review-payment-submission] restore-loyalty-points failed (${rsRes.status}) for settlement ${submission.id}`);
+                }
+              }
+            }
+          } catch (rsErr) {
+            console.warn("[review-payment-submission] settlement loyalty restore failed (non-blocking):", rsErr);
+          }
+        }
 
         if (submissionIsDP) {
           // Membership pre-check: skip the entire loyalty pipeline (no
@@ -1802,6 +1866,13 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // R7: a REJECTED same-day settlement puts a web plan's re-held pieces back
+    // on sale (the account stays final_forfeited). Idempotent RPC.
+    if (action === "rejected" && submission.submission_type === FINAL_FORFEIT_SETTLEMENT_TYPE) {
+      const { error: relErr } = await supabase.rpc("release_final_forfeit_settlement_hold", { p_submission_id: submission_id });
+      if (relErr) console.error(`[review-payment-submission] settlement stock release failed for ${submission_id}:`, relErr);
     }
 
     // Fire-and-forget: archive the proof into payment_proofs (layaway).

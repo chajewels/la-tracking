@@ -1017,7 +1017,8 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - 'final_forfeited' ON the end date (today PHT >= end; 08:10 PHT run), frozen
     skip first. The extension-month penalty cap is retired.
   - Customers are told end − 1 ("settle by"); the Hub badge shows the end date.
-  - FINAL_FORFEITED blocks all further negotiation/reactivation.
+  - FINAL_FORFEITED blocks all further negotiation/reactivation. ONE exception (R7): one FULL
+    settlement submitted with proof ON the PHT final-forfeit day — docs "Same-day settlement".
   Requests: extension_requests, CSR Monitoring → Extensions. Full text:
   docs/PENALTY-AND-FORFEITURE.md "Extension end date and final forfeiture".
 
