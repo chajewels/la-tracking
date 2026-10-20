@@ -47,7 +47,8 @@ export interface LayawayUpdateEmailProps {
   amount?: number | null
   /** Staff message (rejected / needs_info) or void reason (payment_voided). */
   message?: string | null
-  /** The (new) deadline, ISO (deadline_moved), or the extension end (reactivated, YYYY-MM-DD). */
+  /** The (new) deadline, ISO (deadline_moved), or the settle-by day (reactivated, YYYY-MM-DD:
+   *  the extension end − 1, owner rule R6 2026-10-20). */
   deadline?: string | null
   /** Clock for the deadline; defaults from the currency (yen → JST, pesos → PHT). */
   region?: 'JP' | 'OVERSEAS'

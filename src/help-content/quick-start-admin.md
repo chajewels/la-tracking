@@ -66,14 +66,12 @@ When a submission has an amount mismatch (over or under), a decision modal appea
 
 ### 3. Grant a one-time extension
 
-After a customer's account is forfeited, you can grant one rescue extension (typically one month).
+After a customer's account is forfeited, you can grant one rescue extension — but only within 7 days of the forfeiture (the same window the customer has to request one in the portal).
 
 1. Open the forfeited account (status: `forfeited`)
-2. Click **Grant Extension** (admin only)
-3. Set the extension end date (usually 1 month out)
-4. Confirm
+2. Click **Reactivate (One-Time)**. After the 7-day window the button is gone and the page says the window has closed.
 
-The account status changes to `extension_active`. If the customer doesn't pay by the end date — or hits the penalty cap during the extension month — status becomes `final_forfeited` (permanent, blocks further negotiation or reactivation).
+The account status changes to `extension_active`. The extension always ends exactly one month after the **forfeiture date** (forfeited Oct 1 → ends Nov 1), no matter which day you reactivate. Penalties keep running during the extension, but none are charged on or after the end date. On the end date itself the account becomes `final_forfeited` (permanent, blocks further negotiation or reactivation). The customer is told to settle by the day **before** the end date.
 
 ---
 

@@ -10,7 +10,9 @@ import { CUSTOMER_SITE_NAME as SITE_NAME, CUSTOMER_FOOTER as FOOTER_LINE } from 
 interface Props {
   customerName?: string
   invoiceNumber?: string
-  extensionEndDate?: string
+  /** The last day to settle: the day BEFORE the extension end date, because the
+   *  account final-forfeits on the morning of the end date (owner rule R6, 2026-10-20). */
+  settleByDate?: string
   remainingBalance?: string
   currency?: string
   portalUrl?: string
@@ -19,7 +21,7 @@ interface Props {
 const ExtensionGrantedEmail = ({
   customerName = 'Valued Customer',
   invoiceNumber = '00000',
-  extensionEndDate = 'N/A',
+  settleByDate = 'N/A',
   remainingBalance = '0',
   currency = 'PHP',
   portalUrl,
@@ -28,7 +30,7 @@ const ExtensionGrantedEmail = ({
   return (
     <Html lang="en" dir="ltr">
       <Head />
-      <Preview>Extension granted on INV #{invoiceNumber} — settle by {extensionEndDate}</Preview>
+      <Preview>Extension granted on INV #{invoiceNumber} — settle by {settleByDate}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>
@@ -39,17 +41,17 @@ const ExtensionGrantedEmail = ({
           <Text style={text}>
             Great news! Your account <strong>INV #{invoiceNumber}</strong>{' '}
             has been granted a one-time extension. Please settle your
-            remaining balance before the extension period ends.
+            remaining balance by the date below.
           </Text>
           <Section style={detailsBox}>
-            <Text style={detailRow}><strong>Extension End Date:</strong> {extensionEndDate}</Text>
+            <Text style={detailRow}><strong>Settle By:</strong> {settleByDate}</Text>
             <Text style={detailRow}><strong>Remaining Balance:</strong> {symbol} {remainingBalance}</Text>
           </Section>
           <Section style={warningBox}>
             <Text style={warningLabel}>Important</Text>
             <Text style={warningText}>
-              This is a one-time extension. Failure to settle before{' '}
-              {extensionEndDate} will result in permanent account forfeiture.
+              This is a one-time extension. Failure to settle by{' '}
+              {settleByDate} will result in permanent account forfeiture.
             </Text>
           </Section>
           {portalUrl && (
@@ -80,7 +82,7 @@ export const template = {
   previewData: {
     customerName: 'Maria Santos',
     invoiceNumber: '18456',
-    extensionEndDate: 'May 23, 2026',
+    settleByDate: 'May 22, 2026',
     remainingBalance: '18,500',
     currency: 'PHP',
   },

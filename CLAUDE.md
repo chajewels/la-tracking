@@ -1006,17 +1006,20 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
   PATH 3 fixture forensic note: docs/PENALTY-AND-FORFEITURE.md (moved verbatim 2026-09-24).
 
-### After forfeiture:
-  - Admin can grant ONE-TIME extension → status = 'extension_active'
-  - Extension has an end date (typically 1 month)
-  - extension_active + extension expires → 'final_forfeited' (PERMANENT)
-  - extension_active + extension month penalty cap reached → 'final_forfeited' (PERMANENT)
-  - FINAL_FORFEITED blocks all further negotiation/reactivation
-
-  Extension request window (customer portal): within 7 days of
-  layaway_accounts.forfeited_at; after that the button is hidden and the
-  closed-window message shown; requests live in extension_requests, reviewed in
-  CSR Monitoring → Extensions — docs "Rules moved from CLAUDE.md".
+### After forfeiture (owner rules 2026-10-20; supersede Bug #108 + the extension-month cap):
+  - ONE-TIME reactivation → 'extension_active', only while whole days since
+    forfeited_at <= 7: the SAME window as the portal request, staff included
+    (refusal = the customer's closed-window words). ONE helper for every caller:
+    _shared/extension-rules.ts.
+  - END = PHT day of forfeited_at + 1 month, same day, clamped (Jan 31 → Feb 28/29);
+    never the reactivation/request date; null forfeited_at → 409 forfeited_at_missing.
+  - Penalties continue through the extension (no reset); NONE on/after the end date.
+  - 'final_forfeited' ON the end date (today PHT >= end; 08:10 PHT run), frozen
+    skip first. The extension-month penalty cap is retired.
+  - Customers are told end − 1 ("settle by"); the Hub badge shows the end date.
+  - FINAL_FORFEITED blocks all further negotiation/reactivation.
+  Requests: extension_requests, CSR Monitoring → Extensions. Full text:
+  docs/PENALTY-AND-FORFEITURE.md "Extension end date and final forfeiture".
 
 ### Independence rule:
   penalty-engine and auto-forfeit-settlement are INDEPENDENT
