@@ -226,13 +226,18 @@ describe("locked functions — source order (comments stripped)", () => {
       "if (frozenAccountIds.has(accountId)) continue;",
     );
     const blocked = src.indexOf("penaltyBlockedByExtensionEnd(");
-    const bump = src.indexOf('cap += currency === "PHP" ? 1000 : 2000;');
-    const triggers = src.indexOf("const triggerDates");
+    // R7 (2026-10-20) moved the cap (incl. the CLEAN bump) and the trigger
+    // dates into _shared/penalty-schedule.ts; the engine calls them here.
+    const bump = src.indexOf("penaltyCapFor(");
+    const triggers = src.indexOf("buildTriggerDates(");
     for (const i of [frozen, blocked, bump, triggers])
       expect(i).toBeGreaterThan(-1);
     expect(frozen).toBeLessThan(blocked);
     expect(blocked).toBeLessThan(bump); // CLEAN bump only before the end date
     expect(blocked).toBeLessThan(triggers); // covers new AND waived-to-unpaid
+    expect(code("supabase/functions/_shared/penalty-schedule.ts")).toContain(
+      'cap += currency === "PHP" ? 1000 : 2000;',
+    );
     // Independence rule: never calls auto-forfeit-settlement.
     expect(src).not.toMatch(/auto-forfeit-settlement/);
   });

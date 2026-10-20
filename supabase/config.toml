@@ -71,6 +71,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.record-payment]
     verify_jwt = true
+  [functions.settle-final-forfeited]
+    verify_jwt = true
   [functions.restore-payment]
     verify_jwt = false
   [functions.restructure-account]

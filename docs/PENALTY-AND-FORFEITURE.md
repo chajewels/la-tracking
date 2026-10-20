@@ -216,3 +216,91 @@ each other; each reads `extension_end_date` itself.
 **Not changed by this.** Invoice 18788 (forfeited 2026-09-20, end 2026-10-20)
 is left to the code already deployed: it final-forfeits at the 2026-10-21
 00:10 UTC run, and its 2026-10-20 penalty stays (owner decision).
+
+## Same-day settlement after final forfeiture (owner rule R7, 2026-10-20)
+
+**Rule.** A `final_forfeited` layaway can still be settled ONCE, IN FULL, if the
+customer's payment WITH proof is SUBMITTED on the final forfeiture date — the
+PHT (Asia/Manila) calendar day of the account's latest `final_forfeited`
+audit row. Staff may CONFIRM it later; confirmation is not limited to that day.
+Anything else stays refused: FINAL_FORFEITED still blocks negotiation and
+reactivation.
+
+**Before (≤ 2026-10-20).** A final-forfeited plan could not take any payment:
+record-payment, RecordPaymentModal and `canAcceptPayment` all exclude the status.
+A customer who paid on the morning of the end date had no way back.
+
+**After.** Hub → the account → **Same-day settlement** (shown only on that
+day, only to `record_payment`). One dialog: the amount, that day's penalty (if
+any), method, date, reference, sender, proof. The reviewer confirms it in
+Payment Submissions as usual (`confirm_payment`, admin / finance). No new
+permission key.
+
+**The amount** = `total_amount` + non-waived penalties (including that day's) −
+non-voided payments: exactly `allocate_payment_atomic`'s remaining formula, so
+confirming it completes the account (status `completed`). Full amount only — a
+partial or larger amount is refused (`amount_mismatch` at submit,
+`settlement_not_full` at confirm).
+
+**That day's penalty.** Charged exactly as the penalty engine would have charged
+it that day: same installment, same next `stage:cycle` slot, same amount, the
+same caps (incl. the CLEAN extension bump), guards and waiver grace. If the
+engine would not have charged anything that day (e.g. the installment is at its
+cap, or no trigger falls on that day), nothing is charged. Only the slot dated
+that day is considered; an earlier slot the engine never charged is NOT
+back-charged. If the engine already charged that day's slot before the final
+forfeiture, that penalty is simply part of the amount.
+
+To guarantee "same as the engine", the engine's trigger-date builder, cap and
+per-row loop moved verbatim into `supabase/functions/_shared/penalty-schedule.ts`
+(`buildTriggerDates`, `penaltyCapFor`, `planItemPenalties`). penalty-engine
+imports them — no rule change; `src/test/penalty-schedule.test.ts` compares the
+helper with the engine's former inline code (every cap combination + 3,000
+seeded random rows). The R7 planner is `_shared/final-forfeit-settlement.ts`.
+
+**Same-day auto-waive.** The live trigger `trg_auto_waive_same_day` waives every
+unpaid penalty dated the submission's (JST) day when a submission is inserted.
+For R7 the owner's rule wins: the RPC inserts the submission BEFORE the new
+penalty row, and undoes, in the same transaction, any auto-waive that trigger
+made for THIS submission (penalty back to `unpaid`, the auto waiver request
+`rejected`, audit `auto_waiver_reverted`). Every other submission keeps the
+auto-waive exactly as before.
+
+**One per account.** A second settlement is refused (`already_settled`) unless
+the earlier one was REJECTED; a rejected settlement frees the slot, still on the
+same day only. Its penalty stays (it was charged that day; a retry finds the
+slot taken and does not charge it twice). A pending submission of any kind
+refuses it (`submission_pending`, INVARIANT 12).
+
+**Web plans.** The pieces released at forfeiture are re-held in the same
+transaction before anything else is written, or the call refuses `out_of_stock`
+and writes nothing. If the settlement is REJECTED, review-payment-submission
+calls `release_final_forfeit_settlement_hold`, which puts the pieces back on
+sale (account still `final_forfeited`; idempotent; only a hold this settlement
+took).
+
+**Loyalty.** When the confirmed settlement completes the account,
+review-payment-submission calls restore-loyalty-points on the account's latest
+`revoked` transaction (the final-forfeit revoke) with
+`trigger_event: "account_reactivated"` — the same call reactivate-account makes.
+Non-blocking.
+
+**Pieces.**
+- Migration `20261226100000_final_forfeit_same_day_settlement.sql` (owner applies):
+  `settle_final_forfeited_same_day_atomic` (one transaction; refusals first;
+  `p_preview` writes nothing) and `release_final_forfeit_settlement_hold`. Both
+  SECURITY DEFINER, service_role only.
+- Edge function `settle-final-forfeited` (requireAuth + `record_payment`,
+  `verify_jwt = true`).
+- review-payment-submission: the full-amount check before the confirm CAS flip,
+  the loyalty restore, the release on reject.
+- Hub: `src/components/accounts/FinalForfeitSettlement.tsx` on AccountDetail.
+- `payment_submissions.submission_type = 'final_forfeit_settlement'`.
+
+**Independence.** settle-final-forfeited calls neither penalty-engine nor
+auto-forfeit-settlement; it imports the engine's helpers only.
+
+**Tests.** `src/test/final-forfeit-settlement.test.ts`,
+`src/test/penalty-schedule.test.ts` (CI), and the SQL acceptance on a throwaway
+Postgres with the live triggers copied verbatim:
+`development/sql/final-forfeit-settlement.sh` (36 checks).
