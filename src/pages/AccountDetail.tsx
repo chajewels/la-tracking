@@ -77,6 +77,7 @@ import {
 } from '@/lib/business-rules';
 import type { Tables } from '@/integrations/supabase/types';
 import { customerSettleByDate, EXTENSION_WINDOW_CLOSED_MESSAGE } from '../../supabase/functions/_shared/extension-rules.ts';
+import { FinalForfeitSettlement } from '@/components/accounts/FinalForfeitSettlement';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -1405,6 +1406,11 @@ export default function AccountDetail() {
             />
             {isAdmin && canAddService(account.status) && can('add_service') && (
               <AddServiceDialog accountId={account.id} currency={currency} />
+            )}
+            {/* Same-day settlement after final forfeiture (owner rule R7): renders only
+                while the server says it can be submitted today. */}
+            {account.status === 'final_forfeited' && can('record_payment') && (
+              <FinalForfeitSettlement accountId={account.id} invoiceNumber={account.invoice_number} currency={currency} />
             )}
             {/* Reactivate button — forfeited, never reactivated, and inside the same
                 7-day window as the customer's extension request (owner rule R2). */}

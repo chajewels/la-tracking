@@ -5,6 +5,7 @@ import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
 import { penaltyBlockedByExtensionEnd } from "../_shared/extension-rules.ts";
+import { buildTriggerDates, penaltyCapFor, planItemPenalties } from "../_shared/penalty-schedule.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -125,11 +126,6 @@ Deno.serve(async (req) => {
     const getAmount = (currency: string, stage: string): number => {
       const key = `penalty_${currency.toLowerCase()}_${stage}`;
       return config[key] || (currency === "PHP" ? 500 : 1000);
-    };
-
-    const getPenaltyCap = (currency: string, installmentNumber: number, planMonths: number): number => {
-      if (installmentNumber === planMonths) return currency === "PHP" ? 3000 : 6000;
-      return currency === "PHP" ? 1000 : 2000;
     };
 
     // ── Fetch penalty cap overrides ──
@@ -324,13 +320,11 @@ Deno.serve(async (req) => {
     }
 
     for (const item of allOverdueItems) {
-      const dueDate = new Date(item.due_date + "T00:00:00Z");
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
       const planMonths = (item as any).layaway_accounts.payment_plan_months || 6;
       const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
-      const dueDayOfMonth = dueDate.getUTCDate();
 
       // Skip this item if the account has a pending submission
       if (frozenAccountIds.has(accountId)) continue;
@@ -347,23 +341,18 @@ Deno.serve(async (req) => {
       )) continue;
 
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
-      const overrideCap = overrideMap.get(accountId);
-      let cap = overrideCap !== undefined
-        ? (installmentNumber >= planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
-        : getPenaltyCap(currency, installmentNumber, planMonths);
-
       const acct = (item as any).layaway_accounts;
-      if (
-        acct.is_reactivated &&
-        acct.status === "extension_active" &&
-        installmentNumber === planMonths &&
-        !accountsWithEarlierUnpaid.has(accountId)
-      ) {
-        // CLEAN account (all earlier installments paid): extension grants ONE more
-        // month on the final installment, +PHP 1000 / JPY 2000 (cap 4000 / 8000).
-        // DIRTY accounts get no bump — final installment stays at 3000 / 6000.
-        cap += currency === "PHP" ? 1000 : 2000;
-      }
+      // Cap incl. overrides and the CLEAN extension bump: _shared/penalty-schedule.ts
+      // (moved verbatim 2026-10-20 so the R7 same-day settlement charges the same).
+      const cap = penaltyCapFor({
+        currency,
+        installmentNumber,
+        planMonths,
+        overrideCap: overrideMap.get(accountId),
+        isReactivated: !!acct.is_reactivated,
+        status: acct.status,
+        hasEarlierUnpaid: accountsWithEarlierUnpaid.has(accountId),
+      });
 
       if (currentTotal >= cap) continue;
 
@@ -392,86 +381,40 @@ Deno.serve(async (req) => {
       const graceConsumed =
         (priorActivePenalties && priorActivePenalties.length > 0) ||
         (priorUnpaidRows && priorUnpaidRows.length > 0);
-      const week1Offset = graceConsumed ? 0 : 7;
 
-      // Build trigger dates using the alternating pattern
-      const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
-
-      // Phase 1: week1:1 — due + 7 (grace) or due + 0 (grace consumed)
-      const phase1Date = new Date(dueDate);
-      phase1Date.setUTCDate(phase1Date.getUTCDate() + week1Offset);
-      triggerDates.push({ date: phase1Date, stage: "week1", cycle: 1 });
-
-      // Phase 2: week2:1 — always due + 14
-      const phase2Date = new Date(dueDate);
-      phase2Date.setUTCDate(phase2Date.getUTCDate() + 14);
-      triggerDates.push({ date: phase2Date, stage: "week2", cycle: 1 });
-
-      // Phase 3+: alternating monthly checkpoint + 14 days
-      for (let m = 1; m <= 12; m++) {
-        const monthlyDate = new Date(Date.UTC(
-          dueDate.getUTCFullYear(),
-          dueDate.getUTCMonth() + m,
-          Math.min(dueDayOfMonth, daysInMonth(dueDate.getUTCFullYear(), dueDate.getUTCMonth() + m))
-        ));
-        triggerDates.push({ date: monthlyDate, stage: "week1", cycle: m + 1 });
-
-        const plus14Date = new Date(monthlyDate);
-        plus14Date.setUTCDate(plus14Date.getUTCDate() + 14);
-        triggerDates.push({ date: plus14Date, stage: "week2", cycle: m + 1 });
+      // Trigger dates and the per-row trigger loop: _shared/penalty-schedule.ts
+      // (moved verbatim 2026-10-20; src/test/penalty-schedule.test.ts proves
+      // the result equals the old inline code).
+      const plan = planItemPenalties({
+        triggers: buildTriggerDates(item.due_date, !!graceConsumed),
+        now,
+        existingKeys,
+        currentTotal,
+        cap,
+        amountFor: (stage) => getAmount(currency, stage),
+        waivedSlots: waivedPenaltyIds.get(item.id),
+        waiverGraceDays,
+      });
+      for (const ins of plan.inserts) {
+        penaltiesToInsert.push({
+          account_id: accountId,
+          schedule_id: item.id,
+          currency,
+          penalty_amount: ins.amount,
+          penalty_stage: ins.stage,
+          penalty_cycle: ins.cycle,
+          penalty_date: ins.penaltyDate,
+        });
       }
-
-      let newPenaltyForItem = 0;
-      const waivedUpdates: Array<{ id: string; penaltyAmount: number }> = [];
-
-      for (const trigger of triggerDates) {
-        if (now < trigger.date) break;
-
-        const key = `${trigger.stage}:${trigger.cycle}`;
-        if (existingKeys.has(key)) continue;
-
-        let penaltyAmount = getAmount(currency, trigger.stage);
-
-        // Enforce cap
-        const projectedTotal = currentTotal + newPenaltyForItem + penaltyAmount;
-        if (projectedTotal > cap) {
-          penaltyAmount = Math.max(0, cap - currentTotal - newPenaltyForItem);
-          if (penaltyAmount <= 0) break;
-        }
-
-        const penaltyDate = trigger.date.toISOString().split("T")[0];
-
-        // Check if a waived penalty occupies this stage:cycle slot
-        const waivedRow = waivedPenaltyIds.get(item.id)?.get(key);
-
-        if (waivedRow) {
-          // An approved waiver holds this penalty for waiverGraceDays counted
-          // from its OWN penalty_date. Inside the window: touch nothing at all
-          // — no increment, no schedule write. That is what keeps
-          // layaway_schedule.penalty_amount consistent with penalty_fees.
-          const graceEnd = new Date(`${waivedRow.penaltyDate}T00:00:00Z`);
-          graceEnd.setUTCDate(graceEnd.getUTCDate() + waiverGraceDays);
-          if (now <= graceEnd) continue;
-          waivedUpdates.push({ id: waivedRow.id, penaltyAmount });
-        } else {
-          // Normal INSERT path — no waived row exists at this slot
-          penaltiesToInsert.push({
-            account_id: accountId,
-            schedule_id: item.id,
-            currency,
-            penalty_amount: penaltyAmount,
-            penalty_stage: trigger.stage,
-            penalty_cycle: trigger.cycle,
-            penalty_date: penaltyDate,
-          });
-        }
-
-        // Register key to prevent double-processing within same run
+      // Register keys to prevent double-processing within same run
+      for (const key of plan.newKeys) {
         existingKeys.add(key);
         if (!existingPenaltyMap.has(item.id)) existingPenaltyMap.set(item.id, new Set());
         existingPenaltyMap.get(item.id)!.add(key);
-        if (!waivedPenaltyIds.get(item.id)?.has(key)) newPenaltyForItem += penaltyAmount;
       }
+      let newPenaltyForItem = plan.insertedTotal;
+      const waivedUpdates: Array<{ id: string; penaltyAmount: number }> =
+        plan.reinstate.map((r) => ({ id: r.id, penaltyAmount: r.amount }));
 
       // Execute waived-to-unpaid updates for this item. penalty_date is NOT
       // modified — it records when the penalty was incurred. Only count the
@@ -850,8 +793,3 @@ Deno.serve(async (req) => {
     });
   }
 });
-
-/** Helper: days in a given month (0-indexed month, handles year rollover) */
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-}
