@@ -55,6 +55,7 @@ import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError, isDeadLinkError } from '@/lib/portal-session';
 import { portalAuthBody } from '@/lib/portal-auth';
 import { safeHttpUrl } from '@/lib/safe-url';
+import { EXTENSION_WINDOW_CLOSED_MESSAGE, extensionWindowOpen } from '../../supabase/functions/_shared/extension-rules.ts';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -1962,15 +1963,13 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               <div style={{flex:1}}>
                 <p style={{fontSize:'12px',fontWeight:600,color:'#F39C12'}}>Account Forfeited</p>
                 {(() => {
-                  const daysSinceForfeiture = account.forfeited_at
-                    ? Math.floor((Date.now() - new Date(account.forfeited_at).getTime()) / (1000 * 60 * 60 * 24))
-                    : 0;
-                  const windowOpen = !account.forfeited_at || daysSinceForfeiture <= 7;
+                  // Same window as request-extension and staff reactivation (owner rule R2).
+                  const windowOpen = extensionWindowOpen(account.forfeited_at);
 
                   if (!windowOpen) {
                     return (
                       <p style={{fontSize:'11px',color:'rgba(243,156,18,0.6)',marginTop:'2px',fontStyle:'italic'}}>
-                        The extension request window has closed. Please contact us directly for assistance.
+                        {EXTENSION_WINDOW_CLOSED_MESSAGE}
                       </p>
                     );
                   }

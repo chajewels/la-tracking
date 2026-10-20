@@ -123,6 +123,9 @@ Extension request window (customer portal):
 - Once request submitted: button disabled, shows "Extension Request Pending"
 - Extension requests stored in: extension_requests table
 - Admin reviews in: CSR Monitoring → Extensions tab
+- Since 2026-10-20 (owner rule R2) STAFF reactivation follows the SAME window
+  and refuses with the SAME message — see "Extension end date and final
+  forfeiture" below. One helper: _shared/extension-rules.ts extensionWindowOpen.
 
 ### Penalty trigger schedule (per overdue month)
 
@@ -142,3 +145,74 @@ ACCOUNT-SCOPED RUN (2026-09-20): penalty-engine accepts { account_id } and
 evaluates that one account with IDENTICAL rules (a strict subset of the
 nightly run — no rule changed, only when it is evaluated).
 reactivate-account calls it (non-blocking) after the reactivation writes.
+
+## Extension end date and final forfeiture (owner rules 2026-10-20)
+
+Owner confirmation 2026-10-20, applied GOING FORWARD to every account. No
+existing account data was changed. Supersedes Bug #108 ("extension = 1 month
+from reactivation") and retires the extension-month penalty-cap path. The rules
+live in ONE file, `supabase/functions/_shared/extension-rules.ts`, imported by
+reactivate-account, request-extension, penalty-engine, auto-forfeit-settlement
+and, from src/, by `canReactivate` (business-rules.ts), AccountDetail and
+CustomerPortal. Regression tests: `src/test/extension-rules.test.ts` (CI).
+
+**R1 — End date.** `extension_end_date` = the PHT (Asia/Manila) calendar day of
+`layaway_accounts.forfeited_at` + 1 month, same day-of-month, clamped to the
+last day of the target month (Jan 31 → Feb 28, or Feb 29 in a leap year; Mar 31
+→ Apr 30). Never the reactivation date or the extension-request date, so
+reactivating later never adds days. Forfeited 2026-10-01 → ends 2026-11-01.
+`forfeited_at` NULL → reactivate-account refuses 409 `forfeited_at_missing`.
+The same value is the Extension Month row's due_date (reactivate_layaway_atomic,
+unchanged).
+
+**R2 — Reactivation window.** Staff reactivation is allowed only while whole
+days elapsed since `forfeited_at` are <= 7 — the same computation as the
+customer's extension request (`floor((now − forfeited_at) / 24h) <= 7`, i.e. the
+window closes exactly 8 × 24 h after forfeiture). Outside it, reactivate-account
+answers 403 `window_closed` with the customer's own words: "The extension request
+window has closed. Please contact us directly for assistance." The Hub hides the
+Reactivate button outside the window and shows that line instead. Whenever the
+reactivation happens, the end date is always R1.
+
+**R3 — Penalties.** The normal penalty cycle continues through the extension
+with no reset (two penalties per installment cycle: the due date — or +7 while
+grace is unconsumed — and due + 14). The account-scoped penalty-engine run at
+reactivation still applies everything already due, including the installment
+due on the forfeiture day. penalty-engine creates NO penalty — new, or a waived
+one reinstated to unpaid — for an `extension_active` account on or after its
+`extension_end_date` (`today` is PHT). The check sits right after the
+frozen-submission skip and before every cap and trigger, so the CLEAN
++₱1,000 / ¥2,000 final-installment bump applies only before the end date. The
+crons keep their order (penalty engine 00:05 → auto-forfeit 00:10 UTC).
+
+**R4 — Final forfeiture ON the end date.** auto-forfeit-settlement
+final-forfeits an `extension_active` account when today (PHT) >= its
+`extension_end_date`. The 00:10 UTC run is 08:10 PHT / 09:10 JST, and at that
+moment the UTC date equals the PHT date. Before 2026-10-20 the check was
+`end + "T23:59:59Z" < now`, which made the first final forfeit land the day
+AFTER the end date (17325: end 2026-07-04, final-forfeited 2026-07-05 00:10).
+The frozen-submission skip (INVARIANT 12) still comes first: an account with a
+pending submission on its end date is final-forfeited on the first run after the
+submission is resolved.
+
+**R5 — Extension-month penalty cap retired.** The old path summed penalties
+only on the Extension Month row (installment = plan + 1), which is created with
+base 0; penalty-engine Guard 1 (`paid_amount < base_installment_amount`) always
+drops a base-0 row, so the row was never charged and the path could never fire
+(all five reactivated accounts with such a row had zero penalties on it on
+2026-10-20). Under R3 + R4 the end date governs alone, so the path was removed,
+not repaired. The Extension Month row itself stays (Bug #106).
+
+**R6 — Customer wording.** Every customer-facing "until / settle by {date}"
+shows `extension_end_date − 1 day` (`customerSettleByDate`), because the account
+final-forfeits on the morning of the end date: the AccountDetail copy message,
+the `extension-granted` email ("Settle By"), the web `layaway-update`
+reactivated email ("open until"), and reactivate-account's response / toast
+text. The internal Hub badge ("Extension until …") still shows the end date.
+
+**Independence.** penalty-engine and auto-forfeit-settlement still never call
+each other; each reads `extension_end_date` itself.
+
+**Not changed by this.** Invoice 18788 (forfeited 2026-09-20, end 2026-10-20)
+is left to the code already deployed: it final-forfeits at the 2026-10-21
+00:10 UTC run, and its 2026-10-20 penalty stays (owner decision).

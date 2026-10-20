@@ -466,7 +466,7 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 
 The only NEW edge-emitted bell types from the sound-notifications feature are (both fire-and-forget — try/catch, console.warn on error, never throw):
 - `penalty_applied` — producer: `penalty-engine` (one aggregated row per run when `penalties_created > 0`).
-- `account_forfeited` — producers: `auto-forfeit-settlement` (the two extension paths emit `metadata.kind='final_forfeited'`; the final-month-penalty-cap and 3-month-overdue paths emit `kind='forfeited'`) and `manual-forfeit` (`kind='forfeited'`, `manual:true`).
+- `account_forfeited` — producers: `auto-forfeit-settlement` (the extension-expiry path emits `metadata.kind='final_forfeited'` — the extension-month cap path was retired 2026-10-20; the final-month-penalty-cap and 3-month-overdue paths emit `kind='forfeited'`) and `manual-forfeit` (`kind='forfeited'`, `manual:true`).
 
 ### sales_log eligible invariant (added 2026-06-19, Bug #234)
 

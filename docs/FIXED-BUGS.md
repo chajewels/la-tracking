@@ -6415,3 +6415,35 @@ error and the Hide delete matched 0 rows; with the SELECT policy, upload, re-upl
 succeed and other buckets stay refused.
 Do not reintroduce: a storage upload with `upsert: true` (or a remove()) into a bucket that has no
 SELECT policy for the caller; reading "the bucket is public" as permission to write or read under RLS.
+
+## Reactivation extension: wrong anchor, final forfeit a day late, penalty on the end date, dead cap path (2026-10-20)
+Case: invoice 18788 (PHP, DIRTY). Forfeited 2026-09-20 00:10 UTC (PATH 2), reactivated 04:16 UTC
+the same day, extension_end_date 2026-10-20. On 2026-10-20 the 00:05 UTC penalty run charged
+week1:2 ₱500 (penalty_date 2026-10-20) and the 00:10 UTC auto-forfeit run left it extension_active.
+Four defects against the owner rules confirmed 2026-10-20:
+1. Wrong anchor. reactivate-account set extension_end_date = today (UTC) + 1 month (the Bug #108
+   fix, 2026-05-15) and never read forfeited_at, so reactivating late added days (18427: forfeited
+   2026-08-08, reactivated 2026-09-09, ended 2026-10-09 — 31 days more than one month from
+   forfeiture), and setUTCMonth overflowed at month end (Jan 31 + 1 → Mar 3).
+2. Final forfeit one day late. auto-forfeit-settlement tested `end + "T23:59:59Z" < now`; at the
+   00:10 UTC run on the end date that is false, so the earliest final forfeit was end + 1
+   (17325: end 2026-07-04, final-forfeited 2026-07-05 00:10).
+3. Penalty on the end date. penalty-engine selected extension_active accounts with no end-date
+   check and runs at 00:05, before auto-forfeit at 00:10.
+4. Dead cap path. The extension-month penalty cap summed penalties only on the Extension Month row
+   (plan + 1), created with base 0; penalty-engine Guard 1 drops every base-0 row, so the row was
+   never charged (17059, 17325, 18304, 18427, 18788: zero penalties on it) — so the Bug #106 premise
+   ("always create the row so the cap path is reachable") never held in practice.
+Fix (owner rules R1–R6, docs/PENALTY-AND-FORFEITURE.md "Extension end date and final forfeiture"):
+one helper file supabase/functions/_shared/extension-rules.ts. R1 end = PHT day of forfeited_at +
+1 month, clamped; null forfeited_at → 409 forfeited_at_missing. R2 staff reactivation only inside
+the customer's 7-day request window (same check, same words; Hub button hidden outside it). R3
+penalty-engine skips an extension_active account on/after its end date, after the frozen check.
+R4 final forfeit when today (PHT) >= end. R5 cap path removed; the Extension Month row stays
+(Bug #106). R6 customers are told end − 1. Supersedes Bug #108. Tests: src/test/extension-rules.test.ts.
+No existing account data changed; 18788 is left to the deployed code (final forfeit at the
+2026-10-21 00:10 UTC run; its 2026-10-20 penalty stays — owner decision).
+Do not reintroduce: an extension end computed from the reactivation or request date; an end-date
+comparison against end-of-day UTC; a penalty for an extension_active account on or after its end
+date; a cap that counts penalties on a row the engine never charges.
+

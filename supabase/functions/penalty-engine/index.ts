@@ -4,6 +4,7 @@ import { sendTemplateEmail } from "../_shared/transactional-email-templates/send
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { penaltyBlockedByExtensionEnd } from "../_shared/extension-rules.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -150,7 +151,7 @@ Deno.serve(async (req) => {
     while (true) {
       let q = supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months, is_reactivated)")
+        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months, is_reactivated, extension_end_date)")
         .in("status", ["pending", "overdue", "partially_paid"])
         .lte("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue", "extension_active"])
@@ -333,6 +334,17 @@ Deno.serve(async (req) => {
 
       // Skip this item if the account has a pending submission
       if (frozenAccountIds.has(accountId)) continue;
+
+      // No penalty — new, or a waived one reinstated — for an extension_active
+      // account on or after its extension_end_date (owner rule R3, 2026-10-20).
+      // `today` is PHT. auto-forfeit-settlement final-forfeits it that morning;
+      // this engine never calls it (Independence rule) and the crons keep
+      // their order.
+      if (penaltyBlockedByExtensionEnd(
+        (item as any).layaway_accounts.status,
+        (item as any).layaway_accounts.extension_end_date,
+        today,
+      )) continue;
 
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
