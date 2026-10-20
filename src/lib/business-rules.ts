@@ -10,6 +10,7 @@
 
 import type { Tables } from '@/integrations/supabase/types';
 import { Currency } from './types';
+import { extensionWindowOpen } from '../../supabase/functions/_shared/extension-rules.ts';
 
 // ── Type aliases ──
 export type DbSchedule = Tables<'layaway_schedule'>;
@@ -245,9 +246,19 @@ export function isFinalForfeited(status: string): boolean {
   return status === 'final_forfeited';
 }
 
-/** Guard: Can this account be reactivated? Only forfeited + never reactivated. */
-export function canReactivate(status: string, isReactivated: boolean): boolean {
-  return status === 'forfeited' && !isReactivated;
+/**
+ * Guard: Can this account be reactivated? Only forfeited, never reactivated,
+ * with a forfeiture date, and inside the same 7-day window as the customer's
+ * extension request (owner rule R2, 2026-10-20; reactivate-account enforces
+ * the same check server-side). The window helper is the one shared file.
+ */
+export function canReactivate(
+  status: string,
+  isReactivated: boolean,
+  forfeitedAt: string | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  return status === 'forfeited' && !isReactivated && !!forfeitedAt && extensionWindowOpen(forfeitedAt, nowMs);
 }
 
 /** Guard: Can this account accept payments? */

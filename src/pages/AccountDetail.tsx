@@ -76,6 +76,7 @@ import {
   type ScheduleViewRow,
 } from '@/lib/business-rules';
 import type { Tables } from '@/integrations/supabase/types';
+import { customerSettleByDate, EXTENSION_WINDOW_CLOSED_MESSAGE } from '../../supabase/functions/_shared/extension-rules.ts';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -893,7 +894,10 @@ export default function AccountDetail() {
     message += `🔄 REACTIVATION NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Your account has been reactivated as a one-time consideration.\n`;
-    message += `You are given a final extension of 1 month${account.extension_end_date ? ` (until ${new Date(account.extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
+    // Customer copy shows the settle-by day = extension end − 1: the account
+    // final-forfeits on the morning of the end date (owner rule R6, 2026-10-20).
+    // UTC formatting keeps the YYYY-MM-DD date from shifting a day in any browser zone.
+    message += `You are given a final extension of 1 month${account.extension_end_date ? ` (until ${new Date(customerSettleByDate(account.extension_end_date)).toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' })})` : ''}.\n`;
     message += `Penalty charges will continue to apply based on the existing schedule.\n`;
     message += `No further extensions will be allowed.\n\n`;
     message = appendSummaryBlock(message);
@@ -1402,8 +1406,15 @@ export default function AccountDetail() {
             {isAdmin && canAddService(account.status) && can('add_service') && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
-            {/* Reactivate button — only for forfeited, non-reactivated accounts */}
-            {canReactivate(account.status, !!account.is_reactivated) && can('reactivate_account') && (
+            {/* Reactivate button — forfeited, never reactivated, and inside the same
+                7-day window as the customer's extension request (owner rule R2). */}
+            {account.status === 'forfeited' && !account.is_reactivated && can('reactivate_account')
+              && !canReactivate(account.status, !!account.is_reactivated, account.forfeited_at) && (
+              <span className="self-center text-xs text-muted-foreground">
+                Reactivation closed: {EXTENSION_WINDOW_CLOSED_MESSAGE}
+              </span>
+            )}
+            {canReactivate(account.status, !!account.is_reactivated, account.forfeited_at) && can('reactivate_account') && (
               <Button
                 variant="outline"
                 className="border-info/30 text-info hover:bg-info/10"

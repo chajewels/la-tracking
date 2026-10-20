@@ -5,6 +5,7 @@ import { customerReference } from "../_shared/order-reference.ts";
 import { forfeitEmailKind } from "../_shared/web-order-rules.ts";
 import { sendLayawayForfeitedEmail } from "../_shared/layaway-forfeit-email.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { extensionExpired } from "../_shared/extension-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,8 +34,8 @@ const MAX_ACCOUNTS_PER_RUN = 100;
  *
  * 1. Reference = FIRST UNPAID DUE DATE (never last paid)
  * 2. FORFEITED at exactly 3 calendar months (day-level precision)
- * 3. ONE-TIME reactivation → EXTENSION_ACTIVE (1-month extension)
- * 4. Unpaid after extension → FINAL_FORFEITED (permanent, no override)
+ * 3. ONE-TIME reactivation → EXTENSION_ACTIVE (ends forfeiture date + 1 month)
+ * 4. Unpaid at the end date → FINAL_FORFEITED ON that date (permanent, no override)
  * 5. FINAL_FORFEITED blocks all further negotiation/reactivation
  * 6. No account may become FINAL_FORFEITED before extension ends
  * 7. Penalty cycle continues through extension (no reset)
@@ -64,6 +65,9 @@ Deno.serve(async (req) => {
     );
 
     const now = new Date();
+    // PHT calendar day of this run (CLAUDE.md TIMEZONE). At the 00:10 UTC cron
+    // it is the same date as UTC; used for the extension end (owner rule R4).
+    const todayPht = Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(now);
 
     // Bug #99 — fetch php_jpy_rate once, reused across the per-account loop
     // for PHP→JPY spend conversion in the loyalty revoke calls.
@@ -261,10 +265,17 @@ Deno.serve(async (req) => {
 
     for (const account of accounts) {
       if (frozenAccountIds.has(account.id)) continue;
-      // ── RULE: FINAL FORFEITURE for extension_active past end date ──
+      // ── RULE: FINAL FORFEITURE ON the extension end date (owner rule R4, 2026-10-20) ──
+      // today (PHT) >= extension_end_date: this 00:10 UTC run is 08:10 PHT on
+      // the end date, so the account final-forfeits that morning, not the day
+      // after. The frozen-submission skip above still comes first (INVARIANT 12).
+      // The extension-month penalty-cap path that used to follow is retired
+      // (owner rule R5): it summed penalties on the base-0 Extension Month row,
+      // which the penalty engine never charges, so it could never fire; the end
+      // date governs alone. docs/PENALTY-AND-FORFEITURE.md.
       if (account.status === "extension_active") {
         const extEnd = account.extension_end_date;
-        if (extEnd && new Date(extEnd + "T23:59:59Z") < now) {
+        if (extensionExpired(extEnd, todayPht)) {
           const { error: ffErr } = await supabase.from("layaway_accounts").update({
             status: "final_forfeited",
             updated_at: now.toISOString(),
@@ -303,69 +314,7 @@ Deno.serve(async (req) => {
           await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension expired): ${account.invoice_number}`);
           continue;
         }
-        // ── Check extension month penalty cap → final_forfeit ──
-        const extCurrency = account.currency;
-        const extSchedItems = (schedByAccount.get(account.id) || [])
-          .filter((s: any) => s.status !== "cancelled");
-        const extPenalties = penByAccount.get(account.id) || [];
-        const extensionMonthItem = extSchedItems.find(
-          (s: any) => s.installment_number === account.payment_plan_months + 1
-        );
-        if (extensionMonthItem) {
-          const extPenTotal = extPenalties
-            .filter((p: any) =>
-              p.schedule_id === extensionMonthItem.id &&
-              (p.status === "unpaid" || p.status === "paid")
-            )
-            .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
-          const extCap = extCurrency === "PHP" ? 1000 : 2000;
-          if (
-            extPenTotal >= extCap &&
-            new Date(extensionMonthItem.due_date + "T00:00:00Z") <= now
-          ) {
-            console.log(`[auto-forfeit] ${account.invoice_number} — extension month penalty ${extPenTotal} >= ${extCap} → final forfeiting`);
-            const { error: extFfErr } = await supabase.from("layaway_accounts").update({
-              status: "final_forfeited",
-              updated_at: now.toISOString(),
-            }).eq("id", account.id);
-
-            if (extFfErr) {
-              console.error(`[auto-forfeit] Failed to final-forfeit ${account.invoice_number} (ext penalty cap):`, extFfErr);
-              continue;
-            }
-
-            const extCustomerName = customerMap.get(account.customer_id) || "Unknown";
-            finalForfeitResults.push({
-              invoice_number: account.invoice_number,
-              customer_name: extCustomerName,
-              extension_penalty_total: extPenTotal,
-              cap: extCap,
-              status: "FINAL_FORFEITED",
-            });
-            await supabase.from("audit_logs").insert({
-              entity_type: "layaway_account",
-              entity_id: account.id,
-              action: "auto_forfeit_extension_penalty_cap",
-              new_value_json: {
-                invoice_number: account.invoice_number,
-                customer_name: extCustomerName,
-                extension_penalty_total: extPenTotal,
-                cap: extCap,
-                currency: extCurrency,
-                forfeited_at: now.toISOString(),
-              },
-            });
-            await sendForfeitEmail(
-              account.id,
-              "Extension period has expired without payment — account permanently forfeited",
-              false,
-            );
-            await notifyForfeit(account, "final_forfeited");
-            await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension month penalty cap): ${account.invoice_number}`);
-            continue;
-          }
-        }
-        // Extension still active and under cap — skip further processing
+        // Extension still running — skip further processing
         continue;
       }
 

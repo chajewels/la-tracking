@@ -2,17 +2,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
+import { EXTENSION_WINDOW_CLOSED_MESSAGE, extensionWindowOpen } from "../_shared/extension-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Mirrors src/pages/CustomerPortal.tsx: floor(elapsedDays) <= 7, i.e. the
-// window closes exactly 8x24h after forfeited_at. The off-by-one (named
-// "7 days" in the UI copy) is deliberate and logged in docs/OPEN-BUGS.md —
-// do NOT tighten it here without changing the frontend in the same commit.
-const WINDOW_DAYS = 7;
+// The window check (floor(elapsedDays) <= 7, i.e. it closes exactly 8x24h
+// after forfeited_at) lives in _shared/extension-rules.ts, shared with
+// CustomerPortal.tsx and staff reactivation (owner rule R2, 2026-10-20). The
+// off-by-one (named "7 days" in the UI copy) is deliberate and logged in
+// docs/OPEN-BUGS.md — change it only there, for every caller at once.
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -59,11 +60,8 @@ Deno.serve(async (req) => {
       return json({ error: "Extensions can only be requested on forfeited accounts.", code: "not_forfeited" }, 409);
     }
 
-    if (acct.forfeited_at) {
-      const elapsedDays = Math.floor((Date.now() - new Date(acct.forfeited_at).getTime()) / 86400000);
-      if (elapsedDays > WINDOW_DAYS) {
-        return json({ error: "The extension request window has closed. Please contact us directly for assistance.", code: "window_closed" }, 403);
-      }
+    if (!extensionWindowOpen(acct.forfeited_at)) {
+      return json({ error: EXTENSION_WINDOW_CLOSED_MESSAGE, code: "window_closed" }, 403);
     }
 
     const { data: existing } = await supabase

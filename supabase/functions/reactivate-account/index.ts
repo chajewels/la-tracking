@@ -5,6 +5,12 @@ import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
 import { customerReference } from "../_shared/order-reference.ts";
 import { reactivateRefusal } from "../_shared/web-order-rules.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import {
+  customerSettleByDate,
+  EXTENSION_WINDOW_CLOSED_MESSAGE,
+  extensionEndFromForfeiture,
+  extensionWindowOpen,
+} from "../_shared/extension-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,7 +45,8 @@ const corsHeaders = {
  *
  * ACTIONS:
  *   1. Changes status to 'extension_active'
- *   2. Sets is_reactivated = true, extension_end_date = last_due + 1 month
+ *   2. Sets is_reactivated = true, extension_end_date = the PHT day of
+ *      forfeited_at + 1 month, clamped (owner rule R1, 2026-10-20)
  *   3. Records penalty_count_at_reactivation (penalty cycle continues, no reset)
  *   4. Un-cancels remaining schedule items
  */
@@ -88,7 +95,7 @@ Deno.serve(async (req) => {
     // Fetch account
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, customer_id, status, is_reactivated, currency, payment_plan_months")
+      .select("id, invoice_number, customer_id, status, is_reactivated, currency, payment_plan_months, forfeited_at")
       .eq("id", account_id)
       .single();
 
@@ -136,11 +143,30 @@ Deno.serve(async (req) => {
       .in("status", ["unpaid", "paid"]);
     const currentPenaltyCount = (penalties || []).length;
 
-    // Extension = 1 month from reactivation date (Bug #108 fix, 2026-05-15)
-    // Business rule: customer gets 1 month from reactivation to settle, regardless of last due date
-    const extDate = new Date();
-    extDate.setUTCMonth(extDate.getUTCMonth() + 1);
-    const extensionEndDate = extDate.toISOString().split("T")[0];
+    // Extension = exactly ONE month from the FORFEITURE date (owner rule R1,
+    // 2026-10-20; supersedes Bug #108's "1 month from reactivation"). Never the
+    // reactivation or request date, so reactivating late never adds days.
+    if (!account.forfeited_at) {
+      return new Response(JSON.stringify({
+        error: "This account has no forfeiture date, so its extension end cannot be set. Contact an admin.",
+        code: "forfeited_at_missing",
+      }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Staff reactivation follows the SAME window as the customer's extension
+    // request (owner rule R2, 2026-10-20): whole days since forfeited_at <= 7.
+    if (!extensionWindowOpen(account.forfeited_at)) {
+      return new Response(JSON.stringify({ error: EXTENSION_WINDOW_CLOSED_MESSAGE, code: "window_closed" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const extensionEndDate = extensionEndFromForfeiture(account.forfeited_at);
+    // What the customer is told: the day before the end date, because the
+    // account final-forfeits on the morning of the end date (owner rule R6).
+    const settleByDate = customerSettleByDate(extensionEndDate);
 
     const now = new Date().toISOString();
 
@@ -295,7 +321,7 @@ Deno.serve(async (req) => {
         // website-style English "reactivated" email; same key.
         await sendOrderUpdateEmail(supabase, {
           entity: "layaway", id: String(account_id), variant: "reactivated",
-          planOpenUntil: extensionEndDate,
+          planOpenUntil: settleByDate,
           balance: Number((acctForEmail as any)?.remaining_balance ?? 0),
           idempotencyKey: `extension-granted-${account_id}`,
         });
@@ -308,7 +334,7 @@ Deno.serve(async (req) => {
             templateData: {
               customerName,
               invoiceNumber: customerReference(acctForEmail as any),
-              extensionEndDate,
+              settleByDate,
               remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
               currency: (acctForEmail as any)?.currency,
               portalUrl,
@@ -386,7 +412,8 @@ Deno.serve(async (req) => {
       extension_end_date: extensionEndDate,
       penalty_count_preserved: currentPenaltyCount,
       penalty_result: penaltyResult,
-      message: `Account reactivated. Extension until ${extensionEndDate}. Penalty count continues from ${currentPenaltyCount}.`,
+      settle_by_date: settleByDate,
+      message: `Account reactivated. Customer must settle by ${settleByDate}. Penalty count continues from ${currentPenaltyCount}.`,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

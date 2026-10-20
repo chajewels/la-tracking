@@ -70,7 +70,9 @@ export interface SendOrderUpdateArgs {
   daysOverdue?: number | null;
   penaltyStage?: PenaltyStage | null;
   totalPenalty?: number | null;
-  /** Layaway 'reactivated': the extension end (YYYY-MM-DD), shown instead of transfer_due_at. */
+  /** Layaway 'reactivated': the customer's settle-by day (YYYY-MM-DD) = extension end − 1
+   *  (owner rule R6, 2026-10-20; _shared/extension-rules.ts customerSettleByDate), shown
+   *  instead of transfer_due_at. */
   planOpenUntil?: string | null;
 }
 
