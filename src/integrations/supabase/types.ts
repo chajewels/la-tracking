@@ -2147,6 +2147,9 @@ export type Database = {
           accepted_by_user_id: string | null
           agreement_acceptance_date: string | null
           agreement_version: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by_user_id: string | null
           cash_receipt_sheet_id: string | null
           completed_at: string | null
           coupon_code: string | null
@@ -2207,6 +2210,9 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
           cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           coupon_code?: string | null
@@ -2267,6 +2273,9 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
           cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           coupon_code?: string | null
@@ -9661,6 +9670,17 @@ export type Database = {
       cancel_cash_order_atomic: {
         Args: {
           p_cash_order_id: string
+          p_preview?: boolean
+          p_reason: string
+          p_source?: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
+      cancel_layaway_atomic: {
+        Args: {
+          p_account_id: string
           p_preview?: boolean
           p_reason: string
           p_source?: string
