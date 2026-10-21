@@ -34,10 +34,10 @@
 --        cancel_layaway_atomic   — user-identity guard skips p_source 'page365_sync'
 --        cancel_cash_order_atomic — same, on its own guard line ONLY (v_is_system
 --          is NOT widened: it also switches the Shopify credit split and labels).
---      issue_store_credit_atomic is NOT patched: an automatic run never cancels
---      a cash order that has received money (it would mint store credit without
---      a person) — it raises a staff bell instead, and the button cancels it with
---      the staff member's identity.
+--      issue_store_credit_atomic is NOT patched: this sync never cancels a cash
+--      order that has received money (button or automatic) — it raises a staff
+--      bell, and staff use the existing Cancel Order, which owns the Paidy /
+--      card / store-credit follow-ups (cancel-cash-order).
 --   3. page365_apply_invoice_stage — the ONE writer: records the read, cancels
 --      on 'voided' (capturing what a restore needs), restores on renewal.
 --   4. page365_invoice_due_links — what the sweep reads.
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS public.page365_invoice_links (
   restored_at           timestamptz,
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT page365_invoice_links_slug_chk CHECK (page365_slug ~ '^[A-Za-z0-9]+$'),
+  CONSTRAINT page365_invoice_links_slug_chk CHECK (page365_slug ~ '^[A-Za-z0-9._~-]+$'),
   CONSTRAINT page365_invoice_links_sig_chk  CHECK (page365_sig ~ '^[A-Za-z0-9]+$')
 );
 
@@ -201,7 +201,7 @@ BEGIN
   IF p_page365_no IS NULL OR p_page365_no <= 0 THEN
     RAISE EXCEPTION 'page365_no_required' USING ERRCODE = 'P0001';
   END IF;
-  IF COALESCE(p_slug, '') !~ '^[A-Za-z0-9]+$' OR COALESCE(p_sig, '') !~ '^[A-Za-z0-9]+$' THEN
+  IF COALESCE(p_slug, '') !~ '^[A-Za-z0-9._~-]+$' OR COALESCE(p_sig, '') !~ '^[A-Za-z0-9]+$' THEN
     RAISE EXCEPTION 'page365_link_invalid' USING ERRCODE = 'P0001';
   END IF;
   INSERT INTO public.page365_invoice_links (page365_no, page365_slug, page365_sig)
@@ -324,11 +324,11 @@ BEGIN
                                 'kind', v_kind, 'order_id', v_id, 'invoice_number', v_invoice, 'stage', p_stage);
     END IF;
 
-    IF v_kind = 'cash' AND p_user_id IS NULL AND v_paid > 0 THEN
+    IF v_kind = 'cash' AND v_paid > 0 THEN
       IF v_link.last_notified_stage IS DISTINCT FROM 'voided_needs_staff' THEN
         INSERT INTO public.staff_notifications (type, title, body, account_id, customer_id, invoice_number, metadata)
         VALUES ('page365_void_needs_staff', 'Page365 voided — paid cash order needs staff',
-                'Invoice ' || COALESCE(v_invoice, p_page365_no::text) || ' was voided in Page365. It has money received, so store credit applies: open the order and press Re-read Page365 to cancel it.',
+                'Invoice ' || COALESCE(v_invoice, p_page365_no::text) || ' was voided in Page365. It has money received, so open the order and use Cancel Order (it handles store credit, Paidy and card money).',
                 NULL, v_customer, v_invoice,
                 jsonb_build_object('page365_no', p_page365_no, 'kind', v_kind, 'order_id', v_id, 'total_paid', v_paid));
         UPDATE public.page365_invoice_links SET last_notified_stage = 'voided_needs_staff' WHERE page365_no = p_page365_no;

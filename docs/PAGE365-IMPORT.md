@@ -1040,9 +1040,9 @@ staff by hand; forfeits always start in the Hub.
 - Automatic cancel needs no staff user: `p_source = 'page365_sync'` skips the
   user-identity guard in both cancel writers (one-line md5-guarded patches;
   `v_is_system` in cash cancel is NOT widened — it also switches the Shopify
-  credit split). `issue_store_credit_atomic` still requires a person, so a cash
-  order with money received is NEVER auto-cancelled: bell
-  `page365_void_needs_staff`; the button cancels it with the staff identity.
+  credit split). A cash order with money received is NEVER cancelled by this
+  sync (button or automatic): bell `page365_void_needs_staff`; staff use the
+  existing Cancel Order, which owns the Paidy / card / store-credit steps.
 - A cash order whose cancel issued store credit is never auto-restored: bell
   `page365_renew_needs_staff`.
 - INVARIANT 12: a submission in `submitted` / `under_review` blocks cancel AND
@@ -1058,3 +1058,18 @@ order_not_found | link_not_found) · `page365_record_check_error` ·
 `page365_invoice_due_links` (sweep list: live orders + Page365-cancelled ones) ·
 `page365_invoice_link_status` (staff, never the sig). All service-role only
 except the status function.
+
+**Edge function `page365-invoice-check`** (verify_jwt true; deployed by Lovable).
+`sweep` — service role only (the cron); reads `page365_invoice_due_links` in
+order of oldest check, 250 ms apart, 120 s budget. `check` — the staff
+"Re-read Page365" button, `{ kind, order_id }`. `add_link` — staff, `{ kind,
+order_id, url }`: the link must open THIS order's invoice number (and slug when
+the order has one) before it is saved; it reports the stage and changes no
+order. Permission: layaway `forfeit_account`, cash `cancel_cash_order`. A read
+failure (`http_401`, `unreachable`, `invoice_mismatch`, …) is stored as
+`last_check_error` and changes nothing. After a cancel commits, the same
+follow-ups as a staff cancel run (non-blocking): layaway → portal "Points
+revoked" + the layaway-cancelled email; cash → `emitCancellationFollowups`.
+The importer (`page365-fetch-order`) saves the link through
+`page365_invoice_link_upsert` once the draft is saved (non-blocking; response
+field `page365_link_saved`).
