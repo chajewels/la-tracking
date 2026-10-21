@@ -308,7 +308,11 @@ Deno.serve(async (req) => {
       .eq("account_id", payment.account_id);
 
     let newAccountStatus = account.status;
-    if (finalSchedule) {
+    // A closed account keeps its status: only cancel-layaway, reactivate-account
+    // and the forfeit paths may move cancelled / forfeited / final_forfeited
+    // (owner 2026-10-21). The totals above still update.
+    const statusLocked = ["cancelled", "forfeited", "final_forfeited"].includes(String(account.status));
+    if (finalSchedule && !statusLocked) {
       const today = new Date().toISOString().split("T")[0];
       const allPaid = finalSchedule.every(s => s.status === "paid" || s.status === "cancelled");
       const hasOverdue = finalSchedule.some(s => s.status !== "paid" && s.status !== "cancelled" && s.due_date <= today);

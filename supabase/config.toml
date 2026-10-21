@@ -173,6 +173,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.manual-forfeit]
     verify_jwt = false
+  [functions.cancel-layaway]
+    verify_jwt = false
   [functions.mark-loyalty-notification-read]
     verify_jwt = false
   [functions.process-loyalty-redemption]

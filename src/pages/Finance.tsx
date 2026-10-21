@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, memo, type FC } from 'react';
 import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { chartColors } from '@/theme/tokens';
 import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from 'date-fns';
-import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
+import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, XCircle, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Brush, ComposedChart,
@@ -447,6 +447,23 @@ export default function Finance() {
       }, 0);
   }, [accounts, isAllMode, currencyFilter]);
 
+  // Money kept on plans the customer VOLUNTARILY cancelled — a separate figure
+  // from forfeited (owner 2026-10-21). cancelled_at is set ONLY by the staff
+  // Cancel, so unpaid web reservations the expiry job marked 'cancelled' stay out.
+  const totalCancelledCollected = useMemo(() => {
+    if (!accounts?.length) return 0;
+    return accounts
+      .filter((a) =>
+        a.status === 'cancelled' &&
+        !!(a as unknown as { cancelled_at?: string | null }).cancelled_at &&
+        (isAllMode || a.currency === currencyFilter)
+      )
+      .reduce((sum: number, a) => {
+        const collected = Number(a.total_paid ?? 0);
+        return sum + (isAllMode ? toJpy(collected, a.currency as Currency) : collected);
+      }, 0);
+  }, [accounts, isAllMode, currencyFilter]);
+
   // ── Intelligence section data (from former Analytics.tsx) ──
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
 
@@ -816,7 +833,7 @@ export default function Finance() {
                 <div className="grid grid-cols-3 gap-4">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                     <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} countUpValue={bestMonth ? bestMonth.collection_rate : undefined} formatValue={(n) => `${Math.round(n)}%`} staggerIndex={0} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
                     <StatCard title="Average Rate" value={`${avgRate}%`} countUpValue={avgRate} formatValue={(n) => `${Math.round(n)}%`} staggerIndex={1} icon={TrendingUp} variant="success" />
                     <StatCard
@@ -830,6 +847,7 @@ export default function Finance() {
                       variant="gold"
                     />
                     <StatCard title="Recovered (Forfeited)" value={formatCurrency(totalForfeitedCollected, displayCurrency)} countUpValue={totalForfeitedCollected} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={3} icon={ShieldAlert} />
+                    <StatCard title="Recovered (Cancelled)" value={formatCurrency(totalCancelledCollected, displayCurrency)} countUpValue={totalCancelledCollected} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={4} icon={XCircle} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
                     <div className="rounded-xl border border-border bg-card p-5">

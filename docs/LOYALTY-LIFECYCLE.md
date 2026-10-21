@@ -11,6 +11,7 @@ where explicitly decided otherwise.
   - award-loyalty-points:             award (fires on DP confirmation for
                                       layaway, isFullyPaid for cash)
   - manual-forfeit:                   revoke
+  - cancel-layaway:                   revoke (in cancel_layaway_atomic, 2026-10-21)
   - auto-forfeit-settlement:          revoke (4 hook points — PATH 1, PATH 2,
                                       extension expiry, extension cap;
                                       PATH 3 final_settlement does NOT revoke
@@ -79,8 +80,9 @@ where explicitly decided otherwise.
   terminal states:
     - forfeited       (via manual-forfeit OR auto-forfeit PATH 1/2)
     - final_forfeited (via auto-forfeit extension expiry/cap)
-    - cancelled       (FUTURE — no current write path exists; documented
-                       business rule for if/when cancel-account is built)
+    - cancelled       (staff Cancel, 2026-10-21: cancel_layaway_atomic
+                       revokes inside its transaction, trigger 'cancel' —
+                       docs/LAYAWAY-CANCEL.md)
 
   Loyalty is NOT revoked on these statuses:
     - final_settlement (PATH 3) — loyalty preserved; if customer later

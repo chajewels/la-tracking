@@ -1030,6 +1030,64 @@ export function useForfeitAccount() {
 }
 
 // ──────────────────────────────────────────────
+// CANCEL LAYAWAY (owner 2026-10-21) — the customer VOLUNTARILY asked to cancel.
+// Forfeit stays for a customer who could not settle her dues. One writer:
+// cancel-layaway → cancel_layaway_atomic (docs/LAYAWAY-CANCEL.md).
+// ──────────────────────────────────────────────
+
+/** What the cancel would do — the edge function's preview mode writes nothing. */
+export interface CancelLayawayPreview {
+  invoice_number: string | null;
+  status: string;
+  is_web: boolean;
+  currency: 'JPY' | 'PHP';
+  money_received: number;
+  earned_points_on_order: number;
+  earned_points_will_be_revoked: boolean;
+  redeemed_points_not_returned: number;
+  pending_submissions: number;
+  web_stock_will_be_released: boolean;
+  refusal: 'not_cancellable' | 'payment_submission_pending' | null;
+}
+
+async function invokeCancelLayaway(body: Record<string, unknown>): Promise<unknown> {
+  const { data, error } = await supabase.functions.invoke('cancel-layaway', { body });
+  if (error) {
+    let detailedMsg = error.message;
+    if ('context' in error && (error as FunctionsErrorWithContext).context?.body) {
+      try {
+        const res = await new Response((error as FunctionsErrorWithContext).context.body).json();
+        if (res?.error) detailedMsg = res.error;
+      } catch {
+        // body was not JSON — keep the transport message
+      }
+    }
+    throw new Error(detailedMsg);
+  }
+  return data;
+}
+
+export function useCancelLayawayPreview(accountId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['cancel-layaway-preview', accountId],
+    enabled: enabled && !!accountId,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async () =>
+      (await invokeCancelLayaway({ account_id: accountId, preview: true })) as CancelLayawayPreview,
+  });
+}
+
+export function useCancelLayaway() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ accountId, reason }: { accountId: string; reason: string }) =>
+      invokeCancelLayaway({ account_id: accountId, reason }),
+    onSuccess: () => invalidateAll(qc),
+  });
+}
+
+// ──────────────────────────────────────────────
 // PENALTY CAP OVERRIDES
 // ──────────────────────────────────────────────
 export function usePenaltyCapOverride(accountId: string | undefined) {

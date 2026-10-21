@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles, Star } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, XCircle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles, Star } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { ReviewLinkDialog } from '@/components/reviews/ReviewLinkDialog';
@@ -59,7 +59,7 @@ import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getPHTToday } from '@/lib/date-utils';
+import { getPHTToday, formatPHTDisplay } from '@/lib/date-utils';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import { getProofSignedUrl } from '@/lib/proof-url';
@@ -78,6 +78,7 @@ import {
 import type { Tables } from '@/integrations/supabase/types';
 import { customerSettleByDate, EXTENSION_WINDOW_CLOSED_MESSAGE } from '../../supabase/functions/_shared/extension-rules.ts';
 import { FinalForfeitSettlement } from '@/components/accounts/FinalForfeitSettlement';
+import CancelLayawayDialog from '@/components/accounts/CancelLayawayDialog';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -307,6 +308,7 @@ export default function AccountDetail() {
   // payloads and permission gates unchanged.
   const [voidArmed, setVoidArmed] = useState(false);
   const [forfeitArmed, setForfeitArmed] = useState(false);
+  const [cancelLayawayOpen, setCancelLayawayOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
   const [editScheduleLoading, setEditScheduleLoading] = useState(false);
@@ -787,6 +789,7 @@ export default function AccountDetail() {
   const isSettlement = account?.status === 'final_settlement';
   const isFinalForfeit = account?.status === 'final_forfeited';
   const isExtension = account?.status === 'extension_active';
+  const isCancelled = account?.status === 'cancelled';
 
   /** Columns added for web layaway. types.ts is Supabase-generated and lags a
    *  schema change by a Lovable push, so read them through a narrow shape
@@ -799,6 +802,9 @@ export default function AccountDetail() {
     expired_at?: string | null;
     /** Reserve-first: NULL on a WEB plan = a reservation staff have not confirmed. */
     ready_confirmed_at?: string | null;
+    /** Set ONLY by the staff Cancel (cancel_layaway_atomic) — docs/LAYAWAY-CANCEL.md. */
+    cancelled_at?: string | null;
+    cancellation_reason?: string | null;
   } | undefined ?? {};
 
   /** Reserve-first (A2): an unconfirmed web reservation takes no payment and
@@ -877,7 +883,16 @@ export default function AccountDetail() {
 
   let message = ``;
 
-  if (isFinalForfeit) {
+  if (isCancelled) {
+    // Owner-approved wording 2026-10-21. No remaining balance: a voluntary
+    // cancel leaves nothing owed, and showing it would read as a debt.
+    message += `📄 CANCELLATION NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Status: CANCELLED\n`;
+    message += `Total paid: ${formatCurrency(Number(account.total_paid ?? 0), currency)}\n`;
+    message += `\nYour layaway plan has been cancelled as you requested.\nNo further payments are required for this plan.\n`;
+    message += `\n${ml('contact_us', 'closing')}`;
+  } else if (isFinalForfeit) {
     message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: PERMANENTLY FORFEITED\n`;
@@ -1236,6 +1251,15 @@ export default function AccountDetail() {
                   🔄 Reactivated
                 </Badge>
               )}
+              {isCancelled && webFields.cancelled_at && (
+                <Badge
+                  variant="outline"
+                  className="bg-muted text-muted-foreground border-border text-xs max-w-[28rem] truncate"
+                  title={webFields.cancellation_reason ?? undefined}
+                >
+                  Cancelled {formatPHTDisplay(webFields.cancelled_at)}{webFields.cancellation_reason ? ` — ${webFields.cancellation_reason}` : ''}
+                </Badge>
+              )}
               {isExtension && account.extension_end_date && (
                 <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
                   Extension until {new Date(account.extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}
@@ -1504,6 +1528,17 @@ export default function AccountDetail() {
                   onClick={() => setForfeitConfirmOpen(true)}
                 >
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
+                </Button>
+            )}
+            {/* Cancel = the customer VOLUNTARILY asked to cancel; Forfeit = she could not
+                settle her dues (owner 2026-10-21). Same permission and statuses as Forfeit. */}
+            {can('forfeit_account') && !['forfeited', 'final_forfeited', 'completed', 'cancelled'].includes(account.status) && (
+                <Button
+                  variant="outline"
+                  className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                  onClick={() => setCancelLayawayOpen(true)}
+                >
+                  <XCircle className="h-4 w-4 mr-2" /> Cancel Plan
                 </Button>
             )}
             {/* A web layaway is never deleted (trg_prevent_web_layaway_delete), so the
@@ -2858,6 +2893,13 @@ export default function AccountDetail() {
             </div>
           </>
         )}
+
+        <CancelLayawayDialog
+          open={cancelLayawayOpen}
+          onOpenChange={setCancelLayawayOpen}
+          accountId={account.id}
+          invoiceNumber={account.invoice_number}
+        />
 
         {/* Forfeit Account Confirmation */}
         {forfeitConfirmOpen && (
