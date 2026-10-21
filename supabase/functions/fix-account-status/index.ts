@@ -109,7 +109,9 @@ Deno.serve(async (req) => {
       if (allPaid) correctStatus = "completed";
       else if (hasPastDueUnpaid) correctStatus = "overdue";
 
-      if (correctStatus !== oldStatus) {
+      if (["cancelled", "forfeited", "final_forfeited"].includes(String(oldStatus))) {
+        results.changes.push({ field: "status", note: `Closed account (${oldStatus}) — status preserved; only cancel-layaway / reactivate-account / the forfeit paths move it` });
+      } else if (correctStatus !== oldStatus) {
         const { error: updErr } = await supabase
           .from("layaway_accounts")
           .update({ status: correctStatus })

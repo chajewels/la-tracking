@@ -71,6 +71,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (account.status === "cancelled") {
+      return new Response(JSON.stringify({ error: "Account is cancelled — no penalty can be added" }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const planMonths = account.payment_plan_months || 6;
 
     // Validate schedule item exists

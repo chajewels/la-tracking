@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
     for (const aid of accountIds) {
       const { data: acct } = await supabase
         .from("layaway_accounts")
-        .select("id, customer_id, source_channel, ready_confirmed_at")
+        .select("id, customer_id, source_channel, ready_confirmed_at, status")
         .eq("id", aid)
         .eq("customer_id", customerId)
         .maybeSingle();
@@ -148,6 +148,15 @@ Deno.serve(async (req) => {
       // RESERVE-FIRST (A2): no payment against a web layaway staff have not
       // confirmed. Hub plans carry ready_confirmed_at NULL too, so the rule
       // checks the channel first — it never blocks a Hub plan.
+      if (acct.status === "cancelled") {
+        return new Response(JSON.stringify({
+          error: "account_cancelled",
+          message: "This plan has been cancelled — no payment can be submitted.",
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       if (isUnconfirmedReservation(acct)) {
         return new Response(JSON.stringify({
           error: NOT_READY_FOR_PAYMENT,
