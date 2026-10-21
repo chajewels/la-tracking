@@ -36,7 +36,13 @@ different customer emails.
 - A paid order is never deleted; cancel requires a written reason.
 - `last_purchase_at` untouched (a paid order later cancelled still counts).
 - Cancel is TERMINAL: reactivate stays forfeited-only; the cancel never sets
-  `expired_at`, so the web "Revive" path stays off.
+  `expired_at`, so the web "Revive" path stays off. ONE exception (owner
+  2026-10-21): a cancel made by the Page365 void sync
+  (`page365_apply_invoice_stage`, source `page365_sync` or staff via the
+  "Re-read Page365" button) is restored when the Page365 invoice is renewed —
+  status, the schedule rows that cancel closed, the sales_log row and the
+  revoked points come back; due dates are the originals. A manual Hub cancel is
+  never restored. docs/PAGE365-IMPORT.md "Void sync".
 
 ## Mechanics
 
