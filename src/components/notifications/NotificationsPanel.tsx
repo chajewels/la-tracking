@@ -59,6 +59,7 @@ function iconForType(type: string) {
     case 'penalty_applied':
       return <ShieldAlert className="h-4 w-4 text-destructive" />;
     case 'account_forfeited':
+    case 'account_cancelled':
       return <Ban className="h-4 w-4 text-destructive" />;
     case 'submission_created':
     case 'submission_confirmed':

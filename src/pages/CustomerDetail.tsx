@@ -48,7 +48,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
-  ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
+  ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate, canAcceptPayment,
 } from '@/lib/business-rules';
 
 /** A payments row as read by useCustomerAccounts (select('*')). */
@@ -859,7 +859,7 @@ export default function CustomerDetail() {
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
-                  {account.status !== 'completed' && account.status !== 'forfeited' && remainingBalance > 0 && (
+                  {account.status !== 'completed' && canAcceptPayment(account.status) && remainingBalance > 0 && (
                     <>
                       <RecordPaymentDialog
                         accountId={account.id}
@@ -874,7 +874,7 @@ export default function CustomerDetail() {
                       />
                     </>
                   )}
-                  {account.status !== 'completed' && account.status !== 'forfeited' && (
+                  {!['completed', 'forfeited', 'final_forfeited', 'cancelled'].includes(account.status) && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="outline" size="sm" className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10">
