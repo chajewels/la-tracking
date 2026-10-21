@@ -1066,8 +1066,9 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   FORFEIT = the customer could not settle her dues; CANCEL = she voluntarily
   asked to cancel. ONE writer cancel_layaway_atomic behind cancel-layaway
   (forfeit_account): revokes earned points, never returns redeemed ones, never
-  issues store credit; terminal (never reactivated). Full rules:
-  docs/LAYAWAY-CANCEL.md.
+  issues store credit; terminal (never reactivated) — ONE exception: a cancel
+  made by the Page365 void sync is restored when the invoice is renewed
+  (PAGE365 VOID SYNC below). Full rules: docs/LAYAWAY-CANCEL.md.
 
 ## ORDER DELETION — NON-NEGOTIABLE (added 2026-09-13)
 
@@ -1196,8 +1197,16 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     is_test prefix all apply).
   - page365-fetch-order NEVER WRITES AN ORDER; it refuses the whole import,
     naming the field, when anything is missing or totals do not reconcile.
-  - THE ?sig= IS A CAPABILITY: used for the single fetch and dropped — never
-    stored, logged or returned. Only slug and invoice number survive.
+  - THE ?sig= IS A CAPABILITY: stored ONLY in page365_invoice_links (server
+    only: RLS on, NO policy), never logged, never returned to any browser,
+    staff or customer; it exists solely so page365-invoice-check can re-read
+    the invoice stage. Never put it on an order table (customers read those).
+  - PAGE365 VOID SYNC (owner 2026-10-21; docs/PAGE365-IMPORT.md "Void sync"):
+    stage 'voided' cancels the LIVE Hub order; a closed one is left alone;
+    renewal (stage leaves 'voided') restores ONLY an order this sync
+    cancelled, original due dates kept. ONE writer page365_apply_invoice_stage;
+    "Re-read Page365" button or the 30-min cron. A paid cash order is never
+    auto-cancelled (it would mint store credit without a person) — bell instead.
   - PAGE365 INVOICES ARE JPY. The account currency is the CSR's choice; PHP
     converts at system_settings.php_jpy_rate, carried on the draft. NEVER use
     currency-converter.ts getConversionRate() server-side or for a stored figure.

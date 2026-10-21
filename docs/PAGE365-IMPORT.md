@@ -212,9 +212,9 @@
   and every Page365 order imported before this shipped, has none and is
   untouched. `auto-forfeit-settlement` stays LOCKED — nothing in it changed.
 
-  PAGE365-SIDE CANCELLATIONS (D2): there is no signal from Page365 (the `?sig=`
-  is never stored, so the invoice cannot be re-read). Staff cancel the Hub
-  order; the trigger returns the stock.
+  PAGE365-SIDE CANCELLATIONS (D2): SUPERSEDED 2026-10-21 by "Void sync" below —
+  the `?sig=` is now kept server-side, so the Hub re-reads the invoice stage and
+  cancels / restores the order itself. The stock trigger still does the stock.
 
   FLAGS REACH STAFF THREE WAYS. A bell `staff_notifications` row
   `page365_stock_flag` (one per import with any flag, and one per revive that
@@ -1010,3 +1010,51 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   SV925 -> SILVER925 ("Silver 925"); a bare SV -> SILVER ("Silver", JA
   シルバー; product metal only, not in the upload template); "0.750ct" is
   no stamp.
+
+## Void sync — Page365 voided → Hub cancel, renewed → Hub restore (added 2026-10-21)
+
+Owner decisions 2026-10-21; plan in the project doc
+`claude/page365-void-sync-plan-2026-10-21.md`. Migration
+`20261228100000_page365_invoice_links.sql`.
+
+**Verified first.** The pasted invoice link (`/invoices/<slug>?sig=<sig>`) can be
+re-read weeks later with `Accept: application/json`; the field is `stage`. On INV
+19848 the cycle `voided` → renewed → `unpaid` → cancelled → `voided` kept the same
+slug and sig. Page365's "Online bill has been cancelled" screen is `stage =
+voided`. Without the sig Page365 answers 401. `expires_on` does not move on
+renewal and is never used. Page365 records no void reason — every void is done by
+staff by hand; forfeits always start in the Hub.
+
+**Rules.**
+- `voided` on a LIVE order (layaway active / overdue / extension_active /
+  reactivated / final_settlement; cash pending / completed) → cancel through the
+  existing writers (`cancel_layaway_atomic`, `cancel_cash_order_atomic`), reason
+  "Voided in Page365". A closed order is left alone. Web orders are skipped.
+- Stage leaves `voided` (renewal, e.g. `unpaid`) on an order THIS SYNC cancelled
+  → restore: status, the schedule rows the cancel closed (their own prior
+  status), the sales_log rows, the revoked points (`restore_loyalty_points`).
+  Original due dates — the penalty engine and forfeiture follow normally. A manual
+  Hub cancel is never restored. There is no time limit.
+- Triggers: the staff "Re-read Page365" button, or the 30-minute cron
+  `page365-invoice-check` (`17,47 * * * *`, Vault key) — whichever is first.
+- Automatic cancel needs no staff user: `p_source = 'page365_sync'` skips the
+  user-identity guard in both cancel writers (one-line md5-guarded patches;
+  `v_is_system` in cash cancel is NOT widened — it also switches the Shopify
+  credit split). `issue_store_credit_atomic` still requires a person, so a cash
+  order with money received is NEVER auto-cancelled: bell
+  `page365_void_needs_staff`; the button cancels it with the staff identity.
+- A cash order whose cancel issued store credit is never auto-restored: bell
+  `page365_renew_needs_staff`.
+- INVARIANT 12: a submission in `submitted` / `under_review` blocks cancel AND
+  restore for every source; bell `page365_void_blocked` (once per stage).
+- Bells: `page365_invoice_voided`, `page365_invoice_renewed` (+ the three above).
+  Audit actions `page365_void_cancel`, `page365_renew_restore`.
+
+**Objects.** `page365_invoice_links` (one row per invoice; RLS on, no policy;
+the sig lives only here) · `page365_invoice_link_upsert` (import + "Add Page365
+link") · `page365_apply_invoice_stage` (THE writer; result `action` =
+cancelled | restored | no_action | submission_pending | needs_staff |
+order_not_found | link_not_found) · `page365_record_check_error` ·
+`page365_invoice_due_links` (sweep list: live orders + Page365-cancelled ones) ·
+`page365_invoice_link_status` (staff, never the sig). All service-role only
+except the status function.
