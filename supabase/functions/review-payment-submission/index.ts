@@ -354,7 +354,7 @@ Deno.serve(async (req) => {
         ? { data: [], error: null }
         : await supabase
             .from(isCashSubmission ? "cash_orders" : "layaway_accounts")
-            .select("id, invoice_number, web_reference, source_channel, ready_confirmed_at")
+            .select("id, invoice_number, web_reference, source_channel, ready_confirmed_at, status")
             .in("id", ids);
       if (ordersErr) {
         return new Response(JSON.stringify({ error: "Could not check the order before confirming" }), {
@@ -364,6 +364,17 @@ Deno.serve(async (req) => {
       const reservation = firstUnconfirmedReservation(orders);
       if (reservation) {
         return new Response(JSON.stringify(staffNotReadyForPaymentBody(reservation)), {
+          status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const cancelledPlan = isCashSubmission
+        ? null
+        : (orders ?? []).find((o: { status?: string | null }) => o.status === "cancelled");
+      if (cancelledPlan) {
+        return new Response(JSON.stringify({
+          error: "account_cancelled",
+          message: `Inv #${cancelledPlan.invoice_number} is cancelled — this payment cannot be confirmed. Reject the submission instead.`,
+        }), {
           status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

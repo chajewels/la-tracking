@@ -67,12 +67,17 @@ Deno.serve(async (req) => {
     // 3. Fetch current account totals
     const { data: account, error: acctErr } = await supabase
       .from("layaway_accounts")
-      .select("id, currency, total_amount, remaining_balance")
+      .select("id, currency, total_amount, remaining_balance, status")
       .eq("id", account_id)
       .single();
     if (acctErr || !account) {
       return new Response(JSON.stringify({ error: "Account not found" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (account.status === "cancelled") {
+      return new Response(JSON.stringify({ error: "Account is cancelled — no service can be added" }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     if (account.currency !== currency) {

@@ -1061,6 +1061,14 @@ When adding a new account-scoped surface, the default question is
 Canonical examples: Trade Program, staff_notifications triggers, Finance
 Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
+## LAYAWAY CANCEL vs FORFEIT — NON-NEGOTIABLE (owner 2026-10-21)
+
+  FORFEIT = the customer could not settle her dues; CANCEL = she voluntarily
+  asked to cancel. ONE writer cancel_layaway_atomic behind cancel-layaway
+  (forfeit_account): revokes earned points, never returns redeemed ones, never
+  issues store credit; terminal (never reactivated). Full rules:
+  docs/LAYAWAY-CANCEL.md.
+
 ## ORDER DELETION — NON-NEGOTIABLE (added 2026-09-13)
 
   A COMPLETED order, or ANY order that has received money (total_paid > 0 or a
@@ -1157,7 +1165,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     (reactivate_layaway_atomic).
   - EXPIRY: expire_web_layaway_atomic (hourly sweep) releases a web plan whose
     deposit never arrived; refuses already_paid, payment_exists,
-    submission_pending (INVARIANT 12). There is NO cancel-after-deposit.
+    submission_pending (INVARIANT 12). Expiry never cancels after a deposit;
+    a paid plan ends only by staff Cancel or forfeit (docs/LAYAWAY-CANCEL.md).
   - The writer refuses on NOT eligible OR term_downgraded — never drop
     term_downgraded as redundant.
   - TWO BASES, NEVER CONFLATED: deposit = 30% of the TOTAL; loyalty = PRODUCT

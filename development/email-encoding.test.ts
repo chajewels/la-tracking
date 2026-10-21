@@ -36,6 +36,7 @@ import { LayawayDepositDueEmail } from '../supabase/functions/_shared/email-temp
 import { CartReminderEmail } from '../supabase/functions/_shared/email-templates/cart-reminder.tsx'
 import { LayawayExpiredEmail } from '../supabase/functions/_shared/email-templates/layaway-expired.tsx'
 import { LayawayForfeitedEmail } from '../supabase/functions/_shared/email-templates/layaway-forfeited.tsx'
+import { LayawayCancelledEmail } from '../supabase/functions/_shared/email-templates/layaway-cancelled.tsx'
 import { LayawayPaymentReceivedEmail } from '../supabase/functions/_shared/email-templates/layaway-payment-received.tsx'
 import { LevelWarningEmail, LevelStepdownEmail, LevelRestoredEmail } from '../supabase/functions/_shared/email-templates/loyalty-level.tsx'
 import { StorefrontMagicLinkEmail } from '../supabase/functions/_shared/email-templates/storefront-magic-link.tsx'
@@ -150,6 +151,8 @@ function storefrontFixtures(): Fixture[] {
         add('layaway-payment-received.tsx', `layaway-payment-received ${k} deposit=${isDeposit}`, el(LayawayPaymentReceivedEmail, { reference: plan.reference, currency, isDeposit, amountReceived: 36000, remaining: 84000, schedule, nextDueDate: '2026-10-24', nextDueAmount: 28000, planUrl }))
       for (const final of [false, true])
         add('layaway-forfeited.tsx', `layaway-forfeited ${k} final=${final}`, el(LayawayForfeitedEmail, { reference: plan.reference, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }))
+      for (const pointsReversed of [false, true])
+        add('layaway-cancelled.tsx', `layaway-cancelled ${k} points=${pointsReversed}`, el(LayawayCancelledEmail, { reference: plan.reference, currency, totalAmount: 120000, totalPaid: 36000, planUrl, pointsReversed }))
       add('layaway-expired.tsx', `layaway-expired ${k}`, el(LayawayExpiredEmail, { reference: plan.reference, currency, totalAmount: 120000, deposit: 36000, transferDueAt: due, region: 'JP', shopUrl }))
       if (lang === 'en') {
         add('layaway-reserved.tsx', `layaway-reserved ${currency}`, el(LayawayReservedEmail, { ...plan, planUrl }))
