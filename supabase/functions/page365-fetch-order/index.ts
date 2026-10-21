@@ -9,10 +9,12 @@
  * is_test rules all still apply exactly as they do for a hand-typed order.
  *
  * THE ?sig= IS A CAPABILITY, NOT AN IDENTIFIER. It is the bearer credential
- * that makes a Page365 invoice readable by anyone holding the link. It is used
- * for the single outbound request and then dropped: it is not stored on the
- * draft, not stored on the order, not logged, and not returned to the caller.
- * Only the slug and the invoice number survive.
+ * that makes a Page365 invoice readable by anyone holding the link. Since the
+ * void sync (owner 2026-10-21, docs/PAGE365-IMPORT.md "Void sync") it is kept
+ * in ONE place: page365_invoice_links (server-only, RLS on with no policy),
+ * written through page365_invoice_link_upsert once the draft is saved, so
+ * page365-invoice-check can re-read the invoice stage later. It is still not
+ * stored on the draft or the order, not logged, and not returned to the caller.
  *
  * REFUSE THE WHOLE THING OR NOTHING. Any parse gap — an item without a price, a
  * missing customer, totals that do not reconcile — refuses the import and names
@@ -133,7 +135,7 @@ function toNumber(v: unknown): number | null {
  * The original read exactly `product.photo` and nothing else. Invoice 19768
  * (the first real import) produced `source_photo_url: null` with an EMPTY
  * `photo_failures` -- proof that the copy step never ran, because no URL was
- * ever found to copy. The ?sig= capability is deliberately not stored, so that
+ * ever found to copy. The ?sig= capability was not stored at the time, so that
  * invoice cannot be re-fetched to confirm which key it actually used.
  *
  * So this widens the search across the shapes Page365 plausibly emits rather
@@ -633,8 +635,23 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: draftErr?.message || "Could not save the draft" }, 500);
     }
 
+    // Void sync: keep the link server-side so page365-invoice-check can re-read
+    // the stage later. Non-blocking for the import; never logs the sig.
+    let linkSaved = false;
+    const sigParam = new URL(fetchUrl).searchParams.get("sig") ?? "";
+    const { error: linkErr } = await supabase.rpc("page365_invoice_link_upsert", {
+      p_page365_no: page365No,
+      p_slug: slug,
+      p_sig: sigParam,
+    });
+    if (linkErr) {
+      console.warn(`[page365-fetch-order] link not kept for invoice ${page365No}: ${linkErr.message}`);
+    } else {
+      linkSaved = true;
+    }
+
     return new Response(
-      JSON.stringify({ draft_id: draftRow.id, expires_at: draftRow.expires_at, draft }),
+      JSON.stringify({ draft_id: draftRow.id, expires_at: draftRow.expires_at, draft, page365_link_saved: linkSaved }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error: unknown) {

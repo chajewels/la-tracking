@@ -232,6 +232,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.page365-inventory-photos]
     verify_jwt = true
+  [functions.page365-invoice-check]
+    verify_jwt = true
   [functions.campaign-queue]
     verify_jwt = true
   [functions.process-newsletter-campaigns]
