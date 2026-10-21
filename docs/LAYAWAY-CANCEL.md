@@ -56,6 +56,23 @@ different customer emails.
   `terminate_web_order_atomic`) now also takes the `sales_log` row out of
   commission.
 
+## Release record (2026-10-21)
+
+- Released by PR #569 (`main@f7dc2a7`). Lovable declined to apply the migration
+  (its migration tool writes drizzle/, package.json and bun.lock, which are
+  frozen), so it was applied by Claude Code through the Lovable database
+  connection with the owner's approval in chat, after a 0/0/0 drift check. All
+  six after-md5s and the new function matched; `authenticated` cannot execute
+  `cancel_layaway_atomic`.
+- The eight edge functions were deployed by Lovable (deploy-only message, all
+  source assertions passed).
+- `20261227100100_record_live_cancel_layaway_bodies.sql` records the six
+  patched bodies as live runs them; with it, live and repo agree on all 433
+  functions (drift audit 0/0/0).
+- INV 19848 (the trigger case) was manually FORFEITED by staff on 2026-10-21
+  before the release; that forfeit already reversed its 3,600 points. It stays
+  forfeited (a forfeited account cannot be cancelled).
+
 ## Guards (a cancelled account cannot be revived or charged)
 
 - `allocate_payment_atomic` refuses a `cancelled` layaway (`final_forfeited` is
