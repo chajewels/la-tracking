@@ -70,6 +70,11 @@ const statusLabel: Record<string, string> = {
 // covered; any unexpected status is appended after these (never dropped).
 const STATUS_ORDER = ['active', 'overdue', 'extension_active', 'reactivated', 'completed', 'final_settlement', 'forfeited', 'final_forfeited', 'cancelled'];
 
+// Tabs shown even at a count of 0, so staff can always find them. Cancelled
+// (staff Cancel, owner 2026-10-21) is rare, and a tab that only appears after
+// the first cancel reads as "the filter is missing".
+const ALWAYS_SHOWN_TABS = ['cancelled'];
+
 const statusDot: Record<string, string> = {
   active: 'bg-success',
   overdue: 'bg-destructive',
@@ -254,7 +259,7 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
     const counts = new Map<string, number>();
     for (const a of preStatusFiltered) counts.set(a.status, (counts.get(a.status) ?? 0) + 1);
     const ordered = [
-      ...STATUS_ORDER.filter(s => (counts.get(s) ?? 0) > 0),
+      ...STATUS_ORDER.filter(s => (counts.get(s) ?? 0) > 0 || ALWAYS_SHOWN_TABS.includes(s)),
       ...[...counts.keys()].filter(s => !STATUS_ORDER.includes(s)),
     ];
     return { tabs: ['all', ...ordered], tabCounts: counts };
@@ -753,6 +758,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             // (2026-09-30: a filtered "New today" read "No layaway accounts yet").
             text={newToday
               ? 'No new layaway accounts today.'
+              : filterStatus === 'cancelled' && !searchRef.current && filterCurrency === 'all' && filterChannel === 'all'
+                ? 'No cancelled layaway plans.'
               : searchRef.current || filterStatus !== 'all' || filterCurrency !== 'all' || filterChannel !== 'all' || filterPeriod
                 ? 'No accounts match — try clearing the search or filters.'
                 : 'No layaway accounts yet — create the first one to get started.'}
