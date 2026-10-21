@@ -71,6 +71,7 @@ import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 import ServiceRequestsSection from '@/components/services/ServiceRequestsSection';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
+import Page365SyncPanel from '@/components/page365/Page365SyncPanel';
 import type { TablesUpdate } from '@/integrations/supabase/types';
 
 /** Edge-function HTTP error: supabase-js puts the Response on context. Types only. */
@@ -1910,6 +1911,7 @@ export default function CashOrderDetail() {
         {/* Page365 stock — what the import did to website stock, per line.
             Renders nothing for orders without ledger rows. */}
         <Page365StockPanel kind="cash" orderId={order.id} />
+        <Page365SyncPanel kind="cash" orderId={order.id} />
 
         {/* Financial Breakdown — recorded discount / shipping (order currency).
             Lists the recorded values + the authoritative total; no reconciliation
