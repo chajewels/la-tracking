@@ -1066,8 +1066,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   FORFEIT = the customer could not settle her dues; CANCEL = she voluntarily
   asked to cancel. ONE writer cancel_layaway_atomic behind cancel-layaway
   (forfeit_account): revokes earned points, never returns redeemed ones, never
-  issues store credit; terminal (never reactivated). Full rules:
-  docs/LAYAWAY-CANCEL.md.
+  issues store credit; terminal (except a Page365 void-sync cancel, restored
+  on renewal). Full rules: docs/LAYAWAY-CANCEL.md.
 
 ## ORDER DELETION — NON-NEGOTIABLE (added 2026-09-13)
 
@@ -1196,8 +1196,10 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     is_test prefix all apply).
   - page365-fetch-order NEVER WRITES AN ORDER; it refuses the whole import,
     naming the field, when anything is missing or totals do not reconcile.
-  - THE ?sig= IS A CAPABILITY: used for the single fetch and dropped — never
-    stored, logged or returned. Only slug and invoice number survive.
+  - THE ?sig= IS A CAPABILITY: kept ONLY in page365_invoice_links (RLS, no
+    policy); never on an order table, logged or returned to any browser.
+  - VOID SYNC: 'voided' cancels a LIVE order; renewal restores only what the
+    sync cancelled; writer page365_apply_invoice_stage — docs "Void sync".
   - PAGE365 INVOICES ARE JPY. The account currency is the CSR's choice; PHP
     converts at system_settings.php_jpy_rate, carried on the draft. NEVER use
     currency-converter.ts getConversionRate() server-side or for a stored figure.
