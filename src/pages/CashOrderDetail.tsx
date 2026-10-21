@@ -1237,7 +1237,9 @@ export default function CashOrderDetail() {
   // it (not_ready_for_payment); the page does not offer it.
   const awaitingReservation = isAwaitingConfirmation(order, 'cash_order');
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending' && !awaitingReservation;
-  const canCancel = isAdmin && (order.status === 'pending' || order.status === 'completed');
+  // Gated by the same permission cancel-cash-order enforces server-side
+  // (cancel_cash_order; admin-only in the matrix today, so no visible change).
+  const canCancel = can('cancel_cash_order') && (order.status === 'pending' || order.status === 'completed');
   // Cancel dialog — web-order refund decision. Web-ness comes from the order row
   // (the preview's is_web only confirms it); money/stock figures come from the
   // server preview and may be absent on older deploys.

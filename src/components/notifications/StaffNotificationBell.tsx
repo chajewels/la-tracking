@@ -50,6 +50,7 @@ function iconForType(type: string) {
     case 'penalty_applied':
       return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
     case 'account_forfeited':
+    case 'account_cancelled':
     case 'web_reservation_auto_cancelled':
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
     // 48h unconfirmed: the last working day before the 72h auto-cancel.
