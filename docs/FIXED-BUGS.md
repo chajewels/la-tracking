@@ -6447,3 +6447,13 @@ Do not reintroduce: an extension end computed from the reactivation or request d
 comparison against end-of-day UTC; a penalty for an extension_active account on or after its end
 date; a cap that counts penalties on a row the engine never charges.
 
+
+## Page365 renewal blocked by a waiting payment rang no bell (2026-10-23)
+page365_apply_invoice_stage refused to restore a Page365-cancelled order while a payment submission
+was 'submitted' / 'under_review' (INVARIANT 12, correct) but returned 'submission_pending' with no
+staff bell, while the void side rang page365_void_blocked. A renewal caught by the 30-minute check
+therefore told nobody. Found by an external review of the void-sync release. Fix: migration
+20261229100000_page365_renew_blocked_bell.sql (md5-guarded in-place patch from live 9e84ceb9…):
+bell page365_renew_blocked, once per invoice (last_notified_stage 'renewed_blocked'), account_id on
+layaway only — the void-side shape. Order still not restored until the submission is resolved.
+Do not reintroduce: a refusal branch in page365_apply_invoice_stage that returns without a bell.
