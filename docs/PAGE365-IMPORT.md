@@ -1046,8 +1046,11 @@ staff by hand; forfeits always start in the Hub.
 - A cash order whose cancel issued store credit is never auto-restored: bell
   `page365_renew_needs_staff`.
 - INVARIANT 12: a submission in `submitted` / `under_review` blocks cancel AND
-  restore for every source; bell `page365_void_blocked` (once per stage).
-- Bells: `page365_invoice_voided`, `page365_invoice_renewed` (+ the three above).
+  restore for every source; bell `page365_void_blocked` on the void side and
+  `page365_renew_blocked` on the renew side (once per invoice each; the renew
+  bell was added 2026-10-23, migration 20261229100000 — before it a blocked
+  renewal returned `submission_pending` silently).
+- Bells: `page365_invoice_voided`, `page365_invoice_renewed` (+ the four above).
   Audit actions `page365_void_cancel`, `page365_renew_restore`.
 
 **Objects.** `page365_invoice_links` (one row per invoice; RLS on, no policy;
