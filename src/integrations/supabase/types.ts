@@ -4242,6 +4242,63 @@ export type Database = {
         }
         Relationships: []
       }
+      page365_invoice_links: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_by_page365: boolean
+          cancelled_schedule: Json | null
+          created_at: string
+          last_check_error: string | null
+          last_checked_at: string | null
+          last_notified_stage: string | null
+          last_stage: string | null
+          page365_no: number
+          page365_sig: string
+          page365_slug: string
+          restored_at: string | null
+          revoked_points_tx: string | null
+          sales_log_before: Json | null
+          status_before_cancel: string | null
+          updated_at: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          cancelled_by_page365?: boolean
+          cancelled_schedule?: Json | null
+          created_at?: string
+          last_check_error?: string | null
+          last_checked_at?: string | null
+          last_notified_stage?: string | null
+          last_stage?: string | null
+          page365_no: number
+          page365_sig: string
+          page365_slug: string
+          restored_at?: string | null
+          revoked_points_tx?: string | null
+          sales_log_before?: Json | null
+          status_before_cancel?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          cancelled_by_page365?: boolean
+          cancelled_schedule?: Json | null
+          created_at?: string
+          last_check_error?: string | null
+          last_checked_at?: string | null
+          last_notified_stage?: string | null
+          last_stage?: string | null
+          page365_no?: number
+          page365_sig?: string
+          page365_slug?: string
+          restored_at?: string | null
+          revoked_points_tx?: string | null
+          sales_log_before?: Json | null
+          status_before_cancel?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       page365_landings: {
         Row: {
           code: string
@@ -10737,6 +10794,15 @@ export type Database = {
         }
         Returns: Json
       }
+      page365_apply_invoice_stage: {
+        Args: {
+          p_page365_no: number
+          p_stage: string
+          p_user_email?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       page365_apply_stock: {
         Args: {
           p_actor?: string
@@ -10831,7 +10897,23 @@ export type Database = {
         Args: { p_detail: Json; p_error: string; p_product_row_id: string }
         Returns: string
       }
+      page365_invoice_due_links: {
+        Args: never
+        Returns: {
+          page365_no: number
+          page365_sig: string
+          page365_slug: string
+        }[]
+      }
       page365_invoice_holds: { Args: { p_variant_id: string }; Returns: number }
+      page365_invoice_link_status: {
+        Args: { p_page365_no: number }
+        Returns: Json
+      }
+      page365_invoice_link_upsert: {
+        Args: { p_page365_no: number; p_sig: string; p_slug: string }
+        Returns: undefined
+      }
       page365_item_kind_for: {
         Args: { p_category: string; p_name: string }
         Returns: string
@@ -10847,6 +10929,10 @@ export type Database = {
         }[]
       }
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
+      page365_record_check_error: {
+        Args: { p_error: string; p_page365_no: number }
+        Returns: undefined
+      }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       paidy_case_bell_missing: {
         Args: { p_after_at?: string; p_after_id?: string; p_limit?: number }
