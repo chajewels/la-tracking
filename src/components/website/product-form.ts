@@ -86,8 +86,9 @@ export interface ProductForm {
   name: string;
   /** Generated from `name` on save — never typed by staff. */
   name_ja: string;
-  /** English name as last saved — the Japanese name only refreshes when it changes. */
-  savedName: string;
+  /** The English name the current Japanese name was generated from. Save
+   *  re-translates only when `name` differs from it (or name_ja is empty). */
+  jaSourceName: string;
   /** jewelry | watch | other. Decides whether a metal stamp is required. */
   itemKind: ItemKind;
   /** Stamps in the order picked; at least one to save JEWELRY, optional otherwise. */
@@ -99,8 +100,8 @@ export interface ProductForm {
   brand: string;
   description_en: string;
   description_ja: string;
-  /** English text as last saved — the translation only refreshes when it changes. */
-  savedEn: string;
+  /** The English description the current Japanese one was generated from. */
+  jaSourceEn: string;
   status: Status;
   /** "Don't sync with Page365" (website_products.page365_sync_disabled). On =
    *  the Page365 inventory fetch always skips this product and an invoice
@@ -118,7 +119,53 @@ export interface ProductForm {
   /** website_category_products, in the order picked. */
   categoryIds: string[];
   variants: VariantRow[];
+  /** What the product looked like when the editor opened it (not rendered).
+   *  Save skips the variant, photo and link-table rewrites that would not
+   *  change anything — every one of those writes fires a website refresh.
+   *  Null for a new product: everything is written. */
+  loaded: LoadedSnapshot | null;
 }
+
+/** A variant as it was read, in the same shape the save writes it. */
+export interface LoadedVariant {
+  id: string;
+  size: string | null;
+  stone: string | null;
+  price_jpy: number;
+  sale_price_jpy: number | null;
+  cost_basis: number | null;
+  stock_qty: number;
+  sort: number;
+  media: Array<Pick<MediaRow, "url" | "alt" | "sort" | "page365_photo_id" | "page365_photo_version">>;
+}
+export interface LoadedSnapshot {
+  variants: LoadedVariant[];
+  collectionIds: string[];
+  categoryIds: string[];
+}
+
+/** Same ids in the same order. */
+export const sameIds = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
+
+/** The variant row the save would write equals the one that was loaded. */
+export const sameVariantRow = (
+  row: Pick<LoadedVariant, "size" | "stone" | "price_jpy" | "sale_price_jpy" | "cost_basis" | "stock_qty" | "sort">,
+  was: LoadedVariant,
+) =>
+  row.size === was.size && row.stone === was.stone && row.price_jpy === was.price_jpy &&
+  row.sale_price_jpy === was.sale_price_jpy && row.cost_basis === was.cost_basis &&
+  row.stock_qty === was.stock_qty && row.sort === was.sort;
+
+/** The photo rows the save would write (url, alt, order, Page365 ids) equal the loaded ones. */
+export const sameMedia = (
+  rows: ReadonlyArray<Pick<MediaRow, "url" | "alt" | "sort" | "page365_photo_id" | "page365_photo_version">>,
+  was: LoadedVariant["media"],
+) =>
+  rows.length === was.length && rows.every((m, i) =>
+    m.url === was[i].url && (m.alt ?? null) === (was[i].alt ?? null) && m.sort === was[i].sort &&
+    (m.page365_photo_id ?? null) === (was[i].page365_photo_id ?? null) &&
+    (m.page365_photo_version ?? null) === (was[i].page365_photo_version ?? null));
 
 export const emptyVariant = (sort: number): VariantRow => ({
   size: "", stone: "", price_jpy: 0, sale_price_jpy: null, cost_basis: null, stock_qty: 0, sort, media: [],
@@ -139,10 +186,11 @@ export function saleError(v: Pick<VariantRow, "price_jpy" | "sale_price_jpy">): 
 }
 
 export const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", name_ja: "", savedName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", jaSourceName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
-  description_en: "", description_ja: "", savedEn: "",
+  description_en: "", description_ja: "", jaSourceEn: "",
   status: "draft", page365SyncDisabled: false, videoUrl: null, videoPosterUrl: null, videoColumns: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
+  loaded: null,
 });
 
 export const slugify = (s: string) =>

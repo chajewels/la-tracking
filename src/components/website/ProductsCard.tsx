@@ -34,7 +34,8 @@ import {
 } from "@/lib/website-catalog-import";
 import {
   type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
-  ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, saleError, slugify, yen,
+  ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, saleError, sameIds, sameMedia,
+  sameVariantRow, slugify, yen,
 } from "@/components/website/product-form";
 
 /** One product as the Catalog list reads it: the row plus its nested selects. */
@@ -56,6 +57,14 @@ type CatalogProductRead = Tables<"website_products"> & {
   website_collection_products: Array<{ collection_id: string }> | null;
   website_category_products: Array<{ category_id: string }> | null;
 };
+
+/** What the Catalog reads per product — the list, and the one-product refresh after a save. */
+const PRODUCT_SELECT =
+  // "*" rather than a column list: page365_product_id (PR 4) is read when
+  // the migration has run and simply absent before it.
+  "*, " +
+  "website_product_variants(id, size, stone, price_jpy, sale_price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
+  "website_collection_products(collection_id), website_category_products(category_id)";
 
 /**
  * The website product list and everything that writes to it: the queries, the
@@ -132,13 +141,7 @@ export default function ProductsCard() {
       for (let page = 0; page < MAX_PAGES; page++) {
         const { data, error } = await supabase
           .from("website_products")
-          .select(
-            // "*" rather than a column list: page365_product_id (PR 4) is read when
-            // the migration has run and simply absent before it.
-            "*, " +
-            "website_product_variants(id, size, stone, price_jpy, sale_price_jpy, cost_basis, stock_qty, sort, website_product_media(id, url, alt, sort, page365_photo_id, page365_photo_version)), " +
-            "website_collection_products(collection_id), website_category_products(category_id)"
-          )
+          .select(PRODUCT_SELECT)
           .order("created_at", { ascending: false })
           .order("id", { ascending: true })
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
@@ -342,7 +345,7 @@ export default function ProductsCard() {
       slug: p.slug ?? "",
       name: p.name ?? "",
       name_ja: p.name_ja ?? "",
-      savedName: p.name ?? "",
+      jaSourceName: p.name ?? "",
       itemKind: itemKindFrom(p.item_kind),
       metals: (Array.isArray(p.metals) && p.metals.length ? p.metals : p.karat ? [p.karat] : [])
         .filter((m: string): m is ProductMetal => (PRODUCT_METAL_VALUES as readonly string[]).includes(m)),
@@ -352,7 +355,7 @@ export default function ProductsCard() {
       brand: p.brand ?? "",
       description_en: p.description_en ?? "",
       description_ja: p.description_ja ?? "",
-      savedEn: p.description_en ?? "",
+      jaSourceEn: p.description_en ?? "",
       status: p.status ?? "draft",
       page365SyncDisabled: p.page365_sync_disabled === true,
       videoUrl: p.video_url ?? null,
@@ -361,6 +364,24 @@ export default function ProductsCard() {
       collectionIds: (p.website_collection_products ?? []).map((c) => c.collection_id),
       categoryIds: (p.website_category_products ?? []).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
+      loaded: {
+        variants: variants.map((v) => ({
+          id: v.id,
+          size: v.size || null,
+          stone: v.stone || null,
+          price_jpy: v.price_jpy,
+          sale_price_jpy: v.sale_price_jpy,
+          cost_basis: v.cost_basis,
+          stock_qty: v.stock_qty,
+          sort: v.sort,
+          media: v.media.map((m) => ({
+            url: m.url, alt: m.alt ?? null, sort: m.sort,
+            page365_photo_id: m.page365_photo_id, page365_photo_version: m.page365_photo_version,
+          })),
+        })),
+        collectionIds: (p.website_collection_products ?? []).map((c) => c.collection_id),
+        categoryIds: (p.website_category_products ?? []).map((c) => c.category_id),
+      },
     });
     setOpen(true);
   }
@@ -379,6 +400,9 @@ export default function ProductsCard() {
         ...f,
         name_ja: name ? ja.name_ja : "",
         description_ja: en ? ja.description_ja : "",
+        // The Japanese now matches this English: Save must not translate it again.
+        jaSourceName: name,
+        jaSourceEn: en,
       }));
       toast({ title: "Japanese updated" });
     } catch (e) {
@@ -425,6 +449,30 @@ export default function ProductsCard() {
     }
   }
 
+  /**
+   * After a save, re-read ONLY that product (same select as the list) and put
+   * it into the cached list — not the whole catalog. Falls back to a full
+   * reload if the read fails or the list is not cached.
+   */
+  async function refreshProduct(productId: string) {
+    try {
+      const { data, error } = await supabase.from("website_products")
+        .select(PRODUCT_SELECT).eq("id", productId).maybeSingle();
+      if (error) throw error;
+      const row = data as unknown as CatalogProductRead | null;
+      if (!row || !qc.getQueryData(["website-products"])) throw new Error("not cached");
+      qc.setQueryData<CatalogProductRead[]>(["website-products"], (old = []) => {
+        const i = old.findIndex((p) => p.id === row.id);
+        if (i === -1) return [row, ...old];
+        const next = old.slice();
+        next[i] = row;
+        return next;
+      });
+    } catch {
+      qc.invalidateQueries({ queryKey: ["website-products"] });
+    }
+  }
+
   const save = useMutation({
     mutationFn: async (f: ProductForm) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
@@ -444,39 +492,32 @@ export default function ProductsCard() {
       const goingLive = f.status === "active" && !wasActive;
 
       // Japanese is derived from the English text: refresh it when the English
-      // changed, or when it has never been generated. Never on an unchanged product.
+      // differs from what the current Japanese was generated from, or when it has
+      // never been generated. Never on an unchanged product, and never a second
+      // time after Regenerate (that moves jaSourceName / jaSourceEn).
+      // The translation runs ALONGSIDE the writes below and lands in the final
+      // update, so the AI round-trip no longer delays the first write.
       const name = f.name.trim();
       const en = f.description_en.trim();
-      let nameJa = f.name_ja.trim();
-      let ja = f.description_ja.trim();
-      if (!en) ja = "";
-      const needName = name !== f.savedName.trim() || !nameJa;
-      const needDesc = !!en && (en !== f.savedEn.trim() || !ja);
+      const needName = name !== f.jaSourceName.trim() || !f.name_ja.trim();
+      const needDesc = !!en && (en !== f.jaSourceEn.trim() || !f.description_ja.trim());
+      let translation: Promise<{ name_ja: string; description_ja: string } | Error> | null = null;
       if (needName || needDesc) {
         setTranslating(true);
-        try {
-          const out = await translateJa({
-            name: needName ? name : undefined,
-            description: needDesc ? en : undefined,
-          });
-          if (needName) nameJa = out.name_ja;
-          if (needDesc) ja = out.description_ja;
-        } catch (e) {
-          toast({
-            title: "Japanese not regenerated",
-            description: `${(e as Error).message} The product still saved — use Regenerate to retry.`,
-            variant: "destructive",
-          });
-        } finally {
-          setTranslating(false);
-        }
+        translation = translateJa({
+          name: needName ? name : undefined,
+          description: needDesc ? en : undefined,
+        })
+          .catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))
+          .finally(() => setTranslating(false));
       }
 
       const productPayload = {
         sku: f.sku.trim(),
         slug,
         name,
-        name_ja: nameJa || null,
+        // The Japanese as it stands; a fresh translation follows in the final update.
+        name_ja: f.name_ja.trim() || null,
         item_kind: f.itemKind,
         metals: f.metals,
         weight_g: f.weight_g,
@@ -484,7 +525,7 @@ export default function ProductsCard() {
         origin: f.origin,
         brand: f.brand.trim() || null,
         description_en: en || null,
-        description_ja: ja || null,
+        description_ja: en ? f.description_ja.trim() || null : null,
         // Going live is written LAST, after categories: a Page365 draft is
         // refused publication without a category (trg_page365_draft_publish_guard).
         status: goingLive ? "draft" : f.status,
@@ -507,7 +548,9 @@ export default function ProductsCard() {
         productId = data.id;
       }
 
-      // Variants: upsert, then remove ones deleted in the form.
+      // Variants: upsert, then remove ones deleted in the form. An existing
+      // product writes only what changed since the editor opened (f.loaded):
+      // every variant / photo row write fires a website refresh.
       const keptVariantIds: string[] = [];
       for (const [i, v] of f.variants.entries()) {
         const payload = {
@@ -520,13 +563,16 @@ export default function ProductsCard() {
           stock_qty: Math.round(Number(v.stock_qty) || 0),
           sort: i,
         };
+        const before = v.id ? f.loaded?.variants.find((x) => x.id === v.id) : undefined;
         let variantId = v.id;
         if (variantId) {
-          // Cast at the call site until Lovable regenerates types.ts with
-          // sale_price_jpy (CLAUDE.md: never hand-edit the generated types).
-          const { error } = await supabase.from("website_product_variants")
-            .update(payload as TablesUpdate<"website_product_variants">).eq("id", variantId);
-          if (error) throw error;
+          if (!before || !sameVariantRow(payload, before)) {
+            // Cast at the call site until Lovable regenerates types.ts with
+            // sale_price_jpy (CLAUDE.md: never hand-edit the generated types).
+            const { error } = await supabase.from("website_product_variants")
+              .update(payload as TablesUpdate<"website_product_variants">).eq("id", variantId);
+            if (error) throw error;
+          }
         } else {
           const { data, error } = await supabase.from("website_product_variants")
             .insert(payload as TablesInsert<"website_product_variants">).select("id").single();
@@ -535,19 +581,22 @@ export default function ProductsCard() {
         }
         keptVariantIds.push(variantId!);
 
-        // Media rows for this variant (replace-all — media list is small).
+        // Media rows for this variant (replace-all — media list is small),
+        // skipped when the list is exactly what was loaded.
+        const mediaRows = v.media.map((m, idx) => ({
+          variant_id: variantId!, url: m.url, alt: m.alt?.trim() || null, sort: idx,
+          // Keep a copied Page365 photo's identity, or the next fetch
+          // would copy it again (duplicate photo).
+          page365_photo_id: m.page365_photo_id ?? null,
+          page365_photo_version: m.page365_photo_version ?? null,
+        }));
+        if (before && sameMedia(mediaRows, before.media)) continue;
         const { error: delMediaErr } = await supabase.from("website_product_media")
-          .delete().eq("variant_id", variantId);
+          .delete().eq("variant_id", variantId!);
         if (delMediaErr) throw delMediaErr;
-        if (v.media.length) {
+        if (mediaRows.length) {
           const { error: insMediaErr } = await supabase.from("website_product_media")
-            .insert(v.media.map((m, idx) => ({
-              variant_id: variantId, url: m.url, alt: m.alt?.trim() || null, sort: idx,
-              // Keep a copied Page365 photo's identity, or the next fetch
-              // would copy it again (duplicate photo).
-              page365_photo_id: m.page365_photo_id ?? null,
-              page365_photo_version: m.page365_photo_version ?? null,
-            })));
+            .insert(mediaRows);
           if (insMediaErr) throw insMediaErr;
         }
       }
@@ -559,43 +608,76 @@ export default function ProductsCard() {
         if (error) throw error;
       }
 
-      // Collection membership
-      const { error: delColErr } = await supabase.from("website_collection_products")
-        .delete().eq("product_id", productId);
-      if (delColErr) throw delColErr;
-      if (f.collectionIds.length) {
-        const { error } = await supabase.from("website_collection_products")
-          .insert(f.collectionIds.map((cid, idx) => ({
-            collection_id: cid, product_id: productId, sort: idx,
-          })));
-        if (error) throw error;
-      }
+      // Product types and categories: independent tables, written together, and
+      // each only when its list (in order) changed since the editor opened.
+      const writeCollections = async () => {
+        if (f.loaded && sameIds(f.collectionIds, f.loaded.collectionIds)) return;
+        const { error: delColErr } = await supabase.from("website_collection_products")
+          .delete().eq("product_id", productId);
+        if (delColErr) throw delColErr;
+        if (f.collectionIds.length) {
+          const { error } = await supabase.from("website_collection_products")
+            .insert(f.collectionIds.map((cid, idx) => ({
+              collection_id: cid, product_id: productId, sort: idx,
+            })));
+          if (error) throw error;
+        }
+      };
+      const writeCategories = async () => {
+        if (f.loaded && sameIds(f.categoryIds, f.loaded.categoryIds)) return;
+        // Category membership — its own join table with its own column name
+        // (sort_order, not sort). Never the collection payload.
+        // Kept as `as any`: src/test/page365-drafts.test.tsx ("writes 'active' after
+        // categories") anchors on this exact text. Drop it when that test is updated.
+        const { error: delCatErr } = await supabase.from("website_category_products")
+          .delete().eq("product_id", productId);
+        if (delCatErr) throw delCatErr;
+        if (f.categoryIds.length) {
+          const { error } = await supabase.from("website_category_products")
+            .insert(f.categoryIds.map((cid, idx) => ({
+              category_id: cid, product_id: productId, sort_order: idx,
+            })));
+          if (error) throw error;
+        }
+      };
+      await Promise.all([writeCollections(), writeCategories()]);
 
-      // Category membership — its own join table with its own column name
-      // (sort_order, not sort). Never the collection payload.
-      // Kept as `as any`: src/test/page365-drafts.test.tsx ("writes 'active' after
-      // categories") anchors on this exact text. Drop it when that test is updated.
-      const { error: delCatErr } = await supabase.from("website_category_products")
-        .delete().eq("product_id", productId);
-      if (delCatErr) throw delCatErr;
-      if (f.categoryIds.length) {
-        const { error } = await supabase.from("website_category_products")
-          .insert(f.categoryIds.map((cid, idx) => ({
-            category_id: cid, product_id: productId, sort_order: idx,
-          })));
-        if (error) throw error;
+      // The Japanese, now that every other write is done.
+      const jaPatch: { name_ja?: string | null; description_ja?: string | null } = {};
+      if (translation) {
+        const out = await translation;
+        if (out instanceof Error) {
+          toast({
+            title: "Japanese not regenerated",
+            description: `${out.message} The product still saved — use Regenerate to retry.`,
+            variant: "destructive",
+          });
+        } else {
+          if (needName) jaPatch.name_ja = out.name_ja || null;
+          if (needDesc) jaPatch.description_ja = out.description_ja || null;
+        }
       }
-      if (goingLive) {
-        const { error } = await supabase.from("website_products" as never)
-          .update({ status: "active" } as never).eq("id", productId!);
-        if (error) throw new Error(`Saved as a draft, not published: ${error.message}`);
+      // ONE final write: the fresh Japanese and, when going live, the status.
+      // It stays after the category writes (the publish guard needs a category).
+      const hasJa = Object.keys(jaPatch).length > 0;
+      if (goingLive || hasJa) {
+        const row = supabase.from("website_products" as never);
+        const { error } = await (hasJa
+          ? row.update({ ...jaPatch, ...(goingLive ? { status: "active" } : {}) } as never)
+          : row.update({ status: "active" } as never)
+        ).eq("id", productId!);
+        if (error) {
+          throw new Error(goingLive
+            ? `Saved as a draft, not published: ${error.message}`
+            : `Saved, but the Japanese was not updated: ${error.message} Use Regenerate to retry.`);
+        }
       }
-      return productId;
+      return productId!;
     },
-    onSuccess: () => {
+    onSuccess: (productId) => {
       toast({ title: "Saved", description: "The website will refresh within a minute." });
-      qc.invalidateQueries({ queryKey: ["website-products"] });
       setOpen(false);
+      void refreshProduct(productId);
     },
     onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
   });
