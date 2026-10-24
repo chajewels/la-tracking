@@ -84,6 +84,7 @@ async function callGateway(apiKey: string, system: string, user: string): Promis
           { role: "user", content: user },
         ],
         temperature: 0.2,
+        reasoning_effort: "none",
       }),
     });
   } catch (err) {
