@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Globe, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/lib/calculations';
 import { DbCustomer } from '@/hooks/use-supabase-data';
@@ -27,11 +28,19 @@ interface GeoBreakdownProps {
   countOnly?: boolean;
 }
 
+interface LocationCustomer {
+  id: string;
+  name: string;
+  code: string | null;
+  count: number;
+}
+
 interface CountryData {
   country: string;
   count: number;
   amountPHP: number;
   amountJPY: number;
+  customers: LocationCustomer[];
 }
 
 interface ContinentData {
@@ -53,7 +62,10 @@ export default function GeoBreakdown({ accounts, customers, countOnly = false }:
       a => (a.status === 'active' || a.status === 'overdue') && a.is_test === false,
     );
 
-    const map: Record<string, Record<string, { count: number; amountPHP: number; amountJPY: number }>> = {};
+    const map: Record<string, Record<string, {
+      count: number; amountPHP: number; amountJPY: number;
+      customers: Map<string, LocationCustomer>;
+    }>> = {};
 
     for (const acc of active) {
       const cust = customerMap.get(acc.customer_id);
@@ -64,8 +76,24 @@ export default function GeoBreakdown({ accounts, customers, countOnly = false }:
       const cur = acc.currency as Currency;
 
       if (!map[continent]) map[continent] = {};
-      if (!map[continent][country]) map[continent][country] = { count: 0, amountPHP: 0, amountJPY: 0 };
+      if (!map[continent][country]) {
+        map[continent][country] = { count: 0, amountPHP: 0, amountJPY: 0, customers: new Map() };
+      }
       map[continent][country].count++;
+      // Keep who is behind each count so an Uncategorized location can link
+      // straight to the customer whose Location needs correcting.
+      const people = map[continent][country].customers;
+      const existing = people.get(acc.customer_id);
+      if (existing) {
+        existing.count++;
+      } else {
+        people.set(acc.customer_id, {
+          id: acc.customer_id,
+          name: cust?.full_name || 'Unknown customer',
+          code: cust?.customer_code ?? null,
+          count: 1,
+        });
+      }
       if (cur === 'JPY') {
         map[continent][country].amountJPY += balance;
       } else {
@@ -79,7 +107,13 @@ export default function GeoBreakdown({ accounts, customers, countOnly = false }:
       if (!countryMap) continue;
 
       const countries = Object.entries(countryMap)
-        .map(([country, data]) => ({ country, ...data }))
+        .map(([country, data]) => ({
+          country,
+          count: data.count,
+          amountPHP: data.amountPHP,
+          amountJPY: data.amountJPY,
+          customers: Array.from(data.customers.values()).sort((a, b) => a.name.localeCompare(b.name)),
+        }))
         .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
 
       const totals = countries.reduce(
@@ -183,18 +217,42 @@ export default function GeoBreakdown({ accounts, customers, countOnly = false }:
                   {cont.countries.map((c) => (
                     <div
                       key={c.country}
-                      className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/40"
+                      className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/40"
                     >
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-card-foreground truncate">{c.country}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {c.count} {c.count === 1 ? 'account' : 'accounts'}
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-card-foreground truncate">{c.country}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {c.count} {c.count === 1 ? 'account' : 'accounts'}
+                          </p>
+                        </div>
+                        {!countOnly && (
+                          <p className="text-xs font-semibold text-card-foreground tabular-nums shrink-0 ml-3">
+                            {formatAmount(c.amountPHP, c.amountJPY)}
+                          </p>
+                        )}
                       </div>
-                      {!countOnly && (
-                        <p className="text-xs font-semibold text-card-foreground tabular-nums shrink-0 ml-3">
-                          {formatAmount(c.amountPHP, c.amountJPY)}
-                        </p>
+                      {/* Uncategorized only: each customer links to her profile,
+                          where the Location pencil fixes every invoice at once. */}
+                      {cont.continent === 'Uncategorized' && c.customers.length > 0 && (
+                        <ul className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                          {c.customers.map((p) => (
+                            <li key={p.id}>
+                              <Link
+                                to={`/customers/${p.id}`}
+                                className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs text-primary hover:bg-primary/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                              >
+                                <span className="min-w-0 truncate">
+                                  {p.name}
+                                  {p.code && <span className="ml-1.5 text-[10px] text-muted-foreground">{p.code}</span>}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  {p.count} {p.count === 1 ? 'account' : 'accounts'}
+                                </span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </div>
                   ))}
