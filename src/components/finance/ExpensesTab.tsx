@@ -23,7 +23,7 @@ import { callRpc } from "@/components/finance/useBookedMonths";
 import { PAID_FROM_KEY, type PaidFromAccount } from "@/components/finance/ledger";
 import RecurringBillsDialog from "@/components/finance/RecurringBillsDialog";
 import { useRecurringBills } from "@/components/finance/useRecurringBills";
-import { billsToConfirm, spreadLabel } from "@/components/finance/recurring";
+import { billsToConfirm, olderOpenDrafts, spreadLabel } from "@/components/finance/recurring";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
@@ -330,6 +330,9 @@ export default function ExpensesTab() {
             </div>
 
             {/* Phase 3: recurring drafts waiting for confirmation */}
+            {recurring.data?.available && olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id))) > 0 && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">{olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id)))} recurring bill draft(s) are still waiting in an earlier month — use the month arrows or the "Recurring bills" source filter.</p>
+            )}
             {billsToConfirm(expenses).length > 0 && (
               <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm" data-testid="bills-to-confirm">
                 <div className="font-medium">Bills to confirm ({billsToConfirm(expenses).length})</div>
@@ -479,7 +482,7 @@ export default function ExpensesTab() {
               {recurringAvailable && (
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="expense-spread">Spread over months (optional)</Label>
-                  <Input id="expense-spread" inputMode="numeric" placeholder="e.g. 12 for a yearly payment" value={form.prepaid_months}
+                  <Input id="expense-spread" className="min-h-11" inputMode="numeric" placeholder="e.g. 12 for a yearly payment" value={form.prepaid_months}
                     onChange={(e) => set("prepaid_months", e.target.value.replace(/\D/g, "").slice(0, 2))} />
                   <p className="text-xs text-muted-foreground">For a payment that covers several months (annual subscription, insurance): the ledger books it as prepaid and releases one share at each month end.</p>
                 </div>

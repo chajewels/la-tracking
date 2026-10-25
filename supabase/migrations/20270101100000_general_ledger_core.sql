@@ -649,9 +649,9 @@ AS $fn$
          'Expense: ' || e.description,
          jsonb_build_array(
            jsonb_build_object('a', CASE WHEN e.prepaid_months IS NOT NULL THEN '1400' ELSE coalesce(c.gl_account_code, '6900') END,
-                              'side', 'dr', 'amt', e.amount, 'cur', e.currency,
+                              'side', 'dr', 'amt', e.amount, 'cur', e.currency, 'jpy', e.amount_jpy,
                               'memo', CASE WHEN e.prepaid_months IS NOT NULL THEN 'Prepaid over ' || e.prepaid_months || ' months: ' || c.name ELSE c.name END),
-           jsonb_build_object('a', coalesce(e.paid_from, public.gl_method_account(e.payment_method, e.currency)), 'side', 'cr', 'amt', e.amount, 'cur', e.currency, 'memo', e.payment_method)),
+           jsonb_build_object('a', coalesce(e.paid_from, public.gl_method_account(e.payment_method, e.currency)), 'side', 'cr', 'amt', e.amount, 'cur', e.currency, 'jpy', e.amount_jpy, 'memo', e.payment_method)),
          NULL::uuid, NULL::uuid, NULL::uuid, e.id
     FROM public.expenses e
     JOIN public.expense_categories c ON c.id = e.category_id
@@ -673,7 +673,11 @@ AS $fn$
       SELECT k,
              (date_trunc('month', e.expense_date) + (k || ' months')::interval)::date AS month_start,
              (date_trunc('month', e.expense_date) + ((k + 1) || ' months')::interval - interval '1 day')::date AS month_end,
-             CASE WHEN k = e.prepaid_months - 1
+             CASE WHEN e.currency = 'JPY' THEN
+                    CASE WHEN k = e.prepaid_months - 1
+                         THEN e.amount_jpy - floor(e.amount_jpy / e.prepaid_months) * (e.prepaid_months - 1)
+                         ELSE floor(e.amount_jpy / e.prepaid_months) END
+                  WHEN k = e.prepaid_months - 1
                   THEN e.amount - round(e.amount / e.prepaid_months, 2) * (e.prepaid_months - 1)
                   ELSE round(e.amount / e.prepaid_months, 2) END AS share,
              CASE WHEN k = e.prepaid_months - 1
@@ -682,7 +686,7 @@ AS $fn$
         FROM generate_series(0, e.prepaid_months - 1) AS k) m
    WHERE e.status = 'approved' AND e.amount > 0 AND e.prepaid_months IS NOT NULL
      AND e.expense_date >= s.start_date
-     AND m.month_end <= p_until AND m.share > 0
+     AND m.month_end <= p_until AND m.share > 0 AND m.share_jpy > 0
 
   UNION ALL
   SELECT 'square_refund', r.id, (coalesce(r.provider_created_at, r.created_at) AT TIME ZONE 'Asia/Tokyo')::date,
@@ -1386,6 +1390,7 @@ BEGIN
          OR NEW.fx_php_per_jpy IS DISTINCT FROM OLD.fx_php_per_jpy
          OR NEW.amount_jpy IS DISTINCT FROM OLD.amount_jpy
          OR NEW.payment_method IS DISTINCT FROM OLD.payment_method
+         OR NEW.prepaid_months IS DISTINCT FROM OLD.prepaid_months
          OR NEW.receipt_path IS DISTINCT FROM OLD.receipt_path
          OR NEW.source IS DISTINCT FROM OLD.source
          OR NEW.source_ref IS DISTINCT FROM OLD.source_ref

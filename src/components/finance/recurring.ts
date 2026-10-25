@@ -144,6 +144,11 @@ export function billsToConfirm<T extends { source: string; status: string; expen
   return expenses.filter((e) => e.source === "recurring" && e.status === "draft").sort((a, b) => a.expense_date.localeCompare(b.expense_date));
 }
 
+/** Recurring drafts still open in OTHER months than the one on screen (from the templates' open_draft_id). */
+export function olderOpenDrafts(bills: Pick<RecurringBill, "open_draft_id">[], shownIds: Set<string>): number {
+  return bills.filter((b) => b.open_draft_id && !shownIds.has(b.open_draft_id)).length;
+}
+
 export function recurringRefusal(code: string): string {
   switch (code) {
     case "permission_denied": return "You don't have permission for this.";
@@ -160,6 +165,7 @@ export function recurringRefusal(code: string): string {
     case "invalid_due_day": return "The due day must be 1–28.";
     case "invalid_date": return "Check the dates (start from 2020, end after start; a one-off draft needs a date within the bill's life).";
     case "invalid_spread": return "Spread over 2 to 36 months.";
+    case "amount_too_small_to_spread": return "The amount is too small to spread over that many months (each month needs at least ¥2).";
     case "invalid_notes": return "Notes are too long.";
     case "already_generated": return "That cycle already has an expense (void it first to regenerate).";
     case "not_found": return "That bill no longer exists.";

@@ -403,6 +403,8 @@ export function expenseRefusal(code: string): string {
     case "invalid_currency": return "Pick yen or pesos.";
     case "invalid_amount": return "The amount is not valid. Yen amounts are whole yen.";
     case "invalid_payment_method": return "Pick how it was paid.";
+    case "amount_too_small_to_spread": return "The amount is too small to spread over that many months (each month needs at least ¥2).";
+    case "invalid_spread": return "Spread over 2 to 36 months.";
     case "invalid_notes": return "The notes are too long.";
     case "invalid_vendor": return "That vendor can't be used. Pick one from the list or type a new name.";
     case "not_draft": return "Only drafts can be changed. An approved expense can only be voided.";

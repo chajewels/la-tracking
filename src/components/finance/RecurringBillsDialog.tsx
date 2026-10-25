@@ -73,7 +73,7 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
 
   return (
     <>
-      <Button size="sm" variant="outline" className="h-9" onClick={() => setOpen(true)} data-testid="recurring-open">
+      <Button size="sm" variant="outline" className="min-h-11" onClick={() => setOpen(true)} data-testid="recurring-open">
         <CalendarClock className="mr-1 h-4 w-4" /> Recurring bills
       </Button>
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setForm(null); setCatchUp(null); } }}>
@@ -111,8 +111,8 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
                     </div>
                     {canManage && (
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setForm(formFromBill(b))} aria-label={`Edit ${b.name}`}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setCatchUp({ bill: b, date: b.last_generated_on ?? today })}>One-off draft…</Button>
+                        <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => setForm(formFromBill(b))} aria-label={`Edit ${b.name}`}><Pencil className="h-4 w-4" /></Button>
+                        <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setCatchUp({ bill: b, date: "" })}>One-off draft…</Button>
                         <div className="flex items-center gap-1">
                           <Switch id={`active-${b.id}`} checked={b.active} onCheckedChange={(v) => toggle.mutate({ id: b.id, active: v })} aria-label={`${b.name} active`} />
                           <Label htmlFor={`active-${b.id}`} className="text-xs">Active</Label>
@@ -138,18 +138,18 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
 
           {form && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label htmlFor="bill-name">Name</Label><Input id="bill-name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Tax accountant" /></div>
+              <div className="space-y-1.5"><Label htmlFor="bill-name">Name</Label><Input id="bill-name" className="min-h-11" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Tax accountant" /></div>
               <div className="space-y-1.5">
                 <Label htmlFor="bill-frequency">How often</Label>
                 <Select value={form.frequency} onValueChange={(v) => { const f = v as Frequency; setForm((x) => x ? { ...x, frequency: f, spread_months: x.spread ? String(defaultSpread(f)) : x.spread_months } : x); }}>
-                  <SelectTrigger id="bill-frequency"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="bill-frequency" className="min-h-11"><SelectValue /></SelectTrigger>
                   <SelectContent>{FREQUENCIES.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="bill-category">Category</Label>
                 <Select value={form.category_id} onValueChange={(v) => set("category_id", v)}>
-                  <SelectTrigger id="bill-category"><SelectValue placeholder="Pick a category" /></SelectTrigger>
+                  <SelectTrigger id="bill-category" className="min-h-11"><SelectValue placeholder="Pick a category" /></SelectTrigger>
                   <SelectContent>
                     {EXPENSE_GROUPS.map((g) => {
                       const cats = categories.filter((c) => c.group_key === g.key && c.active && canEnterManually(c));
@@ -159,11 +159,11 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="bill-desc">What the expense will say</Label><Input id="bill-desc" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="e.g. Monthly accounting fee" /></div>
+              <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="bill-desc">What the expense will say</Label><Input id="bill-desc" className="min-h-11" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="e.g. Monthly accounting fee" /></div>
               <div className="space-y-1.5">
                 <Label htmlFor="bill-vendor">Vendor (optional)</Label>
                 <Select value={form.vendor_id || NO_VENDOR} onValueChange={(v) => set("vendor_id", v === NO_VENDOR ? "" : v)}>
-                  <SelectTrigger id="bill-vendor"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="bill-vendor" className="min-h-11"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value={NO_VENDOR}>No vendor</SelectItem>{vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
@@ -171,16 +171,16 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
                 <Label htmlFor="bill-amount">Expected amount</Label>
                 <div className="flex gap-2">
                   <Select value={form.currency} onValueChange={(v) => setForm((x) => x ? { ...x, currency: v as BillForm["currency"], amount: cleanAmountInput(x.amount, v as BillForm["currency"]) } : x)}>
-                    <SelectTrigger className="w-[90px]" aria-label="Currency"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-[90px] min-h-11" aria-label="Currency"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="JPY">¥ JPY</SelectItem><SelectItem value="PHP">₱ PHP</SelectItem></SelectContent>
                   </Select>
-                  <Input id="bill-amount" inputMode="decimal" value={form.amount} onChange={(e) => set("amount", cleanAmountInput(e.target.value, form.currency))} />
+                  <Input id="bill-amount" className="min-h-11" inputMode="decimal" value={form.amount} onChange={(e) => set("amount", cleanAmountInput(e.target.value, form.currency))} />
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="bill-method">Paid by</Label>
                 <Select value={form.payment_method} onValueChange={(v) => set("payment_method", v as BillForm["payment_method"])}>
-                  <SelectTrigger id="bill-method"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="bill-method" className="min-h-11"><SelectValue /></SelectTrigger>
                   <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
@@ -188,18 +188,18 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
                 <div className="space-y-1.5">
                   <Label htmlFor="bill-paid-from">Paid from</Label>
                   <Select value={form.paid_from || NO_ACCOUNT} onValueChange={(v) => set("paid_from", v === NO_ACCOUNT ? "" : v)}>
-                    <SelectTrigger id="bill-paid-from"><SelectValue placeholder="Which bank or account?" /></SelectTrigger>
+                    <SelectTrigger id="bill-paid-from" className="min-h-11"><SelectValue placeholder="Which bank or account?" /></SelectTrigger>
                     <SelectContent><SelectItem value={NO_ACCOUNT}>Not set</SelectItem>{paidFromList.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               )}
-              <div className="space-y-1.5"><Label htmlFor="bill-day">Due day of the month (1–28)</Label><Input id="bill-day" inputMode="numeric" value={form.due_day} onChange={(e) => set("due_day", e.target.value.replace(/\D/g, "").slice(0, 2))} /></div>
-              <div className="space-y-1.5"><Label htmlFor="bill-starts">Starts</Label><Input id="bill-starts" type="date" value={form.starts_on} onChange={(e) => set("starts_on", e.target.value)} />
+              <div className="space-y-1.5"><Label htmlFor="bill-day">Due day of the month (1–28)</Label><Input id="bill-day" className="min-h-11" inputMode="numeric" value={form.due_day} onChange={(e) => set("due_day", e.target.value.replace(/\D/g, "").slice(0, 2))} /></div>
+              <div className="space-y-1.5"><Label htmlFor="bill-starts">Starts</Label><Input id="bill-starts" className="min-h-11" type="date" value={form.starts_on} onChange={(e) => set("starts_on", e.target.value)} />
                 {/^\d{4}-\d{2}-\d{2}$/.test(form.starts_on) && Number(form.due_day) >= 1 && Number(form.due_day) <= 28 && (
                   <p className="text-xs text-muted-foreground">First draft on {firstDue(form.starts_on, Number(form.due_day))}{form.id ? " (if the schedule changed)" : ""}.</p>
                 )}
               </div>
-              <div className="space-y-1.5"><Label htmlFor="bill-ends">Ends (optional)</Label><Input id="bill-ends" type="date" value={form.ends_on} onChange={(e) => set("ends_on", e.target.value)} /></div>
+              <div className="space-y-1.5"><Label htmlFor="bill-ends">Ends (optional)</Label><Input id="bill-ends" className="min-h-11" type="date" value={form.ends_on} onChange={(e) => set("ends_on", e.target.value)} /></div>
               <div className="space-y-1.5 sm:col-span-2 rounded-md border p-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="bill-spread">Spread each payment over several months (prepaid)</Label>
@@ -207,7 +207,7 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
                 </div>
                 <p className="text-xs text-muted-foreground">For a yearly subscription, insurance or domain paid at once: the ledger books the payment as prepaid and releases one share at each month end, so no single month carries the whole bill.</p>
                 {form.spread && (
-                  <div className="flex items-center gap-2"><Input className="w-24" inputMode="numeric" aria-label="Months to spread over" value={form.spread_months} onChange={(e) => set("spread_months", e.target.value.replace(/\D/g, "").slice(0, 2))} /><span className="text-sm">months</span></div>
+                  <div className="flex items-center gap-2"><Input className="w-24 min-h-11" inputMode="numeric" aria-label="Months to spread over" value={form.spread_months} onChange={(e) => set("spread_months", e.target.value.replace(/\D/g, "").slice(0, 2))} /><span className="text-sm">months</span></div>
                 )}
               </div>
               <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="bill-notes">Notes (optional)</Label><Textarea id="bill-notes" rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} /></div>
@@ -218,11 +218,11 @@ export default function RecurringBillsDialog({ canManage, paidFromList, categori
           <DialogFooter>
             {form ? (
               <>
-                <Button variant="ghost" onClick={() => setForm(null)}>Back</Button>
-                <Button disabled={!!problem || save.isPending} onClick={() => form && save.mutate(form)}>{save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : form.id ? "Save bill" : "Add bill"}</Button>
+                <Button variant="ghost" className="min-h-11" onClick={() => setForm(null)}>Back</Button>
+                <Button className="min-h-11" disabled={!!problem || save.isPending} onClick={() => form && save.mutate(form)}>{save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : form.id ? "Save bill" : "Add bill"}</Button>
               </>
             ) : (
-              <Button variant="ghost" onClick={() => setOpen(false)}>Close</Button>
+              <Button variant="ghost" className="min-h-11" onClick={() => setOpen(false)}>Close</Button>
             )}
           </DialogFooter>
         </DialogContent>

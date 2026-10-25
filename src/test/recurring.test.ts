@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  billPayload, billsToConfirm, defaultSpread, dueLabel, emptyBillForm, firstDue, formFromBill, frequencyLabel, normaliseBills,
+  billPayload, billsToConfirm, olderOpenDrafts, defaultSpread, dueLabel, emptyBillForm, firstDue, formFromBill, frequencyLabel, normaliseBills,
   recurringRefusal, spreadLabel, validateBillForm, type RecurringBill,
 } from "@/components/finance/recurring";
 import { prepaidProblem, SOURCE_FILTERS } from "@/components/finance/expenses";
@@ -52,7 +52,9 @@ describe("recurring bills — form", () => {
     expect(spreadLabel(12)).toBe("Spread over 12 months");
     expect(normaliseBills([{ ...bill, amount: "33000", due_day: "25", active: true }])[0].amount).toBe(33000);
     expect(recurringRefusal("already_generated")).toContain("already has an expense");
+    expect(recurringRefusal("amount_too_small_to_spread")).toContain("too small");
     expect(recurringRefusal("23505")).toBe("");
+    expect(olderOpenDrafts([{ open_draft_id: "a" }, { open_draft_id: "b" }, { open_draft_id: null }], new Set(["a"]))).toBe(1);
   });
 });
 
@@ -81,7 +83,10 @@ describe("recurring bills — expenses tab", () => {
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.expense_recurring_bills");
     expect(sql).toContain("cron.schedule('expenses-recurring', '20 15 * * *'");
     expect(sql).toContain("WHILE v_next <= v_as_of AND (b.ends_on IS NULL OR v_next <= b.ends_on) LOOP");
+    expect(sql).toContain("amount_too_small_to_spread");
+    expect(sql).toContain("(date_trunc('month', v_old.last_generated_on) + interval '1 month')::date");
     const gl = read("supabase/migrations/20270101100000_general_ledger_core.sql");
+    expect(gl).toContain("'jpy', e.amount_jpy");
     expect(gl).toContain("SELECT 'expense_amortisation'");
     expect(gl).toContain("CASE WHEN e.prepaid_months IS NOT NULL THEN '1400'");
     for (const b of (sql.match(/\$fn\$[\s\S]*?\$fn\$/g) ?? [])) expect(b).not.toMatch(/^\s*--/m);

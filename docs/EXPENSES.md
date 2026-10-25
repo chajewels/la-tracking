@@ -299,7 +299,12 @@ staff bell — the Expenses tab's "Bills to confirm" strip is the reminder.
   ONE DRAFT expense for the LATEST due cycle on or before as-of that is still within ends_on
   (`source = 'recurring'`, `source_ref = '<bill id>:<due date>'`, description / amount / method / paid_from /
   prepaid_months copied, `details = {kind, bill_id, bill_name, due_on, expected_amount, frequency}`), then the
-  bill points at the next cycle after as-of (no backlog). A bill past ends_on is deactivated. The Phase 1
+  bill points at the next cycle after as-of (no backlog). A draft is only created when that cycle is still the
+  CURRENT one — a bill whose last cycle before ends_on is already a cycle or more in the past is ended without a
+  stale draft. A bill past ends_on is deactivated; shortening ends_on below the next due date deactivates it at
+  save time. Editing a bill's schedule (start, due day, frequency) re-anchors to the month AFTER the last
+  generated cycle, so an already-covered month is never drafted twice. One bad bill is counted as `failed`
+  (with the error in the result) and the others still generate. The Phase 1
   partial unique index keeps one non-void draft per cycle, so a voided draft can be regenerated.
   `generate_recurring_now()` (manage) runs the same from the tab; `generate_recurring_now(bill, date)` makes
   a one-off draft for a chosen due date (within the bill's life, not more than 31 days ahead) without moving
@@ -310,13 +315,16 @@ staff bell — the Expenses tab's "Bills to confirm" strip is the reminder.
   can look) opens the templates dialog: list with next due / last draft / Active switch, Add / Edit form
   (first-due preview), "Generate due bills now", "One-off draft…".
 - **Prepaid**: `expenses.prepaid_months` (2–36; column lives in the 2b migration file since both are
-  unapplied). Set from a bill's spread, or by hand on a draft (`set_expense_prepaid`, manage or approve;
-  "Spread over months" in the Add/Edit dialog, saved after the upsert like Paid from). Locked once approved
-  (the 2b trigger allows only paid_from to change). Ledger: an approved prepaid expense posts Dr **1400
-  Prepaid expenses** / Cr paid_from (E6); the new event `expense_amortisation` posts, at each month end from
-  the expense month for N months (only month ends ≤ today), Dr category account / Cr 1400 for
-  round(amount / N, 2) with the last month taking the remainder — yen shares split `amount_jpy` the same way
-  so the N releases sum exactly to the posted prepaid amount. Source id = `md5(expense id || ':' || YYYY-MM)`
+  unapplied). Set from a bill's spread, or by hand on a draft (`set_expense_prepaid`, manage_expenses only;
+  "Spread over months" in the Add/Edit dialog, saved after the upsert like Paid from). Refused
+  (`amount_too_small_to_spread`) when the yen amount is below 2 × N, and a bill's spread is dropped on a draft
+  (details.spread_dropped) for the same reason — so no month ever releases ¥0. Locked once approved (the 2b
+  trigger lists it with the locked columns). Ledger: an approved prepaid expense posts Dr **1400 Prepaid
+  expenses** / Cr paid_from (E6) — every expense journal now carries the yen frozen at approval
+  (`amount_jpy`), so a later rate change cannot leave 1400 unbalanced; the new event `expense_amortisation`
+  posts, at each month end from the expense month for N months (only month ends ≤ today), Dr category account
+  / Cr 1400 for floor(amount_jpy / N) yen with the last month taking the remainder (PHP native shares
+  round(amount / N, 2) likewise; JPY native = yen), so the N releases sum exactly to the posted prepaid amount. Source id = `md5(expense id || ':' || YYYY-MM)`
   cast to uuid. Voiding the expense reverses the payment and every release (events vanish).
 - Refusals: `invalid_name / category / vendor / description / currency / amount / payment_method / account /
   frequency / due_day / date / spread / notes`, `category_booked_automatically`, `already_generated`,
@@ -331,6 +339,10 @@ staff bell — the Expenses tab's "Bills to confirm" strip is the reminder.
   yearly draft carries the 12-month spread, prepaid ledger (1400 on approval, one release per elapsed month
   end, 12000 / 10 each, balanced, idempotent, void reverses all), PHP prepaid split sums exactly in both
   currencies, never deleted.
+- Independent review applied before the PR: frozen yen on expense journals (rate change could leave 1400
+  unbalanced), zero-yen releases refused up front, schedule-edit re-anchoring, stale final cycle not drafted,
+  ends_on shortening, set_expense_prepaid manage-only, per-bill failure isolation, prepaid_months in the
+  approved-row lock list, 44 px targets, one-off date left empty, older open drafts surfaced on the tab.
 - tsc exit 0; Vitest recurring (6) + full suite (114 files) pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds

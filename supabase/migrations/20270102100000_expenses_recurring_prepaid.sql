@@ -152,6 +152,7 @@ DECLARE
   v_old public.expense_recurring_bills;
   v_new public.expense_recurring_bills;
   v_next date;
+  v_active boolean;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'manage_expenses') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
@@ -200,21 +201,22 @@ BEGIN
     SELECT * INTO v_old FROM public.expense_recurring_bills WHERE id = v_id FOR UPDATE;
     IF NOT FOUND THEN RETURN jsonb_build_object('error', 'not_found'); END IF;
   END IF;
-  v_next := public.recurring_first_due(v_starts, v_due_day);
+  v_next := public.recurring_first_due(greatest(v_starts, coalesce((date_trunc('month', v_old.last_generated_on) + interval '1 month')::date, v_starts)), v_due_day);
   IF v_old.id IS NOT NULL AND v_old.starts_on = v_starts AND v_old.due_day = v_due_day AND v_old.frequency = v_freq THEN
     v_next := v_old.next_due_on;
   END IF;
+  v_active := coalesce(v_old.active, true) AND (v_ends IS NULL OR v_next <= v_ends);
 
   IF v_id IS NULL THEN
     INSERT INTO public.expense_recurring_bills (name, category_id, vendor_id, description, currency, amount, payment_method, paid_from,
-                                                frequency, due_day, starts_on, ends_on, spread_months, notes, next_due_on, created_by)
-    VALUES (v_name, v_cat, v_vendor, v_desc, v_cur, v_amount, v_method, v_paid_from, v_freq, v_due_day, v_starts, v_ends, v_spread, v_notes, v_next, v_uid)
+                                                frequency, due_day, starts_on, ends_on, spread_months, notes, next_due_on, active, created_by)
+    VALUES (v_name, v_cat, v_vendor, v_desc, v_cur, v_amount, v_method, v_paid_from, v_freq, v_due_day, v_starts, v_ends, v_spread, v_notes, v_next, v_active, v_uid)
     RETURNING * INTO v_new;
   ELSE
     UPDATE public.expense_recurring_bills
        SET name = v_name, category_id = v_cat, vendor_id = v_vendor, description = v_desc, currency = v_cur, amount = v_amount,
            payment_method = v_method, paid_from = v_paid_from, frequency = v_freq, due_day = v_due_day, starts_on = v_starts,
-           ends_on = v_ends, spread_months = v_spread, notes = v_notes, next_due_on = v_next, updated_at = now()
+           ends_on = v_ends, spread_months = v_spread, notes = v_notes, next_due_on = v_next, active = v_active, updated_at = now()
      WHERE id = v_id
     RETURNING * INTO v_new;
   END IF;
@@ -261,13 +263,12 @@ DECLARE
   v_old public.expenses;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
-  IF NOT (public.has_permission(v_uid, 'manage_expenses') OR public.has_permission(v_uid, 'approve_expenses')) THEN
-    RETURN jsonb_build_object('error', 'permission_denied');
-  END IF;
+  IF NOT public.has_permission(v_uid, 'manage_expenses') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
   IF p_months IS NOT NULL AND p_months NOT BETWEEN 2 AND 36 THEN RETURN jsonb_build_object('error', 'invalid_spread'); END IF;
   SELECT * INTO v_old FROM public.expenses WHERE id = p_id FOR UPDATE;
   IF v_old.id IS NULL THEN RETURN jsonb_build_object('error', 'not_found'); END IF;
   IF v_old.status <> 'draft' THEN RETURN jsonb_build_object('error', 'not_draft', 'status', v_old.status); END IF;
+  IF p_months IS NOT NULL AND v_old.amount_jpy < p_months * 2 THEN RETURN jsonb_build_object('error', 'amount_too_small_to_spread'); END IF;
   IF v_old.prepaid_months IS NOT DISTINCT FROM p_months THEN RETURN jsonb_build_object('ok', true, 'expense', to_jsonb(v_old)); END IF;
   UPDATE public.expenses SET prepaid_months = p_months WHERE id = p_id;
   INSERT INTO public.audit_logs (entity_type, entity_id, action, old_value_json, new_value_json, performed_by_user_id, created_at)
@@ -289,6 +290,9 @@ AS $fn$
 DECLARE
   v_ref text := p_bill.id::text || ':' || p_due::text;
   v_id uuid;
+  v_rate numeric := (SELECT (value #>> '{}')::numeric FROM public.system_settings WHERE key = 'php_jpy_rate');
+  v_jpy numeric := CASE WHEN p_bill.currency = 'JPY' THEN p_bill.amount ELSE round(p_bill.amount / v_rate) END;
+  v_spread smallint := CASE WHEN p_bill.spread_months IS NOT NULL AND v_jpy >= p_bill.spread_months * 2 THEN p_bill.spread_months ELSE NULL END;
 BEGIN
   IF EXISTS (SELECT 1 FROM public.expenses e WHERE e.source = 'recurring' AND e.source_ref = v_ref AND e.status <> 'void') THEN
     RETURN NULL;
@@ -296,9 +300,10 @@ BEGIN
   INSERT INTO public.expenses (expense_date, category_id, vendor_id, description, currency, amount, amount_jpy, payment_method,
                                paid_from, prepaid_months, notes, status, source, source_ref, details, created_by)
   VALUES (p_due, p_bill.category_id, p_bill.vendor_id, p_bill.description, p_bill.currency, p_bill.amount, 0, p_bill.payment_method,
-          p_bill.paid_from, p_bill.spread_months, p_bill.notes, 'draft', 'recurring', v_ref,
+          p_bill.paid_from, v_spread, p_bill.notes, 'draft', 'recurring', v_ref,
           jsonb_build_object('kind', 'recurring_bill', 'bill_id', p_bill.id, 'bill_name', p_bill.name, 'due_on', p_due,
-                             'expected_amount', p_bill.amount, 'frequency', p_bill.frequency),
+                             'expected_amount', p_bill.amount, 'frequency', p_bill.frequency,
+                             'spread_dropped', (p_bill.spread_months IS NOT NULL AND v_spread IS NULL)),
           p_uid)
   RETURNING id INTO v_id;
   INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id, created_at)
@@ -320,39 +325,47 @@ DECLARE
   v_created integer := 0;
   v_skipped integer := 0;
   v_ended integer := 0;
+  v_failed integer := 0;
+  v_note text := '';
   v_id uuid;
 BEGIN
-  IF (SELECT (value #>> '{}')::numeric FROM public.system_settings WHERE key = 'php_jpy_rate') IS NULL THEN
+  IF coalesce((SELECT (value #>> '{}')::numeric FROM public.system_settings WHERE key = 'php_jpy_rate'), 0) <= 0 THEN
     RETURN jsonb_build_object('ok', false, 'error', 'rate_not_set');
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('expenses_generate_recurring'));
   FOR b IN SELECT * FROM public.expense_recurring_bills WHERE active AND next_due_on <= v_as_of ORDER BY next_due_on, name FOR UPDATE LOOP
-    v_due := b.next_due_on;
-    v_next := public.recurring_next_due(v_due, b.frequency);
-    WHILE v_next <= v_as_of AND (b.ends_on IS NULL OR v_next <= b.ends_on) LOOP
-      v_due := v_next;
+    BEGIN
+      v_due := b.next_due_on;
       v_next := public.recurring_next_due(v_due, b.frequency);
-    END LOOP;
-    IF b.ends_on IS NOT NULL AND v_due > b.ends_on THEN
-      UPDATE public.expense_recurring_bills SET active = false, updated_at = now() WHERE id = b.id;
-      v_ended := v_ended + 1;
-      CONTINUE;
-    END IF;
-    v_id := public.expenses_create_recurring_draft(b, v_due, p_uid);
-    IF v_id IS NULL THEN v_skipped := v_skipped + 1; ELSE v_created := v_created + 1; END IF;
-    UPDATE public.expense_recurring_bills
-       SET next_due_on = v_next, last_generated_on = v_due,
-           active = CASE WHEN b.ends_on IS NOT NULL AND v_next > b.ends_on THEN false ELSE active END,
-           updated_at = now()
-     WHERE id = b.id;
+      WHILE v_next <= v_as_of AND (b.ends_on IS NULL OR v_next <= b.ends_on) LOOP
+        v_due := v_next;
+        v_next := public.recurring_next_due(v_due, b.frequency);
+      END LOOP;
+      IF (b.ends_on IS NOT NULL AND v_due > b.ends_on) OR v_next <= v_as_of THEN
+        UPDATE public.expense_recurring_bills SET active = false, updated_at = now() WHERE id = b.id;
+        v_ended := v_ended + 1;
+        CONTINUE;
+      END IF;
+      v_id := public.expenses_create_recurring_draft(b, v_due, p_uid);
+      IF v_id IS NULL THEN v_skipped := v_skipped + 1; ELSE v_created := v_created + 1; END IF;
+      UPDATE public.expense_recurring_bills
+         SET next_due_on = v_next, last_generated_on = v_due,
+             active = CASE WHEN b.ends_on IS NOT NULL AND v_next > b.ends_on THEN false ELSE active END,
+             updated_at = now()
+       WHERE id = b.id;
+    EXCEPTION WHEN OTHERS THEN
+      v_failed := v_failed + 1;
+      v_note := left(v_note || b.name || ': ' || SQLERRM || E'\n', 2000);
+    END;
   END LOOP;
-  RETURN jsonb_build_object('ok', true, 'as_of', v_as_of, 'created', v_created, 'skipped', v_skipped, 'ended', v_ended);
+  RETURN jsonb_build_object('ok', true, 'as_of', v_as_of, 'created', v_created, 'skipped', v_skipped, 'ended', v_ended,
+                            'failed', v_failed, 'note', nullif(v_note, ''));
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.expenses_generate_recurring(date, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.expenses_generate_recurring(date, uuid) TO service_role;
 COMMENT ON FUNCTION public.expenses_generate_recurring(date, uuid) IS
-  'Internal (pg_cron nightly, generate_recurring_now): for every active bill due on or before p_as_of, one DRAFT expense for the latest due cycle, then the bill points at the next cycle. Never a backlog. Ends a bill past ends_on.';
+  'Internal (pg_cron nightly, generate_recurring_now): for every active bill due on or before p_as_of, one DRAFT expense for the latest due cycle (only when that cycle is still the current one - a bill whose last cycle before ends_on is already past is ended without a draft), then the bill points at the next cycle. Never a backlog. One bad bill is counted as failed, the rest go through.';
 
 CREATE OR REPLACE FUNCTION public.generate_recurring_now(p_bill_id uuid DEFAULT NULL, p_for date DEFAULT NULL)
 RETURNS jsonb
