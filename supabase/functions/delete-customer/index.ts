@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
     // regardless of status (status filter would let cancelled/expired
     // rows slip through and hit a generic FK 500 instead of our
     // friendly 400).
-    const [accountsRes, cashOrdersRes] = await Promise.all([
+    const [accountsRes, cashOrdersRes, openDraftsRes] = await Promise.all([
       supabase
         .from("layaway_accounts")
         .select("id, invoice_number")
@@ -54,12 +54,32 @@ Deno.serve(async (req) => {
         .from("cash_orders")
         .select("id, invoice_number")
         .eq("customer_id", customer_id),
+      // A website checkout still waiting for staff ('to_confirm') is a live
+      // order request — never deleted with the customer (owner rule
+      // 2026-10-25 covers declined checkouts only). Decline it first.
+      supabase
+        .from("web_order_drafts")
+        .select("id, web_reference")
+        .eq("customer_id", customer_id)
+        .eq("status", "to_confirm"),
     ]);
     if (accountsRes.error) throw accountsRes.error;
     if (cashOrdersRes.error) throw cashOrdersRes.error;
+    if (openDraftsRes.error) throw openDraftsRes.error;
 
     const accounts = accountsRes.data || [];
     const cashOrders = cashOrdersRes.data || [];
+    const openDrafts = openDraftsRes.data || [];
+
+    if (openDrafts.length > 0 && accounts.length === 0 && cashOrders.length === 0) {
+      return new Response(
+        JSON.stringify({
+          error: `Cannot delete: customer has ${openDrafts.length} website order(s) waiting for confirmation (${openDrafts.map((d: any) => d.web_reference).join(", ")}). Confirm or decline them first.`,
+          blocked_by: { web_order_drafts: { count: openDrafts.length, web_references: openDrafts.map((d: any) => d.web_reference) } },
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (accounts.length > 0 || cashOrders.length > 0) {
       const blocked_by: Record<string, { count: number; invoice_numbers: string[] }> = {};
@@ -147,6 +167,61 @@ Deno.serve(async (req) => {
       .update({ customer_id: null })
       .eq("customer_id", customer_id);
     if (wcRestErr) throw wcRestErr;
+
+    // 6b. Website checkouts, coupon uses and article comments (owner rule
+    // 2026-10-25: delete them first, then the customer). All FKs are NO ACTION.
+    // Only finished checkouts reach here: a 'confirmed' draft always has an
+    // order (refused above) and a 'to_confirm' draft is refused above, so these
+    // are 'declined' / 'expired' drafts whose stock was already released.
+    const { data: draftRows, error: drSelErr } = await supabase
+      .from("web_order_drafts")
+      .select("id")
+      .eq("customer_id", customer_id);
+    if (drSelErr) throw drSelErr;
+    const draftIds = (draftRows || []).map((d: any) => d.id);
+
+    if (draftIds.length > 0) {
+      // Drafts and coupon uses point at each other — drop the draft's link first.
+      const { error: drLinkErr } = await supabase
+        .from("web_order_drafts")
+        .update({ coupon_use_id: null })
+        .in("id", draftIds);
+      if (drLinkErr) throw drLinkErr;
+
+      // A points redemption keeps its record; only its link to the draft goes.
+      const { error: lrErr } = await supabase
+        .from("loyalty_redemptions")
+        .update({ web_draft_id: null })
+        .in("web_draft_id", draftIds);
+      if (lrErr) throw lrErr;
+    }
+
+    const { error: cuErr } = await supabase
+      .from("website_coupon_uses")
+      .delete()
+      .eq("customer_id", customer_id);
+    if (cuErr) throw cuErr;
+
+    if (draftIds.length > 0) {
+      const { error: dlErr } = await supabase
+        .from("web_order_draft_lines")
+        .delete()
+        .in("draft_id", draftIds);
+      if (dlErr) throw dlErr;
+
+      // service_requests.web_draft_id is ON DELETE SET NULL — handled by the DB.
+      const { error: drDelErr } = await supabase
+        .from("web_order_drafts")
+        .delete()
+        .in("id", draftIds);
+      if (drDelErr) throw drDelErr;
+    }
+
+    const { error: pcErr } = await supabase
+      .from("website_post_comments")
+      .delete()
+      .eq("customer_id", customer_id);
+    if (pcErr) throw pcErr;
 
     // 7. Safe to delete — also clean up analytics
     await supabase.from("customer_analytics").delete().eq("customer_id", customer_id);

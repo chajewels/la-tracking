@@ -62,6 +62,14 @@
 
   Lives in: Supabase SQL Editor (not in repo migrations).
 
+  Allowlist (hard-coded VALUES inside the function — adding a row means
+  replacing the function). Last replaced by migration 20261231520000
+  (2026-10-25): rows for loyalty_signups, website_live_claims,
+  web_order_drafts, website_coupon_uses, website_post_comments (cleared by
+  delete-customer), review_invites / product_reviews on customers and
+  web_order_drafts on layaway_accounts (pre_check_protected), review_invites
+  on layaway_accounts (deleted by delete_account_atomic).
+
   Signature:
     RETURNS TABLE (
       delete_function text,

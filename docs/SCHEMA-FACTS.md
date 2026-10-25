@@ -782,13 +782,21 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   `has_permission(uid,'edit_loyalty_amount')`; refused once the order has an
   `'earned'` `loyalty_transactions` row (`account_id` / `cash_order_id`).
   `auth.uid() IS NULL` (service role) passes.
-- Six FKs to `customers` are NO ACTION (blocking), not CASCADE:
+- Eleven FKs to `customers` are NO ACTION (blocking), not CASCADE (2026-10-25):
   `extension_requests`, `payment_submissions`, `service_jobs`, `trade_ins`,
-  `loyalty_signups.converted_customer_id`, `website_live_claims.customer_id`.
+  `loyalty_signups.converted_customer_id`, `website_live_claims.customer_id`,
+  `web_order_drafts`, `website_coupon_uses`, `website_post_comments`,
+  `review_invites`, `product_reviews`.
   `layaway_accounts` and `cash_orders` are RESTRICT and are pre-check
-  protected (delete-customer refuses rather than cascading). Every other FK to
-  `customers` is CASCADE. `delete-customer` must clear all six explicitly;
-  `audit_delete_cleanup_invariants()` is what catches a new one.
+  protected (delete-customer refuses rather than cascading); `review_invites`
+  and `product_reviews` exist only with a completed order, so they are
+  protected by the same refusal. delete-customer also refuses while a website
+  checkout is `to_confirm`. Owner rule 2026-10-25: finished checkouts
+  (`declined` / `expired` drafts, their lines and coupon uses) and the
+  customer's article comments are DELETED before the customer; a points
+  redemption keeps its row and only loses `web_draft_id`. Several other FKs are
+  SET NULL; the rest CASCADE. `audit_delete_cleanup_invariants()` is what
+  catches a new one — add its allowlist row in the same change.
 - `loyalty_signups` is NOT a child of `customers`. `name`, `contact`, `region`
   and `lang` are NOT NULL on the row; `converted_customer_id` is a nullable
   link added only if the signup converts. Deleting a customer CLEARS THE LINK
