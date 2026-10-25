@@ -1890,3 +1890,19 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   `upsert_expense` / `attach_expense_receipt` / `approve_expense` / `void_expense`
   (SECURITY DEFINER, `has_permission`, one `audit_logs` row each). Not yet in
   src/integrations/supabase/types.ts — the Hub calls them through a cast `callRpc`.
+
+## Expenses — Mark as paid (Phase 2, 2026-10-25)
+
+- `expenses.details jsonb NULL` (CHECK object) — breakdown behind an automatic booking; locked with
+  the row once approved. `expenses_source_ref_uq` is now `WHERE source_ref IS NOT NULL AND status
+  <> 'void'` — a voided booking can be re-booked.
+- `timesheet_monthly_history.month_key` is the PRIMARY KEY (baseline line 1485, confirmed on live
+  2026-10-25); `book_payroll_month` upserts with `ON CONFLICT (month_key)`. Live months are now
+  WRITTEN to this table on each payroll booking (supersedes "live months come from entries, NOT
+  this table" above for booked months — the Hub's Cost Master still computes live; the table is
+  the snapshot of what was PAID).
+- RPCs: `book_payroll_month(date, date, jsonb)`, `book_commission_month(date, date, jsonb)`
+  (approve_expenses; each books ONE approved PHP expense via internal
+  `expenses_book_auto_month`, advisory-locked per source+month, two audit_logs rows;
+  payroll also upserts the history row), `get_booked_months(text)` (manage or approve). Not in
+  types.ts — called through the cast `callRpc` (coupon precedent).

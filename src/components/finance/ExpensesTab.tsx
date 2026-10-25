@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban, Check, ChevronLeft, ChevronRight, FileText, Loader2, Paperclip, Pencil, Plus, Receipt, Search,
@@ -18,11 +19,13 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { isMissingFunction } from "@/components/website/shipping-fees";
+import { callRpc } from "@/components/finance/useBookedMonths";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
-  type StatusFilter,
-  canEnterManually, cleanAmountInput, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  type SourceFilter, type StatusFilter, SOURCE_FILTERS,
+  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  monthFromSearch, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
   validateExpenseForm,
@@ -38,15 +41,6 @@ import {
  * Until that migration is applied the RPCs do not exist (PGRST202): the tab says
  * "Waiting for the database update" instead of erroring.
  */
-
-async function callRpc(name: string, args?: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await supabase.rpc(name as any, args as any);
-  if (error) throw error;
-  const out = (data ?? {}) as Record<string, unknown>;
-  if (typeof out.error === "string") throw Object.assign(new Error(out.error), { code: out.error });
-  return out;
-}
 
 const NO_VENDOR = "__none";
 const NEW_VENDOR = "__new";
@@ -64,8 +58,10 @@ function dateLabel(iso: string): string {
 
 export default function ExpensesTab() {
   const qc = useQueryClient();
-  const [month, setMonth] = useState<string>(() => monthKeyTokyo());
-  const [filters, setFilters] = useState<ExpenseFilters>({ status: "all", group: "all", search: "" });
+  const location = useLocation();
+  const [month, setMonth] = useState<string>(() => monthFromSearch(location.search) ?? monthKeyTokyo());
+  const [filters, setFilters] = useState<ExpenseFilters>({ status: "all", group: "all", source: "all", search: "" });
+  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<ExpenseForm | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [voiding, setVoiding] = useState<Expense | null>(null);
@@ -261,6 +257,15 @@ export default function ExpensesTab() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1">
+                <Label htmlFor="expenses-source" className="text-xs">Source</Label>
+                <Select value={filters.source} onValueChange={(v) => setFilters((f) => ({ ...f, source: v as SourceFilter }))}>
+                  <SelectTrigger id="expenses-source" className="h-9 w-[10rem]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_FILTERS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="relative min-w-[12rem] flex-1">
                 <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -290,6 +295,7 @@ export default function ExpensesTab() {
                         <span className="text-xs tabular-nums text-muted-foreground">{dateLabel(e.expense_date)}</span>
                         <span className={`font-medium ${e.status === "void" ? "line-through" : ""}`}>{e.description}</span>
                         <Badge variant={statusVariant(e.status)}>{STATUS_LABEL[e.status]}</Badge>
+                        {e.source !== "manual" && <Badge variant="outline">{sourceLabel(e.source)}</Badge>}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}
@@ -298,6 +304,29 @@ export default function ExpensesTab() {
                         <p className="text-xs text-muted-foreground">Void: {e.void_reason}</p>
                       )}
                       {e.notes && <p className="text-xs text-muted-foreground">{e.notes}</p>}
+                      {detailLines(e.details).length > 0 && (
+                        <div className="text-xs">
+                          <button
+                            type="button"
+                            className="inline-flex min-h-[44px] items-center text-primary underline-offset-2 hover:underline sm:min-h-0"
+                            aria-expanded={!!openDetails[e.id]}
+                            onClick={() => setOpenDetails((o) => ({ ...o, [e.id]: !o[e.id] }))}
+                            data-testid={`expense-details-toggle-${e.id}`}
+                          >
+                            {openDetails[e.id] ? "Hide details" : `Details (${detailLines(e.details).length})`}
+                          </button>
+                          {openDetails[e.id] && (
+                            <ul className="mt-1.5 divide-y rounded-md border" data-testid={`expense-details-${e.id}`}>
+                              {detailLines(e.details).map((d, i) => (
+                                <li key={`${d.name}-${i}`} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+                                  <span className="min-w-0"><span className="font-medium text-foreground">{d.name}</span> <span className="text-muted-foreground">· {d.meta}</span></span>
+                                  <span className="tabular-nums text-foreground">{formatAmount(d.amount, "PHP")}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <div className="text-right">

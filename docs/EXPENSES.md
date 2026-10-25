@@ -14,11 +14,16 @@ never recorded as paid.
 | # | Phase | Status |
 |---|---|---|
 | 1 | Expenses ledger (this doc) | built — migration `20261230100000_expenses_ledger.sql` |
-| 2 | Payroll + commission booking: monthly "Mark as paid"; both pages move under Finance | not started |
-| 3 | Recurring bills (rent, subscriptions, tax accountant): monthly drafts to confirm | not started |
-| 4 | Email auto-fill from sales@chajewelsjp.com (and chajewelsjapan@gmail.com via a forwarding filter) | not started — edge function, separate Lovable deploy prompt; needs gmail.readonly added to the service account in Google Admin |
-| 5 | Real cost of goods on every ledger (cash, layaway, website, Page365 import, trade-ins, service-job vendor cost); replaces the 15% | not started |
-| 6 | Provider fees auto-booking + monthly profit report | not started |
+| 2 | Payroll + commission "Mark as paid" (pages stay in CSR Operations) | built — migration `20261231100000_expenses_payroll_commission.sql` |
+| 2b | General ledger core: chart of accounts, journals for existing events, fiscal year (May–Apr), period lock | not started — Project doc `claude/expenses-accounting-plan-2026-10-25.md` |
+| 3 | Recurring bills + prepaid amortisation | not started |
+| 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | not started — edge function, separate Lovable deploy prompt; needs gmail.readonly in Google Admin |
+| 5 | Real cost of goods / inventory on every ledger; replaces the 15% | not started |
+| 6 | Provider fees, clearing, FX revaluation | not started |
+| 7 | Statements (P&L, balance sheet, cash flow) + 税理士 pack (CSV + PDF) | not started |
+| 8 | Controls (period lock, bank reconciliation, completeness check) + full testing → owner-approved live apply → merge | not started |
+
+All phases live on branch `feat/expenses` (PRs into it). Nothing merges to develop/main and no migration is applied to any database until the owner says so at the end (owner rule 2026-10-25). Staging is reserved for payment testing.
 
 ## Owner decisions (locked)
 
@@ -110,6 +115,62 @@ still needs `view_finance`.
   before the PR.
 - `npx tsc -p tsconfig.app.json --noEmit` exit 0, no output; full Vitest suite passed; build
   passed; full lint unchanged from develop (no new problems).
+
+## Phase 2 — Mark as paid (payroll, commission)
+
+Owner decisions 2026-10-25: Timesheet and Commissions stay in CSR Operations; one expense per
+month per source with the per-person breakdown inside; booked as Approved at once (money has
+left); paid-on date defaults to today (JST) and is editable; if the pay figures change after
+booking, the booked amount stays and the screen warns — re-booking = void in Expenses, then
+Mark as paid again.
+
+### How it works
+- Both figures are computed in the browser (`timesheetEngine.computeMonth`,
+  `commissionEngine.computeAllMonths`). The RPCs RECORD the lines the button sends.
+- `book_payroll_month(p_month, p_paid_on, p_lines)` — lines `{user_id, name, template, total_hours,
+  net}` (every active profile, zero pay included). One expense: category `payroll`, source
+  `payroll`, source_ref `YYYY-MM`, PHP, description "Staff payroll — October 2026 (7 people)",
+  `details = {month, kind, csr_net, liveadmin_net, lines}` (lines rebuilt from known keys only).
+  Also upserts `timesheet_monthly_history` on its primary key `month_key`; the snapshot refreshes
+  on each (re-)booking and is not touched by a void. Needs `approve_expenses`.
+- `book_commission_month(...)` — lines `{name, role_won, earn, bonus, total, top_sales}` with total > 0
+  (Top Sales bonus is inside the payout); category `commission`; no history write.
+- Paid-on date: not in the future (Asia/Tokyo day) and not before the first day of the month being
+  paid — enforced on the server and in the dialog. Lines: ≤ 500, names ≤ 120, role labels ≤ 60,
+  numbers must be plain decimals (a bad value is `invalid_lines`, never a raw database error).
+- Both go through `expenses_book_auto_month` (internal, not callable by clients): advisory lock per
+  source+month → refuse `already_booked` when a non-void booking exists → INSERT draft → UPDATE to
+  approved → two `audit_logs` rows (`book_*_month` create, `approve_expense`). The Phase 1 rules stay
+  intact: INSERT must be a draft; manual entry into these categories stays refused; the trigger
+  converts PHP at the one peso rate on the approve write.
+- `expenses_source_ref_uq` now excludes void rows, so a voided month can be booked again.
+- `get_booked_months(p_source)` — every booking of a source, all statuses, for the button states.
+  Needs manage or approve.
+- Refusals: `invalid_month` (not first-of-month, future, or before 2020), `invalid_paid_on`,
+  `invalid_lines`, `already_booked`, `rate_not_set`, `permission_denied`.
+
+### Screens
+- `src/components/finance/MarkPaidPanel.tsx` (+ rules `mark-paid.ts`, hook `useBookedMonths.ts`, tests
+  `src/test/mark-paid.test.ts`): under **Timesheet → Cost Master** GRAND TOTAL and under
+  **Commissions → Monthly → Payout Breakdown**. Shown only with `approve_expenses`. Not booked →
+  total + ≈ ¥ + **Mark as paid** → dialog (paid-on date, the rows, total) → confirm. Booked → "Paid
+  on 1 Oct 2026 · ₱… (≈ ¥…)" + **View in Expenses** — opens the month the expense is DATED
+  (the paid-on month, where the Expenses tab lists it; September payroll paid 1 Oct → October);
+  amber warning when the screen's total differs from the booked amount. Voided → button again
+  with "The previous booking for this month was voided." The button is disabled only by the month
+  (future, nothing to pay), with the reason shown as text; the paid-on date is checked in the
+  dialog. Before the migration: "Mark as paid will appear here once the expenses update is
+  applied." A read error shows "Could not load the booking state".
+- **Finance → Expenses**: Source filter (All / By hand / Payroll / Commission), a source badge on
+  non-manual rows, a "Details (n)" expand showing the breakdown, and `?month=YYYY-MM` opens that
+  month.
+
+### Verified
+- Local PostgreSQL 16: Phase 1 + Phase 2 migrations applied twice; Phase 1 suite (17 groups) and
+  Phase 2 suite (5 groups: permissions incl. manage-only read, validation, booking + sum +
+  conversion + description + details + two audit rows + history upsert, double booking refused,
+  void then re-book, commission booking, approved-row lock incl. details, history unique).
+- tsc exit 0; Vitest expenses (20) + mark-paid (9) pass.
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites

@@ -94,6 +94,8 @@ export interface Expense {
   status: ExpenseStatus;
   source: string;
   notes: string | null;
+  /** Breakdown behind an automatic booking (payroll / commission lines); null for hand entries. */
+  details: Record<string, unknown> | null;
   approved_at: string | null;
   voided_at: string | null;
   void_reason: string | null;
@@ -135,6 +137,33 @@ export function normaliseBook(raw: Record<string, unknown>): ExpenseBook {
 }
 
 // ── Months ──────────────────────────────────────────────────────────────────
+
+/** A `?month=YYYY-MM` deep link (from the Mark as paid panel) or null when absent/invalid. */
+export function monthFromSearch(search: string): string | null {
+  const v = new URLSearchParams(search).get("month");
+  return v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? v : null;
+}
+
+/** Rows of an automatic booking's breakdown, for the Details expand. */
+export function detailLines(details: Record<string, unknown> | null): { name: string; meta: string; amount: number }[] {
+  if (!details || !Array.isArray(details.lines)) return [];
+  const kind = String(details.kind ?? "");
+  return (details.lines as Record<string, unknown>[]).map((l) => {
+    const n = (k: string) => Number(l[k] ?? 0);
+    if (kind === "payroll") {
+      return {
+        name: String(l.name ?? ""),
+        meta: `${l.template === "csr" ? "CSR" : "Live Admin"} · ${n("total_hours").toFixed(1)} h`,
+        amount: n("net"),
+      };
+    }
+    return {
+      name: String(l.name ?? ""),
+      meta: `${l.role_won ?? "—"}${l.top_sales ? " ★" : ""} · earn ₱${n("earn").toLocaleString("en-US")} · bonus ₱${n("bonus").toLocaleString("en-US")}`,
+      amount: n("total"),
+    };
+  });
+}
 
 /** "YYYY-MM" for a Date, in Japan time (the books are Cha Jewels Japan's). */
 export function monthKeyTokyo(d: Date = new Date()): string {
@@ -226,9 +255,23 @@ export function totalsByGroup(expenses: Expense[]): { groups: GroupTotal[]; appr
 
 export type StatusFilter = "all" | ExpenseStatus;
 
+export type SourceFilter = "all" | "manual" | "payroll" | "commission" | "recurring" | "email" | "system";
+
+export const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
+  { value: "all", label: "All sources" },
+  { value: "manual", label: "By hand" },
+  { value: "payroll", label: "Payroll" },
+  { value: "commission", label: "Commission" },
+];
+
+export function sourceLabel(s: string): string {
+  return SOURCE_FILTERS.find((x) => x.value === s)?.label ?? s;
+}
+
 export interface ExpenseFilters {
   status: StatusFilter;
   group: "all" | ExpenseGroupKey;
+  source: SourceFilter;
   search: string;
 }
 
@@ -237,6 +280,7 @@ export function filterExpenses(expenses: Expense[], f: ExpenseFilters): Expense[
   return expenses.filter((e) => {
     if (f.status !== "all" && e.status !== f.status) return false;
     if (f.group !== "all" && e.group_key !== f.group) return false;
+    if (f.source !== "all" && e.source !== f.source) return false;
     if (!q) return true;
     return [e.description, e.vendor_name ?? "", e.category_name, e.notes ?? ""]
       .some((s) => s.toLowerCase().includes(q));
