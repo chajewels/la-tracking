@@ -267,6 +267,7 @@ export const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
   { value: "payroll", label: "Payroll" },
   { value: "commission", label: "Commission" },
   { value: "recurring", label: "Recurring bills" },
+  { value: "email", label: "Emailed bills" },
 ];
 
 export function sourceLabel(s: string): string {

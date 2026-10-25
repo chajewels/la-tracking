@@ -1986,3 +1986,25 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   the 2b file: E6 debits 1400 when prepaid_months is set; `expense_amortisation` (source_id =
   `md5(expense_id || ':' || 'YYYY-MM')::uuid`, dated at each month end ≤ today) releases 1/N to the category.
 - pg_cron `expenses-recurring`, `20 15 * * *` (00:20 JST) → `expenses_generate_recurring(NULL, NULL)`.
+
+## Emailed bills (Expenses Phase 4, 2026-10-26)
+
+- Migration `20270103100000_expenses_email_bills.sql` (applied NOWHERE; branch feat/expenses) + edge function
+  `expenses-email-bills` (deployed NOWHERE; separate Lovable prompt). Rules in docs/EXPENSES.md "Phase 4".
+- system_settings `expenses_email_enabled` ("false" as JSON string) and `expenses_email_mailbox`
+  ("sales@chajewelsjp.com"). Holding category `expense_categories.system_key = 'uncategorised'` (group office,
+  gl 6900): trigger `expenses_refuse_uncategorised_approval` (BEFORE UPDATE OF status) raises `category_required`.
+- `expense_email_messages` (gmail_message_id PK, thread_id, mailbox, from_email, from_name, subject, received_at,
+  status drafted|matched|needs_review|skipped|dismissed|error, confidence, extracted jsonb, attachments jsonb,
+  expense_id FK, matched_expense_id FK, error, reviewed_by/at, created_at/updated_at) and `expense_email_runs`
+  (id, started_at, finished_at, trigger cron|manual, looked_at, drafted, matched, needs_review, skipped, errors,
+  note). RLS SELECT manage|approve; table writes revoked. Because of the FK, `TRUNCATE public.expenses` now fails
+  with feature_not_supported before the Phase 1 guard fires (harness accepts both).
+- Service-role RPCs (refuse when auth.uid() is set): `expenses_email_record(jsonb)`, `expenses_create_email_draft(jsonb)`,
+  `expenses_email_match_recurring(text, uuid, numeric, text, date)`, `expenses_email_attach_to_draft(uuid, text,
+  numeric, text)`, `expenses_email_run(jsonb)`, `expenses_email_context()`. Owner RPCs: `get_email_bills(int)`,
+  `email_bill_make_expense(text, jsonb)`, `email_bill_dismiss(text)`, `set_email_bills_enabled(boolean)`.
+- Email drafts: `expenses.source = 'email'`, `source_ref = <gmail message id>`; attachments in `expense-receipts`
+  under `<expense id>/…` (drafts) or `email/<message id>/…` (needs review, copied by the client on Make expense).
+- pg_cron `expenses-email-bills`, `7,37 * * * *` → net.http_post functions/v1/expenses-email-bills with the vault
+  `email_queue_service_role_key` (scheduled only when cron + vault schemas exist).

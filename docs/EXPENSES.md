@@ -17,7 +17,7 @@ never recorded as paid.
 | 2 | Payroll + commission "Mark as paid" (pages stay in CSR Operations) | built — migration `20261231100000_expenses_payroll_commission.sql` |
 | 2b | General ledger core: chart of accounts, derived journals for every Hub money event, fiscal year (May–Apr), month close | built — migration `20270101100000_general_ledger_core.sql` (plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`) |
 | 3 | Recurring bills + prepaid amortisation | built — migration `20270102100000_expenses_recurring_prepaid.sql` (+ prepaid column/events in the 2b file; plan `claude/expenses-phase3-recurring-plan-2026-10-25.md`) |
-| 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | not started — edge function, separate Lovable deploy prompt; needs gmail.readonly in Google Admin |
+| 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | built — migration `20270103100000_expenses_email_bills.sql` + edge function `expenses-email-bills` (separate Lovable deploy prompt; needs gmail.readonly in Google Admin; plan `claude/expenses-phase4-email-bills-plan-2026-10-26.md`) |
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | not started |
 | 6 | Provider fees, clearing, FX revaluation | not started |
 | 7 | Statements (P&L, balance sheet, cash flow) + 税理士 pack (CSV + PDF) | not started |
@@ -344,6 +344,76 @@ staff bell — the Expenses tab's "Bills to confirm" strip is the reminder.
   ends_on shortening, set_expense_prepaid manage-only, per-bill failure isolation, prepaid_months in the
   approved-row lock list, 44 px targets, one-off date left empty, older open drafts surfaced on the tab.
 - tsc exit 0; Vitest recurring (6) + full suite (114 files) pass; build passes; lint unchanged (881 / 150).
+
+## Phase 4 — Emailed bills → draft expenses
+
+Owner decisions 2026-10-26 (D1–D6 as recommended): the Hub reads **sales@chajewelsjp.com** itself (read-only,
+service account + domain-wide delegation; the personal Gmail forwards bills there with a filter); every 30
+minutes; a confident bill becomes a DRAFT expense (never approved automatically), an unsure one waits in
+"Needs review", newsletters are skipped; a bill matching a recurring draft within ±7 days / ±1% is attached to
+it instead of making a second draft; unknown categories land in a holding category that blocks approval
+until the owner picks a real one; attachments go on the draft as the receipt; off by default
+(`expenses_email_enabled`) until Google Admin grants the scope.
+
+### How it works
+- **Edge function `expenses-email-bills`** (JWT verified; caller needs manage_expenses, or the service role
+  from pg_cron `expenses-email-bills` at `7,37 * * * *`): reads `expenses_email_context()` (enabled, mailbox,
+  categories, lookback), stops with `skipped: disabled` when off, gets a Gmail token for the mailbox
+  (`getServiceAccountAccessToken({ scopes: [gmail.readonly], subject: mailbox })` — `_shared/google-auth.ts`
+  now takes scopes + subject), lists `newer_than:Nd -in:spam -in:trash -in:chats` (≤ 100, unknown ids only,
+  ≤ 25 per run), then per message: full fetch, text (plain preferred, HTML stripped) + up to 5 receipt-like
+  attachments ≤ 10 MB, vendor hint from the sender (`VENDOR_HINTS`), Lovable AI (`google/gemini-3.8-flash`,
+  JSON only: is_bill, vendor, amount, currency JPY|PHP|OTHER, bill_date, description, category from the allowed
+  list, confidence, reason), then `decide()`: **drafted** when is_bill ∧ confidence ≥ 0.6 ∧ amount ∧ currency
+  JPY|PHP; **needs_review** when unsure, another currency, no amount, or the sender/subject looks like a bill
+  the model rejected; **skipped** otherwise. A drafted bill first tries `expenses_email_match_recurring` →
+  `expenses_email_attach_to_draft` (status **matched**, receipt copied onto the recurring draft, real amount
+  noted in details), else attachments are stored under `expense-receipts/<new expense id>/…` and
+  `expenses_create_email_draft(p)` inserts the draft (`source = 'email'`, `source_ref = gmail message id`,
+  details = the extraction). Needs-review attachments are stored under `email/<message id>/…` so "Make
+  expense" can copy them later. Every message is recorded in `expense_email_messages` (status, confidence,
+  extraction, attachments, expense link) — the function never modifies, labels or deletes mail. Every run
+  is one `expense_email_runs` row (counts, note with the first errors).
+- **Rules are pure** (`supabase/functions/_shared/email-bills-rules.ts`, pinned by `src/test/email-bills.test.ts`):
+  header parsing, base64url, part walking, HTML stripping, hints, prompt, response parsing, decision, amount
+  rounding (whole yen), category lookup, date fallback (bill date ≤ today, else received date).
+- **Database** (`20270103100000_expenses_email_bills.sql`): settings `expenses_email_enabled` ("false") and
+  `expenses_email_mailbox`; holding category `system_key = 'uncategorised'` ("Needs a category (from email)",
+  office group, 6900) whose drafts cannot be approved (trigger `expenses_refuse_uncategorised_approval`,
+  `category_required`); `expense_email_messages` + `expense_email_runs` (RLS read manage|approve; writes only
+  via RPC); service-role RPCs `expenses_email_record`, `expenses_create_email_draft`,
+  `expenses_email_match_recurring`, `expenses_email_attach_to_draft`, `expenses_email_run`,
+  `expenses_email_context` (refuse a signed-in caller); owner RPCs `get_email_bills(days)`,
+  `email_bill_make_expense(message id, form)` (manage; same validation as a manual draft, returns the stored
+  attachments so the client copies the first onto the new draft), `email_bill_dismiss`,
+  `set_email_bills_enabled` (admin_settings, audited). Housekeeping deletes skipped rows older than 90 days.
+- **Screens**: Expenses tab → "Emails" button opens the Emailed bills dialog (status card: mailbox, last
+  check, on/off switch for admin, "Check mail now" for manage; messages of the last 30 days grouped Needs
+  review / Could not be read / Draft created / Attached / Skipped / Dismissed, with Make expense + Dismiss).
+  "Make expense" opens the normal Add dialog prefilled ("Expense from email"); saving calls
+  `email_bill_make_expense` and copies the attachment. A "From email (n)" strip above the list shows email
+  drafts in the month; a draft still in the holding category shows "needs a category" and its Approve is
+  disabled until the category is changed. Source filter gains "Emailed bills".
+- Refusals: `permission_denied`, `disabled`, `gmail_auth_failed` (scope not granted), `gmail_list_failed`,
+  `already_generated`, `not_found`, `category_required`, plus the Phase 1 field codes.
+
+### Verified (2026-10-26)
+- Local PostgreSQL 16: all five migrations applied twice through one `run.sh` (restructured: the ledger suite
+  and the recurring + email suites each run on a clean book); Phase 1 (17), Phase 2 (5), ledger (11),
+  recurring (8) pass; new `test_email_bills.sql` (7 groups): grants / RLS, permissions, service-role recording
+  (never downgrades a drafted row), draft creation with fallback category + approval blocked until
+  recategorised, recurring match + attach (±7 d / ±1 %) and no match outside, owner actions (make expense
+  from a needs-review message, already_generated, dismiss, enable switch audited), staff scope, housekeeping.
+- Edge function: `deno lint` + `deno check` clean (existing google-auth callers still type-check).
+- tsc exit 0; Vitest email-bills (11) + full suite (115 files / 1,866) pass; build passes; lint unchanged
+  (881 / 150).
+
+### Hand-over before switching on (owner, after the live apply)
+1. Google Admin → Security → API controls → Domain-wide delegation → the Hub's existing client → add scope
+   `https://www.googleapis.com/auth/gmail.readonly`.
+2. In the personal Gmail, a filter forwarding bills to sales@chajewelsjp.com (forwarding address verified).
+3. Lovable prompt (separate from the SQL) to deploy `expenses-email-bills`; `LOVABLE_API_KEY` is already set.
+4. Finance → Expenses → Emails → switch On, then "Check mail now".
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites
