@@ -47,6 +47,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
+import ExpensesTab from '@/components/finance/ExpensesTab';
 
 const MemoPaymentVault = memo(PaymentVault) as FC<{ embedded?: boolean }>;
 import {
@@ -68,8 +69,8 @@ interface ForecastCard {
 export default function Finance() {
   const chartAnim = useChartAnimation();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'vault';
-  const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'vault'];
+  type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'vault' | 'expenses';
+  const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'vault', 'expenses'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTabState] = useState<FinanceTabKey>(() => {
     const urlTab = searchParams.get('tab') as FinanceTabKey | null;
@@ -99,13 +100,15 @@ export default function Finance() {
   const showCollections = can('view_collections');
   const showTracking = can('admin_settings');
   const showVault = can('admin_settings');
+  const showExpenses = can('manage_expenses') || can('approve_expenses');
 
   useEffect(() => {
     if (tab === 'analytics' && !showAnalytics) setTab('overview');
     if (tab === 'collections' && !showCollections) setTab('overview');
     if (tab === 'tracking' && !showTracking) setTab('overview');
     if (tab === 'vault' && !showVault) setTab('overview');
-  }, [tab, showAnalytics, showCollections, showTracking, showVault]);
+    if (tab === 'expenses' && !showExpenses) setTab('overview');
+  }, [tab, showAnalytics, showCollections, showTracking, showVault, showExpenses]);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -1310,6 +1313,15 @@ export default function Finance() {
           <TabsContent value="vault" className="mt-5" tabIndex={-1}>
             {showVault ? (
               <MemoPaymentVault embedded />
+            ) : (
+              <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+            )}
+          </TabsContent>
+
+          {/* ═══════ Expenses Tab ═══════ */}
+          <TabsContent value="expenses" className="mt-5" tabIndex={-1}>
+            {showExpenses ? (
+              tab === 'expenses' && <ExpensesTab />
             ) : (
               <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
             )}

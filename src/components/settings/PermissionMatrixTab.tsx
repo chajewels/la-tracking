@@ -105,6 +105,8 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_vault', label: 'View Payment Vault' },
       { key: 'run_reconciliation', label: 'Run Finance Reconciliation', section: 'Reconciliation & Invoicing' },
       { key: 'generate_invoice', label: 'Generate Invoice' },
+      { key: 'manage_expenses', label: 'Manage Expenses', section: 'Expenses', description: 'See Finance → Expenses, add and edit draft expenses, attach receipts' },
+      { key: 'approve_expenses', label: 'Approve Expenses', description: 'Approve draft expenses (they then count in totals and are locked) and void expenses with a reason' },
     ],
   },
   {
