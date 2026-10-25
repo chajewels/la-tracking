@@ -16,7 +16,7 @@ const corsHeaders = {
  * Payload: { "command": "..." }
  *
  * Auth: staff user JWT required (this is invoked from the Hub's AICommandModal).
- * Backed by Lovable AI Gateway / google/gemini-2.5-flash, temperature 0.1.
+ * Backed by Lovable AI Gateway / google/gemini-3.8-flash (reasoning_effort none, temperature 0.1); fallback openai/gpt-5.6-terra.
  */
 
 const systemPrompt = `You are a command parser and policy assistant for Cha Jewels Hub, a jewelry layaway business in Japan and the Philippines. You can:
@@ -1220,7 +1220,8 @@ async function callAI(
   // deno-lint-ignore no-explicit-any
   tools: any[],
   apiKey: string,
-  model = "google/gemini-2.5-flash",
+  model: string,
+  extra: Record<string, unknown>,
   // deno-lint-ignore no-explicit-any
 ): Promise<any> {
   const response = await fetch(
@@ -1236,7 +1237,7 @@ async function callAI(
         messages,
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? "auto" : undefined,
-        temperature: 0.1,
+        ...extra,
       }),
     },
   );
@@ -1256,13 +1257,13 @@ async function callAIWithFallback(
   // deno-lint-ignore no-explicit-any
 ): Promise<any> {
   try {
-    return await callAI(messages, tools, apiKey, "google/gemini-2.5-flash");
+    return await callAI(messages, tools, apiKey, "google/gemini-3.8-flash", { temperature: 0.1, reasoning_effort: "none" });
   } catch (err) {
     console.warn(
-      "Primary model failed, falling back to gpt-5-mini:",
+      "Primary model failed, falling back to gpt-5.6-terra:",
       (err as Error).message,
     );
-    return await callAI(messages, tools, apiKey, "openai/gpt-5-mini");
+    return await callAI(messages, tools, apiKey, "openai/gpt-5.6-terra", { reasoning_effort: "none" });
   }
 }
 

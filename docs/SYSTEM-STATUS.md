@@ -290,8 +290,8 @@ If CLI is on the wrong account: `firebase login:use sales@chajewelsjp.com` first
 - All other edge functions current as of main
 
 ## AI Model
-- Primary: google/gemini-2.5-flash (via Lovable gateway)
-- Fallback: openai/gpt-5-mini
+- Primary: google/gemini-3.8-flash, reasoning_effort none (via Lovable gateway); fallback openai/gpt-5.6-terra
+- Fallback: openai/gpt-5.6-terra, reasoning_effort none, no temperature (the gateway requires this for tool calls)
 - Knowledge base: static system prompt + live DB tools
   (query_customers, query_accounts, query_payments,
    count_accounts, query_loyalty, query_loyalty_tiers,
