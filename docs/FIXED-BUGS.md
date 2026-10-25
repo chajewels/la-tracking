@@ -6469,3 +6469,22 @@ payment. Fix: migration 20261231500000_audit_account_check7_per_row.sql — CHEC
 new output identical on all 531 accounts; full run ~1.6 s. Dashboard now shows a plain message for a
 database timeout (code 57014) instead of the raw text.
 Do not reintroduce: an unfiltered aggregate (whole-table SUM / GROUP BY) inside audit_account.
+
+
+## System Audit: 9 delete-cleanup findings (2026-10-25)
+Once the System Audit stopped timing out, audit_delete_cleanup_invariants showed 9 critical
+missing_cleanup findings. Live check: 0 deletes blocked today. Two were false alarms
+(loyalty_signups, website_live_claims are already cleared by delete-customer; the 2026-09-17 allowlist
+patch in docs/sql was not in the live body). Fix: migration 20261231520000_delete_cleanup_reviews_drafts.sql
+— allowlist rows for all 9; delete_account_atomic deletes product_reviews + review_invites (reachable for
+TEST accounts only, owner decision); delete-customer (edge function) refuses while a checkout is
+to_confirm and otherwise deletes the customer's finished checkouts, their lines and coupon uses and her
+article comments before the customer (owner decision). Verified on live with a temp copy: 0 critical.
+Do not reintroduce: a new NO ACTION FK to customers / layaway_accounts without its cleanup step AND its
+allowlist row.
+
+## schedule_with_actuals summed every allocation per read (2026-10-25, preventive)
+Same pattern as the System Audit timeout: the view joined a whole-table SUM of payment_allocations.
+Migration 20261231510000_schedule_with_actuals_per_row.sql sums per schedule row (LEFT JOIN LATERAL).
+All 9,595 rows identical; staff reads 19 ms -> 2.6 ms (one account), 25 ms -> 20 ms (Dashboard).
+Do not reintroduce: an unfiltered aggregate inside schedule_with_actuals.
