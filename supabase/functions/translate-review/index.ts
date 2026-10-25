@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
           { role: "user", content: String(review.body_original) },
         ],
         temperature: 0.2,
+        reasoning_effort: "none",
       }),
     });
   } catch (err) {
