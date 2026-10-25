@@ -20,12 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { isMissingFunction } from "@/components/website/shipping-fees";
 import { callRpc } from "@/components/finance/useBookedMonths";
+import { PAID_FROM_KEY, type PaidFromAccount } from "@/components/finance/ledger";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
   type SourceFilter, type StatusFilter, SOURCE_FILTERS,
   canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
-  monthFromSearch, sourceLabel,
+  monthFromSearch, paidFromProblem, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
   validateExpenseForm,
@@ -44,11 +45,16 @@ import {
 
 const NO_VENDOR = "__none";
 const NEW_VENDOR = "__new";
+const NO_ACCOUNT = "__none";
 
 function statusVariant(s: Expense["status"]): "default" | "secondary" | "outline" {
   if (s === "approved") return "default";
   if (s === "draft") return "secondary";
   return "outline";
+}
+
+function paidFromName(list: PaidFromAccount[] | null, code: string): string {
+  return list?.find((a) => a.code === code)?.name ?? code;
 }
 
 function dateLabel(iso: string): string {
@@ -92,12 +98,31 @@ export default function ExpensesTab() {
     toast({ title: "Not saved", description: expenseRefusal(e.code ?? e.message), variant: "destructive" });
   };
 
+  // Phase 2b: which bank / cash account paid it. Absent (PGRST202) until the ledger migration is applied.
+  const paidFromAccounts = useQuery<PaidFromAccount[] | null>({
+    queryKey: PAID_FROM_KEY,
+    staleTime: 300_000,
+    queryFn: async () => {
+      try {
+        const out = await callRpc("get_paid_from_accounts");
+        return Array.isArray(out.accounts) ? (out.accounts as PaidFromAccount[]) : [];
+      } catch (e) {
+        if (isMissingFunction(e)) return null;
+        throw e;
+      }
+    },
+  });
+  const paidFromList = paidFromAccounts.data ?? null;
+
   const save = useMutation({
     mutationFn: async (v: { form: ExpenseForm; file: File | null }) => {
       const out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
-      const saved = out.expense as { id: string } | undefined;
+      const saved = out.expense as { id: string; paid_from?: string | null } | undefined;
       // From here on the draft exists: a retry must edit it, never insert a second one.
       if (saved?.id && !v.form.id) setForm((f) => (f ? { ...f, id: saved.id } : f));
+      if (saved?.id && paidFromList && (saved.paid_from ?? "") !== v.form.paid_from) {
+        await callRpc("set_expense_paid_from", { p_id: saved.id, p_code: v.form.paid_from || null });
+      }
       if (v.file && saved?.id) {
         try {
           const path = receiptPath(saved.id, v.file.name);
@@ -153,7 +178,7 @@ export default function ExpensesTab() {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
-  const formError = form ? validateExpenseForm(form) : null;
+  const formError = form ? (validateExpenseForm(form) ?? paidFromProblem(form, paidFromList !== null)) : null;
   const fileError = receiptFile ? receiptProblem(receiptFile) : null;
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
   const preview = form && book ? previewJpy(Number(form.amount), form.currency, book.php_jpy_rate) : null;
@@ -298,7 +323,7 @@ export default function ExpensesTab() {
                         {e.source !== "manual" && <Badge variant="outline">{sourceLabel(e.source)}</Badge>}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}
+                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}{e.paid_from ? ` · from ${paidFromName(paidFromList, e.paid_from)}` : ""}
                       </p>
                       {e.status === "void" && e.void_reason && (
                         <p className="text-xs text-muted-foreground">Void: {e.void_reason}</p>
@@ -396,6 +421,19 @@ export default function ExpensesTab() {
                   </SelectContent>
                 </Select>
               </div>
+              {paidFromList && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="expense-paid-from">Paid from</Label>
+                  <Select value={form.paid_from || NO_ACCOUNT} onValueChange={(v) => set("paid_from", v === NO_ACCOUNT ? "" : v)}>
+                    <SelectTrigger id="expense-paid-from"><SelectValue placeholder="Which bank or account paid this?" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_ACCOUNT}>Not set</SelectItem>
+                      {paidFromList.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">The ledger needs this to book the money leaving the right account. Cash entries can leave it unset.</p>
+                </div>
+              )}
 
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="expense-vendor">Vendor</Label>

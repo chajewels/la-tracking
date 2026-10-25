@@ -3,7 +3,8 @@
 ## App Version
 2.1.2 (package.json on develop, 2026-10-18)
 
-## 2026-10-25 — Finance → Expenses (Phases 1–2)
+## 2026-10-25 — Finance → Expenses (Phases 1–2b)
+- Phase 2b general ledger core (migration `20270101100000_general_ledger_core.sql`, Finance → Ledger tab, `paid_from` on expenses) on `feat/expenses`: derived immutable double-entry journals for every Hub money event, May–April fiscal year, month close, 税理士-ready trial balance CSV. Books Japan-only in yen, one Sales account (owner D2). Plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`.
 - Phase 1 ledger (migration `20261230100000`) released to main inert (tab shows "Waiting for the database update"); Phase 2 Mark as paid (migration `20261231100000`, MarkPaidPanel on Timesheet Cost Master + Commissions Payout Breakdown) on branch `feat/expenses`. Owner rule: all phases stay on `feat/expenses`, no merge to main and NO database apply until the whole feature is built and tested. Accounting layer plan in Project doc `claude/expenses-accounting-plan-2026-10-25.md`. docs/EXPENSES.md.
 
 ## 2026-10-15 — Website catalog list
