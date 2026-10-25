@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const src = (p: string) => readFileSync(resolve(__dirname, "../..", p), "utf8");
-const MIGRATION = "supabase/migrations/20261230100000_catalog_revalidate_per_statement.sql";
+const MIGRATION = "supabase/migrations/20261230200000_catalog_revalidate_per_statement.sql";
 const sql = src(MIGRATION);
 const code = sql.split("\n").filter((l) => !l.startsWith("--")).join("\n");
 
