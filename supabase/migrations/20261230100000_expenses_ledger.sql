@@ -10,8 +10,10 @@
 --     for later phases that book automatically (payroll, commission, bonus, provider fees).
 --   * Every expense starts as a draft. Only approved rows count in totals. Approved rows are
 --     locked; a wrong row is voided with a reason. Nothing is ever deleted.
---   * (source, source_ref) is unique, so a payroll month, a recurring bill or an email can
---     never be booked twice (later phases).
+--   * (source, source_ref) is unique among non-void rows, so a payroll month, a recurring bill
+--     or an email can never be booked twice — but a VOIDED booking can be booked again.
+--   * details (jsonb object) holds the breakdown behind an automatic booking (per-person
+--     payroll lines, per-agent commission lines); NULL for hand entries.
 --   * The tables have NO write policies. They are written only through upsert_expense,
 --     attach_expense_receipt, approve_expense and void_expense (SECURITY DEFINER, permission
 --     checked, one audit_logs row each). A guard trigger also refuses edits to approved/void
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS public.expenses (
                   CHECK (source IN ('manual', 'recurring', 'email', 'payroll', 'commission', 'system')),
   source_ref      text NULL,
   notes           text NULL CHECK (notes IS NULL OR length(notes) <= 2000),
+  details         jsonb NULL CHECK (details IS NULL OR jsonb_typeof(details) = 'object'),
   created_by      uuid NULL,
   approved_by     uuid NULL,
   approved_at     timestamptz NULL,
@@ -99,7 +102,7 @@ CREATE TABLE IF NOT EXISTS public.expenses (
                                           AND length(btrim(coalesce(void_reason, ''))) >= 3))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS expenses_source_ref_uq
-  ON public.expenses (source, source_ref) WHERE source_ref IS NOT NULL;
+  ON public.expenses (source, source_ref) WHERE source_ref IS NOT NULL AND status <> 'void';
 CREATE INDEX IF NOT EXISTS expenses_date_idx ON public.expenses (expense_date DESC);
 CREATE INDEX IF NOT EXISTS expenses_category_idx ON public.expenses (category_id);
 CREATE INDEX IF NOT EXISTS expenses_vendor_idx ON public.expenses (vendor_id);
@@ -179,6 +182,7 @@ BEGIN
          OR NEW.source IS DISTINCT FROM OLD.source
          OR NEW.source_ref IS DISTINCT FROM OLD.source_ref
          OR NEW.notes IS DISTINCT FROM OLD.notes
+         OR NEW.details IS DISTINCT FROM OLD.details
          OR NEW.approved_by IS DISTINCT FROM OLD.approved_by
          OR NEW.approved_at IS DISTINCT FROM OLD.approved_at THEN
         RAISE EXCEPTION 'an approved expense is locked; it can only be voided' USING ERRCODE = 'check_violation';
