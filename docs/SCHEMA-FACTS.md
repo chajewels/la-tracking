@@ -1344,7 +1344,7 @@ Migration `20261001100000_page365_hide_follow.sql`. Rules: docs/PAGE365-IMPORT.m
   are NOT foreign keys (retention prunes runs). RLS: SELECT for `manage_website_catalog`;
   written only by `page365_inventory_follow` / `page365_inventory_hide_item`. Kept out of
   `website_products` on purpose: `trg_website_products_revalidate_upd` (per statement since
-  2026-10-25, migration 20261230100000) fires on every update of that table, and a
+  2026-10-25, migration 20261230200000) fires on every update of that table, and a
   last-seen stamp per product every 30 minutes would revalidate the storefront for every
   product it touched, every run.
 - `page365_inventory_items.hide_snapshot jsonb` (`{variant_id: stock_qty}` at the read) and
@@ -1621,7 +1621,7 @@ docs/WEBSITE-WORKSPACE.md §9b; API: `supabase/contracts/api.md` "Article commen
   existing sale, and the import stops with a plain message when a new `price`
   is not above the kept sale. No sale end date in v1.
 - `trg_website_variants_revalidate_upd` (per statement since 2026-10-25, migration
-  20261230100000) fires on any variant UPDATE, so a sale change revalidates the
+  20261230200000) fires on any variant UPDATE, so a sale change revalidates the
   storefront with no trigger change.
 
 ## Rules moved from CLAUDE.md (2026-10-02, verbatim)
