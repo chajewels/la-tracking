@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -49,13 +49,14 @@ export default function LedgerTab() {
   const today = todayTokyo();
   const thisMonth = monthKeyTokyo();
   const [view, setView] = useState<"journals" | "trial" | "accounts" | "periods">("journals");
+  const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
-    queryKey: LEDGER_STATUS_KEY,
+    queryKey: [...LEDGER_STATUS_KEY, checkPending],
     staleTime: 15_000,
     queryFn: async () => {
       try {
-        const out = await callRpc("get_ledger_status");
+        const out = await callRpc("get_ledger_status", { p_check_pending: checkPending });
         return { available: true, status: normaliseStatus(out) };
       } catch (e) {
         if (isMissingFunction(e)) return { available: false };
@@ -100,15 +101,18 @@ export default function LedgerTab() {
             <div>
               <div className="flex items-center gap-2 font-medium"><BookOpen className="h-4 w-4" />{postingSummary(s)}</div>
               <div className="text-xs text-muted-foreground mt-1">
-                {lastRunLabel(s.last_run)}
+                {lastRunLabel(s.last_run)}{s.last_run?.note ? <span className="text-destructive"> · {s.last_run.note.split("\n")[0]}</span> : null}
                 {s.ledger_start_date ? ` · Ledger starts ${dayLabel(s.ledger_start_date)}` : ""}
                 {s.php_jpy_rate ? ` · ₱1 = ¥${(1 / s.php_jpy_rate).toFixed(2)} (system rate)` : " · peso rate not set"}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {!s.ledger_start_date && s.can_close && <StartLedgerDialog onDone={refreshAll} />}
+              {s.ledger_start_date && !s.pending && (
+                <Button size="sm" variant="outline" className="min-h-11" onClick={() => setCheckPending(true)}>Check for unposted events</Button>
+              )}
               {s.ledger_start_date && s.can_post && (
-                <Button size="sm" onClick={() => postNow.mutate()} disabled={postNow.isPending}>
+                <Button size="sm" className="min-h-11" onClick={() => postNow.mutate()} disabled={postNow.isPending}>
                   {postNow.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}Post now
                 </Button>
               )}
@@ -173,16 +177,16 @@ function RangePicker({ mode, setMode, month, setMonth, startMonth }: {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Select value={mode} onValueChange={(v) => setMode(v as RangeMode)}>
-        <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-[130px] min-h-11" aria-label="Range"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="month">Month</SelectItem>
           <SelectItem value="quarter">Quarter</SelectItem>
           <SelectItem value="fy">Fiscal year</SelectItem>
         </SelectContent>
       </Select>
-      <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Earlier" onClick={() => setMonth(shiftMonth(month, -step))}><ChevronLeft className="h-4 w-4" /></Button>
+      <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Earlier" onClick={() => setMonth(shiftMonth(month, -step))}><ChevronLeft className="h-4 w-4" /></Button>
       <span className="min-w-[180px] text-center text-sm font-medium">{r.label}</span>
-      <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Later" onClick={() => setMonth(shiftMonth(month, step))}><ChevronRight className="h-4 w-4" /></Button>
+      <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Later" onClick={() => setMonth(shiftMonth(month, step))}><ChevronRight className="h-4 w-4" /></Button>
       <span className="text-xs text-muted-foreground">{dayLabel(r.from)} – {dayLabel(r.to)}</span>
     </div>
   );
@@ -194,8 +198,13 @@ function JournalsView({ canPost, thisMonth, startMonth, onChanged }: { canPost: 
   const [kind, setKind] = useState<"all" | JournalKind>("all");
   const [source, setSource] = useState("all");
   const [account, setAccount] = useState("all");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const r = rangeFor(mode, month, startMonth);
   const limit = 100;
@@ -235,27 +244,27 @@ function JournalsView({ canPost, thisMonth, startMonth, onChanged }: { canPost: 
         </div>
         <div className="flex flex-wrap gap-2 pt-2">
           <Select value={kind} onValueChange={(v) => { setKind(v as typeof kind); resetPage(); }}>
-            <SelectTrigger className="w-[150px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[150px] min-h-11" aria-label="Journal kind"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All kinds</SelectItem>
               {(Object.keys(JOURNAL_KIND_LABEL) as JournalKind[]).map((k) => <SelectItem key={k} value={k}>{JOURNAL_KIND_LABEL[k]}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={source} onValueChange={(v) => { setSource(v); resetPage(); }}>
-            <SelectTrigger className="w-[220px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[220px] min-h-11" aria-label="Source"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All sources</SelectItem>
               {SOURCE_TYPES.map((t) => <SelectItem key={t} value={t}>{sourceTypeLabel(t)}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={account} onValueChange={(v) => { setAccount(v); resetPage(); }}>
-            <SelectTrigger className="w-[260px] h-9"><SelectValue placeholder="Account" /></SelectTrigger>
+            <SelectTrigger className="w-[260px] min-h-11" aria-label="Account"><SelectValue placeholder="Account" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All accounts</SelectItem>
               {(coa.data ?? []).map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input className="h-9 w-[220px]" placeholder="Search invoice, memo, #" value={search} onChange={(e) => { setSearch(e.target.value); resetPage(); }} />
+          <Input className="min-h-11 w-[220px]" aria-label="Search journals" placeholder="Search invoice, memo, #" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -322,12 +331,12 @@ function JournalRow({ j, open, toggle, canPost, onReverse }: { j: Journal; open:
             {j.entry_date !== j.source_date && <span>Event date {dayLabel(j.source_date)}</span>}
             {j.reason && <span>Reason: {j.reason}</span>}
             {link && <Link to={link} className="text-primary underline">Open source</Link>}
-            {reversible && !asking && <Button variant="ghost" size="sm" className="h-8" onClick={() => setAsking(true)}><RotateCcw className="h-3 w-3 mr-1" />Reverse</Button>}
+            {reversible && !asking && <Button variant="ghost" size="sm" className="min-h-11" onClick={() => setAsking(true)}><RotateCcw className="h-3 w-3 mr-1" />Reverse</Button>}
           </div>
           {asking && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Input className="h-9 w-[280px]" placeholder="Why is this reversed? (≥ 3 characters)" value={reason} onChange={(e) => setReason(e.target.value)} />
-              <Button size="sm" disabled={reason.trim().length < 3} onClick={() => { onReverse(reason.trim()); setAsking(false); setReason(""); }}>Confirm reversal</Button>
+              <Input className="min-h-11 w-[280px]" aria-label="Reason for the reversal" placeholder="Why is this reversed? (≥ 3 characters)" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Button size="sm" className="min-h-11" disabled={reason.trim().length < 3} onClick={() => { onReverse(reason.trim()); setAsking(false); setReason(""); }}>Confirm reversal</Button>
               <Button size="sm" variant="ghost" onClick={() => setAsking(false)}>Cancel</Button>
             </div>
           )}
@@ -465,11 +474,11 @@ function AccountsView({ canAdmin, canPost, onChanged }: { canAdmin: boolean; can
         </div>
         {adding && (
           <div className="flex flex-wrap items-end gap-2 pt-2">
-            <div><Label className="text-xs">Code (4 digits)</Label><Input className="h-9 w-[110px]" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
-            <div><Label className="text-xs">Name</Label><Input className="h-9 w-[260px]" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div><Label className="text-xs" htmlFor="acct-code">Code (4 digits)</Label><Input id="acct-code" className="min-h-11 w-[110px]" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
+            <div><Label className="text-xs" htmlFor="acct-name">Name</Label><Input id="acct-name" className="min-h-11 w-[260px]" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label className="text-xs">Kind</Label>
               <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v as GlAccount["kind"] })}>
-                <SelectTrigger className="h-9 w-[170px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="min-h-11 w-[170px]" aria-label="Account kind"><SelectValue /></SelectTrigger>
                 <SelectContent>{KIND_ORDER.map((k) => <SelectItem key={k} value={k}>{KIND_LABEL[k]}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -496,7 +505,7 @@ function AccountsView({ canAdmin, canPost, onChanged }: { canAdmin: boolean; can
                       {canAdmin && (
                         <td className="py-1 text-right w-[90px]">
                           {!a.system_key && (
-                            <Button variant="ghost" size="sm" className="h-8" onClick={() => upsert.mutate({ code: a.code, name: a.name, active: !a.active })}>
+                            <Button variant="ghost" size="sm" className="min-h-11" onClick={() => upsert.mutate({ code: a.code, name: a.name, active: !a.active })}>
                               {a.active ? "Deactivate" : "Activate"}
                             </Button>
                           )}
@@ -549,14 +558,14 @@ function MapSpellingRow({ spelling, rows, canPost, current, currentKind, onDone 
     <div className="flex flex-wrap items-center gap-2 border-t py-1">
       <span className="min-w-[140px]">{spelling}{rows > 0 ? <span className="text-xs text-muted-foreground"> · {rows} row{rows === 1 ? "" : "s"}</span> : null}</span>
       <Select value={code} onValueChange={setCode} disabled={!canPost}>
-        <SelectTrigger className="h-8 w-[240px]"><SelectValue placeholder="Account" /></SelectTrigger>
+        <SelectTrigger className="min-h-11 w-[240px]" aria-label={`Account for ${spelling}`}><SelectValue placeholder="Account" /></SelectTrigger>
         <SelectContent>{candidates.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}</SelectContent>
       </Select>
       <Select value={kind} onValueChange={(v) => setKind(v as MethodKind)} disabled={!canPost}>
-        <SelectTrigger className="h-8 w-[200px]"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="min-h-11 w-[200px]" aria-label={`Kind of account for ${spelling}`}><SelectValue /></SelectTrigger>
         <SelectContent>{METHOD_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}</SelectContent>
       </Select>
-      {canPost && <Button size="sm" className="h-8" disabled={!code || !changed || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}</Button>}
+      {canPost && <Button size="sm" className="min-h-11" disabled={!code || !changed || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}</Button>}
     </div>
   );
 }
@@ -595,9 +604,9 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-base">Months (fiscal year {startMonth === 5 ? "May – April" : `starts month ${startMonth}`})</CardTitle>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Earlier year" onClick={() => setFy((y) => y - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Earlier year" onClick={() => setFy((y) => y - 1)}><ChevronLeft className="h-4 w-4" /></Button>
             <span className="text-sm font-medium min-w-[70px] text-center">FY{fy}</span>
-            <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Later year" onClick={() => setFy((y) => y + 1)}><ChevronRight className="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Later year" onClick={() => setFy((y) => y + 1)}><ChevronRight className="h-4 w-4" /></Button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">Close a month once the accountant has it. Months close in order; a closed month refuses new entries — anything that changes later lands in the next open month with its original date kept.</p>
@@ -622,12 +631,12 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
                   {!ended && !beforeStart && <span className="text-xs text-muted-foreground">{m === thisMonth ? "current month" : "future"}</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {canCloseThis && <Button size="sm" variant="outline" onClick={() => close.mutate(key)} disabled={close.isPending}><Lock className="h-3 w-3 mr-1" />Close</Button>}
-                  {canReopenThis && reopening !== key && <Button size="sm" variant="ghost" onClick={() => setReopening(key)}><LockOpen className="h-3 w-3 mr-1" />Reopen</Button>}
+                  {canCloseThis && <Button size="sm" variant="outline" className="min-h-11" onClick={() => close.mutate(key)} disabled={close.isPending}><Lock className="h-3 w-3 mr-1" />Close</Button>}
+                  {canReopenThis && reopening !== key && <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setReopening(key)}><LockOpen className="h-3 w-3 mr-1" />Reopen</Button>}
                   {reopening === key && (
                     <>
-                      <Input className="h-9 w-[240px]" placeholder="Why reopen? (≥ 3 characters)" value={reason} onChange={(e) => setReason(e.target.value)} />
-                      <Button size="sm" disabled={reason.trim().length < 3 || reopen.isPending} onClick={() => reopen.mutate({ p: key, reason: reason.trim() })}>Confirm</Button>
+                      <Input className="min-h-11 w-[240px]" aria-label="Reason for reopening" placeholder="Why reopen? (≥ 3 characters)" value={reason} onChange={(e) => setReason(e.target.value)} />
+                      <Button size="sm" className="min-h-11" disabled={reason.trim().length < 3 || reopen.isPending} onClick={() => reopen.mutate({ p: key, reason: reason.trim() })}>Confirm</Button>
                       <Button size="sm" variant="ghost" onClick={() => { setReopening(null); setReason(""); }}>Cancel</Button>
                     </>
                   )}
@@ -719,35 +728,35 @@ function ManualJournalDialog({ rate, ledgerStart, today, closedPeriods, onDone }
             </div>
             <div className="space-y-2">
               {form.lines.map((l, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                <div key={l.key} className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-12 md:col-span-5">
                     {i === 0 && <Label className="text-xs">Account</Label>}
                     <Select value={l.account} onValueChange={(v) => setLine(i, { account: v })}>
-                      <SelectTrigger className="h-9"><SelectValue placeholder="Account" /></SelectTrigger>
+                      <SelectTrigger className="min-h-11" aria-label={`Line ${i + 1} account`}><SelectValue placeholder="Account" /></SelectTrigger>
                       <SelectContent>{accounts.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="col-span-4 md:col-span-2">
                     {i === 0 && <Label className="text-xs">Side</Label>}
                     <Select value={l.side} onValueChange={(v) => setLine(i, { side: v as "dr" | "cr" })}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="min-h-11" aria-label={`Line ${i + 1} side`}><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="dr">Debit</SelectItem><SelectItem value="cr">Credit</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div className="col-span-4 md:col-span-2">
                     {i === 0 && <Label className="text-xs">Currency</Label>}
                     <Select value={l.currency} onValueChange={(v) => setLine(i, { currency: v as "JPY" | "PHP" })}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="min-h-11" aria-label={`Line ${i + 1} currency`}><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="JPY">¥ JPY</SelectItem><SelectItem value="PHP">₱ PHP</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div className="col-span-4 md:col-span-2">
                     {i === 0 && <Label className="text-xs">Amount</Label>}
-                    <Input className="h-9" inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value.replace(/[^\d.]/g, "") })} />
+                    <Input className="min-h-11" inputMode="decimal" aria-label={`Line ${i + 1} amount`} value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value.replace(/[^\d.]/g, "") })} />
                     {l.currency === "PHP" && lineYen(l, rate) != null && <div className="text-[11px] text-muted-foreground">≈ {formatYen(lineYen(l, rate)!)}</div>}
                   </div>
                   <div className="col-span-12 md:col-span-1 flex justify-end">
-                    <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Remove line" disabled={form.lines.length <= 2} onClick={() => setForm({ ...form, lines: form.lines.filter((_, k) => k !== i) })}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Remove line" disabled={form.lines.length <= 2} onClick={() => setForm({ ...form, lines: form.lines.filter((_, k) => k !== i) })}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 </div>
               ))}

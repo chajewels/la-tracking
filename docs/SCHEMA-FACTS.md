@@ -1940,12 +1940,21 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - Engine: `gl_current_events(p_until)` (internal; the event sets are listed in docs/EXPENSES.md) and
   `gl_post_pending(p_dry, p_trigger, p_user_id)` (SECURITY DEFINER, revoked from authenticated/anon, service_role
   may execute; `pg_advisory_xact_lock(hashtext('gl_post_pending'))`; temp table `gl_events_tmp` ON COMMIT DROP).
-  Reversals are dated today (JST) and carry the ORIGINAL yen per line ('jpy' key honoured by `gl_write_journal`).
+  Fingerprint = md5(event date (blank for close events) || accounts:sides:amounts:currencies) — memos and
+  descriptions are NOT fingerprinted, so cosmetic edits never repost. Each event is posted in a sub-block;
+  failures are counted in `gl_posting_runs.failed` with the error in `note`. Reversals are dated today (JST) and
+  carry the ORIGINAL yen per line ('jpy' key honoured by `gl_write_journal`).
+- STORE CREDIT IS RECORDED TWICE BY THE HUB: `redeem_store_credit_atomic` writes a `payments` / `cash_payments`
+  row (method `store_credit`) AND a `store_credit_transactions` `redeemed` row with account_id / cash_order_id.
+  The ledger posts Hub-linked redemptions from the PAYMENT row only; `store_credit_use` covers expiries and
+  off-Hub redemptions (no plan / order). `final_forfeited` is set by the auto-forfeit edge function WITHOUT
+  updating `forfeited_at` (close events therefore fall back to `updated_at` and exclude the date from their
+  fingerprint).
   `gl_write_journal` balances a PHP journal whose lines round apart by adjusting the last credit line's yen when the
   difference is ≤ the number of lines.
 - pg_cron job `gl-post-pending`, `40 15 * * *` (00:40 JST), `SELECT public.gl_post_pending(false, 'cron', NULL)`;
   scheduled only where the `cron` schema exists.
-- RPCs (all REVOKE PUBLIC/anon, GRANT authenticated; not in types.ts — cast `callRpc`): `get_ledger_status()`,
+- RPCs (all REVOKE PUBLIC/anon, GRANT authenticated; not in types.ts — cast `callRpc`): `get_ledger_status(boolean)`,
   `get_chart_of_accounts(date)`, `get_ledger(date, date, text, text, text, text, int, int)`,
   `get_trial_balance(date, date)`, `get_paid_from_accounts()`, `gl_post_now()`, `post_manual_journal(jsonb)`,
   `reverse_journal(uuid, text)`, `close_period(date, text)`, `reopen_period(date, text)`, `set_ledger_start(date)`,

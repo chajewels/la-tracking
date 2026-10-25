@@ -41,9 +41,9 @@ describe("ledger — money", () => {
     expect(formatNative(1234.5, "PHP")).toBe("₱1,234.50");
   });
   it("converts peso lines at the one system rate", () => {
-    expect(lineYen({ account: "6600", side: "dr", amount: "42000", currency: "PHP", memo: "" }, 0.42)).toBe(100000);
-    expect(lineYen({ account: "6600", side: "dr", amount: "42000", currency: "PHP", memo: "" }, null)).toBeNull();
-    expect(lineYen({ account: "6600", side: "dr", amount: "1000", currency: "JPY", memo: "" }, null)).toBe(1000);
+    expect(lineYen({ key: "a", account: "6600", side: "dr", amount: "42000", currency: "PHP", memo: "" }, 0.42)).toBe(100000);
+    expect(lineYen({ key: "a", account: "6600", side: "dr", amount: "42000", currency: "PHP", memo: "" }, null)).toBeNull();
+    expect(lineYen({ key: "a", account: "6600", side: "dr", amount: "1000", currency: "JPY", memo: "" }, null)).toBe(1000);
   });
   it("reads balances the accountant's way", () => {
     expect(naturalBalance({ kind: "asset", contra: false, closing_jpy: 500 })).toBe(500);
@@ -70,13 +70,13 @@ describe("ledger — manual journal form", () => {
   const base = () => {
     const f = emptyManualForm(today);
     f.description = "Owner capital";
-    f.lines[0] = { account: "1102", side: "dr", amount: "100000", currency: "JPY", memo: "" };
-    f.lines[1] = { account: "3000", side: "cr", amount: "100000", currency: "JPY", memo: "" };
+    f.lines[0] = { key: "a", account: "1102", side: "dr", amount: "100000", currency: "JPY", memo: "" };
+    f.lines[1] = { key: "b", account: "3000", side: "cr", amount: "100000", currency: "JPY", memo: "" };
     return f;
   };
   it("balances in yen across currencies", () => {
     const f = base();
-    f.lines[1] = { account: "3000", side: "cr", amount: "42000", currency: "PHP", memo: "" };
+    f.lines[1] = { key: "b", account: "3000", side: "cr", amount: "42000", currency: "PHP", memo: "" };
     expect(manualTotals(f, 0.42)).toEqual({ debit: 100000, credit: 100000, balanced: true, unknownYen: false });
     expect(manualTotals(f, null).unknownYen).toBe(true);
   });
@@ -111,10 +111,12 @@ describe("ledger — status and journals", () => {
   });
   it("normalises jsonb strings and words the strip", () => {
     const s: LedgerStatus = status({});
-    expect(s.pending.posted).toBe(3);
+    expect(s.pending?.posted).toBe(3);
     expect(s.unmapped_methods[0].rows).toBe(2);
     expect(postingSummary(s)).toBe("3 to post, 1 to reverse · runs nightly at 00:40 or press Post now");
     expect(postingSummary(status({ pending: { posted: 0, reversed: 0, moved: 0, pending: 0 } }))).toBe("Up to date · 120 journals");
+    expect(postingSummary(status({ pending: null }))).toBe("120 journals · posts nightly at 00:40, or press Post now");
+    expect(lastRunLabel({ id: "r", started_at: "2026-10-24T15:40:00Z", finished_at: null, trigger: "cron", posted: 5, reversed: 0, moved: 0, skipped: 0, failed: 2 })).toContain("2 FAILED");
     expect(postingSummary(status({ ledger_start_date: null }))).toContain("Ledger not started");
     expect(lastRunLabel(null)).toBe("No posting run yet");
     expect(lastRunLabel({ id: "r", started_at: "2026-10-24T15:40:00Z", finished_at: null, trigger: "cron", posted: 5, reversed: 0, moved: 1, skipped: 0 }))
@@ -162,6 +164,12 @@ describe("ledger — wiring", () => {
     expect(sql).toContain("JOIN first_pay fp ON fp.account_id = la.id");
     expect(sql).toContain("RETURN (v_last_closed + interval '1 month')::date;");
     expect(sql).toContain("paid_from IS DISTINCT FROM OLD.paid_from");
+    // review fixes: Hub-linked store-credit redemptions post from the payment row only; close events filter on the close date
+    expect(sql).toContain("t.txn_type::text = 'redeemed' AND t.account_id IS NULL AND t.cash_order_id IS NULL");
+    expect(sql).toContain("BETWEEN s.start_date AND p_until");
+    expect(sql).toContain("('transfer',           '1190', 'suspense'");
+    expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN\s+v_failed := v_failed \+ 1;/);
+    expect(sql).toContain("get_ledger_status(p_check_pending boolean DEFAULT false)");
     for (const k of ["view_ledger", "post_journal", "close_period"]) expect(sql).toContain(`'${k}'`);
     const bodies = sql.match(/\$fn\$[\s\S]*?\$fn\$/g) ?? [];
     expect(bodies.length).toBeGreaterThan(20);

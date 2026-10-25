@@ -186,14 +186,17 @@ date and opening balances wait for the accountant's figures (F6).
 - **Derived, not hooked.** No payment / plan / order / store-credit code was changed. `gl_current_events(p_until)`
   builds every money event the ledger should hold (from `ledger_start_date`), each with its lines as jsonb;
   `gl_post_pending()` diffs that against the live `auto` journals: a live journal whose event vanished or
-  changed (fingerprint `md5(source_date || lines)`) gets a REVERSAL (dated today, carrying the ORIGINAL yen),
+  changed (fingerprint = accounts, sides, amounts and currencies of the lines — never memos or descriptions —
+  plus the event date, except close events whose date may fall back to `updated_at`) gets a REVERSAL (dated
+  today, carrying the ORIGINAL yen),
   and every event without a live journal gets a new one. One live auto journal per `(source_type, source_id)`
   (partial unique index). This covers direct table UPDATEs (RLS lets staff void/edit `payments`), RPCs and
   edge functions alike, and is the completeness check and the backfill engine.
 - **Events:** `layaway_sale` (Dr 1200 full price / Cr 4100, shipping → 4300), `payment` (Dr mapped account /
   Cr 4400 penalty allocations / Cr 1200 rest; `loyalty_redemption` → Dr 4160; `store_credit` → Dr 2300),
-  `layaway_close` (forfeited / final_forfeited / cancelled: Dr 4150 / Cr 1200 remaining; Dr 4100 / Cr 4500
-  money kept = total − remaining − store credit issued from the plan), `cash_order_sale` / `cash_payment` /
+  `layaway_close` (forfeited / final_forfeited / cancelled, dated at forfeited_at / cancelled_at — plans sold
+  before the ledger start still post their close: Dr 4150 / Cr 1200 remaining; Dr 4100 / Cr 4500 money kept =
+  total − remaining − store credit issued from the plan), `cash_order_sale` / `cash_payment` /
   `cash_order_close` (same on 1210; shipping + COD fee → 4300), `store_credit_issue` (Dr 4150 for
   cancellation sources, 4170 otherwise / Cr 2300; voided lots never post), `store_credit_use` (redeemed →
   Dr 2300 / Cr 1200 | 1210 | 4100 when no Hub order; expired → Cr 4900), `expense` (approved only: Dr
@@ -201,9 +204,11 @@ date and opening balances wait for the accountant's figures (F6).
   `square_refund` (COMPLETED, production), `paidy_refund`, `web_refund` (refund_status = refund_issued and
   no provider refund row). Test rows (`is_test`) never post.
 - **Money:** every line stores native amount + currency + `fx_php_per_jpy` + yen; a PHP journal whose lines
-  round apart is balanced by putting the ≤ n-yen difference on its last credit line. Totals and the trial
-  balance are yen.
-- **Periods:** `gl_periods` by calendar month; `fiscal_year` = the year the May–April year ENDS (June 2026 →
+  round apart is balanced by putting the ≤ n-yen difference on its LARGEST credit line (never below zero).
+  Each event posts in its own sub-transaction: one that cannot balance is counted as `failed` with its error
+  in `gl_posting_runs.note` and the rest of the run goes through. Totals and the trial balance are yen.
+- **Periods:** `close_period` first runs the posting engine for pending events and refuses with
+  `posting_failed` if any event failed. `gl_periods` by calendar month; `fiscal_year` = the year the May–April year ENDS (June 2026 →
   FY2027). `close_period` closes in order (earlier months first, only ended months, never before the start);
   `reopen_period` reopens only the latest closed month, with a reason. `gl_posting_date()` moves an event in
   a closed month to the first day after the last closed month; `source_date` keeps the real date.
@@ -211,8 +216,8 @@ date and opening balances wait for the accountant's figures (F6).
   sumitomo bank → 1101; jp_bank → 1103 Japan Post Bank; paypay → 1122; bdo → 1111; bpi → 1112; metrobank →
   1113; gcash → 1121; cash / cash payment → 1010 (JPY) or 1020 (PHP); cash_pickup → 1020; genkin_kaketome →
   1010; cod / cash on delivery → 1140 COD receivable; square / credit_card → 1130; paidy → 1131; stripe /
-  konbini → 1132; loyalty_redemption → 4160; store_credit → 2300; bank transfer / bank_transfer / other /
-  card / auto_debit → 1190 (suspense). Unknown spellings also post to 1190 and are listed in the Ledger
+  konbini → 1132; loyalty_redemption → 4160; store_credit → 2300; transfer (website orders) / bank transfer /
+  bank_transfer / other / card / auto_debit → 1190 (suspense). Unknown spellings also post to 1190 and are listed in the Ledger
   status strip; `set_payment_method_map` saves a mapping and reposts at once.
 - **Expenses gain `paid_from`** (which 1xxx account paid it): the Add/Edit dialog's "Paid from" (required
   unless paid in cash, only once the ledger RPCs exist), saved with `set_expense_paid_from` after the upsert.
@@ -254,6 +259,9 @@ Settings → Matrix → Finance → "Ledger".
 - Finance Overview profit is unchanged (the flat 15% waits for Phase 5 cost of goods).
 
 ### Verified (2026-10-25)
+- The harness lives in `supabase/tests/expenses/` (`run.sh`; not a Supabase test, never touches a Lovable
+  database). Independent review (one blocker — double-posted store-credit redemption — and nine should-fixes)
+  applied before the PR.
 - Local PostgreSQL 16 with stand-ins for the live money tables: Phase 1 + 2 + 2b migrations applied twice;
   Phase 1 (17) and Phase 2 (5) suites still pass with 2b on top; the 2b suite (11 groups): start-date gate,
   permissions (finance / staff denied, RLS hides the chart), first posting of 7 events and an idempotent

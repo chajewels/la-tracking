@@ -120,26 +120,34 @@ export default function ExpensesTab() {
       const saved = out.expense as { id: string; paid_from?: string | null } | undefined;
       // From here on the draft exists: a retry must edit it, never insert a second one.
       if (saved?.id && !v.form.id) setForm((f) => (f ? { ...f, id: saved.id } : f));
+      let paidFromFailed = false;
       if (saved?.id && paidFromList && (saved.paid_from ?? "") !== v.form.paid_from) {
-        await callRpc("set_expense_paid_from", { p_id: saved.id, p_code: v.form.paid_from || null });
+        try {
+          await callRpc("set_expense_paid_from", { p_id: saved.id, p_code: v.form.paid_from || null });
+        } catch {
+          paidFromFailed = true;
+        }
       }
       if (v.file && saved?.id) {
         try {
           const path = receiptPath(saved.id, v.file.name);
           const { error } = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET)
             .upload(path, v.file, { cacheControl: "3600", upsert: false, contentType: receiptContentType(v.file) || undefined });
-          if (error) return { created: !v.form.id, receiptFailed: true };
+          if (error) return { created: !v.form.id, receiptFailed: true, paidFromFailed };
           await callRpc("attach_expense_receipt", { p_id: saved.id, p_path: path });
         } catch {
-          return { created: !v.form.id, receiptFailed: true };
+          return { created: !v.form.id, receiptFailed: true, paidFromFailed };
         }
       }
-      return { created: !v.form.id, receiptFailed: false };
+      return { created: !v.form.id, receiptFailed: false, paidFromFailed };
     },
     onSuccess: (r) => {
       toast({ title: r.created ? "Expense added as a draft" : "Expense saved" });
       if (r.receiptFailed) {
         toast({ title: "Receipt not uploaded", description: "The expense was saved. Edit it to try the receipt again.", variant: "destructive" });
+      }
+      if (r.paidFromFailed) {
+        toast({ title: "\"Paid from\" not saved", description: "The expense was saved without its paying account. Edit it and pick the account again.", variant: "destructive" });
       }
       setForm(null);
       setReceiptFile(null);

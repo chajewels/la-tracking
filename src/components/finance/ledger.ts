@@ -29,7 +29,7 @@ export type Period = {
 };
 export type PostingRun = {
   id: string; started_at: string; finished_at: string | null; trigger: "cron" | "manual" | "migration";
-  posted: number; reversed: number; moved: number; skipped: number;
+  posted: number; reversed: number; moved: number; skipped: number; failed?: number; note?: string | null;
 };
 export type UnmappedMethod = { spelling: string; rows: number; first_seen: string };
 export type ExpenseNeedingAccount = {
@@ -41,7 +41,8 @@ export type LedgerStatus = {
   fiscal_year_start_month: number;
   php_jpy_rate: number | null;
   can_post: boolean; can_close: boolean; can_admin: boolean;
-  pending: { posted: number; reversed: number; moved: number; pending: number };
+  /** Only filled when the status was asked to check (get_ledger_status(true)); null = not checked. */
+  pending: { posted: number; reversed: number; moved: number; pending: number } | null;
   last_run: PostingRun | null;
   journal_count: number;
   moved_count: number;
@@ -77,7 +78,7 @@ export function num(v: unknown): number {
 }
 
 export function normaliseStatus(raw: Record<string, unknown>): LedgerStatus {
-  const pending = (raw.pending ?? {}) as Record<string, unknown>;
+  const pending = raw.pending == null ? null : (raw.pending as Record<string, unknown>);
   return {
     ledger_start_date: (raw.ledger_start_date as string | null) ?? null,
     fiscal_year_start_month: num(raw.fiscal_year_start_month) || 5,
@@ -85,7 +86,7 @@ export function normaliseStatus(raw: Record<string, unknown>): LedgerStatus {
     can_post: raw.can_post === true,
     can_close: raw.can_close === true,
     can_admin: raw.can_admin === true,
-    pending: { posted: num(pending.posted), reversed: num(pending.reversed), moved: num(pending.moved), pending: num(pending.pending) },
+    pending: pending ? { posted: num(pending.posted), reversed: num(pending.reversed), moved: num(pending.moved), pending: num(pending.pending) } : null,
     last_run: (raw.last_run as PostingRun | null) ?? null,
     journal_count: num(raw.journal_count),
     moved_count: num(raw.moved_count),
@@ -147,8 +148,7 @@ export function fiscalYearRange(fy: number, startMonth = 5): { from: string; to:
   const fromY = startMonth === 1 ? fy : fy - 1;
   const from = `${fromY}-${pad(startMonth)}-01`;
   const endMonth = startMonth === 1 ? 12 : startMonth - 1;
-  const endY = startMonth === 1 ? fy : fy;
-  return { from, to: `${endY}-${pad(endMonth)}-${pad(daysInMonth(endY, endMonth))}` };
+  return { from, to: `${fy}-${pad(endMonth)}-${pad(daysInMonth(fy, endMonth))}` };
 }
 
 export function fiscalYearLabel(fy: number, startMonth = 5): string {
@@ -275,6 +275,7 @@ export function profitSummary(rows: TrialBalanceRow[]): { revenue: number; cogs:
 
 export function postingSummary(s: LedgerStatus): string {
   if (!s.ledger_start_date) return "Ledger not started — set the start date to begin posting.";
+  if (!s.pending) return `${s.journal_count.toLocaleString("en-US")} journals · posts nightly at 00:40, or press Post now`;
   const p = s.pending.pending;
   if (p === 0) return `Up to date · ${s.journal_count.toLocaleString("en-US")} journals`;
   const parts: string[] = [];
@@ -287,16 +288,18 @@ export function lastRunLabel(run: PostingRun | null): string {
   if (!run) return "No posting run yet";
   const when = new Date(run.started_at).toLocaleString("en-GB", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const who = run.trigger === "cron" ? "nightly" : run.trigger === "manual" ? "by hand" : "migration";
-  return `Last run ${when} (${who}): ${run.posted} posted, ${run.reversed} reversed${run.moved ? `, ${run.moved} moved to an open month` : ""}`;
+  return `Last run ${when} (${who}): ${run.posted} posted, ${run.reversed} reversed${run.moved ? `, ${run.moved} moved to an open month` : ""}${run.failed ? `, ${run.failed} FAILED — see the note` : ""}`;
 }
 
 // ---------- manual journal form ----------
 
-export type ManualLine = { account: string; side: "dr" | "cr"; amount: string; currency: "JPY" | "PHP"; memo: string };
+export type ManualLine = { key: string; account: string; side: "dr" | "cr"; amount: string; currency: "JPY" | "PHP"; memo: string };
+let lineSeq = 0;
 export type ManualJournalForm = { entry_date: string; description: string; kind: "manual" | "opening"; reason: string; lines: ManualLine[] };
 
 export function emptyManualLine(side: "dr" | "cr" = "dr"): ManualLine {
-  return { account: "", side, amount: "", currency: "JPY", memo: "" };
+  lineSeq += 1;
+  return { key: `l${lineSeq}`, account: "", side, amount: "", currency: "JPY", memo: "" };
 }
 export function emptyManualForm(today: string): ManualJournalForm {
   return { entry_date: today, description: "", kind: "manual", reason: "", lines: [emptyManualLine("dr"), emptyManualLine("cr")] };
@@ -376,6 +379,7 @@ export function ledgerRefusal(code: string): string {
     case "cannot_reverse_reversal": return "A reversal can't be reversed; post the original again if needed.";
     case "already_reversed": return "That journal is already reversed.";
     case "ledger_has_journals": return "The start date can't change once journals exist.";
+    case "posting_failed": return "Some events could not be posted — see the last run's note on the Ledger page before closing the month.";
     case "invalid_account": return "Pick a bank, cash or clearing account.";
     case "invalid_spelling": return "That spelling can't be mapped.";
     case "invalid_kind": return "Pick what kind of account that is.";

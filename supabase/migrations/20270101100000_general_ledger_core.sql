@@ -161,6 +161,7 @@ INSERT INTO public.gl_payment_method_map (spelling, account_code, kind, note) VA
   ('store_credit',       '2300', 'non_cash', 'Store credit used as payment'),
   ('card',               '1190', 'suspense', 'Expense paid by card - set Paid from on the expense'),
   ('auto_debit',         '1190', 'suspense', 'Expense auto-debit - set Paid from on the expense'),
+  ('transfer',           '1190', 'suspense', 'Website order bank transfer - bank not named'),
   ('bank transfer',      '1190', 'suspense', 'Bank not named - map when known'),
   ('bank_transfer',      '1190', 'suspense', 'Bank not named - map when known'),
   ('other',              '1190', 'suspense', NULL)
@@ -241,8 +242,10 @@ CREATE TABLE IF NOT EXISTS public.gl_posting_runs (
   reversed      integer NOT NULL DEFAULT 0,
   moved         integer NOT NULL DEFAULT 0,
   skipped       integer NOT NULL DEFAULT 0,
+  failed        integer NOT NULL DEFAULT 0,
   note          text NULL
 );
+ALTER TABLE public.gl_posting_runs ADD COLUMN IF NOT EXISTS failed integer NOT NULL DEFAULT 0;
 ALTER TABLE public.gl_posting_runs ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
@@ -529,8 +532,7 @@ AS $fn$
     CROSS JOIN s
    WHERE la.is_test = false
      AND la.status IN ('forfeited', 'final_forfeited', 'cancelled')
-     AND fp.first_date >= s.start_date
-     AND coalesce((coalesce(la.forfeited_at, la.cancelled_at) AT TIME ZONE 'Asia/Tokyo')::date, (la.updated_at AT TIME ZONE 'Asia/Tokyo')::date) <= p_until
+     AND coalesce((coalesce(la.forfeited_at, la.cancelled_at) AT TIME ZONE 'Asia/Tokyo')::date, (la.updated_at AT TIME ZONE 'Asia/Tokyo')::date) BETWEEN s.start_date AND p_until
      AND (la.remaining_balance > 0 OR la.total_amount - la.remaining_balance - coalesce(cfp.credit, 0) > 0)
 
   UNION ALL
@@ -586,8 +588,7 @@ AS $fn$
     LEFT JOIN credit_from_order cfo ON cfo.cash_order_id = co.id
     CROSS JOIN s
    WHERE co.is_test = false AND co.status IN ('cancelled', 'expired')
-     AND fcp.first_date >= s.start_date
-     AND coalesce((coalesce(co.cancelled_at, co.expired_at) AT TIME ZONE 'Asia/Tokyo')::date, (co.updated_at AT TIME ZONE 'Asia/Tokyo')::date) <= p_until
+     AND coalesce((coalesce(co.cancelled_at, co.expired_at) AT TIME ZONE 'Asia/Tokyo')::date, (co.updated_at AT TIME ZONE 'Asia/Tokyo')::date) BETWEEN s.start_date AND p_until
      AND (co.remaining_balance > 0 OR co.total_amount - co.remaining_balance - coalesce(cfo.credit, 0) > 0)
 
   UNION ALL
@@ -633,7 +634,9 @@ AS $fn$
          t.customer_id, t.account_id, t.cash_order_id, NULL::uuid
     FROM public.store_credit_transactions t
     CROSS JOIN s
-   WHERE t.txn_type::text IN ('redeemed', 'expired') AND t.amount <> 0
+   WHERE t.amount <> 0
+     AND (t.txn_type::text = 'expired'
+          OR (t.txn_type::text = 'redeemed' AND t.account_id IS NULL AND t.cash_order_id IS NULL))
      AND (t.created_at AT TIME ZONE 'Asia/Tokyo')::date >= s.start_date
      AND (t.created_at AT TIME ZONE 'Asia/Tokyo')::date <= p_until
 
@@ -740,10 +743,16 @@ BEGIN
     FROM jsonb_array_elements(v_lines) l;
   v_diff := v_dr - v_cr;
   IF v_diff <> 0 AND abs(v_diff) <= jsonb_array_length(v_lines) THEN
-    SELECT max(i) INTO v_last FROM jsonb_array_elements(v_lines) WITH ORDINALITY AS x(l, i) WHERE x.l->>'side' = 'cr';
-    v_lines := jsonb_set(v_lines, ARRAY[(v_last - 1)::text, 'jpy'],
-                         to_jsonb(((v_lines->(v_last - 1))->>'jpy')::numeric + v_diff));
-    v_cr := v_cr + v_diff;
+    SELECT i INTO v_last FROM jsonb_array_elements(v_lines) WITH ORDINALITY AS x(l, i)
+     WHERE x.l->>'side' = 'cr' ORDER BY (x.l->>'jpy')::numeric DESC, i LIMIT 1;
+    IF ((v_lines->(v_last - 1))->>'jpy')::numeric + v_diff >= 0 THEN
+      v_lines := jsonb_set(v_lines, ARRAY[(v_last - 1)::text, 'jpy'],
+                           to_jsonb(((v_lines->(v_last - 1))->>'jpy')::numeric + v_diff));
+      v_cr := v_cr + v_diff;
+    END IF;
+  END IF;
+  IF v_dr <= 0 OR v_dr <> v_cr THEN
+    RAISE EXCEPTION 'journal not balanced in yen (debit %, credit %)', v_dr, v_cr USING ERRCODE = 'check_violation';
   END IF;
   INSERT INTO public.gl_journals (id, entry_date, period_start, source_date, kind, source_type, source_id, source_version,
                                   description, reverses, reason, posted_by, total_jpy)
@@ -792,6 +801,8 @@ DECLARE
   v_exp uuid;
   v_no bigint;
   v_new uuid;
+  v_failed integer := 0;
+  v_note text := '';
   v_rev uuid;
 BEGIN
   IF v_start IS NULL THEN
@@ -804,7 +815,10 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('gl_post_pending'));
   IF to_regclass('pg_temp.gl_events_tmp') IS NOT NULL THEN DROP TABLE gl_events_tmp; END IF;
   CREATE TEMP TABLE gl_events_tmp ON COMMIT DROP AS
-    SELECT e.*, md5(e.source_date::text || '|' || e.lines::text) AS version
+    SELECT e.*,
+           md5(CASE WHEN e.source_type IN ('layaway_close', 'cash_order_close') THEN '' ELSE e.source_date::text END || '|' ||
+               (SELECT coalesce(string_agg((l->>'a') || ':' || (l->>'side') || ':' || (l->>'amt') || ':' || (l->>'cur'), ';' ORDER BY o), '')
+                  FROM jsonb_array_elements(e.lines) WITH ORDINALITY AS x(l, o))) AS version
       FROM public.gl_current_events(v_today) e;
   IF NOT p_dry THEN
     INSERT INTO public.gl_posting_runs (trigger, run_by) VALUES (p_trigger, p_user_id) RETURNING id INTO v_run;
@@ -816,8 +830,11 @@ BEGIN
               AND NOT EXISTS (SELECT 1 FROM gl_events_tmp t
                                WHERE t.source_type = j.source_type AND t.source_id = j.source_id AND t.version = j.source_version)
   LOOP
-    v_reversed := v_reversed + 1;
-    IF NOT p_dry THEN
+    IF p_dry THEN
+      v_reversed := v_reversed + 1;
+      CONTINUE;
+    END IF;
+    BEGIN
       SELECT jsonb_agg(jsonb_build_object('a', l.account_code, 'side', CASE WHEN l.debit > 0 THEN 'cr' ELSE 'dr' END,
                                           'amt', CASE WHEN l.debit > 0 THEN l.debit ELSE l.credit END, 'cur', l.currency, 'memo', l.memo,
                                           'jpy', CASE WHEN l.debit > 0 THEN l.debit_jpy ELSE l.credit_jpy END)
@@ -830,7 +847,11 @@ BEGIN
                  'Reversal of #' || v_no || ': ' || r.description, v_rev_lines, p_user_id, r.id,
                  'Source changed or no longer qualifies', v_cust, v_acc, v_co, v_exp);
       UPDATE public.gl_journals SET status = 'reversed', reversed_by = v_rev WHERE id = r.id;
-    END IF;
+      v_reversed := v_reversed + 1;
+    EXCEPTION WHEN OTHERS THEN
+      v_failed := v_failed + 1;
+      v_note := left(v_note || 'reversal ' || r.source_type || ' ' || r.source_id || ': ' || SQLERRM || E'\n', 4000);
+    END;
   END LOOP;
 
   FOR r IN SELECT t.* FROM gl_events_tmp t
@@ -843,20 +864,29 @@ BEGIN
       v_skipped := v_skipped + 1;
       CONTINUE;
     END IF;
-    v_posted := v_posted + 1;
-    IF public.gl_posting_date(r.source_date) <> r.source_date THEN v_moved := v_moved + 1; END IF;
-    IF NOT p_dry THEN
+    IF p_dry THEN
+      v_posted := v_posted + 1;
+      IF public.gl_posting_date(r.source_date) <> r.source_date THEN v_moved := v_moved + 1; END IF;
+      CONTINUE;
+    END IF;
+    BEGIN
       v_new := public.gl_write_journal('auto', r.source_type, r.source_id, r.version, r.source_date, r.description, r.lines,
                                        NULL, NULL, NULL, r.customer_id, r.account_id, r.cash_order_id, r.expense_id);
-    END IF;
+      v_posted := v_posted + 1;
+      IF public.gl_posting_date(r.source_date) <> r.source_date THEN v_moved := v_moved + 1; END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_failed := v_failed + 1;
+      v_note := left(v_note || 'post ' || r.source_type || ' ' || r.source_id || ': ' || SQLERRM || E'\n', 4000);
+    END;
   END LOOP;
 
   IF NOT p_dry THEN
-    UPDATE public.gl_posting_runs SET finished_at = now(), posted = v_posted, reversed = v_reversed, moved = v_moved, skipped = v_skipped
+    UPDATE public.gl_posting_runs SET finished_at = now(), posted = v_posted, reversed = v_reversed, moved = v_moved,
+           skipped = v_skipped, failed = v_failed, note = nullif(v_note, '')
      WHERE id = v_run;
   END IF;
   RETURN jsonb_build_object('ok', true, 'started', true, 'dry', p_dry, 'posted', v_posted, 'reversed', v_reversed,
-                            'moved', v_moved, 'skipped', v_skipped, 'pending', v_posted + v_reversed);
+                            'moved', v_moved, 'skipped', v_skipped, 'failed', v_failed, 'pending', v_posted + v_reversed);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.gl_post_pending(boolean, text, uuid) FROM PUBLIC, anon, authenticated;
@@ -882,7 +912,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.gl_post_now() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.gl_post_now() TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.get_ledger_status()
+CREATE OR REPLACE FUNCTION public.get_ledger_status(p_check_pending boolean DEFAULT false)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $fn$
@@ -893,7 +923,7 @@ DECLARE
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'view_ledger') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
-  v_pending := CASE WHEN v_start IS NULL THEN jsonb_build_object('posted', 0, 'reversed', 0, 'moved', 0, 'pending', 0)
+  v_pending := CASE WHEN v_start IS NULL OR NOT p_check_pending THEN NULL
                     ELSE public.gl_post_pending(true, 'manual', v_uid) END;
   RETURN jsonb_build_object(
     'ledger_start_date', v_start,
@@ -913,6 +943,10 @@ BEGIN
             SELECT p.payment_method AS m, p.date_paid AS d FROM public.payments p WHERE p.voided_at IS NULL AND (v_start IS NULL OR p.date_paid >= v_start)
             UNION ALL
             SELECT cp.payment_method, cp.date_paid FROM public.cash_payments cp WHERE cp.voided_at IS NULL AND (v_start IS NULL OR cp.date_paid >= v_start)
+            UNION ALL
+            SELECT co.payment_method, (co.refund_decided_at AT TIME ZONE 'Asia/Tokyo')::date FROM public.cash_orders co
+             WHERE co.refund_status = 'refund_issued' AND co.refund_decided_at IS NOT NULL
+               AND (v_start IS NULL OR (co.refund_decided_at AT TIME ZONE 'Asia/Tokyo')::date >= v_start)
           ) u
           WHERE lower(btrim(coalesce(m, ''))) <> ''
             AND NOT EXISTS (SELECT 1 FROM public.gl_payment_method_map mm WHERE mm.spelling = lower(btrim(u.m)) AND mm.kind <> 'suspense')
@@ -921,14 +955,15 @@ BEGIN
       SELECT jsonb_agg(jsonb_build_object('id', e.id, 'expense_date', e.expense_date, 'description', e.description, 'amount', e.amount,
                                           'currency', e.currency, 'payment_method', e.payment_method, 'source', e.source) ORDER BY e.expense_date DESC)
         FROM public.expenses e
-       WHERE e.status = 'approved' AND e.paid_from IS NULL AND lower(e.payment_method) <> 'cash'
+       WHERE e.status = 'approved' AND e.paid_from IS NULL
+         AND NOT EXISTS (SELECT 1 FROM public.gl_payment_method_map mm WHERE mm.spelling = lower(btrim(e.payment_method)) AND mm.kind = 'cash')
          AND (v_start IS NULL OR e.expense_date >= v_start)), '[]'::jsonb),
     'periods', coalesce((
       SELECT jsonb_agg(to_jsonb(p) ORDER BY p.period_start DESC) FROM public.gl_periods p), '[]'::jsonb));
 END
 $fn$;
-REVOKE ALL ON FUNCTION public.get_ledger_status() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_ledger_status() TO authenticated;
+REVOKE ALL ON FUNCTION public.get_ledger_status(boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_ledger_status(boolean) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.get_chart_of_accounts(p_as_of date DEFAULT NULL)
 RETURNS jsonb
@@ -970,7 +1005,7 @@ DECLARE
   v_uid uuid := auth.uid();
   v_limit integer := least(greatest(coalesce(p_limit, 200), 1), 500);
   v_offset integer := greatest(coalesce(p_offset, 0), 0);
-  v_search text := nullif(lower(btrim(coalesce(p_search, ''))), '');
+  v_search text := nullif(replace(replace(replace(lower(btrim(coalesce(p_search, ''))), '\', '\\'), '%', '\%'), '_', '\_'), '');
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'view_ledger') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
@@ -1137,6 +1172,7 @@ DECLARE
   v_period date;
   v_today date := (now() AT TIME ZONE 'Asia/Tokyo')::date;
   v_open_before date;
+  v_run jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'close_period') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
@@ -1151,6 +1187,10 @@ BEGIN
   v_period := public.gl_period_for(p_period_start);
   IF EXISTS (SELECT 1 FROM public.gl_periods gp WHERE gp.period_start = v_period AND gp.status = 'closed') THEN
     RETURN jsonb_build_object('error', 'already_closed');
+  END IF;
+  v_run := public.gl_post_pending(false, 'manual', v_uid);
+  IF coalesce((v_run->>'failed')::int, 0) > 0 THEN
+    RETURN jsonb_build_object('error', 'posting_failed', 'run', v_run);
   END IF;
   UPDATE public.gl_periods SET status = 'closed', closed_at = now(), closed_by = v_uid, note = nullif(btrim(coalesce(p_note, '')), ''), updated_at = now()
    WHERE period_start = v_period;
