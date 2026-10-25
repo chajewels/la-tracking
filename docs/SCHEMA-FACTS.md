@@ -1906,3 +1906,63 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   `expenses_book_auto_month`, advisory-locked per source+month, two audit_logs rows;
   payroll also upserts the history row), `get_booked_months(text)` (manage or approve). Not in
   types.ts — called through the cast `callRpc` (coupon precedent).
+
+## General ledger (Expenses Phase 2b, 2026-10-25)
+
+- Migration `20270101100000_general_ledger_core.sql` (applied NOWHERE yet; branch feat/expenses). Full rules in
+  docs/EXPENSES.md "Phase 2b".
+- `gl_accounts` (code text PK `^[1-6][0-9]{3}$`, kind asset | liability | equity | revenue | cogs | expense, contra,
+  currency_hint, active, system_key). ONE Sales account 4100 — there is no 4110 (owner D2). Seed-only plus
+  `upsert_gl_account` (admin_settings); never deleted; system_key accounts cannot be deactivated.
+- `gl_payment_method_map` (spelling PK = lower(btrim(method)), account_code FK, kind bank | cash | clearing | cod |
+  non_cash | suspense). `gl_method_account(method, currency)`: kind cash → 1010 for JPY rows, 1020 for PHP rows;
+  unknown spelling → 1190.
+- `expense_categories.gl_account_code text NULL FK` (seeded for the 28 categories). `expenses.paid_from text NULL FK`
+  — the ONLY column an APPROVED expense may change (`expenses_before_write` re-stated in 2b with that allowance;
+  `set_expense_paid_from`: drafts need manage or approve, approved rows need approve_expenses).
+- `system_settings` keys `fiscal_year_start_month` ("5") and `ledger_start_date` (JSON null until the owner sets it
+  with `set_ledger_start`; first of a month; frozen once any journal exists). `gl_fiscal_year(date)` = the year the
+  May–April year ENDS (June 2026 → 2027; start month 1 → calendar year).
+- `gl_periods` (period_start date PK = first of month, fiscal_year, status open | closed, closed_at/by, note); rows are
+  created lazily by `gl_period_for(date)`. `gl_posting_date(d)` returns d unless d's month ≤ the LAST closed month,
+  then the first day after the last closed month.
+- `gl_journals` (journal_no identity, entry_date, period_start FK, source_date, kind auto | manual | opening |
+  reversal, source_type, source_id, source_version = md5(source_date || lines jsonb), description, status posted |
+  reversed, reverses / reversed_by, reason, posted_by NULL = engine, total_jpy = Σ debit_jpy). Partial unique index
+  `gl_journals_live_source_uq (source_type, source_id) WHERE kind = 'auto' AND status = 'posted'`.
+- `gl_journal_lines` (journal_id FK, line_no, account_code FK, debit / credit numeric(15,2) exactly one > 0,
+  currency, fx_php_per_jpy (PHP only), debit_jpy / credit_jpy numeric(15,0), memo, customer_id, account_id,
+  cash_order_id, expense_id). Deferred constraint trigger `gl_journals_balanced`: ≥ 2 lines and Σ debit_jpy =
+  Σ credit_jpy. Row triggers refuse UPDATE/DELETE on lines and any journal UPDATE except posted → reversed +
+  reversed_by (compared as jsonb minus those two keys); statement triggers refuse TRUNCATE; INSERT/UPDATE/DELETE/
+  TRUNCATE revoked from PUBLIC/anon/authenticated. SELECT policies on all six gl_* tables: view_ledger.
+- `gl_posting_runs` (trigger cron | manual | migration, run_by, posted, reversed, moved, skipped).
+- Engine: `gl_current_events(p_until)` (internal; the event sets are listed in docs/EXPENSES.md) and
+  `gl_post_pending(p_dry, p_trigger, p_user_id)` (SECURITY DEFINER, revoked from authenticated/anon, service_role
+  may execute; `pg_advisory_xact_lock(hashtext('gl_post_pending'))`; temp table `gl_events_tmp` ON COMMIT DROP).
+  Fingerprint = md5(event date (blank for close events) || accounts:sides:amounts:currencies) — memos and
+  descriptions are NOT fingerprinted, so cosmetic edits never repost. Each event is posted in a sub-block;
+  failures are counted in `gl_posting_runs.failed` with the error in `note`. Reversals are dated today (JST) and
+  carry the ORIGINAL yen per line ('jpy' key honoured by `gl_write_journal`).
+- STORE CREDIT IS RECORDED TWICE BY THE HUB: `redeem_store_credit_atomic` writes a `payments` / `cash_payments`
+  row (method `store_credit`) AND a `store_credit_transactions` `redeemed` row with account_id / cash_order_id.
+  The ledger posts Hub-linked redemptions from the PAYMENT row only; `store_credit_use` covers expiries and
+  off-Hub redemptions (no plan / order). `final_forfeited` is set by the auto-forfeit edge function WITHOUT
+  updating `forfeited_at` (close events therefore fall back to `updated_at` and exclude the date from their
+  fingerprint).
+  `gl_write_journal` balances a PHP journal whose lines round apart by adjusting the last credit line's yen when the
+  difference is ≤ the number of lines.
+- pg_cron job `gl-post-pending`, `40 15 * * *` (00:40 JST), `SELECT public.gl_post_pending(false, 'cron', NULL)`;
+  scheduled only where the `cron` schema exists.
+- RPCs (all REVOKE PUBLIC/anon, GRANT authenticated; not in types.ts — cast `callRpc`): `get_ledger_status(boolean)`,
+  `get_chart_of_accounts(date)`, `get_ledger(date, date, text, text, text, text, int, int)`,
+  `get_trial_balance(date, date)`, `get_paid_from_accounts()`, `gl_post_now()`, `post_manual_journal(jsonb)`,
+  `reverse_journal(uuid, text)`, `close_period(date, text)`, `reopen_period(date, text)`, `set_ledger_start(date)`,
+  `set_payment_method_map(text, text, text)`, `upsert_gl_account(jsonb)`, `set_expense_paid_from(uuid, text)`.
+- Permission keys `view_ledger`, `post_journal`, `close_period` (admin true; staff, finance, csr, live_agent false).
+- Live-data facts the engine relies on (read 2026-10-25): `layaway_accounts.total_paid` = Σ non-void payments on every
+  plan (0 differences); 1,750 payments have no `payment_allocations` row (so only penalty allocations are used, the
+  rest reduces the receivable); `payments` has an RLS UPDATE policy for authenticated (voids/edits are direct table
+  writes — hence the derived design); `account_status` includes `final_forfeited`; `store_credit_lot_status`
+  active | consumed | expired | voided; `store_credit_txn_type` issued | redeemed | expired | voided | adjusted;
+  `cash_orders.refund_status` ∈ refund_issued | refund_pending | store_credit_issued | no_refund.

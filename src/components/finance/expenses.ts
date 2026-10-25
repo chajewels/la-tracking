@@ -90,6 +90,8 @@ export interface Expense {
   fx_php_per_jpy: number | null;
   amount_jpy: number;
   payment_method: PaymentMethod;
+  /** Ledger account that paid it (Phase 2b, 1xxx bank / cash / clearing); null until set. */
+  paid_from?: string | null;
   receipt_path: string | null;
   status: ExpenseStatus;
   source: string;
@@ -300,13 +302,15 @@ export interface ExpenseForm {
   currency: ExpenseCurrency;
   amount: string;
   payment_method: PaymentMethod;
+  /** Ledger account code the money left from ("" = not set). Saved with set_expense_paid_from after the upsert. */
+  paid_from: string;
   notes: string;
 }
 
 export function emptyExpenseForm(today: string = todayTokyo()): ExpenseForm {
   return {
     id: null, expense_date: today, category_id: "", vendor_id: "", new_vendor_name: "",
-    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", notes: "",
+    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", paid_from: "", notes: "",
   };
 }
 
@@ -321,8 +325,17 @@ export function formFromExpense(e: Expense): ExpenseForm {
     currency: e.currency,
     amount: String(e.amount),
     payment_method: e.payment_method,
+    paid_from: e.paid_from ?? "",
     notes: e.notes ?? "",
   };
+}
+
+/** Phase 2b: an expense's "Paid from" account is required unless it was paid in cash. */
+export function paidFromProblem(f: Pick<ExpenseForm, "payment_method" | "paid_from">, accountsAvailable: boolean): string | null {
+  if (!accountsAvailable) return null;
+  if (f.payment_method === "cash") return null;
+  if (!f.paid_from) return "Pick which bank or account paid this.";
+  return null;
 }
 
 /** Keep digits and at most one dot; JPY is whole yen, PHP has up to 2 decimals. */

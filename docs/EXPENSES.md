@@ -15,7 +15,7 @@ never recorded as paid.
 |---|---|---|
 | 1 | Expenses ledger (this doc) | built — migration `20261230100000_expenses_ledger.sql` |
 | 2 | Payroll + commission "Mark as paid" (pages stay in CSR Operations) | built — migration `20261231100000_expenses_payroll_commission.sql` |
-| 2b | General ledger core: chart of accounts, journals for existing events, fiscal year (May–Apr), period lock | not started — Project doc `claude/expenses-accounting-plan-2026-10-25.md` |
+| 2b | General ledger core: chart of accounts, derived journals for every Hub money event, fiscal year (May–Apr), month close | built — migration `20270101100000_general_ledger_core.sql` (plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`) |
 | 3 | Recurring bills + prepaid amortisation | not started |
 | 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | not started — edge function, separate Lovable deploy prompt; needs gmail.readonly in Google Admin |
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | not started |
@@ -171,6 +171,114 @@ Mark as paid again.
   conversion + description + details + two audit rows + history upsert, double booking refused,
   void then re-book, commission booking, approved-row lock incl. details, history unique).
 - tsc exit 0; Vitest expenses (20) + mark-paid (9) pass.
+
+## Phase 2b — Finance → Ledger (general ledger core)
+
+Owner decisions 2026-10-25 (21:15 JST): books are Cha Jewels Japan only, in yen at the ONE PESO RATE —
+one Sales account, no JP/PH split, no tax flag (D2). A plan or cash order is a sale on the day of its
+FIRST non-void payment (D1). Payment spellings map per the seed below (D3). Loyalty points used as
+payment are a sales discount (4160, D4); store credit the owner grants by hand is a sales discount
+(4170, D5). A change landing in a closed month is posted on the first day of the next open month with
+the original date kept (D6). Fiscal year May–April (F1); approvals owner/admin only (F3); the start
+date and opening balances wait for the accountant's figures (F6).
+
+### How it works
+- **Derived, not hooked.** No payment / plan / order / store-credit code was changed. `gl_current_events(p_until)`
+  builds every money event the ledger should hold (from `ledger_start_date`), each with its lines as jsonb;
+  `gl_post_pending()` diffs that against the live `auto` journals: a live journal whose event vanished or
+  changed (fingerprint = accounts, sides, amounts and currencies of the lines — never memos or descriptions —
+  plus the event date, except close events whose date may fall back to `updated_at`) gets a REVERSAL (dated
+  today, carrying the ORIGINAL yen),
+  and every event without a live journal gets a new one. One live auto journal per `(source_type, source_id)`
+  (partial unique index). This covers direct table UPDATEs (RLS lets staff void/edit `payments`), RPCs and
+  edge functions alike, and is the completeness check and the backfill engine.
+- **Events:** `layaway_sale` (Dr 1200 full price / Cr 4100, shipping → 4300), `payment` (Dr mapped account /
+  Cr 4400 penalty allocations / Cr 1200 rest; `loyalty_redemption` → Dr 4160; `store_credit` → Dr 2300),
+  `layaway_close` (forfeited / final_forfeited / cancelled, dated at forfeited_at / cancelled_at — plans sold
+  before the ledger start still post their close: Dr 4150 / Cr 1200 remaining; Dr 4100 / Cr 4500 money kept =
+  total − remaining − store credit issued from the plan), `cash_order_sale` / `cash_payment` /
+  `cash_order_close` (same on 1210; shipping + COD fee → 4300), `store_credit_issue` (Dr 4150 for
+  cancellation sources, 4170 otherwise / Cr 2300; voided lots never post), `store_credit_use` (redeemed →
+  Dr 2300 / Cr 1200 | 1210 | 4100 when no Hub order; expired → Cr 4900), `expense` (approved only: Dr
+  category `gl_account_code` / Cr `paid_from`, fallback by method, cash → 1010/1020 by currency, else 1190),
+  `square_refund` (COMPLETED, production), `paidy_refund`, `web_refund` (refund_status = refund_issued and
+  no provider refund row). Test rows (`is_test`) never post.
+- **Money:** every line stores native amount + currency + `fx_php_per_jpy` + yen; a PHP journal whose lines
+  round apart is balanced by putting the ≤ n-yen difference on its LARGEST credit line (never below zero).
+  Each event posts in its own sub-transaction: one that cannot balance is counted as `failed` with its error
+  in `gl_posting_runs.note` and the rest of the run goes through. Totals and the trial balance are yen.
+- **Periods:** `close_period` first runs the posting engine for pending events and refuses with
+  `posting_failed` if any event failed. `gl_periods` by calendar month; `fiscal_year` = the year the May–April year ENDS (June 2026 →
+  FY2027). `close_period` closes in order (earlier months first, only ended months, never before the start);
+  `reopen_period` reopens only the latest closed month, with a reason. `gl_posting_date()` moves an event in
+  a closed month to the first day after the last closed month; `source_date` keeps the real date.
+- **Spellings:** `gl_payment_method_map` (lower, trimmed). Seeded: rakuten / rakuten bank → 1102; sumitomo /
+  sumitomo bank → 1101; jp_bank → 1103 Japan Post Bank; paypay → 1122; bdo → 1111; bpi → 1112; metrobank →
+  1113; gcash → 1121; cash / cash payment → 1010 (JPY) or 1020 (PHP); cash_pickup → 1020; genkin_kaketome →
+  1010; cod / cash on delivery → 1140 COD receivable; square / credit_card → 1130; paidy → 1131; stripe /
+  konbini → 1132; loyalty_redemption → 4160; store_credit → 2300; transfer (website orders) / bank transfer /
+  bank_transfer / other / card / auto_debit → 1190 (suspense). Unknown spellings also post to 1190 and are listed in the Ledger
+  status strip; `set_payment_method_map` saves a mapping and reposts at once.
+- **Expenses gain `paid_from`** (which 1xxx account paid it): the Add/Edit dialog's "Paid from" (required
+  unless paid in cash, only once the ledger RPCs exist), saved with `set_expense_paid_from` after the upsert.
+  Approved rows may change ONLY `paid_from` (the Phase 1 trigger is re-stated with that single allowance,
+  approve_expenses needed); the ledger reposts the expense on the next run. Approved non-cash expenses
+  without it are listed in the Ledger status strip.
+- **Writes:** tables have no write policies; INSERT/UPDATE/DELETE/TRUNCATE revoked; row triggers refuse any
+  UPDATE/DELETE on lines and any journal UPDATE other than posted → reversed; a deferred constraint trigger
+  refuses an unbalanced journal at commit. RPCs: `gl_post_now`, `post_manual_journal` (kinds manual /
+  opening; opening must be dated on the start date; balanced in yen; open month; ≤ 50 lines), `reverse_journal`
+  (manual / opening only — auto journals follow their source), `set_payment_method_map` (post_journal);
+  `close_period`, `reopen_period`, `set_ledger_start` (first of a month; frozen once journals exist)
+  (close_period); `upsert_gl_account` (admin_settings; system accounts cannot be deactivated). Reads
+  (`view_ledger`): `get_ledger_status`, `get_ledger` (range, account, source, kind, search, paged ≤ 500),
+  `get_trial_balance` (opening / debits / credits / closing per account), `get_chart_of_accounts`,
+  `get_paid_from_accounts` (also manage / approve_expenses). Every write adds an `audit_logs` row.
+- **Schedule:** pg_cron `gl-post-pending` at 15:40 UTC = 00:40 JST (after penalty-engine 00:05 and
+  auto-forfeit 00:10); skipped where pg_cron is absent (local harness). Refusals: `ledger_start_not_set`,
+  `rate_not_set`, `invalid_date`, `period_closed`, `period_not_ended`, `earlier_period_open`, `already_closed`,
+  `later_period_closed`, `unbalanced`, `invalid_lines`, `opening_must_be_start_date`,
+  `auto_journal_follows_source`, `ledger_has_journals`, `invalid_account`, `permission_denied`.
+
+### Permissions
+`view_ledger`, `post_journal`, `close_period` — admin true; staff, finance, csr, live_agent false. Shown in
+Settings → Matrix → Finance → "Ledger".
+
+### Screens
+- Sidebar: Finance → **Ledger** (after Expenses), with `view_ledger`. `src/components/finance/LedgerTab.tsx`
+  (+ rules `ledger.ts`, tests `src/test/ledger.test.ts`): status strip (posting summary, last run, start date,
+  rate; **Start the ledger** until the date is set; **Post now**; **Manual journal**; amber lists for unmapped
+  spellings with an inline map-and-repost row and for approved expenses without "Paid from"); sub-tabs
+  **Journals** (month / quarter / fiscal-year range, kind / source / account filters, search, expandable
+  lines with native and yen amounts, "moved" badge, Open source link, Reverse for manual journals),
+  **Trial balance** (range picker, revenue / cost of sales / gross / expenses / operating profit tiles,
+  grouped rows with opening / debits / credits / closing / accountant's-view balance, CSV download),
+  **Accounts** (chart with balances, add / deactivate for admin, spelling → account mappings), **Months**
+  (fiscal-year grid May–April with Close / Reopen-with-reason).
+- Before the migration the tab shows "Waiting for the database update".
+- Finance Overview profit is unchanged (the flat 15% waits for Phase 5 cost of goods).
+
+### Verified (2026-10-25)
+- The harness lives in `supabase/tests/expenses/` (`run.sh`; not a Supabase test, never touches a Lovable
+  database). Independent review (one blocker — double-posted store-credit redemption — and nine should-fixes)
+  applied before the PR.
+- Local PostgreSQL 16 with stand-ins for the live money tables: Phase 1 + 2 + 2b migrations applied twice;
+  Phase 1 (17) and Phase 2 (5) suites still pass with 2b on top; the 2b suite (11 groups): start-date gate,
+  permissions (finance / staff denied, RLS hides the chart), first posting of 7 events and an idempotent
+  second run, account and conversion checks (Rakuten → 1102, PHP at 0.42 with the rate stored, shipping →
+  4300, penalty allocation → 4400, COD → 1140, test / pre-start / zero-payment plans excluded), trial balance
+  ties and July opening = June closing, voided payment → reversal with the original yen, edited amount →
+  reversal + repost, a sale vanishing when its only payment is voided, unknown spelling → 1190 → mapped and
+  reposted, loyalty redemption → 4160, forfeiture lines and balance, reactivation reverses, cancellation
+  credit → 4150, voided lot never posts, redeemed → 1200, only the completed production Square refund,
+  expense draft not posted / approved posted / Paid from suspense → set on an approved row → reposted,
+  auto journals refuse hand reversal, close order / current month / twice, FY2027 for June 2026, manual
+  journal refusals (closed month, unbalanced, bad account, opening date) and a PHP manual journal, manual
+  reversal, reopen order, start date frozen, closed-month event moved to 1 July with source_date kept,
+  immutability (UPDATE / DELETE / TRUNCATE / unbalanced direct insert refused for a privileged writer),
+  whole ledger balanced and totals = lines.
+- `npx tsc -p tsconfig.app.json --noEmit` exit 0; Vitest ledger (14) + expenses (20) + mark-paid (9) and the
+  full suite (113 files) pass; build passes; full lint unchanged (881 / 150).
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites
