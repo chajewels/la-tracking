@@ -1343,9 +1343,10 @@ Migration `20261001100000_page365_hide_follow.sql`. Rules: docs/PAGE365-IMPORT.m
   `hidden_by` (NULL = schedule), `hidden_source` (`manual | schedule`), `updated_at`. Run ids
   are NOT foreign keys (retention prunes runs). RLS: SELECT for `manage_website_catalog`;
   written only by `page365_inventory_follow` / `page365_inventory_hide_item`. Kept out of
-  `website_products` on purpose: `trg_website_products_revalidate` fires on every update of
-  that table, and a last-seen stamp per product every 30 minutes would revalidate the
-  storefront hundreds of times a run.
+  `website_products` on purpose: `trg_website_products_revalidate_upd` (per statement since
+  2026-10-25, migration 20261230100000) fires on every update of that table, and a
+  last-seen stamp per product every 30 minutes would revalidate the storefront for every
+  product it touched, every run.
 - `page365_inventory_items.hide_snapshot jsonb` (`{variant_id: stock_qty}` at the read) and
   `back_in_page365 boolean NOT NULL DEFAULT false`. Category CHECK
   `page365_inventory_items_category_check` adds `hide`.
@@ -1619,8 +1620,9 @@ docs/WEBSITE-WORKSPACE.md §9b; API: `supabase/contracts/api.md` "Article commen
   the Hub columns — `price` is in Page365's own A–X block); blank keeps the
   existing sale, and the import stops with a plain message when a new `price`
   is not above the kept sale. No sale end date in v1.
-- `trg_website_variants_revalidate` fires on any variant UPDATE, so a sale
-  change revalidates the storefront with no trigger change.
+- `trg_website_variants_revalidate_upd` (per statement since 2026-10-25, migration
+  20261230100000) fires on any variant UPDATE, so a sale change revalidates the
+  storefront with no trigger change.
 
 ## Rules moved from CLAUDE.md (2026-10-02, verbatim)
 

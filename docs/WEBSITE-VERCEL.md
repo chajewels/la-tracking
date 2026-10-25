@@ -329,24 +329,49 @@ stored peso price: a second copy of every price is a second thing to drift.
 ```
 staff edit
   → website_products / _variants / _media / _collection_products / website_collections
-  → trigger notify_website_revalidate()          [Postgres, SECURITY DEFINER]
+  → trigger notify_website_catalog_revalidate()  [Postgres, SECURITY DEFINER, per statement]
   → POST /functions/v1/notify_website            [pg_net, Vault-backed bearer]
   → POST ${WEBSITE_URL}/api/revalidate           [x-revalidate-secret]
   → revalidatePath / revalidateTag               [Next.js on Vercel]
   → page re-renders, refetching from `website`
 ```
 
-### Trigger — `notify_website_revalidate()`
+### Trigger — `notify_website_catalog_revalidate()` (catalog tables, per statement)
 
-Attached to all five tables (`trg_website_products_revalidate`,
-`…_variants_…`, `…_media_…`, `…_collection_products_…`,
-`…_collections_…`), `AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW`.
+Since migration 20261230100000 (2026-10-25) the five catalog tables refresh
+the site **once per statement**, not once per row: before, a Catalog save that
+rewrote 14 photos posted ~30 pg_net calls for one product. Each table has three
+`AFTER … FOR EACH STATEMENT` triggers with transition tables (PostgreSQL allows
+only one event per trigger that uses `REFERENCING`):
 
-It resolves slugs from `COALESCE(NEW.…, OLD.…)`, so a **DELETE still notifies
-with a real slug** rather than a null. Media rows resolve their product through
-`website_product_variants`. The service key comes from
+| Table | Triggers |
+|---|---|
+| `website_products` | `trg_website_products_revalidate_ins` / `_upd` / `_del` |
+| `website_product_variants` | `trg_website_variants_revalidate_ins` / `_upd` / `_del` |
+| `website_product_media` | `trg_website_media_revalidate_ins` / `_upd` / `_del` |
+| `website_collection_products` | `trg_website_collection_products_revalidate_ins` / `_upd` / `_del` |
+| `website_collections` | `trg_website_collections_revalidate_ins` / `_upd` / `_del` |
+
+`_ins` reads `NEW TABLE AS new_rows`, `_upd` reads `OLD TABLE AS old_rows NEW
+TABLE AS new_rows`, `_del` reads `OLD TABLE AS old_rows`. INSERT and UPDATE
+take slugs from `new_rows`, DELETE from `old_rows` — the same rows the old
+row-level `COALESCE(NEW, OLD)` used, so the same pages refresh and a **DELETE
+still notifies with a real slug**. Variants resolve their product by
+`product_id`; media through `website_product_variants`; collection links send
+both `productSlug` and `collectionSlug`. The function posts **once per DISTINCT
+(productSlug, collectionSlug) pair** in the statement, skips pairs with no
+slug, and a statement touching zero rows posts nothing. Same endpoint, payload
+and key as below. `EXECUTE` is revoked from `anon`, `authenticated` and `PUBLIC`.
+
+### Trigger — `notify_website_revalidate()` (every other website table, per row)
+
+Unchanged, still `FOR EACH ROW`, on `website_settings`, `website_posts`,
+`website_faq_sections`, `website_faq_items`, `website_post_comments`, and the
+review and tier triggers below. It no longer has any catalog trigger.
+
+It resolves slugs from `COALESCE(NEW.…, OLD.…)`. The service key comes from
 `vault.decrypted_secrets` (`email_queue_service_role_key`) — never embedded.
-It posts only when at least one slug resolved.
+It posts only when at least one slug (or tag) resolved.
 
 **Reviews and tiers (2026-10-18, migration 20261225100000).** Two more tables
 notify, with a tag instead of (or as well as) a slug:
@@ -418,8 +443,8 @@ A change to a collection **link** row sends both.
 
 **If either side of this contract changes, both must change together.** The path
 shapes (`/products/[slug]`, `/collections/[slug]`) and the `catalog` tag live in
-the storefront repo; the payload keys live in `notify_website_revalidate()` and
-`notify_website` here.
+the storefront repo; the payload keys live in `notify_website_revalidate()`,
+`notify_website_catalog_revalidate()` and `notify_website` here.
 
 ---
 
