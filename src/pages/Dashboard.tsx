@@ -209,9 +209,12 @@ export default function Dashboard() {
         setDriftFindings(drift.data || []);
       }
     } catch (err: unknown) {
-      const auditErr = err as Error;
+      const auditErr = err as Error & { code?: string };
       if (auditErr.name === 'AbortError' || auditErr.message?.includes('abort')) {
         setAuditError('Audit timed out — too many accounts. Run per-account health checks individually instead.');
+      } else if (auditErr.code === '57014' || auditErr.message?.includes('statement timeout')) {
+        // 57014 = query_canceled: the database's 8 s limit for staff stopped it.
+        setAuditError('The audit took too long and was stopped by the database. Please try again; if it keeps happening, tell the developer.');
       } else {
         setAuditError(auditErr.message || 'System audit failed. The audit_all_accounts RPC may not exist yet — create it in the Supabase SQL Editor.');
       }
