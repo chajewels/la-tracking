@@ -21,12 +21,15 @@ import {
 import { isMissingFunction } from "@/components/website/shipping-fees";
 import { callRpc } from "@/components/finance/useBookedMonths";
 import { PAID_FROM_KEY, type PaidFromAccount } from "@/components/finance/ledger";
+import RecurringBillsDialog from "@/components/finance/RecurringBillsDialog";
+import { useRecurringBills } from "@/components/finance/useRecurringBills";
+import { billsToConfirm, olderOpenDrafts, spreadLabel } from "@/components/finance/recurring";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
   type SourceFilter, type StatusFilter, SOURCE_FILTERS,
   canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
-  monthFromSearch, paidFromProblem, sourceLabel,
+  monthFromSearch, paidFromProblem, prepaidProblem, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
   validateExpenseForm,
@@ -113,17 +116,26 @@ export default function ExpensesTab() {
     },
   });
   const paidFromList = paidFromAccounts.data ?? null;
+  const recurring = useRecurringBills(Boolean(book?.can_manage || book?.can_approve));
+  const recurringAvailable = recurring.data?.available === true;
 
   const save = useMutation({
     mutationFn: async (v: { form: ExpenseForm; file: File | null }) => {
       const out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
-      const saved = out.expense as { id: string; paid_from?: string | null } | undefined;
+      const saved = out.expense as { id: string; paid_from?: string | null; prepaid_months?: number | null } | undefined;
       // From here on the draft exists: a retry must edit it, never insert a second one.
       if (saved?.id && !v.form.id) setForm((f) => (f ? { ...f, id: saved.id } : f));
       let paidFromFailed = false;
       if (saved?.id && paidFromList && (saved.paid_from ?? "") !== v.form.paid_from) {
         try {
           await callRpc("set_expense_paid_from", { p_id: saved.id, p_code: v.form.paid_from || null });
+        } catch {
+          paidFromFailed = true;
+        }
+      }
+      if (saved?.id && recurringAvailable && String(saved.prepaid_months ?? "") !== v.form.prepaid_months) {
+        try {
+          await callRpc("set_expense_prepaid", { p_id: saved.id, p_months: v.form.prepaid_months ? Number(v.form.prepaid_months) : null });
         } catch {
           paidFromFailed = true;
         }
@@ -147,7 +159,7 @@ export default function ExpensesTab() {
         toast({ title: "Receipt not uploaded", description: "The expense was saved. Edit it to try the receipt again.", variant: "destructive" });
       }
       if (r.paidFromFailed) {
-        toast({ title: "\"Paid from\" not saved", description: "The expense was saved without its paying account. Edit it and pick the account again.", variant: "destructive" });
+        toast({ title: "Account or spread not saved", description: "The expense was saved, but its paying account or spread did not. Edit it and set them again.", variant: "destructive" });
       }
       setForm(null);
       setReceiptFile(null);
@@ -186,7 +198,7 @@ export default function ExpensesTab() {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
-  const formError = form ? (validateExpenseForm(form) ?? paidFromProblem(form, paidFromList !== null)) : null;
+  const formError = form ? (validateExpenseForm(form) ?? paidFromProblem(form, paidFromList !== null) ?? prepaidProblem(form.prepaid_months)) : null;
   const fileError = receiptFile ? receiptProblem(receiptFile) : null;
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
   const preview = form && book ? previewJpy(Number(form.amount), form.currency, book.php_jpy_rate) : null;
@@ -307,12 +319,37 @@ export default function ExpensesTab() {
                   aria-label="Search expenses"
                 />
               </div>
+              {recurringAvailable && (
+                <RecurringBillsDialog canManage={!!book.can_manage} paidFromList={paidFromList} categories={book.categories} vendors={book.vendors} onChanged={refresh} />
+              )}
               {book.can_manage && (
                 <Button size="sm" className="h-9" onClick={() => openForm(emptyExpenseForm())} data-testid="expenses-add">
                   <Plus className="mr-1 h-4 w-4" /> Add expense
                 </Button>
               )}
             </div>
+
+            {/* Phase 3: recurring drafts waiting for confirmation */}
+            {recurring.data?.available && olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id))) > 0 && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">{olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id)))} recurring bill draft(s) are still waiting in an earlier month — use the month arrows or the "Recurring bills" source filter.</p>
+            )}
+            {billsToConfirm(expenses).length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm" data-testid="bills-to-confirm">
+                <div className="font-medium">Bills to confirm ({billsToConfirm(expenses).length})</div>
+                <p className="text-xs text-muted-foreground">Created from your recurring bills. Check the real amount, attach the receipt, then Approve — or Void if the bill did not come.</p>
+                <ul className="mt-2 space-y-1">
+                  {billsToConfirm(expenses).map((e) => (
+                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{dateLabel(e.expense_date)} · {(e.details?.bill_name as string | undefined) ?? e.description} · {formatAmount(e.amount, e.currency)}</span>
+                      <span className="flex gap-2">
+                        {book.can_manage && <Button size="sm" variant="outline" className="min-h-11" onClick={() => openForm(formFromExpense(e))}>Edit</Button>}
+                        {book.can_approve && <Button size="sm" className="min-h-11" onClick={() => setApproving(e)}>Approve</Button>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* List */}
             {shown.length === 0 ? (
@@ -331,7 +368,7 @@ export default function ExpensesTab() {
                         {e.source !== "manual" && <Badge variant="outline">{sourceLabel(e.source)}</Badge>}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}{e.paid_from ? ` · from ${paidFromName(paidFromList, e.paid_from)}` : ""}
+                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}{e.paid_from ? ` · from ${paidFromName(paidFromList, e.paid_from)}` : ""}{e.prepaid_months ? ` · ${spreadLabel(e.prepaid_months)}` : ""}{e.source === "recurring" && e.details?.bill_name ? ` · ${String(e.details.bill_name)}` : ""}
                       </p>
                       {e.status === "void" && e.void_reason && (
                         <p className="text-xs text-muted-foreground">Void: {e.void_reason}</p>
@@ -440,6 +477,14 @@ export default function ExpensesTab() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">The ledger needs this to book the money leaving the right account. Cash entries can leave it unset.</p>
+                </div>
+              )}
+              {recurringAvailable && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="expense-spread">Spread over months (optional)</Label>
+                  <Input id="expense-spread" className="min-h-11" inputMode="numeric" placeholder="e.g. 12 for a yearly payment" value={form.prepaid_months}
+                    onChange={(e) => set("prepaid_months", e.target.value.replace(/\D/g, "").slice(0, 2))} />
+                  <p className="text-xs text-muted-foreground">For a payment that covers several months (annual subscription, insurance): the ledger books it as prepaid and releases one share at each month end.</p>
                 </div>
               )}
 

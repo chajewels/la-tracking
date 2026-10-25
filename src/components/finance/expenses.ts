@@ -92,6 +92,8 @@ export interface Expense {
   payment_method: PaymentMethod;
   /** Ledger account that paid it (Phase 2b, 1xxx bank / cash / clearing); null until set. */
   paid_from?: string | null;
+  /** Phase 3: spread this payment over N months in the ledger (prepaid); null = expensed when paid. */
+  prepaid_months?: number | null;
   receipt_path: string | null;
   status: ExpenseStatus;
   source: string;
@@ -264,6 +266,7 @@ export const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
   { value: "manual", label: "By hand" },
   { value: "payroll", label: "Payroll" },
   { value: "commission", label: "Commission" },
+  { value: "recurring", label: "Recurring bills" },
 ];
 
 export function sourceLabel(s: string): string {
@@ -304,13 +307,15 @@ export interface ExpenseForm {
   payment_method: PaymentMethod;
   /** Ledger account code the money left from ("" = not set). Saved with set_expense_paid_from after the upsert. */
   paid_from: string;
+  /** "" = not spread; otherwise 2..36 months (set with set_expense_prepaid after the upsert). */
+  prepaid_months: string;
   notes: string;
 }
 
 export function emptyExpenseForm(today: string = todayTokyo()): ExpenseForm {
   return {
     id: null, expense_date: today, category_id: "", vendor_id: "", new_vendor_name: "",
-    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", paid_from: "", notes: "",
+    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", paid_from: "", prepaid_months: "", notes: "",
   };
 }
 
@@ -326,8 +331,17 @@ export function formFromExpense(e: Expense): ExpenseForm {
     amount: String(e.amount),
     payment_method: e.payment_method,
     paid_from: e.paid_from ?? "",
+    prepaid_months: e.prepaid_months ? String(e.prepaid_months) : "",
     notes: e.notes ?? "",
   };
+}
+
+/** Phase 3: spread months must be 2..36 when set. */
+export function prepaidProblem(v: string): string | null {
+  if (v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 2 || n > 36) return "Spread over 2 to 36 months.";
+  return null;
 }
 
 /** Phase 2b: an expense's "Paid from" account is required unless it was paid in cash. */
@@ -389,6 +403,8 @@ export function expenseRefusal(code: string): string {
     case "invalid_currency": return "Pick yen or pesos.";
     case "invalid_amount": return "The amount is not valid. Yen amounts are whole yen.";
     case "invalid_payment_method": return "Pick how it was paid.";
+    case "amount_too_small_to_spread": return "The amount is too small to spread over that many months (each month needs at least ¥2).";
+    case "invalid_spread": return "Spread over 2 to 36 months.";
     case "invalid_notes": return "The notes are too long.";
     case "invalid_vendor": return "That vendor can't be used. Pick one from the list or type a new name.";
     case "not_draft": return "Only drafts can be changed. An approved expense can only be voided.";

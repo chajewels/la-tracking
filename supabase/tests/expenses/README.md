@@ -6,6 +6,7 @@ tables the ledger reads, baseline columns only) plus three suites:
 
 - `test_expenses.sql` — Phase 1 (17 groups)
 - `test_phase2.sql` — Mark as paid (5 groups; loads the Phase 2 migration itself via `-v migration2=`)
+- `test_recurring.sql` — Phase 3 recurring bills + prepaid (8 groups)
 - `test_ledger.sql` — Phase 2b general ledger (11 groups: start-date gate, permissions, every event set,
   reversal / repost on source change, fingerprint stability, forfeiture + reactivation, store credit,
   expenses with Paid from, refunds, periods and manual journals, closed-month move, immutability)
