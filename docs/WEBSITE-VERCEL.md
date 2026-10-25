@@ -338,7 +338,7 @@ staff edit
 
 ### Trigger — `notify_website_catalog_revalidate()` (catalog tables, per statement)
 
-Since migration 20261230100000 (2026-10-25) the five catalog tables refresh
+Since migration 20261230200000 (2026-10-25) the five catalog tables refresh
 the site **once per statement**, not once per row: before, a Catalog save that
 rewrote 14 photos posted ~30 pg_net calls for one product. Each table has three
 `AFTER … FOR EACH STATEMENT` triggers with transition tables (PostgreSQL allows
