@@ -1869,3 +1869,22 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   that are, or were, `status = 'approved'`); `trg_loyalty_tiers_revalidate`
   (every row change). The existing `update_product_reviews_updated_at` is
   unchanged.
+
+## Expenses ledger (2026-10-25)
+
+- Tables `expense_categories` (8 `group_key`s, 28 seeded rows, optional unique `system_key`),
+  `expense_vendors` (name unique on `lower(btrim(name))`), `expenses`. Migration
+  `20261230100000_expenses_ledger.sql`; full rules in docs/EXPENSES.md.
+- `expenses.amount_jpy` is set ONLY by the trigger `expenses_before_write`:
+  JPY → `round(amount)`, PHP → `round(amount / php_jpy_rate)` with the rate stored in
+  `fx_php_per_jpy` (`expenses_currency_rate` CHECK: JPY ⇒ NULL, PHP ⇒ NOT NULL). Recomputed on
+  insert and on every write while the row is a draft (including the approve write).
+- Approved rows are immutable except the transition to `void`; void rows are immutable;
+  DELETE always raises — the trigger fires for every role, service role included.
+- Unique partial index `expenses_source_ref_uq` on `(source, source_ref)` WHERE source_ref
+  IS NOT NULL — automatic bookings (payroll month, email id) must set it.
+- `receipt_path` CHECK: `LIKE id::text || '/%'` (bucket `expense-receipts`, private).
+- No INSERT/UPDATE/DELETE policies on the three tables: writes go through
+  `upsert_expense` / `attach_expense_receipt` / `approve_expense` / `void_expense`
+  (SECURITY DEFINER, `has_permission`, one `audit_logs` row each). Not yet in
+  src/integrations/supabase/types.ts — the Hub calls them through a cast `callRpc`.

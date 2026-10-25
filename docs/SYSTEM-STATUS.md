@@ -3,6 +3,9 @@
 ## App Version
 2.1.2 (package.json on develop, 2026-10-18)
 
+## 2026-10-25 — Finance → Expenses (Phase 1)
+- Expenses ledger built on `feat/expenses-ledger`: migration `20261230100000_expenses_ledger.sql` (new objects only; owner-approved apply after merge to main) + Finance → Expenses tab. Phases 2–6 not started. docs/EXPENSES.md.
+
 ## 2026-10-15 — Website catalog list
 - Website catalog list: category lookup batched (150 ids) after the 406-product catalogue overflowed the URL limit and emptied storefront search; deploy of `website` pending.
 
