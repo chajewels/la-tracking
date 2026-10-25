@@ -174,6 +174,10 @@ ALTER TABLE public.expense_categories
   ADD COLUMN IF NOT EXISTS gl_account_code text NULL REFERENCES public.gl_accounts(code);
 ALTER TABLE public.expenses
   ADD COLUMN IF NOT EXISTS paid_from text NULL REFERENCES public.gl_accounts(code);
+ALTER TABLE public.expenses
+  ADD COLUMN IF NOT EXISTS prepaid_months smallint NULL CHECK (prepaid_months IS NULL OR prepaid_months BETWEEN 2 AND 36);
+COMMENT ON COLUMN public.expenses.prepaid_months IS
+  'Phase 3: spread this payment over N months. The approved expense posts to 1400 Prepaid expenses and the ledger releases 1/N to the category account at each month end (event expense_amortisation). Set while a draft (set_expense_prepaid or a recurring bill); locked once approved.';
 COMMENT ON COLUMN public.expenses.paid_from IS
   'Ledger account the expense was paid from (bank / cash / clearing, 1xxx). Set with set_expense_paid_from; NULL posts to 1190 Unidentified receipts (cash methods fall back to 1010 / 1020 by currency).';
 UPDATE public.expense_categories c SET gl_account_code = m.code
@@ -644,7 +648,9 @@ AS $fn$
   SELECT 'expense', e.id, e.expense_date,
          'Expense: ' || e.description,
          jsonb_build_array(
-           jsonb_build_object('a', coalesce(c.gl_account_code, '6900'), 'side', 'dr', 'amt', e.amount, 'cur', e.currency, 'memo', c.name),
+           jsonb_build_object('a', CASE WHEN e.prepaid_months IS NOT NULL THEN '1400' ELSE coalesce(c.gl_account_code, '6900') END,
+                              'side', 'dr', 'amt', e.amount, 'cur', e.currency,
+                              'memo', CASE WHEN e.prepaid_months IS NOT NULL THEN 'Prepaid over ' || e.prepaid_months || ' months: ' || c.name ELSE c.name END),
            jsonb_build_object('a', coalesce(e.paid_from, public.gl_method_account(e.payment_method, e.currency)), 'side', 'cr', 'amt', e.amount, 'cur', e.currency, 'memo', e.payment_method)),
          NULL::uuid, NULL::uuid, NULL::uuid, e.id
     FROM public.expenses e
@@ -652,6 +658,31 @@ AS $fn$
     CROSS JOIN s
    WHERE e.status = 'approved' AND e.amount > 0
      AND e.expense_date >= s.start_date AND e.expense_date <= p_until
+
+  UNION ALL
+  SELECT 'expense_amortisation', md5(e.id::text || ':' || to_char(m.month_start, 'YYYY-MM'))::uuid, m.month_end,
+         'Prepaid release ' || (m.k + 1) || '/' || e.prepaid_months || ': ' || e.description,
+         jsonb_build_array(
+           jsonb_build_object('a', coalesce(c.gl_account_code, '6900'), 'side', 'dr', 'amt', m.share, 'cur', e.currency, 'memo', c.name, 'jpy', m.share_jpy),
+           jsonb_build_object('a', '1400', 'side', 'cr', 'amt', m.share, 'cur', e.currency, 'memo', 'Prepaid expenses released', 'jpy', m.share_jpy)),
+         NULL::uuid, NULL::uuid, NULL::uuid, e.id
+    FROM public.expenses e
+    JOIN public.expense_categories c ON c.id = e.category_id
+    CROSS JOIN s
+    CROSS JOIN LATERAL (
+      SELECT k,
+             (date_trunc('month', e.expense_date) + (k || ' months')::interval)::date AS month_start,
+             (date_trunc('month', e.expense_date) + ((k + 1) || ' months')::interval - interval '1 day')::date AS month_end,
+             CASE WHEN k = e.prepaid_months - 1
+                  THEN e.amount - round(e.amount / e.prepaid_months, 2) * (e.prepaid_months - 1)
+                  ELSE round(e.amount / e.prepaid_months, 2) END AS share,
+             CASE WHEN k = e.prepaid_months - 1
+                  THEN e.amount_jpy - floor(e.amount_jpy / e.prepaid_months) * (e.prepaid_months - 1)
+                  ELSE floor(e.amount_jpy / e.prepaid_months) END AS share_jpy
+        FROM generate_series(0, e.prepaid_months - 1) AS k) m
+   WHERE e.status = 'approved' AND e.amount > 0 AND e.prepaid_months IS NOT NULL
+     AND e.expense_date >= s.start_date
+     AND m.month_end <= p_until AND m.share > 0
 
   UNION ALL
   SELECT 'square_refund', r.id, (coalesce(r.provider_created_at, r.created_at) AT TIME ZONE 'Asia/Tokyo')::date,

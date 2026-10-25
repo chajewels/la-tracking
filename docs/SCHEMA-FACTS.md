@@ -1966,3 +1966,23 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   writes — hence the derived design); `account_status` includes `final_forfeited`; `store_credit_lot_status`
   active | consumed | expired | voided; `store_credit_txn_type` issued | redeemed | expired | voided | adjusted;
   `cash_orders.refund_status` ∈ refund_issued | refund_pending | store_credit_issued | no_refund.
+
+## Recurring bills + prepaid (Expenses Phase 3, 2026-10-25)
+
+- Migration `20270102100000_expenses_recurring_prepaid.sql` (applied NOWHERE; branch feat/expenses). Rules in
+  docs/EXPENSES.md "Phase 3".
+- `expense_recurring_bills` (id, name, category_id FK, vendor_id FK NULL, description, currency JPY|PHP, amount,
+  payment_method (Phase 1 enum), paid_from FK gl_accounts NULL, frequency monthly|quarterly|yearly, due_day 1–28,
+  starts_on, ends_on NULL, spread_months 2–36 NULL, active, notes, next_due_on, last_generated_on, created_by/at,
+  updated_at). RLS SELECT manage|approve; writes revoked; DELETE/TRUNCATE refused by trigger. RPCs:
+  `upsert_recurring_bill(jsonb)`, `set_recurring_bill_active(uuid, boolean)`, `get_recurring_bills()`,
+  `generate_recurring_now(uuid, date)` (manage; approve may read); internal `expenses_generate_recurring(date, uuid)`
+  and `expenses_create_recurring_draft(bill, date, uuid)`; helpers `recurring_first_due(date, smallint)`,
+  `recurring_next_due(date, text)`.
+- Recurring drafts: `expenses.source = 'recurring'`, `source_ref = '<bill id>:<due date>'` (unique among non-void rows
+  via `expenses_source_ref_uq`), `details.kind = 'recurring_bill'`.
+- `expenses.prepaid_months smallint NULL CHECK 2..36` — ADDED BY THE 2b MIGRATION FILE (20270101100000) next to
+  `paid_from`; set by `set_expense_prepaid(uuid, integer)` on drafts only; locked after approval. Ledger events in
+  the 2b file: E6 debits 1400 when prepaid_months is set; `expense_amortisation` (source_id =
+  `md5(expense_id || ':' || 'YYYY-MM')::uuid`, dated at each month end ≤ today) releases 1/N to the category.
+- pg_cron `expenses-recurring`, `20 15 * * *` (00:20 JST) → `expenses_generate_recurring(NULL, NULL)`.

@@ -232,7 +232,7 @@ export const JOURNAL_KIND_LABEL: Record<JournalKind, string> = {
 export const SOURCE_TYPE_LABEL: Record<string, string> = {
   layaway_sale: "Layaway sale", layaway_close: "Layaway forfeited / cancelled", payment: "Layaway payment",
   cash_order_sale: "Cash order sale", cash_order_close: "Cash order cancelled / expired", cash_payment: "Cash order payment",
-  store_credit_issue: "Store credit issued", store_credit_use: "Store credit used", expense: "Expense",
+  store_credit_issue: "Store credit issued", store_credit_use: "Store credit used", expense: "Expense", expense_amortisation: "Prepaid release",
   square_refund: "Square refund", paidy_refund: "Paidy refund", web_refund: "Refund issued", manual: "Manual", opening: "Opening balance",
 };
 export const SOURCE_TYPES = Object.keys(SOURCE_TYPE_LABEL).filter((k) => k !== "manual" && k !== "opening");

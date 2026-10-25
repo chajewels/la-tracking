@@ -16,7 +16,7 @@ never recorded as paid.
 | 1 | Expenses ledger (this doc) | built — migration `20261230100000_expenses_ledger.sql` |
 | 2 | Payroll + commission "Mark as paid" (pages stay in CSR Operations) | built — migration `20261231100000_expenses_payroll_commission.sql` |
 | 2b | General ledger core: chart of accounts, derived journals for every Hub money event, fiscal year (May–Apr), month close | built — migration `20270101100000_general_ledger_core.sql` (plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`) |
-| 3 | Recurring bills + prepaid amortisation | not started |
+| 3 | Recurring bills + prepaid amortisation | built — migration `20270102100000_expenses_recurring_prepaid.sql` (+ prepaid column/events in the 2b file; plan `claude/expenses-phase3-recurring-plan-2026-10-25.md`) |
 | 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | not started — edge function, separate Lovable deploy prompt; needs gmail.readonly in Google Admin |
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | not started |
 | 6 | Provider fees, clearing, FX revaluation | not started |
@@ -279,6 +279,59 @@ Settings → Matrix → Finance → "Ledger".
   whole ledger balanced and totals = lines.
 - `npx tsc -p tsconfig.app.json --noEmit` exit 0; Vitest ledger (14) + expenses (20) + mark-paid (9) and the
   full suite (113 files) pass; build passes; full lint unchanged (881 / 150).
+
+## Phase 3 — Recurring bills + prepaid amortisation
+
+Owner decisions 2026-10-25 23:09 JST (D1–D6 as recommended): frequencies monthly / quarterly / yearly; the
+draft appears on the due day; per-bill "spread over N months" switch (prepaid), off by default; Approve = paid
+stays (accounts payable waits for Phase 8); only the current due cycle is generated — never a backlog; no
+staff bell — the Expenses tab's "Bills to confirm" strip is the reminder.
+
+### How it works
+- **Templates** `expense_recurring_bills` (name, category, vendor, description = the draft's text, currency,
+  expected amount, payment method, paid_from, frequency, due_day 1–28, starts_on, ends_on, spread_months
+  2–36, active, notes, next_due_on, last_generated_on). RLS read = manage or approve; writes only through
+  `upsert_recurring_bill(p)` / `set_recurring_bill_active(id, bool)` (manage_expenses, audited). Never deleted
+  (trigger). First due = the due day in the start month if not yet passed, else the next month
+  (`recurring_first_due`); `recurring_next_due` adds 1 / 3 / 12 months.
+- **Generation** `expenses_generate_recurring(p_as_of, p_uid)` (internal; pg_cron `expenses-recurring` at
+  15:20 UTC = 00:20 JST, before the ledger run at 00:40): for every active bill with `next_due_on ≤ as-of`,
+  ONE DRAFT expense for the LATEST due cycle on or before as-of that is still within ends_on
+  (`source = 'recurring'`, `source_ref = '<bill id>:<due date>'`, description / amount / method / paid_from /
+  prepaid_months copied, `details = {kind, bill_id, bill_name, due_on, expected_amount, frequency}`), then the
+  bill points at the next cycle after as-of (no backlog). A bill past ends_on is deactivated. The Phase 1
+  partial unique index keeps one non-void draft per cycle, so a voided draft can be regenerated.
+  `generate_recurring_now()` (manage) runs the same from the tab; `generate_recurring_now(bill, date)` makes
+  a one-off draft for a chosen due date (within the bill's life, not more than 31 days ahead) without moving
+  the schedule — refuses `already_generated` when that cycle has a non-void expense.
+- **Confirming**: the Expenses tab shows "Bills to confirm (n)" above the list when recurring drafts exist in
+  the month, with Edit (real amount, receipt) and Approve (existing dialog). Source filter gains "Recurring
+  bills"; the row shows the bill name and the spread. "Recurring bills" button (manage; approve-only users
+  can look) opens the templates dialog: list with next due / last draft / Active switch, Add / Edit form
+  (first-due preview), "Generate due bills now", "One-off draft…".
+- **Prepaid**: `expenses.prepaid_months` (2–36; column lives in the 2b migration file since both are
+  unapplied). Set from a bill's spread, or by hand on a draft (`set_expense_prepaid`, manage or approve;
+  "Spread over months" in the Add/Edit dialog, saved after the upsert like Paid from). Locked once approved
+  (the 2b trigger allows only paid_from to change). Ledger: an approved prepaid expense posts Dr **1400
+  Prepaid expenses** / Cr paid_from (E6); the new event `expense_amortisation` posts, at each month end from
+  the expense month for N months (only month ends ≤ today), Dr category account / Cr 1400 for
+  round(amount / N, 2) with the last month taking the remainder — yen shares split `amount_jpy` the same way
+  so the N releases sum exactly to the posted prepaid amount. Source id = `md5(expense id || ':' || YYYY-MM)`
+  cast to uuid. Voiding the expense reverses the payment and every release (events vanish).
+- Refusals: `invalid_name / category / vendor / description / currency / amount / payment_method / account /
+  frequency / due_day / date / spread / notes`, `category_booked_automatically`, `already_generated`,
+  `not_found`, `not_draft`, `rate_not_set`, `permission_denied`.
+
+### Verified (2026-10-25)
+- Local PostgreSQL 16: all four migrations applied (Phase 3 twice); Phase 1 (17), Phase 2 (5) and ledger (11)
+  suites still pass; new `supabase/tests/expenses/test_recurring.sql` (8 groups): permissions and RLS,
+  template validation incl. first-due math and audit rows, generation (nothing due / latest cycle only /
+  idempotent / schedule advanced / details and paid_from copied / next cycle), void + one-off regeneration +
+  `already_generated` + before-start refused + generate-all, quarterly / yearly math, ends_on deactivation,
+  yearly draft carries the 12-month spread, prepaid ledger (1400 on approval, one release per elapsed month
+  end, 12000 / 10 each, balanced, idempotent, void reverses all), PHP prepaid split sums exactly in both
+  currencies, never deleted.
+- tsc exit 0; Vitest recurring (6) + full suite (114 files) pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites

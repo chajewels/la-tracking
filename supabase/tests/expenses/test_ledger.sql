@@ -252,7 +252,7 @@ DO $t$ DECLARE r jsonb; BEGIN
   r := public.gl_post_now();
   ASSERT (r->>'reversed')::int = 1 AND (r->>'posted')::int = 0, 'reactivation reverses the forfeit: ' || r::text;
   RESET ROLE;
-  UPDATE public.layaway_accounts SET updated_at = now() + interval '1 hour' WHERE id = '10000000-0000-0000-0000-000000000006';
+  UPDATE public.layaway_accounts SET updated_at = now() - interval '1 hour' WHERE id = '10000000-0000-0000-0000-000000000006';
   SET ROLE authenticated;
   r := public.gl_post_now();
   ASSERT (r->>'reversed')::int = 0 AND (r->>'posted')::int = 0, 'touching a final_forfeited plan does not churn: ' || r::text;
