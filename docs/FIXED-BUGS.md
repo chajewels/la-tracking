@@ -6480,6 +6480,8 @@ patch in docs/sql was not in the live body). Fix: migration 20261231520000_delet
 TEST accounts only, owner decision); delete-customer (edge function) refuses while a checkout is
 to_confirm and otherwise deletes the customer's finished checkouts, their lines and coupon uses and her
 article comments before the customer (owner decision). Verified on live with a temp copy: 0 critical.
+CORRECTION 2026-10-27: the test-account delete works only when the account has NO loyalty history —
+TEST-004 (2 loyalty_transactions rows) still cannot be deleted; see the cash-order entry below.
 Do not reintroduce: a new NO ACTION FK to customers / layaway_accounts without its cleanup step AND its
 allowlist row.
 
@@ -6488,3 +6490,22 @@ Same pattern as the System Audit timeout: the view joined a whole-table SUM of p
 Migration 20261231510000_schedule_with_actuals_per_row.sql sums per schedule row (LEFT JOIN LATERAL).
 All 9,595 rows identical; staff reads 19 ms -> 2.6 ms (one account), 25 ms -> 20 ms (Dashboard).
 Do not reintroduce: an unfiltered aggregate inside schedule_with_actuals.
+
+## Cash orders: audit called them "soft-cancel only"; card/Paidy tries blocked the delete (2026-10-27)
+The System Audit listed 11 cash_orders findings as info "(none - soft-cancel only)", but cash orders ARE
+deleted (Hub Delete -> delete-cash-order -> delete_cash_order_atomic; staff-made, unpaid and not completed,
+or a test customer's). A customer can press Pay by card / Paidy on a STAFF-made order from her website
+account (website GET /me/orders lists every cash order; card-rules.ts:140 and paidy-rules.ts:115 apply
+"the method she chose" to web orders only); each try leaves square_card_attempts / paidy_checkout_attempts
+rows that blocked the delete. Fix: migration 20270203500000_cash_order_delete_cleanup.sql
+(base live md5 a805b623… / 08680aa2…): delete_cash_order_atomic REFUSES when any card/Paidy money record
+or an unfinished try exists (checked before the loyalty revoke; message shown as-is by the Hub, no edge
+change) and DELETES ended tries without money and the review invite + review; the audit checks cash_orders
+as 'delete-cash-order' at critical, with allowlist rows for all 14 children. Verified on live with
+forced-rollback runs on order 19382: try in progress -> refused, order kept; try declined -> deleted, tries
+cleared. Audit (temp copy): no findings.
+KNOWN LIMIT (owner chose to keep it, 2026-10-27): loyalty_transactions is immutable
+(loyalty_transactions_guard_update) while its order FKs are ON DELETE SET NULL, so ANY order with loyalty
+history cannot be deleted — today only test orders (TEST-900059, TEST-004); 0 deletable real orders have
+loyalty history. Cancel those instead. Do not loosen the loyalty guard to delete test data.
+
