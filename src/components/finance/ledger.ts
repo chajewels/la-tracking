@@ -28,6 +28,8 @@ export type MethodMap = { spelling: string; account_code: string; kind: MethodKi
 export type Period = {
   period_start: string; fiscal_year: number; status: "open" | "closed";
   closed_at: string | null; closed_by: string | null; note: string | null;
+  /** Phase 8: money accounts signed off / still to reconcile for the month (absent before the controls migration). */
+  reconciled_accounts?: number; unreconciled_accounts?: number;
 };
 export type PostingRun = {
   id: string; started_at: string; finished_at: string | null; trigger: "cron" | "manual" | "migration";
@@ -46,6 +48,8 @@ export type LedgerStatus = {
   /** Only filled when the status was asked to check (get_ledger_status(true)); null = not checked. */
   pending: { posted: number; reversed: number; moved: number; pending: number } | null;
   last_run: PostingRun | null;
+  /** Phase 8: the last completeness check (without its issue list); null before the first run or the controls migration. */
+  last_check: { id: string; ran_at: string; trigger: "cron" | "manual"; errors: number; warnings: number; bell_rung: boolean } | null;
   journal_count: number;
   moved_count: number;
   unmapped_methods: UnmappedMethod[];
@@ -90,6 +94,12 @@ export function normaliseStatus(raw: Record<string, unknown>): LedgerStatus {
     can_admin: raw.can_admin === true,
     pending: pending ? { posted: num(pending.posted), reversed: num(pending.reversed), moved: num(pending.moved), pending: num(pending.pending) } : null,
     last_run: (raw.last_run as PostingRun | null) ?? null,
+    last_check: raw.last_check ? {
+      id: String((raw.last_check as Record<string, unknown>).id), ran_at: String((raw.last_check as Record<string, unknown>).ran_at),
+      trigger: (raw.last_check as Record<string, unknown>).trigger === "cron" ? "cron" : "manual",
+      errors: num((raw.last_check as Record<string, unknown>).errors), warnings: num((raw.last_check as Record<string, unknown>).warnings),
+      bell_rung: (raw.last_check as Record<string, unknown>).bell_rung === true,
+    } : null,
     journal_count: num(raw.journal_count),
     moved_count: num(raw.moved_count),
     unmapped_methods: Array.isArray(raw.unmapped_methods)
@@ -101,7 +111,13 @@ export function normaliseStatus(raw: Record<string, unknown>): LedgerStatus {
           currency: (e.currency as "JPY" | "PHP") ?? "JPY", payment_method: String(e.payment_method ?? ""), source: String(e.source ?? "manual"),
         }))
       : [],
-    periods: Array.isArray(raw.periods) ? (raw.periods as Period[]) : [],
+    periods: Array.isArray(raw.periods)
+      ? (raw.periods as Record<string, unknown>[]).map((p) => ({
+          ...(p as unknown as Period),
+          reconciled_accounts: p.reconciled_accounts == null ? undefined : num(p.reconciled_accounts),
+          unreconciled_accounts: p.unreconciled_accounts == null ? undefined : num(p.unreconciled_accounts),
+        }))
+      : [],
   };
 }
 
@@ -392,6 +408,7 @@ export function ledgerRefusal(code: string): string {
     case "invalid_kind": return "Pick what kind of account that is.";
     case "system_account": return "System accounts can't be deactivated.";
     case "not_found": return "That row no longer exists.";
+    case "ledger_errors": return "The month has ledger errors (see the readiness list); it can't close until they're gone.";
     default: return "";
   }
 }

@@ -47,6 +47,9 @@ function iconForType(type: string) {
       return <Sparkles className="h-3.5 w-3.5 text-primary" />;
     case 'loyalty_award_failed':
       return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
+    // Expenses Phase 8: the nightly ledger check found errors or new warnings (counts only in the row).
+    case 'ledger_check':
+      return <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />;
     case 'penalty_applied':
       return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
     case 'account_forfeited':
@@ -210,6 +213,11 @@ export default function StaffNotificationBell() {
     // An article comment is moderated on Website → Content (the Comments card).
     if (n.type === 'comment_submitted') {
       navigate(`${ROUTES.WEBSITE}?tab=content#comments`);
+      return;
+    }
+    // The ledger check lives on Finance → Ledger → Checks (view_ledger; others land on Finance).
+    if (n.type === 'ledger_check') {
+      navigate('/finance?tab=ledger&view=checks');
       return;
     }
     // Background removal near its monthly limit: the limit lives on Website → Photos.

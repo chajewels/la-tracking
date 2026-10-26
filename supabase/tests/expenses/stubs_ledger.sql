@@ -72,4 +72,6 @@ CREATE TABLE public.layaway_schedule (
   paid_amount numeric(15,2) NOT NULL DEFAULT 0, currency account_currency NOT NULL, status schedule_status NOT NULL DEFAULT 'pending',
   generated_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE public.customers (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), full_name text NOT NULL DEFAULT 'Customer', country text);
+-- Phase 8: the staff bell the completeness check rings.
+CREATE TABLE public.staff_notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), type text NOT NULL, title text NOT NULL, body text, account_id uuid, customer_id uuid, invoice_number text, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;

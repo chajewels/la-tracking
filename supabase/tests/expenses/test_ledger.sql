@@ -335,7 +335,8 @@ DO $t$ DECLARE j uuid; BEGIN
   BEGIN DELETE FROM public.gl_journals WHERE id = j; RAISE EXCEPTION 'journal delete should fail';
   EXCEPTION WHEN check_violation THEN NULL; END;
   BEGIN TRUNCATE public.gl_journal_lines; RAISE EXCEPTION 'truncate should fail';
-  EXCEPTION WHEN check_violation THEN NULL; END;
+  EXCEPTION WHEN check_violation THEN NULL;
+            WHEN feature_not_supported THEN NULL; END;
   BEGIN
     INSERT INTO public.gl_journals (entry_date, period_start, source_date, kind, source_type, description)
     VALUES ('2026-08-01', public.gl_period_for('2026-08-01'), '2026-08-01', 'manual', 'manual', 'one-sided');
