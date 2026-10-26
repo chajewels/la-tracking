@@ -460,6 +460,12 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 
 - **Helper `public.timesheet_can_view_all(uuid)`** — SECURITY DEFINER STABLE; reads `timesheet_profiles.can_view_all` for the given user. Grants timesheet-only Consolidation + Cost Master visibility WITHOUT a global role. Brendalyn (`bumagatbrenda@gmail.com`) is flagged `can_view_all = true`.
 
+### Payslip tables (added 2026-10-26, migration 20270201100000 — NOT yet applied live)
+
+- **`staff_payroll_details`**: address + date of birth per staff member (`user_id` = auth uid = `timesheet_profiles.user_id`). Written only by `save_staff_payroll_details`; the audit row names the changed fields, never the values.
+- **`payslips`**: one live payslip per (user, month) (partial unique, void excluded). Figures and staff details frozen at `finalize_payslip`; only `finalized → paid` (payment fields) and `→ void` (void fields) are allowed, enforced by a row trigger; DELETE/TRUNCATE refused. `php_per_jpy` = `php_received / jpy_sent` (the actual remittance rate, not `php_jpy_rate`).
+- Read RLS on both tables = `public.can_manage_payslips(auth.uid())` (admin or `timesheet_can_view_all`, answers for the caller only); no write policies. Proofs live in the private bucket `payslip-proofs`, `<payslip_id>/<file>`. Full text: docs/PAYSLIPS.md.
+
 ### staff_notifications — additional types (added 2026-06-14)
 
 `submission_confirmed` is produced by the existing Postgres trigger `notify_submission_reviewed` (on `payment_submissions` UPDATE), which writes the "Payment confirmed" `staff_notifications` row on confirm. It is NOT emitted by an edge function — earlier duplicate inserts in `review-payment-submission` were removed (2026-06-14) so the bell row + chime/speech ride solely on the trigger.

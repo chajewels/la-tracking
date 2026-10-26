@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
+import PayslipsTab from '@/components/timesheet/PayslipsTab';
 import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
   TEMPLATE_LABEL,
@@ -1189,7 +1190,7 @@ function FullSummaryTab({
 
 // ── Main page ───────────────────────────────────────────────────────────────
 
-const TAB_VALUES = ['my', 'fullsummary', 'consolidation', 'cost', 'assignments'] as const;
+const TAB_VALUES = ['my', 'fullsummary', 'consolidation', 'cost', 'payslips', 'assignments'] as const;
 type TabValue = typeof TAB_VALUES[number];
 
 export default function Timesheet() {
@@ -1226,6 +1227,7 @@ export default function Timesheet() {
     if (v === 'my' && isAdmin) return 'fullsummary';          // My Timesheet hidden from admin
     if (v === 'consolidation' && !canConsolidate) return defaultTab;
     if (v === 'cost' && !canViewCost) return defaultTab;
+    if (v === 'payslips' && !canViewCost) return defaultTab;     // admin + can_view_all only
     if (v === 'assignments' && !isAdmin) return defaultTab;
     return v;
   }
@@ -1366,6 +1368,7 @@ export default function Timesheet() {
               {!isAdmin && <TabsTrigger value="my">My Timesheet</TabsTrigger>}
               {canConsolidate && <TabsTrigger value="consolidation">Consolidation</TabsTrigger>}
               {canViewCost && <TabsTrigger value="cost">Cost Master</TabsTrigger>}
+              {canViewCost && <TabsTrigger value="payslips">Payslips</TabsTrigger>}
               {isAdmin && <TabsTrigger value="assignments">Assignments</TabsTrigger>}
             </TabsList>
 
@@ -1408,6 +1411,19 @@ export default function Timesheet() {
                   nameByUser={nameByUser}
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
+                />
+              </TabsContent>
+            )}
+
+            {canViewCost && (
+              <TabsContent value="payslips" className="mt-4">
+                <PayslipsTab
+                  profiles={allProfiles}
+                  entriesByUser={entriesByUser}
+                  nameByUser={nameByUser}
+                  monthKey={monthKey}
+                  onMonthChange={setMonthKey}
+                  monthOptions={monthOptions()}
                 />
               </TabsContent>
             )}
