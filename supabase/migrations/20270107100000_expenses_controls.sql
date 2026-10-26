@@ -56,6 +56,12 @@ BEGIN
   END IF;
   IF NEW.status = 'void' THEN RETURN NEW; END IF;
   IF to_jsonb(NEW) - 'updated_at' = to_jsonb(OLD) - 'updated_at' THEN RETURN NEW; END IF;
+  IF auth.uid() IS NULL AND coalesce(NEW.source, 'manual') <> 'manual' AND NEW.status = 'draft' THEN
+    v_old_date := NEW.expense_date;
+    NEW.expense_date := public.gl_posting_date(NEW.expense_date);
+    NEW.notes := left(coalesce(NEW.notes || E'\n', '') || 'Dated ' || v_old_date::text || ' (month already closed); booked on the first open day.', 2000);
+    RETURN NEW;
+  END IF;
   IF OLD.status = 'approved' AND NEW.status = 'approved'
      AND to_jsonb(NEW) - 'paid_from' - 'updated_at' = to_jsonb(OLD) - 'paid_from' - 'updated_at' THEN
     RETURN NEW;
@@ -64,7 +70,7 @@ BEGIN
 END
 $fn$;
 COMMENT ON FUNCTION public.expenses_before_period_lock() IS
-  'Phase 8 (D2). BEFORE INSERT OR UPDATE on expenses, fires before expenses_before_write (alphabetical). A manual expense dated in a closed month is refused (period_closed) on insert, on any edit and on approval; voiding and a paid_from-only correction stay allowed; drafts made by the system (email / recurring / payroll / commission) move to the first open day with a note.';
+  'Phase 8 (D2). BEFORE INSERT OR UPDATE on expenses, fires before expenses_before_write (alphabetical). A manual expense dated in a closed month is refused (period_closed) on insert, on any edit and on approval; voiding and a paid_from-only correction stay allowed; drafts made by the system (email / recurring / payroll / commission) move to the first open day with a note, on insert and on a service-role update (an emailed bill attached to an old recurring draft).';
 DROP TRIGGER IF EXISTS expenses_before_period_lock ON public.expenses;
 CREATE TRIGGER expenses_before_period_lock BEFORE INSERT OR UPDATE ON public.expenses
   FOR EACH ROW EXECUTE FUNCTION public.expenses_before_period_lock();
@@ -202,7 +208,7 @@ REVOKE ALL ON FUNCTION public.gl_account_currency(text) FROM PUBLIC, anon, authe
 
 -- Journal lines a statement line may match: live journals only (a reversed journal and its reversal cancel out).
 CREATE OR REPLACE VIEW public.gl_live_money_lines AS
-  SELECT l.id, l.journal_id, l.account_code, l.currency, j.entry_date, j.journal_no, j.kind, j.source_type, j.description, l.memo,
+  SELECT l.id, l.journal_id, l.account_code, l.currency, j.source_date AS entry_date, j.entry_date AS posted_on, j.journal_no, j.kind, j.source_type, j.description, l.memo,
          l.customer_id, l.account_id, l.cash_order_id, l.expense_id,
          CASE WHEN l.debit > 0 THEN l.debit ELSE -l.credit END AS signed_amount,
          CASE WHEN l.debit > 0 THEN l.debit_jpy ELSE -l.credit_jpy END AS signed_jpy
@@ -210,7 +216,7 @@ CREATE OR REPLACE VIEW public.gl_live_money_lines AS
     JOIN public.gl_journals j ON j.id = l.journal_id
    WHERE j.status = 'posted' AND j.kind <> 'reversal';
 REVOKE ALL ON public.gl_live_money_lines FROM PUBLIC, anon, authenticated;
-COMMENT ON VIEW public.gl_live_money_lines IS 'Phase 8 (internal): posted, non-reversal journal lines with a signed native amount (+ debit / − credit). The reconciliation reads the ledger through this view, so a correction reversed after month end is already out of the month-end balance (the bank never saw it); the trial balance keeps the as-the-books-stood figure. Opening-balance lines count in the balance but are never matched to a statement line.';
+COMMENT ON VIEW public.gl_live_money_lines IS 'Phase 8 (internal): posted, non-reversal journal lines with a signed native amount (+ debit / − credit); entry_date here is the SOURCE date (the day the bank saw it — a late repost into an open month still reconciles in its own month), posted_on the ledger date. The reconciliation reads the ledger through this view, so a correction reversed after month end is already out of the month-end balance (the bank never saw it); the trial balance keeps the as-the-books-stood figure. Opening-balance lines count in the balance but are never matched to a statement line.';
 
 -- ---------------------------------------------------------------------------
 -- 3. Bank reconciliation RPCs.
@@ -235,13 +241,32 @@ DECLARE
   v_months date[];
   m date;
   v_matched int := 0;
+  v_key text; v_used int; v_existing int;
+  v_seen jsonb := '{}'::jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'post_journal') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
   IF NOT public.gl_is_money_account(v_account) THEN RETURN jsonb_build_object('error', 'invalid_account'); END IF;
+  IF coalesce((SELECT a.system_key IN ('cash_jpy', 'cash_php') FROM public.gl_accounts a WHERE a.code = v_account), false) THEN RETURN jsonb_build_object('error', 'cash_has_no_statement'); END IF;
   IF v_sha !~ '^[0-9a-f]{64}$' THEN RETURN jsonb_build_object('error', 'invalid_file'); END IF;
   IF jsonb_typeof(v_lines) <> 'array' OR jsonb_array_length(v_lines) = 0 THEN RETURN jsonb_build_object('error', 'no_lines'); END IF;
   IF jsonb_array_length(v_lines) > 5000 THEN RETURN jsonb_build_object('error', 'too_many_lines'); END IF;
+  FOR l IN SELECT x FROM jsonb_array_elements(v_lines) x
+  LOOP
+    v_no := v_no + 1;
+    BEGIN
+      v_date := (l->>'booked_on')::date;
+      v_amount := round((l->>'amount')::numeric, 2);
+      v_bal := CASE WHEN nullif(l->>'balance_after', '') IS NULL THEN NULL ELSE round((l->>'balance_after')::numeric, 2) END;
+    EXCEPTION WHEN OTHERS THEN
+      RETURN jsonb_build_object('error', 'invalid_line', 'line_no', v_no);
+    END;
+    IF v_date IS NULL OR v_amount IS NULL OR v_amount = 0 THEN
+      RETURN jsonb_build_object('error', 'invalid_line', 'line_no', v_no);
+    END IF;
+  END LOOP;
+  v_no := 0;
+  PERFORM pg_advisory_xact_lock(hashtext('bank_match:' || v_account));
   IF EXISTS (SELECT 1 FROM public.bank_statement_imports i WHERE i.account_code = v_account AND i.file_sha256 = v_sha AND i.voided_at IS NULL) THEN
     RETURN jsonb_build_object('error', 'duplicate_file');
   END IF;
@@ -265,19 +290,19 @@ BEGIN
   FOR l IN SELECT x FROM jsonb_array_elements(v_lines) x
   LOOP
     v_no := v_no + 1;
-    BEGIN
-      v_date := (l->>'booked_on')::date;
-      v_amount := round((l->>'amount')::numeric, 2);
-      v_bal := CASE WHEN nullif(l->>'balance_after', '') IS NULL THEN NULL ELSE round((l->>'balance_after')::numeric, 2) END;
-    EXCEPTION WHEN OTHERS THEN
-      RETURN jsonb_build_object('error', 'invalid_line', 'line_no', v_no);
-    END;
+    v_date := (l->>'booked_on')::date;
+    v_amount := round((l->>'amount')::numeric, 2);
+    v_bal := CASE WHEN nullif(l->>'balance_after', '') IS NULL THEN NULL ELSE round((l->>'balance_after')::numeric, 2) END;
     v_desc := left(btrim(coalesce(l->>'description', '')), 300);
-    IF v_date IS NULL OR v_amount IS NULL OR v_amount = 0 THEN
-      RETURN jsonb_build_object('error', 'invalid_line', 'line_no', v_no);
+    v_key := v_date::text || '|' || v_amount::text || '|' || v_desc;
+    v_used := coalesce((v_seen->>v_key)::int, 0);
+    IF v_used = 0 THEN
+      SELECT count(*) INTO v_existing FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
+       WHERE s.account_code = v_account AND i.voided_at IS NULL AND i.id <> v_import AND s.booked_on = v_date AND s.amount = v_amount AND s.description = v_desc;
+      v_seen := v_seen || jsonb_build_object(v_key || '#', v_existing);
     END IF;
-    IF EXISTS (SELECT 1 FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
-                WHERE s.account_code = v_account AND i.voided_at IS NULL AND s.booked_on = v_date AND s.amount = v_amount AND s.description = v_desc) THEN
+    v_seen := v_seen || jsonb_build_object(v_key, v_used + 1);
+    IF v_used < coalesce((v_seen->>(v_key || '#'))::int, 0) THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
     END IF;
@@ -337,12 +362,14 @@ LANGUAGE plpgsql SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_n int := 0;
+  v_end date := (p_month + interval '1 month' - interval '1 day')::date;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('bank_match:' || p_account));
   WITH open_lines AS (
     SELECT s.id, s.booked_on, s.amount
       FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
      WHERE s.account_code = p_account AND i.voided_at IS NULL AND s.match_kind IS NULL
-       AND date_trunc('month', s.booked_on)::date = p_month
+       AND s.booked_on BETWEEN p_month - 3 AND v_end + 3
   ), pairs AS (
     SELECT o.id AS line_id, j.id AS journal_line_id
       FROM open_lines o
@@ -355,7 +382,7 @@ BEGIN
        AND (SELECT count(*) FROM pairs q WHERE q.journal_line_id = p.journal_line_id) = 1
   ), upd AS (
     UPDATE public.bank_statement_lines s SET matched_journal_line_id = o.journal_line_id, match_kind = 'auto', matched_by = p_uid, matched_at = now()
-      FROM one_each o WHERE s.id = o.line_id RETURNING 1
+      FROM one_each o WHERE s.id = o.line_id AND s.booked_on BETWEEN p_month AND v_end RETURNING 1
   )
   SELECT count(*) INTO v_n FROM upd;
   RETURN jsonb_build_object('matched', v_n);
@@ -468,6 +495,7 @@ DECLARE
   v_jpy numeric;
   v_rec public.bank_reconciliations;
   v_last_balance numeric;
+  v_transit numeric;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
   IF NOT public.has_permission(v_uid, 'view_ledger') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
@@ -477,6 +505,10 @@ BEGIN
   v_cur := public.gl_account_currency(p_account);
   SELECT coalesce(sum(m.signed_amount), 0), coalesce(sum(m.signed_jpy), 0) INTO v_native, v_jpy
     FROM public.gl_live_money_lines m WHERE m.account_code = p_account AND m.entry_date <= v_end;
+  SELECT coalesce(sum(m.signed_amount), 0) INTO v_transit
+    FROM public.gl_live_money_lines m
+   WHERE m.account_code = p_account AND m.kind <> 'opening' AND m.entry_date BETWEEN v_end - 4 AND v_end
+     AND NOT EXISTS (SELECT 1 FROM public.bank_statement_lines x WHERE x.matched_journal_line_id = m.id);
   SELECT * INTO v_rec FROM public.bank_reconciliations WHERE account_code = p_account AND month_start = p_month;
   SELECT s.balance_after INTO v_last_balance
     FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
@@ -486,7 +518,7 @@ BEGIN
     'account', p_account, 'name', (SELECT a.name FROM public.gl_accounts a WHERE a.code = p_account), 'name_ja', (SELECT a.name_ja FROM public.gl_accounts a WHERE a.code = p_account),
     'currency', v_cur, 'is_cash', coalesce((SELECT a.system_key IN ('cash_jpy', 'cash_php') FROM public.gl_accounts a WHERE a.code = p_account), false),
     'month', p_month, 'month_end', v_end,
-    'ledger_closing_native', v_native, 'ledger_closing_jpy', v_jpy,
+    'ledger_closing_native', v_native, 'ledger_closing_jpy', v_jpy, 'in_transit_native', v_transit,
     'statement_closing', coalesce(v_rec.statement_closing, v_last_balance),
     'statement_closing_source', CASE WHEN v_rec.statement_closing IS NOT NULL THEN 'typed' WHEN v_last_balance IS NOT NULL THEN 'statement' ELSE NULL END,
     'reconciliation', CASE WHEN v_rec.account_code IS NULL THEN NULL ELSE to_jsonb(v_rec) END,
@@ -531,7 +563,7 @@ DECLARE
   v_today date := (now() AT TIME ZONE 'Asia/Tokyo')::date;
   v_native numeric; v_jpy numeric;
   v_diff numeric;
-  v_unm_stmt int; v_unm_ledger int; v_unm_ledger_old int;
+  v_unm_stmt int; v_unm_ledger int; v_transit numeric;
   v_is_cash boolean;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
@@ -547,10 +579,15 @@ BEGIN
   v_is_cash := coalesce((SELECT a.system_key IN ('cash_jpy', 'cash_php') FROM public.gl_accounts a WHERE a.code = p_account), false);
   SELECT coalesce(sum(m.signed_amount), 0), coalesce(sum(m.signed_jpy), 0) INTO v_native, v_jpy
     FROM public.gl_live_money_lines m WHERE m.account_code = p_account AND m.entry_date <= v_end;
-  v_diff := round(p_statement_closing, 2) - round(v_native, 2);
+  SELECT coalesce(sum(m.signed_amount), 0) INTO v_transit
+    FROM public.gl_live_money_lines m
+   WHERE m.account_code = p_account AND m.kind <> 'opening' AND m.entry_date BETWEEN v_end - 4 AND v_end
+     AND NOT EXISTS (SELECT 1 FROM public.bank_statement_lines x WHERE x.matched_journal_line_id = m.id);
+  IF v_is_cash THEN v_transit := 0; END IF;
+  v_diff := round(p_statement_closing, 2) - round(v_native - v_transit, 2);
   SELECT count(*) INTO v_unm_stmt FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
    WHERE s.account_code = p_account AND i.voided_at IS NULL AND date_trunc('month', s.booked_on)::date = p_month AND s.match_kind IS NULL;
-  SELECT count(*), count(*) FILTER (WHERE m.entry_date <= v_end - 5) INTO v_unm_ledger, v_unm_ledger_old FROM public.gl_live_money_lines m
+  SELECT count(*) INTO v_unm_ledger FROM public.gl_live_money_lines m
    WHERE m.account_code = p_account AND m.entry_date BETWEEN p_month AND v_end AND m.kind <> 'opening'
      AND NOT EXISTS (SELECT 1 FROM public.bank_statement_lines x WHERE x.matched_journal_line_id = m.id);
   INSERT INTO public.bank_reconciliations (account_code, month_start, statement_closing, ledger_closing_native, ledger_closing_jpy, difference, unmatched_statement, unmatched_ledger, status, note, updated_at)
@@ -559,20 +596,21 @@ BEGIN
      ledger_closing_jpy = EXCLUDED.ledger_closing_jpy, difference = EXCLUDED.difference, unmatched_statement = EXCLUDED.unmatched_statement,
      unmatched_ledger = EXCLUDED.unmatched_ledger, note = coalesce(EXCLUDED.note, public.bank_reconciliations.note), updated_at = now();
   IF v_diff <> 0 THEN
-    RETURN jsonb_build_object('error', 'difference_remains', 'difference', v_diff, 'ledger_closing_native', v_native, 'statement_closing', round(p_statement_closing, 2));
+    RETURN jsonb_build_object('error', 'difference_remains', 'difference', v_diff, 'ledger_closing_native', v_native, 'in_transit_native', v_transit, 'statement_closing', round(p_statement_closing, 2));
   END IF;
   IF NOT v_is_cash AND v_unm_stmt > 0 THEN
     RETURN jsonb_build_object('error', 'unmatched_statement_lines', 'count', v_unm_stmt);
   END IF;
-  IF NOT v_is_cash AND v_unm_ledger_old > 0 THEN
-    RETURN jsonb_build_object('error', 'unmatched_ledger_lines', 'count', v_unm_ledger_old);
+  IF NOT v_is_cash AND v_unm_ledger - (SELECT count(*) FROM public.gl_live_money_lines m WHERE m.account_code = p_account AND m.kind <> 'opening' AND m.entry_date BETWEEN v_end - 4 AND v_end
+                                            AND NOT EXISTS (SELECT 1 FROM public.bank_statement_lines x WHERE x.matched_journal_line_id = m.id)) > 0 THEN
+    RETURN jsonb_build_object('error', 'unmatched_ledger_lines', 'count', v_unm_ledger);
   END IF;
   UPDATE public.bank_reconciliations SET status = 'reconciled', reconciled_by = v_uid, reconciled_at = now(), updated_at = now()
    WHERE account_code = p_account AND month_start = p_month;
   INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id, created_at)
   VALUES ('bank_reconciliation', gen_random_uuid(), 'sign_off_reconciliation',
           jsonb_build_object('account', p_account, 'month', p_month, 'statement_closing', round(p_statement_closing, 2), 'ledger_closing_native', v_native,
-                             'unmatched_statement', v_unm_stmt, 'unmatched_ledger', v_unm_ledger), v_uid, now());
+                             'in_transit_native', v_transit, 'unmatched_statement', v_unm_stmt, 'unmatched_ledger', v_unm_ledger), v_uid, now());
   RETURN jsonb_build_object('ok', true, 'reconciliation', (SELECT to_jsonb(r) FROM public.bank_reconciliations r WHERE r.account_code = p_account AND r.month_start = p_month));
 END
 $fn$;
@@ -592,7 +630,6 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.bank_reconciliations r WHERE r.account_code = p_account AND r.month_start = p_month AND r.status = 'reconciled') THEN
     RETURN jsonb_build_object('error', 'not_reconciled');
   END IF;
-  IF public.gl_period_is_closed(p_month) THEN RETURN jsonb_build_object('error', 'period_closed'); END IF;
   UPDATE public.bank_reconciliations SET status = 'open', reconciled_by = NULL, reconciled_at = NULL, note = left(btrim(p_reason), 500), updated_at = now()
    WHERE account_code = p_account AND month_start = p_month;
   INSERT INTO public.audit_logs (entity_type, entity_id, action, new_value_json, performed_by_user_id, created_at)
@@ -658,6 +695,34 @@ AS $fn$
 $fn$;
 REVOKE ALL ON FUNCTION public.gl_unreconciled_accounts(date) FROM PUBLIC, anon, authenticated;
 
+-- What the engine would post / reverse for events dated on or before p_until (the engine's own version formula).
+CREATE OR REPLACE FUNCTION public.gl_pending_counts(p_until date)
+RETURNS jsonb
+LANGUAGE plpgsql SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_post int; v_reverse int;
+BEGIN
+  IF public.gl_ledger_start() IS NULL THEN RETURN jsonb_build_object('post', 0, 'reverse', 0, 'ok', true); END IF;
+  IF public.gl_rate() IS NULL THEN RETURN jsonb_build_object('post', 0, 'reverse', 0, 'ok', false, 'error', 'rate_not_set'); END IF;
+  WITH ev AS (
+    SELECT e.source_type, e.source_id, e.source_date, e.lines,
+           md5(CASE WHEN e.source_type IN ('layaway_close', 'cash_order_close', 'cogs_return') THEN '' ELSE e.source_date::text END || '|' ||
+               (SELECT coalesce(string_agg((l->>'a') || ':' || (l->>'side') || ':' || (l->>'amt') || ':' || (l->>'cur'), ';' ORDER BY o), '')
+                  FROM jsonb_array_elements(e.lines) WITH ORDINALITY AS x(l, o))) AS version
+      FROM public.gl_current_events(p_until) e
+  )
+  SELECT (SELECT count(*) FROM ev t WHERE jsonb_array_length(t.lines) >= 2
+            AND NOT EXISTS (SELECT 1 FROM public.gl_journals j WHERE j.kind = 'auto' AND j.status = 'posted'
+                             AND j.source_type = t.source_type AND j.source_id = t.source_id AND j.source_version = t.version)),
+         (SELECT count(*) FROM public.gl_journals j WHERE j.kind = 'auto' AND j.status = 'posted' AND j.source_date <= p_until
+            AND NOT EXISTS (SELECT 1 FROM ev t WHERE t.source_type = j.source_type AND t.source_id = j.source_id AND t.version = j.source_version))
+    INTO v_post, v_reverse;
+  RETURN jsonb_build_object('post', v_post, 'reverse', v_reverse, 'ok', true);
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.gl_pending_counts(date) FROM PUBLIC, anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 5. Close readiness (D1) and close_period re-stated.
 -- ---------------------------------------------------------------------------
@@ -673,9 +738,9 @@ DECLARE
   v_drafts int;
   v_suspense numeric;
   v_unmapped jsonb; v_no_paid_from jsonb; v_unrec jsonb;
-  v_errors int := 0; v_warnings int := 0;
+  v_errors int := 0; v_warnings int := 0; v_failed int; v_pending int;
 BEGIN
-  v_dry := CASE WHEN p_dry_run AND v_start IS NOT NULL THEN public.gl_post_pending(true, 'manual', NULL) ELSE NULL END;
+  v_dry := CASE WHEN p_dry_run AND v_start IS NOT NULL THEN public.gl_pending_counts(v_end) ELSE NULL END;
   SELECT count(*) INTO v_unbalanced FROM (
     SELECT j.id FROM public.gl_journals j JOIN public.gl_journal_lines l ON l.journal_id = j.id
      WHERE j.entry_date BETWEEN p_period_start AND v_end
@@ -691,12 +756,15 @@ BEGIN
   v_unmapped := public.gl_unmapped_methods(v_start);
   v_no_paid_from := public.gl_expenses_without_paid_from(v_start);
   v_unrec := public.gl_unreconciled_accounts(p_period_start);
-  v_errors := v_unbalanced + v_duplicates + coalesce((v_dry->>'pending')::int, 0) + coalesce((v_dry->>'failed')::int, 0);
-  v_warnings := jsonb_array_length(v_unmapped) + jsonb_array_length(v_no_paid_from) + v_drafts + jsonb_array_length(v_unrec) + CASE WHEN v_suspense <> 0 THEN 1 ELSE 0 END;
+  SELECT coalesce(pr.failed, 0) INTO v_failed FROM public.gl_posting_runs pr ORDER BY pr.started_at DESC LIMIT 1;
+  v_errors := v_unbalanced + v_duplicates + coalesce(v_failed, 0) + CASE WHEN v_dry IS NOT NULL AND (v_dry->>'ok')::boolean = false THEN 1 ELSE 0 END;
+  v_pending := coalesce((v_dry->>'post')::int, 0) + coalesce((v_dry->>'reverse')::int, 0);
+  v_warnings := jsonb_array_length(v_unmapped) + jsonb_array_length(v_no_paid_from) + v_drafts + jsonb_array_length(v_unrec) + CASE WHEN v_suspense <> 0 THEN 1 ELSE 0 END
+                + CASE WHEN v_pending > 0 THEN 1 ELSE 0 END;
   RETURN jsonb_build_object(
     'period_start', p_period_start, 'period_end', v_end,
     'errors', v_errors, 'warnings', v_warnings, 'can_close', v_errors = 0,
-    'unposted_events', coalesce((v_dry->>'pending')::int, 0), 'posting_failed', coalesce((v_dry->>'failed')::int, 0), 'dry_run', v_dry IS NOT NULL,
+    'unposted_events', v_pending, 'posting_failed', coalesce(v_failed, 0), 'dry_run', v_dry IS NOT NULL, 'dry_run_error', v_dry->>'error',
     'unbalanced_journals', v_unbalanced, 'duplicate_journals', v_duplicates,
     'unmapped_methods', v_unmapped, 'expenses_without_paid_from', v_no_paid_from, 'draft_expenses', v_drafts,
     'unreconciled_accounts', v_unrec, 'suspense_jpy', v_suspense);
@@ -720,7 +788,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.get_close_readiness(date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_close_readiness(date) TO authenticated;
 COMMENT ON FUNCTION public.get_close_readiness(date) IS
-  'Phase 8 (D1): what is still open before a month is closed — unposted events (dry run), posting failures, unbalanced / duplicate journals (errors, block the close); unmapped payment spellings, approved expenses without Paid from, draft expenses in the month, money accounts not reconciled, suspense balance (warnings, listed and recorded). view_ledger.';
+  'Phase 8 (D1): what is still open before a month is closed — a failed posting run, a rate that is not set, unbalanced / duplicate journals (errors, block the close); events dated in or before the month not yet posted (Close posts them first), unmapped payment spellings, approved expenses without Paid from, draft expenses in the month, money accounts not reconciled, suspense balance (warnings, listed and recorded). view_ledger.';
 
 CREATE OR REPLACE FUNCTION public.close_period(p_period_start date, p_note text DEFAULT NULL)
 RETURNS jsonb
@@ -751,6 +819,9 @@ BEGIN
     RETURN jsonb_build_object('error', 'already_closed');
   END IF;
   v_run := public.gl_post_settled('manual', v_uid);
+  IF v_run->>'ok' IS DISTINCT FROM 'true' THEN
+    RETURN jsonb_build_object('error', coalesce(v_run->>'error', 'posting_failed'), 'run', v_run);
+  END IF;
   IF coalesce((v_run->>'failed')::int, 0) > 0 THEN
     RETURN jsonb_build_object('error', 'posting_failed', 'run', v_run);
   END IF;
@@ -765,7 +836,8 @@ BEGIN
               || jsonb_array_length(v_ready->'expenses_without_paid_from') || ' expense(s) without Paid from, '
               || (v_ready->>'draft_expenses') || ' draft expense(s), '
               || jsonb_array_length(v_ready->'unreconciled_accounts') || ' account(s) not reconciled'
-              || CASE WHEN (v_ready->>'suspense_jpy')::numeric <> 0 THEN ', suspense balance' ELSE '' END, 1000);
+              || CASE WHEN (v_ready->>'suspense_jpy')::numeric <> 0 THEN ', suspense balance' ELSE '' END
+              || CASE WHEN (v_ready->>'unposted_events')::int > 0 THEN ', ' || (v_ready->>'unposted_events') || ' event(s) could not be posted' ELSE '' END, 1000);
   END IF;
   UPDATE public.gl_periods SET status = 'closed', closed_at = now(), closed_by = v_uid, note = v_note, updated_at = now()
    WHERE period_start = v_period;
@@ -826,14 +898,24 @@ BEGIN
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('gl_completeness_check'));
 
-  v_dry := public.gl_post_pending(true, 'manual', p_user_id);
-  IF coalesce((v_dry->>'posted')::int, 0) > 0 THEN
-    v_issues := v_issues || jsonb_build_object('kind', 'unposted', 'severity', 'error', 'ref', NULL, 'count', (v_dry->>'posted')::int,
-      'label', (v_dry->>'posted') || ' event(s) have no journal yet (the nightly posting did not run or keeps failing)', 'link', jsonb_build_object('view', 'journals'));
+  v_dry := public.gl_pending_counts(v_today - 2);
+  IF (v_dry->>'ok')::boolean = false THEN
+    v_issues := v_issues || jsonb_build_object('kind', 'posting_failed', 'severity', 'error', 'ref', 'rate', 'count', 1,
+      'label', 'Nothing can post: the peso rate is not set (Settings)', 'link', jsonb_build_object('view', 'journals'));
   END IF;
-  IF coalesce((v_dry->>'reversed')::int, 0) > 0 THEN
-    v_issues := v_issues || jsonb_build_object('kind', 'orphan', 'severity', 'error', 'ref', NULL, 'count', (v_dry->>'reversed')::int,
-      'label', (v_dry->>'reversed') || ' journal(s) no longer match their source and await reversal', 'link', jsonb_build_object('view', 'journals'));
+  IF coalesce((v_dry->>'post')::int, 0) > 0 THEN
+    v_issues := v_issues || jsonb_build_object('kind', 'unposted', 'severity', 'error', 'ref', NULL, 'count', (v_dry->>'post')::int,
+      'label', (v_dry->>'post') || ' event(s) dated two or more days ago still have no journal (the nightly posting did not run or keeps failing)', 'link', jsonb_build_object('view', 'journals'));
+  END IF;
+  IF coalesce((v_dry->>'reverse')::int, 0) > 0 THEN
+    v_issues := v_issues || jsonb_build_object('kind', 'orphan', 'severity', 'error', 'ref', NULL, 'count', (v_dry->>'reverse')::int,
+      'label', (v_dry->>'reverse') || ' journal(s) no longer match their source and await reversal', 'link', jsonb_build_object('view', 'journals'));
+  END IF;
+  v_dry := public.gl_pending_counts(v_today);
+  n := coalesce((v_dry->>'post')::int, 0) + coalesce((v_dry->>'reverse')::int, 0);
+  IF n > 0 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_issues) x WHERE x->>'kind' IN ('unposted', 'orphan')) THEN
+    v_issues := v_issues || jsonb_build_object('kind', 'pending_recent', 'severity', 'warning', 'ref', NULL, 'count', n,
+      'label', n || ' event(s) from the last two days will post tonight (or press Post now)', 'link', jsonb_build_object('view', 'journals'));
   END IF;
   SELECT * INTO r FROM public.gl_posting_runs pr ORDER BY pr.started_at DESC LIMIT 1;
   IF r.id IS NOT NULL AND r.failed > 0 THEN
@@ -935,7 +1017,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.gl_run_completeness_check(text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.gl_run_completeness_check(text, uuid) TO service_role;
 COMMENT ON FUNCTION public.gl_run_completeness_check(text, uuid) IS
-  'Phase 8 (D5): the nightly ledger check (cron gl-completeness-check 16:10 UTC) and "Run check now". Errors: unposted / orphan events (dry run), a failed posting run, duplicate journals, unbalanced journals, trial balance off. Warnings: late postings into the open month, months open > 10 days after their end, suspense balances > 30 days, approved expenses without Paid from > 7 days, drafts > 14 days, unmapped spellings, money accounts not reconciled 15 days after month end. One staff bell (no amounts) when errors > 0 or a warning is new.';
+  'Phase 8 (D5): the nightly ledger check (cron gl-completeness-check 16:10 UTC) and "Run check now". Errors: events dated two or more days ago still unposted / orphan journals, a failed posting run or a missing rate, duplicate journals, unbalanced journals, trial balance off. Warnings: events of the last two days still to post, late postings into the open month, months open > 10 days after their end, suspense balances > 30 days, approved expenses without Paid from > 7 days, drafts > 14 days, unmapped spellings, money accounts not reconciled 15 days after month end. One staff bell (no amounts) when errors > 0 or a warning is new.';
 
 CREATE OR REPLACE FUNCTION public.run_ledger_check()
 RETURNS jsonb

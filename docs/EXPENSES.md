@@ -715,19 +715,24 @@ no completeness check, no bank data anywhere. The engine already makes a duplica
   raises `period_closed` (the Expenses screen says "That month is closed in the ledger …"); `status → void` and a
   paid_from-only change pass; an insert whose `source` is not `manual` (email, recurring, payroll, commission,
   system) is moved to the first open day with "Dated … (month already closed); booked on the first open day."
-  appended to its notes. Payments are untouched (D6 of Phase 2b stands: they post on the first open day with the
+  appended to its notes — on insert and on a service-role update (an emailed bill attached to an old recurring
+  draft). Payments are untouched (D6 of Phase 2b stands: they post on the first open day with the
   original date kept).
-- **Close readiness** — `get_close_readiness(month)` (view_ledger): errors = unposted events (dry run), a failed
-  posting run, unbalanced journals in the month, duplicate live journals; warnings = unmapped payment spellings,
-  approved expenses without Paid from, draft expenses dated in the month, money accounts with movements and no
-  signed-off reconciliation, a 1190 / 1195 balance at month end. `close_period` re-stated: runs
-  `gl_post_settled` first, then the readiness; refuses with `ledger_errors` when errors remain; appends
+- **Close readiness** — `get_close_readiness(month)` (view_ledger): errors = a failed posting run, a missing peso
+  rate, unbalanced journals in the month, duplicate live journals; warnings = events dated in or before the month
+  not yet posted (`gl_pending_counts(month end)` — Close posts them first, so they never block), unmapped payment
+  spellings, approved expenses without Paid from, draft expenses dated in the month, money accounts with movements
+  and no signed-off reconciliation, a 1190 / 1195 balance at month end. `close_period` re-stated: runs
+  `gl_post_settled` first (a non-ok run — e.g. `rate_not_set` — stops the close), then the readiness; refuses with
+  `ledger_errors` when errors remain; appends
   "Closed with N open item(s): …" to the month's note and the counts to the audit row. The Months tab opens a
   dialog with the list before the Close button is enabled ("Close with open items" when only warnings).
 - **Nightly check** — `gl_run_completeness_check` (cron `gl-completeness-check` 16:10 UTC = 01:10 JST, after
   the 00:40 posting run; `run_ledger_check()` on demand, post_journal) writes `gl_check_runs` (issues jsonb,
-  counts, bell flag). Errors: `unposted` / `orphan` (what the dry run would post / reverse), `posting_failed`,
-  `duplicate`, `unbalanced`, `trial_balance`. Warnings: `late_posting` (journals posted in the last 24 h into the
+  counts, bell flag). Errors: `unposted` / `orphan` (events dated two or more days ago that the engine would still
+  post / reverse — anything newer is the warning `pending_recent`, so payments logged between the 00:40 posting
+  run and the 01:10 check never ring the bell), `posting_failed` (also when the peso rate is missing), `duplicate`,
+  `unbalanced`, `trial_balance`. Warnings: `pending_recent`, `late_posting` (journals posted in the last 24 h into the
   open month for a closed one), `month_open` (ended ≥ 10 days ago), `suspense` (1190 / 1195 balance with lines
   > 30 days), `expense_paid_from` (> 7 days), `expense_draft` (> 14 days), `unmapped_method`, `reconciliation`
   (month ended ≥ 15 days ago, accounts with movements not signed off). One `staff_notifications` row type
@@ -742,16 +747,22 @@ no completeness check, no bank data anywhere. The engine already makes a duplica
   `bank_statement_lines` (signed native amount, + in / − out; `matched_journal_line_id` unique; `match_kind`
   auto / manual / ignored + reason), `bank_reconciliations` (per account per month: statement closing or counted
   cash, ledger closing native + yen, difference, unmatched counts, status open / reconciled, note). RLS SELECT
-  view_ledger; writes only through RPCs needing post_journal: `import_bank_statement(jsonb)` (≤ 5,000 lines,
-  dedupe on date + amount + description within the account, saves the profile, then auto-matches the months
-  touched), `void_bank_import`, `auto_match_bank_lines`, `match_bank_line` (same account, same amount, ≤ 31 days,
-  never an opening-balance line), `unmatch_bank_line`, `ignore_bank_line(reason)`, `sign_off_reconciliation
-  (account, month, closing, note)` (month ended; difference 0; no unmatched statement line; no unmatched Hub
-  entry dated before the last five days of the month; cash accounts need only the count),
-  `reopen_reconciliation(reason)` (not when the ledger month is closed). The ledger side reads
-  `gl_live_money_lines` = posted, non-reversal lines — so a correction reversed after month end is already out
-  of the figure the bank must agree with (the trial balance keeps the as-the-books-stood view); opening-balance
-  lines count in the balance but are never matched. `get_bank_reconciliation(account, month)` returns the header,
+  view_ledger; writes only through RPCs needing post_journal: `import_bank_statement(jsonb)` (≤ 5,000 lines, every
+  line validated before anything is written; not for cash accounts; a line already present in another live import
+  of the account — same date, amount and description — is skipped once per existing copy, so three identical
+  ₱500 GCash receipts in one file are three lines and a re-export adds only the fourth; saves the profile, then
+  auto-matches the months touched under a per-account advisory lock), `void_bank_import`,
+  `auto_match_bank_lines` (candidates considered over the month ± 3 days so a line at the month boundary is not
+  mistaken for unique), `match_bank_line` (same account, same amount, ≤ 31 days, never an opening-balance line),
+  `unmatch_bank_line`, `ignore_bank_line(reason)`, `sign_off_reconciliation(account, month, closing, note)`
+  (month ended; statement closing = ledger closing − **in-transit** items, i.e. unmatched Hub entries dated in the
+  last five days of the month that the bank books next month; no unmatched statement line; no older unmatched Hub
+  entry; cash accounts need only the count), `reopen_reconciliation(reason)` (allowed after the ledger month is
+  closed — the reconciliation is not part of the books). The ledger side reads `gl_live_money_lines` = posted,
+  non-reversal lines keyed on the **source date** (the day the bank saw the money), so a correction reversed after
+  month end is already out of the figure the bank must agree with and a late repost reconciles in its own month
+  (the trial balance keeps the as-the-books-stood view); opening-balance lines count in the balance but are never
+  matched. `get_bank_reconciliation(account, month)` returns the header,
   the profile, the imports, "Not in the Hub" (statement lines with candidates = same amount within 31 days),
   "Not yet on the bank" (Hub entries in the month) and the set-aside lines. The browser parses the file
   (`controls.ts`: UTF-8 with BOM or Shift-JIS, delimiter sniffed, full-width digits, ¥ / ₱ / commas, △ ▲ (…)
@@ -760,6 +771,15 @@ no completeness check, no bank data anywhere. The engine already makes a duplica
   the count; a difference shows the over / short manual journal the owner may post herself.
 
 ### Verified (2026-10-26)
+- Independent review applied before the PR: close readiness no longer blocks on today's unposted payments (pending
+  events are a warning; the nightly check calls them an error only when two or more days old); same-day identical
+  statement lines are kept (dedupe by multiplicity against other imports); a refused file writes nothing;
+  the Checks "Open" links and the bell switch the Ledger tab while it is mounted; the sign-off has real in-transit
+  handling and reconciles on the source date; an emailed bill attached to a recurring draft in a since-closed month
+  moves the draft instead of failing; `rate_not_set` stops the close; auto-match looks across the month boundary
+  and locks per account; imports are blocked while any row cannot be read; the column map is seeded when the
+  import dialog opens; ymd files with two-digit years, EU-style amounts and UTF-16 exports parse; cash accounts
+  refuse statement imports; a signed-off month can be reopened after the ledger month closed.
 - Local PostgreSQL 16: nine migrations applied twice through one `run.sh`; the eight earlier suites still pass
   (17 / 5 / 11 / 8 / 7 / 8 / 7 / 10); new `test_controls.sql` (9 groups): permissions and RLS, a fixture book,
   readiness + close with warnings recorded, period lock on insert / approve / edit / move / void / Paid from /
@@ -767,13 +787,14 @@ no completeness check, no bank data anywhere. The engine already makes a duplica
   bell once with counts only and silent when nothing is new, a new warning ringing again, history, bank import
   (validation, profile saved, duplicate file, dedupe, auto-match one-each-side vs two receipts for one line,
   manual match / unmatch, sign-off refusals in order, ignore with reason, sign-off, locks after sign-off, reopen,
-  void), cash count, trigger order; new `test_e2e.sql` (5 groups): day one (dated rate, start, opening journal in
+  void, three identical same-day lines kept and deduped by count on re-export, cash import refused, the cron role
+  running the check, service-role move of a system draft), cash count, trigger order; new `test_e2e.sql` (5 groups): day one (dated rate, start, opening journal in
   two currencies) → a month of business (sales, payments, expense, Square fee, payout, remittance) posted once
   → statement import matching 4 of 5 lines, the bank fee booked and matched, SMBC and cash signed off, a bank
   account refused on balance alone → readiness, close, statements agreeing with the trial balance, journal CSV
   complete → a corrected June payment after the close rolls into July with its date kept while June's reported
-  figures do not move. `test_ledger` L10 now accepts the foreign-key refusal of TRUNCATE (bank lines reference
-  journal lines).
+  figures do not move and the corrected receipt reconciles in June on the bank side. `test_ledger` L10 truncates
+  with CASCADE (bank lines reference journal lines) so the guard trigger is still what refuses it.
 - tsc exit 0; Vitest controls (18) + full suite pass; build passes; lint unchanged (881 / 150).
 
 ### Go-live

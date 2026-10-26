@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   CHECK_KIND_LABEL, DEFAULT_PROFILE, type BankRec, type CheckIssue,
-  buildStatementLines, cashAdjustmentHint, controlsRefusal, decodeStatementBytes, formatSigned, groupIssues, importPayload, issueHref, lastCheckLabel,
+  buildStatementLines, cashAdjustmentHint, controlsRefusal, decodeStatementBytes, expectedClosing, formatSigned, groupIssues, importPayload, issueHref, lastCheckLabel,
   normaliseBankRec, normaliseChecks, normaliseReadiness, parseAmount, parseCsvRows, parseStatementDate, readinessItems, sha256Hex, signOffBlockers, sniffDelimiter, splitCsvLine,
 } from "@/components/finance/controls";
 import { refusalCode, expenseRefusal } from "@/components/finance/expenses";
@@ -21,6 +21,8 @@ describe("controls — bank file parsing", () => {
     const out = decodeStatementBytes(sjis);
     expect(out.encoding).toBe("shift_jis");
     expect(out.text).toBe("日付,残高");
+    const utf16 = new Uint8Array([0xff, 0xfe, 0x41, 0x00, 0x2c, 0x00, 0x42, 0x00]);
+    expect(decodeStatementBytes(utf16)).toEqual({ text: "A,B", encoding: "utf-8" });
   });
   it("sniffs the delimiter and splits quoted fields", () => {
     expect(sniffDelimiter("a,b,c\n1,2,3\n4,5,6")).toBe(",");
@@ -42,6 +44,9 @@ describe("controls — bank file parsing", () => {
     expect(parseAmount("abc")).toBeNull();
     expect(parseAmount(undefined)).toBeNull();
     expect(parseAmount("₱1,500.00")).toBe(1500);
+    expect(parseAmount("1.000,00")).toBe(1000);
+    expect(parseAmount("-12.345,67")).toBe(-12345.67);
+    expect(parseAmount("1,000-")).toBeNull();
   });
   it("dates: Japanese bank formats and day-first exports", () => {
     expect(parseStatementDate("2026/09/05", "ymd")).toBe("2026-09-05");
@@ -53,6 +58,7 @@ describe("controls — bank file parsing", () => {
     expect(parseStatementDate("05/09/2026", "dmy")).toBe("2026-09-05");
     expect(parseStatementDate("09/05/2026", "mdy")).toBe("2026-09-05");
     expect(parseStatementDate("05/09/26", "dmy")).toBe("2026-09-05");
+    expect(parseStatementDate("26/09/05", "ymd")).toBe("2026-09-05");
     expect(parseStatementDate("2026/02/30", "ymd")).toBeNull();
     expect(parseStatementDate("令和8年9月5日", "ymd")).toBeNull();
     expect(parseStatementDate("", "ymd")).toBeNull();
@@ -85,7 +91,7 @@ describe("controls — bank file parsing", () => {
 
 const baseRec: BankRec = {
   account: "1101", name: "SMBC", name_ja: "普通預金 三井住友", currency: "JPY", is_cash: false, month: "2026-08-01", month_end: "2026-08-31",
-  ledger_closing_native: 1048000, ledger_closing_jpy: 1048000, statement_closing: 1059780, statement_closing_source: "statement",
+  ledger_closing_native: 1048000, ledger_closing_jpy: 1048000, in_transit_native: 0, statement_closing: 1059780, statement_closing_source: "statement",
   reconciliation: null, can_post: true, profile: null, imports: [], matched_count: 2, ignored: [],
   unmatched_statement: [{ id: "s1", booked_on: "2026-08-11", description: "x", amount: 12000, balance_after: null, candidates: [] }],
   unmatched_ledger: [{ journal_line_id: "j1", journal_no: 9, entry_date: "2026-08-10", source_type: "payment", description: "p", memo: null, signed_amount: 12000, signed_jpy: 12000, customer_id: null, account_id: null, cash_order_id: null, expense_id: null },
@@ -97,6 +103,10 @@ describe("controls — sign-off rules", () => {
     expect(signOffBlockers(baseRec, null)).toEqual(["Type (or import) the statement closing balance.", "1 statement line not matched or ignored.", "1 Hub entry dated before the last five days of the month is not on the statement."]);
     expect(signOffBlockers(baseRec, 1059780)[0]).toBe("Difference +¥11,780 between the statement and the ledger.");
     expect(signOffBlockers({ ...baseRec, unmatched_statement: [], unmatched_ledger: [baseRec.unmatched_ledger[1]] }, 1048000)).toEqual([]);
+    const transit = { ...baseRec, unmatched_statement: [], unmatched_ledger: [baseRec.unmatched_ledger[1]], in_transit_native: 5000 };
+    expect(expectedClosing(transit)).toBe(1043000);
+    expect(signOffBlockers(transit, 1043000)).toEqual([]);
+    expect(signOffBlockers(transit, 1048000)[0]).toBe("Difference +¥5,000 between the statement and the ledger (after in-transit items).");
   });
   it("cash accounts need only the count; a difference gets a hint, never a posting", () => {
     const cash: BankRec = { ...baseRec, account: "1010", name: "Cash on hand - Japan", is_cash: true, ledger_closing_native: 20000, ledger_closing_jpy: 20000, statement_closing: null, statement_closing_source: null };
@@ -139,14 +149,16 @@ describe("controls — checks and readiness presentation", () => {
     expect(lastCheckLabel(null)).toBe("Never checked");
   });
   it("readiness items read like a checklist; errors first", () => {
-    const r = normaliseReadiness({ period_start: "2026-08-01", period_end: "2026-08-31", errors: 1, warnings: 3, can_close: false, unposted_events: 2, posting_failed: 0, dry_run: true, unbalanced_journals: 0, duplicate_journals: 0,
+    const r = normaliseReadiness({ period_start: "2026-08-01", period_end: "2026-08-31", errors: 1, warnings: 3, can_close: false, unposted_events: 2, posting_failed: 1, dry_run: true, unbalanced_journals: 0, duplicate_journals: 0,
       unmapped_methods: [{ spelling: "bank transfer", rows: 2, first_seen: "2026-08-01" }], expenses_without_paid_from: [], draft_expenses: 1,
       unreconciled_accounts: [{ code: "1101", name: "SMBC", name_ja: null, lines: 4, status: "none" }, { code: "1111", name: "BDO", name_ja: null, lines: 2, status: "open" }], suspense_jpy: "0" });
     const items = readinessItems(r);
-    expect(items[0]).toEqual({ severity: "error", text: expect.stringContaining("2 events not posted yet") });
-    expect(items.map((i) => i.severity)).toEqual(["error", "warning", "warning", "warning"]);
+    expect(items[0]).toEqual({ severity: "error", text: "The last posting run failed on 1 event" });
+    expect(items.map((i) => i.severity)).toEqual(["error", "warning", "warning", "warning", "warning"]);
     expect(items[3].text).toBe("Not reconciled: 1101 SMBC, 1111 BDO");
-    expect(readinessItems({ ...r, unposted_events: 0, unmapped_methods: [], draft_expenses: 0, unreconciled_accounts: [] })).toEqual([]);
+    expect(items[4].text).toMatch(/2 events dated in or before the month not posted yet — Close posts them first/);
+    expect(readinessItems({ ...r, posting_failed: 0, unposted_events: 0, unmapped_methods: [], draft_expenses: 0, unreconciled_accounts: [] })).toEqual([]);
+    expect(readinessItems({ ...r, posting_failed: 0, dry_run_error: "rate_not_set" })[0]).toEqual({ severity: "error", text: "The peso rate is not set, so nothing can post" });
   });
   it("status strip and periods carry the Phase 8 fields; older servers leave them empty", () => {
     const s = normaliseStatus({ ledger_start_date: "2026-06-01", fiscal_year_start_month: "4", can_post: true, last_check: { id: "x", ran_at: "2026-10-26T16:10:00Z", trigger: "cron", errors: "1", warnings: "0", bell_rung: true },
@@ -171,6 +183,7 @@ describe("controls — checks and readiness presentation", () => {
     expect(controlsRefusal("duplicate_file")).toMatch(/already imported/);
     expect(controlsRefusal("unmatched_statement_lines")).toMatch(/Match or ignore/);
     expect(controlsRefusal("invalid_line_match")).toMatch(/opening balance/);
+    expect(controlsRefusal("cash_has_no_statement")).toMatch(/count the drawer/);
     expect(controlsRefusal("nope")).toBeNull();
     expect(refusalCode({ message: 'period_closed: 2026-06-15 is in a closed month' })).toBe("period_closed");
     expect(expenseRefusal("period_closed")).toMatch(/closed in the ledger/);
@@ -186,6 +199,11 @@ describe("controls — wiring", () => {
     expect(tab).toContain('callRpc("get_close_readiness", { p_period_start: closing })');
     expect(tab).toContain("disabled={!readiness.data || !readiness.data.can_close || close.isPending}");
     expect(tab).toContain('searchParams.get("view")');
+    expect(tab).toMatch(/useEffect\(\(\) => \{\s*if \(urlView && \(VIEWS as readonly string\[\]\)\.includes\(urlView\) && urlView !== view\) setView/);
+    const rec = read("src/components/finance/BankRecSection.tsx");
+    expect(rec).toContain("parsed.problems.length > 0 || !amountOk");
+    expect(rec).toContain("const openDialog = () => { setProfile(rec.profile ?? DEFAULT_PROFILE); setFile(null); setOpen(true); };");
+    expect(rec).toContain("useEffect(() => { if (initialMonth && /^\\d{4}-\\d{2}$/.test(initialMonth)) setMonth(initialMonth); }, [initialMonth]);");
     expect(tab).toContain("accounts reconciled");
     const bell = read("src/components/notifications/StaffNotificationBell.tsx");
     expect(bell).toContain("n.type === 'ledger_check'");
@@ -199,6 +217,11 @@ describe("controls — wiring", () => {
     expect(m).toContain("CREATE TRIGGER expenses_before_period_lock BEFORE INSERT OR UPDATE ON public.expenses");
     expect(m).toContain("cron.schedule('gl-completeness-check', '10 16 * * *'");
     expect(m).toContain("WHERE j.status = 'posted' AND j.kind <> 'reversal'");
+    expect(m).toContain("j.source_date AS entry_date");
+    expect(m).toContain("PERFORM pg_advisory_xact_lock(hashtext('bank_match:' || p_account));");
+    expect(m).toContain("'cash_has_no_statement'");
+    expect(m).toContain("IF v_run->>'ok' IS DISTINCT FROM 'true' THEN");
+    expect(m).toContain("public.gl_pending_counts(v_today - 2)");
     for (const fn of ["import_bank_statement(jsonb)", "void_bank_import(uuid, text)", "auto_match_bank_lines(text, date)", "match_bank_line(uuid, uuid)", "unmatch_bank_line(uuid)", "ignore_bank_line(uuid, text)",
       "get_bank_reconciliation(text, date)", "sign_off_reconciliation(text, date, numeric, text)", "reopen_reconciliation(text, date, text)", "get_close_readiness(date)", "run_ledger_check()", "get_ledger_checks(integer)", "close_period(date, text)", "get_ledger_status(boolean)"]) {
       expect(m).toContain(`REVOKE ALL ON FUNCTION public.${fn} FROM PUBLIC, anon;`);

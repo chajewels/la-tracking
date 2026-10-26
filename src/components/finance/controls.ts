@@ -14,7 +14,7 @@ export const READINESS_KEY = ["finance", "ledger", "readiness"] as const;
 export type CheckSeverity = "error" | "warning";
 export type CheckKind =
   | "unposted" | "orphan" | "posting_failed" | "duplicate" | "unbalanced" | "trial_balance"
-  | "late_posting" | "month_open" | "suspense" | "expense_paid_from" | "expense_draft" | "unmapped_method" | "reconciliation";
+  | "pending_recent" | "late_posting" | "month_open" | "suspense" | "expense_paid_from" | "expense_draft" | "unmapped_method" | "reconciliation";
 export type CheckIssue = {
   kind: CheckKind; severity: CheckSeverity; ref: string | null; count: number; label: string;
   link: { view?: string; month?: string; account?: string; journal_no?: number; source_type?: string; source_id?: string } | null;
@@ -50,12 +50,13 @@ export function normaliseChecks(raw: Record<string, unknown>): LedgerChecks {
 
 /** What each check kind means to the owner, in one line, and what to do. */
 export const CHECK_KIND_LABEL: Record<CheckKind, { title: string; action: string }> = {
-  unposted: { title: "Events without a journal", action: "Press Post now; if it fails, the run note says which event." },
+  unposted: { title: "Events without a journal for two days or more", action: "Press Post now; if it fails, the run note says which event." },
   orphan: { title: "Journals whose source changed", action: "Press Post now — the engine reverses and reposts them." },
   posting_failed: { title: "The last posting run failed", action: "Read the note on the Journals strip; fix the source (plan, payment, expense) and post again." },
   duplicate: { title: "Two live journals for one event", action: "Should not happen (the database refuses it). Tell Claude." },
   unbalanced: { title: "A journal that does not balance", action: "Should not happen (the database refuses it). Tell Claude." },
   trial_balance: { title: "The trial balance is off", action: "Should not happen. Tell Claude before closing any month." },
+  pending_recent: { title: "Recent events not posted yet", action: "Normal between the nightly runs — press Post now if you need them in the books today." },
   late_posting: { title: "Items booked into the open month", action: "Normal after a correction to a closed month — the 税理士 pack notes them." },
   month_open: { title: "A month still open", action: "Reconcile the accounts and close it on Months." },
   suspense: { title: "Suspense balance over 30 days", action: "Map the payment spelling (Accounts) or set Paid from on the expense." },
@@ -94,7 +95,7 @@ export function lastCheckLabel(run: CheckRun | null, now: Date = new Date()): st
 
 export type Readiness = {
   period_start: string; period_end: string; errors: number; warnings: number; can_close: boolean;
-  unposted_events: number; posting_failed: number; dry_run: boolean; unbalanced_journals: number; duplicate_journals: number;
+  unposted_events: number; posting_failed: number; dry_run: boolean; dry_run_error: string | null; unbalanced_journals: number; duplicate_journals: number;
   unmapped_methods: { spelling: string; rows: number; first_seen: string }[];
   expenses_without_paid_from: { id: string; expense_date: string; description: string; amount: number; currency: "JPY" | "PHP" }[];
   draft_expenses: number;
@@ -105,7 +106,7 @@ export function normaliseReadiness(raw: Record<string, unknown>): Readiness {
   const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   return {
     period_start: String(raw.period_start ?? ""), period_end: String(raw.period_end ?? ""), errors: num(raw.errors), warnings: num(raw.warnings), can_close: raw.can_close === true,
-    unposted_events: num(raw.unposted_events), posting_failed: num(raw.posting_failed), dry_run: raw.dry_run === true,
+    unposted_events: num(raw.unposted_events), posting_failed: num(raw.posting_failed), dry_run: raw.dry_run === true, dry_run_error: (raw.dry_run_error as string | null) ?? null,
     unbalanced_journals: num(raw.unbalanced_journals), duplicate_journals: num(raw.duplicate_journals),
     unmapped_methods: arr(raw.unmapped_methods).map((m) => ({ spelling: String(m.spelling), rows: num(m.rows), first_seen: String(m.first_seen ?? "") })),
     expenses_without_paid_from: arr(raw.expenses_without_paid_from).map((e) => ({ id: String(e.id), expense_date: String(e.expense_date), description: String(e.description ?? ""), amount: num(e.amount), currency: e.currency === "PHP" ? "PHP" : "JPY" })),
@@ -118,7 +119,7 @@ export function normaliseReadiness(raw: Record<string, unknown>): Readiness {
 /** The readiness report as lines the owner reads before pressing Close. */
 export function readinessItems(r: Readiness): { severity: CheckSeverity; text: string }[] {
   const out: { severity: CheckSeverity; text: string }[] = [];
-  if (r.unposted_events > 0) out.push({ severity: "error", text: `${r.unposted_events} event${r.unposted_events === 1 ? "" : "s"} not posted yet (Close posts them first; if that fails the month stays open)` });
+  if (r.dry_run_error) out.push({ severity: "error", text: r.dry_run_error === "rate_not_set" ? "The peso rate is not set, so nothing can post" : "The posting engine could not run" });
   if (r.posting_failed > 0) out.push({ severity: "error", text: `The last posting run failed on ${r.posting_failed} event${r.posting_failed === 1 ? "" : "s"}` });
   if (r.unbalanced_journals > 0) out.push({ severity: "error", text: `${r.unbalanced_journals} journal${r.unbalanced_journals === 1 ? "" : "s"} in the month do${r.unbalanced_journals === 1 ? "es" : ""} not balance` });
   if (r.duplicate_journals > 0) out.push({ severity: "error", text: `${r.duplicate_journals} event${r.duplicate_journals === 1 ? " has" : "s have"} two live journals` });
@@ -127,6 +128,7 @@ export function readinessItems(r: Readiness): { severity: CheckSeverity; text: s
   if (r.draft_expenses > 0) out.push({ severity: "warning", text: `${r.draft_expenses} expense draft${r.draft_expenses === 1 ? "" : "s"} dated in the month still waiting` });
   if (r.unreconciled_accounts.length > 0) out.push({ severity: "warning", text: `Not reconciled: ${r.unreconciled_accounts.map((a) => `${a.code} ${a.name}`).join(", ")}` });
   if (r.suspense_jpy !== 0) out.push({ severity: "warning", text: `Suspense accounts (1190 / 1195) carry a balance at month end` });
+  if (r.unposted_events > 0) out.push({ severity: "warning", text: `${r.unposted_events} event${r.unposted_events === 1 ? "" : "s"} dated in or before the month not posted yet — Close posts them first` });
   return out;
 }
 
@@ -150,7 +152,7 @@ export type Reconciliation = {
 export type BankImport = { id: string; file_name: string; file_sha256: string; rows_in_file: number; inserted: number; skipped: number; period_from: string | null; period_to: string | null; imported_at: string; voided_at: string | null; void_reason: string | null };
 export type BankRec = {
   account: string; name: string; name_ja: string | null; currency: "JPY" | "PHP"; is_cash: boolean; month: string; month_end: string;
-  ledger_closing_native: number; ledger_closing_jpy: number; statement_closing: number | null; statement_closing_source: "typed" | "statement" | null;
+  ledger_closing_native: number; ledger_closing_jpy: number; in_transit_native: number; statement_closing: number | null; statement_closing_source: "typed" | "statement" | null;
   reconciliation: Reconciliation | null; can_post: boolean; profile: ImportProfile | null; imports: BankImport[];
   matched_count: number; ignored: IgnoredLine[]; unmatched_statement: UnmatchedStatement[]; unmatched_ledger: UnmatchedLedger[];
 };
@@ -165,7 +167,7 @@ export function normaliseBankRec(raw: Record<string, unknown>): BankRec {
   return {
     account: String(raw.account), name: String(raw.name ?? ""), name_ja: (raw.name_ja as string | null) ?? null, currency: raw.currency === "PHP" ? "PHP" : "JPY",
     is_cash: raw.is_cash === true, month: String(raw.month), month_end: String(raw.month_end),
-    ledger_closing_native: num(raw.ledger_closing_native), ledger_closing_jpy: num(raw.ledger_closing_jpy),
+    ledger_closing_native: num(raw.ledger_closing_native), ledger_closing_jpy: num(raw.ledger_closing_jpy), in_transit_native: num(raw.in_transit_native),
     statement_closing: raw.statement_closing == null ? null : num(raw.statement_closing),
     statement_closing_source: raw.statement_closing_source === "typed" ? "typed" : raw.statement_closing_source === "statement" ? "statement" : null,
     reconciliation: rec ? {
@@ -205,6 +207,10 @@ export function normaliseProfile(p: Record<string, unknown>): ImportProfile {
 
 /** Decode a bank file: UTF-8 when it is valid UTF-8 (BOM stripped), otherwise Shift-JIS (Japanese banks). */
 export function decodeStatementBytes(bytes: Uint8Array): { text: string; encoding: "utf-8" | "shift_jis" } {
+  if (bytes.length >= 2 && ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))) {
+    const le = bytes[0] === 0xff;
+    return { text: new TextDecoder(le ? "utf-16le" : "utf-16be").decode(bytes.subarray(2)), encoding: "utf-8" };
+  }
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return { text: text.replace(/^\uFEFF/, ""), encoding: "utf-8" };
@@ -250,6 +256,7 @@ export function parseCsvRows(text: string, delimiter: string): string[][] {
 export function parseAmount(raw: string | undefined): number | null {
   if (raw == null) return null;
   let s = raw.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[－−―]/g, "-").replace(/．/g, ".").replace(/，/g, ",");
+  if (/^[-+(△▲]?\d{1,3}(\.\d{3})+(,\d{1,2})?\)?$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
   s = s.replace(/[¥￥₱円\s,]/g, "");
   if (s === "" || s === "-") return null;
   let neg = false;
@@ -272,7 +279,7 @@ export function parseStatementDate(raw: string | undefined, format: ImportProfil
   if (compact) { y = Number(compact[1]); m = Number(compact[2]); d = Number(compact[3]); }
   else if (parts) {
     const a = Number(parts[1]), b = Number(parts[2]), c = Number(parts[3]);
-    if (parts[1].length === 4) { y = a; m = b; d = c; }
+    if (parts[1].length === 4 || format === "ymd") { y = a; m = b; d = c; }
     else if (format === "mdy") { m = a; d = b; y = c; }
     else { d = a; m = b; y = c; }
     if (y < 100) y += 2000;
@@ -326,14 +333,20 @@ export function importPayload(account: string, fileName: string, sha: string, pr
 export function monthStartOf(monthKey: string): string { return `${monthKey}-01`; }
 export function monthEndOf(monthKey: string): string { const [y, m] = monthKey.split("-").map(Number); return `${monthKey}-${pad(daysInMonth(y, m))}`; }
 
+/** The balance the statement must agree with: the ledger less Hub entries of the last five days the bank has not booked yet (in transit). */
+export function expectedClosing(rec: BankRec): number {
+  return rec.is_cash ? rec.ledger_closing_native : rec.ledger_closing_native - rec.in_transit_native;
+}
+
 /** What stops a sign-off, in the owner's words (mirrors sign_off_reconciliation). */
 export function signOffBlockers(rec: BankRec, typedClosing: number | null): string[] {
   const out: string[] = [];
+  const expected = expectedClosing(rec);
   if (typedClosing == null) out.push(rec.is_cash ? "Type the counted cash." : "Type (or import) the statement closing balance.");
-  else if (Math.round((typedClosing - rec.ledger_closing_native) * 100) !== 0) out.push(`Difference ${formatSigned(typedClosing - rec.ledger_closing_native, rec.currency)} between the ${rec.is_cash ? "count" : "statement"} and the ledger.`);
+  else if (Math.round((typedClosing - expected) * 100) !== 0) out.push(`Difference ${formatSigned(typedClosing - expected, rec.currency)} between the ${rec.is_cash ? "count" : "statement"} and the ledger${rec.in_transit_native ? " (after in-transit items)" : ""}.`);
   if (!rec.is_cash && rec.unmatched_statement.length > 0) out.push(`${rec.unmatched_statement.length} statement line${rec.unmatched_statement.length === 1 ? "" : "s"} not matched or ignored.`);
   const end = new Date(`${rec.month_end}T00:00:00Z`).getTime();
-  const old = rec.unmatched_ledger.filter((l) => end - new Date(`${l.entry_date}T00:00:00Z`).getTime() >= 5 * 86_400_000);
+  const old = rec.unmatched_ledger.filter((l) => end - new Date(`${l.entry_date}T00:00:00Z`).getTime() > 4 * 86_400_000);
   if (!rec.is_cash && old.length > 0) out.push(`${old.length} Hub entr${old.length === 1 ? "y" : "ies"} dated before the last five days of the month ${old.length === 1 ? "is" : "are"} not on the statement.`);
   return out;
 }
@@ -358,6 +371,7 @@ export function cashAdjustmentHint(rec: BankRec, counted: number): string | null
 export function controlsRefusal(code: string): string | null {
   switch (code) {
     case "invalid_file": return "The file could not be read.";
+    case "cash_has_no_statement": return "Cash has no statement — count the drawer and type the amount.";
     case "no_lines": return "No statement lines were found with this column map.";
     case "too_many_lines": return "That file has more than 5,000 lines — split it by month.";
     case "duplicate_file": return "This exact file was already imported for this account.";

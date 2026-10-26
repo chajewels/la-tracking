@@ -63,6 +63,10 @@ export default function LedgerTab() {
   const [searchParams] = useSearchParams();
   const urlView = searchParams.get("view");
   const [view, setView] = useState<View>((VIEWS as readonly string[]).includes(urlView ?? "") ? (urlView as View) : "journals");
+  useEffect(() => {
+    if (urlView && (VIEWS as readonly string[]).includes(urlView) && urlView !== view) setView(urlView as View);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
@@ -124,7 +128,7 @@ export default function LedgerTab() {
               {s.ledger_start_date && (
                 <div className={`text-xs mt-0.5 ${s.last_check && s.last_check.errors > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                   <ShieldCheck className="inline h-3 w-3 mr-1" />{lastCheckLabel(s.last_check ? { ...s.last_check, run_by: null, duration_ms: null } : null)}
-                  {" "}<button type="button" className="underline min-h-11 align-middle" onClick={() => setView("checks")}>Checks</button>
+                  {" "}<button type="button" className="underline" onClick={() => setView("checks")}>Checks</button>
                 </div>
               )}
             </div>

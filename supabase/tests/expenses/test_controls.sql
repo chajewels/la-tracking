@@ -109,6 +109,16 @@ DO $t$ DECLARE r jsonb; d uuid; moved uuid; cat uuid := (SELECT id FROM public.e
   INSERT INTO public.expenses (expense_date, category_id, description, currency, amount, amount_jpy, payment_method, status, source, source_ref, created_by)
   VALUES ('2026-06-12', cat, 'Recurring June bill', 'JPY', 2000, 0, 'bank_transfer', 'draft', 'recurring', 'rec-1', '00000000-0000-0000-0000-00000000000a') RETURNING id INTO moved;
   ASSERT (SELECT expense_date FROM public.expenses WHERE id = moved) = '2026-07-01' AND (SELECT notes FROM public.expenses WHERE id = moved) LIKE '%Dated 2026-06-12 (month already closed)%', 'system draft moved to the first open day with a note';
+  INSERT INTO public.expenses (id, expense_date, category_id, description, currency, amount, amount_jpy, payment_method, status, source, source_ref, created_by)
+  VALUES ('88888888-0000-0000-0000-000000000001', '2026-07-05', cat, 'Recurring July bill', 'JPY', 2000, 0, 'bank_transfer', 'draft', 'recurring', 'rec-2', '00000000-0000-0000-0000-00000000000a');
+  PERFORM public.gl_period_for('2026-07-01');
+  UPDATE public.gl_periods SET status = 'closed', closed_at = now() WHERE period_start = '2026-07-01';
+  PERFORM set_config('request.jwt.claim.sub', '', false);
+  UPDATE public.expenses SET receipt_path = '88888888-0000-0000-0000-000000000001/bill.pdf', amount = 2100 WHERE id = '88888888-0000-0000-0000-000000000001';
+  ASSERT (SELECT expense_date FROM public.expenses WHERE id = '88888888-0000-0000-0000-000000000001') = '2026-08-01' AND (SELECT amount FROM public.expenses WHERE id = '88888888-0000-0000-0000-000000000001') = 2100, 'a service-role update of a system draft in a since-closed month (email bill attached) moves it instead of failing';
+  UPDATE public.gl_periods SET status = 'open', closed_at = NULL WHERE period_start = '2026-07-01';
+  UPDATE public.expenses SET status = 'void', voided_by = '00000000-0000-0000-0000-00000000000a', voided_at = now(), void_reason = 'test cleanup' WHERE id = '88888888-0000-0000-0000-000000000001';
+  PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
   SET ROLE authenticated;
   PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
   r := public.gl_post_now(); ASSERT r->>'ok' = 'true', 'repost after the corrections: ' || r::text;
@@ -133,7 +143,9 @@ DO $t$ DECLARE r jsonb; src uuid; n int; BEGIN
   SET ROLE authenticated;
   PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
   r := public.get_close_readiness('2026-07-01');
-  ASSERT (r->>'unposted_events')::int = 2 AND (r->>'errors')::int = 2 AND (r->>'can_close')::boolean = false, 'a changed payment = one reversal + one repost pending: ' || r::text;
+  ASSERT (r->>'unposted_events')::int = 0, 'the changed payment is dated August — nothing pending on or before July: ' || r::text;
+  r := public.get_close_readiness('2026-08-01');
+  ASSERT (r->>'unposted_events')::int = 2 AND (r->>'errors')::int = 0 AND (r->>'can_close')::boolean, 'one reversal + one repost pending is a warning (Close posts first), not an error: ' || r::text;
   r := public.run_ledger_check();
   ASSERT r->>'ok' = 'true' AND (r->>'errors')::int = 2, 'unposted + orphan: ' || (r - 'issues')::text;
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' IN ('unposted', 'orphan') AND x->>'severity' = 'error') = 2, 'the two error kinds';
@@ -142,13 +154,19 @@ DO $t$ DECLARE r jsonb; src uuid; n int; BEGIN
   ASSERT (SELECT body FROM public.staff_notifications WHERE type = 'ledger_check') NOT LIKE '%¥%' AND (SELECT body FROM public.staff_notifications WHERE type = 'ledger_check') NOT LIKE '%12000%'
      AND (SELECT title FROM public.staff_notifications WHERE type = 'ledger_check') LIKE 'Ledger check: % issues', 'bell carries counts only';
   r := public.close_period('2026-07-01', 'July');
-  ASSERT r->>'ok' = 'true' AND (r->'readiness'->>'errors')::int = 0, 'closing posts first, so the pending pair is no longer an error: ' || (r - 'period')::text;
+  ASSERT r->>'ok' = 'true' AND (r->'readiness'->>'errors')::int = 0 AND (r->'readiness'->>'unposted_events')::int = 0, 'closing posts first: ' || (r - 'period')::text;
   ASSERT (SELECT sum(l.debit_jpy - l.credit_jpy) FROM public.gl_journal_lines l WHERE l.account_code = '1101') = 1000000 + 41000 + 12000 - 5000 - 3000 + 3000, 'SMBC after the correction';
   RAISE NOTICE 'K4 errors + check OK';
 END $t$;
 
--- K5 the nightly check on a clean book: warnings, no repeat bell, a new warning rings again, history.
+-- K5 the nightly check on a clean book: warnings, no repeat bell, a new warning rings again, history; the cron path.
 DO $t$ DECLARE r jsonb; n int; BEGIN
+  RESET ROLE;
+  r := public.gl_run_completeness_check('cron', NULL);
+  ASSERT r->>'ok' = 'true' AND (r->>'errors')::int = 0, 'the cron role runs the check with no user: ' || (r - 'issues')::text;
+  ASSERT (SELECT trigger FROM public.gl_check_runs ORDER BY ran_at DESC LIMIT 1) = 'cron' AND (SELECT run_by FROM public.gl_check_runs ORDER BY ran_at DESC LIMIT 1) IS NULL, 'recorded as cron';
+  SET ROLE authenticated;
+  PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
   r := public.run_ledger_check();
   ASSERT (r->>'errors')::int = 0, 'clean again: ' || (r->'issues')::text;
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'month_open' AND x->>'ref' IN ('2026-06', '2026-07')) = 0, 'closed months are not reported';
@@ -165,7 +183,7 @@ DO $t$ DECLARE r jsonb; n int; BEGIN
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'suspense' AND x->>'ref' = '1190') = 1 AND (r->>'bell_rung')::boolean AND (r->>'new_warnings')::int = 1, 'a new warning rings: ' || (r - 'issues')::text;
   SELECT count(*) INTO n FROM public.staff_notifications WHERE type = 'ledger_check'; ASSERT n = 2, 'two bells: ' || n;
   r := public.get_ledger_checks(10);
-  ASSERT jsonb_array_length(r->'runs') = 3 AND (r->'latest'->>'warnings')::int >= 6 AND r->'latest' ? 'issues' AND NOT (r->'runs'->0 ? 'issues'), 'history without issue bodies, latest with: ' || (r->'runs')::text;
+  ASSERT jsonb_array_length(r->'runs') = 4 AND (r->'latest'->>'warnings')::int >= 6 AND r->'latest' ? 'issues' AND NOT (r->'runs'->0 ? 'issues'), 'history without issue bodies, latest with: ' || (r->'runs')::text;
   r := public.get_ledger_status();
   ASSERT (r->'last_check'->>'errors')::int = 0 AND (r->'last_check'->>'warnings')::int >= 6, 'status strip carries the last check';
   ASSERT (SELECT (p->>'unreconciled_accounts')::int FROM jsonb_array_elements(r->'periods') p WHERE p->>'period_start' = '2026-08-01') = 1, 'periods carry reconciliation counts';
@@ -198,6 +216,17 @@ DO $t$ DECLARE r jsonb; imp uuid; l1 uuid; l2 uuid; jl uuid; rec jsonb; BEGIN
   ASSERT r->>'ok' = 'true' AND (r->>'inserted')::int = 0 AND (r->>'skipped')::int = 2, 'overlapping lines deduped: ' || r::text;
   r := public.import_bank_statement(jsonb_build_object('account_code', '1101', 'file_sha256', repeat('c', 64), 'lines', '[{"booked_on":"2026-08-10","amount":"0"}]'::jsonb));
   ASSERT r->>'error' = 'invalid_line' AND (r->>'line_no')::int = 1, 'zero amount refused';
+  ASSERT (SELECT count(*) FROM public.bank_statement_imports WHERE file_sha256 = repeat('c', 64)) = 0, 'a refused file leaves nothing behind';
+  r := public.import_bank_statement(jsonb_build_object('account_code', '1101', 'file_sha256', repeat('d', 64), 'file_name', 'twins.csv',
+         'lines', '[{"booked_on":"2026-08-20","description":"GCASH","amount":"500"},{"booked_on":"2026-08-20","description":"GCASH","amount":"500"},{"booked_on":"2026-08-20","description":"GCASH","amount":"500"}]'::jsonb));
+  ASSERT r->>'ok' = 'true' AND (r->>'inserted')::int = 3 AND (r->>'skipped')::int = 0, 'three identical same-day lines in one file are three lines: ' || r::text;
+  r := public.import_bank_statement(jsonb_build_object('account_code', '1101', 'file_sha256', repeat('f', 64), 'file_name', 'twins-again.csv',
+         'lines', '[{"booked_on":"2026-08-20","description":"GCASH","amount":"500"},{"booked_on":"2026-08-20","description":"GCASH","amount":"500"},{"booked_on":"2026-08-20","description":"GCASH","amount":"500"},{"booked_on":"2026-08-20","description":"GCASH","amount":"500"}]'::jsonb));
+  ASSERT r->>'ok' = 'true' AND (r->>'inserted')::int = 1 AND (r->>'skipped')::int = 3, 'a re-export with a fourth twin skips the three already known and keeps the new one: ' || r::text;
+  r := public.void_bank_import((r->'import'->>'id')::uuid, 'test twins'); ASSERT r->>'ok' = 'true', 'void twins 2';
+  r := public.void_bank_import((SELECT id FROM public.bank_statement_imports WHERE file_sha256 = repeat('d', 64)), 'test twins'); ASSERT r->>'ok' = 'true', 'void twins 1';
+  r := public.import_bank_statement(jsonb_build_object('account_code', '1010', 'file_sha256', repeat('9', 64), 'lines', '[{"booked_on":"2026-08-10","amount":"1"}]'::jsonb));
+  ASSERT r->>'error' = 'cash_has_no_statement', 'cash is counted, not imported';
 
   rec := public.get_bank_reconciliation('1101', '2026-08-01');
   ASSERT (rec->>'matched_count')::int = 1 AND jsonb_array_length(rec->'unmatched_statement') = 3 AND jsonb_array_length(rec->'unmatched_ledger') = 1, 'lists: ' || (rec - 'imports' - 'profile')::text;
@@ -234,6 +263,7 @@ DO $t$ DECLARE r jsonb; imp uuid; l1 uuid; l2 uuid; jl uuid; rec jsonb; BEGIN
   ASSERT jsonb_array_length(r->'unreconciled_accounts') = 0, 'readiness no longer lists SMBC for August: ' || (r->'unreconciled_accounts')::text;
   r := public.reopen_reconciliation('1101', '2026-08-01', 'x'); ASSERT r->>'error' = 'reason_required', 'reason';
   r := public.reopen_reconciliation('1101', '2026-08-01', 'statement was incomplete'); ASSERT r->>'ok' = 'true', 'reopened';
+  r := public.sign_off_reconciliation('1101', '2026-06-01', (SELECT (public.get_bank_reconciliation('1101', '2026-06-01')->>'ledger_closing_native')::numeric)); ASSERT r->>'ok' = 'true' OR r->>'error' = 'unmatched_ledger_lines', 'a closed ledger month can still be reconciled: ' || r::text;
   r := public.void_bank_import(imp, 'wrong file'); ASSERT r->>'ok' = 'true', 'void after reopen';
   rec := public.get_bank_reconciliation('1101', '2026-08-01');
   ASSERT (rec->>'matched_count')::int = 0 AND jsonb_array_length(rec->'unmatched_statement') = 0 AND jsonb_array_length(rec->'unmatched_ledger') = 2, 'voided import releases its matches and hides its lines';

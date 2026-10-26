@@ -2076,8 +2076,10 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - `gl_period_is_closed(date)`, `gl_is_money_account(text)` (active asset, code < '1130'), `gl_account_currency(text)`, `gl_unmapped_methods(date)`,
   `gl_expenses_without_paid_from(date)`, `gl_unreconciled_accounts(date)`, `gl_close_readiness(date, boolean)`, `gl_auto_match(text, date, uuid)`,
   `gl_run_completeness_check(text, uuid)` — internal (revoked from authenticated; the check also granted to service_role for cron).
-- View `gl_live_money_lines` (posted, non-reversal lines; signed_amount / signed_jpy; kind) — revoked from authenticated.
-- `get_close_readiness(date)` view_ledger; `close_period` re-stated (gl_post_settled → readiness → `ledger_errors` when errors > 0; note + audit carry the counts).
+- View `gl_live_money_lines` (posted, non-reversal lines; signed_amount / signed_jpy; kind; entry_date = SOURCE date, posted_on = ledger date) — revoked from authenticated.
+- `gl_pending_counts(date)` internal: what the engine would post / reverse for events dated ≤ the date (same version formula as gl_post_pending).
+- `get_close_readiness(date)` view_ledger (pending events = warning; errors = failed run / no rate / unbalanced / duplicate); `close_period` re-stated (gl_post_settled, non-ok stops → readiness → `ledger_errors` when errors > 0; note + audit carry the counts).
+- `get_bank_reconciliation` returns `in_transit_native` (unmatched Hub entries dated in the last 5 days of the month); sign-off compares statement closing with ledger − in transit. Import errors: cash_has_no_statement, invalid_file, no_lines, too_many_lines, duplicate_file, invalid_line (nothing written), invalid_profile.
 - `gl_check_runs` (ran_at, trigger cron|manual, run_by, errors, warnings, issues jsonb, bell_rung, duration_ms) — RLS SELECT view_ledger; `run_ledger_check()`
   post_journal; `get_ledger_checks(int)` view_ledger; cron `gl-completeness-check` '10 16 * * *'. Bell row type `ledger_check` in staff_notifications (counts only).
 - `bank_import_profiles` (account_code PK, delimiter, header_rows, date_col, date_format ymd|dmy|mdy, description_col, in_col, out_col, signed_col, balance_col,

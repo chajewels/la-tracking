@@ -130,8 +130,11 @@ DO $t$ DECLARE r jsonb; s_before jsonb; s_after jsonb; cat uuid := (SELECT id FR
   ASSERT s_after->'balance_sheet'->'totals' = s_before->'balance_sheet'->'totals' AND s_after->'income_statement'->'lines' = s_before->'income_statement'->'lines', 'June as reported to the 税理士 does not change';
   r := public.run_ledger_check();
   ASSERT (r->>'errors')::int = 0 AND (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'late_posting') = 1, 'the roll-forward is reported, nothing is broken: ' || (r->'issues')::text;
+  r := public.get_bank_reconciliation('1101', '2026-06-01');
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'unmatched_ledger') x WHERE (x->>'signed_amount')::numeric = 85000) = 1, 'the corrected receipt belongs to June on the bank side (source date), even though it posted in July';
+  ASSERT (r->>'ledger_closing_native')::numeric = 1983585 - 80000 + 85000 AND r->'reconciliation'->>'status' = 'reconciled', 'June''s bank figure moved by the correction while the sign-off record keeps what was agreed';
   r := public.get_bank_reconciliation('1101', '2026-07-01');
-  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'unmatched_ledger') x WHERE (x->>'signed_amount')::numeric = 85000) = 1, 'the corrected receipt waits for July''s statement';
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'unmatched_ledger') x WHERE (x->>'signed_amount')::numeric = 85000) = 0, 'and it is not July''s problem';
   RAISE NOTICE 'E5 correction after close OK';
 END $t$;
 

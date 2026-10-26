@@ -15,7 +15,7 @@ import { shiftMonth } from "@/components/finance/expenses";
 import { LEDGER_COA_KEY, LEDGER_STATUS_KEY, dayLabel, formatNative, formatYen, ledgerRefusal, longMonth, normaliseAccounts, sourceTypeLabel } from "@/components/finance/ledger";
 import {
   BANKREC_KEY, DEFAULT_PROFILE, READINESS_KEY, type BankRec, type ImportProfile, type ParsedStatement, type UnmatchedStatement,
-  buildStatementLines, cashAdjustmentHint, controlsRefusal, decodeStatementBytes, formatSigned, importPayload, monthStartOf, normaliseBankRec, parseCsvRows, sha256Hex, signOffBlockers, sniffDelimiter,
+  buildStatementLines, cashAdjustmentHint, controlsRefusal, decodeStatementBytes, expectedClosing, formatSigned, importPayload, monthStartOf, normaliseBankRec, parseCsvRows, sha256Hex, signOffBlockers, sniffDelimiter,
 } from "@/components/finance/controls";
 
 /**
@@ -38,6 +38,8 @@ export default function BankRecSection({ thisMonth, initialMonth, initialAccount
   const coa = useQuery({ queryKey: [...LEDGER_COA_KEY, "money"], staleTime: 60_000, queryFn: async () => normaliseAccounts((await callRpc("get_chart_of_accounts", { p_as_of: null })).accounts) });
   const money = useMemo(() => (coa.data ?? []).filter((a) => a.kind === "asset" && a.active && a.code < "1130"), [coa.data]);
   useEffect(() => { if (!account && money.length > 0) setAccount(money.find((a) => a.code === "1101")?.code ?? money[0].code); }, [account, money]);
+  useEffect(() => { if (initialMonth && /^\d{4}-\d{2}$/.test(initialMonth)) setMonth(initialMonth); }, [initialMonth]);
+  useEffect(() => { if (initialAccount) setAccount(initialAccount); }, [initialAccount]);
   const q = useQuery<BankRec>({
     queryKey: [...BANKREC_KEY, account, month], staleTime: 10_000, enabled: !!account,
     queryFn: async () => normaliseBankRec(await callRpc("get_bank_reconciliation", { p_account: account, p_month: monthStartOf(month) })),
@@ -146,6 +148,7 @@ function Header({ rec, onChanged }: { rec: BankRec; onChanged: () => void }) {
   const [reason, setReason] = useState("");
   useEffect(() => { setClosing(rec.statement_closing == null ? "" : String(rec.statement_closing)); }, [rec.statement_closing, rec.account, rec.month]);
   const typed = closing.trim() === "" ? null : Number(closing.replace(/[,\s¥₱]/g, ""));
+  const expected = expectedClosing(rec);
   const blockers = signOffBlockers(rec, Number.isNaN(typed) ? null : typed);
   const done = rec.reconciliation?.status === "reconciled";
   const signOff = useMutation({
@@ -162,14 +165,16 @@ function Header({ rec, onChanged }: { rec: BankRec; onChanged: () => void }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-        <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">Ledger at {dayLabel(rec.month_end)}</div><div className="tabular-nums font-semibold">{formatNative(rec.ledger_closing_native, rec.currency)}</div>{rec.currency === "PHP" && <div className="text-[11px] text-muted-foreground">{formatYen(rec.ledger_closing_jpy)} in the books</div>}</div>
+        <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">Ledger at {dayLabel(rec.month_end)}</div><div className="tabular-nums font-semibold">{formatNative(rec.ledger_closing_native, rec.currency)}</div>
+          {rec.currency === "PHP" && <div className="text-[11px] text-muted-foreground">{formatYen(rec.ledger_closing_jpy)} in the books</div>}
+          {!rec.is_cash && rec.in_transit_native !== 0 && <div className="text-[11px] text-muted-foreground">{formatSigned(rec.in_transit_native, rec.currency)} in transit (last 5 days, not on the bank yet) → bank should show {formatNative(expected, rec.currency)}</div>}</div>
         <div className="rounded-md border p-2">
           <Label className="text-xs text-muted-foreground" htmlFor="stmt-closing">{rec.is_cash ? "Counted cash" : "Statement closing"}</Label>
           {done ? <div className="tabular-nums font-semibold">{formatNative(rec.reconciliation?.statement_closing ?? 0, rec.currency)}</div>
             : <Input id="stmt-closing" inputMode="decimal" className="min-h-11" value={closing} onChange={(e) => setClosing(e.target.value)} placeholder={rec.is_cash ? "What is in the drawer" : "From the statement"} disabled={!rec.can_post} />}
           {!done && rec.statement_closing_source === "statement" && <div className="text-[11px] text-muted-foreground">from the last statement line</div>}
         </div>
-        <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">Difference</div><div className={`tabular-nums font-semibold ${typed != null && !Number.isNaN(typed) && Math.round((typed - rec.ledger_closing_native) * 100) !== 0 ? "text-destructive" : ""}`}>{typed == null || Number.isNaN(typed) ? "—" : formatSigned(typed - rec.ledger_closing_native, rec.currency)}</div></div>
+        <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">Difference</div><div className={`tabular-nums font-semibold ${typed != null && !Number.isNaN(typed) && Math.round((typed - expected) * 100) !== 0 ? "text-destructive" : ""}`}>{typed == null || Number.isNaN(typed) ? "—" : formatSigned(typed - expected, rec.currency)}</div></div>
         <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">Status</div>
           <div className="flex items-center gap-1 font-medium">{done ? <><CheckCircle2 className="h-4 w-4 text-success" />Reconciled</> : rec.reconciliation ? "Open — attempted" : "Open"}</div>
           {done && rec.reconciliation?.reconciled_at && <div className="text-[11px] text-muted-foreground">{new Date(rec.reconciliation.reconciled_at).toLocaleDateString("en-GB", { timeZone: "Asia/Tokyo" })}{rec.reconciliation.note ? ` · ${rec.reconciliation.note}` : ""}</div>}
@@ -251,7 +256,7 @@ function ImportDialog({ rec, onDone }: { rec: BankRec; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<{ name: string; bytes: Uint8Array; text: string; encoding: "utf-8" | "shift_jis" } | null>(null);
   const [profile, setProfile] = useState<ImportProfile>(rec.profile ?? DEFAULT_PROFILE);
-  useEffect(() => { if (rec.profile) setProfile(rec.profile); }, [rec.profile, rec.account]);
+  const openDialog = () => { setProfile(rec.profile ?? DEFAULT_PROFILE); setFile(null); setOpen(true); };
   const rows = useMemo(() => (file ? parseCsvRows(file.text, profile.delimiter) : []), [file, profile.delimiter]);
   const parsed: ParsedStatement | null = useMemo(() => (file ? buildStatementLines(rows, profile) : null), [rows, profile, file]);
   const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
@@ -276,7 +281,7 @@ function ImportDialog({ rec, onDone }: { rec: BankRec; onDone: () => void }) {
   const amountOk = profile.signed_col != null || profile.in_col != null || profile.out_col != null;
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setFile(null); }}>
-      <Button size="sm" className="min-h-11" onClick={() => setOpen(true)}><Upload className="h-4 w-4 mr-1" />Import statement</Button>
+      <Button size="sm" className="min-h-11" onClick={openDialog}><Upload className="h-4 w-4 mr-1" />Import statement</Button>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Import {rec.name} statement</DialogTitle>
@@ -318,7 +323,9 @@ function ImportDialog({ rec, onDone }: { rec: BankRec; onDone: () => void }) {
                 <div className="rounded-md border p-2 text-xs">
                   <div>{parsed.lines.length} line{parsed.lines.length === 1 ? "" : "s"} ready{parsed.skipped_rows ? ` · ${parsed.skipped_rows} empty row${parsed.skipped_rows === 1 ? "" : "s"} skipped` : ""}{parsed.problems.length ? ` · ${parsed.problems.length} row${parsed.problems.length === 1 ? "" : "s"} could not be read` : ""}</div>
                   {parsed.lines.slice(0, 3).map((l, i) => <div key={i} className="text-muted-foreground">{l.booked_on} · {l.description.slice(0, 40)} · {formatSigned(l.amount, rec.currency)}{l.balance_after != null ? ` · bal ${l.balance_after.toLocaleString("en-US")}` : ""}</div>)}
-                  {parsed.problems.slice(0, 3).map((p) => <div key={p.row} className="text-destructive">Row {p.row}: {p.reason}</div>)}
+                  {parsed.problems.slice(0, 5).map((p) => <div key={p.row} className="text-destructive">Row {p.row}: {p.reason}</div>)}
+                  {parsed.problems.length > 5 && <div className="text-destructive">…and {parsed.problems.length - 5} more</div>}
+                  {parsed.problems.length > 0 && <div className="text-destructive mt-1">Fix the column map (or the header-row count) until every row reads — a statement with rows missing can never tie.</div>}
                 </div>
               )}
             </>
@@ -326,7 +333,7 @@ function ImportDialog({ rec, onDone }: { rec: BankRec; onDone: () => void }) {
         </div>
         <DialogFooter>
           <Button variant="ghost" className="min-h-11" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button className="min-h-11" disabled={!file || !parsed || parsed.lines.length === 0 || !amountOk || imp.isPending} onClick={() => imp.mutate()}>{imp.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Import {parsed?.lines.length ?? ""} line{parsed?.lines.length === 1 ? "" : "s"}</Button>
+          <Button className="min-h-11" disabled={!file || !parsed || parsed.lines.length === 0 || parsed.problems.length > 0 || !amountOk || imp.isPending} onClick={() => imp.mutate()}>{imp.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Import {parsed?.lines.length ?? ""} line{parsed?.lines.length === 1 ? "" : "s"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
