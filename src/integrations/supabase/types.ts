@@ -1659,6 +1659,167 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_categories: {
+        Row: {
+          active: boolean
+          created_at: string
+          group_key: string
+          id: string
+          name: string
+          sort_order: number
+          system_key: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          group_key: string
+          id?: string
+          name: string
+          sort_order?: number
+          system_key?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          group_key?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          system_key?: string | null
+        }
+        Relationships: []
+      }
+      expense_vendors: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          default_category_id: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          default_category_id?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          default_category_id?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_vendors_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expenses: {
+        Row: {
+          amount: number
+          amount_jpy: number
+          approved_at: string | null
+          approved_by: string | null
+          category_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          details: Json | null
+          expense_date: string
+          fx_php_per_jpy: number | null
+          id: string
+          notes: string | null
+          payment_method: string
+          receipt_path: string | null
+          source: string
+          source_ref: string | null
+          status: string
+          updated_at: string
+          vendor_id: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount: number
+          amount_jpy: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          description: string
+          details?: Json | null
+          expense_date: string
+          fx_php_per_jpy?: number | null
+          id?: string
+          notes?: string | null
+          payment_method?: string
+          receipt_path?: string | null
+          source?: string
+          source_ref?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount?: number
+          amount_jpy?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          details?: Json | null
+          expense_date?: string
+          fx_php_per_jpy?: number | null
+          id?: string
+          notes?: string | null
+          payment_method?: string
+          receipt_path?: string | null
+          source?: string
+          source_ref?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "expense_vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       extension_requests: {
         Row: {
           account_id: string | null
@@ -5452,6 +5613,96 @@ export type Database = {
           },
         ]
       }
+      payslips: {
+        Row: {
+          address: string
+          commission: Json
+          commission_php: number
+          created_at: string
+          date_of_birth: string
+          finalized_at: string
+          finalized_by: string
+          id: string
+          job_title: string | null
+          jpy_sent: number | null
+          paid_at: string | null
+          paid_by: string | null
+          paid_on: string | null
+          pay_month: string
+          php_per_jpy: number | null
+          php_received: number | null
+          proof_path: string | null
+          staff_name: string
+          status: string
+          template_type: string
+          timesheet: Json
+          timesheet_net_php: number
+          total_php: number
+          user_id: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          address: string
+          commission: Json
+          commission_php: number
+          created_at?: string
+          date_of_birth: string
+          finalized_at?: string
+          finalized_by: string
+          id?: string
+          job_title?: string | null
+          jpy_sent?: number | null
+          paid_at?: string | null
+          paid_by?: string | null
+          paid_on?: string | null
+          pay_month: string
+          php_per_jpy?: number | null
+          php_received?: number | null
+          proof_path?: string | null
+          staff_name: string
+          status?: string
+          template_type: string
+          timesheet: Json
+          timesheet_net_php: number
+          total_php: number
+          user_id: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          address?: string
+          commission?: Json
+          commission_php?: number
+          created_at?: string
+          date_of_birth?: string
+          finalized_at?: string
+          finalized_by?: string
+          id?: string
+          job_title?: string | null
+          jpy_sent?: number | null
+          paid_at?: string | null
+          paid_by?: string | null
+          paid_on?: string | null
+          pay_month?: string
+          php_per_jpy?: number | null
+          php_received?: number | null
+          proof_path?: string | null
+          staff_name?: string
+          status?: string
+          template_type?: string
+          timesheet?: Json
+          timesheet_net_php?: number
+          total_php?: number
+          user_id?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: []
+      }
       penalty_cap_overrides: {
         Row: {
           account_id: string
@@ -7378,6 +7629,30 @@ export type Database = {
           metadata?: Json
           title?: string
           type?: string
+        }
+        Relationships: []
+      }
+      staff_payroll_details: {
+        Row: {
+          address: string | null
+          date_of_birth: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          date_of_birth?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          date_of_birth?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -9684,6 +9959,7 @@ export type Database = {
         }
         Returns: Json
       }
+      approve_expense: { Args: { p_id: string }; Returns: Json }
       approve_redemption_atomic: {
         Args: {
           p_redemption_id: string
@@ -9695,6 +9971,10 @@ export type Database = {
       assert_staff_caller: {
         Args: { p_permission?: string }
         Returns: undefined
+      }
+      attach_expense_receipt: {
+        Args: { p_id: string; p_path: string }
+        Returns: Json
       }
       audit_account: { Args: { p_invoice_number: string }; Returns: Json }
       audit_all_accounts: {
@@ -9720,6 +10000,7 @@ export type Database = {
           severity: string
         }[]
       }
+      can_manage_payslips: { Args: { p_uid: string }; Returns: boolean }
       cancel_card_refund_exception_atomic: {
         Args: { p_order_id: string; p_reason: string; p_user_id: string }
         Returns: Json
@@ -10226,6 +10507,10 @@ export type Database = {
         }
         Returns: Json
       }
+      finalize_payslip: {
+        Args: { p_pay_month: string; p_payload: Json; p_user_id: string }
+        Returns: Json
+      }
       find_customer_matches: {
         Args: {
           p_email?: string
@@ -10320,6 +10605,7 @@ export type Database = {
         Args: { currency_mode?: string }
         Returns: Json
       }
+      get_expense_book: { Args: { p_month: string }; Returns: Json }
       get_forecast_6m: {
         Args: never
         Returns: {
@@ -10381,6 +10667,7 @@ export type Database = {
       get_page365_inventory_auto_apply: { Args: never; Returns: Json }
       get_page365_inventory_interval: { Args: never; Returns: Json }
       get_paidy_settings: { Args: never; Returns: Json }
+      get_payslip_book: { Args: { p_pay_month: string }; Returns: Json }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -11029,6 +11316,7 @@ export type Database = {
           reference: string
         }[]
       }
+      payslip_figure: { Args: { p_int: boolean; v: Json }; Returns: number }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
@@ -11107,6 +11395,16 @@ export type Database = {
           p_payload?: Json
           p_refund_id: string
           p_refunded_at: string
+        }
+        Returns: Json
+      }
+      record_payslip_payment: {
+        Args: {
+          p_id: string
+          p_jpy_sent: number
+          p_paid_on: string
+          p_php_received: number
+          p_proof_path: string
         }
         Returns: Json
       }
@@ -11325,6 +11623,10 @@ export type Database = {
         Returns: string
       }
       ring_square_deadline_bells: { Args: { p_now?: string }; Returns: Json }
+      save_staff_payroll_details: {
+        Args: { p_address: string; p_date_of_birth: string; p_user_id: string }
+        Returns: Json
+      }
       set_account_deadlines: {
         Args: {
           p_entity_id: string
@@ -11549,8 +11851,11 @@ export type Database = {
         Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
       }
+      upsert_expense: { Args: { p: Json }; Returns: Json }
       upsert_website_coupon: { Args: { p: Json }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
+      void_expense: { Args: { p_id: string; p_reason: string }; Returns: Json }
+      void_payslip: { Args: { p_id: string; p_reason: string }; Returns: Json }
       void_redemption_atomic: {
         Args: {
           p_redemption_id: string

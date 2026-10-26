@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { usePermissions } from '@/contexts/PermissionsContext';
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban, Check, ChevronLeft, ChevronRight, FileText, Loader2, Paperclip, Pencil, Plus, Receipt, Search,
@@ -18,11 +21,20 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { isMissingFunction } from "@/components/website/shipping-fees";
+import { callRpc } from "@/components/finance/useBookedMonths";
+import { PAID_FROM_KEY, type PaidFromAccount } from "@/components/finance/ledger";
+import RecurringBillsDialog from "@/components/finance/RecurringBillsDialog";
+import { useRecurringBills } from "@/components/finance/useRecurringBills";
+import { billsToConfirm, olderOpenDrafts, spreadLabel } from "@/components/finance/recurring";
+import EmailBillsDialog from "@/components/finance/EmailBillsDialog";
+import { useEmailBills } from "@/components/finance/useEmailBills";
+import { type EmailBill, emailDraftsToConfirm, needsCategory } from "@/components/finance/email-bills";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
-  type StatusFilter,
-  canEnterManually, cleanAmountInput, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  type SourceFilter, type StatusFilter, SOURCE_FILTERS,
+  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses, refusalCode,
+  monthFromSearch, paidFromProblem, prepaidProblem, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
   validateExpenseForm,
@@ -39,22 +51,18 @@ import {
  * "Waiting for the database update" instead of erroring.
  */
 
-async function callRpc(name: string, args?: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await supabase.rpc(name as any, args as any);
-  if (error) throw error;
-  const out = (data ?? {}) as Record<string, unknown>;
-  if (typeof out.error === "string") throw Object.assign(new Error(out.error), { code: out.error });
-  return out;
-}
-
 const NO_VENDOR = "__none";
 const NEW_VENDOR = "__new";
+const NO_ACCOUNT = "__none";
 
 function statusVariant(s: Expense["status"]): "default" | "secondary" | "outline" {
   if (s === "approved") return "default";
   if (s === "draft") return "secondary";
   return "outline";
+}
+
+function paidFromName(list: PaidFromAccount[] | null, code: string): string {
+  return list?.find((a) => a.code === code)?.name ?? code;
 }
 
 function dateLabel(iso: string): string {
@@ -64,14 +72,19 @@ function dateLabel(iso: string): string {
 
 export default function ExpensesTab() {
   const qc = useQueryClient();
-  const [month, setMonth] = useState<string>(() => monthKeyTokyo());
-  const [filters, setFilters] = useState<ExpenseFilters>({ status: "all", group: "all", search: "" });
+  const { can } = usePermissions();
+  const location = useLocation();
+  const [month, setMonth] = useState<string>(() => monthFromSearch(location.search) ?? monthKeyTokyo());
+  const [filters, setFilters] = useState<ExpenseFilters>({ status: "all", group: "all", source: "all", search: "" });
+  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<ExpenseForm | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [voiding, setVoiding] = useState<Expense | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [vendorMode, setVendorMode] = useState<"pick" | "new">("pick");
   const [approving, setApproving] = useState<Expense | null>(null);
+  /** Phase 4: when set, the open Add dialog creates the draft FROM this email (email_bill_make_expense). */
+  const [emailSource, setEmailSource] = useState<EmailBill | null>(null);
 
   const state = useQuery<ExpenseBookState>({
     queryKey: [...EXPENSE_BOOK_KEY, month],
@@ -93,38 +106,96 @@ export default function ExpensesTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: EXPENSE_BOOK_KEY });
 
   const onError = (e: Error & { code?: string }) => {
-    toast({ title: "Not saved", description: expenseRefusal(e.code ?? e.message), variant: "destructive" });
+    toast({ title: "Not saved", description: expenseRefusal(refusalCode(e)), variant: "destructive" });
   };
+
+  // Phase 2b: which bank / cash account paid it. Absent (PGRST202) until the ledger migration is applied.
+  const paidFromAccounts = useQuery<PaidFromAccount[] | null>({
+    queryKey: PAID_FROM_KEY,
+    staleTime: 300_000,
+    queryFn: async () => {
+      try {
+        const out = await callRpc("get_paid_from_accounts");
+        return Array.isArray(out.accounts) ? (out.accounts as PaidFromAccount[]) : [];
+      } catch (e) {
+        if (isMissingFunction(e)) return null;
+        throw e;
+      }
+    },
+  });
+  const paidFromList = paidFromAccounts.data ?? null;
+  const recurring = useRecurringBills(Boolean(book?.can_manage || book?.can_approve));
+  const recurringAvailable = recurring.data?.available === true;
+  const emailBills = useEmailBills(Boolean(book?.can_manage || book?.can_approve));
+  const emailAvailable = emailBills.data?.available === true;
 
   const save = useMutation({
     mutationFn: async (v: { form: ExpenseForm; file: File | null }) => {
-      const out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
-      const saved = out.expense as { id: string } | undefined;
+      let emailAttachment: { path: string; name: string; mime: string } | null = null;
+      let out: Record<string, unknown>;
+      if (emailSource && !v.form.id) {
+        const payload = { ...expensePayload(v.form), paid_from: v.form.paid_from || null };
+        out = await callRpc("email_bill_make_expense", { p_message_id: emailSource.gmail_message_id, p: payload });
+        const atts = out.attachments as { path: string; name: string; mime: string }[] | undefined;
+        emailAttachment = atts?.[0] ?? null;
+      } else {
+        out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
+      }
+      const saved = out.expense as { id: string; paid_from?: string | null; prepaid_months?: number | null } | undefined;
+      if (saved?.id && emailAttachment && !v.file) {
+        try {
+          const { data: blob, error } = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET).download(emailAttachment.path);
+          if (!error && blob) {
+            const path = receiptPath(saved.id, emailAttachment.name);
+            const up = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET).upload(path, blob, { cacheControl: "3600", upsert: false, contentType: emailAttachment.mime || undefined });
+            if (!up.error) await callRpc("attach_expense_receipt", { p_id: saved.id, p_path: path });
+          }
+        } catch { /* the draft stands; the receipt can be attached by hand */ }
+      }
       // From here on the draft exists: a retry must edit it, never insert a second one.
       if (saved?.id && !v.form.id) setForm((f) => (f ? { ...f, id: saved.id } : f));
+      let paidFromFailed = false;
+      if (saved?.id && paidFromList && (saved.paid_from ?? "") !== v.form.paid_from) {
+        try {
+          await callRpc("set_expense_paid_from", { p_id: saved.id, p_code: v.form.paid_from || null });
+        } catch {
+          paidFromFailed = true;
+        }
+      }
+      if (saved?.id && recurringAvailable && String(saved.prepaid_months ?? "") !== v.form.prepaid_months) {
+        try {
+          await callRpc("set_expense_prepaid", { p_id: saved.id, p_months: v.form.prepaid_months ? Number(v.form.prepaid_months) : null });
+        } catch {
+          paidFromFailed = true;
+        }
+      }
       if (v.file && saved?.id) {
         try {
           const path = receiptPath(saved.id, v.file.name);
           const { error } = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET)
             .upload(path, v.file, { cacheControl: "3600", upsert: false, contentType: receiptContentType(v.file) || undefined });
-          if (error) return { created: !v.form.id, receiptFailed: true };
+          if (error) return { created: !v.form.id, receiptFailed: true, paidFromFailed };
           await callRpc("attach_expense_receipt", { p_id: saved.id, p_path: path });
         } catch {
-          return { created: !v.form.id, receiptFailed: true };
+          return { created: !v.form.id, receiptFailed: true, paidFromFailed };
         }
       }
-      return { created: !v.form.id, receiptFailed: false };
+      return { created: !v.form.id, receiptFailed: false, paidFromFailed };
     },
     onSuccess: (r) => {
       toast({ title: r.created ? "Expense added as a draft" : "Expense saved" });
       if (r.receiptFailed) {
         toast({ title: "Receipt not uploaded", description: "The expense was saved. Edit it to try the receipt again.", variant: "destructive" });
       }
+      if (r.paidFromFailed) {
+        toast({ title: "Account or spread not saved", description: "The expense was saved, but its paying account or spread did not. Edit it and set them again.", variant: "destructive" });
+      }
       setForm(null);
       setReceiptFile(null);
+      setEmailSource(null);
     },
     onError,
-    onSettled: refresh,
+    onSettled: () => { refresh(); qc.invalidateQueries({ queryKey: ["finance", "expenses", "email-bills"] }); },
   });
 
   const approve = useMutation({
@@ -157,7 +228,7 @@ export default function ExpensesTab() {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
-  const formError = form ? validateExpenseForm(form) : null;
+  const formError = form ? (validateExpenseForm(form) ?? paidFromProblem(form, paidFromList !== null) ?? prepaidProblem(form.prepaid_months)) : null;
   const fileError = receiptFile ? receiptProblem(receiptFile) : null;
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
   const preview = form && book ? previewJpy(Number(form.amount), form.currency, book.php_jpy_rate) : null;
@@ -261,6 +332,15 @@ export default function ExpensesTab() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1">
+                <Label htmlFor="expenses-source" className="text-xs">Source</Label>
+                <Select value={filters.source} onValueChange={(v) => setFilters((f) => ({ ...f, source: v as SourceFilter }))}>
+                  <SelectTrigger id="expenses-source" className="h-9 w-[10rem]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_FILTERS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="relative min-w-[12rem] flex-1">
                 <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -269,12 +349,63 @@ export default function ExpensesTab() {
                   aria-label="Search expenses"
                 />
               </div>
+              {recurringAvailable && (
+                <RecurringBillsDialog canManage={!!book.can_manage} paidFromList={paidFromList} categories={book.categories} vendors={book.vendors} onChanged={refresh} />
+              )}
+              {emailAvailable && (
+                <EmailBillsDialog canManage={!!book.can_manage} canAdmin={can('admin_settings')} categories={book.categories} onChanged={refresh}
+                  onMakeExpense={(m, prefill) => { setEmailSource(m); openForm({ ...emptyExpenseForm(), ...prefill }); setVendorMode(prefill.new_vendor_name ? "new" : "pick"); }} />
+              )}
               {book.can_manage && (
                 <Button size="sm" className="h-9" onClick={() => openForm(emptyExpenseForm())} data-testid="expenses-add">
                   <Plus className="mr-1 h-4 w-4" /> Add expense
                 </Button>
               )}
             </div>
+
+            {/* Phase 4: drafts the mailbox reader created */}
+            {emailDraftsToConfirm(expenses).length > 0 && (
+              <div className="rounded-md border border-sky-300 bg-sky-50 dark:bg-sky-950/30 p-3 text-sm" data-testid="from-email">
+                <div className="font-medium">From email ({emailDraftsToConfirm(expenses).length})</div>
+                <p className="text-xs text-muted-foreground">Read from the sales@ mailbox. Check the figures and the receipt, pick the category where it says so, then Approve.</p>
+                <ul className="mt-2 space-y-1">
+                  {emailDraftsToConfirm(expenses).map((e) => {
+                    const noCat = needsCategory(e, book.categories);
+                    return (
+                      <li key={e.id} className="flex flex-wrap items-center justify-between gap-2">
+                        <span>{dateLabel(e.expense_date)} · {e.description} · {formatAmount(e.amount, e.currency)}{noCat ? <Badge variant="destructive" className="ml-2">needs a category</Badge> : null}</span>
+                        <span className="flex gap-2">
+                          {book.can_manage && <Button size="sm" variant="outline" className="min-h-11" onClick={() => openForm(formFromExpense(e))}>Edit</Button>}
+                          {book.can_approve && <Button size="sm" className="min-h-11" disabled={noCat} title={noCat ? "Pick a category first" : undefined} onClick={() => setApproving(e)}>Approve</Button>}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {/* Phase 3: recurring drafts waiting for confirmation */}
+            {recurring.data?.available && olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id))) > 0 && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">{olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id)))} recurring bill draft(s) are still waiting in an earlier month — use the month arrows or the "Recurring bills" source filter.</p>
+            )}
+            {billsToConfirm(expenses).length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm" data-testid="bills-to-confirm">
+                <div className="font-medium">Bills to confirm ({billsToConfirm(expenses).length})</div>
+                <p className="text-xs text-muted-foreground">Created from your recurring bills. Check the real amount, attach the receipt, then Approve — or Void if the bill did not come.</p>
+                <ul className="mt-2 space-y-1">
+                  {billsToConfirm(expenses).map((e) => (
+                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{dateLabel(e.expense_date)} · {(e.details?.bill_name as string | undefined) ?? e.description} · {formatAmount(e.amount, e.currency)}</span>
+                      <span className="flex gap-2">
+                        {book.can_manage && <Button size="sm" variant="outline" className="min-h-11" onClick={() => openForm(formFromExpense(e))}>Edit</Button>}
+                        {book.can_approve && <Button size="sm" className="min-h-11" onClick={() => setApproving(e)}>Approve</Button>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* List */}
             {shown.length === 0 ? (
@@ -290,16 +421,41 @@ export default function ExpensesTab() {
                         <span className="text-xs tabular-nums text-muted-foreground">{dateLabel(e.expense_date)}</span>
                         <span className={`font-medium ${e.status === "void" ? "line-through" : ""}`}>{e.description}</span>
                         <Badge variant={statusVariant(e.status)}>{STATUS_LABEL[e.status]}</Badge>
+                        {e.source !== "manual" && <Badge variant="outline">{sourceLabel(e.source)}</Badge>}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}
+                        {e.vendor_name ? `${e.vendor_name} · ` : ""}{groupLabel(e.group_key)} → {e.category_name} · {paymentMethodLabel(e.payment_method)}{e.paid_from ? ` · from ${paidFromName(paidFromList, e.paid_from)}` : ""}{e.prepaid_months ? ` · ${spreadLabel(e.prepaid_months)}` : ""}{e.source === "recurring" && e.details?.bill_name ? ` · ${String(e.details.bill_name)}` : ""}
                       </p>
                       {e.status === "void" && e.void_reason && (
                         <p className="text-xs text-muted-foreground">Void: {e.void_reason}</p>
                       )}
                       {e.notes && <p className="text-xs text-muted-foreground">{e.notes}</p>}
+                      {detailLines(e.details).length > 0 && (
+                        <div className="text-xs">
+                          <button
+                            type="button"
+                            className="inline-flex min-h-[44px] items-center text-primary underline-offset-2 hover:underline sm:min-h-0"
+                            aria-expanded={!!openDetails[e.id]}
+                            onClick={() => setOpenDetails((o) => ({ ...o, [e.id]: !o[e.id] }))}
+                            data-testid={`expense-details-toggle-${e.id}`}
+                          >
+                            {openDetails[e.id] ? "Hide details" : `Details (${detailLines(e.details).length})`}
+                          </button>
+                          {openDetails[e.id] && (
+                            <ul className="mt-1.5 divide-y rounded-md border" data-testid={`expense-details-${e.id}`}>
+                              {detailLines(e.details).map((d, i) => (
+                                <li key={`${d.name}-${i}`} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+                                  <span className="min-w-0"><span className="font-medium text-foreground">{d.name}</span> <span className="text-muted-foreground">· {d.meta}</span></span>
+                                  <span className="tabular-nums text-foreground">{formatAmount(d.amount, "PHP")}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                    {/* On a phone the amount and actions take their own line under the description instead of squeezing it into a word-per-line column (QA F5). */}
+                    <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                       <div className="text-right">
                         <p className="font-semibold tabular-nums">{formatAmount(e.amount, e.currency)}</p>
                         {e.currency === "PHP" && (
@@ -322,7 +478,8 @@ export default function ExpensesTab() {
                         </Button>
                       )}
                       {e.status === "draft" && book.can_approve && (
-                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending} data-testid={`expense-approve-${e.id}`}>
+                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending || needsCategory(e, book.categories)}
+                          title={needsCategory(e, book.categories) ? "Pick a category first" : undefined} data-testid={`expense-approve-${e.id}`}>
                           <Check className="mr-1 h-3.5 w-3.5" /> Approve
                         </Button>
                       )}
@@ -346,10 +503,10 @@ export default function ExpensesTab() {
       </CardContent>
 
       {/* Add / edit */}
-      <Dialog open={form !== null} onOpenChange={(o) => { if (!o && !save.isPending) { setForm(null); setReceiptFile(null); } }}>
+      <Dialog open={form !== null} onOpenChange={(o) => { if (!o && !save.isPending) { setForm(null); setReceiptFile(null); setEmailSource(null); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{form?.id ? "Edit expense" : "Add expense"}</DialogTitle>
+            <DialogTitle>{form?.id ? "Edit expense" : emailSource ? "Expense from email" : "Add expense"}</DialogTitle>
             <DialogDescription>Saved as a draft. It counts in the totals once it is approved.</DialogDescription>
           </DialogHeader>
           {form && book && (
@@ -367,6 +524,27 @@ export default function ExpensesTab() {
                   </SelectContent>
                 </Select>
               </div>
+              {paidFromList && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="expense-paid-from">Paid from</Label>
+                  <Select value={form.paid_from || NO_ACCOUNT} onValueChange={(v) => set("paid_from", v === NO_ACCOUNT ? "" : v)}>
+                    <SelectTrigger id="expense-paid-from"><SelectValue placeholder="Which bank or account paid this?" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_ACCOUNT}>Not set</SelectItem>
+                      {paidFromList.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">The ledger needs this to book the money leaving the right account. Cash entries can leave it unset.</p>
+                </div>
+              )}
+              {recurringAvailable && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="expense-spread">Spread over months (optional)</Label>
+                  <Input id="expense-spread" className="min-h-11" inputMode="numeric" placeholder="e.g. 12 for a yearly payment" value={form.prepaid_months}
+                    onChange={(e) => set("prepaid_months", e.target.value.replace(/\D/g, "").slice(0, 2))} />
+                  <p className="text-xs text-muted-foreground">For a payment that covers several months (annual subscription, insurance): the ledger books it as prepaid and releases one share at each month end.</p>
+                </div>
+              )}
 
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="expense-vendor">Vendor</Label>

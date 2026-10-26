@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
+import { normaliseRealProfit, type RealProfit } from '@/components/finance/cogs';
 
 type RpcReturns<F extends keyof Database['public']['Functions']> =
   Database['public']['Functions'][F]['Returns'];
@@ -17,6 +18,8 @@ const REFRESH_MS = 300_000;
 interface ExecData {
   portfolioValue: number;
   grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
+  /** Phase 5: real gross profit from the ledger (replaces the 15 % tiles); null until the ledger migration is applied or without view_ledger. */
+  realProfit: RealProfit | null;
   monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
   netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number; delta_healthy: number; delta_at_risk: number; delta_critical: number; delta_pct: number } | null;
   coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number; projected_inflow_30d: number; projected_coverage_30d: number; projected_funding_gap: number } | null;
@@ -54,6 +57,7 @@ interface FinancialAlert {
 const EMPTY_EXEC_DATA: Omit<ExecData, 'loading'> = {
   portfolioValue: 0,
   grossProfit: null,
+  realProfit: null,
   monthlyInflow: null,
   netExposure: null,
   coverageRatio: null,
@@ -78,7 +82,7 @@ export const executiveDashboardQueryOptions = {
   staleTime: REFRESH_MS,
   placeholderData: keepPreviousData,
   queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
-      const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci] = await Promise.all([
+      const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci, rp] = await Promise.all([
         supabase.rpc('fc_portfolio_value'),
         supabase.rpc('fc_gross_profit'),
         supabase.rpc('fc_monthly_inflow'),
@@ -91,6 +95,8 @@ export const executiveDashboardQueryOptions = {
         supabase.rpc('fc_plan_performance'),
         supabase.rpc('fc_cohort_timeline'),
         supabase.rpc('fc_cfo_insights'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase.rpc as any)('fc_real_profit', { p_from: null, p_to: null }).then((r: { data: unknown; error: unknown }) => r, () => ({ data: null, error: true })),
       ]);
 
       return {
@@ -99,6 +105,7 @@ export const executiveDashboardQueryOptions = {
           active_gross_profit: Number(gp.data?.[0]?.active_gross_profit ?? 0),
           lifetime_gross_profit: Number(gp.data?.[0]?.lifetime_gross_profit ?? 0),
         },
+        realProfit: rp.error ? null : normaliseRealProfit(rp.data),
         monthlyInflow: {
           installment_inflow: Number(mi.data?.[0]?.installment_inflow ?? 0),
           penalty_inflow: Number(mi.data?.[0]?.penalty_inflow ?? 0),

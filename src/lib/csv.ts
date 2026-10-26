@@ -36,17 +36,38 @@ export function toCsv(header: string[], rows: unknown[][]): string {
 }
 
 /**
- * Hand the browser a CSV file named `<name>-YYYY-MM-DD.csv`.
+ * UTF-8 byte-order mark. Excel on Japanese Windows opens a plain UTF-8 CSV as
+ * Shift-JIS and shows 勘定科目 names as mojibake; with the BOM it reads UTF-8.
+ * Opted into per export (Phase 7 statements) — adding it everywhere would change
+ * the first header cell of every existing export for tools that keep the BOM.
+ */
+export const CSV_BOM = '\uFEFF';
+
+export type CsvOptions = {
+  /** Prefix the file with a UTF-8 BOM (for Excel + Japanese text). */
+  bom?: boolean;
+  /** Use `name` as the full file name (".csv" appended) instead of `<name>-YYYY-MM-DD.csv`. */
+  exactName?: boolean;
+};
+
+/** The CSV text with the optional BOM — split out so a test can assert on it without a DOM. */
+export function csvText(header: string[], rows: unknown[][], options: CsvOptions = {}): string {
+  return (options.bom ? CSV_BOM : '') + toCsv(header, rows);
+}
+
+/**
+ * Hand the browser a CSV file named `<name>-YYYY-MM-DD.csv` (or `<name>.csv`
+ * with `exactName`, for exports whose name already carries the period).
  *
  * The object URL is revoked after the click — without it every export leaks a
  * blob for the life of the tab.
  */
-export function downloadCsv(name: string, header: string[], rows: unknown[][]): void {
-  const blob = new Blob([toCsv(header, rows)], { type: 'text/csv;charset=utf-8;' });
+export function downloadCsv(name: string, header: string[], rows: unknown[][], options: CsvOptions = {}): void {
+  const blob = new Blob([csvText(header, rows, options)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = options.exactName ? `${name}.csv` : `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

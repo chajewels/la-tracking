@@ -10,16 +10,30 @@ import * as jose from "https://esm.sh/jose@5";
  *   - GOOGLE_ADMIN_EMAIL: workspace user email to impersonate
  *
  * Returns: short-lived (1 hour) access token with Drive + Sheets scopes.
+ *
+ * Phase 4 (expenses-email-bills): callers may pass other scopes and the mailbox
+ * to impersonate (domain-wide delegation lets the same client act as any user
+ * of the domain once Google Admin grants the scope). Existing callers pass
+ * nothing and keep the Drive + Sheets token as before.
  */
-export async function getServiceAccountAccessToken(): Promise<string> {
+export const DRIVE_SHEETS_SCOPES = [
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/spreadsheets",
+];
+export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+export async function getServiceAccountAccessToken(
+  opts: { scopes?: string[]; subject?: string } = {},
+): Promise<string> {
   const json = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
   if (!json) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON secret not set");
   }
-  const adminEmail = Deno.env.get("GOOGLE_ADMIN_EMAIL");
+  const adminEmail = opts.subject ?? Deno.env.get("GOOGLE_ADMIN_EMAIL");
   if (!adminEmail) {
     throw new Error("GOOGLE_ADMIN_EMAIL secret not set");
   }
+  const scopes = opts.scopes && opts.scopes.length > 0 ? opts.scopes : DRIVE_SHEETS_SCOPES;
   let creds: { client_email?: string; private_key?: string; token_uri?: string };
   try {
     creds = JSON.parse(json);
@@ -36,7 +50,7 @@ export async function getServiceAccountAccessToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   // Domain-Wide Delegation: sub = impersonated workspace user, iss = service account.
   const jwt = await new jose.SignJWT({
-    scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets",
+    scope: scopes.join(" "),
   })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuer(client_email)

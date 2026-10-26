@@ -78,6 +78,8 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/monitoring': 'view_monitoring',
   '/inquiries': 'view_inquiries',
   '/finance': 'view_finance',
+  // Expenses Phase 7: the printable 税理士 pack is a ledger read.
+  '/finance/tax-pack': 'view_ledger',
   '/payment-submissions': 'view_submissions',
   '/waivers': 'view_waivers',
   '/admin-audit': 'view_audit_logs',
