@@ -171,7 +171,8 @@ DO $t$ DECLARE r jsonb; n int; BEGIN
   ASSERT (r->>'errors')::int = 0, 'clean again: ' || (r->'issues')::text;
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'month_open' AND x->>'ref' IN ('2026-06', '2026-07')) = 0, 'closed months are not reported';
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'month_open' AND x->>'ref' IN ('2026-08', '2026-09')) = 2, 'August and September still open: ' || (r->'issues')::text;
-  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'reconciliation') >= 3, 'SMBC not reconciled for the ended months';
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'reconciliation' AND x->>'ref' = '2026-08') = 1, 'SMBC not reconciled for August (the ended OPEN month with movements): ' || (r->'issues')::text;
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'reconciliation' AND x->>'ref' IN ('2026-06', '2026-07')) = 0, 'closed months are not nagged about reconciliation (their open items were written at the close)';
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'late_posting') = 1, 'the June correction that landed in July is listed';
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'expense_draft') = 1, 'drafts older than two weeks';
   ASSERT (r->>'bell_rung')::boolean = false AND (r->>'new_warnings')::int = 0, 'no errors, no new warnings → silent: ' || (r - 'issues')::text;
@@ -183,9 +184,9 @@ DO $t$ DECLARE r jsonb; n int; BEGIN
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'issues') x WHERE x->>'kind' = 'suspense' AND x->>'ref' = '1190') = 1 AND (r->>'bell_rung')::boolean AND (r->>'new_warnings')::int = 1, 'a new warning rings: ' || (r - 'issues')::text;
   SELECT count(*) INTO n FROM public.staff_notifications WHERE type = 'ledger_check'; ASSERT n = 2, 'two bells: ' || n;
   r := public.get_ledger_checks(10);
-  ASSERT jsonb_array_length(r->'runs') = 4 AND (r->'latest'->>'warnings')::int >= 6 AND r->'latest' ? 'issues' AND NOT (r->'runs'->0 ? 'issues'), 'history without issue bodies, latest with: ' || (r->'runs')::text;
+  ASSERT jsonb_array_length(r->'runs') = 4 AND (r->'latest'->>'warnings')::int >= 5 AND r->'latest' ? 'issues' AND NOT (r->'runs'->0 ? 'issues'), 'history without issue bodies, latest with: ' || (r->'runs')::text;
   r := public.get_ledger_status();
-  ASSERT (r->'last_check'->>'errors')::int = 0 AND (r->'last_check'->>'warnings')::int >= 6, 'status strip carries the last check';
+  ASSERT (r->'last_check'->>'errors')::int = 0 AND (r->'last_check'->>'warnings')::int >= 5, 'status strip carries the last check';
   ASSERT (SELECT (p->>'unreconciled_accounts')::int FROM jsonb_array_elements(r->'periods') p WHERE p->>'period_start' = '2026-08-01') = 1, 'periods carry reconciliation counts';
   RAISE NOTICE 'K5 nightly check OK';
 END $t$;
@@ -232,6 +233,8 @@ DO $t$ DECLARE r jsonb; imp uuid; l1 uuid; l2 uuid; jl uuid; rec jsonb; BEGIN
   ASSERT (rec->>'matched_count')::int = 1 AND jsonb_array_length(rec->'unmatched_statement') = 3 AND jsonb_array_length(rec->'unmatched_ledger') = 1, 'lists: ' || (rec - 'imports' - 'profile')::text;
   ASSERT (rec->>'ledger_closing_native')::numeric = 1000000 + 41000 + 12000 - 5000, 'ledger closing at 31 Aug from live lines (the voided Props expense is out; the corrected payments are in)';
   ASSERT (rec->>'statement_closing')::numeric = 1059780 AND rec->>'statement_closing_source' = 'statement', 'closing from the last statement line';
+  ASSERT public.get_bank_reconciliation('1101', '2026-09-01')->'statement_closing' = 'null'::jsonb AND public.get_bank_reconciliation('1101', '2026-09-01')->'statement_closing_source' = 'null'::jsonb,
+    'September has no import, so nothing is prefilled — August''s last balance is not September''s closing (QA F2)';
   ASSERT (rec->'unmatched_ledger'->0->>'signed_amount')::numeric = 12000, 'the 12,000 receipt is the one left';
   SELECT (x->>'id')::uuid INTO l1 FROM jsonb_array_elements(rec->'unmatched_statement') x WHERE x->>'booked_on' = '2026-08-10';
   SELECT (x->>'id')::uuid INTO l2 FROM jsonb_array_elements(rec->'unmatched_statement') x WHERE x->>'booked_on' = '2026-08-11';

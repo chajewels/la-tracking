@@ -454,7 +454,8 @@ export default function ExpensesTab() {
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                    {/* On a phone the amount and actions take their own line under the description instead of squeezing it into a word-per-line column (QA F5). */}
+                    <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                       <div className="text-right">
                         <p className="font-semibold tabular-nums">{formatAmount(e.amount, e.currency)}</p>
                         {e.currency === "PHP" && (
