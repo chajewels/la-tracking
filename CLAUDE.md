@@ -54,6 +54,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/SHIPPING-FEES.md — the shipping rate card (Website → Settings → Shipping fees, admin, audited, never deleted) and couriers (Pabitbit on the LBC template; planned_shipping_method_id; PH-only default)
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
 - docs/WEBSITE-COUPONS.md — website checkout coupon codes: pieces only, coupon before points, held/used/released, website_coupon_quote is the only maths, the draft stores reduced figures and the review screen adds the coupon back
+- docs/PAYSLIPS.md — Timesheet → Payslips (admin + can_view_all only)
 - Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
   full text moved out verbatim on 2026-09-24 / 2026-10-02 / 2026-10-18 under that heading;
   CLAUDE.md keeps the one-line rules and the pointer.
