@@ -63,7 +63,10 @@
   Lives in: Supabase SQL Editor (not in repo migrations).
 
   Allowlist (hard-coded VALUES inside the function — adding a row means
-  replacing the function). Last replaced by migration 20261231520000
+  replacing the function). Replaced by migration 20270203500000 (2026-10-27):
+  cash_orders is checked as 'delete-cash-order' at critical (it was "(none -
+  soft-cancel only)" info, which was wrong — cash orders are deleted), with
+  allowlist rows for all 14 children. Earlier: migration 20261231520000
   (2026-10-25): rows for loyalty_signups, website_live_claims,
   web_order_drafts, website_coupon_uses, website_post_comments (cleared by
   delete-customer), review_invites / product_reviews on customers and
