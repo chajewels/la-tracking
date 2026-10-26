@@ -512,8 +512,10 @@ BEGIN
   SELECT * INTO v_rec FROM public.bank_reconciliations WHERE account_code = p_account AND month_start = p_month;
   SELECT s.balance_after INTO v_last_balance
     FROM public.bank_statement_lines s JOIN public.bank_statement_imports i ON i.id = s.import_id
-   WHERE s.account_code = p_account AND i.voided_at IS NULL AND s.booked_on <= v_end AND s.balance_after IS NOT NULL
+   WHERE s.account_code = p_account AND i.voided_at IS NULL AND s.booked_on BETWEEN p_month AND v_end AND s.balance_after IS NOT NULL
    ORDER BY s.booked_on DESC, s.line_no DESC LIMIT 1;
+  /* Only THIS month's statement lines prefill the closing figure (QA F2): an earlier month's last balance is
+     not this month's closing, and carrying it forward showed a meaningless "difference" on months with no import. */
   RETURN jsonb_build_object(
     'account', p_account, 'name', (SELECT a.name FROM public.gl_accounts a WHERE a.code = p_account), 'name_ja', (SELECT a.name_ja FROM public.gl_accounts a WHERE a.code = p_account),
     'currency', v_cur, 'is_cash', coalesce((SELECT a.system_key IN ('cash_jpy', 'cash_php') FROM public.gl_accounts a WHERE a.code = p_account), false),
@@ -988,7 +990,10 @@ BEGIN
 
   FOR r IN SELECT m::date AS month_start FROM generate_series(date_trunc('month', v_start)::date, date_trunc('month', v_today)::date - interval '1 month', interval '1 month') m
             WHERE (m + interval '1 month' - interval '1 day')::date <= v_today - 15
+              AND NOT public.gl_period_is_closed(m::date)
   LOOP
+    /* A closed month is left out (QA F3): its open items were written on the month at the close, and the
+       reconciliation is reopened only by hand — repeating the warning every night would be noise. */
     n := jsonb_array_length(public.gl_unreconciled_accounts(r.month_start));
     IF n > 0 THEN
       v_issues := v_issues || jsonb_build_object('kind', 'reconciliation', 'severity', 'warning', 'ref', to_char(r.month_start, 'YYYY-MM'), 'count', n,
