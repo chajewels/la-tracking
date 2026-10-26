@@ -436,6 +436,15 @@ replaced with ledger figures; only manage_expenses sets costs, hidden from staff
 confirmed the fiscal year is **April–March** (the accountant's 試算表 runs 自4月1日) — `fiscal_year_start_month`
 is now "4" in the 2b migration file.
 
+**D2 changed at go-live (owner, 26 Oct 2026 23:51 JST): purchases are the cost of sales.** The owner will not
+enter a cost per sale; the Hub follows the 税理士's periodic method — "Inventory purchases" expenses post to
+**5100 仕入高** in the month bought (`20270108100000_expenses_purchases_as_cost.sql`, applied to live the same
+night), and a year-end stock count is a manual journal 1300 ↔ 5100 for (counted − opening). 1300 keeps the
+opening balance (¥44,432,668 at 1 Oct 2026). Trade-ins are unchanged (1310 in, 5500 at resale, automatic).
+The per-sale cost machinery below (sale_costs, cogs_sale / cogs_return, the Cost of goods tab and its
+"cost missing" tiles) stays in place and posts nothing while no sale carries a cost; the tiles are informational
+only under this method.
+
 ### What existed (2026-10-26)
 One cost field in the whole Hub (`website_product_variants.cost_basis`, admin-only) with 0 of 456 variants
 filled; 81 of 1,623 layaways and 54 of 210 cash orders have product lines at all; the 15 % lived in
