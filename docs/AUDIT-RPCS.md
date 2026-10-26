@@ -21,6 +21,16 @@
   allocated (dp_allocated = 0, INVARIANT 11 case) it never reached the
   pending side and must be subtracted. Subtracting only the unallocated
   remainder reconciles both shapes.
+
+  CHECK 7 ("schedule status consistent with allocations") — PERFORMANCE
+  (2026-10-25, migration 20261231500000): sums allocations PER SCHEDULE ROW
+  (LEFT JOIN LATERAL ... WHERE pa.schedule_id = ls.id). The earlier derived
+  table summed every allocation in the database once per account; with 531
+  open accounts the System Audit took 12.7 s and hit the authenticated
+  role's 8 s statement_timeout. Same result (verified on all 531 accounts),
+  full run ~1.6 s. Never reintroduce an unfiltered aggregate inside
+  audit_account — it runs once per account in audit_all_accounts.
+
   History: 2026-06-19 added a BLANKET `v_dp_overpaid` subtraction (correct
   only for unallocated overage; examples 19119, 19128). 2026-07-06 (Bug
   #250) REMOVED it on the premise that DP excess always waterfalls into
@@ -51,6 +61,14 @@
   from SQL-Editor-created tables.
 
   Lives in: Supabase SQL Editor (not in repo migrations).
+
+  Allowlist (hard-coded VALUES inside the function — adding a row means
+  replacing the function). Last replaced by migration 20261231520000
+  (2026-10-25): rows for loyalty_signups, website_live_claims,
+  web_order_drafts, website_coupon_uses, website_post_comments (cleared by
+  delete-customer), review_invites / product_reviews on customers and
+  web_order_drafts on layaway_accounts (pre_check_protected), review_invites
+  on layaway_accounts (deleted by delete_account_atomic).
 
   Signature:
     RETURNS TABLE (

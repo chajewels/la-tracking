@@ -460,6 +460,12 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 
 - **Helper `public.timesheet_can_view_all(uuid)`** — SECURITY DEFINER STABLE; reads `timesheet_profiles.can_view_all` for the given user. Grants timesheet-only Consolidation + Cost Master visibility WITHOUT a global role. Brendalyn (`bumagatbrenda@gmail.com`) is flagged `can_view_all = true`.
 
+### Payslip tables (added 2026-10-26, migration 20270201100000 — NOT yet applied live)
+
+- **`staff_payroll_details`**: address + date of birth per staff member (`user_id` = auth uid = `timesheet_profiles.user_id`). Written only by `save_staff_payroll_details`; the audit row names the changed fields, never the values.
+- **`payslips`**: one live payslip per (user, month) (partial unique, void excluded). Figures and staff details frozen at `finalize_payslip`; only `finalized → paid` (payment fields) and `→ void` (void fields) are allowed, enforced by a row trigger; DELETE/TRUNCATE refused. `php_per_jpy` = `php_received / jpy_sent` (the actual remittance rate, not `php_jpy_rate`).
+- Read RLS on both tables = `public.can_manage_payslips(auth.uid())` (admin or `timesheet_can_view_all`, answers for the caller only); no write policies. Proofs live in the private bucket `payslip-proofs`, `<payslip_id>/<file>`. Full text: docs/PAYSLIPS.md.
+
 ### staff_notifications — additional types (added 2026-06-14)
 
 `submission_confirmed` is produced by the existing Postgres trigger `notify_submission_reviewed` (on `payment_submissions` UPDATE), which writes the "Payment confirmed" `staff_notifications` row on confirm. It is NOT emitted by an edge function — earlier duplicate inserts in `review-payment-submission` were removed (2026-06-14) so the bell row + chime/speech ride solely on the trigger.
@@ -782,13 +788,21 @@ Surviving trigger on layaway_schedule: `trg_validate_schedule_chronology` (BEFOR
   `has_permission(uid,'edit_loyalty_amount')`; refused once the order has an
   `'earned'` `loyalty_transactions` row (`account_id` / `cash_order_id`).
   `auth.uid() IS NULL` (service role) passes.
-- Six FKs to `customers` are NO ACTION (blocking), not CASCADE:
+- Eleven FKs to `customers` are NO ACTION (blocking), not CASCADE (2026-10-25):
   `extension_requests`, `payment_submissions`, `service_jobs`, `trade_ins`,
-  `loyalty_signups.converted_customer_id`, `website_live_claims.customer_id`.
+  `loyalty_signups.converted_customer_id`, `website_live_claims.customer_id`,
+  `web_order_drafts`, `website_coupon_uses`, `website_post_comments`,
+  `review_invites`, `product_reviews`.
   `layaway_accounts` and `cash_orders` are RESTRICT and are pre-check
-  protected (delete-customer refuses rather than cascading). Every other FK to
-  `customers` is CASCADE. `delete-customer` must clear all six explicitly;
-  `audit_delete_cleanup_invariants()` is what catches a new one.
+  protected (delete-customer refuses rather than cascading); `review_invites`
+  and `product_reviews` exist only with a completed order, so they are
+  protected by the same refusal. delete-customer also refuses while a website
+  checkout is `to_confirm`. Owner rule 2026-10-25: finished checkouts
+  (`declined` / `expired` drafts, their lines and coupon uses) and the
+  customer's article comments are DELETED before the customer; a points
+  redemption keeps its row and only loses `web_draft_id`. Several other FKs are
+  SET NULL; the rest CASCADE. `audit_delete_cleanup_invariants()` is what
+  catches a new one — add its allowlist row in the same change.
 - `loyalty_signups` is NOT a child of `customers`. `name`, `contact`, `region`
   and `lang` are NOT NULL on the row; `converted_customer_id` is a nullable
   link added only if the signup converts. Deleting a customer CLEARS THE LINK
