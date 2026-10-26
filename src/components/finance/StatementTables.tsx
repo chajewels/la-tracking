@@ -188,7 +188,7 @@ export function AgeingTables({ a, ja = true }: { a: Ageing; ja?: boolean }) {
         </div>
       </div>
       <p className="text-xs text-muted-foreground md:col-span-2">
-        As of {dayLabel(a.as_of)}; peso lines at the Hub rate{a.rate ? ` (₱1 = ¥${(1 / a.rate).toFixed(2)})` : ""}.
+        As of {dayLabel(a.as_of)}{a.requested_as_of && a.requested_as_of > a.as_of ? ` (the period ends ${dayLabel(a.requested_as_of)}, in the future — aged as of today)` : ""}; peso lines at the Hub rate{a.rate ? ` (₱1 = ¥${(1 / a.rate).toFixed(2)})` : ""}.
         {a.basis === "current_open_lines_aged_at_date" ? " The schedule keeps no history, so today's open instalments are aged as they stood on that date; instalments paid since then are not shown." : ""}
         {" "}Only pending, partly paid and overdue instalments of live plans count; the ledger balance beside each table is the receivable the books carry.
       </p>

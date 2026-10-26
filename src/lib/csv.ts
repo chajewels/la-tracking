@@ -41,7 +41,7 @@ export function toCsv(header: string[], rows: unknown[][]): string {
  * Opted into per export (Phase 7 statements) — adding it everywhere would change
  * the first header cell of every existing export for tools that keep the BOM.
  */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\uFEFF';
 
 export type CsvOptions = {
   /** Prefix the file with a UTF-8 BOM (for Excel + Japanese text). */

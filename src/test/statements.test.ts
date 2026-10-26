@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   COMPANY_NAME_JA, JOURNAL_CSV_HEADER, STATEMENT_CSV_HEADER, TRIAL_BALANCE_CSV_HEADER,
-  bsGroups, bsSectionTotal, cfSectionLines, deltaPctLabel, exportFileName, fiscalYearSpan, flaggedLines, isMonthAligned, journalCsvRows,
+  MAX_STATEMENT_DAYS, bsGroups, bsSectionTotal, cfSectionLines, collectJournalRows, daysBetween, deltaPctLabel, isCalendarDate, exportFileName, fiscalYearSpan, flaggedLines, isMonthAligned, journalCsvRows,
   normaliseJournalExport, normaliseStatements, parseTaxPackParams, pctLabel, rangeLabel, signedYen, statementCsvRows, statementRange, statementRefusal,
   taxPackHref, trialBalanceCsvRows, validateFlags,
 } from "@/components/finance/statements";
@@ -44,6 +44,12 @@ describe("statements — ranges", () => {
     expect(parseTaxPackParams("", "2026-10")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
     expect(parseTaxPackParams("?from=2026-09-30&to=2026-07-01", "2026-10")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
     expect(parseTaxPackParams("?from=nope&to=2026-09-30", "2026-01")).toEqual({ from: "2025-12-01", to: "2025-12-31" });
+    expect(parseTaxPackParams("?from=2026-02-31&to=2026-03-31", "2026-10")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(parseTaxPackParams("?from=2023-01-01&to=2026-09-30", "2026-10")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(isCalendarDate("2024-02-29")).toBe(true);
+    expect(isCalendarDate("2026-02-29")).toBe(false);
+    expect(daysBetween("2026-04-01", "2027-03-31")).toBe(364);
+    expect(MAX_STATEMENT_DAYS).toBe(1100);
   });
   it("file names carry the period", () => {
     expect(exportFileName("journals", "2026-07-01", "2026-07-31")).toBe("journals-2026-07");
@@ -192,6 +198,28 @@ describe("statements — normalisers and section helpers", () => {
   });
 });
 
+describe("statements — export paging", () => {
+  const page = (rows: number, truncated: boolean) => ({ from: "a", to: "b", offset: 0, total_rows: 0, returned: rows, truncated, rows: Array.from({ length: rows }, (_, i) => ({
+    entry_date: "2026-07-01", journal_no: i, line_no: 1, kind: "auto", status: "posted", source_type: "payment", source_date: "2026-07-01", description: "", account_code: "1101", account_name: "", account_name_ja: null,
+    debit_jpy: 1, credit_jpy: 0, native_amount: 1, currency: "JPY" as const, rate: null, memo: null, tax_flag: "" as const, reversed: false })) });
+  it("joins pages until the server says it is done", async () => {
+    const offsets: number[] = [];
+    const out = await collectJournalRows(async (o) => { offsets.push(o); return page(3, o < 6); }, (t) => t);
+    expect(offsets).toEqual([0, 3, 6]);
+    expect(out).toMatchObject({ capped: false });
+    expect(out.rows).toHaveLength(9);
+  });
+  it("stops at the page cap and says so", async () => {
+    const out = await collectJournalRows(async () => page(2, true), (t) => t, 3);
+    expect(out.capped).toBe(true);
+    expect(out.rows).toHaveLength(6);
+  });
+  it("an empty page ends the loop", async () => {
+    const out = await collectJournalRows(async () => page(0, true), (t) => t);
+    expect(out).toEqual({ rows: [], capped: false });
+  });
+});
+
 describe("statements — CSV", () => {
   it("BOM is opt-in and sits before the header", () => {
     const text = csvText(["a", "b"], [[1, "x"]], { bom: true });
@@ -236,11 +264,16 @@ describe("statements — wiring", () => {
     const css = read("src/index.css");
     expect(css).toContain(".tax-pack .tax-pack-section {");
     expect(css).toContain("break-before: page;");
+    expect(css).toMatch(/\.tax-pack \{\s*position: static !important;/);
+    expect(page).toContain("fiscalYearSpan(data.fiscal_year_start_month)");
+    expect(page).not.toContain("(April – March)");
   });
   it("migration: name_ja seed, flags, the three RPCs, no -- comments inside function bodies", () => {
     const m = read("supabase/migrations/20270106100000_expenses_statements.sql");
     expect(m).toContain("ADD COLUMN IF NOT EXISTS name_ja");
     expect(m).toContain("('4100', '売上高')");
+    expect(m).toContain("a.kind = 'revenue' AND l.account_code NOT IN ('4400', '4500', '4900', '4950')");
+    expect(m).toContain("least(coalesce(p_as_of,");
     expect(m).toContain("'statement_flag_pct', '\"15\"'");
     for (const fn of ["get_statements(date, date)", "get_receivable_ageing(date)", "get_journal_export(date, date, integer)", "set_statement_flags(numeric, numeric)"]) {
       expect(m).toContain(`REVOKE ALL ON FUNCTION public.${fn} FROM PUBLIC, anon;`);

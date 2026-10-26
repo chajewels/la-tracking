@@ -645,14 +645,16 @@ without it); no tax flag anywhere; no Japanese account names; the Months tab sti
     (pending / partially_paid / overdue of live, non-test plans) by days past due at `as_of` — not due /
     1–30 / 31–60 / 61–90 / 90+ with plan count, ₱, ¥ and yen total at the Hub rate; pending cash-order
     balances by order age; scheduled collections due in the next 30 / 60 / 90 days; and the ledger balances
-    of 1200 / 1210 beside them. The schedule keeps no history, so a past `as_of` ages *today's* open lines
-    as they stood then (`basis` says so).
+    of 1200 / 1210 beside them. An instalment due on `as_of` itself is not yet late; plans ordered after
+    `as_of` are left out; a future `as_of` is clamped to today (`requested_as_of` keeps the asked date). The
+    schedule keeps no history, so a past `as_of` ages *today's* open lines as they stood then (`basis` says so).
   - Also: `currency_checks` (plans / orders in the range whose currency disagrees with the customer's
     country, ≤ 50 listed + count), `outside_hub` (役員報酬, 法定福利費), journal count, thresholds, rate.
 - **`get_journal_export(from, to, offset)`** (view_ledger): every journal line as a flat row — date, journal
   no., line no., kind, status, source type, source date, description, account code / name / 勘定科目,
-  Dr / Cr yen, native amount, currency, rate, memo, `tax_flag` (export / domestic on 4100 / 4150 / 4500 lines by
-  the line's currency, blank elsewhere), reversed — 20,000 rows per call, paged by offset; the client joins the
+  Dr / Cr yen, native amount, currency, rate, memo, `tax_flag` (export / domestic by the line's currency on every
+  revenue account except 4400 penalty, 4500 forfeiture, 4900 other income and 4950 FX gain — the 税理士 decides the
+  tax class of those; blank on non-revenue lines), reversed — 20,000 rows per call, paged by offset; the client joins the
   pages and writes `journals-<period>.csv` with a UTF-8 BOM (`downloadCsv(…, { bom: true, exactName: true })`).
   The trial-balance CSV now goes through the same helper (RFC 4180 escaping + formula guard, BOM, 勘定科目 column).
 - **Settings** `statement_flag_pct` (15) / `statement_flag_jpy` (100000); `set_statement_flags(pct, jpy)`
@@ -670,7 +672,7 @@ without it); no tax flag anywhere; no Japanese account names; the Months tab sti
 
 ### Verified (2026-10-26)
 - Local PostgreSQL 16: eight migrations applied twice through one `run.sh`; earlier suites (17 / 5 / 11 / 8 /
-  7 / 8 / 7) still pass; new `test_statements.sql` (9 groups): name_ja seeded / edited / kept / length-checked /
+  7 / 8 / 7) still pass; new `test_statements.sql` (10 groups): name_ja seeded / edited / kept / length-checked /
   admin-only; permissions (staff, finance, internal helpers revoked); a fixture book (opening, four plans in
   yen and pesos incl. a Japan customer paying in pesos, equipment, loan, marketing, inventory on account);
   income statement figures and the domestic / export split, totals tying to the trial balance, catch-alls
@@ -679,7 +681,16 @@ without it); no tax flag anywhere; no Japanese account names; the Months tab sti
   currency check row; prior-period comparison on an in-ledger range with Δ / Δ % / flags at both rules,
   thresholds edited + audited, unaligned ranges, reversed range refused; journal export rows (tax flag,
   勘定科目, order, paging, offset check, reversal marked on the original and the reversal journal).
-- tsc exit 0; Vitest statements (22) + full suite pass; build passes; lint unchanged (881 / 150).
+- Independent review applied before the PR: the print page is taken out of the customer statement's absolute
+  positioning (`position: static` in print; overflow visible) so page breaks and multi-page packs print;
+  `tax_flag` covers every revenue account except penalty / forfeiture / other income / FX; 3900 is named
+  役員引出金（純資産控除）, not 役員貸付金 (an asset name), and the pack's Basis note says the accountant
+  reclassifies it; ageing boundaries (due today = not late; plans after `as_of` excluded; future `as_of`
+  clamped); prior-year column withheld when it would overlap the range; 1140 COD grouped with receivables on
+  both statements; the journal-export loop reports when it stops at its page cap; TaxPack maps server refusals;
+  URL dates must be real calendar dates within 1,100 days; the BOM is an escape in source; tests added for the
+  catch-all lines, the fiscal-year straddle, export paging continuity and the ageing boundaries.
+- tsc exit 0; Vitest statements (25) + full suite pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites

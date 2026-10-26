@@ -612,9 +612,13 @@
   }
   /* 税理士 pack (Finance → Ledger → Statements, Phase 7): one statement per sheet, table rules on paper. */
   .tax-pack {
+    position: static !important;
     border: 0;
     border-radius: 0;
     padding: 0;
+  }
+  .tax-pack .overflow-x-auto {
+    overflow: visible !important;
   }
   .tax-pack .tax-pack-section {
     break-before: page;

@@ -13,7 +13,7 @@ tables the ledger reads, baseline columns only, plus website_product_variants, t
   inventory, trade-ins, valuation, real profit — own clean book)
 - `test_clearing.sql` — Phase 6 clearing & FX (7 groups; rate history, Square fee from payload, settlements, transfers,
   peso revaluation across a dated rate change, fee categories automatic — own clean book)
-- `test_statements.sql` — Phase 7 statements (9 groups; 勘定科目 names, permissions, a fixture book, income statement with the
+- `test_statements.sql` — Phase 7 statements (10 groups; 勘定科目 names, permissions, a fixture book, income statement with the
   domestic / export split, balance sheet, cash-flow tie-out, ageing + forecast + currency checks, comparisons and flags, journal
   export — own clean book)
 - `test_ledger.sql` — Phase 2b general ledger (11 groups: start-date gate, permissions, every event set,

@@ -2058,12 +2058,13 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - system_settings `statement_flag_pct` ("15") / `statement_flag_jpy` ("100000"); `gl_statement_flags()` internal; `set_statement_flags(numeric, numeric)`
   (admin_settings; errors invalid_pct / invalid_amount; audit entity 'gl_setting' action 'set_statement_flags').
 - `get_receivable_ageing(date)` (view_ledger): reads layaway_schedule (status pending / partially_paid / overdue, total_due_amount − paid_amount > 0)
-  joined to live non-test layaway_accounts, pending non-test cash_orders, gl lines of 1200 / 1210; yen at `gl_rate()`.
+  joined to live non-test layaway_accounts ordered on/before as_of, pending non-test cash_orders, gl lines of 1200 / 1210; yen at `gl_rate()`;
+  due_date ≥ as_of = not due; as_of clamped to today (`requested_as_of` returned).
 - `get_statements(date, date)` (view_ledger; range ≤ 1100 days): one aggregate over gl_journal_lines per account (current / prior / prior-year
   movements, PHP-only movements, balances at `to` and `from − 1`, balances before the fiscal-year start, fx_revaluation movements) →
   income_statement.lines[], balance_sheet.lines[] + totals, cash_flow.lines[] + tie-out, ageing, currency_checks (reads customers.country),
   outside_hub. Internal helpers `gl_stmt_pick`, `gl_stmt_kind_sum`, `gl_stmt_line` (revoked from authenticated).
 - `get_journal_export(date, date, integer)` (view_ledger): ≤ 20,000 flat lines per call ordered by journal_no, line_no; `tax_flag` export /
-  domestic on 4100 / 4150 / 4500 lines by line currency.
+  domestic by line currency on revenue-kind lines except 4400 / 4500 / 4900 / 4950.
 - Client: `/finance/tax-pack` route (PermissionsContext → view_ledger), `src/lib/csv.ts` gained `csvText` / `downloadCsv(…, { bom, exactName })`.
 

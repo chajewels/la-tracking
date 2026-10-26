@@ -8,13 +8,13 @@ import { downloadCsv } from "@/lib/csv";
 import { toast } from "@/hooks/use-toast";
 import { callRpc } from "@/components/finance/useBookedMonths";
 import { monthKeyTokyo, todayTokyo } from "@/components/finance/expenses";
-import { KIND_LABEL, KIND_ORDER, LEDGER_TB_KEY, dayLabel, formatYen, naturalBalance, normaliseAccounts, normaliseTrialBalance, sourceTypeLabel } from "@/components/finance/ledger";
+import { KIND_LABEL, KIND_ORDER, LEDGER_TB_KEY, dayLabel, formatYen, ledgerRefusal, naturalBalance, normaliseAccounts, normaliseTrialBalance, sourceTypeLabel } from "@/components/finance/ledger";
 import { FX_KEY, RATE_HISTORY_KEY, normaliseFx, normaliseRateHistory } from "@/components/finance/clearing";
 import { AgeingTables, BalanceSheetTable, CashFlowTable, IncomeStatementTable } from "@/components/finance/StatementTables";
 import { CurrencyChecks } from "@/components/finance/StatementsSection";
 import {
   COMPANY_NAME_JA, JOURNAL_CSV_HEADER, STATEMENTS_KEY, TRIAL_BALANCE_CSV_HEADER, type Statements,
-  exportFileName, journalCsvRows, normaliseJournalExport, normaliseStatements, parseTaxPackParams, rangeLabel, trialBalanceCsvRows,
+  collectJournalRows, exportFileName, fiscalYearSpan, normaliseJournalExport, normaliseStatements, parseTaxPackParams, rangeLabel, statementRefusal, trialBalanceCsvRows,
 } from "@/components/finance/statements";
 
 /**
@@ -23,6 +23,11 @@ import {
  * the month-end peso revaluation, and the notes. "Print / Save as PDF" uses the browser's own print dialog —
  * no PDF library (dependencies are frozen). Opens from Ledger → Statements and Ledger → Months. view_ledger.
  */
+function refusal(e: unknown, fallback: string) {
+  const code = (e as { code?: string })?.code ?? "";
+  toast({ title: statementRefusal(code) || ledgerRefusal(code) || fallback, variant: "destructive" });
+}
+
 export default function TaxPack() {
   const { can, loading } = usePermissions();
   const location = useLocation();
@@ -56,17 +61,12 @@ export default function TaxPack() {
   const exportJournals = async () => {
     setExporting(true);
     try {
-      const rows: unknown[][] = [];
-      let offset = 0;
-      for (let page = 0; page < 20; page++) {
-        const out = normaliseJournalExport(await callRpc("get_journal_export", { p_from: from, p_to: to, p_offset: offset }));
-        rows.push(...journalCsvRows(out.rows, sourceTypeLabel));
-        offset += out.returned;
-        if (!out.truncated || out.returned === 0) break;
-      }
+      const { rows, capped } = await collectJournalRows(
+        async (offset) => normaliseJournalExport(await callRpc("get_journal_export", { p_from: from, p_to: to, p_offset: offset })), sourceTypeLabel);
       downloadCsv(exportFileName("journals", from, to), JOURNAL_CSV_HEADER, rows, { bom: true, exactName: true });
-    } catch {
-      toast({ title: "Could not export the journals", variant: "destructive" });
+      if (capped) toast({ title: `Export stopped at ${rows.length.toLocaleString("en-US")} lines — narrow the range for the rest`, variant: "destructive" });
+    } catch (e) {
+      refusal(e, "Could not export the journals");
     } finally {
       setExporting(false);
     }
@@ -102,7 +102,7 @@ export default function TaxPack() {
         </div>
 
         {s.isLoading && <div className="p-6 text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Building the pack…</div>}
-        {s.isError && <div className="p-6 text-sm text-destructive">Could not build the pack. Check the dates in the address bar and try again.</div>}
+        {s.isError && <div className="p-6 text-sm text-destructive">{statementRefusal((s.error as { code?: string })?.code ?? "") ?? "Could not build the pack. Check the dates in the address bar and try again."}</div>}
 
         {data && (
           <div className="statement-print-area tax-pack rounded-xl border border-border bg-card p-6 sm:p-8 text-card-foreground space-y-8">
@@ -112,7 +112,7 @@ export default function TaxPack() {
               <p className="mt-1 text-sm">対象期間 / Period: <strong>{dayLabel(data.from)} – {dayLabel(data.to)}</strong> ({rangeLabel(data.from, data.to)})</p>
               <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 text-sm max-w-xl">
                 <dt className="text-muted-foreground">作成日 / Prepared</dt><dd>{dayLabel(todayTokyo())}</dd>
-                <dt className="text-muted-foreground">会計年度 / Fiscal year</dt><dd>starts {dayLabel(data.fiscal_year_start)} (April – March)</dd>
+                <dt className="text-muted-foreground">会計年度 / Fiscal year</dt><dd>starts {dayLabel(data.fiscal_year_start)} ({fiscalYearSpan(data.fiscal_year_start_month)})</dd>
                 <dt className="text-muted-foreground">帳簿開始日 / Ledger start</dt><dd>{data.ledger_start ? dayLabel(data.ledger_start) : "not set"}</dd>
                 <dt className="text-muted-foreground">仕訳数 / Journals in the period</dt><dd>{data.journal_count.toLocaleString("en-US")}</dd>
                 <dt className="text-muted-foreground">為替レート / Peso rate</dt>
@@ -176,7 +176,8 @@ export default function TaxPack() {
                 <p className="text-xs text-muted-foreground">
                   Derived double-entry ledger: every sale, payment, refund, fee, payroll, commission, cost of goods and expense is posted from the Hub's own records; manual journals and the opening balances are the only typed entries.
                   Revenue is recognised when the first payment of a plan or order arrives; forfeited and cancelled plans reverse their sale; penalty and forfeiture income are recognised when collected or forfeited.
-                  Comparison columns are blank before the ledger start.
+                  Comparison columns are blank before the ledger start.{data.ledger_start === data.from ? " This period begins at the ledger start, so the opening balances appear as capital and cash movements in the cash flow." : ""}
+                  {" "}3900 役員引出金 is the owner's drawings shown as a deduction from equity; the accountant reclassifies it (役員貸付金 or 役員報酬) at year end.
                 </p>
               </div>
             </section>

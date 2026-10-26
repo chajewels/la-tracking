@@ -135,6 +135,35 @@ DO $t$ DECLARE r jsonb; l jsonb; tb jsonb; BEGIN
   RAISE NOTICE 'T4 income statement OK';
 END $t$;
 
+-- T4b catch-alls, the fiscal-year split and comparison availability on odd ranges.
+DO $t$ DECLARE r jsonb; l jsonb; BEGIN
+  r := public.upsert_gl_account('{"code":"1105","name":"Seven Bank","kind":"asset","name_ja":"普通預金 セブン"}'); ASSERT r->>'ok' = 'true', 'new bank account';
+  r := public.upsert_gl_account('{"code":"1450","name":"Deposits paid","kind":"asset","name_ja":"差入保証金"}'); ASSERT r->>'ok' = 'true', 'new non-cash asset';
+  r := public.post_manual_journal(jsonb_build_object('entry_date', '2026-09-20', 'description', 'Influencer fee + shop deposit',
+         'lines', '[{"a":"6210","side":"dr","amt":"7000","cur":"JPY"},{"a":"1450","side":"dr","amt":"20000","cur":"JPY"},{"a":"1105","side":"cr","amt":"27000","cur":"JPY"}]'::jsonb));
+  ASSERT r->>'ok' = 'true', 'journal on accounts the statement lists do not know: ' || r::text;
+  r := public.get_statements('2026-07-01', '2026-09-30');
+  l := (SELECT x FROM jsonb_array_elements(r->'income_statement'->'lines') x WHERE x->>'key' = 'sga_misc');
+  ASSERT (l->>'cur')::numeric = 7000, 'unknown expense account lands on the catch-all line: ' || coalesce(l::text, 'missing');
+  ASSERT (SELECT (x->>'cur')::numeric FROM jsonb_array_elements(r->'income_statement'->'lines') x WHERE x->>'key' = 'sga_total') = 37000, '販管費 total includes it';
+  ASSERT (SELECT (x->>'cur')::numeric FROM jsonb_array_elements(r->'income_statement'->'lines') x WHERE x->>'key' = 'net_profit') = 60000 + round(50000 / 0.42) + round(10000 / 0.42) - 37000, 'net profit moved by 7,000';
+  ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(r->'cash_flow'->'lines') x WHERE x->>'key' = 'd_other_accounts') = -20000, 'unknown non-cash asset on the cash-flow catch-all';
+  ASSERT (r->'cash_flow'->>'difference')::numeric = 0 AND (r->'cash_flow'->>'cash_close')::numeric = 1165000 + 60000 + round(20000 / 0.42) + round(10000 / 0.42) - 27000, 'new bank account (< 1130) counts as cash and the statement still ties';
+  ASSERT (SELECT x->>'group' FROM jsonb_array_elements(r->'balance_sheet'->'lines') x WHERE x->>'code' = '1105') = 'cash' AND (SELECT x->>'group' FROM jsonb_array_elements(r->'balance_sheet'->'lines') x WHERE x->>'code' = '1450') = 'other_current_assets', 'new accounts sectioned by code';
+  ASSERT (r->'balance_sheet'->'totals'->>'check')::numeric = 0, 'still balanced';
+  r := public.get_statements('2027-03-01', '2027-04-30');
+  ASSERT r->>'fiscal_year_start' = '2027-04-01', 'FY of the end date';
+  l := (SELECT x FROM jsonb_array_elements(r->'balance_sheet'->'lines') x WHERE x->>'key' = 'current_fy_profit');
+  ASSERT (l->>'cur')::numeric = 0 AND (l->>'prior')::numeric = 100000 - 5000 + 60000 + round(50000 / 0.42) + round(10000 / 0.42) - 37000, 'straddling 31 March: current-year profit resets, the earlier date still shows FY2027 profit: ' || l::text;
+  l := (SELECT x FROM jsonb_array_elements(r->'balance_sheet'->'lines') x WHERE x->>'key' = 'retained_prior_years');
+  ASSERT (l->>'cur')::numeric = 100000 - 5000 + 60000 + round(50000 / 0.42) + round(10000 / 0.42) - 37000 AND (l->>'prior')::numeric = 0, 'and moves into earlier years';
+  ASSERT (r->'balance_sheet'->'totals'->>'check')::numeric = 0 AND (r->'balance_sheet'->'totals'->>'prior_check')::numeric = 0, 'balanced on both dates';
+  r := public.get_statements('2026-06-01', '2028-03-31');
+  ASSERT (r->'comparisons'->'prior_year'->>'available')::boolean = false, 'a prior-year column that would overlap the range is not offered';
+  r := public.get_statements('2026-06-01', '2029-12-31'); ASSERT r->>'error' = 'invalid_range', 'over three years refused';
+  RAISE NOTICE 'T4b catch-alls + fiscal split OK';
+END $t$;
+
 -- T5 balance sheet at 2026-09-30 (and at 2026-06-30): sections, equity includes the profit to date, A = L + E.
 DO $t$ DECLARE r jsonb; bs jsonb; l jsonb; php_rec numeric := round(50000 / 0.42) - round(20000 / 0.42); BEGIN
   r := public.get_statements('2026-07-01', '2026-09-30');
@@ -152,7 +181,7 @@ DO $t$ DECLARE r jsonb; bs jsonb; l jsonb; php_rec numeric := round(50000 / 0.42
   l := (SELECT x FROM jsonb_array_elements(bs->'lines') x WHERE x->>'code' = '3000');
   ASSERT (l->>'cur')::numeric = 1000000 AND l->>'section' = 'equity', 'capital';
   l := (SELECT x FROM jsonb_array_elements(bs->'lines') x WHERE x->>'key' = 'current_fy_profit');
-  ASSERT (l->>'cur')::numeric = 100000 - 5000 + 60000 + round(50000 / 0.42) + round(10000 / 0.42) - 30000 AND (l->>'prior')::numeric = 95000, 'profit since 1 April (all of it, the ledger started in June): ' || l::text;
+  ASSERT (l->>'cur')::numeric = 100000 - 5000 + 60000 + round(50000 / 0.42) + round(10000 / 0.42) - 37000 AND (l->>'prior')::numeric = 95000, 'profit since 1 April (all of it, the ledger started in June): ' || l::text;
   l := (SELECT x FROM jsonb_array_elements(bs->'lines') x WHERE x->>'key' = 'retained_prior_years');
   ASSERT (l->>'cur')::numeric = 0, 'nothing before this fiscal year';
   ASSERT (SELECT count(*) FROM jsonb_array_elements(bs->'lines') x WHERE x->>'code' = '2750') = 0, 'accounts with no balance are not listed';
@@ -167,7 +196,7 @@ DO $t$ DECLARE r jsonb; cf jsonb; php_rec numeric := round(50000 / 0.42) - round
   r := public.get_statements('2026-07-01', '2026-09-30');
   cf := r->'cash_flow';
   ASSERT (cf->>'cash_open')::numeric = 1035000, 'cash at 30 June: ' || cf::text;
-  ASSERT (cf->>'cash_close')::numeric = 1165000 + 60000 + round(20000 / 0.42) + round(10000 / 0.42), 'cash at 30 Sept (SMBC + Rakuten + BDO in yen)';
+  ASSERT (cf->>'cash_close')::numeric = 1165000 + 60000 + round(20000 / 0.42) + round(10000 / 0.42) - 27000, 'cash at 30 Sept (SMBC + Rakuten + BDO + Seven in yen)';
   ASSERT (cf->>'actual_change')::numeric = (cf->>'cash_close')::numeric - (cf->>'cash_open')::numeric, 'actual change';
   ASSERT (cf->>'difference')::numeric = 0 AND (cf->>'net_change')::numeric = (cf->>'actual_change')::numeric, 'indirect statement ties out: ' || cf::text;
   ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_receivables') = -(50000 + php_rec - 60000), 'receivables grew → cash used';
@@ -175,7 +204,7 @@ DO $t$ DECLARE r jsonb; cf jsonb; php_rec numeric := round(50000 / 0.42) - round
   ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_payables') = 80000, 'but on account';
   ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_equipment') = -50000 AND (SELECT x->>'section' FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_equipment') = 'investing', 'equipment is investing';
   ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_loans') = 200000 AND (SELECT x->>'section' FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_loans') = 'financing', 'loan is financing';
-  ASSERT (SELECT count(*) FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_other_accounts') = 0, 'no stray accounts';
+  ASSERT (SELECT (x->>'amount')::numeric FROM jsonb_array_elements(cf->'lines') x WHERE x->>'key' = 'd_other_accounts') = -20000, 'the deposit paid sits on the catch-all';
   ASSERT (cf->>'unrealised_fx_on_cash')::numeric = 0, 'no revaluation in a book at one rate';
   RAISE NOTICE 'T6 cash flow OK';
 END $t$;
@@ -194,6 +223,12 @@ DO $t$ DECLARE r jsonb; a jsonb; BEGIN
   ASSERT a->>'basis' = 'current_open_lines_aged_at_date', 'a past date ages today''s open lines';
   a := public.get_receivable_ageing();
   ASSERT a->>'basis' = 'current' AND (a->'layaway'->'d31_60'->>'total_jpy')::numeric = 30000 AND (a->'layaway'->'d61_90'->>'total_jpy')::numeric = 20000, 'today (26 Oct): 5 Sept is 51 days, 5 Aug is 82 days';
+  a := public.get_receivable_ageing('2027-01-31');
+  ASSERT a->>'as_of' = current_date::text AND a->>'requested_as_of' = '2027-01-31' AND a->>'basis' = 'current', 'a future date is clamped to today (nothing is late before it is due): ' || (a - 'layaway' - 'cash_orders' - 'forecast')::text;
+  a := public.get_receivable_ageing('2026-09-05');
+  ASSERT (a->'layaway'->'not_due'->>'jpy')::numeric = 30000 AND (a->'layaway'->'d31_60'->>'total_jpy')::numeric = 20000, 'an instalment due on the date itself is not yet late (5 Aug is 31 days)';
+  a := public.get_receivable_ageing('2026-07-01');
+  ASSERT (a->'layaway'->'not_due'->>'php')::numeric = 0 AND (a->'forecast'->'next_30'->>'lines')::int = 0, 'a plan ordered after the date is not aged into it';
   r := public.get_statements('2026-07-01', '2026-09-30');
   ASSERT r->'ageing'->>'as_of' = '2026-09-30' AND (r->'ageing'->'layaway'->'d1_30'->>'total_jpy')::numeric = 30000, 'statements carry the ageing at `to`';
   ASSERT (r->'currency_checks'->>'count')::int = 1 AND r->'currency_checks'->'rows'->0->>'invoice_number' = 'LA-MIX' AND r->'currency_checks'->'rows'->0->>'country' = 'Japan', 'peso plan for a Japan customer flagged: ' || (r->'currency_checks')::text;
@@ -241,6 +276,8 @@ DO $t$ DECLARE r jsonb; x jsonb; n int; BEGIN
   x := (SELECT e FROM jsonb_array_elements(r->'rows') e WHERE e->>'account_code' = '1200' AND e->>'memo' = 'LA-JP2' AND e->>'source_type' = 'layaway_sale');
   ASSERT x->>'tax_flag' = '' AND x->>'kind' = 'auto' AND x->>'source_type' = 'layaway_sale' AND (x->>'reversed')::boolean = false, 'receivable line carries no tax flag: ' || x::text;
   ASSERT (SELECT bool_and((e->>'journal_no')::bigint <= (lead_no)::bigint) FROM (SELECT e, lead(e->>'journal_no') OVER () AS lead_no FROM jsonb_array_elements(r->'rows') e) s WHERE lead_no IS NOT NULL), 'ordered by journal number';
+  r := public.get_journal_export('2026-07-01', '2026-09-30', 2);
+  ASSERT (r->>'returned')::int = n - 2 AND r->'rows'->0 = public.get_journal_export('2026-07-01', '2026-09-30')->'rows'->2, 'a middle page continues exactly where the full list has it';
   r := public.get_journal_export('2026-07-01', '2026-09-30', n - 1);
   ASSERT (r->>'returned')::int = 1 AND (r->>'truncated')::boolean = false AND (r->>'offset')::int = n - 1, 'last page';
   r := public.get_journal_export('2026-07-01', '2026-09-30', -1); ASSERT r->>'error' = 'invalid_offset', 'offset checked';

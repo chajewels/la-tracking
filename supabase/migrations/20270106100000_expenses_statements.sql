@@ -50,7 +50,7 @@ UPDATE public.gl_accounts a SET name_ja = v.ja, updated_at = now()
     ('2400', '未払給与'),                 ('2410', '未払販売手数料'),          ('2500', '仮受消費税'),
     ('2600', '未払金（返金）'),           ('2700', '短期借入金'),              ('2750', '長期借入金'),
     ('2800', '預り金'),                   ('2900', '仮受金'),
-    ('3000', '資本金'),                   ('3100', '繰越利益剰余金'),          ('3900', '役員貸付金'),
+    ('3000', '資本金'),                   ('3100', '繰越利益剰余金'),          ('3900', '役員引出金（純資産控除）'),
     ('4100', '売上高'),                   ('4150', '売上値引戻り高'),          ('4160', '売上値引（ポイント）'),
     ('4170', '売上値引（クレジット）'),   ('4200', '役務収益'),                ('4300', '荷造運賃収入'),
     ('4400', '遅延損害金収入'),           ('4500', '解約違約金収入'),          ('4900', '雑収入'),
@@ -151,7 +151,8 @@ GRANT EXECUTE ON FUNCTION public.set_statement_flags(numeric, numeric) TO authen
 -- ---------------------------------------------------------------------------
 -- 3. Receivable ageing and the 90-day collections forecast.
 --    Current open schedule lines bucketed by days past due at p_as_of (the schedule keeps no history, so a
---    past p_as_of ages today's open lines as they would have stood on that day — stated in `basis`).
+--    past p_as_of ages today's open lines as they would have stood on that day — stated in `basis`; a future
+--    p_as_of is clamped to today, since nothing can be late before it is due).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_receivable_ageing(p_as_of date DEFAULT NULL)
 RETURNS jsonb
@@ -159,7 +160,8 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_uid uuid := auth.uid();
-  v_as_of date := coalesce(p_as_of, (now() AT TIME ZONE 'Asia/Tokyo')::date);
+  v_today date := (now() AT TIME ZONE 'Asia/Tokyo')::date;
+  v_as_of date := least(coalesce(p_as_of, (now() AT TIME ZONE 'Asia/Tokyo')::date), (now() AT TIME ZONE 'Asia/Tokyo')::date);
   v_rate numeric := public.gl_rate();
   v_buckets jsonb;
   v_orders jsonb;
@@ -171,7 +173,7 @@ BEGIN
 
   WITH open_lines AS (
     SELECT s.account_id, s.currency::text AS cur, s.total_due_amount - s.paid_amount AS due, s.due_date,
-           CASE WHEN s.due_date > v_as_of THEN 'not_due'
+           CASE WHEN s.due_date >= v_as_of THEN 'not_due'
                 WHEN v_as_of - s.due_date <= 30 THEN 'd1_30'
                 WHEN v_as_of - s.due_date <= 60 THEN 'd31_60'
                 WHEN v_as_of - s.due_date <= 90 THEN 'd61_90'
@@ -180,7 +182,7 @@ BEGIN
       JOIN public.layaway_accounts la ON la.id = s.account_id
      WHERE s.status IN ('pending', 'partially_paid', 'overdue')
        AND s.total_due_amount - s.paid_amount > 0
-       AND la.is_test = false
+       AND la.is_test = false AND la.order_date <= v_as_of
        AND la.status NOT IN ('cancelled', 'completed', 'forfeited', 'final_forfeited')
   ), b AS (
     SELECT bucket, count(DISTINCT account_id) AS plans, count(*) AS lines,
@@ -223,7 +225,7 @@ BEGIN
       JOIN public.layaway_accounts la ON la.id = s.account_id
      WHERE s.status IN ('pending', 'partially_paid', 'overdue')
        AND s.total_due_amount - s.paid_amount > 0
-       AND la.is_test = false
+       AND la.is_test = false AND la.order_date <= v_as_of
        AND la.status NOT IN ('cancelled', 'completed', 'forfeited', 'final_forfeited')
        AND s.due_date > v_as_of AND s.due_date <= v_as_of + 90
   ), b AS (
@@ -247,7 +249,8 @@ BEGIN
 
   RETURN jsonb_build_object(
     'as_of', v_as_of, 'rate', v_rate,
-    'basis', CASE WHEN v_as_of >= (now() AT TIME ZONE 'Asia/Tokyo')::date THEN 'current' ELSE 'current_open_lines_aged_at_date' END,
+    'basis', CASE WHEN v_as_of >= v_today THEN 'current' ELSE 'current_open_lines_aged_at_date' END,
+    'requested_as_of', coalesce(p_as_of, v_today),
     'layaway', v_buckets, 'cash_orders', v_orders, 'forecast', v_forecast, 'ledger', v_ledger);
 END
 $fn$;
@@ -349,7 +352,7 @@ BEGIN
     v_yt := (p_to - interval '1 year')::date;
   END IF;
   v_p_ok := v_start IS NOT NULL AND v_pf >= v_start;
-  v_y_ok := v_start IS NOT NULL AND v_yf >= v_start;
+  v_y_ok := v_start IS NOT NULL AND v_yf >= v_start AND v_yt < p_from;
   v_fy_start := make_date(CASE WHEN extract(month FROM p_to)::int >= v_fy_month THEN extract(year FROM p_to)::int ELSE extract(year FROM p_to)::int - 1 END, v_fy_month, 1);
   v_pl_before_fy_prev := make_date(CASE WHEN extract(month FROM v_prev)::int >= v_fy_month THEN extract(year FROM v_prev)::int ELSE extract(year FROM v_prev)::int - 1 END, v_fy_month, 1);
 
@@ -493,8 +496,8 @@ BEGIN
                       WHEN e.a->>'k' = 'liability' THEN 'fixed_liabilities'
                       ELSE 'equity' END,
       'group', CASE WHEN e.a->>'k' = 'asset' AND e.code < '1130' THEN 'cash'
-                    WHEN e.a->>'k' = 'asset' AND e.code < '1190' THEN 'clearing'
-                    WHEN e.code IN ('1200', '1210') THEN 'receivables'
+                    WHEN e.code IN ('1130', '1131', '1132') THEN 'clearing'
+                    WHEN e.code IN ('1140', '1200', '1210') THEN 'receivables'
                     WHEN e.code IN ('1300', '1310') THEN 'inventory'
                     WHEN e.a->>'k' = 'asset' AND e.code < '1500' THEN 'other_current_assets'
                     WHEN e.a->>'k' = 'asset' THEN 'fixed_assets'
@@ -642,7 +645,7 @@ BEGIN
            'debit_jpy', l.debit_jpy, 'credit_jpy', l.credit_jpy,
            'native_amount', CASE WHEN l.debit > 0 THEN l.debit ELSE l.credit END, 'currency', l.currency, 'rate', l.fx_php_per_jpy,
            'memo', l.memo,
-           'tax_flag', CASE WHEN l.account_code IN ('4100', '4150', '4500') THEN CASE WHEN l.currency = 'PHP' THEN 'export' ELSE 'domestic' END ELSE '' END,
+           'tax_flag', CASE WHEN a.kind = 'revenue' AND l.account_code NOT IN ('4400', '4500', '4900', '4950') THEN CASE WHEN l.currency = 'PHP' THEN 'export' ELSE 'domestic' END ELSE '' END,
            'reversed', j.status = 'reversed' OR j.kind = 'reversal') ORDER BY j.journal_no, l.line_no), '[]'::jsonb)
     INTO v_rows
     FROM (SELECT l.* FROM public.gl_journal_lines l JOIN public.gl_journals j ON j.id = l.journal_id
@@ -657,4 +660,4 @@ $fn$;
 REVOKE ALL ON FUNCTION public.get_journal_export(date, date, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_journal_export(date, date, integer) TO authenticated;
 COMMENT ON FUNCTION public.get_journal_export(date, date, integer) IS
-  'Phase 7: every journal line in the range as a flat row (date, journal no., kind, source, account code / name / 勘定科目, Dr / Cr yen, native amount, currency, rate, memo, domestic / export tax flag on sales lines, reversed) for the 税理士 CSV; 20,000 rows per call, paged by offset. view_ledger.';
+  'Phase 7: every journal line in the range as a flat row (date, journal no., kind, source, account code / name / 勘定科目, Dr / Cr yen, native amount, currency, rate, memo, domestic / export tax flag on revenue lines other than penalty / forfeiture / other income / FX, reversed) for the 税理士 CSV; 20,000 rows per call, paged by offset. view_ledger.';

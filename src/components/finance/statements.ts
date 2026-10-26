@@ -62,7 +62,7 @@ export type CashFlow = {
 };
 export type AgeBucket = { plans?: number; lines?: number; orders?: number; php: number; jpy: number; total_jpy: number };
 export type Ageing = {
-  as_of: string; rate: number | null; basis: "current" | "current_open_lines_aged_at_date";
+  as_of: string; requested_as_of: string | null; rate: number | null; basis: "current" | "current_open_lines_aged_at_date";
   layaway: Record<"not_due" | "d1_30" | "d31_60" | "d61_90" | "d90p", AgeBucket>;
   cash_orders: Record<"d0_30" | "d31_60" | "d61_90" | "d90p", AgeBucket>;
   forecast: Record<"next_30" | "next_60" | "next_90", AgeBucket>;
@@ -145,7 +145,7 @@ export function normaliseStatements(raw: Record<string, unknown>): Statements {
   };
   function normaliseAgeing(a: Record<string, unknown>): Ageing {
     return {
-      as_of: String(a.as_of ?? ""), rate: numOrNull(a.rate), basis: a.basis === "current" ? "current" : "current_open_lines_aged_at_date",
+      as_of: String(a.as_of ?? ""), requested_as_of: (a.requested_as_of as string | null) ?? null, rate: numOrNull(a.rate), basis: a.basis === "current" ? "current" : "current_open_lines_aged_at_date",
       layaway: buckets(a.layaway, ["not_due", "d1_30", "d31_60", "d61_90", "d90p"]),
       cash_orders: buckets(a.cash_orders, ["d0_30", "d31_60", "d61_90", "d90p"]),
       forecast: buckets(a.forecast, ["next_30", "next_60", "next_90"]),
@@ -205,12 +205,25 @@ export function taxPackHref(from: string, to: string): string {
   return `/finance/tax-pack?from=${from}&to=${to}`;
 }
 
-/** Parse ?from&to; invalid or missing → the previous whole month. */
+/** A real calendar date (so "2026-02-31" is refused, not rolled over by Date.parse). */
+export function isCalendarDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  return m >= 1 && m <= 12 && d >= 1 && d <= daysInMonth(y, m);
+}
+
+/** Longest range get_statements accepts (days between from and to). */
+export const MAX_STATEMENT_DAYS = 1100;
+
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/** Parse ?from&to; invalid, reversed, over-long or missing → the previous whole month. */
 export function parseTaxPackParams(search: string, thisMonth: string): { from: string; to: string } {
   const p = new URLSearchParams(search);
   const from = p.get("from") ?? ""; const to = p.get("to") ?? "";
-  const ok = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
-  if (ok(from) && ok(to) && from <= to) return { from, to };
+  if (isCalendarDate(from) && isCalendarDate(to) && from <= to && daysBetween(from, to) <= MAX_STATEMENT_DAYS) return { from, to };
   const [y, m] = thisMonth.split("-").map(Number);
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`;
   return monthRange(prev);
@@ -325,4 +338,20 @@ export function fiscalYearSpan(startMonth: number): string {
   const name = (m: number) => new Date(Date.UTC(2000, ((m - 1) % 12 + 12) % 12, 1)).toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" });
   const start = Number.isInteger(startMonth) && startMonth >= 1 && startMonth <= 12 ? startMonth : 4;
   return `${name(start)} – ${name(start === 1 ? 12 : start - 1)}`;
+}
+
+/**
+ * Join the pages of get_journal_export into CSV rows. `fetchPage(offset)` returns one normalised page.
+ * Stops after `maxPages`; `capped` tells the caller the range was too big to export whole.
+ */
+export async function collectJournalRows(fetchPage: (offset: number) => Promise<JournalExport>, sourceLabel: (t: string) => string, maxPages = 20): Promise<{ rows: unknown[][]; capped: boolean }> {
+  const rows: unknown[][] = [];
+  let offset = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const out = await fetchPage(offset);
+    rows.push(...journalCsvRows(out.rows, sourceLabel));
+    offset += out.returned;
+    if (!out.truncated || out.returned === 0) return { rows, capped: false };
+  }
+  return { rows, capped: true };
 }

@@ -15,7 +15,7 @@ import { dayLabel, formatNative, formatYen, ledgerRefusal, sourceTypeLabel } fro
 import { AgeingTables, BalanceSheetTable, CashFlowTable, IncomeStatementTable } from "@/components/finance/StatementTables";
 import {
   JOURNAL_CSV_HEADER, STATEMENTS_KEY, STATEMENT_CSV_HEADER, type StatementRangeMode, type Statements,
-  exportFileName, flaggedLines, journalCsvRows, normaliseJournalExport, normaliseStatements, rangeLabel, statementCsvRows, statementRange, statementRefusal, taxPackHref, validateFlags,
+  collectJournalRows, exportFileName, flaggedLines, normaliseJournalExport, normaliseStatements, rangeLabel, statementCsvRows, statementRange, statementRefusal, taxPackHref, validateFlags,
 } from "@/components/finance/statements";
 
 /**
@@ -49,16 +49,12 @@ export default function StatementsSection({ thisMonth, startMonth, canAdmin }: {
   const exportJournals = async () => {
     setExporting(true);
     try {
-      const rows: unknown[][] = [];
-      let offset = 0;
-      for (let page = 0; page < 20; page++) {
-        const out = normaliseJournalExport(await callRpc("get_journal_export", { p_from: r.from, p_to: r.to, p_offset: offset }));
-        rows.push(...journalCsvRows(out.rows, sourceTypeLabel));
-        offset += out.returned;
-        if (!out.truncated || out.returned === 0) break;
-      }
+      const { rows, capped } = await collectJournalRows(
+        async (offset) => normaliseJournalExport(await callRpc("get_journal_export", { p_from: r.from, p_to: r.to, p_offset: offset })), sourceTypeLabel);
       downloadCsv(exportFileName("journals", r.from, r.to), JOURNAL_CSV_HEADER, rows, { bom: true, exactName: true });
-      toast({ title: `${rows.length} journal line${rows.length === 1 ? "" : "s"} exported` });
+      toast(capped
+        ? { title: `Export stopped at ${rows.length.toLocaleString("en-US")} lines — narrow the range for the rest`, variant: "destructive" }
+        : { title: `${rows.length} journal line${rows.length === 1 ? "" : "s"} exported` });
     } catch (e) {
       refusal(e, "Could not export the journals");
     } finally {
