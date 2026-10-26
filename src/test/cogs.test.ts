@@ -23,8 +23,8 @@ describe("cost of goods — rules", () => {
       sales: [{ sale_type: "cash_order", id: "c", invoice_number: "CO-1", sale_date: "2026-06-10", status: "completed", currency: "JPY", revenue: "25000", revenue_jpy: "25000", cost_jpy: null, cost_source: null, items: [{ title: "Gold chain" }] }] });
     expect(s.sales[0]).toMatchObject({ sale_type: "cash_order", revenue: 25000, cost_jpy: null, cost_source: null });
     expect(s.missing_count).toBe(1);
-    const v = normaliseValuation({ stock_units: "5", stock_at_cost_jpy: "36000", ledger_inventory_jpy: "260000", difference_jpy: "-224000" });
-    expect(v).toMatchObject({ stock_units: 5, stock_at_cost_jpy: 36000, difference_jpy: -224000, trade_ins_in_stock: 0 });
+    const v = normaliseValuation({ stock_units: "5", stock_at_cost_jpy: "36000", ledger_inventory_jpy: "260000", website_minus_ledger_jpy: "-224000" });
+    expect(v).toMatchObject({ stock_units: 5, stock_at_cost_jpy: 36000, website_minus_ledger_jpy: -224000, trade_ins_in_stock: 0 });
     expect(normaliseRealProfit({ error: "permission_denied" })).toBeNull();
     expect(normaliseRealProfit({ ledger_started: false })).toEqual({ ledger_started: false });
     expect(normaliseRealProfit({ ledger_started: true, revenue_jpy: "100", cogs_jpy: "40", gross_profit_jpy: "60", sales_total: 4, sales_with_cost: 3, inventory_jpy: "300000" })).toMatchObject({ gross_profit_jpy: 60, sales_with_cost: 3 });
@@ -32,6 +32,7 @@ describe("cost of goods — rules", () => {
   it("labels, sorts and describes sales — missing first, never a percentage", () => {
     expect(costSourceLabel("manual")).toBe("Set by finance");
     expect(costSourceLabel("items")).toBe("From the product's cost basis");
+    expect(costSourceLabel("trade_in")).toBe("Resold trade-in (cost booked as trade-in)");
     expect(costSourceLabel(null)).toBe("Cost missing");
     const sorted = sortForWork([row({ invoice_number: "B", cost_jpy: 1000, cost_source: "manual" }), row({ invoice_number: "C", sale_date: "2026-06-09" }), row({ invoice_number: "A", sale_date: "2026-06-01" })]);
     expect(sorted.map((r) => r.invoice_number)).toEqual(["A", "C", "B"]);
@@ -56,17 +57,20 @@ describe("cost of goods — rules", () => {
     expect(p.skipped).toBe(1);
     expect(importSummary({ set: 2, replaced: 1, not_found: ["x"], ambiguous: [], invalid: [] })).toBe("2 set · 1 replaced · 1 not found");
   });
-  it("builds the stock-count adjustment the owner confirms", () => {
-    const down = stockAdjustment({ difference_jpy: -224000 }, "2026-10-26", "count 26 Oct");
+  it("builds the stock-count adjustment from the COUNTED value, never from the partial website figure", () => {
+    const down = stockAdjustment(36000, 260000, "2026-10-26", "count 26 Oct");
     expect(down.direction).toBe("down");
+    expect(down.amount).toBe(224000);
     expect(down.payload.lines).toEqual([
       { a: "5900", side: "dr", amt: "224000", cur: "JPY", memo: "Stock count" }, { a: "1300", side: "cr", amt: "224000", cur: "JPY", memo: "Stock count" },
     ]);
     expect(down.payload.description).toBe("Stock-count adjustment: count 26 Oct");
-    const up = stockAdjustment({ difference_jpy: 5000 }, "2026-10-26", "");
+    const up = stockAdjustment(44_432_668, 44_000_000, "2026-10-26", "");
     expect(up.direction).toBe("up");
+    expect(up.amount).toBe(432_668);
     expect(up.payload.lines[0]).toMatchObject({ a: "1300", side: "dr" });
     expect(up.payload.reason).toBe("Stock count");
+    expect(stockAdjustment(100, 100, "2026-10-26", "x").amount).toBe(0);
   });
   it("derives cash-flow coverage from the ledger's inventory (no 0.85)", () => {
     expect(coverageFromLedger(1000, null, 500)).toBeNull();
@@ -100,6 +104,11 @@ describe("cost of goods — wiring", () => {
     expect(dash).toContain('label="Inventory at Cost"');
     expect(read("src/hooks/useExecutiveDashboard.ts")).toContain("'fc_real_profit'");
     expect(read("src/components/website/ProductsCard.tsx")).toContain('data-testid="catalog-no-cost"');
+    expect(section).toContain('data-testid="stock-count"');
+    expect(section).toContain("Website stock at cost (partial)");
+    const tradeIn = read("src/components/services/TradeInDialog.tsx");
+    expect(tradeIn).toContain("resold_invoice_number");
+    expect(tradeIn).toContain("Resold on Invoice #");
   });
   it("migration: events, remap, snapshot trigger, accountant accounts, no comment lines in bodies", () => {
     const sql = read("supabase/migrations/20270104100000_expenses_cost_of_goods.sql");
@@ -109,6 +118,11 @@ describe("cost of goods — wiring", () => {
     expect(sql).toContain("SET gl_account_code = '1300'");
     expect(sql).toContain("SET gl_account_code = '1310'");
     expect(sql).toContain("sale_items_snapshot_cost");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.sale_item_costs");
+    expect(sql).not.toContain("ADD COLUMN IF NOT EXISTS cost_jpy");
+    expect(sql).toContain("variant_cost_snapshot_catchup");
+    expect(sql).toContain("resold_invoice_number");
+    expect(read("supabase/migrations/20270101100000_general_ledger_core.sql")).toContain("IN ('layaway_close', 'cash_order_close', 'cogs_return')");
     expect(sql).toContain("('2700', 'Short-term loans'");
     expect(sql).toContain("('1104', 'Kameari Shinkin Bank'");
     expect(sql).not.toMatch(/0\.15|0\.85/);

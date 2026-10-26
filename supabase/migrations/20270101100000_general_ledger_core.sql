@@ -851,7 +851,7 @@ BEGIN
   IF to_regclass('pg_temp.gl_events_tmp') IS NOT NULL THEN DROP TABLE gl_events_tmp; END IF;
   CREATE TEMP TABLE gl_events_tmp ON COMMIT DROP AS
     SELECT e.*,
-           md5(CASE WHEN e.source_type IN ('layaway_close', 'cash_order_close') THEN '' ELSE e.source_date::text END || '|' ||
+           md5(CASE WHEN e.source_type IN ('layaway_close', 'cash_order_close', 'cogs_return') THEN '' ELSE e.source_date::text END || '|' ||
                (SELECT coalesce(string_agg((l->>'a') || ':' || (l->>'side') || ':' || (l->>'amt') || ':' || (l->>'cur'), ';' ORDER BY o), '')
                   FROM jsonb_array_elements(e.lines) WITH ORDINALITY AS x(l, o))) AS version
       FROM public.gl_current_events(v_today) e;

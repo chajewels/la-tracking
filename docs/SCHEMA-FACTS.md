@@ -2015,9 +2015,14 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - `sale_costs` (sale_type 'layaway'|'cash_order', sale_id, cost_jpy numeric(15,0) ≥ 0, note, set_by, set_at, created_at; PK (sale_type,
   sale_id)). RLS SELECT view_ledger; table writes revoked; RPCs `set_sale_cost(text, uuid, numeric, text)` and `import_sale_costs(jsonb)`
   (manage_expenses). Audit entity `sale_cost`.
-- `layaway_account_items.cost_jpy` / `cash_order_items.cost_jpy` numeric(15,0) NULL — set ONLY by trigger `sale_items_snapshot_cost` from
-  `website_product_variants.cost_basis` at INSERT (client values ignored), immutable on UPDATE. `gl_sale_costs()` (internal) = effective cost.
-- `trade_ins.resold_at timestamptz` — trigger `trade_ins_track_resold` stamps it when resale_status → Sold, clears it otherwise.
+- `sale_item_costs` (item_table, item_id PK, sale_type, sale_id, variant_id, quantity, cost_jpy numeric(15,0)) — FINANCE-ONLY snapshot of a
+  sale line's unit cost (RLS SELECT view_ledger; writes revoked). The item tables carry NO cost column (customers / CSR read them). Filled by
+  AFTER INSERT/UPDATE trigger `sale_items_snapshot_cost` (SECURITY DEFINER; quantity follows the line, cost never changes), by
+  `variant_cost_snapshot_catchup` on website_product_variants (AFTER INSERT OR UPDATE OF cost_basis) and by the migration backfill.
+  `gl_sale_costs()` (internal) = effective cost; source `trade_in` when the sale's invoice is a trade-in's resold_invoice_number.
+- `trade_ins.resold_at timestamptz` — trigger `trade_ins_track_resold`: INSERT may carry a date; a flip to Sold stamps now(); otherwise kept;
+  cleared (with resold_invoice_number) when not Sold. `trade_ins.resold_invoice_number text` — set in TradeInDialog when Sold.
+- `gl_post_pending` fingerprint (2b file) now blanks the date for `cogs_return` as well as the close events.
 - `expense_categories.gl_account_code`: "Inventory purchases…" → '1300', system_key 'trade_in' → '1310' (were 5100 / 5500 in 2b).
 - gl_accounts added: 1104, 1195, 2700, 2750, 2800, 2900, 6950 (accountant's chart; opening balance F6).
 - `gl_current_events(date)` = `gl_base_events(date)` (the 2b body, renamed once via `ALTER FUNCTION … RENAME` guarded by to_regprocedure)

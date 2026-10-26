@@ -61,7 +61,7 @@ export default function CostOfGoodsSection({ thisMonth, today, canPost, onChange
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            The cost of the pieces in each sale, in yen. Set it per sale here or import a CSV by invoice number; pieces listed on the website carry their cost basis automatically. A sale without a cost posts no cost of goods — nothing is estimated.
+            The cost of the pieces in each sale, in yen. Set it per sale here or import a CSV by invoice number; pieces listed on the website carry their cost basis automatically; a resold trade-in is covered by its trade-in record (Services → Trade-ins, "Resold on invoice #"). A sale without a cost posts no cost of goods — nothing is estimated.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -98,7 +98,7 @@ export default function CostOfGoodsSection({ thisMonth, today, canPost, onChange
                             {r.note ? ` · ${r.note}` : ""}
                           </p>
                         </div>
-                        {d.can_set && (
+                        {d.can_set && r.cost_source !== "trade_in" && (
                           <Button size="sm" variant={missing ? "default" : "outline"} className="min-h-11" onClick={() => setEditing(r)}>
                             {missing ? "Set cost" : "Change cost"}
                           </Button>
@@ -218,19 +218,23 @@ function ImportCostsDialog({ onDone }: { onDone: () => void }) {
 function InventoryCard({ today, canPost, onChanged }: { today: string; canPost: boolean; onChanged: () => void }) {
   const q = useQuery({ queryKey: INVENTORY_KEY, staleTime: 30_000, queryFn: async () => normaliseValuation(await callRpc("get_inventory_valuation", {})) });
   const [adjusting, setAdjusting] = useState(false);
+  const [counted, setCounted] = useState("");
   const [reason, setReason] = useState("");
   const v = q.data;
-  const adj = v ? stockAdjustment(v, today, reason.trim()) : null;
+  const countedProblem = saleCostProblem(counted);
+  const adj = v && !countedProblem ? stockAdjustment(Number(cleanYen(counted)), v.ledger_inventory_jpy, today, reason.trim()) : null;
   const post = useMutation({
     mutationFn: () => callRpc("post_manual_journal", { p: adj!.payload }),
-    onSuccess: (out) => { const j = (out.journal ?? {}) as Record<string, unknown>; toast({ title: `Stock-count adjustment posted (journal #${j.journal_no ?? ""})` }); setAdjusting(false); setReason(""); onChanged(); },
+    onSuccess: (out) => { const j = (out.journal ?? {}) as Record<string, unknown>; toast({ title: `Stock-count adjustment posted (journal #${j.journal_no ?? ""})` }); setAdjusting(false); setReason(""); setCounted(""); onChanged(); },
     onError: (e) => refusal(e, "Could not post the adjustment"),
   });
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Inventory</CardTitle>
-        <p className="text-xs text-muted-foreground">Stock on hand at cost (website pieces with a cost basis, plus trade-ins at their buyback amount) against what the ledger carries in 1300 / 1310. The difference is yours to confirm as a stock-count adjustment — nothing posts by itself.</p>
+        <p className="text-xs text-muted-foreground">
+          The ledger's 1300 / 1310 balances carry every inventory purchase and every cost released on sale. The website figure is PARTIAL — only pieces listed on the website with a cost basis — so it is a check, not the stock value. A stock-count adjustment is posted from the value you counted, and only when you confirm it.
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         {q.isLoading && <div className="text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Loading…</div>}
@@ -238,26 +242,34 @@ function InventoryCard({ today, canPost, onChanged }: { today: string; canPost: 
         {v && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <Stat label="Website stock at cost" value={formatYen(v.stock_at_cost_jpy)} sub={`${v.stock_units_with_cost} of ${v.stock_units} units have a cost`} warn={v.variants_in_stock_without_cost > 0} />
-              <Stat label="Trade-ins in stock" value={formatYen(v.trade_ins_in_stock_jpy)} sub={`${v.trade_ins_in_stock} piece${v.trade_ins_in_stock === 1 ? "" : "s"}`} />
-              <Stat label="Ledger 1300 Inventory" value={formatYen(v.ledger_inventory_jpy)} sub={`1310 trade-ins ${formatYen(v.ledger_trade_in_jpy)}`} />
-              <Stat label="Difference (stock − ledger)" value={formatYen(v.difference_jpy)} warn={v.difference_jpy !== 0} />
+              <Stat label="Ledger 1300 Inventory" value={formatYen(v.ledger_inventory_jpy)} sub="purchases − cost of pieces sold" />
+              <Stat label="Ledger 1310 Trade-ins" value={formatYen(v.ledger_trade_in_jpy)} sub={`${v.trade_ins_in_stock} trade-in${v.trade_ins_in_stock === 1 ? "" : "s"} marked in stock (${formatYen(v.trade_ins_in_stock_jpy)})`} />
+              <Stat label="Website stock at cost (partial)" value={formatYen(v.stock_at_cost_jpy)} sub={`${v.stock_units_with_cost} of ${v.stock_units} website units have a cost`} warn={v.variants_in_stock_without_cost > 0} />
+              <Stat label="Website stock − ledger 1300" value={formatYen(v.website_minus_ledger_jpy)} sub="informational — the website does not hold all stock" />
             </div>
             {v.variants_in_stock_without_cost > 0 && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 {v.variants_in_stock_without_cost} website variant{v.variants_in_stock_without_cost === 1 ? " has" : "s have"} stock but no cost basis — add it under <Link to="/website" className="underline">Website → Products</Link> (admin field "Cost basis") so new sales carry their cost automatically.
               </p>
             )}
-            {canPost && v.ledger_start && v.difference_jpy !== 0 && !adjusting && (
+            {canPost && v.ledger_start && !adjusting && (
               <Button size="sm" variant="outline" className="min-h-11" onClick={() => setAdjusting(true)}>Post stock-count adjustment…</Button>
             )}
-            {adjusting && adj && (
-              <div className="rounded-md border p-3 space-y-2 text-sm">
-                <p>{adj.label}: <strong>{formatYen(adj.amount)}</strong> dated {dayLabel(today)} — {adj.direction === "down" ? "Dr 5900 Inventory write-down / Cr 1300 Inventory" : "Dr 1300 Inventory / Cr 5900 Inventory write-down"}.</p>
+            {adjusting && (
+              <div className="rounded-md border p-3 space-y-2 text-sm" data-testid="stock-count">
+                <div className="space-y-1">
+                  <Label htmlFor="counted-stock">Counted stock at cost (¥) — all pieces, not just the website</Label>
+                  <Input id="counted-stock" inputMode="numeric" className="min-h-11" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="e.g. 44432668" />
+                  {counted && countedProblem && <p className="text-xs text-destructive">{countedProblem}</p>}
+                </div>
+                {adj && adj.amount > 0 && (
+                  <p>{adj.label}: <strong>{formatYen(adj.amount)}</strong> dated {dayLabel(today)} — {adj.direction === "down" ? "Dr 5900 Inventory write-down / Cr 1300 Inventory" : "Dr 1300 Inventory / Cr 5900 Inventory write-down"}.</p>
+                )}
+                {adj && adj.amount === 0 && <p className="text-muted-foreground">The count matches the ledger — nothing to post.</p>}
                 <Input className="min-h-11" placeholder="Reason (e.g. stock count 26 Oct)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason" />
                 <div className="flex gap-2">
-                  <Button size="sm" className="min-h-11" disabled={reason.trim().length < 3 || post.isPending} onClick={() => post.mutate()}>Post adjustment</Button>
-                  <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setAdjusting(false)}>Cancel</Button>
+                  <Button size="sm" className="min-h-11" disabled={!adj || adj.amount === 0 || reason.trim().length < 3 || post.isPending} onClick={() => post.mutate()}>Post adjustment</Button>
+                  <Button size="sm" variant="ghost" className="min-h-11" onClick={() => { setAdjusting(false); setCounted(""); }}>Cancel</Button>
                 </div>
               </div>
             )}

@@ -27,22 +27,31 @@ INSERT INTO public.cash_orders (id, invoice_number, currency, total_amount, tota
 INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, date_paid, payment_method) VALUES
   ('30000000-0000-0000-0000-000000000001', 25000, 'JPY', '2026-06-10', 'cash');
 
--- C1 item snapshot: taken from the variant at insert, never set by the client, immutable afterwards.
-DO $t$ BEGIN
-  INSERT INTO public.layaway_account_items (account_id, variant_id, title, quantity, cost_jpy) VALUES
-    ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 'Ring with cost', 2, 1);
-  ASSERT (SELECT cost_jpy FROM public.layaway_account_items WHERE title = 'Ring with cost') = 12000, 'snapshot from variant, client value ignored';
+-- C1 item snapshot: lives in the finance-only sale_item_costs table, copied from the variant at insert
+-- (a client cannot set it), immutable; a variant that gets its cost later fills the snapshot (catch-up).
+DO $t$ DECLARE lid uuid; BEGIN
+  INSERT INTO public.layaway_account_items (account_id, variant_id, title, quantity) VALUES
+    ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 'Ring with cost', 2) RETURNING id INTO lid;
+  ASSERT (SELECT cost_jpy FROM public.sale_item_costs WHERE item_id = lid) = 12000, 'snapshot from variant';
+  ASSERT (SELECT quantity FROM public.sale_item_costs WHERE item_id = lid) = 2, 'quantity copied';
+  ASSERT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name IN ('layaway_account_items', 'cash_order_items') AND column_name = 'cost_jpy'), 'no cost column on the customer-readable tables';
   INSERT INTO public.layaway_account_items (account_id, variant_id, title, quantity) VALUES
     ('10000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000002', 'Ring without cost', 1);
-  ASSERT (SELECT cost_jpy FROM public.layaway_account_items WHERE title = 'Ring without cost') IS NULL, 'no cost on the variant -> NULL';
-  UPDATE public.layaway_account_items SET cost_jpy = 5 WHERE title = 'Ring with cost';
-  ASSERT (SELECT cost_jpy FROM public.layaway_account_items WHERE title = 'Ring with cost') = 12000, 'snapshot immutable';
+  ASSERT (SELECT count(*) FROM public.sale_item_costs WHERE sale_id = '10000000-0000-0000-0000-000000000002') = 0, 'no cost on the variant -> no snapshot';
   UPDATE public.website_product_variants SET cost_basis = 99999 WHERE id = '50000000-0000-0000-0000-000000000001';
-  ASSERT (SELECT cost_jpy FROM public.layaway_account_items WHERE title = 'Ring with cost') = 12000, 'later cost-basis change does not touch the snapshot';
+  ASSERT (SELECT cost_jpy FROM public.sale_item_costs WHERE item_id = lid) = 12000, 'later cost-basis change does not touch the snapshot';
   UPDATE public.website_product_variants SET cost_basis = 12000 WHERE id = '50000000-0000-0000-0000-000000000001';
+  UPDATE public.layaway_account_items SET quantity = 3 WHERE id = lid;
+  ASSERT (SELECT quantity FROM public.sale_item_costs WHERE item_id = lid) = 3, 'quantity follows the line';
+  UPDATE public.layaway_account_items SET quantity = 2 WHERE id = lid;
   ASSERT (SELECT cost_jpy FROM public.gl_sale_costs() WHERE sale_type = 'layaway' AND sale_id = '10000000-0000-0000-0000-000000000001') = 24000, 'sale cost = Σ unit cost × qty';
   ASSERT (SELECT cost_source FROM public.gl_sale_costs() WHERE sale_type = 'layaway' AND sale_id = '10000000-0000-0000-0000-000000000001') = 'items', 'source items';
   ASSERT (SELECT cost_jpy FROM public.gl_sale_costs() WHERE sale_type = 'layaway' AND sale_id = '10000000-0000-0000-0000-000000000002') IS NULL, 'a costless line leaves the sale missing';
+  UPDATE public.website_product_variants SET cost_basis = 5000 WHERE id = '50000000-0000-0000-0000-000000000002';
+  ASSERT (SELECT cost_jpy FROM public.gl_sale_costs() WHERE sale_type = 'layaway' AND sale_id = '10000000-0000-0000-0000-000000000002') = 5000, 'variant gets a cost later -> existing line is costed (catch-up / backfill path)';
+  UPDATE public.website_product_variants SET cost_basis = NULL WHERE id = '50000000-0000-0000-0000-000000000002';
+  ASSERT (SELECT cost_jpy FROM public.gl_sale_costs() WHERE sale_type = 'layaway' AND sale_id = '10000000-0000-0000-0000-000000000002') = 5000, 'snapshot survives the variant losing its cost';
+  DELETE FROM public.sale_item_costs WHERE sale_id = '10000000-0000-0000-0000-000000000002';
   ASSERT (SELECT gl_account_code FROM public.expense_categories WHERE name LIKE 'Inventory purchases%') = '1300', 'purchases now go to inventory';
   ASSERT (SELECT gl_account_code FROM public.expense_categories WHERE system_key = 'trade_in') = '1310', 'trade-in buybacks to trade-in inventory';
   ASSERT (SELECT count(*) FROM public.gl_accounts WHERE code IN ('1104','1195','2700','2750','2800','2900','6950')) = 7, 'accountant accounts seeded';
@@ -56,6 +65,11 @@ DO $t$ DECLARE r jsonb; BEGIN
   r := public.get_sales_costs('2026-06-01'); ASSERT r->>'error' = 'permission_denied', 'staff list';
   r := public.get_inventory_valuation(); ASSERT r->>'error' = 'permission_denied', 'staff valuation';
   r := public.fc_real_profit(); ASSERT r->>'error' = 'permission_denied', 'staff profit';
+  ASSERT (SELECT count(*) FROM public.sale_item_costs) = 0, 'RLS hides item cost snapshots from staff';
+  BEGIN
+    INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, cost_jpy) VALUES ('cash_order_items', gen_random_uuid(), 'cash_order', '30000000-0000-0000-0000-000000000001', 1);
+    RAISE EXCEPTION 'snapshot table write should fail';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   r := public.set_sale_cost('layaway', '10000000-0000-0000-0000-000000000003', 1000); ASSERT r->>'ok' = 'true', 'the stub staff user holds a manage_expenses override, so setting is allowed (D6: manage_expenses sets)';
   ASSERT (SELECT count(*) FROM public.sale_costs) = 0, 'RLS still hides sale costs without view_ledger';
   r := public.set_sale_cost('layaway', '10000000-0000-0000-0000-000000000003', NULL); ASSERT r->>'cleared' = 'true', 'cleared again';
@@ -146,6 +160,13 @@ DO $t$ DECLARE r jsonb; BEGIN
   ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l JOIN public.gl_journals j ON j.id = l.journal_id WHERE j.source_type = 'cogs_return' AND l.account_code = '1300') = 50000, 'piece back at its cost';
   ASSERT (SELECT entry_date FROM public.gl_journals WHERE source_type = 'cogs_return') = '2026-08-15', 'dated at the forfeiture';
   ASSERT (SELECT sum(l.debit_jpy) - sum(l.credit_jpy) FROM public.gl_journal_lines l WHERE l.account_code = '1300') = -40000, '1300 after the return: −(24000 + 7000 + 9000)';
+END $t$;
+RESET ROLE;
+UPDATE public.layaway_accounts SET forfeited_at = NULL, updated_at = '2026-09-01 03:00+00' WHERE invoice_number = 'LA-MANUAL';
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'A', false);
+DO $t$ DECLARE r jsonb; BEGIN
+  r := public.gl_post_now(); ASSERT (r->>'reversed')::int = 0 AND (r->>'posted')::int = 0, 'a moved updated_at on a legacy forfeited plan does not churn cogs_return: ' || r::text;
   RAISE NOTICE 'C5 cogs_return OK';
 END $t$;
 
@@ -176,22 +197,31 @@ DO $t$ DECLARE r jsonb; t uuid := '60000000-0000-0000-0000-000000000001'; BEGIN
   ASSERT NOT EXISTS (SELECT 1 FROM public.gl_journals WHERE source_type = 'trade_in_resold'), 'nothing resold yet in the window';
 END $t$;
 RESET ROLE;
-UPDATE public.trade_ins SET resale_status = 'Sold', resale_amount = 55000 WHERE id = '60000000-0000-0000-0000-000000000001';
+INSERT INTO public.layaway_accounts (id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date) VALUES
+  ('10000000-0000-0000-0000-000000000007', 'LA-RESALE', 'JPY', 55000, 55000, 0, 'completed', '2026-07-10');
+INSERT INTO public.payments (account_id, amount_paid, currency, date_paid, payment_method) VALUES ('10000000-0000-0000-0000-000000000007', 55000, 'JPY', '2026-07-10', 'cash');
+UPDATE public.trade_ins SET resale_status = 'Sold', resale_amount = 55000, resold_invoice_number = 'LA-RESALE', resold_at = '2026-01-01 00:00+09' WHERE id = '60000000-0000-0000-0000-000000000001';
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', :'A', false);
-DO $t$ DECLARE r jsonb; t uuid := '60000000-0000-0000-0000-000000000001'; BEGIN
-  ASSERT (SELECT resold_at FROM public.trade_ins WHERE id = t) IS NOT NULL, 'resold_at stamped on the flip';
-  r := public.gl_post_now(); ASSERT (r->>'posted')::int = 1, 'resale posts: ' || r::text;
+DO $t$ DECLARE r jsonb; m jsonb; t uuid := '60000000-0000-0000-0000-000000000001'; BEGIN
+  ASSERT (SELECT resold_at FROM public.trade_ins WHERE id = t) >= '2026-10-01', 'resold_at is stamped by the trigger on the flip, not taken from the client';
+  r := public.gl_post_now(); ASSERT (r->>'posted')::int = 3, 'resale posts 5500 plus the new plan''s sale and payment, no cogs_sale: ' || r::text;
   ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l JOIN public.gl_journals j ON j.id = l.journal_id WHERE j.source_type = 'trade_in_resold' AND l.account_code = '5500') = 40000, 'cost of the resold trade-in';
   ASSERT (SELECT sum(l.debit_jpy) - sum(l.credit_jpy) FROM public.gl_journal_lines l WHERE l.account_code = '1310') = 0, '1310 back to zero';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.gl_journals WHERE source_type = 'cogs_sale' AND description LIKE '%LA-RESALE'), 'no 5100 for the resold piece (would double count 5500)';
+  SELECT x INTO m FROM jsonb_array_elements(public.get_sales_costs('2026-07-01')->'sales') x WHERE x->>'invoice_number' = 'LA-RESALE';
+  ASSERT (m->>'cost_jpy')::numeric = 40000 AND m->>'cost_source' = 'trade_in', 'resold plan shown as covered by the trade-in: ' || m::text;
+  r := public.set_sale_cost('layaway', '10000000-0000-0000-0000-000000000007', 1000); ASSERT r->>'ok' = 'true', 'a manual cost may still be stored';
+  r := public.gl_post_now(); ASSERT (r->>'posted')::int = 0, 'but the trade-in link still wins (no cogs_sale)';
+  r := public.set_sale_cost('layaway', '10000000-0000-0000-0000-000000000007', NULL);
 END $t$;
 RESET ROLE;
 UPDATE public.trade_ins SET resale_status = 'In stock' WHERE id = '60000000-0000-0000-0000-000000000001';
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', :'A', false);
 DO $t$ DECLARE r jsonb; t uuid := '60000000-0000-0000-0000-000000000001'; BEGIN
-  ASSERT (SELECT resold_at FROM public.trade_ins WHERE id = t) IS NULL, 'back in stock clears resold_at';
-  r := public.gl_post_now(); ASSERT (r->>'reversed')::int = 1, 'un-selling reverses: ' || r::text;
+  ASSERT (SELECT resold_at FROM public.trade_ins WHERE id = t) IS NULL AND (SELECT resold_invoice_number FROM public.trade_ins WHERE id = t) IS NULL, 'back in stock clears resold_at and the resale link';
+  r := public.gl_post_now(); ASSERT (r->>'reversed')::int = 1 AND (r->>'posted')::int = 0, 'un-selling reverses the 5500 only (LA-RESALE now cost missing): ' || r::text;
   RAISE NOTICE 'C6 purchases / trade-ins OK';
 END $t$;
 
@@ -201,10 +231,10 @@ DO $t$ DECLARE r jsonb; BEGIN
   ASSERT (r->>'stock_units')::int = 5 AND (r->>'stock_units_with_cost')::int = 3 AND (r->>'variants_in_stock_without_cost')::int = 1, 'stock counts: ' || r::text;
   ASSERT (r->>'stock_at_cost_jpy')::numeric = 36000, 'stock at cost 3 × 12000';
   ASSERT (r->>'ledger_inventory_jpy')::numeric = 260000, '1300 = 300000 purchased − 40000 still sold';
-  ASSERT (r->>'difference_jpy')::numeric = 36000 - 260000, 'difference for the stock-count adjustment';
+  ASSERT (r->>'website_minus_ledger_jpy')::numeric = 36000 - 260000, 'partial website stock vs ledger (informational only)';
   ASSERT (r->>'trade_ins_in_stock')::int = 1 AND (r->>'trade_ins_in_stock_jpy')::numeric = 40000, 'trade-ins in stock';
   r := public.fc_real_profit('2026-06-01', NULL);
-  ASSERT r->>'ledger_started' = 'true' AND (r->>'sales_total')::int = 4 AND (r->>'sales_with_cost')::int = 4, 'profit counts: ' || r::text;
+  ASSERT r->>'ledger_started' = 'true' AND (r->>'sales_total')::int = 5 AND (r->>'sales_with_cost')::int = 4, 'profit counts (LA-RESALE lost its cost when un-sold): ' || r::text;
   ASSERT (r->>'cogs_jpy')::numeric = (SELECT sum(l.debit_jpy) - sum(l.credit_jpy) FROM public.gl_journal_lines l JOIN public.gl_accounts a ON a.code = l.account_code WHERE a.kind = 'cogs'), 'cost of sales = cogs account balances (reversals land today)';
   ASSERT (r->>'cogs_jpy')::numeric = 40000, 'cogs: 24000 + 50000 + 7000 + 9000 − 50000 returned (the 46000 and the trade-in resale are reversed)';
   ASSERT (r->>'gross_profit_jpy')::numeric = (r->>'revenue_jpy')::numeric - (r->>'cogs_jpy')::numeric, 'gross = revenue − cogs';

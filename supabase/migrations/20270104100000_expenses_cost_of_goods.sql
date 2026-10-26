@@ -5,8 +5,13 @@
 -- What this does
 --   * sale_costs: one yen cost per sale (layaway plan or cash order), set by finance (manage_expenses) through
 --     set_sale_cost / import_sale_costs. The ONLY path for the ~95 % of sales that have no product line.
---   * cost_jpy snapshot on layaway_account_items / cash_order_items, copied from the product variant's
---     cost basis when the line is inserted (derived, never written by a client), immutable afterwards.
+--   * sale_item_costs: a FINANCE-ONLY snapshot (RLS view_ledger) of each sale line's unit cost, copied from the
+--     product variant's cost basis when the line is inserted (AFTER INSERT trigger, SECURITY DEFINER) or when
+--     the variant first gets a cost; never on the item tables themselves, which customers and CSR can read.
+--   * Opening-balance asymmetry (documented): a trade-in received BEFORE the ledger start and resold after it
+--     credits 1310 with no prior debit — correct only when the opening balance (F6) carries it in 1310.
+--   * Re-applying the Phase 2b core file AFTER this one would overwrite gl_current_events with the base body
+--     until this file is re-run (Supabase applies each version once; the harness applies in order).
 --   * Effective sale cost = sale_costs row, else the sum of complete item snapshots, else MISSING (no COGS
 --     posts, the sale is listed for the owner). Never an estimate — the 15 % goes.
 --   * Ledger: gl_current_events = gl_base_events (the Phase 2b body, renamed once) UNION gl_cogs_events:
@@ -76,45 +81,101 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.sale_costs FROM authenticated;
 GRANT SELECT ON public.sale_costs TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 4. Item-line cost snapshot (derived from the variant's cost basis at insert; immutable).
+-- 4. Item-line cost snapshot — finance-only table (the item tables are readable by customers and staff).
 -- ---------------------------------------------------------------------------
-ALTER TABLE public.layaway_account_items ADD COLUMN IF NOT EXISTS cost_jpy numeric(15,0) NULL CHECK (cost_jpy IS NULL OR cost_jpy >= 0);
-ALTER TABLE public.cash_order_items      ADD COLUMN IF NOT EXISTS cost_jpy numeric(15,0) NULL CHECK (cost_jpy IS NULL OR cost_jpy >= 0);
-COMMENT ON COLUMN public.layaway_account_items.cost_jpy IS 'Phase 5: unit cost in yen copied from website_product_variants.cost_basis when the line was inserted (trigger); never set by a client, never changed.';
-COMMENT ON COLUMN public.cash_order_items.cost_jpy      IS 'Phase 5: unit cost in yen copied from website_product_variants.cost_basis when the line was inserted (trigger); never set by a client, never changed.';
+CREATE TABLE IF NOT EXISTS public.sale_item_costs (
+  item_table  text NOT NULL CHECK (item_table IN ('layaway_account_items', 'cash_order_items')),
+  item_id     uuid NOT NULL,
+  sale_type   text NOT NULL CHECK (sale_type IN ('layaway', 'cash_order')),
+  sale_id     uuid NOT NULL,
+  variant_id  uuid NULL,
+  quantity    integer NOT NULL DEFAULT 1 CHECK (quantity >= 0),
+  cost_jpy    numeric(15,0) NOT NULL CHECK (cost_jpy >= 0),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (item_table, item_id)
+);
+CREATE INDEX IF NOT EXISTS sale_item_costs_sale_idx ON public.sale_item_costs (sale_type, sale_id);
+ALTER TABLE public.sale_item_costs ENABLE ROW LEVEL SECURITY;
+COMMENT ON TABLE public.sale_item_costs IS
+  'Phase 5: unit cost (yen) of one sale line, copied from website_product_variants.cost_basis the first time it is known (line insert, or the variant getting a cost). Finance-only: the item tables themselves never carry a cost. Never written by a client.';
+DROP POLICY IF EXISTS sale_item_costs_read ON public.sale_item_costs;
+CREATE POLICY sale_item_costs_read ON public.sale_item_costs FOR SELECT TO authenticated
+  USING ((SELECT public.has_permission((SELECT auth.uid()), 'view_ledger')));
+REVOKE ALL ON public.sale_item_costs FROM PUBLIC, anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.sale_item_costs FROM authenticated;
+GRANT SELECT ON public.sale_item_costs TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.sale_items_snapshot_cost()
 RETURNS trigger
-LANGUAGE plpgsql SET search_path TO 'public'
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $fn$
+DECLARE
+  v_cost integer;
+  v_table text := TG_TABLE_NAME;
+  v_sale_type text := CASE WHEN TG_TABLE_NAME = 'layaway_account_items' THEN 'layaway' ELSE 'cash_order' END;
+  v_sale_id uuid := CASE WHEN TG_TABLE_NAME = 'layaway_account_items' THEN (to_jsonb(NEW)->>'account_id')::uuid ELSE (to_jsonb(NEW)->>'cash_order_id')::uuid END;
 BEGIN
-  IF TG_OP = 'INSERT' THEN
-    NEW.cost_jpy := (SELECT v.cost_basis FROM public.website_product_variants v WHERE v.id = NEW.variant_id AND v.cost_basis IS NOT NULL AND v.cost_basis >= 0);
-  ELSE
-    NEW.cost_jpy := OLD.cost_jpy;
+  UPDATE public.sale_item_costs SET quantity = NEW.quantity WHERE item_table = v_table AND item_id = NEW.id AND quantity <> NEW.quantity;
+  IF FOUND THEN RETURN NULL; END IF;
+  IF EXISTS (SELECT 1 FROM public.sale_item_costs c WHERE c.item_table = v_table AND c.item_id = NEW.id) THEN RETURN NULL; END IF;
+  SELECT v.cost_basis INTO v_cost FROM public.website_product_variants v WHERE v.id = NEW.variant_id AND v.cost_basis IS NOT NULL AND v.cost_basis >= 0;
+  IF v_cost IS NOT NULL THEN
+    INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy)
+    VALUES (v_table, NEW.id, v_sale_type, v_sale_id, NEW.variant_id, NEW.quantity, v_cost)
+    ON CONFLICT (item_table, item_id) DO NOTHING;
   END IF;
-  RETURN NEW;
+  RETURN NULL;
 END
 $fn$;
+REVOKE ALL ON FUNCTION public.sale_items_snapshot_cost() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS layaway_account_items_cost_snapshot ON public.layaway_account_items;
-CREATE TRIGGER layaway_account_items_cost_snapshot BEFORE INSERT OR UPDATE ON public.layaway_account_items
+CREATE TRIGGER layaway_account_items_cost_snapshot AFTER INSERT OR UPDATE ON public.layaway_account_items
   FOR EACH ROW EXECUTE FUNCTION public.sale_items_snapshot_cost();
 DROP TRIGGER IF EXISTS cash_order_items_cost_snapshot ON public.cash_order_items;
-CREATE TRIGGER cash_order_items_cost_snapshot BEFORE INSERT OR UPDATE ON public.cash_order_items
+CREATE TRIGGER cash_order_items_cost_snapshot AFTER INSERT OR UPDATE ON public.cash_order_items
   FOR EACH ROW EXECUTE FUNCTION public.sale_items_snapshot_cost();
 
-UPDATE public.layaway_account_items i SET cost_jpy = v.cost_basis
-  FROM public.website_product_variants v
- WHERE v.id = i.variant_id AND i.cost_jpy IS NULL AND v.cost_basis IS NOT NULL AND v.cost_basis >= 0;
-UPDATE public.cash_order_items i SET cost_jpy = v.cost_basis
-  FROM public.website_product_variants v
- WHERE v.id = i.variant_id AND i.cost_jpy IS NULL AND v.cost_basis IS NOT NULL AND v.cost_basis >= 0;
+CREATE OR REPLACE FUNCTION public.variant_cost_snapshot_catchup()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NEW.cost_basis IS NULL OR NEW.cost_basis < 0 THEN RETURN NULL; END IF;
+  IF TG_OP = 'UPDATE' AND OLD.cost_basis IS NOT DISTINCT FROM NEW.cost_basis THEN RETURN NULL; END IF;
+  INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy)
+  SELECT 'layaway_account_items', i.id, 'layaway', i.account_id, i.variant_id, i.quantity, NEW.cost_basis
+    FROM public.layaway_account_items i WHERE i.variant_id = NEW.id
+  ON CONFLICT (item_table, item_id) DO NOTHING;
+  INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy)
+  SELECT 'cash_order_items', i.id, 'cash_order', i.cash_order_id, i.variant_id, i.quantity, NEW.cost_basis
+    FROM public.cash_order_items i WHERE i.variant_id = NEW.id
+  ON CONFLICT (item_table, item_id) DO NOTHING;
+  RETURN NULL;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.variant_cost_snapshot_catchup() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS website_product_variants_cost_catchup ON public.website_product_variants;
+CREATE TRIGGER website_product_variants_cost_catchup AFTER INSERT OR UPDATE OF cost_basis ON public.website_product_variants
+  FOR EACH ROW EXECUTE FUNCTION public.variant_cost_snapshot_catchup();
+
+INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy)
+SELECT 'layaway_account_items', i.id, 'layaway', i.account_id, i.variant_id, i.quantity, v.cost_basis
+  FROM public.layaway_account_items i JOIN public.website_product_variants v ON v.id = i.variant_id
+ WHERE v.cost_basis IS NOT NULL AND v.cost_basis >= 0
+ON CONFLICT (item_table, item_id) DO NOTHING;
+INSERT INTO public.sale_item_costs (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy)
+SELECT 'cash_order_items', i.id, 'cash_order', i.cash_order_id, i.variant_id, i.quantity, v.cost_basis
+  FROM public.cash_order_items i JOIN public.website_product_variants v ON v.id = i.variant_id
+ WHERE v.cost_basis IS NOT NULL AND v.cost_basis >= 0
+ON CONFLICT (item_table, item_id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- 5. Trade-ins: when was the piece resold (drives trade_in_resold).
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.trade_ins ADD COLUMN IF NOT EXISTS resold_at timestamptz NULL;
-COMMENT ON COLUMN public.trade_ins.resold_at IS 'Phase 5: set by trigger when resale_status becomes Sold (cleared when it goes back to In stock). Ledger event trade_in_resold is dated here.';
+ALTER TABLE public.trade_ins ADD COLUMN IF NOT EXISTS resold_invoice_number text NULL;
+COMMENT ON COLUMN public.trade_ins.resold_at IS 'Phase 5: set by trigger when resale_status becomes Sold (cleared when it goes back to In stock; a client cannot move it otherwise). Ledger event trade_in_resold is dated here.';
+COMMENT ON COLUMN public.trade_ins.resold_invoice_number IS 'Phase 5: the layaway / cash-order invoice the trade-in piece was resold on. That sale takes its cost from the trade-in (5500), so cogs_sale skips it and the Cost of goods tab shows it as covered.';
 
 CREATE OR REPLACE FUNCTION public.trade_ins_track_resold()
 RETURNS trigger
@@ -122,11 +183,16 @@ LANGUAGE plpgsql SET search_path TO 'public'
 AS $fn$
 BEGIN
   IF NEW.resale_status::text = 'Sold' THEN
-    IF TG_OP = 'INSERT' OR OLD.resale_status::text <> 'Sold' OR NEW.resold_at IS NULL THEN
+    IF TG_OP = 'INSERT' THEN
       NEW.resold_at := coalesce(NEW.resold_at, now());
+    ELSIF OLD.resale_status::text <> 'Sold' THEN
+      NEW.resold_at := now();
+    ELSE
+      NEW.resold_at := coalesce(OLD.resold_at, now());
     END IF;
   ELSE
     NEW.resold_at := NULL;
+    NEW.resold_invoice_number := NULL;
   END IF;
   RETURN NEW;
 END
@@ -145,27 +211,37 @@ RETURNS TABLE (sale_type text, sale_id uuid, cost_jpy numeric, cost_source text)
 LANGUAGE sql STABLE SET search_path TO 'public'
 AS $fn$
   WITH li AS (
-    SELECT i.account_id AS sale_id, sum(i.cost_jpy * i.quantity) AS cost, bool_and(i.cost_jpy IS NOT NULL) AS complete
-      FROM public.layaway_account_items i GROUP BY i.account_id),
+    SELECT i.account_id AS sale_id, sum(c.cost_jpy * i.quantity) AS cost, bool_and(c.cost_jpy IS NOT NULL) AS complete
+      FROM public.layaway_account_items i
+      LEFT JOIN public.sale_item_costs c ON c.item_table = 'layaway_account_items' AND c.item_id = i.id
+     GROUP BY i.account_id),
   ci AS (
-    SELECT i.cash_order_id AS sale_id, sum(i.cost_jpy * i.quantity) AS cost, bool_and(i.cost_jpy IS NOT NULL) AS complete
-      FROM public.cash_order_items i GROUP BY i.cash_order_id)
+    SELECT i.cash_order_id AS sale_id, sum(c.cost_jpy * i.quantity) AS cost, bool_and(c.cost_jpy IS NOT NULL) AS complete
+      FROM public.cash_order_items i
+      LEFT JOIN public.sale_item_costs c ON c.item_table = 'cash_order_items' AND c.item_id = i.id
+     GROUP BY i.cash_order_id),
+  ti AS (
+    SELECT t.resold_invoice_number AS invoice_number, sum(t.trade_amount) AS cost
+      FROM public.trade_ins t WHERE t.resale_status::text = 'Sold' AND nullif(t.resold_invoice_number, '') IS NOT NULL
+     GROUP BY t.resold_invoice_number)
   SELECT 'layaway', la.id,
-         coalesce(sc.cost_jpy, CASE WHEN li.complete THEN li.cost END),
-         CASE WHEN sc.sale_id IS NOT NULL THEN 'manual' WHEN li.complete THEN 'items' END
+         CASE WHEN ti.invoice_number IS NOT NULL THEN ti.cost ELSE coalesce(sc.cost_jpy, CASE WHEN li.complete THEN li.cost END) END,
+         CASE WHEN ti.invoice_number IS NOT NULL THEN 'trade_in' WHEN sc.sale_id IS NOT NULL THEN 'manual' WHEN li.complete THEN 'items' END
     FROM public.layaway_accounts la
     LEFT JOIN public.sale_costs sc ON sc.sale_type = 'layaway' AND sc.sale_id = la.id
     LEFT JOIN li ON li.sale_id = la.id
+    LEFT JOIN ti ON ti.invoice_number = la.invoice_number
   UNION ALL
   SELECT 'cash_order', co.id,
-         coalesce(sc.cost_jpy, CASE WHEN ci.complete THEN ci.cost END),
-         CASE WHEN sc.sale_id IS NOT NULL THEN 'manual' WHEN ci.complete THEN 'items' END
+         CASE WHEN ti.invoice_number IS NOT NULL THEN ti.cost ELSE coalesce(sc.cost_jpy, CASE WHEN ci.complete THEN ci.cost END) END,
+         CASE WHEN ti.invoice_number IS NOT NULL THEN 'trade_in' WHEN sc.sale_id IS NOT NULL THEN 'manual' WHEN ci.complete THEN 'items' END
     FROM public.cash_orders co
     LEFT JOIN public.sale_costs sc ON sc.sale_type = 'cash_order' AND sc.sale_id = co.id
     LEFT JOIN ci ON ci.sale_id = co.id
+    LEFT JOIN ti ON ti.invoice_number = co.invoice_number
 $fn$;
 REVOKE ALL ON FUNCTION public.gl_sale_costs() FROM PUBLIC, anon, authenticated;
-COMMENT ON FUNCTION public.gl_sale_costs() IS 'Internal: effective yen cost per sale — finance-set sale_costs, else complete item snapshots, else NULL (missing).';
+COMMENT ON FUNCTION public.gl_sale_costs() IS 'Internal: effective yen cost per sale — a resold trade-in (source trade_in; its cost posts as 5500, so cogs_sale skips it), else finance-set sale_costs, else complete item snapshots, else NULL (missing).';
 
 -- ---------------------------------------------------------------------------
 -- 7. Ledger events. The Phase 2b body becomes gl_base_events (renamed once); gl_current_events is now the
@@ -194,7 +270,10 @@ AS $fn$
   first_cash_pay AS (
     SELECT cp.cash_order_id, min(cp.date_paid) AS first_date
       FROM public.cash_payments cp WHERE cp.voided_at IS NULL GROUP BY cp.cash_order_id),
-  costs AS (SELECT * FROM public.gl_sale_costs() WHERE cost_jpy IS NOT NULL AND cost_jpy > 0)
+  costs AS (SELECT * FROM public.gl_sale_costs() WHERE cost_jpy IS NOT NULL AND cost_jpy > 0 AND cost_source <> 'trade_in'),
+  test_invoices AS (
+    SELECT la.invoice_number FROM public.layaway_accounts la WHERE la.is_test
+    UNION SELECT co.invoice_number FROM public.cash_orders co WHERE co.is_test)
 
   SELECT 'cogs_sale', md5('cogs:layaway:' || la.id::text)::uuid, fp.first_date,
          'Cost of pieces sold ' || la.invoice_number,
@@ -267,6 +346,7 @@ AS $fn$
     FROM public.trade_ins t
     CROSS JOIN s
    WHERE t.trade_amount > 0 AND t.date_trade >= s.start_date AND t.date_trade <= p_until
+     AND NOT EXISTS (SELECT 1 FROM test_invoices x WHERE x.invoice_number = t.new_invoice_number)
 
   UNION ALL
   SELECT 'trade_in_resold', md5('trade_in_sold:' || t.id::text)::uuid, (t.resold_at AT TIME ZONE 'Asia/Tokyo')::date,
@@ -278,6 +358,7 @@ AS $fn$
     FROM public.trade_ins t
     CROSS JOIN s
    WHERE t.trade_amount > 0 AND t.resale_status::text = 'Sold' AND t.resold_at IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM test_invoices x WHERE x.invoice_number = t.new_invoice_number OR x.invoice_number = t.resold_invoice_number)
      AND (t.resold_at AT TIME ZONE 'Asia/Tokyo')::date >= s.start_date
      AND (t.resold_at AT TIME ZONE 'Asia/Tokyo')::date <= p_until
 $fn$;
@@ -325,12 +406,16 @@ BEGIN
   costs AS (SELECT * FROM public.gl_sale_costs()),
   li AS (
     SELECT i.account_id AS sale_id,
-           jsonb_agg(jsonb_build_object('title', i.title, 'sku', i.sku, 'quantity', i.quantity, 'unit_price_jpy', i.unit_price_jpy, 'cost_jpy', i.cost_jpy) ORDER BY i.created_at) AS items
-      FROM public.layaway_account_items i GROUP BY i.account_id),
+           jsonb_agg(jsonb_build_object('title', i.title, 'sku', i.sku, 'quantity', i.quantity, 'unit_price_jpy', i.unit_price_jpy, 'cost_jpy', sic.cost_jpy) ORDER BY i.created_at) AS items
+      FROM public.layaway_account_items i
+      LEFT JOIN public.sale_item_costs sic ON sic.item_table = 'layaway_account_items' AND sic.item_id = i.id
+     GROUP BY i.account_id),
   ci AS (
     SELECT i.cash_order_id AS sale_id,
-           jsonb_agg(jsonb_build_object('title', i.title, 'sku', i.sku, 'quantity', i.quantity, 'unit_price_jpy', i.unit_price_jpy, 'cost_jpy', i.cost_jpy) ORDER BY i.created_at) AS items
-      FROM public.cash_order_items i GROUP BY i.cash_order_id),
+           jsonb_agg(jsonb_build_object('title', i.title, 'sku', i.sku, 'quantity', i.quantity, 'unit_price_jpy', i.unit_price_jpy, 'cost_jpy', sic.cost_jpy) ORDER BY i.created_at) AS items
+      FROM public.cash_order_items i
+      LEFT JOIN public.sale_item_costs sic ON sic.item_table = 'cash_order_items' AND sic.item_id = i.id
+     GROUP BY i.cash_order_id),
   sales AS (
     SELECT 'layaway' AS sale_type, la.id, la.invoice_number, fp.first_date AS sale_date, la.status::text AS status, la.currency::text AS currency,
            la.total_amount AS revenue, public.gl_to_jpy(la.total_amount, la.currency::text, v_rate) AS revenue_jpy,
@@ -503,13 +588,13 @@ BEGIN
     'trade_ins_in_stock_jpy', (SELECT coalesce(sum(t.trade_amount), 0) FROM public.trade_ins t WHERE t.resale_status::text = 'In stock'),
     'ledger_inventory_jpy', v_bal_1300,
     'ledger_trade_in_jpy', v_bal_1310,
-    'difference_jpy', (SELECT coalesce(sum(v.stock_qty * v.cost_basis), 0) FROM public.website_product_variants v WHERE v.cost_basis IS NOT NULL) - v_bal_1300);
+    'website_minus_ledger_jpy', (SELECT coalesce(sum(v.stock_qty * v.cost_basis), 0) FROM public.website_product_variants v WHERE v.cost_basis IS NOT NULL) - v_bal_1300);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.get_inventory_valuation() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_inventory_valuation() TO authenticated;
 COMMENT ON FUNCTION public.get_inventory_valuation() IS
-  'Phase 5: stock on hand at cost (variants with a cost basis) vs the ledger''s 1300 / 1310 balances, with how much stock has no cost yet. view_ledger. The difference is for the owner / 税理士 to post as a stock-count adjustment (manual journal 5900).';
+  'Phase 5: website stock at cost (variants with a cost basis — PARTIAL: supplier / preloved stock without a product line is not here) vs the ledger''s 1300 / 1310 balances. view_ledger. A stock-count adjustment is posted from a COUNTED value the owner types (manual journal 5900), never from this partial difference.';
 
 CREATE OR REPLACE FUNCTION public.fc_real_profit(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
 RETURNS jsonb

@@ -445,18 +445,28 @@ had no link to stock or resale and the new plan's price is already net of the tr
   and `import_sale_costs([{invoice_number, cost_jpy, note}])` (≤ 2,000 rows; matches layaway then cash-order
   invoice numbers; reports set / replaced / not_found / ambiguous / invalid) — both manage_expenses, audited
   (`sale_cost` set / change / clear).
-- **Item snapshot** `cost_jpy` on `layaway_account_items` / `cash_order_items`: copied from the variant's
-  cost basis by a BEFORE INSERT trigger (a client-sent value is ignored; immutable on update). Effective sale
-  cost (`gl_sale_costs()`, internal) = sale_costs row, else Σ unit cost × qty when every line has a cost, else
-  NULL (missing).
+- **Item snapshot** `sale_item_costs` (item_table, item_id, sale_type, sale_id, variant_id, quantity, cost_jpy):
+  a FINANCE-ONLY table (RLS view_ledger; the item tables themselves never carry a cost because customers and
+  CSR can read them). Filled by an AFTER INSERT trigger from the variant's cost basis (SECURITY DEFINER, so a
+  client insert still snapshots), by a catch-up trigger when a variant first gets a cost, and by a backfill in
+  the migration; the unit cost never changes afterwards (quantity follows the line). Effective sale cost
+  (`gl_sale_costs()`, internal) = a resold trade-in's trade amount (source `trade_in`, see below), else the
+  sale_costs row, else Σ unit cost × qty when every line has a snapshot, else NULL (missing).
 - **Ledger** — `gl_current_events` is now `gl_base_events` (the 2b body, renamed once by the Phase 5 file)
   UNION `gl_cogs_events`: `cogs_sale` Dr 5100 / Cr 1300 at the sale date (first non-void payment), per sale
   with a cost; `cogs_return` Dr 1300 / Cr 5100 when a forfeited / cancelled plan (or cancelled / expired order)
   puts the piece back, dated like the close; `trade_in_received` Dr 1310 / Cr 4100 trade_amount on date_trade;
-  `trade_in_resold` Dr 5500 / Cr 1310 when `resale_status` = Sold (new `trade_ins.resold_at`, stamped by trigger,
-  cleared when back in stock; existing Sold rows backfilled with date_trade). Source ids are
-  `md5('<kind>:<sale type>:<id>')::uuid`. A changed cost re-posts through the normal reversal + repost; a
-  sale without a cost posts nothing.
+  `trade_in_resold` Dr 5500 / Cr 1310 when `resale_status` = Sold (new `trade_ins.resold_at`: a flip to Sold
+  always stamps now — a client cannot move it; an INSERT may carry a historical date; cleared when back in
+  stock; existing Sold rows backfilled with date_trade). New `trade_ins.resold_invoice_number` (Services →
+  Trade-ins, "Resold on Invoice #", shown when Sold): the sale on that invoice takes its cost from the trade-in,
+  so `cogs_sale` skips it (no 5100 + 5500 double count) and the tab shows it as covered. Trade-ins whose new or
+  resold invoice is a test plan are excluded. `cogs_return` shares the close-date fingerprint exemption with the
+  close events (added to the 2b file), so a legacy forfeited plan whose `updated_at` moves does not churn.
+  Source ids are `md5('<kind>:<sale type>:<id>')::uuid`. A changed cost re-posts through the normal
+  reversal + repost; a sale without a cost posts nothing. Documented asymmetry: a trade-in received before
+  the ledger start and resold after it credits 1310 with no prior debit — correct only when the opening
+  balance carries it in 1310.
 - **Category remap**: "Inventory purchases" → 1300, "Trade-in buybacks" → 1310. Goldsmith / appraisal /
   packaging / carrier stay period costs (5200 / 5250 / 5300 / 5400).
 - **Accounts added for the accountant's books** (opening balance later): 1104 Kameari Shinkin, 1195 Suspense
@@ -465,9 +475,11 @@ had no link to stock or resale and the new plan's price is already net of the tr
 - **Screens** — Finance → Ledger gains a **Cost of goods** tab: month picker; Sales booked / Revenue / Cost of
   goods known ("real cost on N of M sales") / Cost missing (+ older missing since the ledger start); every sale
   with invoice link, pieces, revenue, cost source badge, Set / Change cost (yen + note; "Clear cost" on a manual
-  one) and **Import costs (CSV)**; an **Inventory** card (website stock at cost, trade-ins in stock, ledger
-  1300 / 1310, difference) with "Post stock-count adjustment…" (manual journal 5900 ↔ 1300, reason required,
-  post_journal) and a nudge listing how many variants have stock but no cost basis. The Trial balance tiles say
+  one) and **Import costs (CSV)**; an **Inventory** card (ledger 1300 / 1310, website stock at cost marked
+  PARTIAL — supplier / preloved stock without a product line is not on the website — and the informational
+  website − ledger gap) with "Post stock-count adjustment…": the owner types the COUNTED stock value at cost,
+  the adjustment is counted − ledger 1300 (manual journal 5900 ↔ 1300, reason required, post_journal) — never
+  derived from the partial website figure; plus a nudge listing how many variants have stock but no cost basis. The Trial balance tiles say
   "real cost on N of M sales" under Cost of sales. Executive Dashboard: "Gross Profit (ledger)" and "Inventory
   at Cost" tiles (`fc_real_profit`, view_ledger; "Set the ledger start in Finance → Ledger" until then), cash-flow
   coverage computed from the ledger inventory (— when it is zero), the two 15 % plan-table columns removed.
@@ -486,12 +498,21 @@ from the product cost basis for new stock). Opening inventory comes from the acc
 
 ### Verified (2026-10-26)
 - Local PostgreSQL 16: six migrations applied twice through one `run.sh`; Phase 1 (17), Phase 2 (5), ledger (11),
-  recurring (8), email (7) still pass; new `test_cogs.sql` (8 groups): item snapshot (client value ignored,
-  immutable, later cost-basis change ignored, costless line → missing), category remap + accountant accounts,
+  recurring (8), email (7) still pass; new `test_cogs.sql` (8 groups): item snapshot (finance-only table, no cost
+  column on the item tables, immutable, later cost-basis change ignored, catch-up when a variant gets a cost,
+  costless line → missing), category remap + accountant accounts,
   permissions (staff / finance / anon; table writes revoked), set / clear / validation / import (symbols
   stripped, not found, invalid, replaced, empty refused), cogs_sale postings (dated at the sale, balanced, no
-  cost → nothing, idempotent, change → reversal + repost, late cost), cogs_return on forfeiture, purchase →
-  1300, trade-in received / resold / un-sold, valuation and real-profit figures.
+  cost → nothing, idempotent, change → reversal + repost, late cost), cogs_return on forfeiture (and no churn when updated_at
+  moves), purchase → 1300, trade-in received / resold with the resale invoice link (no cogs_sale) / un-sold,
+  valuation and real-profit figures.
+- Independent review applied before the PR: the cost snapshot moved off the customer/CSR-readable item tables
+  into finance-only `sale_item_costs` (the column would have been readable through the REST API); the backfill
+  of existing lines actually runs (the old BEFORE trigger made it a no-op) and a variant that gets its cost
+  later costs its existing lines; `cogs_return` joined the close-date fingerprint exemption (no churn on legacy
+  forfeited plans); the stock-count adjustment now comes from a counted value, not the partial website figure;
+  resold trade-ins are linked to the resale invoice so the cost is never counted twice; trade-ins on test plans
+  excluded; `resold_at` cannot be moved by a client.
 - tsc exit 0; Vitest cogs (7) + ledger (14, April–March) + full suite (116 files / 1,873) pass; build passes;
   lint unchanged (881 / 150).
 

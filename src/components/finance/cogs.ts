@@ -8,7 +8,7 @@
 export const COGS_KEY = ["finance", "ledger", "cogs"] as const;
 export const INVENTORY_KEY = ["finance", "ledger", "inventory"] as const;
 
-export type CostSource = "manual" | "items" | null;
+export type CostSource = "manual" | "items" | "trade_in" | null;
 export type SaleItem = { title: string | null; sku?: string | null; quantity?: number | null; unit_price_jpy?: number | null; cost_jpy?: number | null };
 export type SaleCostRow = {
   sale_type: "layaway" | "cash_order"; id: string; invoice_number: string; sale_date: string; status: string;
@@ -22,7 +22,7 @@ export type SalesCosts = {
 export type InventoryValuation = {
   ledger_start: string | null; stock_units: number; stock_units_with_cost: number; variants_in_stock_without_cost: number;
   stock_at_cost_jpy: number; trade_ins_in_stock: number; trade_ins_in_stock_jpy: number;
-  ledger_inventory_jpy: number; ledger_trade_in_jpy: number; difference_jpy: number;
+  ledger_inventory_jpy: number; ledger_trade_in_jpy: number; website_minus_ledger_jpy: number;
 };
 export type RealProfit =
   | { ledger_started: false }
@@ -41,7 +41,7 @@ export function normaliseSalesCosts(raw: Record<string, unknown>): SalesCosts {
       sale_type: s.sale_type === "cash_order" ? "cash_order" : "layaway",
       id: String(s.id), invoice_number: String(s.invoice_number ?? ""), sale_date: String(s.sale_date ?? ""), status: String(s.status ?? ""),
       currency: s.currency === "PHP" ? "PHP" : "JPY", revenue: num(s.revenue), revenue_jpy: num(s.revenue_jpy),
-      cost_jpy: numOrNull(s.cost_jpy), cost_source: (s.cost_source === "manual" || s.cost_source === "items" ? s.cost_source : null),
+      cost_jpy: numOrNull(s.cost_jpy), cost_source: (s.cost_source === "manual" || s.cost_source === "items" || s.cost_source === "trade_in" ? s.cost_source : null),
       note: (s.note as string | null) ?? null, items: Array.isArray(s.items) ? (s.items as SaleItem[]) : [],
       customer_id: (s.customer_id as string | null) ?? null, is_trade: s.is_trade === true,
     })),
@@ -55,7 +55,7 @@ export function normaliseValuation(raw: Record<string, unknown>): InventoryValua
     ledger_start: (raw.ledger_start as string | null) ?? null,
     stock_units: num(raw.stock_units), stock_units_with_cost: num(raw.stock_units_with_cost), variants_in_stock_without_cost: num(raw.variants_in_stock_without_cost),
     stock_at_cost_jpy: num(raw.stock_at_cost_jpy), trade_ins_in_stock: num(raw.trade_ins_in_stock), trade_ins_in_stock_jpy: num(raw.trade_ins_in_stock_jpy),
-    ledger_inventory_jpy: num(raw.ledger_inventory_jpy), ledger_trade_in_jpy: num(raw.ledger_trade_in_jpy), difference_jpy: num(raw.difference_jpy),
+    ledger_inventory_jpy: num(raw.ledger_inventory_jpy), ledger_trade_in_jpy: num(raw.ledger_trade_in_jpy), website_minus_ledger_jpy: num(raw.website_minus_ledger_jpy),
   };
 }
 
@@ -72,7 +72,7 @@ export function normaliseRealProfit(raw: unknown): RealProfit | null {
 }
 
 export const COST_SOURCE_LABEL: Record<Exclude<CostSource, null> | "missing", string> = {
-  manual: "Set by finance", items: "From the product's cost basis", missing: "Cost missing",
+  manual: "Set by finance", items: "From the product's cost basis", trade_in: "Resold trade-in (cost booked as trade-in)", missing: "Cost missing",
 };
 export function costSourceLabel(s: CostSource): string { return COST_SOURCE_LABEL[s ?? "missing"]; }
 
@@ -125,10 +125,14 @@ export function importSummary(r: { set?: number; replaced?: number; not_found?: 
   return parts.join(" · ");
 }
 
-/** The stock-count adjustment the valuation suggests: positive difference = stock worth more than the books. */
-export function stockAdjustment(v: Pick<InventoryValuation, "difference_jpy">, today: string, reason: string) {
-  const amount = Math.abs(Math.round(v.difference_jpy));
-  const up = v.difference_jpy > 0;
+/**
+ * The stock-count adjustment from a COUNTED stock value the owner types (yen at cost) against the ledger's 1300:
+ * never derived from the website-only figure, which misses supplier / preloved stock without a product line.
+ */
+export function stockAdjustment(countedJpy: number, ledgerJpy: number, today: string, reason: string) {
+  const diff = Math.round(countedJpy) - Math.round(ledgerJpy);
+  const amount = Math.abs(diff);
+  const up = diff > 0;
   return {
     amount,
     direction: up ? ("up" as const) : ("down" as const),
