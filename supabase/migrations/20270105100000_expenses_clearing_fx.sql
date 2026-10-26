@@ -11,10 +11,15 @@
 --     (amount received, statement fees, adjustments, bank account). Events settlement_payout (Dr bank / Cr clearing),
 --     settlement_fee (Dr 6300 — or 5400 for the courier — / Cr clearing), settlement_adjustment (4900 / 6900).
 --   * fund_transfers: money moved between the company's own accounts (SMBC -> BDO remittance, bank -> cash).
---     Event fund_transfer: Dr to / Cr from in each leg's currency, the bank's fee to 6300, the yen difference between
---     the legs to 4950 / 6800 (realised FX at the bank's actual rate vs the Hub's one rate).
---   * square_fee: Square's processing fee from the payment payload, Dr 6300 / Cr 1130 at capture; a refund that
---     returns fee posts the mirror.
+--     Event fund_transfer: Dr to / Cr from in each leg's currency at the rate in effect ON THE TRANSFER DATE, the
+--     bank's fee to 6300, and — only when the legs are in different currencies — the yen difference to 4950 / 6800
+--     (realised FX at the bank's actual rate vs the Hub's one rate). Same-currency legs must satisfy sent = received + fee.
+--   * gl_post_now runs the engine up to three passes: the peso revaluation derives from POSTED lines, so lines
+--     posted in one pass produce their revaluation in the next (the nightly cron does the same).
+--   * square_fee: Square's processing fee from the payment payload (the sum of its processing_fee entries, so a
+--     fee adjustment after a refund is reflected when the payload is refreshed), Dr 6300 / Cr 1130 at capture.
+--     Square fills processing_fee asynchronously: until the payload is refreshed the fee is 0 and the clearing
+--     balance keeps the fee as a residue — the Clearing screen shows it.
 --   * fx_revaluation: at each month end every ASSET / LIABILITY account carrying peso lines (not revenue or
 --     expenses) is revalued to the rate in effect; balances are taken as the books stand at that month end
 --     (a reversal dated today does not change a past month, exactly like the trial balance):
@@ -92,10 +97,11 @@ LANGUAGE sql STABLE SET search_path TO 'public'
 AS $fn$
   SELECT coalesce(
     (SELECT h.rate FROM public.php_jpy_rate_history h WHERE h.effective_from <= p_date ORDER BY h.effective_from DESC LIMIT 1),
+    (SELECT h.rate FROM public.php_jpy_rate_history h ORDER BY h.effective_from ASC LIMIT 1),
     public.gl_rate())
 $fn$;
 REVOKE ALL ON FUNCTION public.gl_rate_at(date) FROM PUBLIC, anon, authenticated;
-COMMENT ON FUNCTION public.gl_rate_at(date) IS 'Internal: PHP-per-JPY rate in effect on a day (latest history row on or before it, else the live setting).';
+COMMENT ON FUNCTION public.gl_rate_at(date) IS 'Internal: PHP-per-JPY rate in effect on a day (latest history row on or before it; before the first row, the first row; with no history, the live setting).';
 
 CREATE OR REPLACE FUNCTION public.set_php_jpy_rate(p_rate numeric, p_effective_from date DEFAULT NULL)
 RETURNS jsonb
@@ -110,6 +116,9 @@ BEGIN
   IF NOT public.has_permission(v_uid, 'admin_settings') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
   IF p_rate IS NULL OR p_rate <= 0 OR p_rate > 100 THEN RETURN jsonb_build_object('error', 'invalid_rate'); END IF;
   IF v_from > v_today OR v_from < DATE '2020-01-01' THEN RETURN jsonb_build_object('error', 'invalid_date'); END IF;
+  IF v_from <> v_today AND v_from >= coalesce((SELECT max(h.effective_from) FROM public.php_jpy_rate_history h), v_from) THEN
+    RETURN jsonb_build_object('error', 'date_after_latest');
+  END IF;
   IF v_from = v_today THEN
     UPDATE public.system_settings SET value = to_jsonb(p_rate::text) WHERE key = 'php_jpy_rate';
     IF NOT FOUND THEN INSERT INTO public.system_settings (key, value) VALUES ('php_jpy_rate', to_jsonb(p_rate::text)); END IF;
@@ -333,8 +342,8 @@ BEGIN
   END;
   IF v_on IS NULL OR v_on > v_today OR (v_start IS NOT NULL AND v_on < v_start) THEN RETURN jsonb_build_object('error', 'invalid_date'); END IF;
   IF v_from IS NULL OR v_to IS NULL OR v_from = v_to
-     OR NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.code = v_from AND a.active AND a.kind = 'asset' AND a.code < '1200')
-     OR NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.code = v_to AND a.active AND a.kind = 'asset' AND a.code < '1200') THEN
+     OR NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.code = v_from AND a.active AND a.kind = 'asset' AND a.code < '1130')
+     OR NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.code = v_to AND a.active AND a.kind = 'asset' AND a.code < '1130') THEN
     RETURN jsonb_build_object('error', 'invalid_account');
   END IF;
   IF v_from_cur NOT IN ('JPY', 'PHP') OR v_to_cur NOT IN ('JPY', 'PHP') OR v_fee_cur NOT IN ('JPY', 'PHP') THEN RETURN jsonb_build_object('error', 'invalid_currency'); END IF;
@@ -344,7 +353,7 @@ BEGIN
      OR v_from_amt <> round(v_from_amt, 2) OR v_to_amt <> round(v_to_amt, 2) OR v_fee <> round(v_fee, 2) THEN
     RETURN jsonb_build_object('error', 'invalid_amount');
   END IF;
-  IF v_from_cur = v_to_cur AND v_from_cur = v_fee_cur AND v_from_amt <> v_to_amt + v_fee AND v_from_amt <> v_to_amt THEN
+  IF v_from_cur = v_to_cur AND (v_fee_cur <> v_from_cur OR v_from_amt <> v_to_amt + v_fee) THEN
     RETURN jsonb_build_object('error', 'amounts_differ');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.code = v_fee_acct AND a.active AND a.kind IN ('expense', 'cogs')) THEN RETURN jsonb_build_object('error', 'invalid_account'); END IF;
@@ -519,22 +528,23 @@ AS $fn$
   SELECT 'fund_transfer', ft.id, ft.transfer_on,
          'Transfer ' || ft.from_account || ' -> ' || ft.to_account || coalesce(' ' || ft.reference, ''),
          jsonb_build_array(
-           jsonb_build_object('a', ft.to_account, 'side', 'dr', 'amt', ft.to_amount, 'cur', ft.to_currency, 'jpy', public.gl_to_jpy(ft.to_amount, ft.to_currency, s.rate), 'memo', 'Received'),
-           jsonb_build_object('a', ft.from_account, 'side', 'cr', 'amt', ft.from_amount, 'cur', ft.from_currency, 'jpy', public.gl_to_jpy(ft.from_amount, ft.from_currency, s.rate), 'memo', 'Sent'))
+           jsonb_build_object('a', ft.to_account, 'side', 'dr', 'amt', ft.to_amount, 'cur', ft.to_currency, 'jpy', fx.to_jpy, 'memo', 'Received'),
+           jsonb_build_object('a', ft.from_account, 'side', 'cr', 'amt', ft.from_amount, 'cur', ft.from_currency, 'jpy', fx.from_jpy, 'memo', 'Sent'))
          || CASE WHEN ft.fee_amount > 0 THEN jsonb_build_array(
-                jsonb_build_object('a', ft.fee_account, 'side', 'dr', 'amt', ft.fee_amount, 'cur', ft.fee_currency, 'jpy', public.gl_to_jpy(ft.fee_amount, ft.fee_currency, s.rate), 'memo', 'Transfer fee'))
+                jsonb_build_object('a', ft.fee_account, 'side', 'dr', 'amt', ft.fee_amount, 'cur', ft.fee_currency, 'jpy', fx.fee_jpy, 'memo', 'Transfer fee'))
               ELSE '[]'::jsonb END
-         || CASE WHEN public.gl_to_jpy(ft.from_amount, ft.from_currency, s.rate) - public.gl_to_jpy(ft.to_amount, ft.to_currency, s.rate) - public.gl_to_jpy(ft.fee_amount, ft.fee_currency, s.rate) > 0
-                 THEN jsonb_build_array(jsonb_build_object('a', '6800', 'side', 'dr',
-                        'amt', public.gl_to_jpy(ft.from_amount, ft.from_currency, s.rate) - public.gl_to_jpy(ft.to_amount, ft.to_currency, s.rate) - public.gl_to_jpy(ft.fee_amount, ft.fee_currency, s.rate),
-                        'cur', 'JPY', 'memo', 'FX difference on transfer'))
-                 WHEN public.gl_to_jpy(ft.from_amount, ft.from_currency, s.rate) - public.gl_to_jpy(ft.to_amount, ft.to_currency, s.rate) - public.gl_to_jpy(ft.fee_amount, ft.fee_currency, s.rate) < 0
-                 THEN jsonb_build_array(jsonb_build_object('a', '4950', 'side', 'cr',
-                        'amt', public.gl_to_jpy(ft.to_amount, ft.to_currency, s.rate) + public.gl_to_jpy(ft.fee_amount, ft.fee_currency, s.rate) - public.gl_to_jpy(ft.from_amount, ft.from_currency, s.rate),
-                        'cur', 'JPY', 'memo', 'FX difference on transfer'))
+         || CASE WHEN ft.from_currency <> ft.to_currency AND fx.from_jpy - fx.to_jpy - fx.fee_jpy > 0
+                 THEN jsonb_build_array(jsonb_build_object('a', '6800', 'side', 'dr', 'amt', fx.from_jpy - fx.to_jpy - fx.fee_jpy, 'cur', 'JPY', 'memo', 'FX difference on transfer'))
+                 WHEN ft.from_currency <> ft.to_currency AND fx.from_jpy - fx.to_jpy - fx.fee_jpy < 0
+                 THEN jsonb_build_array(jsonb_build_object('a', '4950', 'side', 'cr', 'amt', fx.to_jpy + fx.fee_jpy - fx.from_jpy, 'cur', 'JPY', 'memo', 'FX difference on transfer'))
                  ELSE '[]'::jsonb END,
          NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid
-    FROM public.fund_transfers ft CROSS JOIN s
+    FROM public.fund_transfers ft
+    CROSS JOIN s
+    CROSS JOIN LATERAL (
+      SELECT public.gl_to_jpy(ft.from_amount, ft.from_currency, public.gl_rate_at(ft.transfer_on)) AS from_jpy,
+             public.gl_to_jpy(ft.to_amount, ft.to_currency, public.gl_rate_at(ft.transfer_on)) AS to_jpy,
+             public.gl_to_jpy(ft.fee_amount, ft.fee_currency, public.gl_rate_at(ft.transfer_on)) AS fee_jpy) fx
    WHERE ft.voided_at IS NULL AND ft.transfer_on >= s.start_date AND ft.transfer_on <= p_until
 
   UNION ALL
@@ -610,11 +620,12 @@ BEGIN
     'settlements', coalesce((SELECT jsonb_agg(to_jsonb(st) ORDER BY st.received_on DESC, st.created_at DESC)
                                FROM public.provider_settlements st WHERE st.received_on >= v_since), '[]'::jsonb),
     'transfers', coalesce((SELECT jsonb_agg(to_jsonb(ft) || jsonb_build_object(
-                             'fx_jpy', public.gl_to_jpy(ft.to_amount, ft.to_currency, public.gl_rate()) + public.gl_to_jpy(ft.fee_amount, ft.fee_currency, public.gl_rate()) - public.gl_to_jpy(ft.from_amount, ft.from_currency, public.gl_rate()))
+                             'fx_jpy', CASE WHEN ft.from_currency = ft.to_currency THEN 0
+                                            ELSE public.gl_to_jpy(ft.to_amount, ft.to_currency, public.gl_rate_at(ft.transfer_on)) + public.gl_to_jpy(ft.fee_amount, ft.fee_currency, public.gl_rate_at(ft.transfer_on)) - public.gl_to_jpy(ft.from_amount, ft.from_currency, public.gl_rate_at(ft.transfer_on)) END)
                              ORDER BY ft.transfer_on DESC, ft.created_at DESC)
                              FROM public.fund_transfers ft WHERE ft.transfer_on >= v_since), '[]'::jsonb),
     'accounts', coalesce((SELECT jsonb_agg(jsonb_build_object('code', a.code, 'name', a.name, 'currency_hint', a.currency_hint) ORDER BY a.sort_order)
-                            FROM public.gl_accounts a WHERE a.active AND a.kind = 'asset' AND a.code < '1200'), '[]'::jsonb));
+                            FROM public.gl_accounts a WHERE a.active AND a.kind = 'asset' AND a.code < '1130'), '[]'::jsonb));
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.get_clearing_summary(integer) FROM PUBLIC, anon;
@@ -659,3 +670,65 @@ REVOKE ALL ON FUNCTION public.get_fx_revaluation(date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_fx_revaluation(date) TO authenticated;
 COMMENT ON FUNCTION public.get_fx_revaluation(date) IS
   'Phase 6: per account with peso lines — native ₱ balance, carrying yen, month-end rate, revalued yen and this month''s increment (what fx_revaluation posts). view_ledger.';
+
+-- ---------------------------------------------------------------------------
+-- 7. Posting runs settle in passes: the peso revaluation derives from POSTED peso lines, so lines posted in one
+--    pass produce their revaluation in the next. gl_post_now and the nightly cron run up to three passes.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.gl_post_settled(p_trigger text, p_user_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_pass integer := 0;
+  v_r jsonb;
+  v_dry jsonb;
+  v_total jsonb := jsonb_build_object('posted', 0, 'reversed', 0, 'moved', 0, 'failed', 0, 'skipped', 0);
+BEGIN
+  LOOP
+    v_pass := v_pass + 1;
+    v_r := public.gl_post_pending(false, p_trigger, p_user_id);
+    IF v_r->>'ok' IS DISTINCT FROM 'true' THEN RETURN v_r; END IF;
+    v_total := jsonb_build_object(
+      'posted', (v_total->>'posted')::int + coalesce((v_r->>'posted')::int, 0),
+      'reversed', (v_total->>'reversed')::int + coalesce((v_r->>'reversed')::int, 0),
+      'moved', (v_total->>'moved')::int + coalesce((v_r->>'moved')::int, 0),
+      'failed', (v_total->>'failed')::int + coalesce((v_r->>'failed')::int, 0),
+      'skipped', (v_total->>'skipped')::int + coalesce((v_r->>'skipped')::int, 0));
+    EXIT WHEN v_pass >= 3 OR (coalesce((v_r->>'posted')::int, 0) = 0 AND coalesce((v_r->>'reversed')::int, 0) = 0);
+    v_dry := public.gl_post_pending(true, p_trigger, p_user_id);
+    EXIT WHEN coalesce((v_dry->>'pending')::int, 0) = 0 AND coalesce((v_dry->>'reversed')::int, 0) = 0;
+  END LOOP;
+  RETURN v_r || v_total || jsonb_build_object('passes', v_pass);
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.gl_post_settled(text, uuid) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public.gl_post_settled(text, uuid) IS 'Internal: gl_post_pending up to three passes until a pass posts and reverses nothing (revaluation of lines posted in the same run).';
+
+CREATE OR REPLACE FUNCTION public.gl_post_now()
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('error', 'user_identity_required'); END IF;
+  IF NOT public.has_permission(v_uid, 'post_journal') THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
+  RETURN public.gl_post_settled('manual', v_uid);
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.gl_post_now() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.gl_post_now() TO authenticated;
+
+DO $c$
+BEGIN
+  IF to_regnamespace('cron') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gl-post-pending') THEN
+      PERFORM cron.unschedule('gl-post-pending');
+    END IF;
+    PERFORM cron.schedule('gl-post-pending', '40 15 * * *', $job$ SELECT public.gl_post_settled('cron', NULL); $job$);
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'gl-post-pending cron schedule skipped: %', SQLERRM;
+END
+$c$;

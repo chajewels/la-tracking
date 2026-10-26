@@ -534,7 +534,13 @@ since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO rem
 ### How it works
 - **Rate history** `php_jpy_rate_history` (effective_from, rate): a trigger on `system_settings` logs and
   audits every change of `php_jpy_rate` (Settings page unchanged); `set_php_jpy_rate(rate, date)` (admin_settings)
-  sets today's rate or dates a past one (history only); `gl_rate_at(date)` = the rate in effect; `get_rate_history()`.
+  sets today's rate or dates a past one (history only; a dated rate must be earlier than the latest row —
+  `date_after_latest`); `gl_rate_at(date)` = latest row on or before the day, before the first row the first row,
+  with no history the live setting; `get_rate_history()`. The migration seeds one row dated at the setting's
+  last update — the owner should date the real history (e.g. 0.42 since 27 Mar 2026) before the ledger start.
+- **Posting passes** the revaluation derives from POSTED peso lines, so `gl_post_now` and the nightly cron now
+  run `gl_post_settled` — up to three passes until a pass changes nothing (a dry run decides whether another
+  pass is needed, so no empty run rows).
 - **Square fees** — event `square_fee` per captured production payment with `processing_fee` in its payload:
   Dr 6300 / Cr 1130, dated at capture; test rows, sandbox and test orders excluded. The clearing balance now
   equals Square's net.
@@ -545,10 +551,11 @@ since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO rem
   clearing; `settlement_adjustment` ± → 4900 / 6900. A fee-only statement needs no bank account; money received
   needs one (bank / cash, never a clearing or receivable account). Closed month refused.
 - **Transfers** `fund_transfers` (from / to account with amounts in each leg's currency, fee, fee account 6300).
-  RPCs `record_fund_transfer(p)` / `void_fund_transfer`. Event `fund_transfer`: Dr to / Cr from (each at the
-  Hub rate in yen), Dr fee, and the yen difference between the legs to **6800** (received less) or **4950**
-  (received more) so the journal balances. Same-currency legs must match (fee aside); money accounts only (1xxx
-  below 1200, incl. clearing).
+  RPCs `record_fund_transfer(p)` / `void_fund_transfer`. Event `fund_transfer`: Dr to / Cr from (each in yen at
+  the rate in effect ON THE TRANSFER DATE, so the journal is stable), Dr fee, and — only when the legs are in
+  different currencies — the yen difference to **6800** (received less) or **4950** (received more). Same-currency
+  legs must satisfy sent = received + fee, fee in that currency (no FX line, no fake gain); endpoints are bank /
+  cash accounts only (1xxx below 1130 — never a clearing or receivable account).
 - **Peso revaluation** — event `fx_revaluation` per asset / liability account carrying peso lines (PH banks,
   GCash, PH cash, the peso part of 1200 / 1210 / 2300 …; never revenue or expenses), per month end from the
   ledger start: increment = (round(native ₱ ÷ rate at month end) − carrying yen) − previous month's cumulative;
@@ -578,6 +585,12 @@ since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO rem
   the Hub rate, fee, FX difference, same-currency rule, void + re-record), revaluation (no journal at an
   unchanged rate; dated rate → increments on 1111 and 1200 only, never 4100; balances as the books stood;
   idempotent; correcting the rate reverses), manual fee expense refused.
+- Independent review applied before the PR: same-currency transfers can no longer book a fake FX gain (sent must
+  equal received + fee; no FX line when the currencies match); transfers use the rate on the transfer date
+  (stable journals — later rate moves flow through revaluation); the rate fallback before the first history row
+  is the first row, never the newest; a dated rate after the latest row is refused; clearing accounts are not
+  transfer endpoints; `gl_post_settled` removes the one-run lag of the revaluation; the Square-fee header no
+  longer promises a refund mirror (the payload sum carries fee adjustments when refreshed); tests tightened.
 - tsc exit 0; Vitest clearing (5) + full suite (117 files / 1,878) pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds

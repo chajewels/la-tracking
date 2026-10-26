@@ -136,9 +136,10 @@ export function transferProblem(f: TransferForm, ledgerStart: string | null, tod
   if (!amountOk(f.from_amount, f.from_currency) || !amountOk(f.to_amount, f.to_currency)) return f.from_currency === "JPY" && f.to_currency === "JPY" ? "Whole yen only." : "Enter both amounts (whole yen; pesos to 2 decimals).";
   if (!amountOk(f.fee_amount, f.fee_currency, true)) return "Check the fee.";
   if (Number(f.from_amount.replace(/[¥₱,\s]/g, "")) <= 0 || Number(f.to_amount.replace(/[¥₱,\s]/g, "")) <= 0) return "Amounts must be above zero.";
-  if (f.from_currency === f.to_currency && f.fee_currency === f.from_currency) {
+  if (f.from_currency === f.to_currency) {
     const from = Number(f.from_amount.replace(/[¥₱,\s]/g, "")), to = Number(f.to_amount.replace(/[¥₱,\s]/g, "")), fee = Number(f.fee_amount.replace(/[¥₱,\s]/g, "") || 0);
-    if (from !== to && from !== to + fee) return "Same currency: the amount sent must equal the amount received (plus the fee).";
+    if (fee > 0 && f.fee_currency !== f.from_currency) return "Same currency: the fee must be in that currency too.";
+    if (Math.abs(from - (to + fee)) > 0.001) return "Same currency: the amount sent must equal the amount received plus the fee.";
   }
   return null;
 }
@@ -163,9 +164,10 @@ export function clearingRefusal(code: string): string {
     case "invalid_provider": return "Pick Square, Paidy, Stripe or the COD courier.";
     case "invalid_date": return "Check the date (not in the future, not before the ledger start).";
     case "invalid_amount": return "Whole yen; the settlement needs an amount, fees or an adjustment.";
-    case "invalid_account": return "Pick a bank or cash account (not a receivable or clearing account).";
+    case "invalid_account": return "Pick a bank or cash account (not a receivable or a provider clearing account).";
     case "invalid_currency": return "Pick ¥ or ₱ for each leg.";
-    case "amounts_differ": return "Same currency: sent must equal received plus the fee.";
+    case "amounts_differ": return "Same currency: sent must equal received plus the fee (fee in that currency).";
+    case "date_after_latest": return "A dated rate must be earlier than the latest rate on record — set today's rate under Settings instead.";
     case "period_closed": return "That month is closed — reopen it first or use the current month.";
     case "reason_required": return "Say why (3 characters or more).";
     case "already_voided": return "Already voided.";

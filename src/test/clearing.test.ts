@@ -32,9 +32,11 @@ describe("clearing — forms", () => {
     expect(transferProblem(f, "2026-06-01", today)).toBeNull();
     expect(transferProblem({ ...f, to_account: "1101" }, null, today)).toBe("From and to are the same account.");
     expect(transferProblem({ ...f, to_amount: "38000.555" }, null, today)).toBe("Enter both amounts (whole yen; pesos to 2 decimals).");
-    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "99000" }, null, today)).toBe("Same currency: the amount sent must equal the amount received (plus the fee).");
+    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "99000" }, null, today)).toBe("Same currency: the amount sent must equal the amount received plus the fee.");
     expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "99120" }, null, today)).toBeNull();
-    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "100000" }, null, today)).toBeNull();
+    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "100000" }, null, today)).toBe("Same currency: the amount sent must equal the amount received plus the fee.");
+    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "100000", fee_amount: "" }, null, today)).toBeNull();
+    expect(transferProblem({ ...f, to_currency: "JPY", to_amount: "99120", fee_currency: "PHP" }, null, today)).toBe("Same currency: the fee must be in that currency too.");
     expect(transferProblem({ ...f, from_amount: "0" }, null, today)).toBe("Amounts must be above zero.");
     expect(transferPayload(f)).toMatchObject({ from_amount: "100000", to_amount: "38000", fee_amount: "880", fee_account: "6300", to_currency: "PHP" });
     expect(fxLabel(0)).toBe("no FX difference");
@@ -80,6 +82,11 @@ describe("clearing — fee categories and wiring", () => {
     expect(sql).toContain("a.kind IN ('asset', 'liability')");
     expect(sql).toContain("expenses_refuse_auto_fee_categories");
     expect(sql).toContain("'5400' ELSE '6300'");
+    expect(sql).toContain("public.gl_rate_at(ft.transfer_on)");
+    expect(sql).toContain("ft.from_currency <> ft.to_currency AND");
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.gl_post_settled");
+    expect(sql).toContain("SELECT public.gl_post_settled('cron', NULL);");
+    expect(clearingRefusal("date_after_latest")).toContain("Settings");
     for (const b of (sql.match(/\$fn\$[\s\S]*?\$fn\$/g) ?? [])) expect(b).not.toMatch(/^\s*--/m);
   });
 });

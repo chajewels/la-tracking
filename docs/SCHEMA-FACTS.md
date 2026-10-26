@@ -2047,3 +2047,5 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - Trigger `expenses_auto_fee_guard` on expenses (BEFORE INSERT OR UPDATE OF category_id): system_keys square_fees / paidy_fees /
   stripe_fees raise `category_booked_automatically` (check_violation). `expenses_email_context` re-stated to exclude them.
 - Reads: `get_clearing_summary(int)`, `get_fx_revaluation(date)`, `get_rate_history()` — view_ledger.
+- `gl_post_settled(text, uuid)` (internal) = gl_post_pending up to 3 passes; `gl_post_now` re-stated to use it; cron `gl-post-pending` re-scheduled to it.
+- Transfer endpoints: active asset accounts with code < '1130' (bank / cash only).

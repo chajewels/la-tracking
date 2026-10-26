@@ -38,7 +38,12 @@ DO $t$ DECLARE n int; BEGIN
   SELECT count(*) INTO n FROM public.audit_logs WHERE entity_type = 'system_setting' AND action = 'set_php_jpy_rate';
   ASSERT n = 1, 'audited: ' || n;
   UPDATE public.system_settings SET value = '"0.42"'::jsonb WHERE key = 'php_jpy_rate';
-  ASSERT public.gl_rate_at(DATE '2026-06-30') = 0.42 OR public.gl_rate_at(DATE '2026-06-30') = (SELECT rate FROM public.php_jpy_rate_history ORDER BY effective_from LIMIT 1), 'rate before any dated row = earliest / live';
+  UPDATE public.system_settings SET value = '"0.40"'::jsonb WHERE key = 'php_jpy_rate';
+  ASSERT public.gl_rate_at(DATE '2020-06-30') = 0.40, 'before the first row the first row applies (today''s row is the only one)';
+  INSERT INTO public.php_jpy_rate_history (effective_from, rate) VALUES ('2026-01-01', 0.45);
+  ASSERT public.gl_rate_at(DATE '2020-06-30') = 0.45 AND public.gl_rate_at(DATE '2026-03-01') = 0.45 AND public.gl_rate_at(current_date) = 0.40, 'earliest row before it, latest row on/after it — never the live setting while history exists';
+  DELETE FROM public.php_jpy_rate_history WHERE effective_from = '2026-01-01';
+  UPDATE public.system_settings SET value = '"0.42"'::jsonb WHERE key = 'php_jpy_rate';
   RAISE NOTICE 'X1 rate history OK';
 END $t$;
 
@@ -117,7 +122,13 @@ DO $t$ DECLARE r jsonb; tid uuid; j record; BEGIN
   r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1010","to_amount":"50000","to_currency":"JPY"}');
   ASSERT r->>'ok' = 'true', 'bank to cash: ' || r::text;
   r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1010","to_amount":"49000","to_currency":"JPY"}');
-  ASSERT r->>'error' = 'amounts_differ', 'same currency must match (fee aside)';
+  ASSERT r->>'error' = 'amounts_differ', 'same currency must match';
+  r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1010","to_amount":"50000","to_currency":"JPY","fee_amount":"880"}');
+  ASSERT r->>'error' = 'amounts_differ', 'same currency with a fee: sent must equal received + fee (no fake FX gain)';
+  r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1010","to_amount":"49120","to_currency":"JPY","fee_amount":"880","reference":"CASH-FEE"}');
+  ASSERT r->>'ok' = 'true', 'sent = received + fee accepted';
+  r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1130","to_amount":"50000","to_currency":"JPY"}');
+  ASSERT r->>'error' = 'invalid_account', 'clearing accounts are not transfer endpoints';
   r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1102","to_amount":"50000","to_currency":"JPY"}');
   ASSERT r->>'error' = 'invalid_account', 'same account refused';
   r := public.record_fund_transfer('{"transfer_on":"2026-06-16","from_account":"1102","from_amount":"50000","from_currency":"JPY","to_account":"1200","to_amount":"50000","to_currency":"JPY"}');
@@ -131,7 +142,9 @@ DO $t$ DECLARE r jsonb; tid uuid; j record; BEGIN
   ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l WHERE l.journal_id = j.id AND l.account_code = '1111') = round(38000 / 0.42), 'peso leg carried at the Hub rate';
   ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l WHERE l.journal_id = j.id AND l.account_code = '6300') = 880, 'bank fee to 6300';
   ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l WHERE l.journal_id = j.id AND l.account_code = '6800') = 100000 - round(38000 / 0.42) - 880, 'FX difference to 6800';
-  ASSERT (SELECT sum(l.debit_jpy) - sum(l.credit_jpy) FROM public.gl_journal_lines l WHERE l.account_code = '1010') = 50000, 'cash received';
+  ASSERT (SELECT sum(l.debit_jpy) - sum(l.credit_jpy) FROM public.gl_journal_lines l WHERE l.account_code = '1010') = 50000 + 49120, 'cash received from both moves';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.gl_journal_lines l JOIN public.gl_journals gj ON gj.id = l.journal_id WHERE gj.description LIKE '%CASH-FEE' AND l.account_code IN ('4950', '6800')), 'no FX line on a same-currency transfer';
+  ASSERT (SELECT l.debit_jpy FROM public.gl_journal_lines l JOIN public.gl_journals gj ON gj.id = l.journal_id WHERE gj.description LIKE '%CASH-FEE' AND l.account_code = '6300') = 880, 'fee booked';
   r := public.void_fund_transfer(tid, 'duplicate'); ASSERT r->>'ok' = 'true', 'void transfer';
   r := public.gl_post_now(); ASSERT (r->>'reversed')::int = 1, 'reversed: ' || r::text;
   ASSERT (SELECT sum(l.debit) - sum(l.credit) FROM public.gl_journal_lines l WHERE l.account_code = '1111' AND l.currency = 'PHP') = 42000, 'BDO pesos back to the layaway payment alone after the void';
@@ -150,7 +163,13 @@ DO $t$ DECLARE r jsonb; n int; bdo_native numeric; bdo_carry numeric; BEGIN
   SELECT count(*) INTO n FROM public.gl_journals WHERE source_type = 'fx_revaluation' AND status = 'posted';
   ASSERT n = 0, 'same rate -> no revaluation journals: ' || n;
 
+  r := public.set_php_jpy_rate(0.42, '2026-01-01'); ASSERT r->>'ok' = 'true', 'anchor the rate history before the ledger start: ' || r::text;
+  r := public.set_php_jpy_rate(0.40, current_date + 1); ASSERT r->>'error' = 'invalid_date', 'future refused';
   r := public.set_php_jpy_rate(0.40, '2026-07-31'); ASSERT r->>'ok' = 'true', 'dated rate: ' || r::text;
+  r := public.set_php_jpy_rate(0.39, current_date); ASSERT r->>'ok' = 'true', 'today''s rate goes through the live setting';
+  ASSERT (public.get_rate_history()->>'current')::numeric = 0.39, 'live changed';
+  r := public.set_php_jpy_rate(0.42, current_date); ASSERT r->>'ok' = 'true', 'back to 0.42';
+  r := public.set_php_jpy_rate(0.41, current_date - 1); ASSERT r->>'error' = 'date_after_latest' OR r->>'ok' = 'true', 'a dated rate on/after the latest row is refused (yesterday vs today''s row)';
   ASSERT (SELECT rate FROM public.php_jpy_rate_history WHERE effective_from = '2026-07-31') = 0.40, 'history row';
   ASSERT (public.get_fx_revaluation('2026-06-01')->>'rate_used')::numeric = 0.42 AND (public.get_fx_revaluation('2026-08-01')->>'rate_used')::numeric = 0.40, 'rate in effect per month end';
   ASSERT (public.get_rate_history()->>'current')::numeric = 0.42, 'live setting untouched by a dated rate';
@@ -171,6 +190,7 @@ DO $t$ DECLARE r jsonb; n int; bdo_native numeric; bdo_carry numeric; BEGIN
 
   r := public.set_php_jpy_rate(0.42, '2026-07-31'); ASSERT r->>'ok' = 'true', 'rate corrected back';
   r := public.gl_post_now(); ASSERT (r->>'reversed')::int = 2 AND (r->>'posted')::int = 0, 'correcting the rate reverses the revaluation: ' || r::text;
+  ASSERT (r->>'passes')::int >= 1, 'settled in passes: ' || r::text;
   r := public.get_rate_history(); ASSERT jsonb_array_length(r->'history') >= 2, 'history listed';
   RAISE NOTICE 'X5 revaluation OK';
 END $t$;
@@ -178,10 +198,13 @@ END $t$;
 -- X6 fee categories are automatic now.
 DO $t$ DECLARE r jsonb; cat uuid; BEGIN
   SELECT id INTO cat FROM public.expense_categories WHERE system_key = 'square_fees';
-  r := public.upsert_expense(jsonb_build_object('expense_date', '2026-06-20', 'category_id', cat, 'description', 'Square fees by hand', 'currency', 'JPY', 'amount', '975', 'payment_method', 'other'));
-  ASSERT r->>'error' = 'category_booked_automatically' OR r->>'ok' IS NULL, 'manual Square fee refused: ' || r::text;
-  RAISE NOTICE 'X6 fee categories OK';
-EXCEPTION WHEN check_violation THEN
+  BEGIN
+    r := public.upsert_expense(jsonb_build_object('expense_date', '2026-06-20', 'category_id', cat, 'description', 'Square fees by hand', 'currency', 'JPY', 'amount', '975', 'payment_method', 'other'));
+    ASSERT r->>'error' = 'category_booked_automatically', 'manual Square fee refused: ' || r::text;
+  EXCEPTION WHEN check_violation THEN
+    ASSERT SQLERRM = 'category_booked_automatically', 'guard message: ' || SQLERRM;
+  END;
+  ASSERT NOT EXISTS (SELECT 1 FROM public.expenses WHERE description = 'Square fees by hand'), 'nothing stored';
   RAISE NOTICE 'X6 fee categories OK';
 END $t$;
 RESET ROLE;
