@@ -3,7 +3,7 @@
  * claude/expenses-phase2b-ledger-plan-2026-10-25.md). Pure functions, no React, no Supabase.
  *
  * The books are Cha Jewels Japan in yen (owner D2): every amount shown as a total is *_jpy.
- * Fiscal year runs May–April (owner F1): FY is named by the year it ENDS.
+ * Fiscal year runs April–March (owner 2026-10-26, from the accountant's books): FY is named by the year it ENDS.
  */
 
 export const LEDGER_STATUS_KEY = ["finance", "ledger", "status"] as const;
@@ -81,7 +81,7 @@ export function normaliseStatus(raw: Record<string, unknown>): LedgerStatus {
   const pending = raw.pending == null ? null : (raw.pending as Record<string, unknown>);
   return {
     ledger_start_date: (raw.ledger_start_date as string | null) ?? null,
-    fiscal_year_start_month: num(raw.fiscal_year_start_month) || 5,
+    fiscal_year_start_month: num(raw.fiscal_year_start_month) || 4,
     php_jpy_rate: raw.php_jpy_rate == null ? null : num(raw.php_jpy_rate),
     can_post: raw.can_post === true,
     can_close: raw.can_close === true,
@@ -135,29 +135,29 @@ export function normaliseAccounts(raw: unknown): GlAccount[] {
   }));
 }
 
-// ---------- fiscal year (May–April) ----------
+// ---------- fiscal year (April–March) ----------
 
-/** FY is named by the year it ends: June 2026 → 2027 when the year starts in May. */
-export function fiscalYearOf(monthKey: string, startMonth = 5): number {
+/** FY is named by the year it ends: June 2026 → 2027 when the year starts in April. */
+export function fiscalYearOf(monthKey: string, startMonth = 4): number {
   const [y, m] = monthKey.split("-").map(Number);
   if (startMonth <= 1) return y;
   return m >= startMonth ? y + 1 : y;
 }
 
-export function fiscalYearRange(fy: number, startMonth = 5): { from: string; to: string } {
+export function fiscalYearRange(fy: number, startMonth = 4): { from: string; to: string } {
   const fromY = startMonth === 1 ? fy : fy - 1;
   const from = `${fromY}-${pad(startMonth)}-01`;
   const endMonth = startMonth === 1 ? 12 : startMonth - 1;
   return { from, to: `${fy}-${pad(endMonth)}-${pad(daysInMonth(fy, endMonth))}` };
 }
 
-export function fiscalYearLabel(fy: number, startMonth = 5): string {
+export function fiscalYearLabel(fy: number, startMonth = 4): string {
   const { from, to } = fiscalYearRange(fy, startMonth);
   return `FY${fy} (${shortMonth(from)} – ${shortMonth(to)})`;
 }
 
 /** The months of a fiscal year in order (first of each month). */
-export function fiscalYearMonths(fy: number, startMonth = 5): string[] {
+export function fiscalYearMonths(fy: number, startMonth = 4): string[] {
   const { from } = fiscalYearRange(fy, startMonth);
   const out: string[] = [];
   let [y, m] = from.split("-").map(Number);
@@ -175,14 +175,14 @@ export function monthRange(monthKey: string): { from: string; to: string } {
 }
 
 /** Quarter n (1–4) of a fiscal year. */
-export function quarterRange(fy: number, quarter: 1 | 2 | 3 | 4, startMonth = 5): { from: string; to: string } {
+export function quarterRange(fy: number, quarter: 1 | 2 | 3 | 4, startMonth = 4): { from: string; to: string } {
   const months = fiscalYearMonths(fy, startMonth).slice((quarter - 1) * 3, quarter * 3);
   return { from: `${months[0]}-01`, to: monthRange(months[2]).to };
 }
 
 export type RangeMode = "month" | "quarter" | "fy";
 
-export function rangeFor(mode: RangeMode, monthKey: string, startMonth = 5): { from: string; to: string; label: string } {
+export function rangeFor(mode: RangeMode, monthKey: string, startMonth = 4): { from: string; to: string; label: string } {
   const fy = fiscalYearOf(monthKey, startMonth);
   if (mode === "month") return { ...monthRange(monthKey), label: longMonth(monthKey) };
   if (mode === "fy") return { ...fiscalYearRange(fy, startMonth), label: fiscalYearLabel(fy, startMonth) };
@@ -233,7 +233,9 @@ export const SOURCE_TYPE_LABEL: Record<string, string> = {
   layaway_sale: "Layaway sale", layaway_close: "Layaway forfeited / cancelled", payment: "Layaway payment",
   cash_order_sale: "Cash order sale", cash_order_close: "Cash order cancelled / expired", cash_payment: "Cash order payment",
   store_credit_issue: "Store credit issued", store_credit_use: "Store credit used", expense: "Expense", expense_amortisation: "Prepaid release",
-  square_refund: "Square refund", paidy_refund: "Paidy refund", web_refund: "Refund issued", manual: "Manual", opening: "Opening balance",
+  square_refund: "Square refund", paidy_refund: "Paidy refund", web_refund: "Refund issued",
+  cogs_sale: "Cost of pieces sold", cogs_return: "Piece back in stock", trade_in_received: "Trade-in received", trade_in_resold: "Trade-in resold",
+  manual: "Manual", opening: "Opening balance",
 };
 export const SOURCE_TYPES = Object.keys(SOURCE_TYPE_LABEL).filter((k) => k !== "manual" && k !== "opening");
 

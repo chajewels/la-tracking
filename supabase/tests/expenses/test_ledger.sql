@@ -35,7 +35,7 @@ DO $t$ DECLARE r jsonb; BEGIN
   ASSERT r->>'started' = 'false' AND r->>'reason' = 'ledger_start_not_set', 'no start: ' || r::text;
   r := public.get_ledger_status();
   ASSERT r->>'ledger_start_date' IS NULL AND (r->>'journal_count')::int = 0, 'status before start: ' || r::text;
-  ASSERT (r->>'fiscal_year_start_month')::int = 5, 'fy month';
+  ASSERT (r->>'fiscal_year_start_month')::int = 4, 'fy month (April–March)';
   r := public.post_manual_journal(jsonb_build_object('entry_date', '2026-06-01', 'description', 'x', 'lines', '[]'::jsonb));
   ASSERT r->>'error' = 'ledger_start_not_set', 'manual before start: ' || r::text;
   RAISE NOTICE 'L1 gated by start date OK';

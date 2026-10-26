@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local harness for the Expenses migrations (Phases 1, 2, 2b, 3, 4). Needs a scratch PostgreSQL 16 you can
+# Local harness for the Expenses migrations (Phases 1, 2, 2b, 3, 4, 5). Needs a scratch PostgreSQL 16 you can
 # create databases on; nothing here touches Supabase. Usage: PGURL=postgres://... supabase/tests/expenses/run.sh
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -13,6 +13,7 @@ MIGRATIONS=(
   $M/20270101100000_general_ledger_core.sql
   $M/20270102100000_expenses_recurring_prepaid.sql
   $M/20270103100000_expenses_email_bills.sql
+  $M/20270104100000_expenses_cost_of_goods.sql
 )
 # the URL of the scratch database: same server, different database name (query string kept)
 URL="$(printf '%s' "$PGURL" | sed -E "s#/[^/?]*(\?|\$)#/$DB\1#")"
@@ -32,7 +33,8 @@ fresh() {
 fresh $M/20261230100000_expenses_ledger.sql $M/20261230100000_expenses_ledger.sql \
   $M/20270101100000_general_ledger_core.sql $M/20270101100000_general_ledger_core.sql \
   $M/20270102100000_expenses_recurring_prepaid.sql $M/20270102100000_expenses_recurring_prepaid.sql \
-  $M/20270103100000_expenses_email_bills.sql $M/20270103100000_expenses_email_bills.sql
+  $M/20270103100000_expenses_email_bills.sql $M/20270103100000_expenses_email_bills.sql \
+  $M/20270104100000_expenses_cost_of_goods.sql $M/20270104100000_expenses_cost_of_goods.sql
 psql "$URL" -v ON_ERROR_STOP=1 -q -f $T/test_expenses.sql | grep -E "PASSED|ERROR"
 psql "$URL" -v ON_ERROR_STOP=1 -q -v migration2=$M/20261231100000_expenses_payroll_commission.sql -f $T/test_phase2.sql | grep -E "PASSED|ERROR"
 
@@ -44,3 +46,7 @@ psql "$URL" -v ON_ERROR_STOP=1 -q -f $T/test_ledger.sql 2>&1 | grep -E "PASSED|E
 fresh "${MIGRATIONS[@]}"
 psql "$URL" -v ON_ERROR_STOP=1 -q -f $T/test_recurring.sql 2>&1 | grep -E "PASSED|ERROR|NOTICE:  R"
 psql "$URL" -v ON_ERROR_STOP=1 -q -f $T/test_email_bills.sql 2>&1 | grep -E "PASSED|ERROR|NOTICE:  E"
+
+# 4. The cost-of-goods suite sets its own ledger start too.
+fresh "${MIGRATIONS[@]}"
+psql "$URL" -v ON_ERROR_STOP=1 -q -f $T/test_cogs.sql 2>&1 | grep -E "PASSED|ERROR|NOTICE:  C"

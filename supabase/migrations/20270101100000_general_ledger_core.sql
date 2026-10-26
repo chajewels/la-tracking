@@ -18,7 +18,7 @@
 --   * Payment methods are free text in payments / cash_payments / expenses: gl_payment_method_map
 --     maps each spelling (lower, trimmed) to a bank / cash / clearing / COD / non-cash account.
 --     Unknown spellings post to 1190 Unidentified receipts and are listed for the admin to map.
---   * Fiscal year May-April (owner F1): system_settings.fiscal_year_start_month = 5. Periods are
+--   * Fiscal year April-March (owner 2026-10-26, confirmed from the accountant's 試算表; supersedes the May-April reading of F1): system_settings.fiscal_year_start_month = 4. Periods are
 --     calendar months; close_period / reopen_period (admin). An event dated inside a CLOSED
 --     period is posted on the first day of the first open period after it, with the original
 --     date kept in source_date (owner D6).
@@ -217,7 +217,7 @@ UPDATE public.expense_categories c SET gl_account_code = m.code
 -- 4. Settings, periods, posting runs.
 -- ---------------------------------------------------------------------------
 INSERT INTO public.system_settings (key, value)
-VALUES ('fiscal_year_start_month', '"5"'::jsonb)
+VALUES ('fiscal_year_start_month', '"4"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 INSERT INTO public.system_settings (key, value)
 VALUES ('ledger_start_date', 'null'::jsonb)
@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS public.gl_periods (
 );
 ALTER TABLE public.gl_periods ENABLE ROW LEVEL SECURITY;
 COMMENT ON TABLE public.gl_periods IS
-  'Ledger periods = calendar months; fiscal_year = the year the May-April fiscal year ENDS (May 2026-Apr 2027 = 2027). Closed periods refuse new postings: late events move to the first open period (gl_journals.source_date keeps the original date).';
+  'Ledger periods = calendar months; fiscal_year = the year the April-March fiscal year ENDS (Apr 2026-Mar 2027 = 2027). Closed periods refuse new postings: late events move to the first open period (gl_journals.source_date keeps the original date).';
 
 CREATE TABLE IF NOT EXISTS public.gl_posting_runs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -417,9 +417,9 @@ CREATE OR REPLACE FUNCTION public.gl_fiscal_year(p_date date)
 RETURNS integer
 LANGUAGE sql STABLE SET search_path TO 'public'
 AS $fn$
-  SELECT CASE WHEN coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 5) <= 1
+  SELECT CASE WHEN coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 4) <= 1
               THEN extract(year FROM p_date)::int
-              WHEN extract(month FROM p_date)::int >= coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 5)
+              WHEN extract(month FROM p_date)::int >= coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 4)
               THEN extract(year FROM p_date)::int + 1
               ELSE extract(year FROM p_date)::int END
 $fn$;
@@ -962,7 +962,7 @@ BEGIN
                     ELSE public.gl_post_pending(true, 'manual', v_uid) END;
   RETURN jsonb_build_object(
     'ledger_start_date', v_start,
-    'fiscal_year_start_month', coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 5),
+    'fiscal_year_start_month', coalesce((SELECT (value #>> '{}')::int FROM public.system_settings WHERE key = 'fiscal_year_start_month'), 4),
     'php_jpy_rate', public.gl_rate(),
     'can_post', public.has_permission(v_uid, 'post_journal'),
     'can_close', public.has_permission(v_uid, 'close_period'),

@@ -2,13 +2,15 @@
 
 Stand-ins for the live objects the Expenses migrations depend on (`stubs.sql`: auth, roles,
 `has_permission` verbatim, `system_settings`, `audit_logs`, storage; `stubs_ledger.sql`: the money
-tables the ledger reads, baseline columns only) plus five suites:
+tables the ledger reads, baseline columns only, plus website_product_variants, the two item tables and trade_ins for Phase 5) plus six suites:
 
 - `test_expenses.sql` — Phase 1 (17 groups)
 - `test_phase2.sql` — Mark as paid (5 groups; loads the Phase 2 migration itself via `-v migration2=`)
 - `test_recurring.sql` — Phase 3 recurring bills + prepaid (8 groups; sets its own ledger start)
 - `test_email_bills.sql` — Phase 4 emailed bills (7 groups; service-role recording, drafts, recurring match,
   owner actions, housekeeping — runs after the recurring suite)
+- `test_cogs.sql` — Phase 5 cost of goods (8 groups; item snapshot, set / import, cogs_sale / cogs_return, purchases to
+  inventory, trade-ins, valuation, real profit — own clean book)
 - `test_ledger.sql` — Phase 2b general ledger (11 groups: start-date gate, permissions, every event set,
   reversal / repost on source change, fingerprint stability, forfeiture + reactivation, store credit,
   expenses with Paid from, refunds, periods and manual journals, closed-month move, immutability)

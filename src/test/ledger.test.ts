@@ -9,28 +9,28 @@ import {
 import { paidFromProblem } from "@/components/finance/expenses";
 
 /**
- * Finance → Ledger (Expenses Phase 2b, owner 2026-10-25): fiscal-year math (May–April), yen conversion,
+ * Finance → Ledger (Expenses Phase 2b, owner 2026-10-25): fiscal-year math (April–March), yen conversion,
  * the manual-journal form rules, status wording, and the page wiring.
  */
 
-describe("ledger — fiscal year May to April", () => {
+describe("ledger — fiscal year April to March", () => {
   it("names the year by when it ends", () => {
-    expect(fiscalYearOf("2026-05")).toBe(2027);
-    expect(fiscalYearOf("2026-04")).toBe(2026);
+    expect(fiscalYearOf("2026-04")).toBe(2027);
+    expect(fiscalYearOf("2026-03")).toBe(2026);
     expect(fiscalYearOf("2026-06")).toBe(2027);
     expect(fiscalYearOf("2027-01")).toBe(2027);
     expect(fiscalYearOf("2026-01", 1)).toBe(2026);
   });
   it("spans the right dates", () => {
-    expect(fiscalYearRange(2027)).toEqual({ from: "2026-05-01", to: "2027-04-30" });
-    expect(fiscalYearLabel(2027)).toBe("FY2027 (May 2026 – Apr 2027)");
-    expect(fiscalYearMonths(2027)[0]).toBe("2026-05");
-    expect(fiscalYearMonths(2027)[11]).toBe("2027-04");
-    expect(quarterRange(2027, 1)).toEqual({ from: "2026-05-01", to: "2026-07-31" });
-    expect(quarterRange(2027, 4)).toEqual({ from: "2027-02-01", to: "2027-04-30" });
+    expect(fiscalYearRange(2027)).toEqual({ from: "2026-04-01", to: "2027-03-31" });
+    expect(fiscalYearLabel(2027)).toBe("FY2027 (Apr 2026 – Mar 2027)");
+    expect(fiscalYearMonths(2027)[0]).toBe("2026-04");
+    expect(fiscalYearMonths(2027)[11]).toBe("2027-03");
+    expect(quarterRange(2027, 1)).toEqual({ from: "2026-04-01", to: "2026-06-30" });
+    expect(quarterRange(2027, 4)).toEqual({ from: "2027-01-01", to: "2027-03-31" });
     expect(rangeFor("month", "2026-02")).toEqual({ from: "2026-02-01", to: "2026-02-28", label: "February 2026" });
-    expect(rangeFor("quarter", "2026-10").label).toBe("Q2 FY2027");
-    expect(rangeFor("fy", "2026-10").from).toBe("2026-05-01");
+    expect(rangeFor("quarter", "2026-10").label).toBe("Q3 FY2027");
+    expect(rangeFor("fy", "2026-10").from).toBe("2026-04-01");
   });
 });
 
@@ -105,7 +105,7 @@ describe("ledger — manual journal form", () => {
 
 describe("ledger — status and journals", () => {
   const status = (over: Partial<Record<string, unknown>>) => normaliseStatus({
-    ledger_start_date: "2026-06-01", fiscal_year_start_month: "5", php_jpy_rate: "0.42", can_post: true, can_close: true, can_admin: true,
+    ledger_start_date: "2026-06-01", fiscal_year_start_month: "4", php_jpy_rate: "0.42", can_post: true, can_close: true, can_admin: true,
     pending: { posted: "3", reversed: "1", moved: 0, pending: "4" }, last_run: null, journal_count: "120", moved_count: 0,
     unmapped_methods: [{ spelling: "mystery", rows: "2", first_seen: "2026-08-01" }], expenses_without_paid_from: [], periods: [], ...over,
   });
@@ -153,11 +153,11 @@ describe("ledger — wiring", () => {
     expect(tab).toContain('callRpc("set_expense_paid_from"');
     expect(tab).toContain("paidFromProblem(form, paidFromList !== null)");
   });
-  it("migration: derived immutable ledger, one Sales account, May–April, 00:40 JST cron", () => {
+  it("migration: derived immutable ledger, one Sales account, April–March, 00:40 JST cron", () => {
     const sql = read("supabase/migrations/20270101100000_general_ledger_core.sql");
     expect(sql).toContain("('4100', 'Sales',");
     expect(sql).not.toContain("'4110'");
-    expect(sql).toContain("('fiscal_year_start_month', '\"5\"'::jsonb)");
+    expect(sql).toContain("('fiscal_year_start_month', '\"4\"'::jsonb)");
     expect(sql).toContain("gl_journals_live_source_uq");
     expect(sql).toContain("WHERE kind = 'auto' AND status = 'posted'");
     expect(sql).toContain("cron.schedule('gl-post-pending', '40 15 * * *'");
