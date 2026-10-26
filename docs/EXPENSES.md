@@ -189,8 +189,9 @@ date and opening balances wait for the accountant's figures (F6).
   builds every money event the ledger should hold (from `ledger_start_date`), each with its lines as jsonb;
   `gl_post_pending()` diffs that against the live `auto` journals: a live journal whose event vanished or
   changed (fingerprint = accounts, sides, amounts and currencies of the lines — never memos or descriptions —
-  plus the event date, except close events whose date may fall back to `updated_at`) gets a REVERSAL (dated
-  today, carrying the ORIGINAL yen),
+  plus the event date, except close events whose date may fall back to `updated_at`) gets a REVERSAL (carrying
+  the ORIGINAL yen, dated where the corrected repost lands — the original's own day while its month is open, the
+  first open day once it is closed; QA F1 — so the two legs net in one month and no open month double-counts),
   and every event without a live journal gets a new one. One live auto journal per `(source_type, source_id)`
   (partial unique index). This covers direct table UPDATEs (RLS lets staff void/edit `payments`), RPCs and
   edge functions alike, and is the completeness check and the backfill engine.
@@ -562,8 +563,8 @@ since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO rem
   GCash, PH cash, the peso part of 1200 / 1210 / 2300 …; never revenue or expenses), per month end from the
   ledger start: increment = (round(native ₱ ÷ rate at month end) − carrying yen) − previous month's cumulative;
   Dr account / Cr 4950 or Dr 6800 / Cr account. Derived from posted PESO lines only (revaluation lines are yen),
-  as the books stood at that month end — a reversal dated today does not change a past month, exactly like
-  the trial balance. A dated rate change re-derives from that month (reversal + repost); an unchanged rate
+  as the books stood at that month end — a reversal never lands in a closed month (it is dated on the original's
+  day while that month is open, else on the first open day), exactly like the trial balance. A dated rate change re-derives from that month (reversal + repost); an unchanged rate
   posts nothing. `get_fx_revaluation(month)` shows per account: ₱ balance, books ¥, at month-end rate ¥,
   this month's increment.
 - **Fee categories** Square / Paidy / Stripe fees are automatic now: trigger `expenses_refuse_auto_fee_categories`
@@ -807,3 +808,17 @@ rollback. Not executed — waits for the owner's explicit go after the accountan
 `supabase/functions/mcp/index.ts` (and replaces the project ref with "project-ref-unset").
 Restore that file with `git checkout -- supabase/functions/mcp/index.ts` after a local build;
 never commit the rewrite.
+
+## QA round 1 (26 Oct 2026) — local full-schema environment
+
+The live schema (all migrations) replayed into a local PostgreSQL 16 + PostgREST + the built Hub, driven by
+Playwright as admin / finance / staff at 1440 px and 390 px; the E2E rehearsal passes against it. Brief:
+Project doc `claude/expenses-qa-brief-2026-10-26.md`. Fixes:
+
+- **F1 (PR #608)** — auto reversals were dated *today* while the repost was dated the source date / first open
+  day, so every open month in between carried both the original and the repost (SMBC overstated, a negative
+  receivable). The reversal is now dated `gl_posting_date(original.entry_date)`: the same day the repost lands.
+  Closed months still never move; a hand reversal (`reverse_journal`) is still dated today — it has no repost.
+- **F2 (PR #607)** — bank-rec "statement closing" prefills only from statement lines inside the month.
+- **F3 (PR #607)** — the nightly reconciliation warning skips closed months.
+- **F5 (PR #607)** — expense rows stack on a phone (amount + actions under the description).

@@ -859,7 +859,7 @@ BEGIN
     INSERT INTO public.gl_posting_runs (trigger, run_by) VALUES (p_trigger, p_user_id) RETURNING id INTO v_run;
   END IF;
 
-  FOR r IN SELECT j.id, j.source_type, j.source_id, j.source_version, j.description
+  FOR r IN SELECT j.id, j.source_type, j.source_id, j.source_version, j.description, j.entry_date
              FROM public.gl_journals j
             WHERE j.kind = 'auto' AND j.status = 'posted'
               AND NOT EXISTS (SELECT 1 FROM gl_events_tmp t
@@ -878,7 +878,11 @@ BEGIN
         INTO v_rev_lines, v_cust, v_acc, v_co, v_exp
         FROM public.gl_journal_lines l WHERE l.journal_id = r.id;
       SELECT journal_no INTO v_no FROM public.gl_journals WHERE id = r.id;
-      v_rev := public.gl_write_journal('reversal', r.source_type, r.source_id, NULL, v_today,
+      /* The reversal is dated where the corrected repost lands: the original's own day while its month is
+         open, the first open day once it is closed (QA F1). Dated "today" instead, every open month between
+         the original and today carried the original AND the repost — a double count in the trial balance and
+         statements (the bank reconciliation, keyed on source dates, was already right). Closed months never move. */
+      v_rev := public.gl_write_journal('reversal', r.source_type, r.source_id, NULL, public.gl_posting_date(r.entry_date),
                  'Reversal of #' || v_no || ': ' || r.description, v_rev_lines, p_user_id, r.id,
                  'Source changed or no longer qualifies', v_cust, v_acc, v_co, v_exp);
       UPDATE public.gl_journals SET status = 'reversed', reversed_by = v_rev WHERE id = r.id;

@@ -176,8 +176,8 @@ DO $t$ DECLARE r jsonb; n int; bdo_native numeric; bdo_carry numeric; BEGIN
   r := public.get_fx_revaluation('2026-07-01');
   ASSERT (r->>'rate_used')::numeric = 0.40, 'July uses 0.40';
   ASSERT NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '4100'), 'revenue (a P&L account with peso lines) is never revalued: ' || r::text;
-  ASSERT (SELECT (x->>'native_php')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111') = 42000 + 38000 + 38000, 'July balance as the books stood then: the voided transfer is still in June, its reversal is dated today';
-  ASSERT (SELECT (x->>'increment_jpy')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111') = round(118000 / 0.40) - (SELECT (x->>'carrying_jpy')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111'), 'July increment = target − carrying (June cumulative 0)';
+  ASSERT (SELECT (x->>'native_php')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111') = 42000 + 38000, 'July balance: the voided transfer and its reversal both sit in June (open month, reversal dated on the original''s day — QA F1), so July carries only the live remittance';
+  ASSERT (SELECT (x->>'increment_jpy')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111') = round(80000 / 0.40) - (SELECT (x->>'carrying_jpy')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111'), 'July increment = target − carrying (June cumulative 0)';
   ASSERT (SELECT (x->>'previous_cumulative_jpy')::numeric FROM jsonb_array_elements(r->'rows') x WHERE x->>'account' = '1111') = 0, 'June cumulative 0 (same rate)';
   r := public.gl_post_now(); ASSERT r->>'ok' = 'true', 'post revaluation: ' || r::text;
   SELECT count(*) INTO n FROM public.gl_journals WHERE source_type = 'fx_revaluation' AND status = 'posted';
