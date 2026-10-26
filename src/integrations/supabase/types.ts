@@ -1659,6 +1659,167 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_categories: {
+        Row: {
+          active: boolean
+          created_at: string
+          group_key: string
+          id: string
+          name: string
+          sort_order: number
+          system_key: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          group_key: string
+          id?: string
+          name: string
+          sort_order?: number
+          system_key?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          group_key?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          system_key?: string | null
+        }
+        Relationships: []
+      }
+      expense_vendors: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          default_category_id: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          default_category_id?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          default_category_id?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_vendors_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expenses: {
+        Row: {
+          amount: number
+          amount_jpy: number
+          approved_at: string | null
+          approved_by: string | null
+          category_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          details: Json | null
+          expense_date: string
+          fx_php_per_jpy: number | null
+          id: string
+          notes: string | null
+          payment_method: string
+          receipt_path: string | null
+          source: string
+          source_ref: string | null
+          status: string
+          updated_at: string
+          vendor_id: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount: number
+          amount_jpy: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          description: string
+          details?: Json | null
+          expense_date: string
+          fx_php_per_jpy?: number | null
+          id?: string
+          notes?: string | null
+          payment_method?: string
+          receipt_path?: string | null
+          source?: string
+          source_ref?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount?: number
+          amount_jpy?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          details?: Json | null
+          expense_date?: string
+          fx_php_per_jpy?: number | null
+          id?: string
+          notes?: string | null
+          payment_method?: string
+          receipt_path?: string | null
+          source?: string
+          source_ref?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "expense_vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       extension_requests: {
         Row: {
           account_id: string | null
@@ -9798,6 +9959,7 @@ export type Database = {
         }
         Returns: Json
       }
+      approve_expense: { Args: { p_id: string }; Returns: Json }
       approve_redemption_atomic: {
         Args: {
           p_redemption_id: string
@@ -9809,6 +9971,10 @@ export type Database = {
       assert_staff_caller: {
         Args: { p_permission?: string }
         Returns: undefined
+      }
+      attach_expense_receipt: {
+        Args: { p_id: string; p_path: string }
+        Returns: Json
       }
       audit_account: { Args: { p_invoice_number: string }; Returns: Json }
       audit_all_accounts: {
@@ -10439,6 +10605,7 @@ export type Database = {
         Args: { currency_mode?: string }
         Returns: Json
       }
+      get_expense_book: { Args: { p_month: string }; Returns: Json }
       get_forecast_6m: {
         Args: never
         Returns: {
@@ -11684,8 +11851,10 @@ export type Database = {
         Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
       }
+      upsert_expense: { Args: { p: Json }; Returns: Json }
       upsert_website_coupon: { Args: { p: Json }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
+      void_expense: { Args: { p_id: string; p_reason: string }; Returns: Json }
       void_payslip: { Args: { p_id: string; p_reason: string }; Returns: Json }
       void_redemption_atomic: {
         Args: {
