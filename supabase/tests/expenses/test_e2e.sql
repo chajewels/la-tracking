@@ -126,6 +126,9 @@ DO $t$ DECLARE r jsonb; s_before jsonb; s_after jsonb; cat uuid := (SELECT id FR
   r := public.gl_post_now(); ASSERT r->>'ok' = 'true' AND (r->>'reversed')::int = 1 AND (r->>'posted')::int = 1 AND (r->>'moved')::int = 1, 'reversal + repost, moved: ' || r::text;
   ASSERT (SELECT entry_date FROM public.gl_journals WHERE source_type = 'payment' AND kind = 'auto' AND status = 'posted' AND source_id = '20000000-0000-0000-0000-000000000001') = '2026-07-01', 'repost on the first open day';
   ASSERT (SELECT source_date FROM public.gl_journals WHERE source_type = 'payment' AND kind = 'auto' AND status = 'posted' AND source_id = '20000000-0000-0000-0000-000000000001') = '2026-06-03', 'original date kept';
+  ASSERT (SELECT entry_date FROM public.gl_journals WHERE kind = 'reversal' AND source_id = '20000000-0000-0000-0000-000000000001') = '2026-07-01', 'the reversal lands on the same first open day as the repost (QA F1) — not today';
+  ASSERT (SELECT (x->>'closing_jpy')::numeric FROM jsonb_array_elements(public.get_trial_balance('2026-07-01', '2026-07-31')->'rows') x WHERE x->>'code' = '1101') = 1983585 - 80000 + 85000, 'July SMBC = June closing − original + corrected, no double count';
+  ASSERT (SELECT (x->>'closing_jpy')::numeric FROM jsonb_array_elements(public.get_trial_balance('2026-07-01', '2026-07-31')->'rows') x WHERE x->>'code' = '1200') = 200000 + round(42000 / 0.42) - 85000 - round(21000 / 0.42), 'July receivable = sales − corrected receipts (never negative)';
   s_after := public.get_statements('2026-06-01', '2026-06-30');
   ASSERT s_after->'balance_sheet'->'totals' = s_before->'balance_sheet'->'totals' AND s_after->'income_statement'->'lines' = s_before->'income_statement'->'lines', 'June as reported to the 税理士 does not change';
   r := public.run_ledger_check();

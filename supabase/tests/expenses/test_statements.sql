@@ -289,8 +289,9 @@ DO $t$ DECLARE r jsonb; x jsonb; n int; BEGIN
   r := public.get_journal_export('2026-07-01', '2026-09-30');
   x := (SELECT e FROM jsonb_array_elements(r->'rows') e WHERE e->>'source_type' = 'payment' AND e->>'account_code' = '1101' AND (e->>'debit_jpy')::numeric = 10000);
   ASSERT (x->>'reversed')::boolean = true AND x->>'status' = 'reversed', 'original marked reversed: ' || x::text;
-  r := public.get_journal_export(current_date, current_date);
-  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'rows') e WHERE e->>'kind' = 'reversal' AND (e->>'reversed')::boolean) = 2, 'reversal journal (two lines) dated today, marked';
+  r := public.get_journal_export('2026-08-10', '2026-08-10');
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'rows') e WHERE e->>'kind' = 'reversal' AND (e->>'reversed')::boolean) = 2, 'reversal journal (two lines) dated on the original''s day while August is open (QA F1), marked';
+  ASSERT (SELECT count(*) FROM jsonb_array_elements(public.get_journal_export(current_date, current_date)->'rows') e WHERE e->>'kind' = 'reversal') = 0, 'nothing lands today';
   r := public.get_statements('2026-07-01', '2026-09-30');
   ASSERT (r->'cash_flow'->>'difference')::numeric = 0 AND (r->'balance_sheet'->'totals'->>'check')::numeric = 0, 'still balanced after the reversal';
   RAISE NOTICE 'T9 export OK';
