@@ -460,6 +460,14 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 
 - **Helper `public.timesheet_can_view_all(uuid)`** — SECURITY DEFINER STABLE; reads `timesheet_profiles.can_view_all` for the given user. Grants timesheet-only Consolidation + Cost Master visibility WITHOUT a global role. Brendalyn (`bumagatbrenda@gmail.com`) is flagged `can_view_all = true`.
 
+### Timesheet corrections (added 2026-10-26, migration 20270202100000 — NOT yet applied live)
+
+- **`timesheet_corrections`**: append-only history of Consolidation corrections. Columns: `user_id`, `work_date`, `old_punches` / `new_punches` (jsonb with keys `am_in`, `am_out`, `pm_in`, `pm_out`, ISO or null), `comment` (3–500, trimmed), `corrected_by`, `corrected_at`. UPDATE, DELETE and TRUNCATE are refused by triggers, and there are no write policies. Read: the gate `can_correct_timesheet(auth.uid())` (admin or `timesheet_can_view_all`, answers for the caller only) OR the staff member's own rows.
+- **Day lock**: `trg_timesheet_entries_lock_corrected` (BEFORE INSERT/UPDATE on `timesheet_entries`) raises `day_locked` on a corrected (user, day) unless the caller passes the gate. `auth.uid()` IS NULL (service paths) is always allowed.
+- **RPCs**: `correct_timesheet_day(p_user_id, p_work_date, p_am_in, p_am_out, p_pm_in, p_pm_out, p_comment)` is the only writer of corrections. It upserts the punches, appends the history row and writes one `audit_logs` row (`entity_type` timesheet_correction, user_id + work_date only). `get_timesheet_corrections(p_month)` returns the corrections in the 31-row window (1st .. 1st + 30) with the corrector's name: everyone's for the gate, otherwise the caller's own.
+- **`timesheet_entries.note` is legacy and not shown** anywhere in the Hub (69 of 612 rows have one, 2026-10-26). Corrections never touch it.
+- Full text: docs/TIMESHEET-SPEC.md "Corrections (Admin + Brenda)".
+
 ### Payslip tables (added 2026-10-26, migration 20270201100000 — NOT yet applied live)
 
 - **`staff_payroll_details`**: address + date of birth per staff member (`user_id` = auth uid = `timesheet_profiles.user_id`). Written only by `save_staff_payroll_details`; the audit row names the changed fields, never the values.

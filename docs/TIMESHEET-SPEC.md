@@ -155,6 +155,50 @@ CSR Operations → Timesheet child item; route on `app.chajewelsjp.com`.
 
 ---
 
+## Corrections (Admin + Brenda)
+
+Owner-confirmed 2026-10-26 21:13. Migration `supabase/migrations/20270202100000_timesheet_corrections.sql`
+(no edge function). UI: `src/components/timesheet/CorrectDayDialog.tsx`; rules:
+`src/lib/timesheetCorrections.ts`; the time helpers `zonedWallToISO` / `isoToWall` moved unchanged to
+`src/lib/timesheetTime.ts`. Tests: `src/test/timesheet-corrections.test.tsx`, SQL harness
+`supabase/tests/timesheet-corrections/`.
+
+### Owner decisions (locked)
+
+1. **Who corrects:** Admin OR `timesheet_profiles.can_view_all` (today only Brenda). This is the same gate as
+   Cost Master and Payslips (`canViewCost = isAdmin || canViewAll`; in SQL `can_correct_timesheet(uid)`).
+2. **How:** click a staff member's day cell (Hrs or Salary) on Consolidation. That opens "Correct day — <Name>,
+   <DD Mon YYYY>" with AM in, AM out, PM in and PM out.
+3. **A comment is REQUIRED on every correction** (3–500 characters, trimmed), and every correction is kept
+   as permanent history: who, when, old → new punches, and the comment.
+4. **Staff SEE it:** on My Timesheet, a corrected day shows a marker and "Corrected by <name> on <date>:
+   <latest comment>".
+5. **Corrected days are LOCKED for the staff member:** the punch inputs, Time In / Time Out (when today is
+   corrected) and paste onto that day are disabled with "This day was corrected — ask Admin or Brenda to change
+   it.", and the database refuses the write too (`day_locked`). Admin and Brenda can still correct again.
+
+### Mechanics
+
+- **The dialog:** the four times are pre-filled from the current punches in the **staff member's profile
+  timezone** and composed back with `zonedWallToISO`, exactly like My Timesheet. A 00:00 PM out is stored on
+  the work date and read as midnight (24:00), per the midnight rule above. A live preview shows the hours and
+  daily pay using `dailyHours` / `dailySalary`, with the same rules. "Correct day" is enabled only when a time
+  changed and the reason is valid. The history (newest first: time in PHT, corrector, changed punches only
+  old → new, comment) is listed under the form.
+- **The write:** `correct_timesheet_day` upserts the four punches of `timesheet_entries` (the legacy `note`
+  column is never touched), appends one `timesheet_corrections` row and writes one `audit_logs` row. After a
+  save the page reloads its entries and corrections, so Consolidation, Cost Master, Full Summary and Payslips
+  all recompute. A finalized payslip whose figures moved shows its existing "Figures changed" warning.
+- **Refusals:** `permission_denied`, `staff_not_found`, `comment_required`, `invalid_date` (2026-06-01 up to
+  today, Manila), `invalid_punch` (each time must be on the work date in the profile timezone; PM out may also
+  be the next day 00:00–06:00), `invalid_order` (AM in ≤ AM out ≤ PM in ≤ PM out, blanks skipped, a 00:00
+  PM out counts as midnight), `save_failed`. The UI shows each in plain English.
+- **The lock:** trigger `trg_timesheet_entries_lock_corrected` (BEFORE INSERT/UPDATE on
+  `timesheet_entries`). If the day has a correction and the caller does not pass the gate, it raises
+  `day_locked`. Service paths (`auth.uid()` IS NULL) and days without a correction behave exactly as before.
+- **Before the migration is applied**, `get_timesheet_corrections` does not exist. Corrections stay off, the
+  Consolidation cells stay read-only and nothing is locked.
+
 ## Repo audit (RESOLVED 2026-06-13)
 
 - ✅ staff/users table: `public.profiles` (`user_id`, `full_name`) drives
