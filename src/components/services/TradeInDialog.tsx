@@ -29,6 +29,7 @@ export interface TradeInRow {
   trade_amount: number;
   resale_amount: number | null;
   resale_status: ResaleStatus;
+  resold_invoice_number?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -78,6 +79,7 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
   const [tradeAmount, setTradeAmount] = useState<string>('');
   const [resaleAmount, setResaleAmount] = useState<string>('');
   const [resaleStatus, setResaleStatus] = useState<ResaleStatus>('In stock');
+  const [resoldInvoice, setResoldInvoice] = useState('');
   const [notes, setNotes] = useState<string>('');
 
   // Old invoice resolution (drives customer_id)
@@ -105,6 +107,7 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
       setTradeAmount(String(Math.round(Number(initialTradeIn.trade_amount))));
       setResaleAmount(initialTradeIn.resale_amount != null ? String(Math.round(Number(initialTradeIn.resale_amount))) : '');
       setResaleStatus(initialTradeIn.resale_status);
+      setResoldInvoice(initialTradeIn.resold_invoice_number ?? '');
       setNotes(initialTradeIn.notes ?? '');
       setCustomerId(initialTradeIn.customer_id);
       setOldCustomerName(initialTradeIn.customers?.full_name ?? '');
@@ -210,16 +213,21 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
         resale_status: resaleStatus,
         notes: notes.trim() || null,
       };
+      // Phase 5 column (migration 20270104100000, not yet in the generated types; never edit types.ts). The
+      // trigger clears it when the piece is not Sold, so it is only sent for a Sold row.
+      const payload = (resaleStatus === 'Sold'
+        ? { ...basePayload, resold_invoice_number: resoldInvoice.trim() || null }
+        : basePayload) as typeof basePayload;
       if (isEdit && initialTradeIn) {
         const { error } = await supabase
           .from('trade_ins')
-          .update({ ...basePayload, updated_at: new Date().toISOString() })
+          .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', initialTradeIn.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('trade_ins')
-          .insert(basePayload);
+          .insert(payload);
         if (error) throw error;
       }
     },
@@ -268,6 +276,18 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
               </Select>
             </div>
           </div>
+          {resaleStatus === 'Sold' && (
+            <div>
+              <Label htmlFor="resold_invoice">Resold on Invoice # (optional)</Label>
+              <Input
+                id="resold_invoice"
+                value={resoldInvoice}
+                onChange={(e) => setResoldInvoice(e.target.value)}
+                placeholder="e.g. 19850 — the layaway or cash order this piece was sold on"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Lets Finance count the piece's cost once (as a trade-in) instead of asking for it on the new sale.</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

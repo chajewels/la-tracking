@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  EXPENSE_GROUPS, canEnterManually, cleanAmountInput, receiptContentType, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  EXPENSE_GROUPS, canEnterManually, cleanAmountInput, detailLines, monthFromSearch, receiptContentType, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
   formatAmount, monthKeyTokyo, monthLabel, normaliseBook, previewJpy, receiptPath, receiptProblem,
   shiftMonth, todayTokyo, totalsByGroup, validateExpenseForm, type Expense,
 } from "@/components/finance/expenses";
@@ -17,7 +17,7 @@ function exp(over: Partial<Expense>): Expense {
     id: "e", expense_date: "2026-10-20", category_id: "c", category_name: "Photoroom", group_key: "tech",
     vendor_id: null, vendor_name: null, description: "x", currency: "JPY", amount: 1000, fx_php_per_jpy: null,
     amount_jpy: 1000, payment_method: "card", receipt_path: null, status: "approved", source: "manual",
-    notes: null, approved_at: null, voided_at: null, void_reason: null, created_at: "2026-10-20T00:00:00Z",
+    notes: null, details: null, approved_at: null, voided_at: null, void_reason: null, created_at: "2026-10-20T00:00:00Z",
     ...over,
   };
 }
@@ -119,6 +119,7 @@ describe("expenses — form", () => {
     expect(canEnterManually({ active: true, system_key: "payroll" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: "commission" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: "bonus" })).toBe(true);
+    expect(canEnterManually({ active: true, system_key: "uncategorised" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: null })).toBe(true);
     expect(canEnterManually({ active: false, system_key: null })).toBe(false);
   });
@@ -151,11 +152,22 @@ describe("expenses — filters", () => {
   it("filters by status, group and text", () => {
     const rows = [
       exp({ id: "1", description: "Vercel October", vendor_name: "Vercel", status: "draft" }),
-      exp({ id: "2", description: "Payroll", group_key: "people", category_name: "Staff payroll" }),
+      exp({ id: "2", description: "Payroll", group_key: "people", category_name: "Staff payroll", source: "payroll" }),
     ];
-    expect(filterExpenses(rows, { status: "draft", group: "all", search: "" }).map((e) => e.id)).toEqual(["1"]);
-    expect(filterExpenses(rows, { status: "all", group: "people", search: "" }).map((e) => e.id)).toEqual(["2"]);
-    expect(filterExpenses(rows, { status: "all", group: "all", search: "vercel" }).map((e) => e.id)).toEqual(["1"]);
+    expect(filterExpenses(rows, { status: "draft", group: "all", source: "all", search: "" }).map((e) => e.id)).toEqual(["1"]);
+    expect(filterExpenses(rows, { status: "all", group: "people", source: "all", search: "" }).map((e) => e.id)).toEqual(["2"]);
+    expect(filterExpenses(rows, { status: "all", group: "all", source: "all", search: "vercel" }).map((e) => e.id)).toEqual(["1"]);
+    expect(filterExpenses(rows, { status: "all", group: "all", source: "payroll", search: "" }).map((e) => e.id)).toEqual(["2"]);
+    expect(filterExpenses(rows, { status: "all", group: "all", source: "manual", search: "" }).map((e) => e.id)).toEqual(["1"]);
+  });
+
+  it("reads the ?month= deep link and renders booking details", () => {
+    expect(monthFromSearch("?tab=expenses&month=2026-09")).toBe("2026-09");
+    expect(monthFromSearch("?month=2026-13")).toBeNull();
+    expect(monthFromSearch("")).toBeNull();
+    const rows = detailLines({ kind: "payroll", lines: [{ name: "Ana", template: "csr", total_hours: 160, net: 12000 }] });
+    expect(rows).toEqual([{ name: "Ana", meta: "CSR · 160.0 h", amount: 12000 }]);
+    expect(detailLines(null)).toEqual([]);
   });
 });
 

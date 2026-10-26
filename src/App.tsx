@@ -76,6 +76,7 @@ const Timesheet = lazy(() => import("./pages/Timesheet"));
 const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
 const LoyaltyPortal = lazy(() => import("./pages/LoyaltyPortal"));
 const Finance = lazy(() => import("./pages/Finance"));
+const TaxPack = lazy(() => import("./pages/TaxPack"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AdminAudit = lazy(() => import("./pages/AdminAudit"));
 const AdminActivityLog = lazy(() => import("./pages/AdminActivityLog"));
@@ -206,6 +207,7 @@ const App = () => (
                 <Route path="/commissions" element={<Protected><Commissions /></Protected>} />
                 <Route path="/timesheet" element={<Protected><Timesheet /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
+                <Route path="/finance/tax-pack" element={<Protected><TaxPack /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/admin-activity" element={<Protected><AdminActivityLog /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />

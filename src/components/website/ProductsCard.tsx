@@ -198,6 +198,8 @@ export default function ProductsCard() {
       variantCount: variants.length,
       stock: variants.reduce((s, v) => s + Number(v.stock_qty ?? 0), 0),
       fromPrice: prices.length ? Math.min(...prices) : 0,
+      // Phase 5: stock without a cost basis posts no cost of goods when it sells (admin sees the nudge).
+      stockWithoutCost: variants.some((v) => Number(v.stock_qty ?? 0) > 0 && v.cost_basis == null),
     };
   }), [products.data]);
 
@@ -990,7 +992,12 @@ export default function ProductsCard() {
                           {p.fromPrice ? peso(p.fromPrice) : "—"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{p.variantCount}</TableCell>
-                        <TableCell className="text-right tabular-nums">{p.stock}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {p.stock}
+                          {isAdmin && p.stockWithoutCost && (
+                            <div className="mt-0.5 text-[10px] text-warning" title="Add the cost basis so sales of this piece carry their cost of goods" data-testid="catalog-no-cost">no cost</div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
                           {p.status === "draft" && publishMissing(p).length > 0 && (

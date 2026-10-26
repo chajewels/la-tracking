@@ -90,10 +90,16 @@ export interface Expense {
   fx_php_per_jpy: number | null;
   amount_jpy: number;
   payment_method: PaymentMethod;
+  /** Ledger account that paid it (Phase 2b, 1xxx bank / cash / clearing); null until set. */
+  paid_from?: string | null;
+  /** Phase 3: spread this payment over N months in the ledger (prepaid); null = expensed when paid. */
+  prepaid_months?: number | null;
   receipt_path: string | null;
   status: ExpenseStatus;
   source: string;
   notes: string | null;
+  /** Breakdown behind an automatic booking (payroll / commission lines); null for hand entries. */
+  details: Record<string, unknown> | null;
   approved_at: string | null;
   voided_at: string | null;
   void_reason: string | null;
@@ -135,6 +141,33 @@ export function normaliseBook(raw: Record<string, unknown>): ExpenseBook {
 }
 
 // ── Months ──────────────────────────────────────────────────────────────────
+
+/** A `?month=YYYY-MM` deep link (from the Mark as paid panel) or null when absent/invalid. */
+export function monthFromSearch(search: string): string | null {
+  const v = new URLSearchParams(search).get("month");
+  return v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? v : null;
+}
+
+/** Rows of an automatic booking's breakdown, for the Details expand. */
+export function detailLines(details: Record<string, unknown> | null): { name: string; meta: string; amount: number }[] {
+  if (!details || !Array.isArray(details.lines)) return [];
+  const kind = String(details.kind ?? "");
+  return (details.lines as Record<string, unknown>[]).map((l) => {
+    const n = (k: string) => Number(l[k] ?? 0);
+    if (kind === "payroll") {
+      return {
+        name: String(l.name ?? ""),
+        meta: `${l.template === "csr" ? "CSR" : "Live Admin"} · ${n("total_hours").toFixed(1)} h`,
+        amount: n("net"),
+      };
+    }
+    return {
+      name: String(l.name ?? ""),
+      meta: `${l.role_won ?? "—"}${l.top_sales ? " ★" : ""} · earn ₱${n("earn").toLocaleString("en-US")} · bonus ₱${n("bonus").toLocaleString("en-US")}`,
+      amount: n("total"),
+    };
+  });
+}
 
 /** "YYYY-MM" for a Date, in Japan time (the books are Cha Jewels Japan's). */
 export function monthKeyTokyo(d: Date = new Date()): string {
@@ -226,9 +259,25 @@ export function totalsByGroup(expenses: Expense[]): { groups: GroupTotal[]; appr
 
 export type StatusFilter = "all" | ExpenseStatus;
 
+export type SourceFilter = "all" | "manual" | "payroll" | "commission" | "recurring" | "email" | "system";
+
+export const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
+  { value: "all", label: "All sources" },
+  { value: "manual", label: "By hand" },
+  { value: "payroll", label: "Payroll" },
+  { value: "commission", label: "Commission" },
+  { value: "recurring", label: "Recurring bills" },
+  { value: "email", label: "Emailed bills" },
+];
+
+export function sourceLabel(s: string): string {
+  return SOURCE_FILTERS.find((x) => x.value === s)?.label ?? s;
+}
+
 export interface ExpenseFilters {
   status: StatusFilter;
   group: "all" | ExpenseGroupKey;
+  source: SourceFilter;
   search: string;
 }
 
@@ -237,6 +286,7 @@ export function filterExpenses(expenses: Expense[], f: ExpenseFilters): Expense[
   return expenses.filter((e) => {
     if (f.status !== "all" && e.status !== f.status) return false;
     if (f.group !== "all" && e.group_key !== f.group) return false;
+    if (f.source !== "all" && e.source !== f.source) return false;
     if (!q) return true;
     return [e.description, e.vendor_name ?? "", e.category_name, e.notes ?? ""]
       .some((s) => s.toLowerCase().includes(q));
@@ -256,13 +306,17 @@ export interface ExpenseForm {
   currency: ExpenseCurrency;
   amount: string;
   payment_method: PaymentMethod;
+  /** Ledger account code the money left from ("" = not set). Saved with set_expense_paid_from after the upsert. */
+  paid_from: string;
+  /** "" = not spread; otherwise 2..36 months (set with set_expense_prepaid after the upsert). */
+  prepaid_months: string;
   notes: string;
 }
 
 export function emptyExpenseForm(today: string = todayTokyo()): ExpenseForm {
   return {
     id: null, expense_date: today, category_id: "", vendor_id: "", new_vendor_name: "",
-    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", notes: "",
+    description: "", currency: "JPY", amount: "", payment_method: "bank_transfer", paid_from: "", prepaid_months: "", notes: "",
   };
 }
 
@@ -277,8 +331,26 @@ export function formFromExpense(e: Expense): ExpenseForm {
     currency: e.currency,
     amount: String(e.amount),
     payment_method: e.payment_method,
+    paid_from: e.paid_from ?? "",
+    prepaid_months: e.prepaid_months ? String(e.prepaid_months) : "",
     notes: e.notes ?? "",
   };
+}
+
+/** Phase 3: spread months must be 2..36 when set. */
+export function prepaidProblem(v: string): string | null {
+  if (v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 2 || n > 36) return "Spread over 2 to 36 months.";
+  return null;
+}
+
+/** Phase 2b: an expense's "Paid from" account is required unless it was paid in cash. */
+export function paidFromProblem(f: Pick<ExpenseForm, "payment_method" | "paid_from">, accountsAvailable: boolean): string | null {
+  if (!accountsAvailable) return null;
+  if (f.payment_method === "cash") return null;
+  if (!f.paid_from) return "Pick which bank or account paid this.";
+  return null;
 }
 
 /** Keep digits and at most one dot; JPY is whole yen, PHP has up to 2 decimals. */
@@ -332,6 +404,8 @@ export function expenseRefusal(code: string): string {
     case "invalid_currency": return "Pick yen or pesos.";
     case "invalid_amount": return "The amount is not valid. Yen amounts are whole yen.";
     case "invalid_payment_method": return "Pick how it was paid.";
+    case "amount_too_small_to_spread": return "The amount is too small to spread over that many months (each month needs at least ¥2).";
+    case "invalid_spread": return "Spread over 2 to 36 months.";
     case "invalid_notes": return "The notes are too long.";
     case "invalid_vendor": return "That vendor can't be used. Pick one from the list or type a new name.";
     case "not_draft": return "Only drafts can be changed. An approved expense can only be voided.";
@@ -340,7 +414,9 @@ export function expenseRefusal(code: string): string {
     case "already_void": return "This expense is already void.";
     case "invalid_receipt_path": return "The receipt could not be attached. Try uploading it again.";
     case "rate_not_set": return "The peso rate is not set in the Hub, so a peso expense can't be approved yet.";
-    case "category_booked_automatically": return "Staff payroll and Sales commission are booked from Timesheet and Commissions, not by hand.";
+    case "category_booked_automatically": return "Payroll, commission and the Square / Paidy / Stripe fees are booked automatically (Timesheet, Commissions, Finance → Ledger → Clearing), not by hand.";
+    case "category_required": return "This emailed bill is still in the holding category. Edit it and pick a real category before approving.";
+    case "period_closed": return "That month is closed in the ledger. Move the expense to the first open month, or an admin reopens the month on Finance → Ledger → Months.";
     default: return "Something went wrong. Try again in a moment.";
   }
 }
@@ -349,10 +425,24 @@ export function expenseRefusal(code: string): string {
  * Categories booked automatically (Phase 2: Timesheet / Commissions). upsert_expense refuses
  * them (category_booked_automatically) because a manual row would count the same money twice.
  */
-export const AUTO_BOOKED_SYSTEM_KEYS = ["payroll", "commission"];
+export const AUTO_BOOKED_SYSTEM_KEYS = ["payroll", "commission", "square_fees", "paidy_fees", "stripe_fees"];
+
+/** Phase 4 holding category for emailed bills the reader could not place — never offered in the picker. */
+export const HOLDING_SYSTEM_KEYS = ["uncategorised"];
 
 export function canEnterManually(c: { active: boolean; system_key: string | null }): boolean {
-  return c.active && !(c.system_key != null && AUTO_BOOKED_SYSTEM_KEYS.includes(c.system_key));
+  return c.active && !(c.system_key != null && (AUTO_BOOKED_SYSTEM_KEYS.includes(c.system_key) || HOLDING_SYSTEM_KEYS.includes(c.system_key)));
+}
+
+/**
+ * The code behind a refusal: RPCs return `error` codes; the Phase 4 approval guard is a trigger, so its
+ * `category_required` arrives as the message of a 23514 check violation.
+ */
+export function refusalCode(e: { code?: string; message?: string }): string {
+  if (e.message && /category_required/.test(e.message)) return "category_required";
+  if (e.message && /category_booked_automatically/.test(e.message)) return "category_booked_automatically";
+  if (e.message && /period_closed/.test(e.message)) return "period_closed";
+  return e.code ?? e.message ?? "";
 }
 
 /** Receipt files the bucket accepts (same list as the migration). Max 10 MB. */
