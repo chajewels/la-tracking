@@ -20,17 +20,24 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Loader2, LogIn, LogOut, Pencil, Clock, Copy, ClipboardPaste } from 'lucide-react';
+import { Loader2, LogIn, LogOut, Pencil, Clock, Copy, ClipboardPaste, ShieldCheck } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
+import { isoToWall, zonedWallToISO } from '@/lib/timesheetTime';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import MarkPaidPanel from '@/components/finance/MarkPaidPanel';
 import type { PayrollLine } from '@/components/finance/mark-paid';
 import PayslipsTab from '@/components/timesheet/PayslipsTab';
+import CorrectDayDialog from '@/components/timesheet/CorrectDayDialog';
+import { isMissingFunction } from '@/components/website/shipping-fees';
+import {
+  LOCKED_MESSAGE, type CorrectionsState, type TimesheetCorrection,
+  correctionKey, correctionSummary, correctionsByDay, isDayLockedError, normaliseCorrections,
+} from '@/lib/timesheetCorrections';
 import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
   TEMPLATE_LABEL,
@@ -63,42 +70,6 @@ function monthOptions(): string[] {
   return out;
 }
 
-/** Offset (ms) such that asUTC(localFieldsOf(date in tz)) − date = offset. */
-function getTzOffsetMs(date: Date, tz: string): number {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
-  const parts = dtf.formatToParts(date);
-  const map: Record<string, string> = {};
-  for (const p of parts) map[p.type] = p.value;
-  const asUTC = Date.UTC(
-    Number(map.year), Number(map.month) - 1, Number(map.day),
-    Number(map.hour), Number(map.minute), Number(map.second),
-  );
-  return asUTC - date.getTime();
-}
-
-/** Convert a wall-clock 'HH:MM' on `workDate` in `tz` to a UTC ISO instant. */
-function zonedWallToISO(workDate: string, hhmm: string, tz: string): string {
-  const [h, m] = hhmm.split(':').map(Number);
-  const [y, mo, d] = workDate.split('-').map(Number);
-  const naiveUTC = Date.UTC(y, mo - 1, d, h || 0, m || 0, 0);
-  const offset = getTzOffsetMs(new Date(naiveUTC), tz);
-  return new Date(naiveUTC - offset).toISOString();
-}
-
-/** Extract 'HH:MM' wall-clock in `tz` from a timestamptz ISO. */
-function isoToWall(iso: string | null, tz: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit',
-  }).format(d);
-}
-
 type PunchField = 'am_in' | 'am_out' | 'pm_in' | 'pm_out';
 const PUNCH_FIELDS: PunchField[] = ['am_in', 'am_out', 'pm_in', 'pm_out'];
 
@@ -111,7 +82,7 @@ const MINUTES = ['00', '30'];
 // AM/PM, no seconds) regardless of the OS time-format locale. Emits the same
 // "HH:MM"/"" string the native <input type="time"> produced, so it plugs
 // straight into onTimeEdit with no change to the save path.
-function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TimeSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
   const [hh, setHh] = useState('');
   const [mm, setMm] = useState('');
 
@@ -144,12 +115,12 @@ function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) 
 
   return (
     <div className="flex items-center justify-center gap-0.5">
-      <select aria-label="hour" value={hh} onChange={(e) => emit(e.target.value, mm)} className={selCls}>
+      <select aria-label="hour" value={hh} onChange={(e) => emit(e.target.value, mm)} className={selCls} disabled={disabled}>
         <option value="">--</option>
         {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
       </select>
       <span className="text-xs text-muted-foreground">:</span>
-      <select aria-label="minute" value={mm} onChange={(e) => emit(hh, e.target.value)} className={selCls}>
+      <select aria-label="minute" value={mm} onChange={(e) => emit(hh, e.target.value)} className={selCls} disabled={disabled}>
         <option value="">--</option>
         {minuteOptions.map((m) => <option key={m} value={m}>{m}</option>)}
       </select>
@@ -157,8 +128,8 @@ function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
-function MyTimesheetTab({
-  profile, entries, monthKey, onMonthChange, onEntrySaved, userId,
+export function MyTimesheetTab({
+  profile, entries, monthKey, onMonthChange, onEntrySaved, userId, corrections,
 }: {
   profile: TimesheetProfile | null;
   entries: TimesheetEntry[];
@@ -166,8 +137,19 @@ function MyTimesheetTab({
   onMonthChange: (k: string) => void;
   onEntrySaved: (entry: TimesheetEntry) => void;
   userId: string;
+  corrections: TimesheetCorrection[];
 }) {
   const [busy, setBusy] = useState(false);
+
+  // Days corrected by Admin / Brenda are locked for the staff member (owner 2026-10-26); the
+  // database refuses them too (day_locked). Latest correction per day, for the marker + comment.
+  const lockedDates = useMemo(() => {
+    const map = new Map<string, TimesheetCorrection>();
+    for (const [k, list] of correctionsByDay(corrections)) {
+      if (k.startsWith(`${userId}|`) && list[0]) map.set(list[0].work_date, list[0]);
+    }
+    return map;
+  }, [corrections, userId]);
 
   const month = useMemo(
     () => (profile ? computeMonth(monthKey, entries, profile) : null),
@@ -185,6 +167,7 @@ function MyTimesheetTab({
 
   // Upsert a single punch/edit field onto today's (or a given date's) row.
   const writeField = useCallback(async (workDate: string, field: PunchField, iso: string | null) => {
+    if (lockedDates.has(workDate)) { toast.error(LOCKED_MESSAGE); return; }
     const existing = entryByDate.get(workDate);
     // Apply the edit to local state FIRST — synchronously, before setBusy and
     // before the await — so the controlled <input type="time"> immediately
@@ -218,11 +201,11 @@ function MyTimesheetTab({
         );
       if (error) throw error;
     } catch (err: unknown) {
-      toast.error((err as Error)?.message ?? 'Failed to save punch');
+      toast.error(isDayLockedError(err) ? LOCKED_MESSAGE : ((err as Error)?.message ?? 'Failed to save punch'));
     } finally {
       setBusy(false);
     }
-  }, [entryByDate, onEntrySaved, userId]);
+  }, [entryByDate, onEntrySaved, userId, lockedDates]);
 
   // Soft shift-window warning (non-blocking).
   function maybeWarnOutsideShift(hhmm: string) {
@@ -313,6 +296,7 @@ function MyTimesheetTab({
   // timestamptz in the profile tz).
   const pasteRow = useCallback(async (workDate: string) => {
     if (!copied) return;
+    if (lockedDates.has(workDate)) { toast.error(LOCKED_MESSAGE); return; }
     setBusy(true);
     try {
       const client = supabase;
@@ -334,11 +318,11 @@ function MyTimesheetTab({
       });
       toast.success('Punch times pasted');
     } catch (err: unknown) {
-      toast.error((err as Error)?.message ?? 'Failed to paste punch');
+      toast.error(isDayLockedError(err) ? LOCKED_MESSAGE : ((err as Error)?.message ?? 'Failed to paste punch'));
     } finally {
       setBusy(false);
     }
-  }, [copied, onEntrySaved, userId, tz]);
+  }, [copied, onEntrySaved, userId, tz, lockedDates]);
 
   if (!profile) {
     return (
@@ -374,11 +358,11 @@ function MyTimesheetTab({
         <span className="text-[11px] text-muted-foreground">{tz}</span>
         {monthKey === currentMonthKey() && (
           <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" onClick={() => punch('in')} disabled={busy} className="h-9 gold-gradient text-primary-foreground">
+            <Button size="sm" onClick={() => punch('in')} disabled={busy || lockedDates.has(today)} title={lockedDates.has(today) ? LOCKED_MESSAGE : undefined} className="h-9 gold-gradient text-primary-foreground">
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LogIn className="mr-1.5 h-4 w-4" />}
               Time In
             </Button>
-            <Button size="sm" variant="outline" onClick={() => punch('out')} disabled={busy} className="h-9">
+            <Button size="sm" variant="outline" onClick={() => punch('out')} disabled={busy || lockedDates.has(today)} title={lockedDates.has(today) ? LOCKED_MESSAGE : undefined} className="h-9">
               <LogOut className="mr-1.5 h-4 w-4" /> Time Out
             </Button>
           </div>
@@ -405,7 +389,9 @@ function MyTimesheetTab({
               {month!.days.map(d => {
                 const entry = entryByDate.get(d.date) ?? null;
                 const isToday = d.date === today;
+                const correction = lockedDates.get(d.date) ?? null;
                 return (
+                  <Fragment2 key={d.date}>
                   <tr
                     key={d.date}
                     className={cn(
@@ -414,13 +400,17 @@ function MyTimesheetTab({
                       !d.isScheduled && 'bg-muted/20',
                     )}
                   >
-                    <td className="px-3 py-1.5 tabular-nums text-xs">{d.date.slice(8, 10)}</td>
+                    <td className="px-3 py-1.5 tabular-nums text-xs">
+                      {d.date.slice(8, 10)}
+                      {correction && <ShieldCheck className="ml-1 inline h-3 w-3 text-primary" aria-label="Corrected" />}
+                    </td>
                     <td className={cn('px-3 py-1.5 text-xs', d.dow >= 6 && 'text-muted-foreground')}>{DOW_LABELS[d.dow]}</td>
                     {PUNCH_FIELDS.map(f => (
                       <td key={f} className="px-1.5 py-1.5 text-center">
                         <TimeSelect
                           value={isoToWall(entry ? entry[f] : null, tz)}
                           onChange={(v) => onTimeEdit(d.date, f, v)}
+                          disabled={!!correction}
                         />
                       </td>
                     ))}
@@ -440,15 +430,23 @@ function MyTimesheetTab({
                         <Button
                           type="button" size="icon" variant="ghost"
                           className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          title={copied ? 'Paste copied punch times here' : 'Copy a day first'}
+                          title={correction ? LOCKED_MESSAGE : copied ? 'Paste copied punch times here' : 'Copy a day first'}
                           onClick={() => pasteRow(d.date)}
-                          disabled={busy || !copied}
+                          disabled={busy || !copied || !!correction}
                         >
                           <ClipboardPaste className="h-3 w-3" />
                         </Button>
                       </div>
                     </td>
                   </tr>
+                  {correction && (
+                    <tr className="bg-primary/5" data-testid="my-correction">
+                      <td colSpan={9} className="px-3 pb-1.5 pt-0 text-[11px] text-muted-foreground">
+                        {correctionSummary(correction)} · {LOCKED_MESSAGE}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment2>
                 );
               })}
             </tbody>
@@ -487,16 +485,23 @@ function MyTimesheetTab({
 
 // ── Tab: Consolidation (admin/finance) ──────────────────────────────────────
 
-function ConsolidationTab({
-  profiles, entriesByUser, nameByUser, monthKey, onMonthChange,
+export function ConsolidationTab({
+  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canCorrect = false, corrections = [], onCorrected,
 }: {
   profiles: TimesheetProfile[];
   entriesByUser: Map<string, TimesheetEntry[]>;
   nameByUser: Map<string, string>;
   monthKey: string;
   onMonthChange: (k: string) => void;
+  /** Admin + can_view_all, and the corrections migration is applied. */
+  canCorrect?: boolean;
+  corrections?: TimesheetCorrection[];
+  onCorrected?: () => void;
 }) {
   const active = useMemo(() => profiles.filter(p => p.active), [profiles]);
+  const byDay = useMemo(() => correctionsByDay(corrections), [corrections]);
+  const [correcting, setCorrecting] = useState<{ userId: string; date: string } | null>(null);
+  const correctingProfile = correcting ? active.find(p => p.user_id === correcting.userId) ?? null : null;
   const result = useMemo(
     () => computeConsolidation(monthKey, active, entriesByUser, nameByUser),
     [active, entriesByUser, nameByUser, monthKey],
@@ -550,10 +555,36 @@ function ConsolidationTab({
                       const cell = result.matrix[date][u.user_id];
                       const h = cell?.hours ?? 0;
                       const s = cell?.salary ?? 0;
+                      const corrected = byDay.has(correctionKey(u.user_id, date));
+                      const hrsText = h > 0 ? formatHours(h) : '—';
+                      const salText = s > 0 ? formatPHP2(s) : '—';
+                      const marker = corrected
+                        ? <ShieldCheck className="mr-1 inline h-3 w-3 text-primary" aria-label="Corrected" data-testid="corrected-marker" />
+                        : null;
+                      if (!canCorrect) {
+                        return (
+                          <Fragment2 key={u.user_id}>
+                            <td className="px-2 py-1 text-right tabular-nums border-l border-border">{marker}{hrsText}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{salText}</td>
+                          </Fragment2>
+                        );
+                      }
+                      const open = () => setCorrecting({ userId: u.user_id, date });
+                      const label = `Correct ${u.name}, ${date}`;
                       return (
                         <Fragment2 key={u.user_id}>
-                          <td className="px-2 py-1 text-right tabular-nums border-l border-border">{h > 0 ? formatHours(h) : '—'}</td>
-                          <td className="px-2 py-1 text-right tabular-nums">{s > 0 ? formatPHP2(s) : '—'}</td>
+                          <td className="p-0 text-right tabular-nums border-l border-border">
+                            <button type="button" onClick={open} aria-label={label}
+                              className="w-full px-2 py-1 text-right hover:bg-primary/10 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                              {marker}{hrsText}
+                            </button>
+                          </td>
+                          <td className="p-0 text-right tabular-nums">
+                            <button type="button" onClick={open} aria-label={label} tabIndex={-1}
+                              className="w-full px-2 py-1 text-right hover:bg-primary/10 focus:outline-none">
+                              {salText}
+                            </button>
+                          </td>
                         </Fragment2>
                       );
                     })}
@@ -581,6 +612,20 @@ function ConsolidationTab({
             </table>
           </div>
         </div>
+      )}
+
+      {correcting && correctingProfile && (
+        <CorrectDayDialog
+          key={`${correcting.userId}|${correcting.date}`}
+          open
+          onClose={() => setCorrecting(null)}
+          onSaved={() => { setCorrecting(null); onCorrected?.(); }}
+          staffName={nameByUser.get(correcting.userId) ?? correcting.userId}
+          profile={correctingProfile}
+          workDate={correcting.date}
+          entry={(entriesByUser.get(correcting.userId) ?? []).find(e => e.work_date === correcting.date) ?? null}
+          history={byDay.get(correctionKey(correcting.userId, correcting.date)) ?? []}
+        />
       )}
     </div>
   );
@@ -1267,6 +1312,9 @@ export default function Timesheet() {
 
   // Admin/finance data
   const [allProfiles, setAllProfiles] = useState<TimesheetProfile[]>([]);
+  // Consolidation corrections in this month's 31-row window (migration 20270202100000; before it
+  // is applied the RPC is missing and corrections stay off).
+  const [correctionsState, setCorrectionsState] = useState<CorrectionsState>({ available: false });
   const [allEntries, setAllEntries] = useState<(TimesheetEntry & { user_id: string })[]>([]);
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [nameByUser, setNameByUser] = useState<Map<string, string>>(new Map());
@@ -1300,6 +1348,20 @@ export default function Timesheet() {
       ]);
       setMyProfile((myProfRes.data as TimesheetProfile) ?? null);
       setMyEntries((myEntRes.data as TimesheetEntry[]) ?? []);
+
+      // Corrections (all for the gate, own for everyone else — the RPC decides).
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await client.rpc('get_timesheet_corrections' as any, { p_month: monthRange.start } as any);
+        if (error) throw error;
+        const out = (data ?? {}) as { ok?: boolean; can_correct?: boolean; corrections?: unknown };
+        setCorrectionsState(out.ok
+          ? { available: true, canCorrect: !!out.can_correct, corrections: normaliseCorrections(out.corrections) }
+          : { available: false });
+      } catch (e) {
+        if (!isMissingFunction(e)) console.warn('Failed to load timesheet corrections:', (e as Error)?.message);
+        setCorrectionsState({ available: false });
+      }
 
       // Admin/finance datasets (RLS returns all rows for those roles).
       if (canConsolidate) {
@@ -1407,6 +1469,7 @@ export default function Timesheet() {
                   onMonthChange={setMonthKey}
                   onEntrySaved={applyMyEntryUpsert}
                   userId={userId}
+                  corrections={correctionsState.available ? correctionsState.corrections : []}
                 />
               </TabsContent>
             )}
@@ -1419,6 +1482,9 @@ export default function Timesheet() {
                   nameByUser={nameByUser}
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
+                  canCorrect={canViewCost && correctionsState.available}
+                  corrections={correctionsState.available ? correctionsState.corrections : []}
+                  onCorrected={load}
                 />
               </TabsContent>
             )}
