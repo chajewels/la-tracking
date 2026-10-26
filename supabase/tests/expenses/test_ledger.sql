@@ -334,7 +334,7 @@ DO $t$ DECLARE j uuid; BEGIN
   EXCEPTION WHEN check_violation THEN NULL; END;
   BEGIN DELETE FROM public.gl_journals WHERE id = j; RAISE EXCEPTION 'journal delete should fail';
   EXCEPTION WHEN check_violation THEN NULL; END;
-  BEGIN TRUNCATE public.gl_journal_lines; RAISE EXCEPTION 'truncate should fail';
+  BEGIN TRUNCATE public.gl_journal_lines CASCADE; RAISE EXCEPTION 'truncate should fail';
   EXCEPTION WHEN check_violation THEN NULL; END;
   BEGIN
     INSERT INTO public.gl_journals (entry_date, period_start, source_date, kind, source_type, description)

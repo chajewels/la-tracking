@@ -2068,3 +2068,28 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   domestic by line currency on revenue-kind lines except 4400 / 4500 / 4900 / 4950.
 - Client: `/finance/tax-pack` route (PermissionsContext → view_ledger), `src/lib/csv.ts` gained `csvText` / `downloadCsv(…, { bom, exactName })`.
 
+## Controls (Expenses Phase 8, 2026-10-26)
+
+- Migration `20270107100000_expenses_controls.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 8"; go-live in docs/EXPENSES-GO-LIVE.md.
+- Trigger `expenses_before_period_lock` (BEFORE INSERT OR UPDATE on expenses, before `expenses_before_write`): closed-month dates refused for manual
+  rows (`period_closed` check_violation); void and paid_from-only pass; non-manual inserts moved to `gl_posting_date(expense_date)` with a note.
+- `gl_period_is_closed(date)`, `gl_is_money_account(text)` (active asset, code < '1130'), `gl_account_currency(text)`, `gl_unmapped_methods(date)`,
+  `gl_expenses_without_paid_from(date)`, `gl_unreconciled_accounts(date)`, `gl_close_readiness(date, boolean)`, `gl_auto_match(text, date, uuid)`,
+  `gl_run_completeness_check(text, uuid)` — internal (revoked from authenticated; the check also granted to service_role for cron).
+- View `gl_live_money_lines` (posted, non-reversal lines; signed_amount / signed_jpy; kind; entry_date = SOURCE date, posted_on = ledger date) — revoked from authenticated.
+- `gl_pending_counts(date)` internal: what the engine would post / reverse for events dated ≤ the date (same version formula as gl_post_pending).
+- `get_close_readiness(date)` view_ledger (pending events = warning; errors = failed run / no rate / unbalanced / duplicate); `close_period` re-stated (gl_post_settled, non-ok stops → readiness → `ledger_errors` when errors > 0; note + audit carry the counts).
+- `get_bank_reconciliation` returns `in_transit_native` (unmatched Hub entries dated in the last 5 days of the month); sign-off compares statement closing with ledger − in transit. Import errors: cash_has_no_statement, invalid_file, no_lines, too_many_lines, duplicate_file, invalid_line (nothing written), invalid_profile.
+- `gl_check_runs` (ran_at, trigger cron|manual, run_by, errors, warnings, issues jsonb, bell_rung, duration_ms) — RLS SELECT view_ledger; `run_ledger_check()`
+  post_journal; `get_ledger_checks(int)` view_ledger; cron `gl-completeness-check` '10 16 * * *'. Bell row type `ledger_check` in staff_notifications (counts only).
+- `bank_import_profiles` (account_code PK, delimiter, header_rows, date_col, date_format ymd|dmy|mdy, description_col, in_col, out_col, signed_col, balance_col,
+  encoding utf-8|shift_jis), `bank_statement_imports` (account_code, file_name, file_sha256 — unique per account while not voided, encoding, rows_in_file,
+  inserted, skipped, period_from/to, imported_by/at, voided_at/by/reason), `bank_statement_lines` (import_id, account_code, line_no, booked_on, description,
+  amount signed native ≠ 0, balance_after, raw, matched_journal_line_id unique, match_kind auto|manual|ignored, matched_by/at, ignore_reason),
+  `bank_reconciliations` (PK account_code + month_start; statement_closing, ledger_closing_native/jpy, difference, unmatched_statement/ledger, status open|reconciled,
+  note, reconciled_by/at) — all RLS SELECT view_ledger, writes via RPCs (post_journal): import_bank_statement(jsonb), void_bank_import(uuid, text),
+  auto_match_bank_lines(text, date), match_bank_line(uuid, uuid), unmatch_bank_line(uuid), ignore_bank_line(uuid, text), sign_off_reconciliation(text, date, numeric, text),
+  reopen_reconciliation(text, date, text); read get_bank_reconciliation(text, date) view_ledger.
+- `get_ledger_status` re-stated: + `last_check`; periods carry `reconciled_accounts` / `unreconciled_accounts`.
+- Client: Ledger tabs `bankrec`, `checks` (URL `?tab=ledger&view=…&month=&account=`), readiness dialog on Months, `ledger_check` bell route in StaffNotificationBell.
+

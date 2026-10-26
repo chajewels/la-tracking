@@ -21,6 +21,7 @@ never recorded as paid.
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | built — migration `20270104100000_expenses_cost_of_goods.sql` (plan `claude/expenses-phase5-cogs-plan-2026-10-26.md`) |
 | 6 | Provider fees, clearing, FX revaluation | built — migration `20270105100000_expenses_clearing_fx.sql` (plan `claude/expenses-phase6-clearing-fx-plan-2026-10-26.md`) |
 | 7 | Statements (P&L / balance sheet / cash flow / ageing) + 税理士 pack | built — migration `20270106100000_expenses_statements.sql` (plan `claude/expenses-phase7-statements-plan-2026-10-26.md`) |
+| 8 | Controls: period lock, close readiness, nightly completeness check, bank reconciliation, go-live runbook | built — migration `20270107100000_expenses_controls.sql` (plan `claude/expenses-phase8-controls-plan-2026-10-26.md`; runbook `docs/EXPENSES-GO-LIVE.md`) |
 | 7 | Statements (P&L, balance sheet, cash flow) + 税理士 pack (CSV + PDF) | not started |
 | 8 | Controls (period lock, bank reconciliation, completeness check) + full testing → owner-approved live apply → merge | not started |
 
@@ -691,6 +692,115 @@ without it); no tax flag anywhere; no Japanese account names; the Months tab sti
   URL dates must be real calendar dates within 1,100 days; the BOM is an escape in source; tests added for the
   catch-all lines, the fiscal-year straddle, export paging continuity and the ageing boundaries.
 - tsc exit 0; Vitest statements (25) + full suite pass; build passes; lint unchanged (881 / 150).
+
+## Phase 8 — Controls: period lock, close readiness, nightly check, bank reconciliation
+
+Owner decisions 2026-10-26 (D1–D6 as recommended): the Months tab shows a readiness report before Close —
+errors block, warnings are allowed and written on the month (D1); an expense created, edited or approved with a
+date inside a closed month is refused, voids and Paid-from corrections stay allowed, staff payments keep rolling
+forward and are reported (D2); bank matching = same account, same amount, ±3 days, automatic only when exactly
+one candidate on each side (D3); the bank's own CSV is uploaded and mapped once per account, Shift-JIS handled
+(D4); a nightly check with one staff bell when there are errors or new warnings (D5); cash accounts get a
+monthly count, a cash over / short entry is offered as text, never posted (D6).
+
+### What existed (2026-10-26)
+Approvals, audit trail, immutable journals and permissions were in place (C1, C4, C5, C7). Closed months refused
+manual journals, settlements and transfers but not expenses; nothing listed what was still open before a close;
+no completeness check, no bank data anywhere. The engine already makes a duplicate live journal impossible
+(`gl_journals_live_source_uq`) and refuses an unbalanced one at commit (`gl_journal_balanced`).
+
+### How it works
+- **Period lock** — trigger `expenses_before_period_lock` (BEFORE INSERT OR UPDATE, fires before
+  `expenses_before_write`): when `expense_date` falls in a closed month, a manual insert / edit / approval
+  raises `period_closed` (the Expenses screen says "That month is closed in the ledger …"); `status → void` and a
+  paid_from-only change pass; an insert whose `source` is not `manual` (email, recurring, payroll, commission,
+  system) is moved to the first open day with "Dated … (month already closed); booked on the first open day."
+  appended to its notes — on insert and on a service-role update (an emailed bill attached to an old recurring
+  draft). Payments are untouched (D6 of Phase 2b stands: they post on the first open day with the
+  original date kept).
+- **Close readiness** — `get_close_readiness(month)` (view_ledger): errors = a failed posting run, a missing peso
+  rate, unbalanced journals in the month, duplicate live journals; warnings = events dated in or before the month
+  not yet posted (`gl_pending_counts(month end)` — Close posts them first, so they never block), unmapped payment
+  spellings, approved expenses without Paid from, draft expenses dated in the month, money accounts with movements
+  and no signed-off reconciliation, a 1190 / 1195 balance at month end. `close_period` re-stated: runs
+  `gl_post_settled` first (a non-ok run — e.g. `rate_not_set` — stops the close), then the readiness; refuses with
+  `ledger_errors` when errors remain; appends
+  "Closed with N open item(s): …" to the month's note and the counts to the audit row. The Months tab opens a
+  dialog with the list before the Close button is enabled ("Close with open items" when only warnings).
+- **Nightly check** — `gl_run_completeness_check` (cron `gl-completeness-check` 16:10 UTC = 01:10 JST, after
+  the 00:40 posting run; `run_ledger_check()` on demand, post_journal) writes `gl_check_runs` (issues jsonb,
+  counts, bell flag). Errors: `unposted` / `orphan` (events dated two or more days ago that the engine would still
+  post / reverse — anything newer is the warning `pending_recent`, so payments logged between the 00:40 posting
+  run and the 01:10 check never ring the bell), `posting_failed` (also when the peso rate is missing), `duplicate`,
+  `unbalanced`, `trial_balance`. Warnings: `pending_recent`, `late_posting` (journals posted in the last 24 h into the
+  open month for a closed one), `month_open` (ended ≥ 10 days ago), `suspense` (1190 / 1195 balance with lines
+  > 30 days), `expense_paid_from` (> 7 days), `expense_draft` (> 14 days), `unmapped_method`, `reconciliation`
+  (month ended ≥ 15 days ago, accounts with movements not signed off). One `staff_notifications` row type
+  `ledger_check` ("Ledger check: N issues", body names no amounts, metadata = run id + counts) when errors > 0 or
+  a warning is new since the previous run; the bell opens Finance → Ledger → Checks. The status strip shows
+  "Checked … · all clear / N warnings"; the Checks tab lists the latest issues with a one-line action and an
+  Open link, plus the run history. `get_ledger_status` re-stated with `last_check` and, per period,
+  `reconciled_accounts` / `unreconciled_accounts`.
+- **Bank reconciliation** — tables `bank_import_profiles` (0-based column map per account: delimiter, header
+  rows, date column + order, description, money in / out or signed amount, balance, encoding),
+  `bank_statement_imports` (file name, sha-256 unique per account while not voided, counts, period, void),
+  `bank_statement_lines` (signed native amount, + in / − out; `matched_journal_line_id` unique; `match_kind`
+  auto / manual / ignored + reason), `bank_reconciliations` (per account per month: statement closing or counted
+  cash, ledger closing native + yen, difference, unmatched counts, status open / reconciled, note). RLS SELECT
+  view_ledger; writes only through RPCs needing post_journal: `import_bank_statement(jsonb)` (≤ 5,000 lines, every
+  line validated before anything is written; not for cash accounts; a line already present in another live import
+  of the account — same date, amount and description — is skipped once per existing copy, so three identical
+  ₱500 GCash receipts in one file are three lines and a re-export adds only the fourth; saves the profile, then
+  auto-matches the months touched under a per-account advisory lock), `void_bank_import`,
+  `auto_match_bank_lines` (candidates considered over the month ± 3 days so a line at the month boundary is not
+  mistaken for unique), `match_bank_line` (same account, same amount, ≤ 31 days, never an opening-balance line),
+  `unmatch_bank_line`, `ignore_bank_line(reason)`, `sign_off_reconciliation(account, month, closing, note)`
+  (month ended; statement closing = ledger closing − **in-transit** items, i.e. unmatched Hub entries dated in the
+  last five days of the month that the bank books next month; no unmatched statement line; no older unmatched Hub
+  entry; cash accounts need only the count), `reopen_reconciliation(reason)` (allowed after the ledger month is
+  closed — the reconciliation is not part of the books). The ledger side reads `gl_live_money_lines` = posted,
+  non-reversal lines keyed on the **source date** (the day the bank saw the money), so a correction reversed after
+  month end is already out of the figure the bank must agree with and a late repost reconciles in its own month
+  (the trial balance keeps the as-the-books-stood view); opening-balance lines count in the balance but are never
+  matched. `get_bank_reconciliation(account, month)` returns the header,
+  the profile, the imports, "Not in the Hub" (statement lines with candidates = same amount within 31 days),
+  "Not yet on the bank" (Hub entries in the month) and the set-aside lines. The browser parses the file
+  (`controls.ts`: UTF-8 with BOM or Shift-JIS, delimiter sniffed, full-width digits, ¥ / ₱ / commas, △ ▲ (…)
+  negatives, 2026/09/05 · 2026-9-5 · 20260905 · 2026年9月5日 · dmy / mdy; rows without a date or amount are
+  reported, never guessed; 令和 dates are not supported). Cash accounts (system_key cash_jpy / cash_php): type
+  the count; a difference shows the over / short manual journal the owner may post herself.
+
+### Verified (2026-10-26)
+- Independent review applied before the PR: close readiness no longer blocks on today's unposted payments (pending
+  events are a warning; the nightly check calls them an error only when two or more days old); same-day identical
+  statement lines are kept (dedupe by multiplicity against other imports); a refused file writes nothing;
+  the Checks "Open" links and the bell switch the Ledger tab while it is mounted; the sign-off has real in-transit
+  handling and reconciles on the source date; an emailed bill attached to a recurring draft in a since-closed month
+  moves the draft instead of failing; `rate_not_set` stops the close; auto-match looks across the month boundary
+  and locks per account; imports are blocked while any row cannot be read; the column map is seeded when the
+  import dialog opens; ymd files with two-digit years, EU-style amounts and UTF-16 exports parse; cash accounts
+  refuse statement imports; a signed-off month can be reopened after the ledger month closed.
+- Local PostgreSQL 16: nine migrations applied twice through one `run.sh`; the eight earlier suites still pass
+  (17 / 5 / 11 / 8 / 7 / 8 / 7 / 10); new `test_controls.sql` (9 groups): permissions and RLS, a fixture book,
+  readiness + close with warnings recorded, period lock on insert / approve / edit / move / void / Paid from /
+  system draft moved, a changed source shown as unposted + orphan and refused by readiness until posted, the
+  bell once with counts only and silent when nothing is new, a new warning ringing again, history, bank import
+  (validation, profile saved, duplicate file, dedupe, auto-match one-each-side vs two receipts for one line,
+  manual match / unmatch, sign-off refusals in order, ignore with reason, sign-off, locks after sign-off, reopen,
+  void, three identical same-day lines kept and deduped by count on re-export, cash import refused, the cron role
+  running the check, service-role move of a system draft), cash count, trigger order; new `test_e2e.sql` (5 groups): day one (dated rate, start, opening journal in
+  two currencies) → a month of business (sales, payments, expense, Square fee, payout, remittance) posted once
+  → statement import matching 4 of 5 lines, the bank fee booked and matched, SMBC and cash signed off, a bank
+  account refused on balance alone → readiness, close, statements agreeing with the trial balance, journal CSV
+  complete → a corrected June payment after the close rolls into July with its date kept while June's reported
+  figures do not move and the corrected receipt reconciles in June on the bank side. `test_ledger` L10 truncates
+  with CASCADE (bank lines reference journal lines) so the guard trigger is still what refuses it.
+- tsc exit 0; Vitest controls (18) + full suite pass; build passes; lint unchanged (881 / 150).
+
+### Go-live
+`docs/EXPENSES-GO-LIVE.md`: pre-flight live queries, the eight migrations in order with a one-line check each,
+the Lovable messages (one at a time), the owner's first hour in the Hub, the inspection checklist and the
+rollback. Not executed — waits for the owner's explicit go after the accountant's FINAL figures.
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Loader2, Lock, LockOpen,
-  Play, Plus, Printer, RotateCcw, Trash2,
+  Play, Plus, Printer, RotateCcw, ShieldCheck, Trash2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,9 @@ import { monthKeyTokyo, shiftMonth, todayTokyo } from "@/components/finance/expe
 import CostOfGoodsSection from "@/components/finance/CostOfGoodsSection";
 import ClearingFxSection from "@/components/finance/ClearingFxSection";
 import StatementsSection from "@/components/finance/StatementsSection";
+import ChecksSection from "@/components/finance/ChecksSection";
+import BankRecSection from "@/components/finance/BankRecSection";
+import { CHECKS_KEY, READINESS_KEY, controlsRefusal, lastCheckLabel, normaliseReadiness, readinessItems } from "@/components/finance/controls";
 import { downloadCsv } from "@/lib/csv";
 import { TRIAL_BALANCE_CSV_HEADER, exportFileName, fiscalYearSpan, statementRefusal, taxPackHref, trialBalanceCsvRows } from "@/components/finance/statements";
 import { costCoverageLabel, normaliseRealProfit } from "@/components/finance/cogs";
@@ -45,16 +48,25 @@ const METHOD_KINDS: { value: MethodKind; label: string }[] = [
   { value: "cod", label: "Carrier (COD)" }, { value: "non_cash", label: "Not money (discount / credit)" }, { value: "suspense", label: "Unknown" },
 ];
 
+const VIEWS = ["journals", "trial", "statements", "cogs", "clearing", "bankrec", "checks", "accounts", "periods"] as const;
+type View = (typeof VIEWS)[number];
+
 function refusalToast(e: unknown, fallback: string) {
   const code = (e as { code?: string })?.code ?? "";
-  toast({ title: statementRefusal(code) || ledgerRefusal(code) || fallback, variant: "destructive" });
+  toast({ title: controlsRefusal(code) || statementRefusal(code) || ledgerRefusal(code) || fallback, variant: "destructive" });
 }
 
 export default function LedgerTab() {
   const qc = useQueryClient();
   const today = todayTokyo();
   const thisMonth = monthKeyTokyo();
-  const [view, setView] = useState<"journals" | "trial" | "statements" | "cogs" | "clearing" | "accounts" | "periods">("journals");
+  const [searchParams] = useSearchParams();
+  const urlView = searchParams.get("view");
+  const [view, setView] = useState<View>((VIEWS as readonly string[]).includes(urlView ?? "") ? (urlView as View) : "journals");
+  useEffect(() => {
+    if (urlView && (VIEWS as readonly string[]).includes(urlView) && urlView !== view) setView(urlView as View);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
@@ -76,6 +88,8 @@ export default function LedgerTab() {
     qc.invalidateQueries({ queryKey: LEDGER_JOURNALS_KEY });
     qc.invalidateQueries({ queryKey: LEDGER_TB_KEY });
     qc.invalidateQueries({ queryKey: LEDGER_COA_KEY });
+    qc.invalidateQueries({ queryKey: CHECKS_KEY });
+    qc.invalidateQueries({ queryKey: READINESS_KEY });
   };
 
   const postNow = useMutation({
@@ -111,6 +125,12 @@ export default function LedgerTab() {
                 {s.ledger_start_date ? ` · Ledger starts ${dayLabel(s.ledger_start_date)}` : ""}
                 {s.php_jpy_rate ? ` · ₱1 = ¥${(1 / s.php_jpy_rate).toFixed(2)} (system rate)` : " · peso rate not set"}
               </div>
+              {s.ledger_start_date && (
+                <div className={`text-xs mt-0.5 ${s.last_check && s.last_check.errors > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                  <ShieldCheck className="inline h-3 w-3 mr-1" />{lastCheckLabel(s.last_check ? { ...s.last_check, run_by: null, duration_ms: null } : null)}
+                  {" "}<button type="button" className="underline" onClick={() => setView("checks")}>Checks</button>
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {!s.ledger_start_date && s.can_close && <StartLedgerDialog onDone={refreshAll} />}
@@ -164,6 +184,8 @@ export default function LedgerTab() {
           <TabsTrigger value="statements">Statements</TabsTrigger>
           <TabsTrigger value="cogs">Cost of goods</TabsTrigger>
           <TabsTrigger value="clearing">Clearing &amp; FX</TabsTrigger>
+          <TabsTrigger value="bankrec">Bank rec</TabsTrigger>
+          <TabsTrigger value="checks">Checks{s.last_check && s.last_check.errors > 0 ? <span className="ml-1 inline-block h-2 w-2 rounded-full bg-destructive" aria-label="errors" /> : null}</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="periods">Months</TabsTrigger>
         </TabsList>
@@ -172,6 +194,8 @@ export default function LedgerTab() {
         <TabsContent value="statements"><StatementsSection thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} canAdmin={s.can_admin} /></TabsContent>
         <TabsContent value="cogs"><CostOfGoodsSection thisMonth={thisMonth} today={today} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="clearing"><ClearingFxSection thisMonth={thisMonth} today={today} onChanged={refreshAll} /></TabsContent>
+        <TabsContent value="bankrec"><BankRecSection thisMonth={thisMonth} initialMonth={searchParams.get("month")} initialAccount={searchParams.get("account")} /></TabsContent>
+        <TabsContent value="checks"><ChecksSection /></TabsContent>
         <TabsContent value="accounts"><AccountsView canAdmin={s.can_admin} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="periods"><PeriodsView periods={s.periods} canClose={s.can_close} ledgerStart={s.ledger_start_date} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
       </Tabs>
@@ -606,9 +630,15 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
   const [fy, setFy] = useState(fiscalYearOf(thisMonth, startMonth));
   const [reopening, setReopening] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [closing, setClosing] = useState<string | null>(null);
+  const [closeNote, setCloseNote] = useState("");
+  const readiness = useQuery({
+    queryKey: [...READINESS_KEY, closing], enabled: !!closing, staleTime: 0,
+    queryFn: async () => normaliseReadiness(await callRpc("get_close_readiness", { p_period_start: closing })),
+  });
   const close = useMutation({
-    mutationFn: (p: string) => callRpc("close_period", { p_period_start: p, p_note: null }),
-    onSuccess: () => { toast({ title: "Month closed" }); onChanged(); },
+    mutationFn: (p: string) => callRpc("close_period", { p_period_start: p, p_note: closeNote.trim() || null }),
+    onSuccess: (out) => { const w = Number((out.readiness as Record<string, unknown> | undefined)?.warnings ?? 0); toast({ title: w ? `Month closed with ${w} open item${w === 1 ? "" : "s"} noted` : "Month closed" }); setClosing(null); setCloseNote(""); onChanged(); },
     onError: (e) => refusalToast(e, "Could not close the month"),
   });
   const reopen = useMutation({
@@ -654,6 +684,11 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
                   {closed ? <Lock className="h-4 w-4 text-muted-foreground" /> : <LockOpen className="h-4 w-4 text-muted-foreground" />}
                   <span className="font-medium">{longMonth(m)}</span>
                   {closed && p?.closed_at && <span className="text-xs text-muted-foreground">closed {new Date(p.closed_at).toLocaleDateString("en-GB", { timeZone: "Asia/Tokyo" })}</span>}
+                  {p && p.reconciled_accounts != null && (p.reconciled_accounts > 0 || (p.unreconciled_accounts ?? 0) > 0) && (
+                    <span className={`text-xs ${(p.unreconciled_accounts ?? 0) > 0 && !closed ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                      {p.reconciled_accounts} of {p.reconciled_accounts + (p.unreconciled_accounts ?? 0)} accounts reconciled
+                    </span>
+                  )}
                   {beforeStart && <span className="text-xs text-muted-foreground">before the ledger start</span>}
                   {!ended && !beforeStart && <span className="text-xs text-muted-foreground">{m === thisMonth ? "current month" : "future"}</span>}
                 </div>
@@ -663,7 +698,7 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
                       <a href={taxPackHref(key, monthRange(m).to)} target="_blank" rel="noreferrer"><Printer className="h-3 w-3 mr-1" />税理士 pack</a>
                     </Button>
                   )}
-                  {canCloseThis && <Button size="sm" variant="outline" className="min-h-11" onClick={() => close.mutate(key)} disabled={close.isPending}><Lock className="h-3 w-3 mr-1" />Close</Button>}
+                  {canCloseThis && <Button size="sm" variant="outline" className="min-h-11" onClick={() => { setCloseNote(""); setClosing(key); }} disabled={close.isPending}><Lock className="h-3 w-3 mr-1" />Close</Button>}
                   {canReopenThis && reopening !== key && <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setReopening(key)}><LockOpen className="h-3 w-3 mr-1" />Reopen</Button>}
                   {reopening === key && (
                     <>
@@ -677,6 +712,30 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
             );
           })}
         </ul>
+        <Dialog open={!!closing} onOpenChange={(o) => { if (!o) setClosing(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Close {closing ? longMonth(closing.slice(0, 7)) : ""}?</DialogTitle>
+              <DialogDescription>What is still open in this month. Errors stop the close; warnings are allowed and written on the month.</DialogDescription>
+            </DialogHeader>
+            {readiness.isLoading && <div className="text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Checking the month…</div>}
+            {readiness.isError && <div className="text-sm text-destructive">Could not check the month. Try again.</div>}
+            {readiness.data && (
+              <div className="space-y-3 text-sm">
+                {readinessItems(readiness.data).length === 0
+                  ? <p className="text-success">Nothing open: every event is posted, every account reconciled.</p>
+                  : <ul className="space-y-1">{readinessItems(readiness.data).map((it) => <li key={it.text} className={it.severity === "error" ? "text-destructive" : ""}>{it.severity === "error" ? "✕" : "•"} {it.text}</li>)}</ul>}
+                <div><Label className="text-xs" htmlFor="close-note">Note for the 税理士 (optional)</Label><Input id="close-note" className="min-h-11" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="e.g. statements sent 10 Nov" /></div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="ghost" className="min-h-11" onClick={() => setClosing(null)}>Not yet</Button>
+              <Button className="min-h-11" disabled={!readiness.data || !readiness.data.can_close || close.isPending} onClick={() => closing && close.mutate(closing)}>
+                {close.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Lock className="h-4 w-4 mr-1" />}{readiness.data && readiness.data.warnings > 0 ? "Close with open items" : "Close the month"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
