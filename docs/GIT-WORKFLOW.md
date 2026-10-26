@@ -63,6 +63,8 @@ email-js peer ≥1.0.0) and CI went red until the files were put back.
 **Check after every Lovable commit to main:** `git show --stat <sha> | grep -E 'package|bun.lock'`
 must print nothing.
 
+**First sanctioned change (2026-10-26):** `pdf-lib` 1.17.1 (exact, MIT) added by the owner-approved `deps:` PR for the payslip PDF (owner "proceed to option b"); the same PR resynced bun.lock's workspace entry for `@lovable.dev/mcp-js` (^0.20.0 → 0.20.0, installed version unchanged).
+
 **Every migration APPLY does it anyway.** Lovable's `lov_database--migration` tool commits
 drizzle-kit / drizzle-orm / postgres to package.json + bun.lock, plus drizzle.config.ts and a
 drizzle/ copy of the migration, on every apply — even when the message says not to
