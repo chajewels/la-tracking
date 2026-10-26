@@ -1920,9 +1920,9 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - `expense_categories.gl_account_code text NULL FK` (seeded for the 28 categories). `expenses.paid_from text NULL FK`
   — the ONLY column an APPROVED expense may change (`expenses_before_write` re-stated in 2b with that allowance;
   `set_expense_paid_from`: drafts need manage or approve, approved rows need approve_expenses).
-- `system_settings` keys `fiscal_year_start_month` ("5") and `ledger_start_date` (JSON null until the owner sets it
+- `system_settings` keys `fiscal_year_start_month` ("4" — April–March, owner 2026-10-26) and `ledger_start_date` (JSON null until the owner sets it
   with `set_ledger_start`; first of a month; frozen once any journal exists). `gl_fiscal_year(date)` = the year the
-  May–April year ENDS (June 2026 → 2027; start month 1 → calendar year).
+  April–March year ENDS (June 2026 → 2027; start month 1 → calendar year).
 - `gl_periods` (period_start date PK = first of month, fiscal_year, status open | closed, closed_at/by, note); rows are
   created lazily by `gl_period_for(date)`. `gl_posting_date(d)` returns d unless d's month ≤ the LAST closed month,
   then the first day after the last closed month.
@@ -2008,3 +2008,24 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   under `<expense id>/…` (drafts) or `email/<message id>/…` (needs review, copied by the client on Make expense).
 - pg_cron `expenses-email-bills`, `7,37 * * * *` → net.http_post functions/v1/expenses-email-bills with the vault
   `email_queue_service_role_key` (scheduled only when cron + vault schemas exist).
+
+## Cost of goods / inventory (Expenses Phase 5, 2026-10-26)
+
+- Migration `20270104100000_expenses_cost_of_goods.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 5".
+- `sale_costs` (sale_type 'layaway'|'cash_order', sale_id, cost_jpy numeric(15,0) ≥ 0, note, set_by, set_at, created_at; PK (sale_type,
+  sale_id)). RLS SELECT view_ledger; table writes revoked; RPCs `set_sale_cost(text, uuid, numeric, text)` and `import_sale_costs(jsonb)`
+  (manage_expenses). Audit entity `sale_cost`.
+- `sale_item_costs` (item_table, item_id PK, sale_type, sale_id, variant_id, quantity, cost_jpy numeric(15,0)) — FINANCE-ONLY snapshot of a
+  sale line's unit cost (RLS SELECT view_ledger; writes revoked). The item tables carry NO cost column (customers / CSR read them). Filled by
+  AFTER INSERT/UPDATE trigger `sale_items_snapshot_cost` (SECURITY DEFINER; quantity follows the line, cost never changes), by
+  `variant_cost_snapshot_catchup` on website_product_variants (AFTER INSERT OR UPDATE OF cost_basis) and by the migration backfill.
+  `gl_sale_costs()` (internal) = effective cost; source `trade_in` when the sale's invoice is a trade-in's resold_invoice_number.
+- `trade_ins.resold_at timestamptz` — trigger `trade_ins_track_resold`: INSERT may carry a date; a flip to Sold stamps now(); otherwise kept;
+  cleared (with resold_invoice_number) when not Sold. `trade_ins.resold_invoice_number text` — set in TradeInDialog when Sold.
+- `gl_post_pending` fingerprint (2b file) now blanks the date for `cogs_return` as well as the close events.
+- `expense_categories.gl_account_code`: "Inventory purchases…" → '1300', system_key 'trade_in' → '1310' (were 5100 / 5500 in 2b).
+- gl_accounts added: 1104, 1195, 2700, 2750, 2800, 2900, 6950 (accountant's chart; opening balance F6).
+- `gl_current_events(date)` = `gl_base_events(date)` (the 2b body, renamed once via `ALTER FUNCTION … RENAME` guarded by to_regprocedure)
+  UNION ALL `gl_cogs_events(date)` (cogs_sale, cogs_return, trade_in_received, trade_in_resold; source ids md5-derived uuids).
+- RPCs (authenticated, permission inside): `get_sales_costs(date)`, `get_inventory_valuation()`, `fc_real_profit(date, date)` — view_ledger.
+- Fiscal year: `fiscal_year_start_month` seed is now "4" (April–March, owner 2026-10-26) — changed in the 2b migration file since it is unapplied.

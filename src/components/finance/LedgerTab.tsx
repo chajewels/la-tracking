@@ -18,6 +18,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { isMissingFunction } from "@/components/website/shipping-fees";
 import { callRpc } from "@/components/finance/useBookedMonths";
 import { monthKeyTokyo, shiftMonth, todayTokyo } from "@/components/finance/expenses";
+import CostOfGoodsSection from "@/components/finance/CostOfGoodsSection";
+import { costCoverageLabel, normaliseRealProfit } from "@/components/finance/cogs";
 import {
   JOURNAL_KIND_LABEL, KIND_LABEL, KIND_ORDER, LEDGER_COA_KEY, LEDGER_JOURNALS_KEY, LEDGER_STATUS_KEY, LEDGER_TB_KEY, SOURCE_TYPES,
   type GlAccount, type Journal, type JournalKind, type LedgerState, type ManualJournalForm, type MethodKind, type Period, type RangeMode,
@@ -48,7 +50,7 @@ export default function LedgerTab() {
   const qc = useQueryClient();
   const today = todayTokyo();
   const thisMonth = monthKeyTokyo();
-  const [view, setView] = useState<"journals" | "trial" | "accounts" | "periods">("journals");
+  const [view, setView] = useState<"journals" | "trial" | "cogs" | "accounts" | "periods">("journals");
   const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
@@ -155,11 +157,13 @@ export default function LedgerTab() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="journals">Journals</TabsTrigger>
           <TabsTrigger value="trial">Trial balance</TabsTrigger>
+          <TabsTrigger value="cogs">Cost of goods</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="periods">Months</TabsTrigger>
         </TabsList>
         <TabsContent value="journals"><JournalsView canPost={s.can_post} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="trial"><TrialBalanceView thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} /></TabsContent>
+        <TabsContent value="cogs"><CostOfGoodsSection thisMonth={thisMonth} today={today} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="accounts"><AccountsView canAdmin={s.can_admin} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="periods"><PeriodsView periods={s.periods} canClose={s.can_close} ledgerStart={s.ledger_start_date} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
       </Tabs>
@@ -360,6 +364,12 @@ function TrialBalanceView({ thisMonth, startMonth }: { thisMonth: string; startM
   const rows = q.data ?? [];
   const totals = trialBalanceTotals(rows);
   const profit = profitSummary(rows);
+  const real = useQuery({
+    queryKey: ["finance", "ledger", "real-profit", r.from, r.to],
+    staleTime: 15_000,
+    queryFn: async () => normaliseRealProfit(await callRpc("fc_real_profit", { p_from: r.from, p_to: r.to })),
+  });
+  const coverage = real.data && real.data.ledger_started ? costCoverageLabel(real.data.sales_with_cost, real.data.sales_total) : null;
 
   const exportCsv = () => {
     const head = ["code", "name", "kind", "opening_jpy", "debit_jpy", "credit_jpy", "closing_jpy"];
@@ -390,8 +400,8 @@ function TrialBalanceView({ thisMonth, startMonth }: { thisMonth: string; startM
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
               <Stat label="Revenue" value={profit.revenue} />
-              <Stat label="Cost of sales" value={profit.cogs} />
-              <Stat label="Gross profit" value={profit.gross} />
+              <Stat label="Cost of sales" value={profit.cogs} sub={coverage ?? undefined} />
+              <Stat label="Gross profit" value={profit.gross} sub={real.data && real.data.ledger_started && real.data.sales_with_cost < real.data.sales_total ? "incomplete until every sale has a cost" : undefined} />
               <Stat label="Operating expenses" value={profit.expenses} />
               <Stat label="Operating profit" value={profit.operating} strong />
             </div>
@@ -437,11 +447,12 @@ function TrialBalanceView({ thisMonth, startMonth }: { thisMonth: string; startM
   );
 }
 
-function Stat({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+function Stat({ label, value, strong, sub }: { label: string; value: number; strong?: boolean; sub?: string }) {
   return (
     <div className="rounded-md border p-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`tabular-nums ${strong ? "font-semibold" : ""} ${value < 0 ? "text-destructive" : ""}`}>{formatYen(value)}</div>
+      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
     </div>
   );
 }
