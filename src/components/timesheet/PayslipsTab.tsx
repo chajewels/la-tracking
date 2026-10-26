@@ -223,7 +223,10 @@ export default function PayslipsTab({
     try {
       // pdf-lib loads only when a PDF is asked for (it is not in the Timesheet page bundle).
       const { downloadPayslipPdf } = await import('@/lib/payslipPdf');
-      const { proofNote } = await downloadPayslipPdf(p, () => (p.proof_path ? loadProof(p.proof_path) : Promise.resolve(null)));
+      const finalizerName = p.finalized_by ? nameByUser.get(p.finalized_by) ?? null : null;
+      const { proofNote } = await downloadPayslipPdf(
+        p, () => (p.proof_path ? loadProof(p.proof_path) : Promise.resolve(null)), finalizerName,
+      );
       if (proofNote) toast.warning(proofNote);
     } catch {
       toast.error('The PDF could not be made. Try again.');

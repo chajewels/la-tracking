@@ -135,7 +135,8 @@ Frontend only — no migration, no edge function. `pdf-lib` 1.17.1 added by the 
   button still edits everyone). A payslip blocked by "Add address and date of birth first" shows the same
   button next to the message. Saving refreshes the book.
 - **Download PDF** (`src/lib/payslipPdf.ts`, finalized and paid payslips): `Payslip_<Name>_<YYYY-MM>.pdf`.
-  Page 1 is the payslip from its STORED figures, with the same rows and order as the Excel file. It is
+  Page 1 is the payslip from its STORED figures (corporate layout since 2026-10-27, see "Corporate PDF"
+  below; it no longer copies the Excel rows). It is
   drawn on an offscreen A4 canvas at 2.5× with system fonts, because pdf-lib's standard fonts cannot encode
   ₱ or Japanese, then embedded as a PNG. A paid payslip adds the proof after page 1, downloaded through a
   10-minute signed URL:
@@ -153,6 +154,84 @@ Frontend only — no migration, no edge function. `pdf-lib` 1.17.1 added by the 
   10-minute signed URL.
 - **Excel / PDF rows:** the Payment block now opens with "<Month YYYY> salary ¥x → ₱y" and, after
   "Paid on", has "Proof of payment" with the file name (the part of `proof_path` after the first `/`).
+
+## Corporate PDF (owner 2026-10-27)
+
+The owner found page 1 "too generic, no logo". Only **page 1 of Download PDF** changed. The on-screen
+payslip view and the Excel file are unchanged. Frontend only: no migration, no edge function, no package change.
+
+- **Where:** drawing in `renderPayslipPage` (`src/lib/payslipPdf.ts`). The layout rules are pure functions in
+  `src/lib/payslipPdfLayout.ts` (`payslipNumber`, `periodLabel`, `headerDetails`, `rightBlockLayout`,
+  `earningsRows`, `paymentBlock`, `paymentNote`, `signatureBlock`, `footer`, `proofCaption`). Tests:
+  `src/test/payslip-pdf-layout.test.ts`. The canvas is now 3× (`PAGE1_SCALE = 3`), and branding appears on the PDF only.
+- **Badge:** `src/assets/brand/cha-jewels-badge-512.webp`, copied unchanged from cha-jewels-web
+  `public/images/brand/logo-badge-512.webp` (gold circular "Cha Jewels 株式会社"). It is imported as a Vite
+  asset, so it is same-origin and the canvas is never tainted. If the browser cannot decode it, no logo is
+  drawn and the PDF is still made. The Hub's `src/assets/cha-jewels-logo.jpeg` reads "Japan Gold", which breaks the gold-terminology rule.
+  It is NOT used here. The sidebar still uses it and is untouched.
+- **Company constants:** `src/lib/companyInfo.ts` is the single source, copied from cha-jewels-web
+  `lib/content/legal.ts` and owner records:
+  - `LEGAL_NAME_JA` = Ｃｈａ　Ｊｅｗｅｌｓ株式会社 (full-width, with an ideographic space). `payslips.ts`
+    `COMPANY_NAME` now imports it; it was byte-identical.
+  - `NAME_EN`, `ADDRESS_EN`, `PHONE`, `EMAIL`, `CORPORATE_NO`, `REPRESENTATIVE`.
+- **Layout (A4 portrait, top to bottom):**
+  1. **Letterhead band:**
+     - Left: badge (64 pt), then five fixed lines (owner review 2026-10-27; nothing wraps inside an item):
+       1. Cha Jewels Co., Ltd. (serif, gold-dark)
+       2. The Japanese legal name
+       3. The address
+       4. "Tel · email"
+       5. "Corporate No. …"
+
+       Lines 3–5 share one font size: the largest from 8.5 pt down to 8 pt (0.25 pt steps, measured
+       with `ctx.measureText`) at which each fits on one line between the badge and the right block.
+       Only if the address is still too wide at 8 pt is it broken at the comma before "Tokyo". It is
+       never broken inside a number. See `letterheadLines`, `fitFontSize` and `letterheadSmallLines`.
+       With the Hub's fonts in Chromium, the address takes the Tokyo break.
+     - Right: "PAYSLIP" and the details block (Pay period, Payslip no., Issued, Status; Paid in green).
+     - The band is as tall as the taller side, and both sides are top-aligned.
+  2. A 2 pt gold rule.
+  3. **Two boxes:**
+     - **PAID TO:** name, job title only (no engagement label), address, date of birth. These come
+       from the stored snapshot.
+     - **PAYMENT:**
+       - Paid: paid on, yen sent, pesos received, and the rate used. "Difference vs payslip total"
+         is added only when the pesos differ from the total.
+       - Finalized: "Not paid yet".
+  4. **Earnings table** (Earnings | Details | Amount ₱), from the stored breakdowns:
+     - CSR: daily pay earned, then the basic salary cap (a negative row when capped, or "— not
+       reached"), then the allowance.
+     - Live Admin: full days × ₱500, half days × ₱300, and total hours.
+     - Commission (only when its total is above 0): the commission, then the Top Sales bonus (only
+       when the tier is above 0).
+     - **The rows must add up to `total_php` to the centavo.** `assertEarningsMatch` refuses to draw
+       a page that does not.
+  5. **NET PAY band:** charcoal, with pale-gold text, right-aligned to the amount column.
+  6. **Paid only:** "<Month YYYY> salary ¥x → ₱y · Proof of payment attached (page 2)", or "… could
+     not be included" when the fallback page is used.
+  7. **Signatures**, three equal columns:
+     - Prepared by: the finalizer's `profiles.full_name`, via the tab's name map. It is blank when
+       unknown, never an id.
+     - Approved by: the representative.
+     - Received by: "Staff signature and date".
+  8. **Footer:** a 1 pt gold rule, "Confidential — for the named recipient only." on the left, and
+     "Page 1 of N" on the right.
+     - **There is no "Generated by …" line anywhere** (removed by the owner).
+     - N is final because the proof is loaded and appended first. Page 1 is rendered last and
+       inserted in front.
+- **Header alignment rule** (the owner flagged the misalignment):
+  - "PAYSLIP" is drawn glyph by glyph, with letter-spacing only BETWEEN glyphs, so its last glyph
+    ends exactly at the right content edge. No trailing spacing pushes it left.
+  - In the details block, the values all start at one x, set by the widest value, so the block ends
+    on the same right edge. The labels are right-aligned a fixed 10 pt gap to the left of the values.
+    Lines are equally spaced.
+  - `rightBlockLayout` holds this math and is unit-tested.
+- **Payslip number:** `PS-YYYY-MM-XXXXXX`, made of the pay month and the first 6 hex characters of the
+  payslip id, uppercase. It is shown in the header and in the image-proof caption.
+- **Pay period:** the month ("September 2026"). It is never a 1–31 range, because the sheet is a 31-row window.
+- **Issued:** `finalized_at` as DD Mon YYYY in Japan time.
+- **Proof pages:** unchanged, except the image-proof caption, which is now "Cha Jewels Co., Ltd. — Proof
+  of payment — PS-… — <file> — paid on <date>" (WinAnsi-safe).
 
 ## Verification (2026-10-26, before the PR)
 
