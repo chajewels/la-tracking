@@ -33,7 +33,7 @@ import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
   type SourceFilter, type StatusFilter, SOURCE_FILTERS,
-  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses, refusalCode,
   monthFromSearch, paidFromProblem, prepaidProblem, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
@@ -106,7 +106,7 @@ export default function ExpensesTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: EXPENSE_BOOK_KEY });
 
   const onError = (e: Error & { code?: string }) => {
-    toast({ title: "Not saved", description: expenseRefusal(e.code ?? e.message), variant: "destructive" });
+    toast({ title: "Not saved", description: expenseRefusal(refusalCode(e)), variant: "destructive" });
   };
 
   // Phase 2b: which bank / cash account paid it. Absent (PGRST202) until the ledger migration is applied.
@@ -477,7 +477,8 @@ export default function ExpensesTab() {
                         </Button>
                       )}
                       {e.status === "draft" && book.can_approve && (
-                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending} data-testid={`expense-approve-${e.id}`}>
+                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending || needsCategory(e, book.categories)}
+                          title={needsCategory(e, book.categories) ? "Pick a category first" : undefined} data-testid={`expense-approve-${e.id}`}>
                           <Check className="mr-1 h-3.5 w-3.5" /> Approve
                         </Button>
                       )}

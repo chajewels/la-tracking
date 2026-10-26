@@ -4,6 +4,7 @@ import {
   DRAFT_CONFIDENCE, amountForSql, buildPrompt, categoryIdFor, decide, decodeBase64Url, expenseDateFor, gmailQuery, headerValue,
   parseExtraction, parseFromHeader, safeFileName, stripHtml, vendorHint, walkParts,
 } from "../../supabase/functions/_shared/email-bills-rules.ts";
+import { canEnterManually, refusalCode } from "@/components/finance/expenses";
 import {
   type EmailBill, emailBillRefusal, emailDraftsToConfirm, groupByStatus, lastRunLabel, needsCategory, normaliseEmailBills, prefillFromEmail, whyLabel,
 } from "@/components/finance/email-bills";
@@ -46,6 +47,7 @@ describe("email bills — Gmail decoding", () => {
     expect(stripHtml("a &amp; b&nbsp;c")).toBe("a & b c");
     expect(safeFileName("../../etc/passwd")).toBe("passwd");
     expect(safeFileName("領収書.pdf")).toBe("領収書.pdf");
+    expect(safeFileName("invoice..pdf")).toBe("invoice.pdf");
   });
   it("builds the Gmail query for the lookback window", () => {
     expect(gmailQuery(3)).toBe("newer_than:3d -in:spam -in:trash -in:chats");
@@ -130,10 +132,17 @@ describe("email bills — Expenses tab", () => {
     expect(tab).toContain('callRpc("email_bill_make_expense"');
     expect(tab).toContain('data-testid="from-email"');
     expect(tab).toContain("disabled={noCat}");
+    expect(tab).toContain("disabled={approve.isPending || needsCategory(e, book.categories)}");
+    expect(tab).toContain("expenseRefusal(refusalCode(e))");
+    expect(refusalCode({ code: "23514", message: 'category_required' })).toBe("category_required");
+    expect(refusalCode({ code: "P0001", message: "x" })).toBe("P0001");
+    expect(canEnterManually({ active: true, system_key: "uncategorised" })).toBe(false);
     const fn = read("supabase/functions/expenses-email-bills/index.ts");
     expect(fn).toContain("GMAIL_READONLY_SCOPE");
     expect(fn).toContain("subject: c.mailbox");
     expect(fn).toContain('requirePermission(ctx, "manage_expenses")');
+    expect(fn).toContain("pageToken");
+    expect(fn).toContain('error === "run_active"');
     expect(fn).not.toMatch(/gmail[^\n]*(modify|send|trash)/i);
     expect(read("supabase/config.toml")).toContain("[functions.expenses-email-bills]");
     const sql = read("supabase/migrations/20270103100000_expenses_email_bills.sql");

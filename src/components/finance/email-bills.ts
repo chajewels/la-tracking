@@ -114,6 +114,7 @@ export function emailBillRefusal(code: string): string {
     case "gmail_auth_failed": return "Google has not granted the Hub permission to read the mailbox yet (Google Admin → domain-wide delegation → gmail.readonly).";
     case "gmail_list_failed": return "Gmail could not be read right now. Try again in a moment.";
     case "disabled": return "Email bills are turned off.";
+    case "run_active": return "A mail check is already running. Try again in a minute.";
     default: return "";
   }
 }

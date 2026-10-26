@@ -126,7 +126,7 @@ DECLARE
   v_date date;
   v_cat uuid;
   v_vendor uuid;
-  v_vname text := nullif(btrim(coalesce(p->>'vendor_name', '')), '');
+  v_vname text := nullif(btrim(coalesce(p->>'vendor_name', p->>'new_vendor_name', '')), '');
   v_desc text := left(btrim(coalesce(p->>'description', '')), 500);
   v_cur text := upper(btrim(coalesce(p->>'currency', '')));
   v_amount numeric;
@@ -270,6 +270,7 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_row record;
+  v_vendor text := CASE WHEN length(btrim(coalesce(p_vendor, ''))) >= 3 THEN lower(btrim(p_vendor)) END;
 BEGIN
   IF auth.uid() IS NOT NULL THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
   IF p_amount IS NULL OR p_amount <= 0 OR p_currency NOT IN ('JPY', 'PHP') OR p_date IS NULL THEN RETURN jsonb_build_object('match', NULL); END IF;
@@ -277,12 +278,16 @@ BEGIN
     FROM public.expenses e
     LEFT JOIN public.expense_vendors v ON v.id = e.vendor_id
    WHERE e.source = 'recurring' AND e.status = 'draft' AND e.currency = p_currency
+     AND e.details->'email' IS NULL
      AND e.expense_date BETWEEN p_date - 7 AND p_date + 7
      AND abs(e.amount - p_amount) <= greatest(round(p_amount * 0.01, 2), CASE WHEN p_currency = 'JPY' THEN 1 ELSE 0.01 END)
-     AND ((p_category_id IS NOT NULL AND e.category_id = p_category_id)
-          OR (p_vendor IS NOT NULL AND v.name IS NOT NULL AND (lower(v.name) = lower(btrim(p_vendor)) OR position(lower(v.name) IN lower(p_vendor)) > 0 OR position(lower(btrim(p_vendor)) IN lower(v.name)) > 0))
-          OR (p_vendor IS NOT NULL AND position(lower(btrim(p_vendor)) IN lower(e.description)) > 0)
-          OR (p_vendor IS NOT NULL AND position(lower(btrim(p_vendor)) IN lower(coalesce(e.details->>'bill_name', ''))) > 0))
+     AND CASE
+           WHEN v_vendor IS NOT NULL THEN
+                (v.name IS NOT NULL AND (lower(v.name) = v_vendor OR position(lower(v.name) IN v_vendor) > 0 OR position(v_vendor IN lower(v.name)) > 0))
+             OR position(v_vendor IN lower(e.description)) > 0
+             OR position(v_vendor IN lower(coalesce(e.details->>'bill_name', ''))) > 0
+           ELSE p_category_id IS NOT NULL AND e.category_id = p_category_id
+         END
    ORDER BY abs(e.expense_date - p_date), abs(e.amount - p_amount)
    LIMIT 1;
   IF v_row.id IS NULL THEN RETURN jsonb_build_object('match', NULL); END IF;
@@ -330,6 +335,10 @@ DECLARE
 BEGIN
   IF auth.uid() IS NOT NULL THEN RETURN jsonb_build_object('error', 'permission_denied'); END IF;
   IF p->>'phase' = 'start' THEN
+    PERFORM pg_advisory_xact_lock(hashtext('expenses_email_run'));
+    IF EXISTS (SELECT 1 FROM public.expense_email_runs r WHERE r.finished_at IS NULL AND r.started_at > now() - interval '10 minutes') THEN
+      RETURN jsonb_build_object('error', 'run_active');
+    END IF;
     INSERT INTO public.expense_email_runs (trigger, run_by)
     VALUES (CASE WHEN p->>'trigger' = 'manual' THEN 'manual' ELSE 'cron' END, nullif(p->>'run_by', '')::uuid)
     RETURNING id INTO v_id;

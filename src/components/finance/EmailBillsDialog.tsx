@@ -47,7 +47,15 @@ export default function EmailBillsDialog({ canManage, canAdmin, categories, onMa
   const check = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke("expenses-email-bills", { body: { trigger: "manual" } });
-      if (error) throw Object.assign(new Error(error.message), { code: (data as { error?: string })?.error ?? "" });
+      if (error) {
+        // A non-2xx reply carries its body on error.context (FunctionsHttpError); that is where the code lives.
+        let code = (data as { error?: string } | null)?.error ?? "";
+        try {
+          const res = (error as { context?: Response }).context;
+          if (res && typeof res.json === "function") code = ((await res.clone().json()) as { error?: string })?.error ?? code;
+        } catch { /* body not JSON — fall back to the generic sentence */ }
+        throw Object.assign(new Error(error.message), { code });
+      }
       const out = data as { ok?: boolean; error?: string; skipped?: string; looked_at?: number; drafted?: number; matched?: number; needs_review?: number; skipped_count?: number };
       if (out?.error) throw Object.assign(new Error(out.error), { code: out.error });
       return out;

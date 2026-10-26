@@ -111,7 +111,7 @@ export function walkParts(payload: GmailPart | undefined): { text: string; attac
 
 export function safeFileName(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "attachment";
-  const cleaned = base.replace(/[^\w.\-()぀-ヿ一-龯]+/g, "_").replace(/^\.+/, "").slice(0, 120);
+  const cleaned = base.replace(/[^\w.\-()぀-ヿ一-龯]+/g, "_").replace(/\.{2,}/g, ".").replace(/^\.+/, "").slice(0, 120);
   return cleaned || "attachment";
 }
 

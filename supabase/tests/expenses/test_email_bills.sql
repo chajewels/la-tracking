@@ -36,6 +36,7 @@ DO $t$ DECLARE r jsonb; cat uuid; e uuid; BEGIN
 
   r := public.expenses_email_run('{"phase":"start","trigger":"cron"}');
   ASSERT r->>'ok' = 'true' AND r->>'run_id' IS NOT NULL, 'run start: ' || r::text;
+  ASSERT (public.expenses_email_run('{"phase":"start","trigger":"manual"}'))->>'error' = 'run_active', 'a second run cannot start while one is active';
 
   r := public.expenses_email_record(jsonb_build_object('gmail_message_id', 'msg-news', 'thread_id', 't1', 'mailbox', 'sales@chajewelsjp.com',
          'from_email', 'news@example.com', 'subject', 'Weekly newsletter', 'received_at', '2026-10-25T01:00:00Z', 'status', 'skipped',
@@ -98,8 +99,12 @@ DO $t$ DECLARE r jsonb; cat uuid; bill uuid; d uuid; BEGIN
   ASSERT d IS NOT NULL, 'recurring draft exists';
   r := public.expenses_email_match_recurring('Lovable', NULL, 3600, 'JPY', '2026-10-22');
   ASSERT (r->'match'->>'id')::uuid = d, 'matched by vendor name + amount + date window: ' || r::text;
+  r := public.expenses_email_match_recurring(NULL, cat, 3620, 'JPY', '2026-10-25');
+  ASSERT (r->'match'->>'id')::uuid = d, 'no vendor read: matched by category within 1%';
   r := public.expenses_email_match_recurring('Somebody', cat, 3620, 'JPY', '2026-10-25');
-  ASSERT (r->'match'->>'id')::uuid = d, 'matched by category within 1%';
+  ASSERT r->'match' = 'null'::jsonb, 'a different vendor never attaches by category alone: ' || r::text;
+  r := public.expenses_email_match_recurring('Co', cat, 3600, 'JPY', '2026-10-22');
+  ASSERT (r->'match'->>'id')::uuid = d, 'a vendor shorter than 3 letters is ignored (category decides)';
   r := public.expenses_email_match_recurring('Lovable', NULL, 4000, 'JPY', '2026-10-22');
   ASSERT r->'match' = 'null'::jsonb, 'amount off by more than 1% does not match';
   r := public.expenses_email_match_recurring('Lovable', NULL, 3600, 'JPY', '2026-11-15');
@@ -107,6 +112,8 @@ DO $t$ DECLARE r jsonb; cat uuid; bill uuid; d uuid; BEGIN
   r := public.expenses_email_attach_to_draft(d, d::text || '/1-lovable.pdf', 3600, '{"gmail_message_id":"msg-lov","subject":"Lovable receipt"}');
   ASSERT r->>'ok' = 'true' AND r->'expense'->>'receipt_path' = d::text || '/1-lovable.pdf', 'receipt attached to the recurring draft: ' || r::text;
   ASSERT r->'expense'->'details'->'email'->>'gmail_message_id' = 'msg-lov', 'email noted on the draft';
+  r := public.expenses_email_match_recurring('Lovable', NULL, 3600, 'JPY', '2026-10-22');
+  ASSERT r->'match' = 'null'::jsonb, 'a draft that already carries an email is not matched again';
   r := public.expenses_email_attach_to_draft(d, 'email/msg-lov/x.pdf', NULL, '{}');
   ASSERT r->>'error' = 'invalid_receipt_path', 'path must be under the draft';
   RAISE NOTICE 'E4 matching OK';
@@ -121,9 +128,10 @@ DO $t$ DECLARE r jsonb; cat uuid; BEGIN
   ASSERT (SELECT count(*) FROM jsonb_array_elements(r->'messages') m WHERE m->>'status' = 'drafted' AND m->>'expense_status' = 'draft') = 1, 'drafted row joins its expense';
   ASSERT r->'last_run'->>'drafted' = '2', 'last run shown';
   SELECT id INTO cat FROM public.expense_categories WHERE name = 'Lovable, Firebase, Vercel, Claude and other dev tools';
-  r := public.email_bill_make_expense('msg-usd', jsonb_build_object('expense_date', '2026-10-25', 'category_id', cat, 'vendor_name', 'Vercel',
+  r := public.email_bill_make_expense('msg-usd', jsonb_build_object('expense_date', '2026-10-25', 'category_id', cat, 'new_vendor_name', 'Vercel',
          'description', 'Vercel Pro October (USD 20)', 'currency', 'JPY', 'amount', '3100', 'payment_method', 'card', 'paid_from', '1102'));
   ASSERT r->>'ok' = 'true', 'make expense: ' || r::text;
+  ASSERT (SELECT v.name FROM public.expense_vendors v WHERE v.id = (r->'expense'->>'vendor_id')::uuid) = 'Vercel', 'the client payload key new_vendor_name creates/links the vendor';
   ASSERT r->'expense'->>'source' = 'email' AND r->'expense'->>'source_ref' = 'msg-usd' AND r->'expense'->>'paid_from' = '1102', 'made by hand still an email expense';
   ASSERT jsonb_array_length(r->'attachments') = 1, 'stored attachments returned for the client to copy';
   ASSERT (SELECT status FROM public.expense_email_messages WHERE gmail_message_id = 'msg-usd') = 'drafted', 'message now drafted';

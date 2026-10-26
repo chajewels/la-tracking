@@ -75,20 +75,29 @@ Deno.serve(async (req) => {
   const g = (path: string) => fetch(`${GMAIL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 
   // 3. New messages.
-  const listRes = await g(`/messages?q=${encodeURIComponent(gmailQuery(lookback))}&maxResults=100`);
-  if (!listRes.ok) {
-    const detail = await listRes.text();
-    console.error("expenses-email-bills: list failed", listRes.status, detail.slice(0, 300));
-    return jsonResponse({ ok: false, error: "gmail_list_failed", status: listRes.status }, 502);
-  }
-  const listed = ((await listRes.json()).messages ?? []) as { id: string; threadId: string }[];
+  // Pages through the window until enough unseen messages are found (busy inboxes exceed one page).
   const known = new Set(c.known_ids ?? []);
-  const fresh = listed.filter((m) => !known.has(m.id)).slice(0, EMAIL_MAX_PER_RUN);
+  const fresh: { id: string; threadId: string }[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 5 && fresh.length < EMAIL_MAX_PER_RUN; page++) {
+    const listRes = await g(`/messages?q=${encodeURIComponent(gmailQuery(lookback))}&maxResults=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`);
+    if (!listRes.ok) {
+      const detail = await listRes.text();
+      console.error("expenses-email-bills: list failed", listRes.status, detail.slice(0, 300));
+      return jsonResponse({ ok: false, error: "gmail_list_failed", status: listRes.status }, 502);
+    }
+    const body = await listRes.json() as { messages?: { id: string; threadId: string }[]; nextPageToken?: string };
+    for (const m of body.messages ?? []) if (!known.has(m.id) && fresh.length < EMAIL_MAX_PER_RUN) fresh.push(m);
+    pageToken = body.nextPageToken;
+    if (!pageToken) break;
+  }
 
   let runId: string | null = null;
   if (!dry) {
     const { data: run } = await supabase.rpc("expenses_email_run", { p: { phase: "start", trigger, run_by: ctx.user?.id ?? null } });
-    runId = (run as { run_id?: string })?.run_id ?? null;
+    const started = run as { run_id?: string; error?: string } | null;
+    if (started?.error === "run_active") return jsonResponse({ ok: false, error: "run_active" }, 409);
+    runId = started?.run_id ?? null;
   }
   const counts: Record<"looked_at" | "drafted" | "matched" | "needs_review" | "skipped" | "errors", number> =
     { looked_at: 0, drafted: 0, matched: 0, needs_review: 0, skipped: 0, errors: 0 };
@@ -211,8 +220,10 @@ async function processMessage(id: string, threadId: string, d: Deps): Promise<Re
   const out = created as { ok?: boolean; error?: string; expense?: { id: string } };
   if (!out?.ok) {
     if (out?.error === "already_generated") {
-      await d.supabase.rpc("expenses_email_record", { p: { ...base, status: "skipped", extracted: { ...base.extracted, why: "An expense already exists for this email." } } });
-      return { ...summary, status: "skipped" };
+      const { data: existing } = await d.supabase.from("expenses").select("id").eq("source", "email").eq("source_ref", id).neq("status", "void").limit(1).maybeSingle();
+      const existingId = (existing as { id?: string } | null)?.id ?? null;
+      await d.supabase.rpc("expenses_email_record", { p: { ...base, status: "drafted", expense_id: existingId, extracted: { ...base.extracted, why: "An expense already exists for this email." } } });
+      return { ...summary, status: "drafted", expense_id: existingId };
     }
     throw new Error(`draft_failed:${out?.error ?? "unknown"}`);
   }

@@ -404,6 +404,14 @@ until the owner picks a real one; attachments go on the draft as the receipt; of
   (never downgrades a drafted row), draft creation with fallback category + approval blocked until
   recategorised, recurring match + attach (±7 d / ±1 %) and no match outside, owner actions (make expense
   from a needs-review message, already_generated, dismiss, enable switch audited), staff scope, housekeeping.
+- Independent review applied before the PR: "Make expense" now reads the client's `new_vendor_name` key (the
+  vendor was silently dropped); the holding category is hidden from the manual picker and the main list's
+  Approve is disabled for drafts still in it, with `category_required` mapped to a sentence; the recurring
+  match requires the vendor to agree whenever one was read (category alone only when no vendor; vendors under
+  3 letters ignored) and never re-attaches to a draft that already carries an email; one run at a time
+  (`run_active`, 10-minute stale guard); a second run that finds the draft already made records it as drafted
+  with the existing expense; Gmail listing pages through the window; `..` collapsed in file names; the
+  dialog reads the function's error body so `gmail_auth_failed` shows its own sentence.
 - Edge function: `deno lint` + `deno check` clean (existing google-auth callers still type-check).
 - tsc exit 0; Vitest email-bills (11) + full suite (115 files / 1,866) pass; build passes; lint unchanged
   (881 / 150).
