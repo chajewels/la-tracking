@@ -2029,3 +2029,21 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   UNION ALL `gl_cogs_events(date)` (cogs_sale, cogs_return, trade_in_received, trade_in_resold; source ids md5-derived uuids).
 - RPCs (authenticated, permission inside): `get_sales_costs(date)`, `get_inventory_valuation()`, `fc_real_profit(date, date)` — view_ledger.
 - Fiscal year: `fiscal_year_start_month` seed is now "4" (April–March, owner 2026-10-26) — changed in the 2b migration file since it is unapplied.
+
+## Clearing / transfers / peso revaluation (Expenses Phase 6, 2026-10-26)
+
+- Migration `20270105100000_expenses_clearing_fx.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 6".
+- `php_jpy_rate_history` (effective_from PK, rate, set_by, created_at) — RLS SELECT view_ledger; filled by trigger
+  `system_settings_php_jpy_rate_log` (AFTER INSERT OR UPDATE on system_settings; audit entity 'system_setting' / md5('php_jpy_rate')::uuid)
+  and `set_php_jpy_rate(numeric, date)` (admin_settings). `gl_rate_at(date)` internal.
+- `provider_settlements` (provider square|paidy|stripe|cod_carrier, received_on, period_from/to, amount_received_jpy, fees_jpy,
+  adjustments_jpy, bank_account FK gl_accounts, reference, note, created_by, voided_at/by/reason) — RLS SELECT view_ledger; writes via
+  `record_provider_settlement(jsonb)` / `void_provider_settlement(uuid, text)` (post_journal). `gl_clearing_account(provider)` → 1130/1131/1132/1140.
+- `fund_transfers` (transfer_on, from_account/amount/currency, to_account/amount/currency, fee_amount/currency/account, reference, note,
+  voided…) — RLS SELECT view_ledger; `record_fund_transfer(jsonb)` / `void_fund_transfer(uuid, text)` (post_journal).
+- `gl_current_events` = base ∪ cogs ∪ `gl_clearing_events` (square_fee, settlement_payout, settlement_fee, settlement_adjustment,
+  fund_transfer, fx_revaluation). fx_revaluation reads posted PHP lines of asset/liability accounts up to each month end; source id
+  md5('fxrev:<account>:<YYYY-MM>')::uuid.
+- Trigger `expenses_auto_fee_guard` on expenses (BEFORE INSERT OR UPDATE OF category_id): system_keys square_fees / paidy_fees /
+  stripe_fees raise `category_booked_automatically` (check_violation). `expenses_email_context` re-stated to exclude them.
+- Reads: `get_clearing_summary(int)`, `get_fx_revaluation(date)`, `get_rate_history()` — view_ledger.

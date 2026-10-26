@@ -34,7 +34,9 @@ CREATE TABLE public.store_credit_lots (
 CREATE TABLE public.store_credit_transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), customer_id uuid NOT NULL DEFAULT gen_random_uuid(), lot_id uuid, txn_type store_credit_txn_type NOT NULL,
   amount numeric(12,2) NOT NULL, currency account_currency NOT NULL, account_id uuid, cash_order_id uuid, notes text, created_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE public.square_payments (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), environment text, test boolean DEFAULT false);
+CREATE TABLE public.square_payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), cash_order_id uuid, environment text, test boolean DEFAULT false, status text DEFAULT 'captured',
+  amount_jpy numeric, captured_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now(), last_payload jsonb);
 CREATE TABLE public.square_refunds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), square_refund_id text, square_payment_row uuid, cash_order_id uuid, amount_jpy bigint, status text,
   reason text, provider_created_at timestamptz, created_at timestamptz NOT NULL DEFAULT now());

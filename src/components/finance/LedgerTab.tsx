@@ -19,6 +19,7 @@ import { isMissingFunction } from "@/components/website/shipping-fees";
 import { callRpc } from "@/components/finance/useBookedMonths";
 import { monthKeyTokyo, shiftMonth, todayTokyo } from "@/components/finance/expenses";
 import CostOfGoodsSection from "@/components/finance/CostOfGoodsSection";
+import ClearingFxSection from "@/components/finance/ClearingFxSection";
 import { costCoverageLabel, normaliseRealProfit } from "@/components/finance/cogs";
 import {
   JOURNAL_KIND_LABEL, KIND_LABEL, KIND_ORDER, LEDGER_COA_KEY, LEDGER_JOURNALS_KEY, LEDGER_STATUS_KEY, LEDGER_TB_KEY, SOURCE_TYPES,
@@ -50,7 +51,7 @@ export default function LedgerTab() {
   const qc = useQueryClient();
   const today = todayTokyo();
   const thisMonth = monthKeyTokyo();
-  const [view, setView] = useState<"journals" | "trial" | "cogs" | "accounts" | "periods">("journals");
+  const [view, setView] = useState<"journals" | "trial" | "cogs" | "clearing" | "accounts" | "periods">("journals");
   const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
@@ -158,12 +159,14 @@ export default function LedgerTab() {
           <TabsTrigger value="journals">Journals</TabsTrigger>
           <TabsTrigger value="trial">Trial balance</TabsTrigger>
           <TabsTrigger value="cogs">Cost of goods</TabsTrigger>
+          <TabsTrigger value="clearing">Clearing &amp; FX</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="periods">Months</TabsTrigger>
         </TabsList>
         <TabsContent value="journals"><JournalsView canPost={s.can_post} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="trial"><TrialBalanceView thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} /></TabsContent>
         <TabsContent value="cogs"><CostOfGoodsSection thisMonth={thisMonth} today={today} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
+        <TabsContent value="clearing"><ClearingFxSection thisMonth={thisMonth} today={today} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="accounts"><AccountsView canAdmin={s.can_admin} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="periods"><PeriodsView periods={s.periods} canClose={s.can_close} ledgerStart={s.ledger_start_date} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
       </Tabs>
