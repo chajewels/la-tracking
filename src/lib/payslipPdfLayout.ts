@@ -3,7 +3,7 @@
  * "Corporate PDF"). renderPayslipPage (src/lib/payslipPdf.ts) draws from these, so what is on the
  * page can be tested without a browser. Every figure comes from the STORED payslip.
  */
-import { REPRESENTATIVE } from '@/lib/companyInfo';
+import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
   STATUS_LABEL, figuresChanged, formatDate, formatPeso, formatYen, longMonthLabel, paymentLine, round2,
   type Payslip,
@@ -93,6 +93,64 @@ export function rightBlockLayout(opts: {
     blockRight: valueX + widestValue,
     left: Math.min(titleX, labelRight - widestLabel),
   };
+}
+
+// ── Letterhead (left block) ─────────────────────────────────────────────────
+
+export type LetterheadRole = 'name' | 'legal' | 'address' | 'contact' | 'corporate';
+export interface LetterheadLine { role: LetterheadRole; text: string }
+
+/** The five fixed letterhead lines (owner 2026-10-27): no item is ever split across lines. */
+export function letterheadLines(): LetterheadLine[] {
+  return [
+    { role: 'name', text: NAME_EN },
+    { role: 'legal', text: LEGAL_NAME_JA },
+    { role: 'address', text: ADDRESS_EN },
+    { role: 'contact', text: `Tel ${PHONE} · ${EMAIL}` },
+    { role: 'corporate', text: `Corporate No. ${CORPORATE_NO}` },
+  ];
+}
+
+/** Width of `text` at `size` pt (the canvas passes ctx.measureText after setting the font). */
+export type MeasureText = (text: string, size: number) => number;
+
+export const LETTERHEAD_SMALL_START = 8.5;
+export const LETTERHEAD_SMALL_MIN = 8;
+const LETTERHEAD_STEP = 0.25;
+
+/**
+ * The largest size from `start` down to `min` (in 0.25 pt steps) at which every text fits on one
+ * line within `maxWidth`; `fits` is false when even `min` is too wide.
+ */
+export function fitFontSize(
+  measure: MeasureText, texts: string[], maxWidth: number,
+  start: number = LETTERHEAD_SMALL_START, min: number = LETTERHEAD_SMALL_MIN,
+): { size: number; fits: boolean } {
+  for (let size = start; size >= min - 1e-9; size = Math.round((size - LETTERHEAD_STEP) * 100) / 100) {
+    if (texts.every(t => measure(t, size) <= maxWidth)) return { size, fits: true };
+  }
+  return { size: min, fits: false };
+}
+
+/** The address split at the comma before "Tokyo" — never inside a number. */
+export function splitAddress(address: string): string[] {
+  const i = address.indexOf(', Tokyo');
+  return i < 0 ? [address] : [address.slice(0, i + 1), address.slice(i + 2)];
+}
+
+/**
+ * The address and contact lines at one size that fits `maxWidth`. Only when even 8 pt is too wide
+ * is the address broken at the comma before "Tokyo"; the contact and corporate-number lines are
+ * never broken.
+ */
+export function letterheadSmallLines(measure: MeasureText, maxWidth: number): { size: number; lines: LetterheadLine[] } {
+  const small = letterheadLines().filter(l => l.role === 'address' || l.role === 'contact' || l.role === 'corporate');
+  const fit = fitFontSize(measure, small.map(l => l.text), maxWidth);
+  if (fit.fits) return { size: fit.size, lines: small };
+  const lines = small.flatMap(l => l.role === 'address'
+    ? splitAddress(l.text).map(text => ({ role: 'address' as const, text }))
+    : [l]);
+  return { size: LETTERHEAD_SMALL_MIN, lines };
 }
 
 // ── Earnings ────────────────────────────────────────────────────────────────

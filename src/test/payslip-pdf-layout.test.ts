@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildPayslipPdf } from "@/lib/payslipPdf";
 import {
-  assertEarningsMatch, earningsRows, earningsTotal, footer, headerDetails, payslipNumber, paymentBlock,
+  assertEarningsMatch, earningsRows, earningsTotal, fitFontSize, footer, headerDetails, letterheadLines,
+  letterheadSmallLines, payslipNumber, paymentBlock, splitAddress,
   paymentNote, periodLabel, proofCaption, rightBlockLayout, signatureBlock,
 } from "@/lib/payslipPdfLayout";
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from "@/lib/companyInfo";
@@ -102,6 +103,61 @@ describe("rightBlockLayout", () => {
     expect(a.titleRight).toBe(100);
     expect(b.titleRight).toBe(100);
     expect(b.titleX).toBe(a.titleX - 8);
+  });
+});
+
+describe("letterhead (left block)", () => {
+  /** A stand-in measure: every character is half the font size wide. */
+  const measure = (t: string, size: number) => Array.from(t).length * size * 0.5;
+
+  it("five fixed lines, the corporate number on its own line", () => {
+    const lines = letterheadLines();
+    expect(lines.map(l => l.text)).toEqual([
+      "Cha Jewels Co., Ltd.",
+      LEGAL_NAME_JA,
+      "Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan",
+      "Tel 03-6657-6129 · sales@chajewelsjp.com",
+      "Corporate No. 7011801044120",
+    ]);
+    expect(lines.filter(l => l.text.includes("7011801044120"))).toEqual([{ role: "corporate", text: "Corporate No. 7011801044120" }]);
+  });
+
+  it("no line is a lone 'Japan' or a bare number, at any width", () => {
+    for (const width of [500, 300, 280, 260, 200, 120]) {
+      const { lines } = letterheadSmallLines(measure, width);
+      for (const l of lines) {
+        expect(l.text.trim()).not.toBe("Japan");
+        expect(l.text.trim()).not.toMatch(/^[\d-]+$/);
+      }
+      expect(lines.map(l => l.role)).toContain("corporate");
+    }
+  });
+
+  it("font step: the largest size from 8.5 down to 8 (0.25 steps) at which every line fits", () => {
+    const addr = "Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan"; // 70 characters
+    expect(fitFontSize(measure, [addr], 70 * 4.25)).toEqual({ size: 8.5, fits: true });
+    expect(fitFontSize(measure, [addr], 70 * 4.25 - 0.01)).toEqual({ size: 8.25, fits: true });
+    expect(fitFontSize(measure, [addr], 70 * 4)).toEqual({ size: 8, fits: true });
+    expect(fitFontSize(measure, [addr], 70 * 4 - 0.01)).toEqual({ size: 8, fits: false });
+  });
+
+  it("fits on one line: three small lines, nothing broken", () => {
+    const r = letterheadSmallLines(measure, 70 * 4.13); // 8.5 pt = 297.5 too wide; 8.25 pt = 288.75 fits
+    expect(r.size).toBe(8.25);
+    expect(r.lines.map(l => l.role)).toEqual(["address", "contact", "corporate"]);
+  });
+
+  it("only when 8 pt is too wide: the address breaks at the comma before Tokyo, never inside a number", () => {
+    expect(splitAddress("Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku, Tokyo 124-0012, Japan"))
+      .toEqual(["Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku,", "Tokyo 124-0012, Japan"]);
+    const r = letterheadSmallLines(measure, 200);
+    expect(r.size).toBe(8);
+    expect(r.lines.map(l => l.text)).toEqual([
+      "Time Mansion 301, 6-5-1 Tateishi, Katsushika-ku,",
+      "Tokyo 124-0012, Japan",
+      "Tel 03-6657-6129 · sales@chajewelsjp.com",
+      "Corporate No. 7011801044120",
+    ]);
   });
 });
 

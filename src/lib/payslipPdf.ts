@@ -10,10 +10,10 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from 'pdf-lib';
 import badgeUrl from '@/assets/brand/cha-jewels-badge-512.webp';
-import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE } from '@/lib/companyInfo';
 import { formatDate, formatPeso, payslipFileName, type Payslip } from '@/lib/payslips';
 import {
-  assertEarningsMatch, earningsRows, footer, headerDetails, payslipNumber, paymentBlock, paymentNote,
+  assertEarningsMatch, earningsRows, footer, headerDetails, letterheadLines, letterheadSmallLines, payslipNumber,
+  paymentBlock, paymentNote,
   proofCaption, rightBlockLayout, signatureBlock,
 } from '@/lib/payslipPdfLayout';
 
@@ -267,15 +267,17 @@ export async function renderPayslipPage(
   const BADGE = 64;
   if (badge) ctx.drawImage(badge, 0, 0, BADGE, BADGE);
   const lx = badge ? BADGE + 12 : 0;
+  // Fixed lines between the badge and the right block; never a mid-item wrap (owner 2026-10-27).
   const leftMax = right.left - 18 - lx;
+  const [nameLine, legalLine] = letterheadLines();
   let ly = 2;
   font(700, 16, SERIF);
-  text(NAME_EN, lx, ly, C.goldDark); ly += 21;
+  text(nameLine.text, lx, ly, C.goldDark); ly += 21;
   font(600, 10);
-  text(LEGAL_NAME_JA, lx, ly); ly += 15;
-  font(400, 8.5);
-  for (const l of wrap(ctx, ADDRESS_EN, leftMax)) { text(l, lx, ly, C.muted); ly += 11.5; }
-  for (const l of wrap(ctx, `Tel ${PHONE} · ${EMAIL} · Corporate No. ${CORPORATE_NO}`, leftMax)) { text(l, lx, ly, C.muted); ly += 11.5; }
+  text(legalLine.text, lx, ly); ly += 15;
+  const small = letterheadSmallLines((str, size) => { font(400, size); return ctx.measureText(str).width; }, leftMax);
+  font(400, small.size);
+  for (const l of small.lines) { text(l.text, lx, ly, C.muted); ly += small.size + 3.5; }
   const leftHeight = Math.max(badge ? BADGE : 0, ly);
 
   // b. Gold rule under the band.

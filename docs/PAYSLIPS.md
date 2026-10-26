@@ -176,8 +176,18 @@ payslip view and the Excel file are unchanged. Frontend only: no migration, no e
   - `NAME_EN`, `ADDRESS_EN`, `PHONE`, `EMAIL`, `CORPORATE_NO`, `REPRESENTATIVE`.
 - **Layout (A4 portrait, top to bottom):**
   1. **Letterhead band:**
-     - Left: badge (64 pt), then Cha Jewels Co., Ltd. (serif, gold-dark), the Japanese legal name,
-       the address, and "Tel · email · Corporate No.".
+     - Left: badge (64 pt), then five fixed lines (owner review 2026-10-27; nothing wraps inside an item):
+       1. Cha Jewels Co., Ltd. (serif, gold-dark)
+       2. The Japanese legal name
+       3. The address
+       4. "Tel · email"
+       5. "Corporate No. …"
+
+       Lines 3–5 share one font size: the largest from 8.5 pt down to 8 pt (0.25 pt steps, measured
+       with `ctx.measureText`) at which each fits on one line between the badge and the right block.
+       Only if the address is still too wide at 8 pt is it broken at the comma before "Tokyo". It is
+       never broken inside a number. See `letterheadLines`, `fitFontSize` and `letterheadSmallLines`.
+       With the Hub's fonts in Chromium, the address takes the Tokyo break.
      - Right: "PAYSLIP" and the details block (Pay period, Payslip no., Issued, Status; Paid in green).
      - The band is as tall as the taller side, and both sides are top-aligned.
   2. A 2 pt gold rule.
