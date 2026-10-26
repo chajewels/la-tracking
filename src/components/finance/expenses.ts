@@ -267,6 +267,7 @@ export const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
   { value: "payroll", label: "Payroll" },
   { value: "commission", label: "Commission" },
   { value: "recurring", label: "Recurring bills" },
+  { value: "email", label: "Emailed bills" },
 ];
 
 export function sourceLabel(s: string): string {
@@ -414,6 +415,7 @@ export function expenseRefusal(code: string): string {
     case "invalid_receipt_path": return "The receipt could not be attached. Try uploading it again.";
     case "rate_not_set": return "The peso rate is not set in the Hub, so a peso expense can't be approved yet.";
     case "category_booked_automatically": return "Staff payroll and Sales commission are booked from Timesheet and Commissions, not by hand.";
+    case "category_required": return "This emailed bill is still in the holding category. Edit it and pick a real category before approving.";
     default: return "Something went wrong. Try again in a moment.";
   }
 }
@@ -424,8 +426,20 @@ export function expenseRefusal(code: string): string {
  */
 export const AUTO_BOOKED_SYSTEM_KEYS = ["payroll", "commission"];
 
+/** Phase 4 holding category for emailed bills the reader could not place — never offered in the picker. */
+export const HOLDING_SYSTEM_KEYS = ["uncategorised"];
+
 export function canEnterManually(c: { active: boolean; system_key: string | null }): boolean {
-  return c.active && !(c.system_key != null && AUTO_BOOKED_SYSTEM_KEYS.includes(c.system_key));
+  return c.active && !(c.system_key != null && (AUTO_BOOKED_SYSTEM_KEYS.includes(c.system_key) || HOLDING_SYSTEM_KEYS.includes(c.system_key)));
+}
+
+/**
+ * The code behind a refusal: RPCs return `error` codes; the Phase 4 approval guard is a trigger, so its
+ * `category_required` arrives as the message of a 23514 check violation.
+ */
+export function refusalCode(e: { code?: string; message?: string }): string {
+  if (e.message && /category_required/.test(e.message)) return "category_required";
+  return e.code ?? e.message ?? "";
 }
 
 /** Receipt files the bucket accepts (same list as the migration). Max 10 MB. */

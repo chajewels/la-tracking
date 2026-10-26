@@ -5,7 +5,7 @@
 
 -- T1/T2 shape after the migration (applied twice by the runner).
 DO $t$ BEGIN
-  ASSERT (SELECT count(*) FROM public.expense_categories) = 28, 'expected 28 categories';
+  ASSERT (SELECT count(*) FROM public.expense_categories WHERE system_key IS DISTINCT FROM 'uncategorised') = 28, 'expected 28 categories (plus the Phase 4 holding category when applied)';
   ASSERT (SELECT count(DISTINCT group_key) FROM public.expense_categories) = 8, 'expected 8 groups';
   ASSERT (SELECT count(*) FROM public.role_permissions WHERE permission_key IN ('manage_expenses','approve_expenses')) = 10, 'expected 10 permission rows';
   ASSERT (SELECT count(*) FROM public.role_permissions WHERE permission_key IN ('manage_expenses','approve_expenses') AND is_allowed) = 2, 'only admin allowed';
@@ -169,7 +169,7 @@ DO $t$ DECLARE r jsonb; BEGIN
   r := public.get_expense_book('2026-10-15');
   ASSERT r->>'month' = '2026-10-01', 'month start: ' || (r->>'month');
   ASSERT jsonb_array_length(r->'expenses') = 5, 'october rows: ' || jsonb_array_length(r->'expenses');
-  ASSERT jsonb_array_length(r->'categories') = 28 AND jsonb_array_length(r->'vendors') = 1, 'lists';
+  ASSERT jsonb_array_length(r->'categories') IN (28, 29) AND jsonb_array_length(r->'vendors') = 1, 'lists';
   ASSERT (r->'expenses'->0->>'category_name') IS NOT NULL, 'joined names';
   ASSERT (r->>'php_jpy_rate')::numeric = 0.42 AND (r->>'can_approve')::boolean, 'rate + rights';
   r := public.get_expense_book('2026-09-01');
@@ -259,7 +259,8 @@ DO $t$ DECLARE cat uuid; e uuid; BEGIN
   BEGIN
     TRUNCATE public.expenses;
     RAISE EXCEPTION 'truncate should fail';
-  EXCEPTION WHEN check_violation THEN NULL; END;
+  EXCEPTION WHEN check_violation OR feature_not_supported THEN NULL; END;
+  ASSERT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.expenses'::regclass AND tgname = 'expenses_refuse_truncate'), 'truncate guard present';
   SELECT id INTO e FROM public.expenses WHERE description = 'reuse vendor';
   BEGIN
     UPDATE public.expenses SET created_by = gen_random_uuid() WHERE id = e;

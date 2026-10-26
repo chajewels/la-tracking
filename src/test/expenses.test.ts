@@ -119,6 +119,7 @@ describe("expenses — form", () => {
     expect(canEnterManually({ active: true, system_key: "payroll" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: "commission" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: "bonus" })).toBe(true);
+    expect(canEnterManually({ active: true, system_key: "uncategorised" })).toBe(false);
     expect(canEnterManually({ active: true, system_key: null })).toBe(true);
     expect(canEnterManually({ active: false, system_key: null })).toBe(false);
   });

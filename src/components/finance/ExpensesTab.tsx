@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { usePermissions } from '@/contexts/PermissionsContext';
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban, Check, ChevronLeft, ChevronRight, FileText, Loader2, Paperclip, Pencil, Plus, Receipt, Search,
@@ -24,11 +26,14 @@ import { PAID_FROM_KEY, type PaidFromAccount } from "@/components/finance/ledger
 import RecurringBillsDialog from "@/components/finance/RecurringBillsDialog";
 import { useRecurringBills } from "@/components/finance/useRecurringBills";
 import { billsToConfirm, olderOpenDrafts, spreadLabel } from "@/components/finance/recurring";
+import EmailBillsDialog from "@/components/finance/EmailBillsDialog";
+import { useEmailBills } from "@/components/finance/useEmailBills";
+import { type EmailBill, emailDraftsToConfirm, needsCategory } from "@/components/finance/email-bills";
 import {
   EXPENSE_BOOK_KEY, EXPENSE_GROUPS, EXPENSE_RECEIPT_BUCKET, PAYMENT_METHODS, STATUS_LABEL,
   type Expense, type ExpenseBookState, type ExpenseFilters, type ExpenseForm, type ExpenseGroupKey,
   type SourceFilter, type StatusFilter, SOURCE_FILTERS,
-  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses,
+  canEnterManually, cleanAmountInput, detailLines, emptyExpenseForm, expensePayload, expenseRefusal, filterExpenses, refusalCode,
   monthFromSearch, paidFromProblem, prepaidProblem, sourceLabel,
   formFromExpense, formatAmount, formatYen, groupLabel, monthKeyTokyo, monthLabel, normaliseBook,
   paymentMethodLabel, previewJpy, receiptContentType, receiptPath, receiptProblem, shiftMonth, totalsByGroup,
@@ -67,6 +72,7 @@ function dateLabel(iso: string): string {
 
 export default function ExpensesTab() {
   const qc = useQueryClient();
+  const { can } = usePermissions();
   const location = useLocation();
   const [month, setMonth] = useState<string>(() => monthFromSearch(location.search) ?? monthKeyTokyo());
   const [filters, setFilters] = useState<ExpenseFilters>({ status: "all", group: "all", source: "all", search: "" });
@@ -77,6 +83,8 @@ export default function ExpensesTab() {
   const [voidReason, setVoidReason] = useState("");
   const [vendorMode, setVendorMode] = useState<"pick" | "new">("pick");
   const [approving, setApproving] = useState<Expense | null>(null);
+  /** Phase 4: when set, the open Add dialog creates the draft FROM this email (email_bill_make_expense). */
+  const [emailSource, setEmailSource] = useState<EmailBill | null>(null);
 
   const state = useQuery<ExpenseBookState>({
     queryKey: [...EXPENSE_BOOK_KEY, month],
@@ -98,7 +106,7 @@ export default function ExpensesTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: EXPENSE_BOOK_KEY });
 
   const onError = (e: Error & { code?: string }) => {
-    toast({ title: "Not saved", description: expenseRefusal(e.code ?? e.message), variant: "destructive" });
+    toast({ title: "Not saved", description: expenseRefusal(refusalCode(e)), variant: "destructive" });
   };
 
   // Phase 2b: which bank / cash account paid it. Absent (PGRST202) until the ledger migration is applied.
@@ -118,11 +126,32 @@ export default function ExpensesTab() {
   const paidFromList = paidFromAccounts.data ?? null;
   const recurring = useRecurringBills(Boolean(book?.can_manage || book?.can_approve));
   const recurringAvailable = recurring.data?.available === true;
+  const emailBills = useEmailBills(Boolean(book?.can_manage || book?.can_approve));
+  const emailAvailable = emailBills.data?.available === true;
 
   const save = useMutation({
     mutationFn: async (v: { form: ExpenseForm; file: File | null }) => {
-      const out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
+      let emailAttachment: { path: string; name: string; mime: string } | null = null;
+      let out: Record<string, unknown>;
+      if (emailSource && !v.form.id) {
+        const payload = { ...expensePayload(v.form), paid_from: v.form.paid_from || null };
+        out = await callRpc("email_bill_make_expense", { p_message_id: emailSource.gmail_message_id, p: payload });
+        const atts = out.attachments as { path: string; name: string; mime: string }[] | undefined;
+        emailAttachment = atts?.[0] ?? null;
+      } else {
+        out = await callRpc("upsert_expense", { p: expensePayload(v.form) });
+      }
       const saved = out.expense as { id: string; paid_from?: string | null; prepaid_months?: number | null } | undefined;
+      if (saved?.id && emailAttachment && !v.file) {
+        try {
+          const { data: blob, error } = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET).download(emailAttachment.path);
+          if (!error && blob) {
+            const path = receiptPath(saved.id, emailAttachment.name);
+            const up = await supabase.storage.from(EXPENSE_RECEIPT_BUCKET).upload(path, blob, { cacheControl: "3600", upsert: false, contentType: emailAttachment.mime || undefined });
+            if (!up.error) await callRpc("attach_expense_receipt", { p_id: saved.id, p_path: path });
+          }
+        } catch { /* the draft stands; the receipt can be attached by hand */ }
+      }
       // From here on the draft exists: a retry must edit it, never insert a second one.
       if (saved?.id && !v.form.id) setForm((f) => (f ? { ...f, id: saved.id } : f));
       let paidFromFailed = false;
@@ -163,9 +192,10 @@ export default function ExpensesTab() {
       }
       setForm(null);
       setReceiptFile(null);
+      setEmailSource(null);
     },
     onError,
-    onSettled: refresh,
+    onSettled: () => { refresh(); qc.invalidateQueries({ queryKey: ["finance", "expenses", "email-bills"] }); },
   });
 
   const approve = useMutation({
@@ -322,12 +352,38 @@ export default function ExpensesTab() {
               {recurringAvailable && (
                 <RecurringBillsDialog canManage={!!book.can_manage} paidFromList={paidFromList} categories={book.categories} vendors={book.vendors} onChanged={refresh} />
               )}
+              {emailAvailable && (
+                <EmailBillsDialog canManage={!!book.can_manage} canAdmin={can('admin_settings')} categories={book.categories} onChanged={refresh}
+                  onMakeExpense={(m, prefill) => { setEmailSource(m); openForm({ ...emptyExpenseForm(), ...prefill }); setVendorMode(prefill.new_vendor_name ? "new" : "pick"); }} />
+              )}
               {book.can_manage && (
                 <Button size="sm" className="h-9" onClick={() => openForm(emptyExpenseForm())} data-testid="expenses-add">
                   <Plus className="mr-1 h-4 w-4" /> Add expense
                 </Button>
               )}
             </div>
+
+            {/* Phase 4: drafts the mailbox reader created */}
+            {emailDraftsToConfirm(expenses).length > 0 && (
+              <div className="rounded-md border border-sky-300 bg-sky-50 dark:bg-sky-950/30 p-3 text-sm" data-testid="from-email">
+                <div className="font-medium">From email ({emailDraftsToConfirm(expenses).length})</div>
+                <p className="text-xs text-muted-foreground">Read from the sales@ mailbox. Check the figures and the receipt, pick the category where it says so, then Approve.</p>
+                <ul className="mt-2 space-y-1">
+                  {emailDraftsToConfirm(expenses).map((e) => {
+                    const noCat = needsCategory(e, book.categories);
+                    return (
+                      <li key={e.id} className="flex flex-wrap items-center justify-between gap-2">
+                        <span>{dateLabel(e.expense_date)} · {e.description} · {formatAmount(e.amount, e.currency)}{noCat ? <Badge variant="destructive" className="ml-2">needs a category</Badge> : null}</span>
+                        <span className="flex gap-2">
+                          {book.can_manage && <Button size="sm" variant="outline" className="min-h-11" onClick={() => openForm(formFromExpense(e))}>Edit</Button>}
+                          {book.can_approve && <Button size="sm" className="min-h-11" disabled={noCat} title={noCat ? "Pick a category first" : undefined} onClick={() => setApproving(e)}>Approve</Button>}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
 
             {/* Phase 3: recurring drafts waiting for confirmation */}
             {recurring.data?.available && olderOpenDrafts(recurring.data.bills, new Set(expenses.map((e) => e.id))) > 0 && (
@@ -421,7 +477,8 @@ export default function ExpensesTab() {
                         </Button>
                       )}
                       {e.status === "draft" && book.can_approve && (
-                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending} data-testid={`expense-approve-${e.id}`}>
+                        <Button size="sm" onClick={() => setApproving(e)} disabled={approve.isPending || needsCategory(e, book.categories)}
+                          title={needsCategory(e, book.categories) ? "Pick a category first" : undefined} data-testid={`expense-approve-${e.id}`}>
                           <Check className="mr-1 h-3.5 w-3.5" /> Approve
                         </Button>
                       )}
@@ -445,10 +502,10 @@ export default function ExpensesTab() {
       </CardContent>
 
       {/* Add / edit */}
-      <Dialog open={form !== null} onOpenChange={(o) => { if (!o && !save.isPending) { setForm(null); setReceiptFile(null); } }}>
+      <Dialog open={form !== null} onOpenChange={(o) => { if (!o && !save.isPending) { setForm(null); setReceiptFile(null); setEmailSource(null); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{form?.id ? "Edit expense" : "Add expense"}</DialogTitle>
+            <DialogTitle>{form?.id ? "Edit expense" : emailSource ? "Expense from email" : "Add expense"}</DialogTitle>
             <DialogDescription>Saved as a draft. It counts in the totals once it is approved.</DialogDescription>
           </DialogHeader>
           {form && book && (
