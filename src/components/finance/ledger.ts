@@ -20,6 +20,8 @@ export type MethodKind = "bank" | "cash" | "clearing" | "cod" | "non_cash" | "su
 export type GlAccount = {
   code: string; name: string; kind: AccountKind; contra: boolean; currency_hint: string | null;
   active: boolean; sort_order: number; system_key: string | null;
+  /** 勘定科目 (Phase 7) — null before the statements migration is applied or for a new account without one. */
+  name_ja?: string | null;
   debit_jpy?: number; credit_jpy?: number; balance_jpy?: number;
 };
 export type MethodMap = { spelling: string; account_code: string; kind: MethodKind; note: string | null };
@@ -131,6 +133,7 @@ export function normaliseAccounts(raw: unknown): GlAccount[] {
   if (!Array.isArray(raw)) return [];
   return (raw as Record<string, unknown>[]).map((a) => ({
     ...(a as unknown as GlAccount),
+    name_ja: typeof a.name_ja === "string" && a.name_ja.trim() ? a.name_ja : null,
     sort_order: num(a.sort_order), debit_jpy: num(a.debit_jpy), credit_jpy: num(a.credit_jpy), balance_jpy: num(a.balance_jpy),
   }));
 }

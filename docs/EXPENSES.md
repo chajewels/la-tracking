@@ -15,11 +15,12 @@ never recorded as paid.
 |---|---|---|
 | 1 | Expenses ledger (this doc) | built — migration `20261230100000_expenses_ledger.sql` |
 | 2 | Payroll + commission "Mark as paid" (pages stay in CSR Operations) | built — migration `20261231100000_expenses_payroll_commission.sql` |
-| 2b | General ledger core: chart of accounts, derived journals for every Hub money event, fiscal year (May–Apr), month close | built — migration `20270101100000_general_ledger_core.sql` (plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`) |
+| 2b | General ledger core: chart of accounts, derived journals for every Hub money event, fiscal year (April–March, owner 2026-10-26), month close | built — migration `20270101100000_general_ledger_core.sql` (plan `claude/expenses-phase2b-ledger-plan-2026-10-25.md`) |
 | 3 | Recurring bills + prepaid amortisation | built — migration `20270102100000_expenses_recurring_prepaid.sql` (+ prepaid column/events in the 2b file; plan `claude/expenses-phase3-recurring-plan-2026-10-25.md`) |
 | 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | built — migration `20270103100000_expenses_email_bills.sql` + edge function `expenses-email-bills` (separate Lovable deploy prompt; needs gmail.readonly in Google Admin; plan `claude/expenses-phase4-email-bills-plan-2026-10-26.md`) |
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | built — migration `20270104100000_expenses_cost_of_goods.sql` (plan `claude/expenses-phase5-cogs-plan-2026-10-26.md`) |
 | 6 | Provider fees, clearing, FX revaluation | built — migration `20270105100000_expenses_clearing_fx.sql` (plan `claude/expenses-phase6-clearing-fx-plan-2026-10-26.md`) |
+| 7 | Statements (P&L / balance sheet / cash flow / ageing) + 税理士 pack | built — migration `20270106100000_expenses_statements.sql` (plan `claude/expenses-phase7-statements-plan-2026-10-26.md`) |
 | 7 | Statements (P&L, balance sheet, cash flow) + 税理士 pack (CSV + PDF) | not started |
 | 8 | Controls (period lock, bank reconciliation, completeness check) + full testing → owner-approved live apply → merge | not started |
 
@@ -592,6 +593,93 @@ since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO rem
   transfer endpoints; `gl_post_settled` removes the one-run lag of the revaluation; the Square-fee header no
   longer promises a refund mirror (the payload sum carries fee adjustments when refreshed); tests tightened.
 - tsc exit 0; Vitest clearing (5) + full suite (117 files / 1,878) pass; build passes; lint unchanged (881 / 150).
+
+## Phase 7 — Statements and the 税理士 pack
+
+Owner decisions 2026-10-26 (D1–D6 as recommended): the pack is a print-ready page (browser Print → Save as
+PDF; no PDF library — dependencies are frozen); statements follow the accountant's 試算表 sections with the
+Hub's eight expense groups as the 販管費 lines; a sale is export when the plan / order is in pesos and
+domestic when in yen (shown as two sub-lines under the one Sales account and as `tax_flag` on the journal
+CSV; plans whose currency disagrees with the customer's country are listed to check); every account carries
+the 勘定科目 name the accountant uses and both names print; variance flags at ±15 % or ±¥100,000, editable;
+indirect cash flow tied to the actual change in cash plus a 90-day collections forecast.
+
+### What existed (2026-10-26)
+Ledger → Trial balance showed one period's tiles and account rows; no comparison, balance sheet or cash flow
+*statement* (collections themselves are fully tracked under Finance → Payments — what was missing was the
+accounting summary that reconciles profit to the change in cash). No PDF path besides the customer statement's
+`window.print()`; the shared CSV helper had no UTF-8 BOM (Excel on Japanese Windows mis-reads 勘定科目 names
+without it); no tax flag anywhere; no Japanese account names; the Months tab still said "May – April".
+
+### How it works
+- **`gl_accounts.name_ja`** seeded for all 67 accounts (現金 / 普通預金 三井住友 / 売掛金（分割払い） / 商品 /
+  仕入高 / 給料手当 / 支払手数料 / …), editable by admins through `upsert_gl_account` (also on insert; ≤ 60
+  chars; an omitted `name_ja` keeps the current one). Shown on Ledger → Accounts (click to edit), the trial
+  balance, the statements, the pack and both CSVs.
+- **`get_statements(from, to)`** (view_ledger, read-only) builds everything from the posted journal lines in one
+  pass per account: current range, prior period (the same number of months before when the range is whole
+  months, otherwise the same number of days), prior year, balances at `to` and at the day before `from`,
+  the fiscal-year split for retained earnings, PHP-currency portions for the export split, and the
+  revaluation effect on cash.
+  - *Income statement* lines (each with current / prior / prior-year yen, Δ, Δ %, flag): 売上高 net of
+    4150 / 4160 / 4170 with 国内 / 輸出 sub-lines; 役務収益, 荷造運賃収入, 遅延損害金収入, 解約違約金収入;
+    → 営業収益; 仕入高 (5100 + 5500), vendors / appraisal / packaging / carrier (5200–5400), 商品評価損,
+    貸倒損失 → 売上原価 → 売上総利益; the eight 販管費 groups → 販売費及び一般管理費 → 営業利益; 雑収入,
+    為替差益, 為替差損, 支払利息 → 経常利益 = 当期純利益 (no tax lines in the Hub). Any account the Hub does
+    not know (added later) lands on a visible "Other …" catch-all line, so the totals always equal the trial
+    balance. Comparison columns are NULL (shown "—") when the comparison range starts before the ledger start.
+    Flag = |Δ| ≥ `statement_flag_jpy` or |Δ| / |prior| ≥ `statement_flag_pct` (prior ≠ 0).
+  - *Balance sheet* at `to` and the day before `from`: every asset / liability / equity account with a
+    balance, sectioned 流動資産 (code < 1500; grouped cash < 1130, clearing < 1190, receivables 1200 / 1210,
+    inventory 1300 / 1310, other) / 固定資産 / 流動負債 (< 2750) / 固定負債 / 純資産, plus two derived equity
+    lines: profit of earlier fiscal years since the ledger start and profit of the current fiscal year to
+    date (the ledger has no year-end close journal — 3100 stays what the owner books). Totals carry an
+    A − L − E check that is 0 by construction of the double entry.
+  - *Cash flow* (indirect): net profit, then −Δ of every non-cash balance-sheet account grouped (receivables
+    1200 / 1210 / 1140, clearing, suspense 1190 / 1195, inventory, prepaid, payables, deposits, store credit,
+    accrued pay, tax memo + refunds payable, 預り金 / 仮受金) as operating; equipment as investing; loans,
+    capital / retained-earnings entries and draws as financing; a catch-all for accounts added later; then
+    net change, cash at the start and end (asset accounts < 1130), actual change and the difference (0 unless
+    something is wrong — shown, never hidden), and the part of the cash change that is only revaluation.
+  - *Ageing* comes from `get_receivable_ageing(as_of)` (also used alone): open layaway instalments
+    (pending / partially_paid / overdue of live, non-test plans) by days past due at `as_of` — not due /
+    1–30 / 31–60 / 61–90 / 90+ with plan count, ₱, ¥ and yen total at the Hub rate; pending cash-order
+    balances by order age; scheduled collections due in the next 30 / 60 / 90 days; and the ledger balances
+    of 1200 / 1210 beside them. The schedule keeps no history, so a past `as_of` ages *today's* open lines
+    as they stood then (`basis` says so).
+  - Also: `currency_checks` (plans / orders in the range whose currency disagrees with the customer's
+    country, ≤ 50 listed + count), `outside_hub` (役員報酬, 法定福利費), journal count, thresholds, rate.
+- **`get_journal_export(from, to, offset)`** (view_ledger): every journal line as a flat row — date, journal
+  no., line no., kind, status, source type, source date, description, account code / name / 勘定科目,
+  Dr / Cr yen, native amount, currency, rate, memo, `tax_flag` (export / domestic on 4100 / 4150 / 4500 lines by
+  the line's currency, blank elsewhere), reversed — 20,000 rows per call, paged by offset; the client joins the
+  pages and writes `journals-<period>.csv` with a UTF-8 BOM (`downloadCsv(…, { bom: true, exactName: true })`).
+  The trial-balance CSV now goes through the same helper (RFC 4180 escaping + formula guard, BOM, 勘定科目 column).
+- **Settings** `statement_flag_pct` (15) / `statement_flag_jpy` (100000); `set_statement_flags(pct, jpy)`
+  (admin_settings; pct 0–1000 with one decimal, whole yen; audited `gl_setting` / `set_statement_flags`).
+- **Screens**: Finance → Ledger → **Statements** (range month / quarter / fiscal year / **year to date**;
+  flag thresholds inline for admins; flagged-lines summary; income statement, balance sheet, cash flow,
+  ageing + forecast; notes with the outside-Hub list and the currency checks; buttons 税理士 pack, Journals CSV,
+  Statement CSV). **`/finance/tax-pack?from&to`** (view_ledger; `PermissionsContext` maps the route): cover
+  (registered name, period, prepared date, fiscal year, ledger start, journal count, peso rate at the start /
+  today / changes in the period, basis note), 試算表 with 勘定科目, the four statements, the month-end peso
+  revaluation of `to`'s month, notes; "Print / Save as PDF" = `window.print()`; `@media print` isolates the
+  pack (`.statement-print-area`), breaks a page before each statement, rules the tables, `@page` margins.
+  Ledger → Months shows a "税理士 pack" link per month from the ledger start; the fiscal-year label reads
+  "April – March" from the setting (the stale "May – April" is gone).
+
+### Verified (2026-10-26)
+- Local PostgreSQL 16: eight migrations applied twice through one `run.sh`; earlier suites (17 / 5 / 11 / 8 /
+  7 / 8 / 7) still pass; new `test_statements.sql` (9 groups): name_ja seeded / edited / kept / length-checked /
+  admin-only; permissions (staff, finance, internal helpers revoked); a fixture book (opening, four plans in
+  yen and pesos incl. a Japan customer paying in pesos, equipment, loan, marketing, inventory on account);
+  income statement figures and the domestic / export split, totals tying to the trial balance, catch-alls
+  hidden when empty; balance sheet sections, derived profit lines, A = L + E on both dates; cash flow lines
+  and tie-out (difference 0); ageing buckets at a past date and today, cash-order buckets, 90-day forecast,
+  currency check row; prior-period comparison on an in-ledger range with Δ / Δ % / flags at both rules,
+  thresholds edited + audited, unaligned ranges, reversed range refused; journal export rows (tax flag,
+  勘定科目, order, paging, offset check, reversal marked on the original and the reversal journal).
+- tsc exit 0; Vitest statements (22) + full suite pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites
