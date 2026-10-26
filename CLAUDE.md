@@ -81,6 +81,7 @@ Reference docs (read the relevant one when a task touches that area):
   ONE PESO RATE (owner 2026-10-03): the WEBSITE uses this same setting for
   every ₱ figure (_shared/php-jpy-rate.ts); fx_rates / fetch-fx-rate are
   retired history — never re-add a market rate.
+  Exception (owner 2026-10-26): the Payslips payment dialog pre-fills yen from today's market rate fetched in the browser (docs/PAYSLIPS.md); nothing is stored.
 
   Frontend:  src/lib/currency-converter.ts → toJpy() / phpToJpy()
              uses Math.round(phpAmount / rate)  ✓

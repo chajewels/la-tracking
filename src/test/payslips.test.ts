@@ -6,7 +6,7 @@ import { computeMonth as computeCommissionMonth, type CommissionSplit, type Sale
 import {
   COMPANY_NAME, actualRate, buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth,
   commissionLines, currentPayslip, defaultYenSent, detailsComplete, figuresChanged, finalizePayload, findAgentResult,
-  formatPeso, longMonthLabel, normaliseBook, payslipFileName, payslipRefusal, payslipRows, payslipTitle, payslipWorkbook,
+  formatPeso, longMonthLabel, normaliseBook, paymentLine, payslipFileName, proofFileName, payslipRefusal, payslipRows, payslipTitle, payslipWorkbook,
   proofContentType, proofPath, proofProblem, timesheetLines, validateDetails, validatePayment, type Payslip,
 } from "@/lib/payslips";
 
@@ -220,6 +220,13 @@ describe("payslips — forms and files", () => {
 });
 
 describe("payslips — Excel", () => {
+  it("proof file name and payment line", () => {
+    expect(proofFileName("abc/1730000000-a/b.jpg")).toBe("1730000000-a/b.jpg");
+    expect(proofFileName(null)).toBe("");
+    expect(paymentLine(slip({}))).toBe("Not paid yet");
+    expect(paymentLine(slip({ jpy_sent: 39287, php_received: 16400 }))).toBe("September 2026 salary ¥39,287 → ₱16,400");
+  });
+
   it("file name keeps letters, digits and _ only", () => {
     expect(payslipFileName("Gay Marie Dela Cruz", "2026-09-01")).toBe("Payslip_Gay_Marie_Dela_Cruz_2026-09.xlsx");
     expect(payslipFileName("Richell Ñoño (CSR)", "2026-09-01")).toBe("Payslip_Richell_Nono_CSR_2026-09.xlsx");
@@ -227,7 +234,8 @@ describe("payslips — Excel", () => {
   });
 
   it("rows come from the stored figures, with the payment once paid", () => {
-    const paid = slip({ status: "paid", jpy_sent: 39287, php_received: 16400, php_per_jpy: 0.417441, paid_on: "2026-10-05" });
+    const paid = slip({ status: "paid", jpy_sent: 39287, php_received: 16400, php_per_jpy: 0.417441, paid_on: "2026-10-05",
+      proof_path: "11111111-1111-1111-1111-111111111111/1730000000-BDO remittance.pdf" });
     const rows = payslipRows(paid, "2026-10-26");
     const flat = rows.map(r => r.join(" | "));
     expect(rows[0]).toEqual([COMPANY_NAME]);
@@ -236,7 +244,10 @@ describe("payslips — Excel", () => {
     expect(flat).toContain("Staff name | Kaila Cruz");
     expect(flat).toContain("Date of birth | 14 Mar 1995");
     expect(flat).toContain("Total | ₱16,500.50");
+    expect(flat).toContain("September 2026 salary ¥39,287 → ₱16,400 | ");
     expect(flat).toContain("Yen sent | ¥39,287");
+    expect(flat).toContain("Proof of payment | 1730000000-BDO remittance.pdf");
+    expect(flat.indexOf("Paid on | 5 Oct 2026")).toBeLessThan(flat.indexOf("Proof of payment | 1730000000-BDO remittance.pdf"));
     expect(flat).toContain("Rate used (₱ per ¥1) | 0.417441");
     expect(flat).toContain("Difference vs payslip total | -₱100.50");
     expect(flat).toContain("Status | Paid");

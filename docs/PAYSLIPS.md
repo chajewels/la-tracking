@@ -14,9 +14,10 @@ tests: `src/test/payslips.test.ts`, `src/test/payslips-tab.test.tsx`, SQL harnes
   template) are copied into the payslip when it is finalized and never change. If a figure changes later,
   the tab warns, and the payslip is voided and issued again. It is never edited.
 - **Actual remittance rate:** the payment records the yen actually sent and the pesos actually received.
-  The rate stored is `php_per_jpy = round(php_received / jpy_sent, 6)`. It is not the Hub rate. The Hub
-  rate (`system_settings.php_jpy_rate`, the ONE PESO RATE) is used only to pre-fill the yen to send:
-  `Math.round(total_php / rate)`. That divides, per the CLAUDE.md currency standard.
+  The rate stored is `php_per_jpy = round(php_received / jpy_sent, 6)`. It is not the Hub rate. The yen to
+  send is pre-filled from **today's market rate** fetched in the browser, `Math.round(total_php / rate)`
+  (dividing, per the CLAUDE.md currency standard). It is never pre-filled from `system_settings.php_jpy_rate`
+  (owner 2026-10-26; see Follow-ups).
 - **One .xlsx per staff member per month**, made from the STORED figures only.
 - **Staff details live on the tab** (the "Staff details" editor), not in Team or Assignments.
 
@@ -105,7 +106,7 @@ Timesheet → **Payslips** tab (visible and reachable only with `canViewCost`; a
 - Buttons:
   - **Finalize payslip** asks for confirmation first. It is disabled with "Add address and date of birth
     first" when details are missing, and disabled before June 2026.
-  - **Record payment:** yen pre-filled `Math.round(total / rate)`, pesos pre-filled with the total,
+  - **Record payment:** yen pre-filled `Math.round(total / market rate)` (see Follow-ups), pesos pre-filled with the total,
     paid-on defaulting to today in Japan time, and a proof file is required. It uploads first, then calls
     the RPC; if the RPC fails it says to try again.
   - **Void** asks for a reason.
@@ -114,6 +115,44 @@ Timesheet → **Payslips** tab (visible and reachable only with `canViewCost`; a
 - Amber warning on a finalized or paid payslip whose live total differs: "Figures changed after this
   payslip was finalized — void and re-issue to update."
 - Before the migration is applied: "Waiting for the database update".
+
+## Follow-ups (2026-10-26, owner 19:24–19:30)
+
+Frontend only — no migration, no edge function. `pdf-lib` 1.17.1 added by the owner-approved deps PR
+(owner option B; the first sanctioned dependency change, docs/GIT-WORKFLOW.md).
+
+- **Yen pre-fill from today's market rate** (`src/lib/marketRate.ts`). Record payment fetches ¥→₱ in
+  the browser: primary `open.er-api.com/v6/latest/JPY` (`rates.PHP`, as of `time_last_update_utc`),
+  fallback `api.frankfurter.dev/v1/latest?from=JPY&to=PHP` (`rates.PHP`, as of `date`). Each has an 8 s
+  timeout; only 0.2 < rate < 1.0 is accepted; react-query caches it for 10 minutes; nothing is stored.
+  Yen sent = `Math.round(total ÷ market rate)`, filled only while the field is untouched. The dialog shows
+  "Market rate today: ¥1 = ₱… (source, as of)", or "Market rate unavailable — enter the yen sent from the
+  proof." with the field left empty. It **never** falls back to `system_settings.php_jpy_rate` (0.42).
+  This is the one exception to the ONE PESO RATE rule (CLAUDE.md). The rate stored on the payslip is still
+  the actual one, `php_received ÷ jpy_sent`. `get_payslip_book` still returns `php_jpy_rate`; the dialog
+  no longer reads it.
+- **Edit details per row:** every row has "Edit details" (a one-person editor; the top "Staff details"
+  button still edits everyone). A payslip blocked by "Add address and date of birth first" shows the same
+  button next to the message. Saving refreshes the book.
+- **Download PDF** (`src/lib/payslipPdf.ts`, finalized and paid payslips): `Payslip_<Name>_<YYYY-MM>.pdf`.
+  Page 1 is the payslip from its STORED figures, with the same rows and order as the Excel file. It is
+  drawn on an offscreen A4 canvas at 2.5× with system fonts, because pdf-lib's standard fonts cannot encode
+  ₱ or Japanese, then embedded as a PNG. A paid payslip adds the proof after page 1, downloaded through a
+  10-minute signed URL:
+  - **PDF proof:** every page is copied in.
+  - **JPG / PNG proof:** embedded on one A4 page with the caption "Proof of payment — <file> — paid on
+    <date>".
+  - **WebP / HEIC proof:** decoded by the browser into JPEG first.
+  - **Proof that can't be fetched or decoded** (e.g. HEIC on a browser that cannot read it, an encrypted
+    PDF): the PDF is still delivered, with a page reading "Proof of payment could not be included — open it
+    from the Hub: <file>", and the same note appears as a toast.
+
+  An unpaid payslip is page 1 only, with "Not paid yet". The PDF is built in the browser only; nothing is
+  uploaded or stored.
+- **Download proof:** a paid payslip downloads the original proof file under its own name, through a
+  10-minute signed URL.
+- **Excel / PDF rows:** the Payment block now opens with "<Month YYYY> salary ¥x → ₱y" and, after
+  "Paid on", has "Proof of payment" with the file name (the part of `proof_path` after the first `/`).
 
 ## Verification (2026-10-26, before the PR)
 

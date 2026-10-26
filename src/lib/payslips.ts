@@ -437,11 +437,24 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
 
 // ── Excel (STORED figures only) ─────────────────────────────────────────────
 
-/** Payslip_<Name>_<YYYY-MM>.xlsx, the name reduced to letters, digits and _. */
-export function payslipFileName(staffName: string, payMonth: string): string {
-  const safe = staffName.normalize('NFKD').replace(/[̀-ͯ]/g, '')
+/** Payslip_<Name>_<YYYY-MM>.xlsx (or .pdf), the name reduced to letters, digits and _. */
+export function payslipFileName(staffName: string, payMonth: string, ext: 'xlsx' | 'pdf' = 'xlsx'): string {
+  const safe = staffName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Staff';
-  return `Payslip_${safe}_${payMonth.slice(0, 7)}.xlsx`;
+  return `Payslip_${safe}_${payMonth.slice(0, 7)}.${ext}`;
+}
+
+/** The proof's file name: everything after the first "/" of proof_path (<payslip_id>/<file>). */
+export function proofFileName(proofPath: string | null | undefined): string {
+  if (!proofPath) return '';
+  const i = proofPath.indexOf('/');
+  return i >= 0 ? proofPath.slice(i + 1) : proofPath;
+}
+
+/** "September 2026 salary ¥39,287 → ₱16,400" (paid payslips only). */
+export function paymentLine(p: Pick<Payslip, 'pay_month' | 'jpy_sent' | 'php_received'>): string {
+  if (p.jpy_sent == null || p.php_received == null) return 'Not paid yet';
+  return `${longMonthLabel(p.pay_month)} salary ${formatYen(p.jpy_sent)} → ${formatPeso(p.php_received)}`;
 }
 
 export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (string | number)[][] {
@@ -466,10 +479,12 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (st
   ];
   if (p.jpy_sent != null && p.php_received != null) {
     rows.push(
+      [paymentLine(p), ''],
       ['Yen sent', formatYen(p.jpy_sent)],
       ['Pesos received', formatPeso(p.php_received)],
       ['Rate used (₱ per ¥1)', p.php_per_jpy != null ? String(p.php_per_jpy) : '—'],
       ['Paid on', formatDate(p.paid_on)],
+      ['Proof of payment', proofFileName(p.proof_path) || '—'],
     );
     if (figuresChanged(p.total_php, p.php_received)) {
       rows.push(['Difference vs payslip total', formatPeso(p.php_received - p.total_php)]);

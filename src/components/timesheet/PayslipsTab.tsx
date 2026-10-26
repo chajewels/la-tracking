@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Ban, Download, FileText, Loader2, Paperclip, UserCog, Wallet } from 'lucide-react';
+import { AlertTriangle, Ban, Download, FileDown, FileText, Loader2, Paperclip, Pencil, UserCog, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -29,9 +29,13 @@ import {
   type Payslip, type PayslipBookState, type PayslipFigures, type PayrollDetails, type RowStatus,
   actualRate, buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
   currentPayslip, defaultYenSent, detailsComplete, downloadPayslipXlsx, figuresChanged, finalizePayload,
-  findAgentResult, formatDate, formatPeso, formatYen, normaliseBook, payslipRefusal, payslipTitle, proofContentType,
+  findAgentResult, formatDate, formatPeso, formatYen, normaliseBook, payslipRefusal, payslipTitle, proofContentType, proofFileName,
   proofPath, proofProblem, timesheetLines, todayTokyo, validateDetails, validatePayment,
 } from '@/lib/payslips';
+import type { ProofFile } from '@/lib/payslipPdf';
+import {
+  MARKET_RATE_QUERY_KEY, MARKET_RATE_STALE_MS, fetchJpyPhpMarketRate, formatMarketRate,
+} from '@/lib/marketRate';
 
 /**
  * Timesheet → Payslips (owner-confirmed plan 2026-10-26; docs/PAYSLIPS.md). Admin + can_view_all only
@@ -52,6 +56,8 @@ async function callRpc(name: string, args?: Record<string, unknown>) {
 }
 
 const refusal = (e: unknown) => payslipRefusal((e as { code?: string })?.code);
+
+const DETAILS_MISSING = 'Add address and date of birth first';
 
 interface AgentLink { name: string; user_id: string | null }
 
@@ -112,6 +118,8 @@ export default function PayslipsTab({
   const [voiding, setVoiding] = useState<Payslip | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [editingDetails, setEditingDetails] = useState<string | null>(null); // user_id
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const book = useQuery<PayslipBookState>({
     queryKey: [...PAYSLIP_BOOK_KEY, monthKey],
@@ -187,10 +195,48 @@ export default function PayslipsTab({
     window.open(signed.signedUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const downloadProof = async (path: string) => {
+    const name = proofFileName(path);
+    const { data: signed, error } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET).createSignedUrl(path, 600, { download: name });
+    if (error || !signed?.signedUrl) { toast.error('Could not download the proof of payment'); return; }
+    const a = document.createElement('a');
+    a.href = signed.signedUrl;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const loadProof = async (path: string): Promise<ProofFile | null> => {
+    const { data: signed, error } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET).createSignedUrl(path, 600);
+    if (error || !signed?.signedUrl) return null;
+    const res = await fetch(signed.signedUrl);
+    if (!res.ok) return null;
+    const fileName = proofFileName(path);
+    const header = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    const contentType = header === 'application/pdf' || header.startsWith('image/') ? header : '';
+    return { bytes: new Uint8Array(await res.arrayBuffer()), contentType, fileName };
+  };
+
+  const downloadPdf = async (p: Payslip) => {
+    setPdfBusy(true);
+    try {
+      // pdf-lib loads only when a PDF is asked for (it is not in the Timesheet page bundle).
+      const { downloadPayslipPdf } = await import('@/lib/payslipPdf');
+      const { proofNote } = await downloadPayslipPdf(p, () => (p.proof_path ? loadProof(p.proof_path) : Promise.resolve(null)));
+      if (proofNote) toast.warning(proofNote);
+    } catch {
+      toast.error('The PDF could not be made. Try again.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const viewingRow = viewing ? rows.find(r => r.profile.user_id === viewing) ?? null : null;
+  const editingRow = editingDetails ? rows.find(r => r.profile.user_id === editingDetails) ?? null : null;
   const finalizeBlock = (r: StaffRow): string | null => {
     if (!canIssueForMonth(monthKey)) return 'Payslips start from June 2026.';
-    if (!detailsComplete(r.details)) return 'Add address and date of birth first';
+    if (!detailsComplete(r.details)) return DETAILS_MISSING;
     if (!r.figures) return commission.isError ? 'Commission figures could not be loaded.' : 'Loading the figures…';
     return null;
   };
@@ -266,6 +312,9 @@ export default function PayslipsTab({
                       </td>
                       <td className="px-3 py-2"><Badge variant={statusVariant(r.status)}>{STATUS_LABEL[r.status]}</Badge></td>
                       <td className="px-3 py-2 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => setEditingDetails(r.profile.user_id)}>
+                          <Pencil className="mr-1 h-4 w-4" /> Edit details
+                        </Button>
                         <Button size="sm" variant="ghost" onClick={() => setViewing(r.profile.user_id)}>
                           <FileText className="mr-1 h-4 w-4" /> View
                         </Button>
@@ -291,6 +340,10 @@ export default function PayslipsTab({
               onPay={(p) => setPaying(p)}
               onVoid={(p) => { setVoiding(p); setVoidReason(''); }}
               onProof={openProof}
+              onDownloadProof={downloadProof}
+              onDownloadPdf={downloadPdf}
+              pdfBusy={pdfBusy}
+              onEditDetails={() => setEditingDetails(viewingRow.profile.user_id)}
             />
           )}
         </DialogContent>
@@ -321,7 +374,6 @@ export default function PayslipsTab({
       {paying && (
         <PaymentDialog
           payslip={paying}
-          rate={data?.php_jpy_rate ?? null}
           onClose={() => setPaying(null)}
           onSaved={() => { setPaying(null); refresh(); }}
         />
@@ -357,6 +409,25 @@ export default function PayslipsTab({
       {detailsOpen && data && (
         <StaffDetailsDialog rows={rows} onClose={() => setDetailsOpen(false)} onSaved={refresh} />
       )}
+
+      {/* One person's details (row action, or from a payslip blocked on missing details) */}
+      <Dialog open={!!editingRow} onOpenChange={(o) => { if (!o) setEditingDetails(null); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit details</DialogTitle>
+            <DialogDescription>
+              Address and date of birth print on the payslip. A finalized payslip keeps the details it was issued with.
+            </DialogDescription>
+          </DialogHeader>
+          {editingRow && (
+            <StaffDetailsRow
+              key={editingRow.profile.user_id}
+              row={editingRow}
+              onSaved={() => { refresh(); setEditingDetails(null); }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -384,7 +455,7 @@ function Section({ title, lines }: { title: string; lines: { label: string; valu
 }
 
 function PayslipView({
-  row, monthKey, finalizeBlock, onFinalize, onPay, onVoid, onProof,
+  row, monthKey, finalizeBlock, onFinalize, onPay, onVoid, onProof, onDownloadProof, onDownloadPdf, pdfBusy, onEditDetails,
 }: {
   row: StaffRow;
   monthKey: string;
@@ -393,6 +464,10 @@ function PayslipView({
   onPay: (p: Payslip) => void;
   onVoid: (p: Payslip) => void;
   onProof: (path: string) => void;
+  onDownloadProof: (path: string) => void;
+  onDownloadPdf: (p: Payslip) => void;
+  pdfBusy: boolean;
+  onEditDetails: () => void;
 }) {
   const p = row.payslip;
   const issued = p && p.status !== 'void' ? p : null;
@@ -460,6 +535,11 @@ function PayslipView({
               <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof of payment
             </Button>
           )}
+          {issued.proof_path && (
+            <Button size="sm" variant="outline" className="ml-2" onClick={() => onDownloadProof(issued.proof_path as string)}>
+              <Download className="mr-1 h-3.5 w-3.5" /> Download proof
+            </Button>
+          )}
         </div>
       )}
 
@@ -467,13 +547,25 @@ function PayslipView({
         {!issued && (
           <div className="flex flex-col items-end gap-1">
             <Button onClick={onFinalize} disabled={!!finalizeBlock} data-testid="payslip-finalize">Finalize payslip</Button>
-            {finalizeBlock && <span className="text-xs text-muted-foreground" data-testid="payslip-finalize-block">{finalizeBlock}</span>}
+            {finalizeBlock && (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span data-testid="payslip-finalize-block">{finalizeBlock}</span>
+                {finalizeBlock === DETAILS_MISSING && (
+                  <Button size="sm" variant="outline" onClick={onEditDetails} data-testid="payslip-edit-details">
+                    <Pencil className="mr-1 h-3.5 w-3.5" /> Edit details
+                  </Button>
+                )}
+              </span>
+            )}
           </div>
         )}
         {issued && (
           <>
             <Button variant="outline" onClick={() => downloadPayslipXlsx(issued)}>
               <Download className="mr-1 h-4 w-4" /> Download Excel
+            </Button>
+            <Button variant="outline" onClick={() => onDownloadPdf(issued)} disabled={pdfBusy} data-testid="payslip-download-pdf">
+              {pdfBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileDown className="mr-1 h-4 w-4" />} Download PDF
             </Button>
             <Button variant="outline" onClick={() => onVoid(issued)}>
               <Ban className="mr-1 h-4 w-4" /> Void
@@ -491,14 +583,25 @@ function PayslipView({
 // ── Record payment ──────────────────────────────────────────────────────────
 
 function PaymentDialog({
-  payslip, rate, onClose, onSaved,
+  payslip, onClose, onSaved,
 }: {
   payslip: Payslip;
-  rate: number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [jpySent, setJpySent] = useState(() => String(defaultYenSent(payslip.total_php, rate) ?? ''));
+  // Yen pre-fill from TODAY'S MARKET RATE (owner 2026-10-26). Never system_settings.php_jpy_rate here.
+  const market = useQuery({
+    queryKey: MARKET_RATE_QUERY_KEY,
+    queryFn: () => fetchJpyPhpMarketRate(),
+    staleTime: MARKET_RATE_STALE_MS,
+    retry: false,
+  });
+  const [jpySent, setJpySent] = useState('');
+  const [jpyTyped, setJpyTyped] = useState(false);
+  useEffect(() => {
+    const r = market.data?.php_per_jpy;
+    if (r && !jpyTyped) setJpySent(String(defaultYenSent(payslip.total_php, r) ?? ''));
+  }, [market.data, jpyTyped, payslip.total_php]);
   const [phpReceived, setPhpReceived] = useState(() => String(payslip.total_php));
   const [paidOn, setPaidOn] = useState(() => todayTokyo());
   const [file, setFile] = useState<File | null>(null);
@@ -544,7 +647,8 @@ function PaymentDialog({
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="payslip-jpy">Yen sent (¥)</Label>
-            <Input id="payslip-jpy" inputMode="numeric" value={jpySent} onChange={(e) => setJpySent(e.target.value.replace(/[^\d]/g, ''))} />
+            <Input id="payslip-jpy" inputMode="numeric" value={jpySent}
+              onChange={(e) => { setJpyTyped(true); setJpySent(e.target.value.replace(/[^\d]/g, '')); }} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="payslip-php">Pesos received (₱)</Label>
@@ -561,6 +665,15 @@ function PaymentDialog({
           </div>
         </div>
         <div className="space-y-1 text-xs text-muted-foreground">
+          {market.isLoading && <p data-testid="market-rate">Getting today's market rate…</p>}
+          {market.data && (
+            <p data-testid="market-rate">
+              Market rate today: ¥1 = ₱{formatMarketRate(market.data.php_per_jpy)} ({market.data.source}{market.data.as_of ? `, ${market.data.as_of}` : ''})
+            </p>
+          )}
+          {!market.isLoading && !market.data && (
+            <p data-testid="market-rate">Market rate unavailable — enter the yen sent from the proof.</p>
+          )}
           {rateUsed != null && <p>Rate used: ₱{rateUsed} per ¥1</p>}
           {Number(phpReceived) > 0 && Math.abs(Number(phpReceived) - payslip.total_php) >= 0.005 && (
             <p>Difference vs payslip total: {formatPeso(Number(phpReceived) - payslip.total_php)}</p>
